@@ -4,16 +4,12 @@ import type {
   DungeonStyle,
   MapBuilderStore,
 } from './types';
+import { WATER_BANK_TEXTURE_ID, WATER_TEXTURE_ID } from '../engine/water/waterTextures';
 
 const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   floorColor: '#F1ECDF',
   wallColor: '#000000',
   wallWidth: 0.5,
-  shadowEnabled: true,
-  shadowColor: '#8C867D',
-  shadowOffset: { x: 0.4, y: 0.3 },
-  shadowIntensity: 0.4,
-  roughnessAmplitude: 0,
   lineWidth: 0.04,
   edgeTransitionWidth: 0.5,
   showEdgeTransitions: true,
@@ -32,11 +28,16 @@ const DEFAULT_SUBLAYER_VISIBILITY = {
   walls: true,
 };
 
-export function createDungeonLayer(name: string): DungeonLayer {
+/**
+ * A fresh dungeon layer. `levelId` may be left out: `addLayer` puts a layer whose
+ * level the map does not know on the level being shown.
+ */
+export function createDungeonLayer(name: string, levelId = ''): DungeonLayer {
   return {
     id: crypto.randomUUID(),
     name,
     type: 'dungeon',
+    levelId,
     visible: true,
     locked: false,
     opacity: 1,
@@ -48,11 +49,12 @@ export function createDungeonLayer(name: string): DungeonLayer {
   };
 }
 
-export function createBackgroundLayer(): BackgroundLayer {
+export function createBackgroundLayer(levelId = ''): BackgroundLayer {
   return {
     id: crypto.randomUUID(),
     name: 'Background',
     type: 'background',
+    levelId,
     visible: true,
     locked: false,
     opacity: 1,
@@ -66,41 +68,49 @@ export function createBackgroundLayer(): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setFixedSize' | 'setGridType' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
+  | 'setMapName' | 'setFixedSize' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
-  | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
+  | 'addChild' | 'removeChild' | 'reorderChild' | 'setChildOrder' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
-  | 'setRooms' | 'renameRoom'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'setCurveMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
+  | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
+  | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel'
+  | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex' | 'setBandDragStatus'
-  | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
+  | 'setActiveLayerId' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
-  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setRoomOverlayVisible'
+  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
+  | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
+  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setPropReplaceIds'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
-  | 'setClipboard' | 'setRegionClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
-  | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
+  | 'setClipboard'
+  | 'trackRecentUse' | 'toggleFavourite'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage' | 'removeCustomImage'
-  | 'upsertTrigger' | 'removeTrigger' | 'upsertNote' | 'removeNote'
+  | 'upsertTrigger' | 'removeTrigger' | 'upsertNote' | 'removeNote' | 'setRoomKey'
   | 'loadFromFile' | 'applyAssetNameShim' | 'normalizeChildGroups' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
-  | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking' | 'setInstallProgress'
+  | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking'
   | 'checkForPackUpdates' | 'installPack' | 'updatePack' | 'dismissUpdateResult' | 'uninstallPack'
 >;
 
 export function createDefaultState(): MapBuilderState {
-  const bgLayer = createBackgroundLayer();
-  const dungeonLayer = createDungeonLayer('Layer 1');
+  // A new map starts on one level holding both layers. Named "Level 1" rather than
+  // after the map: the map is named after this point, and a level that silently
+  // kept "Untitled Map" would read as a bug.
+  const level = { id: crypto.randomUUID(), name: 'Level 1' };
+  const bgLayer = createBackgroundLayer(level.id);
+  const dungeonLayer = createDungeonLayer('Layer 1', level.id);
   return {
     mapSettings: {
       name: 'Untitled Map',
-      gridType: 'square',
       cellScale: { value: 5, unit: 'ft' },
-      ambientLight: '#2d2d44',
+      ambientLight: '#ffffff',
       fixedSize: null,
+      // Born in the anchored-rooms format: nothing to migrate.
+      roomsVersion: 2,
     },
     grid: {
       visible: true,
@@ -108,11 +118,11 @@ export function createDefaultState(): MapBuilderState {
       snapDivision: 2,
     },
     layers: [bgLayer, dungeonLayer],
+    levels: [level],
     floorTextureEpochs: {},
     tools: {
       activeTool: 'rectangle',
       eraseMode: false,
-      roughMode: false,
       curveMode: false,
       settings: {
         brushRadius: 0.5,
@@ -135,12 +145,23 @@ export function createDefaultState(): MapBuilderState {
         },
         scatterBrush: {
           assetIds: [],
-          brushRadius: 3,
-          count: 5,
-          minSpacing: 0.8,
           stampMode: true,
+          stampRotation: 0,
+          stampScale: 1,
+          stampFlipX: false,
+          stampVary: false,
+          brushRadius: 3,
+          // About six props a dab at the default radius, what `count: 5` used to give.
+          density: 0.2,
+          minSpacing: 0.5,
           rotationRange: [0, Math.PI * 2],
           scaleRange: [0.8, 1.2],
+          tints: [],
+          randomVariant: true,
+          avoidOverlap: true,
+          stayOnFloor: true,
+          seed: 1,
+          placeUnder: false,
         },
         doorStyle: 'single' as const,
         doorSecret: false,
@@ -156,15 +177,17 @@ export function createDefaultState(): MapBuilderState {
         water: {
           mode: 'river' as const,
           width: 2,
-          textureId: 'water-still-a-01',
-          bankTextureId: 'bank-grassy-01-a1',
-          flowSpeed: 0.15,
+          textureId: WATER_TEXTURE_ID,
+          bankTextureId: WATER_BANK_TEXTURE_ID,
         },
         zone: {
           mode: 'point' as const,
         },
+        label: {
+          fontSize: 0.8,
+          color: null,
+        },
       },
-      recentAssets: [],
       nodeEditWallId: null,
       selectedNodeT: null,
       selectedNodeTs: [],
@@ -175,7 +198,6 @@ export function createDefaultState(): MapBuilderState {
     ui: {
       leftPanelOpen: true,
       rightPanelOpen: true,
-      activePanel: 'tools',
       activeLayerId: dungeonLayer.id,
       expandedLayerIds: [],
       canUndo: false,
@@ -190,14 +212,24 @@ export function createDefaultState(): MapBuilderState {
       solo: null,
       previewClock: null,
       previewSky: null,
+      previewWeather: null,
       roomOverlayVisible: true,
+      activeLevelId: level.id,
+      roomLabels: 'both' as const,
+      roomSuggestions: null,
+      roomsSheetOpen: false,
+      roomsSheetRoomId: null,
+      dividerMode: 'threshold' as const,
+      roomWalls: 'with' as const,
+      pendingSplit: null,
+      seeUnderOverhead: false,
+      propReplaceIds: null,
     },
     assets: {
       manifest: null,
       loadedCategories: [],
-      favorites: [],
       recentlyUsed: [],
-      customUploads: [],
+      favourites: [],
       customImages: {},
     },
     selection: {
@@ -205,14 +237,11 @@ export function createDefaultState(): MapBuilderState {
       hoveredId: null,
       selectedRegion: null,
       clipboard: null,
-      regionClipboard: null,
-      selectionTransform: null,
     },
     packs: {
       installedPacks: [],
       availableUpdates: [],
       isChecking: false,
-      installProgress: null,
       activeUpdate: null,
     },
     terrainSplats: {

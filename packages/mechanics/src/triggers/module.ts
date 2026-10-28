@@ -13,14 +13,23 @@ import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
+  AMBIENT_DARKNESS,
+  darknessLevel,
   JOURNAL_KICKERS,
   journalOf,
+  roomEditsOf,
+  roomKeysOf,
+  roomRevealKey,
+  roomShareKey,
+  roomSpawnKey,
   sceneTriggersOf,
   shareReceiptsOf,
   worldOf,
   type JournalEntry,
   type LightEdit,
   type ResolvedPrep,
+  type RoomEdit,
+  type ResolvedRoomKey,
   type ResolvedTrigger,
   type SceneTriggers,
   type ShareReceipt,
@@ -40,6 +49,8 @@ import {
   type Weather,
 } from '@dnd/core/src/shared/prep'
 import { DAY_MINUTES, NIGHT_SKIES, TIME_SPEEDS, timeOfDayAt } from '@dnd/core/src/shared/world'
+
+const MOODS = ['lit', 'dim', 'dark'] as const
 
 export * from './types'
 
@@ -94,6 +105,12 @@ export interface TriggerDeps {
   rollFn?: typeof roll
   /** Default `Date.now` — injected for tests. */
   now?: () => number
+  /** Every placed light's id in a scene's map, darkness sources left out — what
+   *  `set-lights-all` switches. Absent ⇒ only the lights that already carry an edit are. */
+  lightIdsOf?(campaignId: string, sceneId: string): readonly string[]
+  /** The light ids a player's copy of the map keeps (lights in explored rooms), or null when
+   *  every light ships. `redact` drops the `lightEdits` of the rest. */
+  keptLightsOf?(sceneId: string): ReadonlySet<string> | null
 }
 
 type Ctx = ModuleContext<TriggersState>
@@ -112,10 +129,15 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-enabled': ['dm'],
       'set-light': ['dm'],
       'reset-light': ['dm'],
+      'set-lights-all': ['dm'],
+      'set-room': ['dm'],
+      'set-seat-level': ['dm'],
+      'set-dm-level': ['dm'],
       'roll-prompt': ANY_ROLE,
       'dismiss-prompt': ['dm'],
       'share-note': ['dm'],
       'share-card': ['dm'],
+      'spawn-encounter': ['dm'],
       // no 'event' entry — see the file header.
     },
     initialState: { byScene: {} },
@@ -144,12 +166,18 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       if (viewer.role === 'dm') return state
       const byScene: TriggersState['byScene'] = {}
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
+        // A light in a room the party has not explored is not on the player's map, so its live
+        // edit does not ship either. Room moods are not secrets: `roomEdits` ship whole. The
+        // DM's own level pick stays the DM's; seat pins ship (each seat reads its own).
+        const kept = deps.keptLightsOf?.(sceneId) ?? null
         byScene[sceneId] = {
           fired: {},
           armed: {},
           disabled: {},
-          lightOverrides: scene.lightOverrides,
-          lightEdits: scene.lightEdits,
+          lightOverrides: kept ? keepKeys(scene.lightOverrides, kept) : scene.lightOverrides,
+          lightEdits: kept ? keepKeys(scene.lightEdits, kept) : scene.lightEdits,
+          ...(scene.roomEdits ? { roomEdits: scene.roomEdits } : {}),
+          ...(scene.seatLevel ? { seatLevel: scene.seatLevel } : {}),
           env: scene.env,
           prompts: scene.prompts.filter((p) => p.targetIdentityId === viewer.identityId),
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
@@ -174,6 +202,14 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return setLight(p, ctx)
     case 'reset-light':
       return resetLight(p, ctx)
+    case 'set-lights-all':
+      return setLightsAll(p, ctx, deps)
+    case 'set-room':
+      return setRoom(p, ctx)
+    case 'set-seat-level':
+      return setSeatLevel(p, ctx)
+    case 'set-dm-level':
+      return setDmLevel(p, ctx)
     case 'roll-prompt':
       return rollPrompt(p, ctx, deps)
     case 'dismiss-prompt':
@@ -182,6 +218,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return shareNote(p, ctx, deps)
     case 'share-card':
       return shareCard(p, ctx, deps)
+    case 'spawn-encounter':
+      return spawnEncounter(p, ctx, deps)
     case 'event':
       return event(p, ctx, deps)
     default:
@@ -196,8 +234,24 @@ function sceneOf(p: Payload, ctx: Ctx): string {
   return sceneId
 }
 
+/** A weather an authored `environment` action set while firing into `scene`: `setScene` writes
+ *  it to `world.weather` in the same `setState`. */
+const pendingWeather = new WeakMap<SceneTriggers, Weather>()
+
 function setScene(ctx: Ctx, sceneId: string, scene: SceneTriggers): void {
-  ctx.setState({ ...ctx.state, byScene: { ...ctx.state.byScene, [sceneId]: scene } })
+  const weather = pendingWeather.get(scene)
+  ctx.setState({
+    ...ctx.state,
+    byScene: { ...ctx.state.byScene, [sceneId]: scene },
+    ...(weather ? { world: { ...worldOf(ctx.state), weather } } : {}),
+  })
+}
+
+/** `record` with only the keys in `kept`. */
+function keepKeys<V>(record: Record<string, V>, kept: ReadonlySet<string>): Record<string, V> {
+  const out: Record<string, V> = {}
+  for (const [k, v] of Object.entries(record)) if (kept.has(k)) out[k] = v
+  return out
 }
 
 function pushLog(scene: SceneTriggers, entry: Omit<TriggerLogEntry, 'id' | 'at'>, now: number): void {
@@ -220,6 +274,7 @@ const TIME_PHRASES: Record<TimeOfDay, string> = {
 }
 const WEATHER_PHRASES: Record<Weather, string> = {
   clear: 'The sky clears',
+  overcast: 'Clouds gather',
   rain: 'Rain begins to fall',
   storm: 'A storm rolls in',
   fog: 'Fog creeps in',
@@ -235,6 +290,12 @@ const AMBIENT_PHRASES: Record<AmbientLevel, string> = {
 
 /** …and the dial handed back: the scene lights itself the way its map was authored again. */
 const AMBIENT_CLEARED = 'The light settles as it was'
+
+/** Narration for the darkness slider landing, in the voice of the level it reads as. */
+function darknessText(darkness: number | null): string {
+  if (darkness === null) return AMBIENT_CLEARED
+  return AMBIENT_PHRASES[darknessLevel(darkness)]
+}
 
 type EnvDelta = { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
 
@@ -262,6 +323,12 @@ function lightText(name: string | undefined, on: boolean): string {
 
 // ── DM commands ──────────────────────────────────────────────────────────────
 
+/**
+ * The narration labels, plus two compatibility paths for clients built before the Lighting
+ * pass: `weather` also lands on `world.weather` (the live weather lives beside the clock
+ * now), and the old 3-state `ambient` dial lands on the darkness slider (daylight 0, dusk 0.5,
+ * darkness 1, `null` = follow the sky). Nothing is stored in `env.ambient` any more.
+ */
 function setEnvironment(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneTriggersOf(ctx.state, sceneId)
@@ -271,25 +338,28 @@ function setEnvironment(p: Payload, ctx: Ctx): void {
   const delta: EnvDelta = {}
   if (p.time !== undefined) delta.time = oneOf(p.time, TIMES, 'time')
   if (p.weather !== undefined) delta.weather = oneOf(p.weather, WEATHERS, 'weather')
-  // The light level rides the same command and the same delta-merge: one dial the DM turns,
-  // one narrated line, and every reader of `env` picks it up for free (S3 P3 §1).
-  //
-  // …with one exception to the merge's "a field is never cleared" rule: an explicit `null`
-  // takes the dial off. Absent and `daylight` are not the same scene — absent leaves the
-  // lighting composite exactly as the map authored it, `daylight` bites at AMBIENT_BITE — so
-  // a DM who has touched the dial needs a way back to untouched (D2). `undefined` still means
-  // "leave it alone", for this field as for every other.
   const clearAmbient = p.ambient === null
   if (p.ambient !== undefined && !clearAmbient) delta.ambient = oneOf(p.ambient, AMBIENTS, 'ambient')
-  const env = { ...scene.env, ...delta }
-  if (clearAmbient) delete env.ambient
+  const env: SceneTriggers['env'] = { ...scene.env }
+  delete (env as { ambient?: unknown }).ambient
+  if (delta.time) env.time = delta.time
+  if (delta.weather) env.weather = delta.weather
   const next = { ...scene, env, log: [...scene.log] }
   pushLog(
     next,
     { kind: 'environment', text: envText(delta, clearAmbient), toPlayers: true },
     Date.now(),
   )
-  setScene(ctx, sceneId, next)
+  const world: WorldState = { ...worldOf(ctx.state) }
+  if (delta.weather) world.weather = delta.weather
+  if (delta.ambient) world.darkness = AMBIENT_DARKNESS[delta.ambient]
+  if (clearAmbient) world.darkness = null
+  const touchesWorld = delta.weather !== undefined || delta.ambient !== undefined || clearAmbient
+  ctx.setState({
+    ...ctx.state,
+    byScene: { ...ctx.state.byScene, [sceneId]: next },
+    ...(touchesWorld ? { world } : {}),
+  })
 }
 
 /**
@@ -302,8 +372,14 @@ function setEnvironment(p: Payload, ctx: Ctx): void {
  * the slider through the afternoon is not four announcements of the same daylight.
  */
 function setWorld(p: Payload, ctx: Ctx): void {
-  if (p.clock === undefined && p.nightSky === undefined && p.timeSpeed === undefined) {
-    bad('set-world needs clock, nightSky or timeSpeed')
+  if (
+    p.clock === undefined &&
+    p.nightSky === undefined &&
+    p.timeSpeed === undefined &&
+    p.weather === undefined &&
+    p.darkness === undefined
+  ) {
+    bad('set-world needs clock, nightSky, timeSpeed, weather or darkness')
   }
   const before = worldOf(ctx.state)
   const next: WorldState = { ...before }
@@ -316,14 +392,31 @@ function setWorld(p: Payload, ctx: Ctx): void {
   }
   if (p.nightSky !== undefined) next.nightSky = oneOf(p.nightSky, NIGHT_SKIES, 'nightSky')
   if (p.timeSpeed !== undefined) next.timeSpeed = oneOf(p.timeSpeed, TIME_SPEEDS, 'timeSpeed')
+  if (p.weather !== undefined) next.weather = oneOf(p.weather, WEATHERS, 'weather')
+  if (p.darkness !== undefined) {
+    if (p.darkness === null) next.darkness = null
+    else {
+      const darkness = num(p.darkness, 'darkness')
+      if (!(darkness >= 0 && darkness <= 1)) bad('darkness must be 0..1, or null to follow the sky')
+      next.darkness = darkness
+    }
+  }
+  // The weather and the slider landing narrate like the dials they replace, and only when
+  // they actually change. A DM dragging the slider commits once, on release.
+  const said: string[] = []
+  if (next.weather && next.weather !== before.weather) said.push(`${WEATHER_PHRASES[next.weather]}.`)
+  if (p.darkness !== undefined && next.darkness !== before.darkness) {
+    said.push(`${darknessText(next.darkness ?? null)}.`)
+  }
 
   const band = timeOfDayAt(next.clock)
-  if (band !== timeOfDayAt(before.clock)) {
+  if (band !== timeOfDayAt(before.clock)) said.unshift(`${TIME_PHRASES[band]}.`)
+  if (said.length > 0) {
     const sceneId = ctx.activeSceneId
     if (sceneId) {
       const scene = sceneTriggersOf(ctx.state, sceneId)
       const narrated = { ...scene, log: [...scene.log] }
-      pushLog(narrated, { kind: 'environment', text: `${TIME_PHRASES[band]}.`, toPlayers: true }, Date.now())
+      pushLog(narrated, { kind: 'environment', text: said.join(' '), toPlayers: true }, Date.now())
       ctx.setState({
         ...ctx.state,
         world: next,
@@ -345,6 +438,7 @@ function setEnabled(p: Payload, ctx: Ctx): void {
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
 const FALLOFFS = ['linear', 'quadratic'] as const
+const ANIMATIONS = ['flicker', 'pulse'] as const
 
 /** Everything a DM's live edit can touch (M2), validated field-by-field — same shape as
  *  `parseDefFields`/`parseLight` in tokens/validate.ts, kept here since it is this module's
@@ -378,6 +472,28 @@ function parseLightPatch(v: unknown): LightEdit {
     const pos = obj(p.position, 'patch.position')
     patch.position = { x: num(pos.x, 'patch.position.x'), y: num(pos.y, 'patch.position.y') }
   }
+  if (p.cone !== undefined) {
+    const cone = obj(p.cone, 'patch.cone')
+    const angle = num(cone.angle, 'patch.cone.angle')
+    if (angle < 10 || angle > 360) bad('patch.cone.angle must be 10..360')
+    patch.cone = { angle, direction: num(cone.direction, 'patch.cone.direction') }
+  }
+  if (p.animation !== undefined) {
+    const animation = obj(p.animation, 'patch.animation')
+    const speed = num(animation.speed, 'patch.animation.speed')
+    if (speed < 0.25 || speed > 4) bad('patch.animation.speed must be 0.25..4')
+    patch.animation = { kind: oneOf(animation.kind, ANIMATIONS, 'patch.animation.kind'), speed }
+  }
+  if (p.throughWalls !== undefined) patch.throughWalls = bool(p.throughWalls, 'patch.throughWalls')
+  if (p.nightOnly !== undefined) {
+    const range = obj(p.nightOnly, 'patch.nightOnly')
+    const min = num(range.min, 'patch.nightOnly.min')
+    const max = num(range.max, 'patch.nightOnly.max')
+    if (!(min >= 0 && max <= 1 && min <= max)) bad('patch.nightOnly must be 0 <= min <= max <= 1')
+    patch.nightOnly = { min, max }
+  }
+  if (p.darkness !== undefined) patch.darkness = bool(p.darkness, 'patch.darkness')
+  if (p.darkvisionSees !== undefined) patch.darkvisionSees = bool(p.darkvisionSees, 'patch.darkvisionSees')
   if (Object.keys(patch).length === 0) bad('patch needs at least one field')
   return patch
 }
@@ -405,6 +521,59 @@ function setLight(p: Payload, ctx: Ctx): void {
   setScene(ctx, sceneId, { ...scene, lightEdits: { ...scene.lightEdits, [lightId]: merged } })
 }
 
+/**
+ * DM-only: every placed light on or off at once (the World panel's All lights). Writes
+ * `visible` into each light's edit, so a later per-light toggle still works and `reset-light`
+ * still hands one back to the map.
+ */
+function setLightsAll(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  const on = bool(p.on, 'on')
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  // Lights, not darkness sources: a darkness the DM placed is not one of the table's lights.
+  const ids = deps.lightIdsOf ? deps.lightIdsOf(ctx.campaignId, sceneId) : Object.keys(scene.lightEdits)
+  const lightEdits = { ...scene.lightEdits }
+  for (const id of ids) {
+    if (lightEdits[id]?.darkness) continue
+    lightEdits[id] = { ...lightEdits[id], visible: on }
+  }
+  setScene(ctx, sceneId, { ...scene, lightEdits })
+}
+
+/** DM-only: a room's live mood (`patch.mood`; `null` hands it back to the map's look chain). */
+function setRoom(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const roomId = str(p.roomId, 'roomId', ID_MAX)
+  const patch = obj(p.patch, 'patch')
+  if (patch.mood === undefined) bad('patch needs mood')
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  const roomEdits = { ...roomEditsOf(scene) }
+  const edit: RoomEdit = { ...roomEdits[roomId] }
+  if (patch.mood === null) delete edit.mood
+  else edit.mood = oneOf(patch.mood, MOODS, 'patch.mood')
+  if (Object.keys(edit).length === 0) delete roomEdits[roomId]
+  else roomEdits[roomId] = edit
+  setScene(ctx, sceneId, { ...scene, roomEdits })
+}
+
+/** DM-only: pins a seat to a level (`levelId`), or `null` to let it follow its token again. */
+function setSeatLevel(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const identity = str(p.identity, 'identity', ID_MAX)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  const seatLevel = { ...scene.seatLevel }
+  if (p.levelId === null) delete seatLevel[identity]
+  else seatLevel[identity] = str(p.levelId, 'levelId', ID_MAX)
+  setScene(ctx, sceneId, { ...scene, seatLevel })
+}
+
+/** DM-only: the level the DM's own view shows. */
+function setDmLevel(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  setScene(ctx, sceneId, { ...scene, dmLevelId: str(p.levelId, 'levelId', ID_MAX) })
+}
+
 /** Drops a light back to however the map authored it — the DM's whole edit, not one field. */
 function resetLight(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
@@ -425,6 +594,9 @@ function resetLight(p: Payload, ctx: Ctx): void {
  * Generic over the light shape on purpose: the server's fog code and the client's `LightChild`
  * are different types that happen to share these fields, and this module has no reason to
  * import either just to name one.
+ *
+ * A light authored "off at the table" (`tableOn: false`) starts out; a live `visible` edit
+ * (a per-light toggle, All lights, a trigger) still wins.
  */
 export function effectiveLight<
   T extends {
@@ -434,9 +606,11 @@ export function effectiveLight<
     intensity: number
     color: string
     position: { x: number; y: number }
+    tableOn?: boolean
   },
 >(light: T, edit: LightEdit | undefined): T {
-  return edit ? { ...light, ...edit } : light
+  const authored = light.tableOn === false && light.visible ? { ...light, visible: false } : light
+  return edit ? { ...authored, ...edit } : authored
 }
 
 /**
@@ -600,15 +774,87 @@ function shareNote(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   publishJournalEntry(ctx, sceneId, entry, now, { shareReceipts })
 }
 
-/** DM-only. An on-the-fly text card — no image support (authored notes carry images). */
+/**
+ * DM-only. Two forms:
+ * - `{ title, body, kicker? }`: an on-the-fly text card, no image support (authored notes
+ *   carry images).
+ * - `{ roomId, kicker? }`: snapshots that room key's read-aloud, exactly as authored, under
+ *   the room's label. Read fresh off `deps.prepOf` like `share-note`, and receipted under
+ *   `roomShareKey(roomId)` so the DM's own panel can say when it went out.
+ */
 function shareCard(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   const sceneId = sceneOf(p, ctx)
+  if (p.roomId !== undefined) return shareRoomKey(p, sceneId, ctx, deps)
   const kicker = p.kicker !== undefined ? oneOf(p.kicker, JOURNAL_KICKERS, 'kicker') : 'lore'
   const title = str(p.title, 'title', JOURNAL_TITLE_MAX)
   const body = str(p.body, 'body', JOURNAL_BODY_MAX)
   const now = (deps.now ?? Date.now)()
   const entry: JournalEntry = { id: mintId('j'), at: now, kicker, title, body, sceneId }
   publishJournalEntry(ctx, sceneId, entry, now)
+}
+
+function shareRoomKey(p: Payload, sceneId: string, ctx: Ctx, deps: TriggerDeps): void {
+  const roomId = str(p.roomId, 'roomId', ID_MAX)
+  const kicker = p.kicker !== undefined ? oneOf(p.kicker, JOURNAL_KICKERS, 'kicker') : 'place'
+  const resolved = roomKeyIn(deps.prepOf(ctx.campaignId, sceneId), roomId)
+  const readAloud = resolved.key.readAloud.trim()
+  if (!readAloud) bad(`room '${roomId}' has no read-aloud to share`)
+
+  const now = (deps.now ?? Date.now)()
+  const entry: JournalEntry = {
+    id: mintId('j'),
+    at: now,
+    kicker,
+    title: (resolved.label || 'A room').slice(0, JOURNAL_TITLE_MAX),
+    body: readAloud.slice(0, JOURNAL_BODY_MAX),
+    sceneId,
+    sourceRoomId: roomId,
+  }
+  const shareReceipts = {
+    ...shareReceiptsOf(ctx.state),
+    [roomShareKey(roomId)]: { at: now, journalEntryId: entry.id },
+  }
+  publishJournalEntry(ctx, sceneId, entry, now, { shareReceipts })
+}
+
+/** The resolved key for a room, or a refusal naming why there is none. */
+function roomKeyIn(prep: ResolvedPrep | null, roomId: string): ResolvedRoomKey {
+  const resolved = prep ? roomKeysOf(prep).find((r) => r.key.roomId === roomId) : undefined
+  if (!resolved) bad(`no room key for '${roomId}' in that scene`)
+  return resolved
+}
+
+/**
+ * DM-only. Runs a room key's encounter through the same runner an `encounter` trigger action
+ * uses, with the room's face as the spawn region: tokens fan out from the room's anchor and
+ * only onto cells inside the room. `seedInitiative` defaults on (a keyed encounter is a fight
+ * the DM is starting). Deliberate and repeatable: the spawn is stamped in `fired` under
+ * `roomSpawnKey` for the DM's panel, but a second call spawns a second wave.
+ */
+function spawnEncounter(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  const roomId = str(p.roomId, 'roomId', ID_MAX)
+  const seedInitiative = p.seedInitiative === undefined ? true : bool(p.seedInitiative, 'seedInitiative')
+  const resolved = roomKeyIn(deps.prepOf(ctx.campaignId, sceneId), roomId)
+  if (resolved.inert) bad(`room key '${roomId}' is inert: ${resolved.inert}`)
+  const encounter = resolved.key.encounter
+  if (!encounter || encounter.monsters.length === 0) bad(`room '${roomId}' has no encounter`)
+  if (resolved.encounterInert) bad(`room '${roomId}' encounter is inert: ${resolved.encounterInert}`)
+
+  const scene = cloneScene(sceneTriggersOf(ctx.state, sceneId))
+  const now = (deps.now ?? Date.now)()
+  runEncounter(
+    scene,
+    { name: encounter.name || resolved.label || 'Encounter', monsters: encounter.monsters, spawn: true, seedInitiative },
+    { at: resolved.spawnAt, region: resolved.region },
+    { roomId },
+    deps,
+    now,
+    sceneId,
+    ctx,
+  )
+  scene.fired[roomSpawnKey(roomId)] = now
+  setScene(ctx, sceneId, scene)
 }
 
 // ── the internal 'event' action ──────────────────────────────────────────────
@@ -659,6 +905,12 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
         changed = true
       }
     }
+    for (const r of roomKeysOf(prep)) {
+      if (roomRevealKey(r.key.roomId) in scene.fired) {
+        delete scene.fired[roomRevealKey(r.key.roomId)]
+        changed = true
+      }
+    }
   }
 
   const tokens = Object.values(deps.tokensOf(ctx.campaignId, sceneId)).filter((t) => !t.hidden)
@@ -680,6 +932,29 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
         now,
       )
       scene.fired[noteKey(n.note.id)] = now
+      changed = true
+    }
+  }
+
+  // Room keys (prep v3) pop the same way the moment their room is uncovered: a DM-only line
+  // carrying a preview of the read-aloud, which the DM's toast offers to Share. A key with no
+  // read-aloud has nothing to read out, so it stays quiet.
+  for (const r of roomKeysOf(prep)) {
+    const roomId = r.key.roomId
+    const readAloud = r.key.readAloud.trim()
+    if (r.inert || !readAloud) continue
+    if (explored.includes(roomId) && !scene.fired[roomRevealKey(roomId)]) {
+      pushLog(
+        scene,
+        {
+          kind: 'room-key',
+          text: `${r.label || 'A room'} — ${preview(readAloud)}`,
+          toPlayers: false,
+          detail: { roomId },
+        },
+        now,
+      )
+      scene.fired[roomRevealKey(roomId)] = now
       changed = true
     }
   }
@@ -741,6 +1016,7 @@ function insideShape(token: TriggerToken, shape: NonNullable<ResolvedTrigger['sh
  *  one `setState` out. */
 function cloneScene(scene: SceneTriggers): SceneTriggers {
   return {
+    ...scene,
     fired: { ...scene.fired },
     armed: { ...scene.armed },
     disabled: { ...scene.disabled },
@@ -755,6 +1031,14 @@ function cloneScene(scene: SceneTriggers): SceneTriggers {
 /** The `fired`-map key a reveal-note uses — prefixed so the note and trigger id namespaces
  *  can never collide in the one shared map. */
 const noteKey = (noteId: string): string => `note:${noteId}`
+
+/** How much of a read-aloud the reveal toast carries; the whole text is one Share away. */
+const PREVIEW_MAX = 160
+
+function preview(text: string): string {
+  const flat = text.replace(/\s+/g, ' ')
+  return flat.length <= PREVIEW_MAX ? flat : `${flat.slice(0, PREVIEW_MAX - 1).trimEnd()}…`
+}
 
 /** Runs every action on a trigger and marks it fired. `token` is the one whose entry caused
  *  this (enter-region/within-radius) or null (room-revealed, and a manual `fire`). */
@@ -895,83 +1179,108 @@ function runFireAction(
       if (action.time !== undefined) delta.time = action.time
       if (action.weather !== undefined) delta.weather = action.weather
       scene.env = { ...scene.env, ...delta }
+      // The live weather is the world's now; `setScene` writes it there in the same write.
+      if (delta.weather) pendingWeather.set(scene, delta.weather)
       pushLog(scene, { triggerId: t.def.id, kind: 'environment', text: envText(delta), toPlayers: true }, now)
       return
     }
 
-    case 'encounter': {
-      // The module rolls HP and lays out spawn positions (it owns the dice and the resolved
-      // anchor); materializing the token/initiative rows is the server's (`applyEncounter`).
-      const rollFn = deps.rollFn ?? roll
-      const at = t.spawnAt
-      const spawn: NonNullable<EncounterEffects['spawn']> = []
-      const seed: NonNullable<EncounterEffects['seed']> = []
-      let placed = 0
-      for (const monster of action.monsters) {
-        for (let n = 1; n <= monster.count; n++) {
-          const name = monster.count > 1 ? `${monster.name} ${n}` : monster.name
-          let hp: number | undefined
-          if (monster.hp) {
-            // Resolver validates the formula (a bad one marks the trigger inert), so this
-            // guard is only against the two drifting — skip HP, never kill the cascade.
-            try {
-              hp = rollFn(monster.hp).total
-            } catch {
-              hp = undefined
-            }
-          }
-          const id = mintId('etok')
-          const willSpawn = action.spawn && at !== undefined
-          if (willSpawn) {
-            const [dx, dy] = SPAWN_OFFSETS[Math.min(placed, SPAWN_OFFSETS.length - 1)]
-            spawn.push({
-              id,
-              name,
-              x: at!.x + dx,
-              y: at!.y + dy,
-              size: monster.size ?? 'medium',
-              ...(monster.tokenRef ? { packAsset: monster.tokenRef } : {}),
-            })
-            placed++
-          }
-          if (action.seedInitiative) {
-            seed.push({
-              name,
-              ...(hp !== undefined ? { hp } : {}),
-              ...(willSpawn ? { tokenId: id } : {}),
-            })
-          }
-        }
-      }
-      if (deps.applyEncounter && (spawn.length > 0 || seed.length > 0)) {
-        deps.applyEncounter({ sceneId, name: action.name, spawn, seed }, ctx)
-      }
-      const total = action.monsters.reduce((s, m) => s + m.count, 0)
-      const what = [
-        spawn.length > 0 ? `${spawn.length} placed` : null,
-        seed.length > 0 ? 'initiative seeded' : null,
-      ].filter(Boolean)
-      pushLog(
-        scene,
-        {
-          triggerId: t.def.id,
-          kind: 'encounter',
-          text: `${action.name} — ${total} combatant${total === 1 ? '' : 's'}${what.length ? ` (${what.join(', ')})` : ''}`,
-          toPlayers: false,
-          detail: { spawned: spawn.length, seeded: seed.length },
-        },
-        now,
-      )
+    case 'encounter':
+      runEncounter(scene, action, { at: t.spawnAt }, { triggerId: t.def.id }, deps, now, sceneId, ctx)
       return
-    }
   }
 }
 
-/** Grid-cell offsets fanning out from the anchor — centre first, then rings. A roster past
- *  25 stacks on the last cell (the resolver caps rosters well below that anyway). */
-const SPAWN_OFFSETS: readonly [number, number][] = (() => {
+/** Where an encounter lands: a zone trigger fans out around its anchor; a room key also hands
+ *  its face, and only cells inside it are used. */
+interface SpawnPlace {
+  at?: { x: number; y: number }
+  region?: readonly [number, number][]
+}
+
+/**
+ * The one encounter runner — an `encounter` trigger action and a room key's Spawn both come
+ * through here. The module rolls HP and lays out spawn positions (it owns the dice and the
+ * resolved anchor); materializing the token/initiative rows is the server's (`applyEncounter`).
+ */
+function runEncounter(
+  scene: SceneTriggers,
+  action: { name: string; monsters: readonly MonsterEntry[]; spawn: boolean; seedInitiative: boolean },
+  place: SpawnPlace,
+  source: { triggerId?: string; roomId?: string },
+  deps: TriggerDeps,
+  now: number,
+  sceneId: string,
+  ctx: Ctx,
+): void {
+  const rollFn = deps.rollFn ?? roll
+  const cells = place.at ? spawnCells(place.at, place.region) : []
+  const spawn: NonNullable<EncounterEffects['spawn']> = []
+  const seed: NonNullable<EncounterEffects['seed']> = []
+  let placed = 0
+  for (const monster of action.monsters) {
+    // A row the DM left unnamed still spawns something a table can call by name.
+    const base = monster.name.trim() || 'Monster'
+    for (let n = 1; n <= monster.count; n++) {
+      const name = monster.count > 1 ? `${base} ${n}` : base
+      let hp: number | undefined
+      if (monster.hp) {
+        // Resolver validates the formula (a bad one marks the trigger inert), so this
+        // guard is only against the two drifting — skip HP, never kill the cascade.
+        try {
+          hp = rollFn(monster.hp).total
+        } catch {
+          hp = undefined
+        }
+      }
+      const id = mintId('etok')
+      const willSpawn = action.spawn && cells.length > 0
+      if (willSpawn) {
+        const [x, y] = cells[Math.min(placed, cells.length - 1)]
+        spawn.push({
+          id,
+          name,
+          x,
+          y,
+          size: monster.size ?? 'medium',
+          ...(monster.tokenRef ? { packAsset: monster.tokenRef } : {}),
+        })
+        placed++
+      }
+      if (action.seedInitiative) {
+        seed.push({
+          name,
+          ...(hp !== undefined ? { hp } : {}),
+          ...(willSpawn ? { tokenId: id } : {}),
+        })
+      }
+    }
+  }
+  if (deps.applyEncounter && (spawn.length > 0 || seed.length > 0)) {
+    deps.applyEncounter({ sceneId, name: action.name, spawn, seed }, ctx)
+  }
+  const total = action.monsters.reduce((s, m) => s + m.count, 0)
+  const what = [
+    spawn.length > 0 ? `${spawn.length} placed` : null,
+    seed.length > 0 ? 'initiative seeded' : null,
+  ].filter(Boolean)
+  pushLog(
+    scene,
+    {
+      ...(source.triggerId ? { triggerId: source.triggerId } : {}),
+      kind: 'encounter',
+      text: `${action.name} — ${total} combatant${total === 1 ? '' : 's'}${what.length ? ` (${what.join(', ')})` : ''}`,
+      toPlayers: false,
+      detail: { spawned: spawn.length, seeded: seed.length, ...(source.roomId ? { roomId: source.roomId } : {}) },
+    },
+    now,
+  )
+}
+
+/** Grid-cell offsets fanning out from the anchor — centre first, then rings out to `rings`. */
+function ringOffsets(rings: number): [number, number][] {
   const cells: [number, number][] = [[0, 0]]
-  for (let r = 1; r <= 2; r++) {
+  for (let r = 1; r <= rings; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) === r) cells.push([dx, dy])
@@ -979,4 +1288,40 @@ const SPAWN_OFFSETS: readonly [number, number][] = (() => {
     }
   }
   return cells
-})()
+}
+
+/** A zone anchor's fan: two rings, 25 cells. A roster past 25 stacks on the last cell (the
+ *  resolver caps rosters well below that anyway). */
+const SPAWN_OFFSETS = ringOffsets(2)
+/** A room's fan reaches further, because cells outside the room's face are dropped from it. */
+const ROOM_SPAWN_OFFSETS = ringOffsets(6)
+
+/**
+ * The positions a roster fills, in order. Without a region, the anchor plus `SPAWN_OFFSETS`
+ * exactly as an anchored zone always spawned. With one (a room's face), the anchor's cell
+ * centre plus every offset whose cell centre lies inside the face — so a narrow room never
+ * spills tokens through its walls. A face too small for any cell keeps the anchor alone.
+ */
+function spawnCells(
+  at: { x: number; y: number },
+  region: readonly [number, number][] | undefined,
+): [number, number][] {
+  if (!region || region.length < 3) return SPAWN_OFFSETS.map(([dx, dy]) => [at.x + dx, at.y + dy])
+  const cx = Math.floor(at.x) + 0.5
+  const cy = Math.floor(at.y) + 0.5
+  const inside = ROOM_SPAWN_OFFSETS.map(([dx, dy]): [number, number] => [cx + dx, cy + dy]).filter(
+    ([x, y]) => pointInRing(region, x, y),
+  )
+  return inside.length > 0 ? inside : [[at.x, at.y]]
+}
+
+/** Ray casting — the module stays free of any geometry import. */
+function pointInRing(ring: readonly [number, number][], x: number, y: number): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}

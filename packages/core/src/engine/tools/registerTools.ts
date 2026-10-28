@@ -9,24 +9,20 @@ import { WallTool } from './WallTool';
 import { RulerTool } from './RulerTool';
 import { TextTool } from './TextTool';
 import { SelectTool } from './SelectTool';
-import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
 import { StampScatterTool } from './StampScatterTool';
 import { DoorTool } from './DoorTool';
 import { TerrainTool } from './TerrainTool';
 import { WaterTool } from './WaterTool';
 import { ZoneTool } from './ZoneTool';
-import { RoomTool } from './RoomTool';
+import { RoomPolygonTool, RoomRectTool } from './RoomTools';
+import { DivideTool } from './DivideTool';
+
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
   worldContainer.addChild(selectTool.overlay.container);
   manager.registerTool(selectTool);
-
-  const objectTool = new ObjectTool();
-  objectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
-  worldContainer.addChild(objectTool.overlay.container);
-  manager.registerTool(objectTool);
 
   manager.registerTool(new RectangleTool());
   manager.registerTool(new PolygonTool());
@@ -41,5 +37,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new TerrainTool(engine, previewContainer));
   manager.registerTool(new WaterTool(engine));
   manager.registerTool(new ZoneTool(previewContainer));
-  manager.registerTool(new RoomTool());
+  manager.registerTool(new RoomRectTool());
+  manager.registerTool(new RoomPolygonTool());
+  manager.registerTool(new DivideTool());
 }

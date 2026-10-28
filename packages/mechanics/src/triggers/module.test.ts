@@ -1,20 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
-import type { TriggerDef } from '@dnd/core/src/shared/prep'
+import type { RoomKey, TriggerDef } from '@dnd/core/src/shared/prep'
 import type { GameModule, Viewer } from '../contract'
 import type { RollResult } from '../dice/roll'
 import {
-  ambientOf,
   effectiveLight,
   journalOf,
-  needsLight,
+  legacyDarkness,
+  roomEditsOf,
+  roomShareKey,
+  roomSpawnKey,
   sceneTriggersOf,
   shareReceiptsOf,
   triggersModule,
+  viewedLevel,
   worldLightOf,
   worldOf,
+  worldSkyOf,
   type EncounterEffects,
+  type ResolvedRoomKey,
   type ResolvedTrigger,
   type TriggerDeps,
   type TriggersState,
@@ -109,6 +114,8 @@ describe('authz matrix', () => {
     ['reset-light', { lightId: 'l1' }],
     ['share-note', { noteId: 'x' }],
     ['share-card', { title: 'x', body: 'y' }],
+    ['share-card', { roomId: 'r1' }],
+    ['spawn-encounter', { roomId: 'r1' }],
   ] as const
 
   it.each(dmOnly)('%s is dm-only', (action, payload) => {
@@ -544,7 +551,7 @@ describe('set-world', () => {
   })
 
   it('reads midday under a full moon, paused, until a DM says otherwise', () => {
-    expect(worldOf(empty)).toEqual({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' })
+    expect(worldOf(empty)).toEqual({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', darkness: null })
   })
 
   it('merges one dial at a time and leaves the others standing', () => {
@@ -552,7 +559,7 @@ describe('set-world', () => {
     let state = run(mod, empty, DM, 'set-world', { nightSky: 'moonless' }).next
     expect(worldOf(state)).toMatchObject({ clock: 720, nightSky: 'moonless' })
     state = run(mod, state, DM, 'set-world', { timeSpeed: 'fast' }).next
-    expect(worldOf(state)).toEqual({ clock: 720, nightSky: 'moonless', timeSpeed: 'fast' })
+    expect(worldOf(state)).toEqual({ clock: 720, nightSky: 'moonless', timeSpeed: 'fast', darkness: null })
   })
 
   it('refuses a clock outside the day and a value outside the vocabulary', () => {
@@ -652,36 +659,34 @@ describe('set-environment', () => {
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Night falls. Snow begins to fall.' })
   })
 
-  // S3 P3 §1 — the light level rides the same command, and it is the one field with mechanics
-  // behind it: `needsLight` is what the referee and the mask both gate normal vision on.
-  it('merges the ambient level and narrates it in the same voice', () => {
+  // The Lighting pass: the old 3-state dial is a compatibility path onto the darkness slider —
+  // it narrates as it always did and lands on `world.darkness`, never on `env.ambient`.
+  it('merges the ambient level onto the darkness slider and narrates it in the same voice', () => {
     const mod = triggersModule(makeDeps())
     let state = run(mod, empty, DM, 'set-environment', { time: 'night' }).next
     const { next, error } = run(mod, state, DM, 'set-environment', { ambient: 'darkness' })
     expect(error).toBeNull()
-    expect(sceneOf(next).env).toEqual({ time: 'night', ambient: 'darkness' })
+    expect(sceneOf(next).env).toEqual({ time: 'night' })
+    expect(worldOf(next).darkness).toBe(1)
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Darkness closes in.', toPlayers: true })
 
     // …and back again, without disturbing the time it was set alongside.
     state = run(mod, next, DM, 'set-environment', { ambient: 'daylight' }).next
-    expect(sceneOf(state).env).toEqual({ time: 'night', ambient: 'daylight' })
+    expect(sceneOf(state).env).toEqual({ time: 'night' })
+    expect(worldOf(state).darkness).toBe(0)
     expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'The dark lifts.' })
   })
 
-  it('reads daylight until a DM says otherwise, and only darkness asks for a light', () => {
+  it('reads follow-the-sky until a DM says otherwise, and maps the three levels onto the slider', () => {
     const mod = triggersModule(makeDeps())
-    expect(ambientOf(sceneTriggersOf(empty, SCENE))).toBe('daylight')
-    expect(needsLight(sceneTriggersOf(empty, SCENE))).toBe(false)
-
-    for (const [ambient, dark] of [
-      ['daylight', false],
-      ['dusk', false],
-      ['darkness', true],
+    expect(worldOf(empty).darkness).toBeNull()
+    for (const [ambient, darkness] of [
+      ['daylight', 0],
+      ['dusk', 0.5],
+      ['darkness', 1],
     ] as const) {
       const { next } = run(mod, empty, DM, 'set-environment', { ambient })
-      expect(ambientOf(sceneTriggersOf(next, SCENE))).toBe(ambient)
-      // dusk differs from daylight in presentation alone — mechanically they are one answer.
-      expect(needsLight(sceneTriggersOf(next, SCENE))).toBe(dark)
+      expect(worldOf(next).darkness).toBe(darkness)
     }
   })
 
@@ -693,9 +698,11 @@ describe('set-environment', () => {
     let state = run(mod, empty, DM, 'set-environment', { time: 'night', ambient: 'darkness' }).next
     const { next, error } = run(mod, state, DM, 'set-environment', { ambient: null })
     expect(error).toBeNull()
-    // Gone, not `daylight` and not present-but-undefined — the field itself is off the scene.
+    // Gone, not `daylight` and not present-but-undefined — the field itself is off the scene,
+    // and the slider follows the sky again.
     expect(sceneOf(next).env).toEqual({ time: 'night' })
     expect('ambient' in sceneOf(next).env).toBe(false)
+    expect(worldOf(next).darkness).toBeNull()
     expect(sceneOf(next).log.at(-1)).toMatchObject({
       text: 'The light settles as it was.',
       toPlayers: true,
@@ -706,7 +713,8 @@ describe('set-environment', () => {
     const mod = triggersModule(makeDeps())
     const state = run(mod, empty, DM, 'set-environment', { ambient: 'darkness' }).next
     const { next } = run(mod, state, DM, 'set-environment', { weather: 'fog', ambient: undefined })
-    expect(sceneOf(next).env).toEqual({ weather: 'fog', ambient: 'darkness' })
+    expect(sceneOf(next).env).toEqual({ weather: 'fog' })
+    expect(worldOf(next)).toMatchObject({ weather: 'fog', darkness: 1 })
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Fog creeps in.' })
   })
 
@@ -1169,5 +1177,433 @@ describe('journal: narration, scope and redaction', () => {
     }
     expect(journalOf(state)).toHaveLength(500)
     expect(journalOf(state)[0]!.title).toBe('T5')
+  })
+})
+
+describe('room keys (prep v3)', () => {
+  const KEY: RoomKey = {
+    roomId: 'room-1',
+    readAloud: 'Smoke hangs under a low ceiling.\nBones crunch underfoot.',
+    notes: 'The chief hides behind the curtain.',
+    treasure: '40 gp',
+    traps: [],
+    checks: [],
+    encounter: { name: 'Hall guards', monsters: [{ id: 'm1', name: 'Goblin', count: 2, hp: '2d6' }] },
+  }
+  // A 4x3 room from (10,10) to (14,13): twelve cells, anchored by its west wall.
+  const FACE: [number, number][] = [
+    [10, 10],
+    [14, 10],
+    [14, 13],
+    [10, 13],
+  ]
+  const resolvedKey = (over: Partial<ResolvedRoomKey> = {}): ResolvedRoomKey => ({
+    key: KEY,
+    label: '3 · Warren Hall',
+    spawnAt: { x: 10.5, y: 11.5 },
+    region: FACE,
+    ...over,
+  })
+  const prepWith =
+    (...rooms: ResolvedRoomKey[]) =>
+    () => ({ triggers: [], notes: [], rooms })
+  const rollTen = (formula: string): RollResult => ({ formula, rolls: [10], modifier: 0, total: 10 })
+  const move = { sceneId: SCENE, source: { module: 'tokens', action: 'move' } }
+
+  describe('share-card { roomId }', () => {
+    it('snapshots the read-aloud under the room label, as a place card, with a receipt', () => {
+      const mod = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()), now: () => 77 }))
+      const { next, error } = run(mod, empty, DM, 'share-card', { sceneId: SCENE, roomId: 'room-1' })
+      expect(error).toBeNull()
+      const entry = journalOf(next)[0]!
+      expect(entry).toMatchObject({
+        kicker: 'place',
+        title: '3 · Warren Hall',
+        body: KEY.readAloud,
+        sceneId: SCENE,
+        sourceRoomId: 'room-1',
+        at: 77,
+      })
+      expect(shareReceiptsOf(next)[roomShareKey('room-1')]).toEqual({ at: 77, journalEntryId: entry.id })
+    })
+
+    it('never carries the DM notes, treasure or encounter to a player', () => {
+      const mod = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()) }))
+      const { next } = run(mod, empty, DM, 'share-card', { roomId: 'room-1' })
+      const wire = JSON.stringify(mod.redact!(next, P1))
+      expect(wire).toContain('Smoke hangs')
+      expect(wire).not.toContain('curtain')
+      expect(wire).not.toContain('40 gp')
+      expect(wire).not.toContain('Hall guards')
+    })
+
+    it('refuses a room with no key, or a key with no read-aloud', () => {
+      const none = triggersModule(makeDeps({ prepOf: prepWith() }))
+      expect(run(none, empty, DM, 'share-card', { roomId: 'room-1' }).error?.code).toBe('invalid-command')
+      const silent = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ key: { ...KEY, readAloud: '  ' } })) }),
+      )
+      expect(run(silent, empty, DM, 'share-card', { roomId: 'room-1' }).error?.code).toBe('invalid-command')
+    })
+  })
+
+  describe('spawn-encounter { roomId }', () => {
+    it('runs the key encounter through the encounter runner, every token inside the room face', () => {
+      const calls: EncounterEffects[] = []
+      const mod = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey()), rollFn: rollTen, applyEncounter: (e) => calls.push(e) }),
+      )
+      const { next, error } = run(mod, empty, DM, 'spawn-encounter', { sceneId: SCENE, roomId: 'room-1' })
+      expect(error).toBeNull()
+      expect(calls).toHaveLength(1)
+      const e = calls[0]
+      expect(e.name).toBe('Hall guards')
+      expect(e.spawn.map((s) => s.name)).toEqual(['Goblin 1', 'Goblin 2'])
+      expect(e.spawn[0]).toMatchObject({ x: 10.5, y: 11.5 })
+      for (const s of e.spawn) {
+        expect(s.x).toBeGreaterThan(10)
+        expect(s.x).toBeLessThan(14)
+        expect(s.y).toBeGreaterThan(10)
+        expect(s.y).toBeLessThan(13)
+      }
+      expect(new Set(e.spawn.map((s) => `${s.x},${s.y}`)).size).toBe(2)
+      expect(e.seed.map((s) => s.tokenId)).toEqual(e.spawn.map((s) => s.id))
+      expect(e.seed.map((s) => s.hp)).toEqual([10, 10])
+      const scene = sceneOf(next)!
+      expect(scene.fired[roomSpawnKey('room-1')]).toBe(1000)
+      expect(scene.log.find((l) => l.kind === 'encounter')).toMatchObject({
+        toPlayers: false,
+        detail: { roomId: 'room-1', spawned: 2 },
+      })
+    })
+
+    it('names a monster row the DM left blank, so every spawned token has a name', () => {
+      const calls: EncounterEffects[] = []
+      const blank = { ...KEY, encounter: { name: '', monsters: [{ id: 'm', name: '  ', count: 2 }, { id: 'n', name: '', count: 1 }] } }
+      const mod = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ key: blank })), applyEncounter: (e) => calls.push(e) }),
+      )
+      expect(run(mod, empty, DM, 'spawn-encounter', { roomId: 'room-1' }).error).toBeNull()
+      expect(calls[0].spawn.map((s) => s.name)).toEqual(['Monster 1', 'Monster 2', 'Monster'])
+    })
+
+    it('never places a token outside a narrow room', () => {
+      const calls: EncounterEffects[] = []
+      const corridor: [number, number][] = [
+        [0, 0],
+        [8, 0],
+        [8, 1],
+        [0, 1],
+      ]
+      const swarm = { ...KEY, encounter: { name: 'Swarm', monsters: [{ id: 'm', name: 'Rat', count: 6 }] } }
+      const mod = triggersModule(
+        makeDeps({
+          prepOf: prepWith(resolvedKey({ key: swarm, spawnAt: { x: 0.5, y: 0.5 }, region: corridor })),
+          applyEncounter: (e) => calls.push(e),
+        }),
+      )
+      run(mod, empty, DM, 'spawn-encounter', { roomId: 'room-1', seedInitiative: false })
+      expect(calls[0].spawn).toHaveLength(6)
+      expect(calls[0].spawn.every((s) => s.y === 0.5 && s.x > 0 && s.x < 8)).toBe(true)
+      expect(new Set(calls[0].spawn.map((s) => s.x)).size).toBe(6)
+      expect(calls[0].seed).toEqual([])
+    })
+
+    it('refuses a key with no encounter, an inert key, and an inert encounter', () => {
+      const plain = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ key: { ...KEY, encounter: undefined } })) }),
+      )
+      expect(run(plain, empty, DM, 'spawn-encounter', { roomId: 'room-1' }).error?.code).toBe('invalid-command')
+      const gone = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey({ inert: 'room was deleted' })) }))
+      expect(run(gone, empty, DM, 'spawn-encounter', { roomId: 'room-1' }).error?.message).toContain(
+        'room was deleted',
+      )
+      const broken = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ encounterInert: 'malformed monster HP formula' })) }),
+      )
+      expect(run(broken, empty, DM, 'spawn-encounter', { roomId: 'room-1' }).error?.message).toContain('HP formula')
+    })
+  })
+
+  describe('reveal pop', () => {
+    it('pops once as a DM-only room-key line with a read-aloud preview, and never twice', () => {
+      const mod = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()), exploredOf: () => ['room-1'] }))
+      const s1 = fireEvent(mod, empty, move)
+      const log = sceneOf(s1)!.log
+      expect(log).toHaveLength(1)
+      expect(log[0]).toMatchObject({ kind: 'room-key', toPlayers: false, detail: { roomId: 'room-1' } })
+      expect(log[0].text).toBe('3 · Warren Hall — Smoke hangs under a low ceiling. Bones crunch underfoot.')
+      expect(sceneOf(fireEvent(mod, s1, move))!.log).toHaveLength(1)
+      // DM-only: a player's copy never holds the line.
+      expect(mod.redact!(s1, P1).byScene[SCENE]!.log).toEqual([])
+    })
+
+    it('stays quiet for an unexplored room, a key without read-aloud, and an inert key', () => {
+      const dark = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()), exploredOf: () => [] }))
+      expect(sceneOf(fireEvent(dark, empty, move))).toBeUndefined()
+      const silent = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ key: { ...KEY, readAloud: '' } })), exploredOf: () => ['room-1'] }),
+      )
+      expect(sceneOf(fireEvent(silent, empty, move))).toBeUndefined()
+      const inert = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ inert: 'room was deleted' })), exploredOf: () => ['room-1'] }),
+      )
+      expect(sceneOf(fireEvent(inert, empty, move))).toBeUndefined()
+    })
+
+    it('fog.reset re-arms the pop', () => {
+      const mod = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()), exploredOf: () => ['room-1'] }))
+      const popped = fireEvent(mod, empty, move)
+      const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'reset' } })
+      expect(sceneOf(reset)!.log.filter((l) => l.kind === 'room-key')).toHaveLength(2)
+    })
+
+    it('trims a long read-aloud to a preview', () => {
+      const long = { ...KEY, readAloud: 'word '.repeat(80) }
+      const mod = triggersModule(
+        makeDeps({ prepOf: prepWith(resolvedKey({ key: long })), exploredOf: () => ['room-1'] }),
+      )
+      const text = sceneOf(fireEvent(mod, empty, move))!.log[0].text
+      expect(text.endsWith('…')).toBe(true)
+      expect(text.length).toBeLessThan(200)
+    })
+  })
+})
+
+// ── The Lighting pass ────────────────────────────────────────────────────────
+
+/** A scene row as a pre-Lighting-pass `module_state` row stores it, with the old dial in `env`. */
+const legacyScene = (ambient?: string) =>
+  ({
+    fired: {},
+    armed: {},
+    disabled: {},
+    lightOverrides: {},
+    lightEdits: {},
+    env: ambient ? { ambient } : {},
+    prompts: [],
+    log: [],
+  }) as unknown as TriggersState['byScene'][string]
+
+describe('the darkness slider: env.ambient migration', () => {
+  it.each([
+    ['daylight', 0],
+    ['dusk', 0.5],
+    ['darkness', 1],
+  ] as const)('a saved %s dial reads as darkness %s', (ambient, darkness) => {
+    const saved: TriggersState = { byScene: { [SCENE]: legacyScene(ambient) } }
+    expect(legacyDarkness(saved)).toBe(darkness)
+    expect(worldOf(saved).darkness).toBe(darkness)
+  })
+
+  it('a scene with no dial follows the sky (null)', () => {
+    const saved: TriggersState = { byScene: { [SCENE]: legacyScene() } }
+    expect(worldOf(saved).darkness).toBeNull()
+  })
+
+  it('writes the migrated value down on the next set-world, and an explicit null then sticks', () => {
+    const mod = triggersModule(makeDeps())
+    const saved: TriggersState = { byScene: { [SCENE]: legacyScene('darkness') } }
+    let state = run(mod, saved, DM, 'set-world', { clock: 700 }).next
+    expect(state.world?.darkness).toBe(1)
+    state = run(mod, state, DM, 'set-world', { darkness: null }).next
+    expect(state.world?.darkness).toBeNull()
+    // The legacy dial is still in the row, and no longer read.
+    expect(worldOf(state).darkness).toBeNull()
+  })
+})
+
+describe('set-world: darkness and weather', () => {
+  it('takes darkness 0..1 or null, and refuses anything else', () => {
+    const mod = triggersModule(makeDeps())
+    expect(worldOf(run(mod, empty, DM, 'set-world', { darkness: 0.3 }).next).darkness).toBe(0.3)
+    for (const darkness of [-0.1, 1.5, 'dark']) {
+      expect(run(mod, empty, DM, 'set-world', { darkness }).error?.code).toBe('invalid-command')
+    }
+  })
+
+  it('takes the weather beside the clock and narrates it once', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-world', { weather: 'storm' })
+    expect(worldOf(next).weather).toBe('storm')
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'A storm rolls in.' })
+    const again = run(mod, next, DM, 'set-world', { weather: 'storm' }).next
+    expect(sceneOf(again).log).toHaveLength(1)
+  })
+
+  it('feeds the table sky: the slider overrides, the weather darkens, the map default fills in', () => {
+    const map = { environment: 'outdoor' as const, weather: 'rain' as const, nightSky: 'moonless' as const }
+    expect(worldSkyOf(map, empty)).toMatchObject({ weather: 'rain', nightSky: 'moonless' })
+    expect(worldSkyOf(map, empty).darkness).toBeCloseTo(0.3, 5)
+    const mod = triggersModule(makeDeps())
+    const slid = run(mod, empty, DM, 'set-world', { darkness: 0.9, weather: 'clear' }).next
+    expect(worldSkyOf(map, slid)).toMatchObject({ weather: 'clear', darkness: 0.9 })
+  })
+
+  it('a weather authored on a trigger lands on the world too', () => {
+    const mod = triggersModule(
+      makeDeps({
+        prepOf: () => ({
+          triggers: [
+            trigger({
+              id: 'w',
+              when: { kind: 'room-revealed', roomId: 'r1' } as TriggerDef['when'],
+              actions: [{ kind: 'environment', weather: 'fog' }],
+            }),
+          ],
+          notes: [],
+        }),
+      }),
+    )
+    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'w' })
+    expect(error).toBeNull()
+    expect(worldOf(next).weather).toBe('fog')
+  })
+})
+
+describe('set-lights-all', () => {
+  const deps = makeDeps({ lightIdsOf: () => ['a', 'b'] })
+
+  it('is dm-only', () => {
+    expect(run(triggersModule(deps), empty, P1, 'set-lights-all', { on: false }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+  })
+
+  it('writes visible into every placed light edit, keeping each edit’s other fields', () => {
+    const mod = triggersModule(deps)
+    let state = run(mod, empty, DM, 'set-light', { lightId: 'a', patch: { radius: 3 } }).next
+    state = run(mod, state, DM, 'set-lights-all', { on: false }).next
+    expect(sceneOf(state).lightEdits).toEqual({ a: { radius: 3, visible: false }, b: { visible: false } })
+    state = run(mod, state, DM, 'set-lights-all', { on: true }).next
+    expect(sceneOf(state).lightEdits.b).toEqual({ visible: true })
+  })
+
+  it('needs a boolean', () => {
+    expect(run(triggersModule(deps), empty, DM, 'set-lights-all', { on: 'yes' }).error?.code).toBe('invalid-command')
+  })
+})
+
+describe('set-room', () => {
+  it('pins a room’s live mood', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'dark' } })
+    expect(roomEditsOf(sceneOf(next))).toEqual({ r1: { mood: 'dark' } })
+  })
+
+  it('hands it back to the map on null, leaving no empty edit behind', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'dim' } }).next
+    state = run(mod, state, DM, 'set-room', { roomId: 'r1', patch: { mood: null } }).next
+    expect(roomEditsOf(sceneOf(state))).toEqual({})
+  })
+
+  it('refuses a mood outside the vocabulary, and players', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'gloomy' } }).error?.code).toBe(
+      'invalid-command',
+    )
+    expect(run(mod, empty, P1, 'set-room', { roomId: 'r1', patch: { mood: 'dark' } }).error?.code).toBe(
+      'unauthorized',
+    )
+  })
+})
+
+describe('levels: the viewed level per seat', () => {
+  const tokens = [{ ownerId: 'p-1', levelId: 'L2' }, { ownerId: 'p-2' }]
+
+  it('a seat sees its token’s level, the DM their own pick, a pin beats the token', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-dm-level', { levelId: 'L2' }).next
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), tokens, P1, 'L1')).toBe('L2')
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), tokens, P2, 'L1')).toBe('L1')
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), tokens, DM, 'L1')).toBe('L2')
+    state = run(mod, state, DM, 'set-seat-level', { identity: 'p-2', levelId: 'L2' }).next
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), tokens, P2, 'L1')).toBe('L2')
+  })
+
+  it('unpins a seat on null, and keeps the DM’s own pick off the players’ wire', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-seat-level', { identity: 'p-1', levelId: 'L3' }).next
+    state = run(mod, state, DM, 'set-dm-level', { levelId: 'L2' }).next
+    const wire = mod.redact!(state, P1).byScene[SCENE]
+    expect(wire.seatLevel).toEqual({ 'p-1': 'L3' })
+    expect(wire.dmLevelId).toBeUndefined()
+    state = run(mod, state, DM, 'set-seat-level', { identity: 'p-1', levelId: null }).next
+    expect(sceneTriggersOf(state, SCENE).seatLevel).toEqual({})
+  })
+})
+
+describe('redact: light edits for unexplored lights stay home', () => {
+  const state: TriggersState = {
+    byScene: {
+      [SCENE]: {
+        ...legacyScene(),
+        lightEdits: { seen: { visible: false }, unseen: { color: '#ff0000' } },
+        roomEdits: { r1: { mood: 'dark' } },
+      },
+    },
+  }
+
+  it('drops the edits of lights a player’s map does not hold, and ships room moods whole', () => {
+    const mod = triggersModule(makeDeps({ keptLightsOf: () => new Set(['seen']) }))
+    const wire = mod.redact!(state, P1).byScene[SCENE]
+    expect(wire.lightEdits).toEqual({ seen: { visible: false } })
+    expect(wire.roomEdits).toEqual({ r1: { mood: 'dark' } })
+  })
+
+  it('ships every edit when the server keeps every light (null), and the DM always gets all', () => {
+    const mod = triggersModule(makeDeps({ keptLightsOf: () => null }))
+    expect(Object.keys(mod.redact!(state, P1).byScene[SCENE].lightEdits)).toEqual(['seen', 'unseen'])
+    const strict = triggersModule(makeDeps({ keptLightsOf: () => new Set() }))
+    expect(strict.redact!(state, DM)).toBe(state)
+  })
+})
+
+describe('set-light: the Lighting pass fields', () => {
+  it('takes cone, animation, through walls, night only and darkness, validated', () => {
+    const mod = triggersModule(makeDeps())
+    const patch = {
+      cone: { angle: 90, direction: 45 },
+      animation: { kind: 'flicker', speed: 2 },
+      throughWalls: true,
+      nightOnly: { min: 0.5, max: 1 },
+      darkness: true,
+      darkvisionSees: true,
+    }
+    const { next, error } = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch })
+    expect(error).toBeNull()
+    expect(sceneOf(next).lightEdits.l1).toEqual(patch)
+    for (const wrong of [
+      { cone: { angle: 5, direction: 0 } },
+      { animation: { kind: 'strobe', speed: 1 } },
+      { nightOnly: { min: 0.8, max: 0.2 } },
+    ]) {
+      expect(run(mod, empty, DM, 'set-light', { lightId: 'l1', patch: wrong }).error?.code).toBe('invalid-command')
+    }
+  })
+
+  it('a light authored off at the table starts off, and a live toggle still turns it on', () => {
+    const light = {
+      visible: true,
+      radius: 4,
+      featherRadius: 2,
+      intensity: 1,
+      color: '#ffffff',
+      position: { x: 0, y: 0 },
+      tableOn: false,
+    }
+    expect(effectiveLight(light, undefined).visible).toBe(false)
+    expect(effectiveLight(light, { visible: true }).visible).toBe(true)
+  })
+})
+
+describe('set-lights-all leaves darkness sources alone', () => {
+  it('does not switch a light the table made a darkness source', () => {
+    const mod = triggersModule(makeDeps({ lightIdsOf: () => ['a', 'void'] }))
+    let state = run(mod, empty, DM, 'set-light', { lightId: 'void', patch: { darkness: true, visible: false } }).next
+    state = run(mod, state, DM, 'set-lights-all', { on: true }).next
+    expect(sceneOf(state).lightEdits.void).toEqual({ darkness: true, visible: false })
+    expect(sceneOf(state).lightEdits.a).toEqual({ visible: true })
   })
 })

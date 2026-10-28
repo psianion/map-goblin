@@ -10,7 +10,7 @@
 import { useEffect, useRef } from 'react';
 import type { TriggerLogEntry, TriggersState } from '@dnd/mechanics/triggers';
 import { sceneTriggersOf } from '@dnd/mechanics/triggers';
-import { showToast } from './toasts';
+import { showToast, type ToastSpec } from './toasts';
 import { useModuleState, useSessionStore } from './store';
 
 /** World narration kinds that toast the moment they land — the same bar as `show-text`:
@@ -33,12 +33,38 @@ export function pickToastable(
     (e) =>
       !seen.has(e.id) &&
       ((WORLD_KINDS.has(e.kind) && e.toPlayers) ||
-        // A reveal-note popping (prep v2). No role check needed: note entries are DM-only
-        // (`toPlayers: false`) and redaction strips them from every player's copy, so only
-        // the DM's tab ever holds one to toast.
+        // A reveal-note popping (prep v2), or a room key's read-aloud (v3). No role check
+        // needed: both are DM-only (`toPlayers: false`) and redaction strips them from every
+        // player's copy, so only the DM's tab ever holds one to toast.
         e.kind === 'note' ||
+        e.kind === 'room-key' ||
         (myIdentityId !== undefined && e.forIdentityId === myIdentityId)),
   );
+}
+
+/** Long enough to read a read-aloud preview and decide whether to Share it. */
+export const ROOM_KEY_TOAST_MS = 12000;
+
+/**
+ * The toast for a batch of new lines. A room key's pop carries Share — the DM's one-click way
+ * to send that room's read-aloud to the player Journal (`share-card` with the room id). When
+ * one batch pops several keyed rooms, Share answers the last one: the toast slot is single, and
+ * every other key stays one click away in the Prep sidebar.
+ */
+export function toastFor(
+  news: readonly TriggerLogEntry[],
+  sceneId: string,
+  send: (action: string, payload: unknown) => void,
+): ToastSpec {
+  const message = news.map((e) => e.text).join('\n');
+  const keyed = [...news].reverse().find((e) => e.kind === 'room-key' && typeof e.detail?.roomId === 'string');
+  if (!keyed) return { message };
+  const roomId = keyed.detail!.roomId as string;
+  return {
+    message,
+    durationMs: ROOM_KEY_TOAST_MS,
+    action: { label: 'Share', onAction: () => send('share-card', { sceneId, roomId }) },
+  };
 }
 
 /**
@@ -65,7 +91,11 @@ export function useTriggerToasts(): void {
       return;
     }
     const news = pickToastable(log, seen.current, myIdentityId);
-    if (news.length) showToast({ message: news.map((e) => e.text).join('\n') });
+    if (news.length) {
+      const send = (action: string, payload: unknown): void =>
+        useSessionStore.getState().sendCommand('triggers', action, payload);
+      showToast(toastFor(news, sceneId, send));
+    }
     for (const entry of log) seen.current.add(entry.id);
   }, [state, sceneId, myIdentityId]);
 }

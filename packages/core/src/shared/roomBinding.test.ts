@@ -24,7 +24,7 @@ function makeWall(points: [number, number][], id = 'wall-1'): WallSegment {
 }
 
 function makeRoom(id: string, boundary: [number, number][]): Room {
-  return { id, name: id, boundary, centroid: [0, 0], area: 0, isPathway: false };
+  return { id, name: id, anchor: [0, 0], face: boundary };
 }
 
 const TOP = makeRoom('room-top', [[0, 0], [10, 0], [10, 5], [0, 5]]);

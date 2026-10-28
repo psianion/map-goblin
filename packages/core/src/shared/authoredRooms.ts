@@ -1,11 +1,17 @@
-// Turning what the DM drew into the room graph the rest of the app already
-// consumes. Nothing downstream learns a new shape: a RoomChild becomes a plain
-// `Room`, and a ConnectorChild gets the same roomA/roomB pair a door gets.
+// Legacy readers for drawn rooms and connectors.
+//
+// Rooms are anchored places now (shared/types.ts `Room`) and nothing authors a
+// RoomChild or a ConnectorChild any more: the room migration removes both from a
+// map when it is opened. What is left here reads them on documents that have not
+// been through it yet — the session server's stored maps until they are
+// republished — so a connector there still plays as the door it was drawn as.
 
-import type { AnyChild, ConnectorChild, DoorChild, DoorStyle, Room, RoomChild } from './types';
+import type { ConnectorChild, DoorChild, DoorStyle, RoomChild } from './types';
 import { flattenRing } from './bezier';
-import { computeArea, computeCentroid, isPathway } from './roomUtils';
-import { clipper2Engine } from './../geometry/Clipper2Engine';
+import { computeCentroid } from './roomUtils';
+
+/** Any child as a document holds it: legacy kinds included, which `AnyChild` no longer names. */
+export type LegacyChild = { childType: string; visible?: boolean };
 
 /**
  * The outer ring as downstream geometry sees it: curves flattened, transform baked.
@@ -219,143 +225,19 @@ export function connectorStyle(child: ConnectorChild): DoorStyle {
   return child.kind === 'arch' ? 'archway' : child.style ?? 'single';
 }
 
-/**
- * The next free `"{prefix} {n}"` on a layer.
- *
- * Counting how many already exist gets this wrong the moment one is deleted:
- * place two, delete the first, place again and the count says 2 — a second
- * "Connector 2", and now the layers panel and the DM's own notes name two
- * different joints the same thing. Reading the highest number actually in use
- * instead means a name is only ever handed out once per layer.
- */
-export function nextAuthoredName(children: readonly AnyChild[], prefix: string): string {
-  const pattern = new RegExp(`^${prefix} (\\d+)$`);
-  let highest = 0;
-  for (const child of children) {
-    // NaN when the name is not `"{prefix} {digits}"` at all, and NaN > n is false.
-    const n = Number(pattern.exec(child.name)?.[1]);
-    if (n > highest) highest = n;
-  }
-  return `${prefix} ${highest + 1}`;
+/** Every legacy RoomChild on a layer, in child order. */
+export function authoredRoomChildren(children: readonly LegacyChild[]): RoomChild[] {
+  return children.filter((c) => c.childType === 'room') as unknown as RoomChild[];
 }
 
-/** Every RoomChild on a layer, in child order. */
-export function authoredRoomChildren(children: readonly AnyChild[]): RoomChild[] {
-  return children.filter((c): c is RoomChild => c.childType === 'room');
+/** Every legacy ConnectorChild on a layer, in child order. */
+export function connectorChildren(children: readonly LegacyChild[]): ConnectorChild[] {
+  return children.filter((c) => c.childType === 'connector') as unknown as ConnectorChild[];
 }
 
-/** Every ConnectorChild on a layer, in child order. */
-export function connectorChildren(children: readonly AnyChild[]): ConnectorChild[] {
-  return children.filter((c): c is ConnectorChild => c.childType === 'connector');
-}
-
-/** The drawn rooms' outer rings, ready for geometry — the occluders and the doorways. */
-export function authoredBoundaries(children: readonly AnyChild[]): [number, number][][] {
+/** The legacy drawn rooms' outer rings, ready for geometry — the occluders and the doorways. */
+export function authoredBoundaries(children: readonly LegacyChild[]): [number, number][][] {
   return authoredRoomChildren(children)
     .filter((room) => room.visible !== false)
     .map(authoredRing);
-}
-
-/**
- * A drawn room as the `Room` the store, server and fog all read.
- *
- * The id is the child's own uuid — never `computeStableRoomId`, whose centroid
- * hash is precisely the churn authored rooms exist to stop. `isPathway` runs the
- * same heuristic `buildRoom` runs, so a corridor behaves identically whichever
- * source drew it.
- */
-export function roomChildToRoom(child: RoomChild, gridSize: number): Room {
-  const boundary = authoredRing(child);
-  return {
-    id: child.id,
-    name: child.name,
-    boundary,
-    centroid: computeCentroid(boundary),
-    area: computeArea(boundary),
-    isPathway: isPathway(boundary, gridSize),
-  };
-}
-
-type Box = { minX: number; minY: number; maxX: number; maxY: number };
-
-function boxOf(ring: readonly [number, number][]): Box {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const [x, y] of ring) {
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  }
-  return { minX, minY, maxX, maxY };
-}
-
-function boxesOverlap(a: Box, b: Box): boolean {
-  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
-}
-
-/**
- * How far past its own outline a joint still counts as touching a room, world
- * units. Rooms are drawn to the wall they stop at, so two rooms either side of a
- * seam are a wall's width apart and a blob spanning that gap overlaps neither by
- * much — a bit over a wall width is what closes it.
- */
-const BIND_TOLERANCE = 0.75;
-
-/** Rooms the polygon set overlaps, with how much of each, largest last-sorted by the caller. */
-function overlapHits(
-  blob: readonly (readonly [number, number][])[],
-  rooms: readonly Room[],
-): { id: string; area: number }[] {
-  const box = boxOf(blob.flat());
-  const hits: { id: string; area: number }[] = [];
-  for (const room of rooms) {
-    if (room.boundary.length < 3) continue;
-    if (!boxesOverlap(box, boxOf(room.boundary))) continue;
-    const pieces = clipper2Engine.intersection(
-      blob as [number, number][][],
-      [room.boundary as [number, number][]],
-    ) as [number, number][][];
-    let area = 0;
-    for (const p of pieces) if (p.length >= 3) area += computeArea(p);
-    if (area > 1e-9) hits.push({ id: room.id, area });
-  }
-  return hits;
-}
-
-/**
- * Bind a connector to the two rooms its blob covers most.
- *
- * A door sits on a wall and probes perpendicularly off it (`bindDoorToRooms`); a
- * connector has no wall, so overlap area is the analogous signal. Three or more
- * overlapped rooms takes the two largest.
- *
- * Area alone is precision-fragile, though, and that is what a DM actually hits:
- * the blob is an ellipse whose tips are the drag's own endpoints, so it tapers to
- * nothing exactly where it meets a room, and the rooms it joins stop at the wall
- * between them rather than touching. Drag across a seam a shade short and both
- * overlaps round to nothing — the joint binds silently to neither. So a miss
- * retries against the blob grown by `BIND_TOLERANCE`, which is the same measure
- * `bindDoorToRooms` takes stepping off its wall, just taken in every direction at
- * once because a connector has no wall to step off. Fewer than two rooms even
- * then leaves both sides `null` — the joint is inert, joining nothing, which is
- * not an error, and the overlay draws it as unlinked.
- *
- * ponytail: one Clipper2 boolean per candidate pair, AABB-rejected first, and a
- * second pass only on the miss. Connectors are a handful per map; index the rooms
- * if that stops being true.
- */
-export function bindConnectorToRooms(
-  connector: ConnectorChild,
-  rooms: readonly Room[],
-): { roomA: string | null; roomB: string | null } {
-  const blob = authoredRing(connector);
-  if (blob.length < 3) return { roomA: null, roomB: null };
-  let hits = overlapHits([blob], rooms);
-  if (hits.length < 2) hits = overlapHits(clipper2Engine.inflate([blob], BIND_TOLERANCE), rooms);
-  if (hits.length < 2) return { roomA: null, roomB: null };
-  hits.sort((a, b) => b.area - a.area);
-  return { roomA: hits[0].id, roomB: hits[1].id };
 }

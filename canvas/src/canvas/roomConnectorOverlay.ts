@@ -4,6 +4,7 @@ import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { dashedPolygon } from './zoneOverlay';
 import type { ConnectorChild, DungeonLayer, RoomChild } from '@/store/types';
+import { authoredRoomChildren, connectorChildren } from '@dnd/core/src/shared/authoredRooms';
 
 /**
  * Editor-only authored-room and connector ink — drawn here, not in the shared
@@ -164,7 +165,7 @@ interface Authored {
  */
 export function overlayShows(state: StoreState): boolean {
   const tool = state.tools.activeTool;
-  return state.ui.roomOverlayVisible || tool === 'room' || tool === 'door';
+  return state.ui.roomOverlayVisible || tool === 'door';
 }
 
 function visibleAuthored(state: StoreState): Authored {
@@ -172,8 +173,10 @@ function visibleAuthored(state: StoreState): Authored {
   const showAll = overlayShows(state);
   for (const l of state.layers) {
     if (l.type !== 'dungeon' || !isLayerEffectivelyVisible(state, l as DungeonLayer)) continue;
-    for (const c of (l as DungeonLayer).children) {
-      if (c.childType !== 'room' && c.childType !== 'connector') continue;
+    // Drawn rooms and connectors are legacy: nothing authors them and opening a
+    // map migrates them away, so on a migrated map this finds none.
+    const children = (l as DungeonLayer).children;
+    for (const c of [...authoredRoomChildren(children), ...connectorChildren(children)]) {
       if (!c.visible) continue;
       const selected = state.selection.selectedIds.includes(c.id);
       // The switch turns off the crowd, never the thing in hand: what the DM has

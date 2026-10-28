@@ -17,7 +17,6 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Container, Ticker } from 'pixi.js';
-import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -30,10 +29,15 @@ import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { useFogBrush } from './brush';
-import { DM_FOG_LOOK, regionRects } from './fog';
+import { DM_FOG_LOOK, regionRects, type TableRoom } from './fog';
+
 import { fogScene } from './FogRenderer';
 import { createLivingFog } from './livingFog';
 import { mountFogOverlayWhenReady } from './FogOverlay';
+
+/** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
+ *  rows that aim at the middle of a room. */
+type Room = TableRoom & { centroid: [number, number] };
 
 // The one thing the drawn instructions cannot say: whether the runs were *rebuilt*. Delegating
 // wrapper, so every other row here draws exactly what it drew before.
@@ -72,6 +76,7 @@ const room = (id: string, x: number): Room => ({
     [x + 4, 4],
     [x, 4],
   ],
+  anchor: [x + 2, 2],
   centroid: [x + 2, 2],
   area: 16,
   isPathway: false,

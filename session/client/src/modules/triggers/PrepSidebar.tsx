@@ -7,17 +7,31 @@
 // "state never leans on hue"), a note can be shared straight into the player Journal, and a
 // quick-actions strip covers the DM's on-the-fly moves without leaving the sidebar.
 //
-// Prep (`TriggerDef[]`/`RoomNote[]`) still lives server-side, authored in the map editor — this
-// is the one place in session/client that reaches for it over REST rather than the WS snapshot
-// (SessionControls's own DM-only scene library does the same).
+// Prep (`TriggerDef[]`/`RoomNote[]`/`RoomKey[]`) still lives server-side, authored in the map
+// editor — this is the one place in session/client that reaches for it over REST rather than
+// the WS snapshot (SessionControls's own DM-only scene library does the same).
+//
+// Prep v3 adds the room key: a Rooms section lists each keyed room as a card, read-aloud first
+// with Share (the one way it reaches a player), then the DM's own notes, the encounter with
+// Spawn, treasure, traps and checks.
 
 import { useEffect, useMemo, useState } from 'react';
-import type { RoomNote, ScenePrep, TriggerCondition, TriggerDef } from '@dnd/core/src/shared/prep';
-import type { ZoneChild } from '@dnd/core/src/shared/types';
+import {
+  roomLabel,
+  type RoomKey,
+  type RoomNote,
+  type ScenePrep,
+  type TriggerCondition,
+  type TriggerDef,
+} from '@dnd/core/src/shared/prep';
+import type { Mood, Room, ZoneChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import {
   JOURNAL_KICKERS,
+  roomEditsOf,
+  roomShareKey,
+  roomSpawnKey,
   sceneTriggersOf,
   shareReceiptsOf,
   type JournalKicker,
@@ -25,7 +39,7 @@ import {
 } from '@dnd/mechanics/triggers';
 import { Switch } from '../../components/controls';
 import { frameWorldPoint } from '../../renderer/camera';
-import { getScenePrep } from '../../session/auth';
+import { getScenePrep, type ResolvedRoomVerdict } from '../../session/auth';
 import { registerSidebar } from '../../session/sidebars';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { mapLights, patchLightLocal, type LightHit } from '../lights/lights';
@@ -66,6 +80,7 @@ type PrepFetch =
       prep: ScenePrep | null;
       inertById: Record<string, string>;
       inertNoteById: Record<string, string>;
+      roomVerdicts: Record<string, ResolvedRoomVerdict>;
     }
   | { sceneId: string; error: string };
 
@@ -94,20 +109,37 @@ function zoneAnchor(zone: ZoneChild): { x: number; y: number } {
   return { x: shape.position.x, y: shape.position.y };
 }
 
+/** Every room on the loaded map, by id — what room-anchored prep and the room keys name. */
+function roomsOf(layers: readonly Layer[]): Map<string, Room> {
+  const rooms = new Map<string, Room>();
+  for (const layer of layers) {
+    if (layer.type !== 'dungeon') continue;
+    for (const room of layer.rooms ?? []) rooms.set(room.id, room);
+  }
+  return rooms;
+}
+
 function conditionLine(when: TriggerCondition, zoneName: string | undefined): string {
   const label = CONDITION_LABEL[when.kind];
   return zoneName ? `${label} · ${zoneName}` : label;
 }
 
 interface Group {
+  /** The zone id, or `room:<id>` for prep anchored to a room. */
   zoneId: string;
   zoneName: string;
   zone: ZoneChild | null;
+  /** Where the header pans to, when its anchor still exists. */
+  at: { x: number; y: number } | null;
   triggers: TriggerDef[];
   notes: RoomNote[];
 }
 
-function groupByZone(prep: ScenePrep | null, zones: Map<string, ZoneChild>): Group[] {
+function groupByZone(
+  prep: ScenePrep | null,
+  zones: Map<string, ZoneChild>,
+  rooms: Map<string, Room> = new Map(),
+): Group[] {
   // Prep arrives over REST well before the map document lands in the editor store, and until
   // it does there are no zones to match against — every group would read "Deleted zone" and
   // then quietly correct itself, which is an alarming thing to say about a scene that is
@@ -123,6 +155,7 @@ function groupByZone(prep: ScenePrep | null, zones: Map<string, ZoneChild>): Gro
         zoneId,
         zoneName: zone?.name ?? (resolving ? '' : 'Deleted zone'),
         zone,
+        at: zone ? zoneAnchor(zone) : null,
         triggers: [],
         notes: [],
       };
@@ -130,12 +163,33 @@ function groupByZone(prep: ScenePrep | null, zones: Map<string, ZoneChild>): Gro
     }
     return g;
   };
-  for (const t of prep?.triggers ?? []) groupFor(t.when.zoneId).triggers.push(t);
-  for (const n of prep?.notes ?? []) groupFor(n.zoneId).notes.push(n);
-  // Zone-name order keeps the list stable while prep is being edited; unanchored
-  // (deleted-zone) groups sink to the bottom, same as the canvas editor's own list.
+  // Prep anchored to a room (v3) groups under the room, named the way the table names rooms.
+  const groupForRoom = (roomId: string): Group => {
+    const key = `room:${roomId}`;
+    let g = byZone.get(key);
+    if (!g) {
+      const room = rooms.get(roomId);
+      g = {
+        zoneId: key,
+        zoneName: room ? roomLabel(room) || 'Room' : rooms.size === 0 ? '' : 'Deleted room',
+        zone: null,
+        at: room ? { x: room.anchor[0], y: room.anchor[1] } : null,
+        triggers: [],
+        notes: [],
+      };
+      byZone.set(key, g);
+    }
+    return g;
+  };
+  for (const t of prep?.triggers ?? []) {
+    const when = t.when;
+    ('roomId' in when ? groupForRoom(when.roomId) : groupFor(when.zoneId)).triggers.push(t);
+  }
+  for (const n of prep?.notes ?? []) (n.roomId ? groupForRoom(n.roomId) : groupFor(n.zoneId)).notes.push(n);
+  // Name order keeps the list stable while prep is being edited; unanchored (deleted zone or
+  // room) groups sink to the bottom, same as the canvas editor's own list.
   return [...byZone.values()].sort((a, b) => {
-    if (!a.zone !== !b.zone) return a.zone ? -1 : 1;
+    if (!a.at !== !b.at) return a.at ? -1 : 1;
     return a.zoneName.localeCompare(b.zoneName);
   });
 }
@@ -158,7 +212,9 @@ export function PrepSidebar() {
         for (const r of res.resolved) if (r.inert) inertById[r.id] = r.inert;
         const inertNoteById: Record<string, string> = {};
         for (const r of res.resolvedNotes ?? []) if (r.inert) inertNoteById[r.id] = r.inert;
-        setFetched({ sceneId, prep: res.prep, inertById, inertNoteById });
+        const roomVerdicts: Record<string, ResolvedRoomVerdict> = {};
+        for (const r of res.resolvedRooms ?? []) roomVerdicts[r.roomId] = r;
+        setFetched({ sceneId, prep: res.prep, inertById, inertNoteById, roomVerdicts });
       })
       .catch((e) => setFetched({ sceneId, error: e instanceof Error ? e.message : String(e) }));
   }, [sceneId]);
@@ -167,13 +223,16 @@ export function PrepSidebar() {
   const prep = current && 'prep' in current ? current.prep : null;
   const inertById = current && 'inertById' in current ? current.inertById : {};
   const inertNoteById = current && 'inertNoteById' in current ? current.inertNoteById : {};
+  const roomVerdicts = current && 'roomVerdicts' in current ? current.roomVerdicts : {};
   const error = current && 'error' in current ? current.error : null;
 
   const scene = sceneId && state ? sceneTriggersOf(state, sceneId) : undefined;
   const zones = useMemo(() => zonesOf(layers), [layers]);
-  const groups = useMemo(() => groupByZone(prep, zones), [prep, zones]);
+  const rooms = useMemo(() => roomsOf(layers), [layers]);
+  const groups = useMemo(() => groupByZone(prep, zones, rooms), [prep, zones, rooms]);
   const triggers = prep?.triggers ?? [];
   const notes = prep?.notes ?? [];
+  const keys = useMemo(() => sortedKeys(prep?.rooms ?? [], rooms), [prep, rooms]);
   const dense = triggers.length > DENSE_AT;
 
   useMarkPrepSeen(sceneId, scene?.log ?? []);
@@ -191,7 +250,7 @@ export function PrepSidebar() {
 
   return (
     <div className="flex min-h-0 flex-col gap-1 text-sm">
-      {triggers.length === 0 && notes.length === 0 ? (
+      {triggers.length === 0 && notes.length === 0 && keys.length === 0 ? (
         <div className="flex flex-col gap-0.5 px-3.5 py-1 text-sm">
           <p className="text-text-secondary">No prep for this scene.</p>
           <p className="text-text-muted">Author triggers and notes in the Editor, or send a card on the fly.</p>
@@ -208,6 +267,10 @@ export function PrepSidebar() {
             sceneId={sceneId}
           />
         ))
+      )}
+
+      {keys.length > 0 && sceneId && (
+        <RoomsSection keys={keys} rooms={rooms} verdicts={roomVerdicts} scene={scene} sceneId={sceneId} />
       )}
 
       <QuickActions encounterTriggers={encounterTriggers} namedLights={namedLights} sceneId={sceneId} />
@@ -234,9 +297,9 @@ function ZoneGroup({
   inertNoteById: Record<string, string>;
   sceneId: string | null;
 }) {
-  const pannable = !!group.zone;
+  const pannable = !!group.at;
   const onPan = (): void => {
-    if (group.zone) frameWorldPoint(zoneAnchor(group.zone).x, zoneAnchor(group.zone).y);
+    if (group.at) frameWorldPoint(group.at.x, group.at.y);
   };
   return (
     <section className="mt-1.5" data-testid="prep-zone-group" data-zone-id={group.zoneId}>
@@ -244,7 +307,7 @@ function ZoneGroup({
         type="button"
         disabled={!pannable}
         onClick={onPan}
-        title={pannable ? 'Pan to zone' : undefined}
+        title={pannable ? (group.zone ? 'Pan to zone' : 'Pan to room') : undefined}
         className="group flex w-full items-center gap-1.5 rounded px-3.5 py-1 text-left text-[12px] font-medium text-text-secondary transition-colors duration-150 ease-settle enabled:hover:bg-surface-2/60 disabled:cursor-default motion-reduce:transition-none"
       >
         {group.zoneName ? (
@@ -420,6 +483,264 @@ function NoteRow({ note, sceneId, inert }: { note: RoomNote; sceneId: string; in
         </div>
       )}
     </li>
+  );
+}
+
+/** Room keys in the table's own reading order: by number, then by label. A key whose room is
+ *  gone sinks to the bottom. */
+function sortedKeys(keys: readonly RoomKey[], rooms: Map<string, Room>): RoomKey[] {
+  return [...keys].sort((a, b) => {
+    const ra = rooms.get(a.roomId);
+    const rb = rooms.get(b.roomId);
+    if (!ra !== !rb) return ra ? -1 : 1;
+    const na = ra?.number ?? Infinity;
+    const nb = rb?.number ?? Infinity;
+    if (na !== nb) return na - nb;
+    return (ra?.name ?? '').localeCompare(rb?.name ?? '');
+  });
+}
+
+const ABILITY_LABEL = (ability: string): string => ability.toUpperCase();
+
+/** The DM's room key, one card per keyed room (prep v3). */
+function RoomsSection({
+  keys,
+  rooms,
+  verdicts,
+  scene,
+  sceneId,
+}: {
+  keys: readonly RoomKey[];
+  rooms: Map<string, Room>;
+  verdicts: Record<string, ResolvedRoomVerdict>;
+  scene: TriggersState['byScene'][string] | undefined;
+  sceneId: string;
+}) {
+  return (
+    <section className="mt-1.5" data-testid="prep-rooms">
+      <p className="px-3.5 py-1 text-[10px] font-semibold uppercase tracking-[.07em] text-text-muted">Rooms</p>
+      <ul className="flex flex-col">
+        {keys.map((key) => (
+          <RoomKeyCard
+            key={key.roomId}
+            roomKey={key}
+            room={rooms.get(key.roomId)}
+            verdict={verdicts[key.roomId]}
+            spawnedAt={scene?.fired[roomSpawnKey(key.roomId)]}
+            sceneId={sceneId}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const MOOD_CHOICES: readonly { value: '' | Mood; label: string }[] = [
+  { value: '', label: 'Inherit' },
+  { value: 'lit', label: 'Lit' },
+  { value: 'dim', label: 'Dim' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/**
+ * The room's live mood at the table: Inherit (the map's look chain) or a pinned Lit, Dim or
+ * Dark (`set-room`). A pill, quiet until pinned, like the seats' level pills.
+ */
+function MoodPill({ roomId, label, sceneId }: { roomId: string; label: string; sceneId: string }) {
+  const state = useModuleState<TriggersState>('triggers');
+  const scene = state?.byScene[sceneId];
+  const mood = scene ? roomEditsOf(scene)[roomId]?.mood : undefined;
+  return (
+    <span className="relative shrink-0">
+      <select
+        aria-label={`Mood: ${label}`}
+        data-testid="room-mood"
+        value={mood ?? ''}
+        onChange={(e) => send('set-room', { sceneId, roomId, patch: { mood: e.target.value || null } })}
+        className={`h-6 appearance-none rounded border py-px pl-1.5 pr-4 text-[11px] focus:border-border-focus focus:outline-none ${
+          mood ? 'border-border-structure bg-surface-3 font-medium text-text-primary' : 'border-border-default bg-transparent text-text-muted'
+        }`}
+      >
+        {MOOD_CHOICES.map((m) => (
+          <option key={m.value} value={m.value}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+      <svg
+        aria-hidden
+        viewBox="0 0 24 24"
+        width="10"
+        height="10"
+        className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-text-muted"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M6 9L12 15L18 9" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * One room's key. The header row carries what the DM reaches for mid-scene — the room's name
+ * and Share for its read-aloud — and expands to the rest: the DM's notes, the encounter with
+ * Spawn, treasure, traps and checks. Share snapshots exactly the read-aloud (`share-card` with
+ * the room id), receipted like a note's; Spawn runs the key's encounter with the room as the
+ * spawn region (`spawn-encounter`) and stays available for a second wave.
+ */
+function RoomKeyCard({
+  roomKey,
+  room,
+  verdict,
+  spawnedAt,
+  sceneId,
+}: {
+  roomKey: RoomKey;
+  room: Room | undefined;
+  verdict: ResolvedRoomVerdict | undefined;
+  spawnedAt: number | undefined;
+  sceneId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const state = useModuleState<TriggersState>('triggers');
+  const receipt = state ? shareReceiptsOf(state)[roomShareKey(roomKey.roomId)] : undefined;
+  const label = (room ? roomLabel(room) : verdict?.label) || 'Room';
+  const readAloud = roomKey.readAloud.trim();
+  const inert = verdict?.inert ?? (!room ? 'room was deleted' : undefined);
+  const encounter = roomKey.encounter;
+  const roster = encounter?.monsters.map((m) => (m.count > 1 ? `${m.count} × ${m.name}` : m.name)).join(', ');
+
+  return (
+    <li className="flex shrink-0 flex-col" data-testid="room-key-card" data-room-id={roomKey.roomId}>
+      <div className="flex h-10 items-center gap-2 rounded px-3.5">
+        <StateMark tone={receipt ? 'fired' : 'armed'} title={receipt ? `Read-aloud shared ${fmtTime(receipt.at)}` : 'Read-aloud not shared'} />
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 text-left transition-colors duration-150 ease-settle hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+        >
+          <span className="min-w-0 truncate text-[13px] text-text-primary">{label}</span>
+          {inert && (
+            <span
+              title={inert}
+              className="shrink-0 rounded border border-warning/45 px-1 text-[10px] uppercase tracking-[.06em] text-warning"
+            >
+              Inert
+            </span>
+          )}
+        </button>
+        {room && <MoodPill roomId={roomKey.roomId} label={label} sceneId={sceneId} />}
+        {room && (
+          <button
+            type="button"
+            aria-label={`Pan to ${label}`}
+            onClick={() => frameWorldPoint(room.anchor[0], room.anchor[1])}
+            className="h-6 shrink-0 rounded px-1.5 text-[10px] text-text-muted hover:bg-surface-2 hover:text-text-dim"
+          >
+            pan
+          </button>
+        )}
+        {readAloud &&
+          (receipt ? (
+            <button type="button" disabled className="h-6 shrink-0 rounded px-2 text-[11.5px] text-text-muted">
+              Shared <span className="font-mono">{fmtTime(receipt.at)}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label={`Share read-aloud: ${label}`}
+              onClick={() => send('share-card', { sceneId, roomId: roomKey.roomId })}
+              className="h-6 shrink-0 rounded border border-accent-dim/60 px-2 text-[11.5px] text-accent-active transition-colors duration-150 ease-settle hover:bg-accent-active/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+            >
+              Share
+            </button>
+          ))}
+      </div>
+      {open && (
+        <div className="flex flex-col gap-2 px-3.5 pb-2 pl-9 text-[12.5px] leading-relaxed">
+          {readAloud && (
+            <KeyBlock title="Read-aloud">
+              <p className="whitespace-pre-wrap border-l-2 border-border-structure pl-2 text-text-primary">{readAloud}</p>
+            </KeyBlock>
+          )}
+          {roomKey.notes.trim() && (
+            <KeyBlock title="DM notes">
+              <p className="whitespace-pre-wrap text-text-secondary">{roomKey.notes}</p>
+            </KeyBlock>
+          )}
+          {encounter && encounter.monsters.length > 0 && (
+            <KeyBlock title="Encounter">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 text-text-secondary">
+                  {encounter.name ? <span className="text-text-primary">{encounter.name}</span> : null}
+                  {encounter.name && roster ? ' — ' : ''}
+                  {roster}
+                </span>
+                <button
+                  type="button"
+                  disabled={!!inert || !!verdict?.encounterInert}
+                  title={verdict?.encounterInert ?? inert ?? (spawnedAt !== undefined ? `Spawned ${fmtTime(spawnedAt)}` : undefined)}
+                  aria-label={`Spawn encounter: ${label}`}
+                  onClick={() => send('spawn-encounter', { sceneId, roomId: roomKey.roomId })}
+                  className="shrink-0 rounded border border-border-default px-2 py-0.5 text-[11px] text-text-dim hover:border-border-structure hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {spawnedAt !== undefined ? 'Spawn again' : 'Spawn'}
+                </button>
+              </div>
+            </KeyBlock>
+          )}
+          {roomKey.treasure.trim() && (
+            <KeyBlock title="Treasure">
+              <p className="whitespace-pre-wrap text-text-secondary">{roomKey.treasure}</p>
+            </KeyBlock>
+          )}
+          {roomKey.traps.length > 0 && (
+            <KeyBlock title="Traps">
+              <ul className="flex flex-col gap-0.5 text-text-secondary">
+                {roomKey.traps.map((trap) => (
+                  <li key={trap.id}>
+                    {trap.text}
+                    {(trap.save || trap.damage) && (
+                      <span className="text-text-muted">
+                        {' · '}
+                        {[trap.save ? `${ABILITY_LABEL(trap.save.ability)} DC ${trap.save.dc}` : null, trap.damage]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </KeyBlock>
+          )}
+          {roomKey.checks.length > 0 && (
+            <KeyBlock title="Checks">
+              <ul className="flex flex-col gap-0.5 text-text-secondary">
+                {roomKey.checks.map((check) => (
+                  <li key={check.id}>
+                    <span className="text-text-muted">{`${ABILITY_LABEL(check.ability)} DC ${check.dc}`}</span> {check.text}
+                  </li>
+                ))}
+              </ul>
+            </KeyBlock>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function KeyBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="text-[10px] uppercase tracking-[.05em] text-text-muted">{title}</p>
+      {children}
+    </div>
   );
 }
 

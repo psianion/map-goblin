@@ -44,6 +44,7 @@ const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][
 const room = (id: string, x0: number, y0: number, x1: number, y1: number): Room => ({
   id,
   name: `${id} of secrets`,
+  anchor: [(x0 + x1) / 2, (y0 + y1) / 2],
   boundary: rect(x0, y0, x1, y1),
   centroid: [(x0 + x1) / 2, (y0 + y1) / 2],
   area: (x1 - x0) * (y1 - y0),
@@ -141,6 +142,7 @@ function mapFile(): SerializedMapData {
     id: 'layer-1',
     name: 'Crypt',
     type: 'dungeon',
+    levelId: 'level-1',
     visible: true,
     locked: false,
     opacity: 1,
@@ -167,7 +169,6 @@ function mapFile(): SerializedMapData {
     style: {} as DungeonLayer['style'],
     sublayerVisibility: { floor: true, grid: true, walls: true },
     rooms: ROOMS,
-    roomNameOverrides: Object.fromEntries(ROOMS.map((r) => [r.id, r.name])),
   }
   return {
     version: '3.0',
@@ -220,6 +221,14 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(layer.rooms?.map((r) => r.id).sort()).toEqual(['hall', 'inner'])
     expect(layer.children.map((c) => c.id)).toContain('floor-inner')
     expect(layer.children.map((c) => c.id)).toContain('prop-inner')
+  })
+
+  it("ships a door's look fields (kit, opening, hanging) untouched", () => {
+    const map = sceneMap()
+    const d = (map.data.layers[0] as DungeonLayer).children.find((c) => c.id === 'door-hall-corr') as DoorChild
+    Object.assign(d, { kit: 'cave', openAngle: 135, hinge: 'end', swing: -1, hinges: false })
+    const shipped = layerOf(redactMapForViewer(map, fog(), {})).children.find((c) => c.id === 'door-hall-corr')
+    expect(shipped).toMatchObject({ kit: 'cave', openAngle: 135, hinge: 'end', swing: -1, hinges: false })
   })
 
   it('drops props on unzoned map, which no command can reveal (D6)', () => {
@@ -358,7 +367,10 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
   })
 
   it('names only the rooms the player has been in', () => {
-    expect(Object.keys(layerOf(redacted()).roomNameOverrides ?? {}).sort()).toEqual(['hall', 'inner'])
+    // Names live on the rooms themselves now, so the room cut is the name cut.
+    const rooms = layerOf(redacted()).rooms ?? []
+    expect(rooms.map((r) => r.id).sort()).toEqual(['hall', 'inner'])
+    expect(rooms.map((r) => r.name).sort()).toEqual(['hall of secrets', 'inner of secrets'])
   })
 
   it('keeps a door into the unknown but not the id of what is behind it', () => {
@@ -389,10 +401,20 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
     // No fog to enforce, so the geometry is untouched — but a door nobody can earn is not
-    // the player's to be shown (see 'hands a map nobody zoned over whole' below).
-    expect(createVision(stores).playerMap('flat')).toEqual({
+    // the player's to be shown (see 'hands a map nobody zoned over whole' below). The copy is
+    // the document as the editor opens it: one level holding every layer.
+    const got = createVision(stores).playerMap('flat')!
+    expect(got).toEqual({
       ...plain,
-      layers: [{ ...layer, children: layer.children.filter((c) => c.childType !== 'door') }],
+      mapSettings: { ...plain.mapSettings, roomsVersion: 2 },
+      levels: [{ id: expect.any(String), name: 'Crypt' }],
+      layers: [
+        {
+          ...layer,
+          levelId: got.levels![0]!.id,
+          children: layer.children.filter((c) => c.childType !== 'door'),
+        },
+      ],
     })
   })
 })
@@ -423,6 +445,7 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
       id: 'layer-1',
       name: 'Cave',
       type: 'dungeon',
+      levelId: 'level-1',
       visible: true,
       locked: false,
       opacity: 1,
@@ -435,7 +458,6 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
       style: {} as DungeonLayer['style'],
       sublayerVisibility: { floor: true, grid: true, walls: true },
       rooms,
-      roomNameOverrides: {},
     }
     return { ...mapFile(), layers: [layer] }
   }
@@ -1007,8 +1029,9 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
 
 describe('prep and zones (schema 3.1)', () => {
   const PREP: ScenePrep = {
-    version: 2,
+    version: 3,
     notes: [],
+    rooms: [],
     triggers: [
       {
         id: 't1',

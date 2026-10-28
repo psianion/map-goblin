@@ -11,6 +11,7 @@
 import type { DoorsState } from '@dnd/mechanics/doors';
 import type { FogState } from '@dnd/mechanics/fog';
 import type { LogAction, LogEntry } from '@dnd/mechanics/log';
+import { roomLabel } from '@dnd/core/src/shared/prep';
 import { serverDoors, serverRooms } from '../modules/fog/fog';
 
 /** One rendered line, in the shape GameLog's presence lines already use. */
@@ -94,7 +95,8 @@ export function tableLogLines(
   const doorNames = new Map(
     serverDoors(mapData, doors, sceneId).map(({ door }) => [door.id, door.name?.trim() || '']),
   );
-  const roomNames = new Map(serverRooms(mapData).map((room) => [room.id, room.name?.trim() || '']));
+  // Rooms read the way the table names them everywhere: "N · name" (`roomLabel`).
+  const roomNames = new Map(serverRooms(mapData).map((room) => [room.id, roomLabel(room)]));
 
   return [...doorEntries, ...fogEntries]
     .map((e) => {

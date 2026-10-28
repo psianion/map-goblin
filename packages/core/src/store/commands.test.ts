@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { AddChildCommand, ChildOrderCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, SetGroupMergedCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { createDungeonLayer } from './factories';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
-import type { AssetChild, ConnectorChild, DoorChild, LightChild, RoomChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
+import type { AssetChild, DoorChild, LightChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
 import type { DungeonLayer, DungeonStyle } from './types';
+import { ringStyles, standaloneWallLook, styleValueOrDefault, styleWallLook } from '../shared/wallLook';
 
 describe('PropertyCommand', () => {
   beforeEach(() => {
@@ -379,12 +381,12 @@ describe('PresetApplyCommand', () => {
         style: { ...dungeonLayer().style, wallTextureSetId: 'stone-slate' },
       } as Partial<DungeonLayer>);
 
-      // e.g. Cave / Natural, which carries `wallTextureSetId: undefined` — the
-      // key that used to switch wall texture off and hide every authored wall.
-      const preset = DUNGEON_STYLE_PRESETS.find(
-        (p) => 'wallTextureSetId' in p.dungeonStyle && p.dungeonStyle.wallTextureSetId === undefined,
-      );
-      if (!preset) throw new Error('Expected a preset with an explicit undefined wall texture');
+      // A preset carrying `wallTextureSetId: undefined` — the key that used to
+      // switch wall texture off and hide every authored wall. Cave / Natural
+      // shipped that way before it named the forge's cave kit, so it is built
+      // here rather than looked up.
+      const base = DUNGEON_STYLE_PRESETS[0];
+      const preset = { ...base, dungeonStyle: { ...base.dungeonStyle, wallTextureSetId: undefined } };
 
       const layer = dungeonLayer();
       new PresetApplyCommand('test', layer.id, preset, structuredClone(layer.style)).execute();
@@ -506,6 +508,142 @@ describe('PresetApplyCommand', () => {
       expect(wallById('authored-wall').textureSetId).toBe('wood-plank');
       expect(dungeonLayer().style.wallTextureSetId).toBe('stone-slate');
     });
+  });
+});
+
+// The whole contract in one place: whatever preset lands on whatever layer, every floor
+// and every wall already drawn resolves to the same look it had, in memory and after a
+// save (JSON), while the layer moves on for the next one drawn.
+describe('PresetApplyCommand: drawn work keeps its look', () => {
+  const STYLE_KEYS: (keyof DungeonStyle)[] = [
+    'floorColor',
+    'wallColor',
+    'wallWidth',
+    'lineWidth',
+    'defaultTextureId',
+    'edgeTransitionWidth',
+    'showEdgeTransitions',
+    'wallTextureSetId',
+    'wallTextureTint',
+    'floorBleed',
+  ];
+  const dungeonLayer = (): DungeonLayer => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!layer || layer.type !== 'dungeon') throw new Error('No dungeon layer');
+    return layer;
+  };
+  const floor = (id: string, x: number): ShapeChild => ({
+    id,
+    name: id,
+    childType: 'shape',
+    visible: true,
+    shapeType: 'rectangle',
+    contours: [[[x, 0], [x + 4, 0], [x + 4, 4], [x, 4]]],
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+  });
+  const wall = (id: string, y: number): WallSegment => ({
+    id,
+    points: [[0, y], [6, y]],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000000',
+    roughness: 0,
+  });
+
+  /** What the renderers paint each floor and wall with, every key resolved to a value. */
+  const looks = (layer: DungeonLayer) => ({
+    floors: layer.children
+      .filter((c): c is ShapeChild => c.childType === 'shape')
+      .map((c) => {
+        const s = resolveStyle(layer.style, c.styleOverrides as Partial<DungeonStyle>);
+        return Object.fromEntries(STYLE_KEYS.map((k) => [k, styleValueOrDefault(s, k)]));
+      }),
+    outline: ringStyles(layer).map((s) => ({ ...styleWallLook(s), gridLines: s.wallColor })),
+    walls: layer.standaloneWalls.map((w) => standaloneWallLook(w, layer.style)),
+  });
+
+  const STARTS: { name: string; style: Partial<DungeonStyle> }[] = [
+    { name: 'stones, no bleed key', style: { wallTextureSetId: 'GG_Fieldstone', wallTextureTint: '#b09878', wallWidth: 0.7 } },
+    { name: 'no wall set at all', style: { wallTextureSetId: undefined, wallTextureTint: '#ffffff', wallWidth: 0.3 } },
+  ];
+
+  for (const start of STARTS) {
+    for (const preset of DUNGEON_STYLE_PRESETS) {
+      it(`${preset.label} over a layer with ${start.name}`, () => {
+        useStore.getState().resetToDefault();
+        const id = dungeonLayer().id;
+        const style = { ...dungeonLayer().style, ...start.style } as DungeonStyle;
+        delete style.floorBleed;
+        if (start.style.wallTextureSetId === undefined) delete style.wallTextureSetId;
+        useStore.getState().updateLayer(id, { style } as Partial<DungeonLayer>);
+        useStore.getState().addChild(id, floor('f1', 0));
+        useStore.getState().addChild(id, floor('f2', 10));
+        useStore.getState().addWall(id, wall('w1', 6));
+        useStore.getState().addWall(id, wall('w2', 8));
+        useStore.setState((s) => {
+          const l = s.layers.find((x) => x.id === id) as DungeonLayer;
+          l.mergedFloor = [
+            [[0, 0], [4, 0], [4, 4], [0, 4]],
+            [[10, 0], [14, 0], [14, 4], [10, 4]],
+          ];
+        });
+        const before = looks(dungeonLayer());
+
+        new PresetApplyCommand('test', id, preset, structuredClone(dungeonLayer().style)).execute();
+
+        expect(looks(dungeonLayer())).toEqual(before);
+        // A save drops undefined; a pin has to survive it.
+        expect(looks(JSON.parse(JSON.stringify(dungeonLayer())))).toEqual(before);
+        for (const c of dungeonLayer().children) {
+          for (const v of Object.values(c.styleOverrides ?? {})) expect(v).not.toBeUndefined();
+        }
+      });
+    }
+  }
+
+  it('a floor drawn after the preset takes the new look, outline and all', () => {
+    useStore.getState().resetToDefault();
+    const id = dungeonLayer().id;
+    useStore.getState().addChild(id, floor('old', 0));
+    const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === 'timber-palisade')!;
+    new PresetApplyCommand('test', id, preset, structuredClone(dungeonLayer().style)).execute();
+    useStore.getState().addChild(id, floor('new', 10));
+    useStore.getState().addWall(id, wall('w-new', 6));
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.id === id) as DungeonLayer;
+      l.mergedFloor = [
+        [[0, 0], [4, 0], [4, 4], [0, 4]],
+        [[10, 0], [14, 0], [14, 4], [10, 4]],
+      ];
+    });
+    const [oldRing, newRing] = ringStyles(dungeonLayer()).map(styleWallLook);
+    expect(oldRing.setId).toBe('GG_Fieldstone');
+    expect(newRing.setId).toBe('GG_Palisade');
+    expect(newRing.tint).toBe('#b49366');
+    expect(standaloneWallLook(dungeonLayer().standaloneWalls[0], dungeonLayer().style).setId).toBe('GG_Palisade');
+  });
+
+  it('pins width on walls with the tint beside it, and undo takes both back', () => {
+    useStore.getState().resetToDefault();
+    const id = dungeonLayer().id;
+    useStore.getState().updateLayer(id, { style: { ...dungeonLayer().style, wallWidth: 0.8 } } as Partial<DungeonLayer>);
+    useStore.getState().addWall(id, wall('w1', 6));
+    const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === 'classic-dungeon')!;
+    const tintBefore = dungeonLayer().style.wallTextureTint;
+    const cmd = new PresetApplyCommand('test', id, preset, structuredClone(dungeonLayer().style));
+    cmd.execute();
+    const w = dungeonLayer().standaloneWalls[0];
+    expect(w.width).toBe(0.8);
+    expect(w.textureTint).toBe(tintBefore);
+    cmd.undo();
+    const back = dungeonLayer().standaloneWalls[0];
+    expect(back.width).toBeUndefined();
+    expect(back.textureTint).toBeUndefined();
+    expect(standaloneWallLook(back, dungeonLayer().style).width).toBe(0.8);
   });
 });
 
@@ -779,39 +917,6 @@ describe('AddChildCommand/RemoveChildCommand.affectsRooms — zones are inert', 
     expect(removeDoor.affectsRooms).toBe(true);
   });
 
-  // A drawn room IS the room graph on an authored layer — adding the first one
-  // flips that layer off detection — and a connector needs a roomA/B the moment
-  // it lands, exactly like a door.
-  it('adding or removing a drawn room or a connector affects rooms', () => {
-    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
-    const ROOM: RoomChild = {
-      id: 'room-child-1',
-      name: 'Great Hall',
-      childType: 'room',
-      visible: true,
-      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
-    };
-    const CONNECTOR: ConnectorChild = {
-      id: 'connector-1',
-      name: 'Arch',
-      childType: 'connector',
-      visible: true,
-      contours: [[[3, 1], [5, 1], [5, 3], [3, 3]]],
-      kind: 'arch',
-      state: 'open',
-      isSecret: false,
-    };
-    expect(new AddChildCommand('Add room', layer.id, ROOM).affectsRooms).toBe(true);
-    expect(new AddChildCommand('Add connector', layer.id, CONNECTOR).affectsRooms).toBe(true);
-
-    useStore.getState().addChild(layer.id, ROOM);
-    useStore.getState().addChild(layer.id, CONNECTOR);
-    for (const id of [ROOM.id, CONNECTOR.id]) {
-      const remove = new RemoveChildCommand('Remove', layer.id, id);
-      remove.execute();
-      expect(remove.affectsRooms).toBe(true);
-    }
-  });
 });
 
 describe('createChildRemovalCommand — M1 asset/light attachment cascade', () => {
@@ -878,5 +983,85 @@ describe('createChildRemovalCommand — M1 asset/light attachment cascade', () =
     const after = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
     expect(after.children.find((c) => c.id === ASSET.id)).toBeUndefined();
     expect(after.children.find((c) => c.id === freeLight.id)).toBeDefined();
+  });
+});
+
+describe('createChildRemovalCommand — attached lights on other layers', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+  });
+
+  it('cascades to a light glued to the asset from another layer, and undo restores both', () => {
+    const props = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const lights = createDungeonLayer('Lights', props.levelId);
+    useStore.getState().addLayer(lights);
+    const lamp: AssetChild = {
+      id: 'lamp', name: 'Lamp', childType: 'asset', visible: true, objectType: 'asset', assetId: 'lamp',
+      position: { x: 2, y: 2 }, rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
+    };
+    const glow: LightChild = {
+      id: 'glow', name: 'Glow', childType: 'light', visible: true, color: '#ffcc66', radius: 4, featherRadius: 0,
+      intensity: 0.8, falloff: 'linear', position: { x: 2, y: 2 }, attachedTo: 'lamp',
+    };
+    useStore.getState().addChild(props.id, lamp);
+    useStore.getState().addChild(lights.id, glow);
+
+    undoManager.execute(createChildRemovalCommand(props.id, 'lamp'));
+    const layer = (id: string) => useStore.getState().layers.find((l) => l.id === id) as DungeonLayer;
+    expect(layer(props.id).children.some((c) => c.id === 'lamp')).toBe(false);
+    expect(layer(lights.id).children.some((c) => c.id === 'glow')).toBe(false);
+
+    undoManager.undo();
+    expect(layer(props.id).children.some((c) => c.id === 'lamp')).toBe(true);
+    expect(layer(lights.id).children.some((c) => c.id === 'glow')).toBe(true);
+  });
+});
+
+describe('AddChildCommand with an index, ChildOrderCommand, SetGroupMergedCommand', () => {
+  const crate = (id: string): AssetChild => ({
+    id, name: id, childType: 'asset', visible: true, objectType: 'asset', assetId: 'crate',
+    position: { x: 0, y: 0 }, rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
+  });
+  const ids = (layerId: string) =>
+    (useStore.getState().layers.find((l) => l.id === layerId) as DungeonLayer).children.map((c) => c.id);
+  let layerId = '';
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+    layerId = useStore.getState().layers.find((l) => l.type === 'dungeon')!.id;
+    for (const id of ['a', 'b', 'c']) useStore.getState().addChild(layerId, crate(id));
+  });
+
+  it('inserts at the index, appends without one, and undo removes it', () => {
+    undoManager.execute(new AddChildCommand('Place', layerId, crate('x'), 1));
+    expect(ids(layerId)).toEqual(['a', 'x', 'b', 'c']);
+    undoManager.undo();
+    expect(ids(layerId)).toEqual(['a', 'b', 'c']);
+    undoManager.redo();
+    expect(ids(layerId)).toEqual(['a', 'x', 'b', 'c']);
+    undoManager.execute(new AddChildCommand('Place', layerId, crate('y')));
+    expect(ids(layerId)).toEqual(['a', 'x', 'b', 'c', 'y']);
+  });
+
+  it('ChildOrderCommand reorders and undo restores the prior order', () => {
+    undoManager.execute(new ChildOrderCommand('Bring to front', layerId, ['b', 'c', 'a']));
+    expect(ids(layerId)).toEqual(['b', 'c', 'a']);
+    undoManager.undo();
+    expect(ids(layerId)).toEqual(['a', 'b', 'c']);
+    undoManager.redo();
+    expect(ids(layerId)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('SetGroupMergedCommand flips merged and undo puts back an absent flag', () => {
+    useStore.getState().updateLayer(layerId, { groups: [{ id: 'g', name: 'Camp' }] });
+    const group = () => (useStore.getState().layers.find((l) => l.id === layerId) as DungeonLayer).groups![0];
+
+    undoManager.execute(new SetGroupMergedCommand(layerId, 'g', true));
+    expect(group()).toEqual({ id: 'g', name: 'Camp', merged: true });
+    undoManager.undo();
+    expect(group()).toEqual({ id: 'g', name: 'Camp' });
+    expect('affectsRooms' in new SetGroupMergedCommand(layerId, 'g', true)).toBe(false);
   });
 });

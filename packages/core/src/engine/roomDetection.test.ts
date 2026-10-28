@@ -2,9 +2,10 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { clipper2Engine, setClipperModule } from '../geometry/Clipper2Engine';
 import type { Polygon } from '../geometry/GeometryEngine';
-import { detectRooms } from './roomDetection';
+import { roomFaces } from './roomDetection';
 import { bindDoorToRooms } from '../shared/roomBinding';
-import type { DoorChild, Room, WallSegment } from '../shared/types';
+import { computeStableRoomId, faceMetrics } from '../shared/roomUtils';
+import type { DoorChild, Room, ThresholdSegment, WallSegment } from '../shared/types';
 
 /**
  * jsdom sends emscripten down the browser path, where it tries to `fetch` the
@@ -23,6 +24,30 @@ beforeAll(async () => {
 }, 30_000);
 
 const GRID = 1;
+
+/**
+ * The faces as rooms, the way the old detection minted them (a centroid hash for
+ * an id), so the fixture below can label and bind them. Rooms are anchored places
+ * now; this is only the test's way of naming a face.
+ */
+function detect(
+  floor: Polygon[],
+  walls: WallSegment[],
+  grid: number,
+  layerWallWidth = 0,
+  thresholds: ThresholdSegment[] = [],
+): Room[] {
+  return roomFaces(floor, walls, grid, layerWallWidth, thresholds).map((face) => {
+    const metrics = faceMetrics(face, grid);
+    return {
+      id: computeStableRoomId(metrics.centroid, grid),
+      name: '',
+      anchor: metrics.centroid,
+      face,
+      ...metrics,
+    };
+  });
+}
 
 type Rect = [number, number, number, number]; // x0, y0, x1, y1
 
@@ -50,20 +75,20 @@ function plainWall(id: string, points: [number, number][]): WallSegment {
   };
 }
 
-describe('detectRooms — basics', () => {
+describe('roomFaces — basics', () => {
   it('returns nothing when there is no floor', () => {
-    expect(detectRooms([], [], GRID)).toEqual([]);
+    expect(detect([], [], GRID)).toEqual([]);
   });
 
   it('treats an unwalled floor as one big room', () => {
-    const rooms = detectRooms([rectPoly([0, 0, 10, 10])], [], GRID);
+    const rooms = detect([rectPoly([0, 0, 10, 10])], [], GRID);
     expect(rooms).toHaveLength(1);
     expect(rooms[0].area).toBeCloseTo(100);
     expect(rooms[0].isPathway).toBe(false);
   });
 
   it('splits a floor in two when a wall crosses it', () => {
-    const rooms = detectRooms(
+    const rooms = detect(
       [rectPoly([0, 0, 10, 10])],
       [plainWall('w1', [[0, 5], [10, 5]])],
       GRID,
@@ -74,8 +99,20 @@ describe('detectRooms — basics', () => {
     for (const room of rooms) expect(room.area).toBeCloseTo(48, 1);
   });
 
+  it('splits a floor in two along a threshold, a tenth of a cell wide', () => {
+    const rooms = detect(
+      [rectPoly([0, 0, 10, 10])],
+      [],
+      GRID,
+      0,
+      [{ id: 't1', points: [[0, 5], [10, 5]] }],
+    );
+    expect(rooms).toHaveLength(2);
+    for (const room of rooms) expect(room.area).toBeCloseTo(49.5, 1);
+  });
+
   it('flags a narrow floor as a pathway', () => {
-    const rooms = detectRooms([rectPoly([0, 0, 10, 1.5])], [], GRID);
+    const rooms = detect([rectPoly([0, 0, 10, 1.5])], [], GRID);
     expect(rooms).toHaveLength(1);
     expect(rooms[0].isPathway).toBe(true);
   });
@@ -84,19 +121,29 @@ describe('detectRooms — basics', () => {
     // A wall loop inside the floor yields three Clipper paths: the outer floor,
     // the hole it punches (negative winding), and the island inside the loop.
     // Only the two positive ones are rooms.
-    const rooms = detectRooms([rectPoly([0, 0, 10, 10])], [rectWall('inner', [4, 4, 6, 6])], GRID);
+    const rooms = detect([rectPoly([0, 0, 10, 10])], [rectWall('inner', [4, 4, 6, 6])], GRID);
     expect(rooms).toHaveLength(2);
-    const areas = rooms.map((r) => r.area).sort((a, b) => a - b);
+    const areas = rooms.map((r) => r.area!).sort((a, b) => a - b);
     expect(areas[0]).toBeCloseTo(2.56, 1); // island: 1.6 x 1.6
-    // Room.boundary is a single ring, so the outer room reports its outline
+    // A face is a single ring, so the outer room reports its outline
     // area — the hole the wall loop punched is not subtracted.
     expect(areas[1]).toBeCloseTo(100, 1);
   });
 
-  it('applies name overrides', () => {
-    const floor = [rectPoly([0, 0, 10, 10])];
-    const id = detectRooms(floor, [], GRID)[0].id;
-    expect(detectRooms(floor, [], GRID, { [id]: "Klarg's Cave" })[0].name).toBe("Klarg's Cave");
+  it('cuts with the layer width a wall without its own width takes', () => {
+    const bare = rectWall('inner', [4, 4, 6, 6]);
+    delete bare.width;
+    // Thin: the island is 2 - 0.3 = 1.7 across. Thick: 2 - 1.0 = 1.0.
+    const thin = detect([rectPoly([0, 0, 10, 10])], [bare], GRID, 0.3);
+    const thick = detect([rectPoly([0, 0, 10, 10])], [bare], GRID, 1);
+    const island = (rooms: Room[]) => Math.min(...rooms.map((r) => r.area!));
+    expect(island(thin)).toBeCloseTo(1.7 * 1.7, 1);
+    expect(island(thick)).toBeCloseTo(1, 1);
+    // A wall's own width still wins.
+    expect(island(detect([rectPoly([0, 0, 10, 10])], [rectWall('inner', [4, 4, 6, 6])], GRID, 1))).toBeCloseTo(
+      2.56,
+      1,
+    );
   });
 });
 
@@ -131,14 +178,14 @@ const ALL_RECTS: Record<string, Rect> = {
 /** Map a detected room back to the fixture rect its centroid falls inside. */
 function labelOf(room: Room | undefined): string | null {
   if (!room) return null;
-  const [cx, cy] = room.centroid;
+  const [cx, cy] = room.centroid!;
   for (const [id, [x0, y0, x1, y1]] of Object.entries(ALL_RECTS)) {
     if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) return id;
   }
   return null;
 }
 
-describe('detectRooms — 8-room Cragmaw-style dungeon benchmark', () => {
+describe('roomFaces — 8-room Cragmaw-style dungeon benchmark', () => {
   let floor: Polygon[];
   let walls: WallSegment[];
   let doors: DoorChild[];
@@ -179,7 +226,7 @@ describe('detectRooms — 8-room Cragmaw-style dungeon benchmark', () => {
       });
     }
 
-    rooms = detectRooms(floor, walls, GRID);
+    rooms = detect(floor, walls, GRID);
     byLabel = new Map(rooms.map((r) => [labelOf(r), r]));
   });
 
@@ -202,14 +249,8 @@ describe('detectRooms — 8-room Cragmaw-style dungeon benchmark', () => {
 
   it('produces unique ids that survive a second detection run', () => {
     expect(new Set(rooms.map((r) => r.id)).size).toBe(rooms.length);
-    const rerun = detectRooms(floor, walls, GRID);
+    const rerun = detect(floor, walls, GRID);
     expect(rerun.map((r) => r.id).sort()).toEqual(rooms.map((r) => r.id).sort());
-  });
-
-  it('keeps user names across re-detection via overrides', () => {
-    const target = byLabel.get('R1')!;
-    const renamed = detectRooms(floor, walls, GRID, { [target.id]: 'Cave Mouth' });
-    expect(renamed.find((r) => r.id === target.id)?.name).toBe('Cave Mouth');
   });
 
   it('binds all 14 doors to the correct chamber/corridor pair', () => {

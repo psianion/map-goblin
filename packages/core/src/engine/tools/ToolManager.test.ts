@@ -2,10 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Lightweight PixiJS stubs — ToolManager's constructor makes a Graphics and adds it.
 vi.mock('pixi.js', () => {
+  const point = () => ({
+    x: 0,
+    y: 0,
+    copyFrom(p: { x: number; y: number }) {
+      this.x = p.x;
+      this.y = p.y;
+    },
+  });
   class MockGraphics {
     label = '';
     clear = vi.fn().mockReturnThis();
     destroy = vi.fn();
+    position = point();
+    scale = point();
+    setStrokeStyle = vi.fn().mockReturnThis();
+    moveTo = vi.fn().mockReturnThis();
+    lineTo = vi.fn().mockReturnThis();
+    closePath = vi.fn().mockReturnThis();
+    fill = vi.fn().mockReturnThis();
+    stroke = vi.fn().mockReturnThis();
+    circle = vi.fn().mockReturnThis();
   }
   class MockContainer {
     addChild = vi.fn();
@@ -205,5 +222,39 @@ describe('ToolManager.onKeyDown — consumed-gesture contract (F2)', () => {
   it('reports false when no tool is active', () => {
     const tm = new ToolManager(new Container() as never);
     expect(tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(false);
+  });
+});
+
+describe('ToolManager preview on the overlay', () => {
+  it('draws a marquee on top of the overlay (above overlays mounted later), posed under the camera', () => {
+    const world = { position: { x: 10, y: 20 }, scale: { x: 3, y: 3 }, addChild: vi.fn() };
+    const overlay = {
+      children: [] as unknown[],
+      addChild(c: unknown) {
+        this.children = [...this.children.filter((x) => x !== c), c];
+      },
+    };
+    const tm = new ToolManager(world as never, overlay as never);
+    expect(world.addChild).not.toHaveBeenCalled();
+    const marquee = overlay.children[0] as { position: { x: number; y: number }; scale: { x: number } };
+    overlay.addChild('light rings'); // lightOverlay mounts after the engine
+    const tool = fakeTool('select');
+    tool.getPreview = () => ({ type: 'polygon', points: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }] });
+    tm.registerTool(tool);
+    tm.switchTool('select');
+    tm.updatePreview();
+    expect(overlay.children.at(-1)).toBe(marquee);
+    expect([marquee.position.x, marquee.position.y, marquee.scale.x]).toEqual([10, 20, 3]);
+  });
+
+  it('owns a key only when the active tool says so', () => {
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('light');
+    tool.ownsKey = (e) => e.key === 'r';
+    tm.registerTool(tool);
+    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'r' }))).toBe(false);
+    tm.switchTool('light');
+    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'r' }))).toBe(true);
+    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'w' }))).toBe(false);
   });
 });

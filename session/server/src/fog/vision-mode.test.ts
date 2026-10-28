@@ -17,7 +17,8 @@ import { fogModule, getCell, setCells, type FogState, type SceneFog } from '@dnd
 import { tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import { triggersModule, type TriggersState } from '@dnd/mechanics/triggers'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
-import type { ScenePrep } from '@dnd/core/src/shared/prep'
+// v2 prep rows on purpose: a scene published before room keys stores them that way.
+import type { StoredScenePrep as ScenePrep } from '@dnd/core/src/shared/prep'
 import type { AnyChild, WallSegment, ZoneShape } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'

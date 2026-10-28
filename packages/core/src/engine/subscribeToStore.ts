@@ -11,15 +11,38 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
+import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
-import { isLayerEffectivelyVisible } from '../store/selectors';
-import type { ConnectorChild, RingGeometry, RoomChild, WallEdits, WallSegment } from '../shared/types';
+import type { DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
+import { levelOf } from '../shared/lookScope';
+import { layerDrawStyle } from './levelLook';
+import { isLayerShown } from '../store/selectors';
+import { propOccluderKey } from '../shared/propOcclusion';
+import type { RingGeometry, ThresholdSegment, WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
-import { scheduleRoomSync } from '../store/roomSync';
+import { scheduleRoomSync } from '../store/roomRefresh';
+
+/**
+ * A number per object identity, for folding "this array is a new one" into a
+ * string key. Immer hands out a new `rooms`/`areas` array exactly when one of
+ * them changed, so the identity is the change signal.
+ */
+const refIds = new WeakMap<object, number>();
+let nextRefId = 1;
+function refId(obj: object | undefined): number {
+  if (!obj) return 0;
+  let id = refIds.get(obj);
+  if (id === undefined) refIds.set(obj, (id = nextRefId++));
+  return id;
+}
+
+/** The thresholds' geometry: they cut room faces, so they ride into the room key. */
+function thresholdKeyOf(thresholds: readonly ThresholdSegment[] | undefined): string {
+  return (thresholds ?? []).map((t) => `${t.id}:${t.points.map((p) => `${p[0]}_${p[1]}`).join(';')}`).join(',');
+}
 
 const digestCache = new WeakMap<RingGeometry & object, number>();
 const wallDigestCache = new WeakMap<WallSegment, number>();
@@ -32,6 +55,19 @@ const editsDigestCache = new WeakMap<WallEdits, number>();
 function mixInto(h: number, v: number): number {
   h ^= Math.round(v * 1e4) | 0;
   return Math.imul(h, 0x01000193);
+}
+
+/**
+ * A shape's own style overrides as a stable string, so the floor bake re-runs
+ * when one is set, changed or cleared. Sorted keys: the same overrides written
+ * in a different order must not count as a change. Empty and absent agree.
+ */
+export function styleOverridesDigest(overrides: object | undefined): string {
+  if (!overrides) return '';
+  const keys = Object.keys(overrides).sort();
+  if (keys.length === 0) return '';
+  const o = overrides as Record<string, unknown>;
+  return JSON.stringify(keys.map((k) => [k, o[k]]));
 }
 
 /**
@@ -109,8 +145,12 @@ function wallDigest(wall: WallSegment): number {
   const cached = wallDigestCache.get(wall);
   if (cached !== undefined) return cached;
 
-  let h = mixInto(0x811c9dc5, wall.width);
+  // An unpinned width follows the layer; the style change rebuilds the layer itself.
+  let h = mixInto(0x811c9dc5, wall.width ?? -1);
   for (const [x, y] of wall.points) h = mixInto(mixInto(h, x), y);
+  // The look pins a preset writes: an undo that only takes them back must still redraw.
+  h = mixString(h, wall.textureSetId);
+  h = mixString(h, wall.textureTint);
   const digest = h >>> 0;
   wallDigestCache.set(wall, digest);
   return digest;
@@ -199,6 +239,8 @@ function wallEditsKeyOf(layer: DungeonLayer): string {
 
 const pendingRebuild = new Set<string>();
 const pendingRedraw = new Set<string>();
+// Room, area and level look edits that move no floor: only the room fills redraw.
+const pendingFills = new Set<string>();
 // Layers whose containers outlive their store entry by one flush: a wholesale document
 // swap (`loadFromFile` on a scene switch) replaces every layer id at once, and destroying
 // the outgoing containers before the incoming layers have drawn leaves a frame of bare
@@ -210,6 +252,17 @@ const pendingRemoval = new Set<string>();
 let removalSceneGraph: SceneGraph | null = null;
 let rafHandle: number | null = null;
 let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+/** Counts flushes; see `layerDrawEpoch`. */
+let drawEpoch = 0;
+
+/**
+ * Bumps on every flush of queued layer draws. The draws land a frame after the store change
+ * that queued them, so the lighting's content mask (`LightingRenderer.setContent`) re-reads
+ * the scene on this, not on the store.
+ */
+export function layerDrawEpoch(): number {
+  return drawEpoch;
+}
 
 /**
  * Draw everything queued, now.
@@ -223,8 +276,10 @@ export function flushLayerDraws(): void {
 
   const rebuilds = [...pendingRebuild];
   const redraws = [...pendingRedraw];
+  const fills = [...pendingFills].filter((id) => !pendingRebuild.has(id));
   pendingRebuild.clear();
   pendingRedraw.clear();
+  pendingFills.clear();
 
   for (const id of rebuilds) {
     const entry = getLayerEntry(id);
@@ -236,6 +291,14 @@ export function flushLayerDraws(): void {
     const layer = useStore.getState().layers.find((l) => l.id === id);
     if (entry && layer && layer.type === 'dungeon') redrawDoors(layer, entry);
   }
+  for (const id of fills) {
+    const entry = getLayerEntry(id);
+    const layer = useStore.getState().layers.find((l) => l.id === id);
+    if (entry && layer && layer.type === 'dungeon') {
+      markRenderCacheDirty(id);
+      redrawRoomFills(layer, entry);
+    }
+  }
 
   // Parked containers go last, in the same synchronous flush that drew their
   // replacements: no frame ever renders the gap between the two scenes.
@@ -246,6 +309,7 @@ export function flushLayerDraws(): void {
     }
     pendingRemoval.clear();
   }
+  drawEpoch++;
 }
 
 /**
@@ -270,6 +334,11 @@ function scheduleRebuild(layerId: string): void {
 
 function scheduleRedrawDoors(layerId: string): void {
   if (!pendingRebuild.has(layerId)) pendingRedraw.add(layerId);
+  armFlush();
+}
+
+function scheduleRedrawFills(layerId: string): void {
+  if (!pendingRebuild.has(layerId)) pendingFills.add(layerId);
   armFlush();
 }
 
@@ -340,15 +409,15 @@ export function subscribeToStore(
   unsubscribers.push(unsubLayers);
 
   // ─── Layer visibility changes ─────────────────────────
-  // Reads effective visibility (own flag narrowed by solo — see
-  // isLayerEffectivelyVisible), not the raw flag: soloing never writes
+  // Reads effective visibility (own flag narrowed by solo, and the shown level —
+  // see isLayerShown), not the raw flag: soloing never writes
   // `layer.visible` (render-only override), so this is the only thing that
   // makes solo actually hide the other layers on screen. The selector's
   // output changes whenever solo does, even though `state.layers` itself
   // does not, which is what re-fires this on a solo toggle.
   const unsubVisibility = useStore.subscribe(
     (state) =>
-      state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerEffectivelyVisible(state, l) })),
+      state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerShown(state, l) })),
     (layerVisibility) => {
       for (const { id, type, visible } of layerVisibility) {
         const entry = getLayerEntry(id);
@@ -399,6 +468,10 @@ export function subscribeToStore(
   // Last geometry seen per layer, so the handler can tell a floor edit from a
   // door toggle: both wake it, only one may touch the union or the rooms.
   const prevGeometryKeys = new Map<string, { floor: string; room: string; render: string; doorState: string }>();
+  // Per layer: the rooms/areas identity last drawn, and whether any room or area pinned
+  // a wall look then. A look edit redraws the room fills; one that pins (or drops) a
+  // wall look re-lays the stones, since the edges it touches change kit.
+  const prevRoomLooks = new Map<string, { key: string; wallPins: boolean }>();
   // Every layer's lighting-relevant key, joined — a layer appearing or leaving
   // moves it too, which is what a per-layer comparison would have missed.
   let prevLightingKey: string | null = null;
@@ -417,7 +490,9 @@ export function subscribeToStore(
           // Track shape IDs + geometry to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
+            // styleOverrides too: a per-shape floor colour is painted by this bake,
+            // and leaving it out meant setting one changed the store and nothing else.
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no
@@ -437,17 +512,18 @@ export function subscribeToStore(
             .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
             .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
             .join(','),
-          // Door STATE (state/isSecret/style) — changes how a door looks and
-          // whether it blocks light, but not wall geometry. Handled by a
-          // doors-only redraw further down: no stone re-layout, no Clipper2.
+          // Door STATE (state/isSecret/style, and how far and which way it
+          // opens) — changes how a door looks and whether it blocks light, but
+          // not wall geometry. Handled by a doors-only redraw further down: no
+          // stone re-layout, no Clipper2.
           doorStateKey: l.children
             .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
-            .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}`)
+            .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}:${c.openAngle}:${c.hinge}:${c.swing}:${c.hinges}:${c.kit}`)
             .join(','),
           // Track water body changes
           waterSignature: l.children
             .filter((c): c is import('../shared/types').WaterChild => c.childType === 'water')
-            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}:${c.flowSpeed}:${c.flowAngle}`)
+            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}`)
             .join(','),
           // Wall type/direction for lighting, plus the wall's own geometry —
           // see wallDigest. This rides into roomKey, and through it into
@@ -460,22 +536,23 @@ export function subscribeToStore(
           // This rides into renderKey and nothing else: a nudged stone is cosmetic layout,
           // so it must not move a room boundary or re-sweep a light.
           wallEditsKey: wallEditsKeyOf(l),
-          // Drawn rooms and connectors. On an authored layer these ARE
-          // `layer.rooms` and the connector bindings, so their geometry — and
-          // their names, which become room names — must re-run syncRooms. They
-          // draw no stone and cast no shadow, so this rides into roomKey ONLY.
-          authoredRoomKey: l.children
-            .filter(
-              (c): c is RoomChild | ConnectorChild =>
-                c.childType === 'room' || c.childType === 'connector',
-            )
-            .map((c) => `${c.id}:${c.childType}:${c.visible}:${c.name}:${geometryDigest(c)}`)
-            .join(','),
+          // Thresholds cut room faces and draw nothing, so they ride into roomKey
+          // only. Their commands already refresh the rooms; this covers any write
+          // that reaches the store without one.
+          thresholdKey: thresholdKeyOf(l.thresholds),
+          // The rooms and areas themselves, by identity: a room's look (and later
+          // its mood) changes the lighting, so a new array re-sweeps the lights.
+          // Not in roomKey — syncRooms writes `rooms`, and keying the refresh on
+          // its own output would loop.
+          roomsRef: refId(l.rooms),
+          areasRef: refId(l.areas),
+          // Props with "Blocks light and sight": moving, turning or resizing one re-sweeps.
+          propOccluders: propOccluderKey(l.children),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch, authoredRoomKey } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -487,16 +564,14 @@ export function subscribeToStore(
           // Geometry only — see shapeGeometryKeys above. A texture edit leaves
           // both of these identical and so touches neither Clipper2 nor rooms.
           const floorKey = `${shapeCount}|${shapeGeometryKeys}`;
-          // What DETECTION is a function of, and so what the stones and the
-          // lights are drawn against. Authored rooms are deliberately absent:
-          // they move `layer.rooms` without moving one wall or one floor ring.
+          // What the walls are a function of, and so what the stones and the
+          // lights are drawn against.
           const detectionKey = `${floorKey}|${wallCount}|${wallSignature}`;
-          // What `layer.rooms` is a function of. On an authored layer that is
-          // the drawn rooms themselves, and a vertex drag on one reaches the
-          // store only through UpdateChildCommand — which carries no
-          // `affectsRooms`, so this debounce is the ONLY thing that would ever
-          // resync it. Left out, a DM's drag silently changed nothing.
-          const roomKey = `${detectionKey}|${authoredRoomKey}`;
+          // What the room faces are a function of: the walls plus the thresholds.
+          // A floor vertex drag reaches the store through UpdateChildCommand —
+          // which carries no `affectsRooms` — so this debounce is what refreshes
+          // the faces after it.
+          const roomKey = `${detectionKey}|${thresholdKey}`;
           // Everything that forces a full rebuild (stone re-layout): floor
           // and wall geometry, the shapes' dressing, water, door GEOMETRY, and
           // the hand stone edits —
@@ -507,7 +582,7 @@ export function subscribeToStore(
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -563,6 +638,21 @@ export function subscribeToStore(
             markRenderCacheDirty(id);
             scheduleRedrawDoors(id);
           }
+
+          const roomLookKey = `${roomsRef}|${areasRef}`;
+          const prevLooks = prevRoomLooks.get(id);
+          if (prevLooks?.key !== roomLookKey) {
+            const wallPins = roomsPinWalls(layer);
+            prevRoomLooks.set(id, { key: roomLookKey, wallPins });
+            if (prevLooks && !renderChanged) {
+              if (wallPins || prevLooks.wallPins) {
+                markRenderCacheDirty(id);
+                scheduleRebuild(id);
+              } else {
+                scheduleRedrawFills(id);
+              }
+            }
+          }
         }
       }
       // Drop keys for layers that no longer exist, so the map does not grow for
@@ -571,6 +661,7 @@ export function subscribeToStore(
       if (prevGeometryKeys.size > dungeonLayers.length) {
         const liveIds = new Set(dungeonLayers.map((l) => l.id));
         for (const id of prevGeometryKeys.keys()) if (!liveIds.has(id)) prevGeometryKeys.delete(id);
+        for (const id of prevRoomLooks.keys()) if (!liveIds.has(id)) prevRoomLooks.delete(id);
       }
       // Door state feeds occlusion, so an open door has to re-sweep even though
       // no geometry moved — but a texture or tint edit does not, and this used
@@ -608,19 +699,64 @@ export function subscribeToStore(
           item.wallSignature === b[i].wallSignature &&
           item.wallEditsKey === b[i].wallEditsKey &&
           item.waterSignature === b[i].waterSignature &&
-          item.authoredRoomKey === b[i].authoredRoomKey,
+          item.thresholdKey === b[i].thresholdKey &&
+          item.roomsRef === b[i].roomsRef &&
+          item.areasRef === b[i].areasRef &&
+          item.propOccluders === b[i].propOccluders,
         ),
     },
   );
   unsubscribers.push(unsubShapes);
 
+  // ─── Level looks → the layers in each level ───────────────
+  // A level's look reaches every layer of it by the rule in wallLook.ts (`levelStyle`):
+  // its floor tint is a fill over the floor, so a tint-only edit redraws the fills; its
+  // wall set, tint and width and its floor texture change what the floor and the stones
+  // are drawn with, so those rebuild the layer (and load the set). Moving a layer to
+  // another level is the same change seen from the layer.
+  const prevLevelLooks = new Map<string, RoomLook | undefined>();
+  const levelRebuildKeys = ['wallTextureSetId', 'wallTextureTint', 'wallWidth', 'floorTextureId'] as const;
+  const unsubLevels = useStore.subscribe(
+    (state) => ({ levels: state.levels, levelIds: state.layers.map((l) => `${l.id}:${l.levelId}`).join(',') }),
+    () => {
+      const state = useStore.getState();
+      for (const l of state.layers) {
+        if (l.type !== 'dungeon') continue;
+        const look = levelOf(state.levels ?? [], l).look;
+        const had = prevLevelLooks.has(l.id);
+        const before = prevLevelLooks.get(l.id);
+        prevLevelLooks.set(l.id, look);
+        if (had && before === look) continue;
+        if (levelRebuildKeys.some((k) => before?.[k] !== look?.[k])) {
+          markRenderCacheDirty(l.id);
+          scheduleRebuild(l.id);
+          const layer = l as DungeonLayer;
+          const rebuildWhenLoaded = (loaded: boolean) => {
+            if (!loaded) return;
+            markRenderCacheDirty(l.id);
+            scheduleRebuild(l.id);
+          };
+          preloadWallTextures(layerDrawStyle(layer)).then(rebuildWhenLoaded);
+          preloadLayerTextures(layer).then(rebuildWhenLoaded);
+        } else {
+          scheduleRedrawFills(l.id);
+        }
+      }
+    },
+    {
+      equalityFn: (a, b) => a.levels === b.levels && a.levelIds === b.levelIds,
+    },
+  );
+  unsubscribers.push(unsubLevels);
+
   // ─── Light changes → LightManager sync ───────────────────
-  // Effective visibility, so soloing one layer excludes every other layer's
-  // lights (and their glow) the same way it excludes their walls and floors.
+  // Shown layers only (visible, narrowed by solo and by the shown level), so soloing one
+  // layer, or switching level, excludes every other layer's lights the same way it excludes
+  // their walls and floors.
   const unsubLights = useStore.subscribe(
     (state) =>
       state.layers
-        .filter((l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(state, l))
+        .filter((l): l is DungeonLayer => l.type === 'dungeon' && isLayerShown(state, l))
         .flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light')),
     (lights) => {
       lightManager.syncFromStore(lights);
@@ -636,6 +772,15 @@ export function subscribeToStore(
     },
   );
   unsubscribers.push(unsubLights);
+
+  // ─── Shown level → re-sweep ───────────────────────────────
+  // Another level's walls and props stop occluding (and its own start), so every light is
+  // re-swept against the shown level's set.
+  const unsubShownLevel = useStore.subscribe(
+    (state) => state.ui.activeLevelId,
+    () => lightManager.invalidateAll(),
+  );
+  unsubscribers.push(unsubShownLevel);
 
   // ─── Terrain appearance (visible/opacity) ─────────────
   // Absent settings.terrain (never painted) reads as visible=true, opacity=1 —
@@ -699,6 +844,7 @@ export function subscribeToStore(
         entry.sublayers.shadows.visible = vis.floor;
         applyGridVisibility(entry, vis.grid, globalGridVisible);
         entry.sublayers.walls.visible = vis.walls;
+        entry.sublayers.wallMarks.visible = vis.walls;
         // Doors have their own sublayer now (see sceneGraph.ts) but still
         // follow the "walls" visibility toggle — same as when they lived
         // inside the walls container.
@@ -796,7 +942,7 @@ export function subscribeToStore(
             markRenderCacheDirty(id);
             scheduleRebuild(id);
           });
-          preloadWallTextures(layer.style).then((loaded) => {
+          preloadWallTextures(layerDrawStyle(layer)).then((loaded) => {
             if (!loaded) return;
             markRenderCacheDirty(id);
             scheduleRebuild(id);

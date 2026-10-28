@@ -50,6 +50,8 @@ interface SceneSpec {
   walls?: { id: string; points: [number, number][] }[]
   lights?: { id: string; x: number; y: number; radius: number; intensity: number }[]
   doors?: Partial<DoorRec>[]
+  /** Rooms are authored, never detected: each one sits in the face holding its anchor. */
+  rooms?: { id: string; name: string; anchor: [number, number] }[]
   /** What the door tool will place, when a row needs something other than 1. */
   doorWidth?: number
 }
@@ -118,6 +120,7 @@ function installKit(page: Page): Promise<void> {
         addWall(lid: string, wall: Any): void
         updateWall(lid: string, id: string, patch: Any): void
         updateLayer(lid: string, patch: Any): void
+        setRooms(lid: string, rooms: Any[]): void
         updateToolSettings(patch: Any): void
         setSnapEnabled(on: boolean): void
         loadFromFile(data: Any): void
@@ -171,6 +174,7 @@ function installKit(page: Page): Promise<void> {
             textureTint: '#ffffff',
           })
         }
+        if (spec.rooms) s.setRooms(lid, spec.rooms.map((r) => ({ ...r })))
         for (const light of spec.lights ?? []) {
           s.addChild(lid, {
             id: light.id,
@@ -579,8 +583,12 @@ test.describe('Doors — floor-ring edges', () => {
     await open(page, {
       floors: [{ id: 'floor', contours: [ROOM] }],
       walls: [{ id: 'divider', points: [[0, 0], [0, 8]] }],
+      rooms: [
+        { id: 'west', name: 'West', anchor: [-3, 4] },
+        { id: 'east', name: 'East', anchor: [3, 4] },
+      ],
     })
-    await page.waitForTimeout(800) // room detection is debounced
+    await page.waitForTimeout(800) // room placement is debounced
     expect((await page.evaluate(() => window.__t.rooms())).length).toBeGreaterThanOrEqual(2)
 
     await selectDoorTool(page)

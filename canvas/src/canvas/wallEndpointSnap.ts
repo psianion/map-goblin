@@ -36,12 +36,16 @@ const ringReach = (): number => {
  * drawn across a room is aiming at.
  *
  * Registered as input middleware after gridSnap (see CanvasHost), and scoped to
- * the wall tool — every tool shares the middleware chain, so an unscoped snap
- * would yank the cursor for lights, doors and everything else.
+ * the wall and Divide tools — every tool shares the middleware chain, so an
+ * unscoped snap would yank the cursor for lights, doors and everything else.
+ *
+ * Divide reaches for drawn walls along their length too, not only the floor ring:
+ * a divider ending on a wall's line is inside that wall's cut, so it closes the face.
  */
 export function wallEndpointSnap(point: Point): Point {
   const state = useStore.getState();
-  if (state.tools.activeTool !== 'wall') return point;
+  const tool = state.tools.activeTool;
+  if (tool !== 'wall' && tool !== 'divide') return point;
 
   const layer = state.layers.find(
     (l): l is DungeonLayer => l.id === state.ui.activeLayerId && l.type === 'dungeon',
@@ -69,7 +73,7 @@ export function wallEndpointSnap(point: Point): Point {
   // far more often than at one of its ends.
   const ring = snapToNearestWall(
     [point.x, point.y],
-    resolveWalls(layer).filter((w) => w.kind === 'floor'),
+    resolveWalls(layer).filter((w) => tool === 'divide' || w.kind === 'floor'),
     ringReach(),
   );
   return ring ? { x: ring.position[0], y: ring.position[1] } : point;

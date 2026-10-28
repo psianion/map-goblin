@@ -1,14 +1,16 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, RoomNote, TriggerDef } from '../types';
+import type { MapBuilderStore, RoomKey, RoomNote, TriggerDef } from '../types';
 
 export interface PrepActions {
   upsertTrigger: (trigger: TriggerDef) => void;
   removeTrigger: (triggerId: string) => void;
   upsertNote: (note: RoomNote) => void;
   removeNote: (noteId: string) => void;
+  /** Writes one room's key; null removes it. Undoable through `SetRoomKeyCommand`. */
+  setRoomKey: (roomId: string, key: RoomKey | null) => void;
 }
 
-const emptyPrep = () => ({ version: 2 as const, triggers: [], notes: [] });
+const emptyPrep = () => ({ version: 3 as const, triggers: [], notes: [], rooms: [] });
 
 // ponytail: prep edits sit outside the Command/undo stack — a form edit in the
 // Triggers panel is not a canvas gesture. Wrap these in Commands if a DM ever
@@ -44,5 +46,17 @@ export const createPrepSlice: StateCreator<
     set((state) => {
       if (!state.prep) return;
       state.prep.notes = state.prep.notes.filter((n) => n.id !== noteId);
+    }),
+  setRoomKey: (roomId, key) =>
+    set((state) => {
+      if (!key) {
+        if (state.prep) state.prep.rooms = state.prep.rooms.filter((k) => k.roomId !== roomId);
+        return;
+      }
+      if (!state.prep) state.prep = emptyPrep();
+      const next = { ...key, roomId };
+      const i = state.prep.rooms.findIndex((k) => k.roomId === roomId);
+      if (i === -1) state.prep.rooms.push(next);
+      else state.prep.rooms[i] = next;
     }),
 });

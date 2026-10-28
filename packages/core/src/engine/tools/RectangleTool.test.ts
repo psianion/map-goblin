@@ -53,7 +53,27 @@ describe('RectangleTool — commit-layer capture (F2)', () => {
 
     const shape = layerById(a.id).children.find((c) => c.childType === 'shape')!;
     expect(shape.textureId).toBe('gg-demo:flagstone_1x1_floor_A');
-    expect(shape.textureScale).toBe(4);
+    expect(shape.textureScale).toBe(1);
+  });
+
+  it('a new floor starts with the layer default tint (the dock Floor colour) over the last floor drawn', () => {
+    const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.getState().setActiveLayerId(a.id);
+    useStore.getState().updateLayer(a.id, {
+      style: { ...a.style, defaultTextureId: 'gg-demo:flagstone_1x1_floor_A' },
+    } as never);
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerUp({ x: 5, y: 5 });
+    const first = layerById(a.id).children.find((c) => c.childType === 'shape')!;
+    expect((first as { textureTint: string }).textureTint).toBe('#ffffff');
+
+    useStore.getState().updateLayer(a.id, {
+      style: { ...layerById(a.id).style, defaultTextureTint: '#3060c0' },
+    } as never);
+    tool.onPointerDown({ x: 10, y: 0 });
+    tool.onPointerUp({ x: 15, y: 5 });
+    const shapes = layerById(a.id).children.filter((c) => c.childType === 'shape');
+    expect((shapes[1] as { textureTint: string }).textureTint).toBe('#3060c0');
   });
 
   it('lands the rectangle on the layer active at press, not one switched to mid-drag', () => {

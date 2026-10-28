@@ -26,9 +26,11 @@ import {
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
-import type { ScenePrep, ScenePrepV1, SerializedMapData } from '@dnd/core/src/store/types'
+import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
-import { journalOf, normalizePrep, type TriggersState } from '@dnd/mechanics/triggers'
+import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
+import type { FogState } from '@dnd/mechanics/fog'
+import { carryFog, takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -275,15 +277,11 @@ async function uploadMap(
   // once here so the scene library, not the map document, is what the trigger runtime and
   // the prep endpoints below ever have to read.
   const prep = map.data.prep
-  // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back.
-  const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, text)
-  const scene = deps.stores.scenes.create(
-    row.id,
-    campaignId,
-    row.id,
-    map.name,
-    prep ? JSON.stringify(prep) : null,
-  )
+  // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back — less
+  // any room lineage, which a brand-new scene has no fog to carry for (`takeLineage`).
+  const stored = takeLineage(map.data) ? JSON.stringify(map.data) : text
+  const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, stored)
+  const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name, storablePrep(prep))
   deps.stores.campaigns.touch(campaignId)
   deps.sessionManager.refreshScenes(campaignId)
   json(res, 201, {
@@ -427,7 +425,20 @@ async function publishScene(
   const map = parseMapFile(raw)
   if (!map.ok) return json(res, 400, { error: map.error })
 
-  const row = deps.stores.maps.insert(randomUUID(), scene.campaign_id, map.name, raw)
+  // §10 — a split or a merge in the editor must not cost the party explored ground. Read
+  // against the map this publish replaces (still the cached one: `invalidateScene` runs below)
+  // so a split half is only seeded the first time it appears.
+  const lineage = takeLineage(map.data)
+  if (lineage) {
+    const previous = new Set(deps.vision.roomsOf(scene.campaign_id, sceneId))
+    carrySceneFog(deps, scene.campaign_id, sceneId, (fog) => carryFog(fog, lineage, previous))
+  }
+  const row = deps.stores.maps.insert(
+    randomUUID(),
+    scene.campaign_id,
+    map.name,
+    lineage ? JSON.stringify(map.data) : raw,
+  )
   deps.stores.scenes.republish(sceneId, row.id)
   // M3 — `prep` absent means the author never opened prep in this save, so whatever is
   // already stored survives untouched; an explicit prep (including an emptied-out one)
@@ -435,7 +446,7 @@ async function publishScene(
   if (map.data.prep !== undefined) {
     // null/falsy stores SQL NULL rather than the string 'null' (N4); {version:1,triggers:[]}
     // is truthy, so an explicit clear still stores the empty block.
-    deps.stores.scenes.setPrep(sceneId, map.data.prep ? JSON.stringify(map.data.prep) : null)
+    deps.stores.scenes.setPrep(sceneId, storablePrep(map.data.prep))
   }
   // The cached geometry `sceneMapOf`/`vision` hold for this id was read off the map row
   // this scene *used* to point at — without this a republish would answer fog, doors and
@@ -446,6 +457,38 @@ async function publishScene(
   // tells a session playing this scene to drop its map and refetch (see refreshScenes).
   deps.sessionManager.refreshScenes(scene.campaign_id, sceneId)
   json(res, 200, { sceneId, mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
+}
+
+/**
+ * Prep as the scene library stores it: normalised to v3 with only the declared keys (N3), so
+ * every reader past this point sees one shape. A blob that is not prep at all is stored as
+ * the file had it, which is what this route always did — the resolver reads it as no prep.
+ */
+function storablePrep(prep: unknown): string | null {
+  if (!prep) return null
+  if (!isScenePrep(prep)) return JSON.stringify(prep)
+  const { triggers, notes, rooms } = normalizePrep(prep)
+  const stored: ScenePrep = { version: 3, triggers, notes, rooms }
+  return JSON.stringify(stored)
+}
+
+/**
+ * Rewrites one scene's fog in the campaign's stored fog slice. Module state is read from the
+ * store on every dispatch, and the `refreshScenes` a publish ends with re-snapshots every
+ * seat, so a write here reaches the table with the new map rather than a frame of its own.
+ * Nothing written when the campaign has no fog yet or `carry` changed nothing.
+ */
+function carrySceneFog(
+  deps: HttpDeps,
+  campaignId: string,
+  sceneId: string,
+  carry: (fog: FogState['byScene'][string]) => FogState['byScene'][string] | null,
+): void {
+  const fog = deps.stores.moduleState.get(campaignId, 'fog') as FogState | undefined
+  const scene = fog?.byScene[sceneId]
+  if (!fog || !scene) return
+  const next = carry(scene)
+  if (next) deps.stores.moduleState.put(campaignId, 'fog', { ...fog, byScene: { ...fog.byScene, [sceneId]: next } })
 }
 
 /** DELETE /api/scenes/:id — DM only. */
@@ -490,11 +533,19 @@ function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse,
   const resolvedNotes = (resolvedPrep?.notes ?? []).map((n) =>
     n.inert ? { id: n.note.id, inert: n.inert } : { id: n.note.id },
   )
+  // v3 room keys, by room id: the room's label as the table names it, or why it is inert.
+  const resolvedRooms = (resolvedPrep ? roomKeysOf(resolvedPrep) : []).map((r) => ({
+    roomId: r.key.roomId,
+    ...(r.label ? { label: r.label } : {}),
+    ...(r.inert ? { inert: r.inert } : {}),
+    ...(r.encounterInert ? { encounterInert: r.encounterInert } : {}),
+  }))
   json(res, 200, {
-    // Normalized on the way out — stored blobs may still be v1, clients only see v2.
-    prep: scene.prep ? normalizePrep(JSON.parse(scene.prep) as ScenePrep | ScenePrepV1) : null,
+    // Normalized on the way out — stored blobs may still be v1/v2, clients only see v3.
+    prep: scene.prep ? normalizePrep(JSON.parse(scene.prep) as StoredScenePrep) : null,
     resolved,
     resolvedNotes,
+    resolvedRooms,
   })
 }
 
@@ -521,25 +572,44 @@ async function putScenePrep(
   const body = await readJson(req, res)
   if (!body) return
   if (!isScenePrep(body)) {
-    return json(res, 400, { error: 'prep must be {version: 2, triggers: [...], notes: [...]}' })
+    return json(res, 400, {
+      error: 'prep must be {version: 3, triggers: [...], notes: [...], rooms: [...]} (or v2 without rooms)',
+    })
   }
 
   // Only the declared shape is persisted — an extra top-level key or a malformed trigger
   // riding along in the body would otherwise be stored verbatim (N3); per-trigger validation
-  // is M4's runtime concern, not this endpoint's. v1 bodies (older clients) upgrade here —
-  // nothing writes v1 anymore.
+  // is M4's runtime concern, not this endpoint's. v1/v2 bodies (older clients) upgrade here —
+  // nothing writes them anymore.
   const prep = normalizePrep(body)
-  const stored: ScenePrep = { version: 2, triggers: prep.triggers, notes: prep.notes }
+  const stored: ScenePrep = { version: 3, triggers: prep.triggers, notes: prep.notes, rooms: prep.rooms }
   deps.stores.scenes.setPrep(sceneId, JSON.stringify(stored))
   json(res, 200, { prep: stored })
 }
 
 /** Just enough shape-checking that a bad body 400s instead of corrupting the stored JSON. */
-function isScenePrep(value: unknown): value is ScenePrep | ScenePrepV1 {
+function isScenePrep(value: unknown): value is StoredScenePrep {
   if (typeof value !== 'object' || value === null) return false
-  const { version, triggers, notes } = value as Record<string, unknown>
+  const { version, triggers, notes, rooms } = value as Record<string, unknown>
   if (!Array.isArray(triggers)) return false
-  return version === 1 || (version === 2 && Array.isArray(notes))
+  if (version === 1) return true
+  if (version === 2) return Array.isArray(notes)
+  return version === 3 && Array.isArray(notes) && Array.isArray(rooms) && rooms.every(isRoomKeyShape)
+}
+
+/** A room key's identity and its text fields — enough that the resolver and the table can
+ *  read every key without guarding each field. */
+function isRoomKeyShape(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const k = value as Record<string, unknown>
+  return (
+    typeof k.roomId === 'string' &&
+    typeof k.readAloud === 'string' &&
+    typeof k.notes === 'string' &&
+    typeof k.treasure === 'string' &&
+    Array.isArray(k.traps) &&
+    Array.isArray(k.checks)
+  )
 }
 
 /** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */
@@ -614,8 +684,13 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, scene
   // `?images=external`: the document goes out without its embedded images — their keys
   // ride in `imageKeys` and the bytes come from `getMapImage`, binary. Megabytes of
   // base64 stop transiting (and being JSON.parsed) with every map fetch.
-  const external =
-    new URL(req.url ?? '/', 'http://localhost').searchParams.get('images') === 'external'
+  const params = new URL(req.url ?? '/', 'http://localhost').searchParams
+  const external = params.get('images') === 'external'
+  // `?rooms=derived` (DM only — a player's copy is always derived): the document as the
+  // referee reads it, rooms migrated and every face derived (`sceneMap.ts`), instead of the
+  // file as uploaded. The table asks for it so its fog draws the faces the server fogs by;
+  // the editor never does, since a derived face reads back as a hand-traced one.
+  const derived = params.get('rooms') === 'derived'
   // D4/D5 — the DM gets the file as uploaded, byte for byte. A player gets the rooms the
   // party has seen and nothing else: this is where the anti-Owlbear guarantee is kept,
   // because it is the only route the map data travels.
@@ -631,6 +706,10 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, scene
     // `imageKeys` never advertises a picture the player would then 404 on.
     const fenced = withoutImages(player, hiddenNoteImageKeys(deps, identity.campaign_id, sceneId))
     body = JSON.stringify(external ? externalizeImages(fenced) : fenced)
+  } else if (derived) {
+    const scene = deps.vision.sceneMapOf(sceneId)
+    if (!scene) return json(res, 500, { error: 'map could not be read' })
+    body = JSON.stringify(external ? externalizeImages(scene.data) : scene.data)
   } else if (external) {
     try {
       body = JSON.stringify(externalizeImages(JSON.parse(map.data) as SerializedMapData))

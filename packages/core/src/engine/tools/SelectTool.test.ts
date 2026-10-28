@@ -3,6 +3,7 @@ import { Container, Graphics } from 'pixi.js';
 import { SelectTool } from './SelectTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
+import { createDissolveGroupCommand, createGroupChildrenCommand } from '../../store/commands';
 import { setNotify } from '../../store/notify';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer } from '../../store/types';
@@ -230,6 +231,21 @@ describe('SelectTool — shape hover dwell gate', () => {
     tool.onPointerMove({ x: 5, y: 5 });
     expect(drawn()).toBe(true);
   });
+
+  it('a hovered prop moved from outside the canvas takes its outline along on the next frame', () => {
+    const a = addAsset({ x: 5, y: 5 });
+    useStore.getState().updateChild(layer().id, a.id, { rotation: Math.PI / 4 });
+    tool.onPointerMove({ x: 5, y: 5 });
+    const before = hover.getBounds();
+    // The card's X field, Align or a nudge: the store moves, the pointer does not.
+    useStore.getState().updateChild(layer().id, a.id, { position: { x: 9, y: 5 } });
+    tool.updateGizmo();
+    expect(hover.getBounds().x).toBeCloseTo(before.x + 4 * ZOOM);
+    // Deleted from outside: the outline goes with it.
+    useStore.getState().removeChild(layer().id, a.id);
+    tool.updateGizmo();
+    expect(drawn()).toBe(false);
+  });
 });
 
 // The lock can land after the selection does — the layers panel selects a
@@ -311,5 +327,120 @@ describe('SelectTool — locked layer refusals', () => {
   it('stays quiet when the drag comes up empty for any other reason', () => {
     priv(tool).beginTransformSession('move');
     expect(warning).not.toHaveBeenCalled();
+  });
+});
+
+describe('SelectTool — props: lock, overhead, oriented gizmo', () => {
+  let tool: SelectTool;
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = false;
+      s.grid.snapEnabled = false;
+    });
+    tool = new SelectTool(makeEngine());
+  });
+
+  function addProp(patch: Partial<AssetChild>): AssetChild {
+    const a = addAsset(patch.position ?? { x: 5, y: 5 });
+    useStore.getState().updateChild(layer().id, a.id, patch);
+    return findChild(a.id) as AssetChild;
+  }
+
+  it('lets a click pass through a locked prop', () => {
+    const rug = addProp({ locked: true, width: 2, height: 2 });
+    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(250, 250));
+    tool.onPointerUp({ x: 5, y: 5 }, pointerEvent(250, 250));
+    expect(useStore.getState().selection.selectedIds).not.toContain(rug.id);
+  });
+
+  it('leaves locked props out of a marquee', () => {
+    const rug = addProp({ locked: true });
+    const crate = addProp({ position: { x: 7, y: 7 } });
+    tool.onPointerDown({ x: 0, y: 0 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 10, y: 10 }, pointerEvent(500, 500));
+    tool.onPointerUp({ x: 10, y: 10 }, pointerEvent(500, 500));
+    const ids = useStore.getState().selection.selectedIds;
+    expect(ids).toContain(crate.id);
+    expect(ids).not.toContain(rug.id);
+  });
+
+  it('picks an overhead prop before the prop drawn over it in the layer', () => {
+    const canopy = addProp({ overhead: true, width: 3, height: 3 });
+    const crate = addProp({});
+    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(250, 250));
+    tool.onPointerUp({ x: 5, y: 5 }, pointerEvent(250, 250));
+    expect(useStore.getState().selection.selectedIds).toEqual([canopy.id]);
+    expect(useStore.getState().selection.selectedIds).not.toContain(crate.id);
+  });
+
+  it('drags a mixed selection without moving the locked prop in it', () => {
+    const rug = addProp({ locked: true, position: { x: 2, y: 2 } });
+    const crate = addProp({});
+    useStore.getState().setSelectedIds([rug.id, crate.id]);
+    tool.updateGizmo();
+    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(250, 250));
+    tool.onPointerMove({ x: 6, y: 5 }, pointerEvent(300, 250));
+    tool.onPointerUp({ x: 6, y: 5 }, pointerEvent(300, 250));
+    expect((findChild(crate.id) as AssetChild).position).toEqual({ x: 6, y: 5 });
+    expect((findChild(rug.id) as AssetChild).position).toEqual({ x: 2, y: 2 });
+  });
+
+  it('boxes the selection again once a lock on all of it is lifted, and keeps the box through Ungroup', () => {
+    const gizmo = () => (tool as unknown as { gizmo: unknown }).gizmo;
+    const ids = [addProp({ position: { x: 2, y: 2 } }), addProp({ position: { x: 6, y: 2 } }), addProp({})].map((c) => c.id);
+    useStore.getState().setSelectedIds(ids);
+    undoManager.execute(createGroupChildrenCommand(useStore.getState().layers, layer().id, ids, 'Supply corner', true)!);
+    tool.updateGizmo();
+    expect(gizmo()).not.toBeNull();
+    // The group card's Lock all: nothing left to transform, so no box.
+    for (const id of ids) useStore.getState().updateChild(layer().id, id, { locked: true });
+    tool.updateGizmo();
+    expect(gizmo()).toBeNull();
+    // Unlock all, then Ungroup: the same three, still selected, get their box back.
+    for (const id of ids) useStore.getState().updateChild(layer().id, id, { locked: false });
+    const groupId = (findChild(ids[0]) as AssetChild).groupId!;
+    undoManager.execute(createDissolveGroupCommand(useStore.getState().layers, layer().id, groupId)!);
+    tool.updateGizmo();
+    expect(gizmo()).not.toBeNull();
+    expect(useStore.getState().selection.selectedIds).toEqual(ids);
+  });
+
+  it("resizes a quarter-turned prop along its own length from its E handle", () => {
+    const table = addProp({ width: 4, height: 1, rotation: Math.PI / 2 });
+    useStore.getState().setSelectedIds([table.id]);
+    tool.updateGizmo();
+    // Its own E side sits below its centre on screen: (5, 7) in the world.
+    tool.onPointerDown({ x: 5, y: 7 }, pointerEvent(250, 350));
+    tool.onPointerMove({ x: 5, y: 8 }, pointerEvent(250, 400));
+    tool.onPointerUp({ x: 5, y: 8 }, pointerEvent(250, 400));
+    const after = findChild(table.id) as AssetChild;
+    expect(after.width).toBeCloseTo(5);
+    expect(after.height).toBeCloseTo(1);
+    expect(after.position.x).toBeCloseTo(5);
+    expect(after.position.y).toBeCloseTo(5.5);
+    expect(after.rotation).toBeCloseTo(Math.PI / 2);
+    undoManager.undo();
+    expect((findChild(table.id) as AssetChild).width).toBe(4);
+  });
+
+  it('carries an attached light once through a gizmo resize, in one undo', () => {
+    const table = addProp({ width: 2, height: 1 });
+    // On the table's E edge.
+    const light = addLight({ x: 6, y: 5 }, table.id);
+    useStore.getState().setSelectedIds([table.id]);
+    tool.updateGizmo();
+    tool.onPointerDown({ x: 6, y: 5 }, pointerEvent(300, 250));
+    tool.onPointerMove({ x: 8, y: 5 }, pointerEvent(400, 250));
+    tool.onPointerUp({ x: 8, y: 5 }, pointerEvent(400, 250));
+    expect((findChild(table.id) as AssetChild).width).toBeCloseTo(4);
+    const moved = findChild(light.id) as LightChild;
+    expect(moved.position.x).toBeCloseTo(8);
+    expect(moved.position.y).toBeCloseTo(5);
+    undoManager.undo();
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 6, y: 5 });
+    expect((findChild(table.id) as AssetChild).width).toBe(2);
   });
 });

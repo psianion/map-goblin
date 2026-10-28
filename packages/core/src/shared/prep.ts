@@ -10,7 +10,7 @@ export type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 
 /** The one authoritative member list — validation and UI option lists derive from it. */
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const;
-export const WEATHERS = ['clear', 'rain', 'storm', 'fog', 'snow'] as const;
+export const WEATHERS = ['clear', 'overcast', 'rain', 'storm', 'fog', 'snow'] as const;
 /**
  * How much light the scene itself gives (S3 P3 §1) — the *gate* normal vision is measured
  * against, not the tint (`mapSettings.ambientLight` stays the tint).
@@ -36,11 +36,21 @@ export const vocabLabel = (v: TimeOfDay | Weather | AmbientLevel): string =>
  * Everything a DM authors against a map beyond its geometry.
  *
  * `version` is the prep schema's own revision, independent of the map file
- * version. v2 added `notes` and the `encounter` action; v1 blobs (older files,
- * older server rows) are upgraded in place by `normalizePrep` at every boundary
- * where stored prep is read — nothing ever writes v1 again.
+ * version. v2 added `notes` and the `encounter` action; v3 added `rooms`, the
+ * room key. Older blobs (older files, older server rows) are upgraded in place
+ * by `normalizePrep` at every boundary where stored prep is read — nothing ever
+ * writes v1 or v2 again.
  */
 export interface ScenePrep {
+  version: 3;
+  triggers: TriggerDef[];
+  notes: RoomNote[];
+  /** One key per keyed room, by `Room.id`. A room with no entry has no key. */
+  rooms: RoomKey[];
+}
+
+/** The shape v2 wrote — accepted on read, never written. */
+export interface ScenePrepV2 {
   version: 2;
   triggers: TriggerDef[];
   notes: RoomNote[];
@@ -52,28 +62,107 @@ export interface ScenePrepV1 {
   triggers: TriggerDef[];
 }
 
-export function normalizePrep(prep: ScenePrep | ScenePrepV1): ScenePrep {
-  if (prep.version === 2) return prep;
-  return { version: 2, triggers: prep.triggers, notes: [] };
+/** Any prep a file or a stored row may hold. */
+export type StoredScenePrep = ScenePrep | ScenePrepV2 | ScenePrepV1;
+
+/** v1 → v2 → v3: each step adds its own empty collection and nothing else moves. */
+export function normalizePrep(prep: StoredScenePrep): ScenePrep {
+  if (prep.version === 3) return prep;
+  const v2: ScenePrepV2 =
+    prep.version === 2 ? prep : { version: 2, triggers: prep.triggers, notes: [] };
+  return { version: 3, triggers: v2.triggers, notes: v2.notes, rooms: [] };
 }
 
 /**
- * A DM's room note — reference text anchored to a zone, readable at the table
- * any time. Notes are prep: stripped from every player-bound document, same as
- * triggers.
+ * The DM's key for one room: the classic module room entry. It lives in prep, so
+ * it is stripped from every player-bound document by the same path as triggers
+ * and notes. Nothing here reaches a player except what the DM deliberately
+ * shares at the table (the read-aloud, through the Journal).
+ *
+ * `roomId` is the permanent `Room.id` (a uuid, or a detected room's frozen
+ * hash): rooms are anchored now, so the id survives reshape, split (the keeper
+ * half) and republish.
+ */
+export interface RoomKey {
+  roomId: string;
+  /** Boxed text. Share at the table sends exactly this to the player Journal. */
+  readAloud: string;
+  /** DM only, never shared. */
+  notes: string;
+  /** Spawn at the table runs the triggers module's encounter runner with the
+   *  room's face as the spawn region. */
+  encounter?: { name: string; monsters: MonsterEntry[] };
+  treasure: string;
+  traps: TrapEntry[];
+  checks: CheckEntry[];
+}
+
+/** A room key's encounter block. */
+export type RoomKeyEncounter = NonNullable<RoomKey['encounter']>;
+
+/** A trap in a room key: the `trap` trigger action's fields, as a listed entry. */
+export interface TrapEntry {
+  id: string;
+  text: string;
+  save?: TrapSave;
+  /** Dice formula, `NdM(+|-)K`. */
+  damage?: string;
+}
+
+/** An ability check in a room key: the `ability-check` action's fields, as a listed entry. */
+export interface CheckEntry {
+  id: string;
+  ability: Ability;
+  dc: number;
+  text: string;
+}
+
+/** A key with nothing written in it yet, which is what an editor starts from. */
+export function emptyRoomKey(roomId: string): RoomKey {
+  return { roomId, readAloud: '', notes: '', treasure: '', traps: [], checks: [] };
+}
+
+/**
+ * How a room is named wherever the table speaks of it (the DM's prep list, the log, a Journal
+ * card): `N · name`, or the bare name when the room has no number. Structural so the server,
+ * the table and the bot can all pass whatever room record they hold.
+ */
+export function roomLabel(room: { name?: string; number?: number }): string {
+  const name = room.name?.trim() ?? '';
+  if (room.number === undefined) return name;
+  return name ? `${room.number} · ${name}` : String(room.number);
+}
+
+/** The key for one room, or undefined when the room has none. */
+export function roomKeyOf(
+  prep: Pick<ScenePrep, 'rooms'> | null | undefined,
+  roomId: string,
+): RoomKey | undefined {
+  return prep?.rooms.find((k) => k.roomId === roomId);
+}
+
+/**
+ * A DM's room note: reference text anchored to a zone or a room, readable at the
+ * table any time. Notes are prep: stripped from every player-bound document, same
+ * as triggers.
  */
 export interface RoomNote {
   id: string;
-  /** Anchor `ZoneChild` id, same contract as TriggerCondition (never a room id). */
+  /** Anchor `ZoneChild` id. Ignored (write '') when `roomId` is set. */
   zoneId: string;
+  /**
+   * Anchor room, by permanent `Room.id`. Set means the note belongs to that room
+   * directly and the server resolves it without a zone probe.
+   */
+  roomId?: string;
   title: string;
   body: string;
   /** Keys into the map document's `customImages` — handout art, references. */
   imageKeys: string[];
   /**
-   * Surface the note as a DM toast when the anchor zone's room is revealed
-   * (point zone → containing room, resolved server-side like room-revealed
-   * triggers). Off = browse-only.
+   * Surface the note as a DM toast when its room is revealed (a `roomId` anchor
+   * is that room; a point zone resolves to its containing room server-side,
+   * like room-revealed triggers). Off = browse-only.
    */
   showOnReveal: boolean;
 }
@@ -89,15 +178,22 @@ export interface TriggerDef {
 }
 
 /**
- * Conditions anchor to an authored `ZoneChild` id, never to a room id — room ids
- * are derived from wall geometry and change on republish. A room-scoped trigger
- * uses a point zone; the server resolves point → containing room at prep-load
- * time and persists nothing about the result.
+ * What arms a trigger. Zone-anchored conditions name an authored `ZoneChild`; for
+ * a point zone the server resolves the containing room at prep-load time and
+ * persists nothing about the result. Room ids are permanent (rooms are anchored,
+ * never re-detected), so a room-revealed trigger may also name its room outright:
+ * the `roomId` form needs no zone at all.
  */
 export type TriggerCondition =
   | { kind: 'room-revealed'; zoneId: string }
+  | { kind: 'room-revealed'; roomId: string }
   | { kind: 'enter-region'; zoneId: string }
   | { kind: 'within-radius'; zoneId: string };
+
+/** The zone a condition hangs on, or null for a room-anchored one. */
+export function conditionZoneId(when: TriggerCondition): string | null {
+  return 'zoneId' in when ? when.zoneId : null;
+}
 
 export interface TrapSave {
   ability: Ability;

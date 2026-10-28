@@ -465,7 +465,15 @@ describe('whisper privacy (§2.6 anti-Owlbear check)', () => {
 const GATE_MAP = readFileSync(join(import.meta.dirname, '../../testdata/emberhold-crypt.mapbuilder'), 'utf8')
 const crypt = JSON.parse(GATE_MAP) as SerializedMapData
 const cryptLayer = crypt.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
-const cryptRooms = cryptLayer.rooms ?? []
+/** The fixture predates anchored rooms: every saved room still carries the face, centroid and
+ *  area it was detected with, which is what these rows measure against. */
+type SavedRoom = Room & {
+  boundary: [number, number][]
+  centroid: [number, number]
+  area: number
+  isPathway: boolean
+}
+const cryptRooms = (cryptLayer.rooms ?? []) as SavedRoom[]
 const cryptDoors = cryptLayer.children.filter((c): c is DoorChild => c.childType === 'door')
 const SECRET = cryptDoors.find((d) => d.isSecret)!
 /**
@@ -475,7 +483,7 @@ const SECRET = cryptDoors.find((d) => d.isSecret)!
  * that need it open say so.
  */
 const AJAR = cryptDoors.find((d) => !d.isSecret && d.style !== 'archway')!
-const roomOf = (id: string | null | undefined): Room => cryptRooms.find((r) => r.id === id)!
+const roomOf = (id: string | null | undefined): SavedRoom => cryptRooms.find((r) => r.id === id)!
 
 /**
  * The map's largest non-pathway room — on this map, the Torchlit Chamber, which is also the
@@ -1083,7 +1091,7 @@ describe('reveal propagation (§2.6 metric, D5)', () => {
       // the moment nothing is parsed, indexed or memoised yet. Every later reveal is
       // cheaper, so the headline number is the first one and the row is the worst one.
       const order = [...cryptRooms].sort((a, b) => b.area - a.area)
-      const measured: { room: Room; ms: number; bytes: number; children: number }[] = []
+      const measured: { room: SavedRoom; ms: number; bytes: number; children: number }[] = []
 
       for (const room of order) {
         const arrival = timedFrame(
@@ -1141,7 +1149,7 @@ describe('reveal propagation (§2.6 metric, D5)', () => {
  * primitive, not the policy — the policy is `centreOf` plus "which room is that in", and
  * that composition is exactly what this re-derives independently.
  */
-function inside(room: Room, x: number, y: number): boolean {
+function inside(room: SavedRoom, x: number, y: number): boolean {
   const poly = room.boundary
   let hit = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -1153,7 +1161,7 @@ function inside(room: Room, x: number, y: number): boolean {
 }
 
 /** The child ids the map plants inside `rooms` — the same centre rule the redactor uses. */
-function childrenIn(rooms: readonly Room[]): string[] {
+function childrenIn(rooms: readonly SavedRoom[]): string[] {
   const ids: string[] = []
   for (const child of cryptLayer.children as AnyChild[]) {
     if (child.childType === 'door') continue // doors answer through roomA/roomB, not a centre

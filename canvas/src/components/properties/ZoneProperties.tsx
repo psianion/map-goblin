@@ -13,6 +13,7 @@ import { notify } from '@/lib/toast'
 import { X, ImagePlus } from 'lucide-react'
 import { importNoteImage } from '@/canvas/importImage'
 import { getEntriesByType } from '@dnd/core/src/assets/packCatalog'
+import { conditionZoneId } from '@dnd/core/src/shared/prep'
 import { TIMES, WEATHERS, vocabLabel } from '@/store/types'
 import type {
   DungeonLayer,
@@ -29,7 +30,7 @@ import type {
   Weather,
 } from '@/store/types'
 
-import { pointInPolygon } from '@/lib/pointInPolygon'
+import { roomIndexOf } from '@dnd/core/src/shared/roomIndex'
 
 function shapeReadout(shape: ZoneShape): string {
   switch (shape.kind) {
@@ -162,7 +163,7 @@ export function ZoneProperties({ layerId, childId, disabled }: ZonePropertiesPro
     }),
   )
   const zoneTriggers = useStore(
-    useShallow((state) => (state.prep?.triggers ?? []).filter((t) => t.when.zoneId === childId)),
+    useShallow((state) => (state.prep?.triggers ?? []).filter((t) => conditionZoneId(t.when) === childId)),
   )
   const zoneNotes = useStore(
     useShallow((state) => (state.prep?.notes ?? []).filter((n) => n.zoneId === childId)),
@@ -211,13 +212,13 @@ export function ZoneProperties({ layerId, childId, disabled }: ZonePropertiesPro
   // point that lands outside every detected room can never fire.
   const isOrphan =
     shape.kind === 'point' &&
-    !rooms.some((r) => pointInPolygon([shape.position.x, shape.position.y], r.boundary))
+    !roomIndexOf(rooms).roomAt(shape.position.x, shape.position.y)
 
   const addTrigger = () => {
     const trigger: TriggerDef = {
       id: crypto.randomUUID(),
       name: `Trigger ${zoneTriggers.length + 1}`,
-      when: { kind: DEFAULT_CONDITION[shape.kind], zoneId: zone.id },
+      when: { kind: DEFAULT_CONDITION[shape.kind], zoneId: zone.id } as TriggerCondition,
       actions: [],
       once: true,
       enabled: true,
@@ -476,7 +477,7 @@ function TriggerEditor({ trigger, shapeKind, layer, onChange }: TriggerEditorPro
           value={trigger.when.kind}
           options={conditionOptions}
           onChange={(v) =>
-            patch({ when: { kind: v as TriggerCondition['kind'], zoneId: trigger.when.zoneId } })
+            patch({ when: { kind: v as TriggerCondition['kind'], zoneId: conditionZoneId(trigger.when) ?? '' } as TriggerCondition })
           }
         />
       </PropertyField>

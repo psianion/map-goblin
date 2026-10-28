@@ -1289,71 +1289,6 @@
      "isPathway": false
     }
    ],
-   "roomNameOverrides": {
-    "room-1lfitpf": "Fungus Grotto",
-    "room-1fp7x1t": "Fungus Grotto",
-    "room-1ff8bcu": "Fungus Grotto",
-    "room-5ej47n": "Fungus Grotto",
-    "room-1owtibl": "Fungus Grotto",
-    "room-1omtwmm": "Fungus Grotto",
-    "room-zmbpvs": "Fungus Grotto",
-    "room-zih62o": "Fungus Grotto",
-    "room-zsgrrn": "Fungus Grotto",
-    "room-d1v482": "Plunder Nook",
-    "room-dbupx1": "Plunder Nook",
-    "room-1e7zr2f": "Plunder Nook",
-    "room-17z162t": "Plunder Nook",
-    "room-17p1kdu": "Plunder Nook",
-    "room-1fz0ksu": "Plunder Nook",
-    "room-mqevok": "Plunder Nook",
-    "room-n0ehdj": "Plunder Nook",
-    "room-1rlqce5": "Plunder Nook",
-    "room-cm4eit": "Chief's Den",
-    "room-cc4stu": "Chief's Den",
-    "room-ay6scz": "Chief's Den",
-    "room-1y4rgp3": "Chief's Den",
-    "room-1xurv04": "Chief's Den",
-    "room-1xks9b5": "Chief's Den",
-    "room-aewcfm": "Chief's Den",
-    "room-aovy4l": "Chief's Den",
-    "room-8qyq9s": "Chief's Den",
-    "room-cwy0gl": "Warren Hall",
-    "room-cmyerm": "Warren Hall",
-    "room-dgx7uj": "Warren Hall",
-    "room-ecl6dx": "Warren Hall",
-    "room-e2lkoy": "Warren Hall",
-    "room-ewkdrv": "Warren Hall",
-    "room-1wutakg": "Warren Hall",
-    "room-1x4sw9f": "Warren Hall",
-    "room-1pjoay": "Warren Hall",
-    "room-1sfp8bw": "Web Gallery",
-    "room-1spou0v": "Web Gallery",
-    "room-1wbmtjh": "Web Gallery",
-    "room-9tvwx1": "Web Gallery",
-    "room-9jwb82": "Web Gallery",
-    "room-adryt0": "Web Gallery",
-    "room-11nx8ql": "Web Gallery",
-    "room-11dxn1m": "Web Gallery",
-    "room-xrznj0": "Web Gallery",
-    "room-1vex1h6": "Cave Mouth",
-    "room-xtzo1m": "Cave Mouth",
-    "room-y3z9ql": "Cave Mouth",
-    "room-1bskowd": "Cave Mouth",
-    "room-es7ngd": "Cave Mouth",
-    "room-ei81re": "Cave Mouth",
-    "room-cl0gug": "Cave Mouth",
-    "room-cb40ng": "Cave Mouth",
-    "room-cl3mcf": "Cave Mouth",
-    "room-1ahmzly": "Hidden Vein",
-    "room-1armlax": "Hidden Vein",
-    "room-1d911g1": "Hidden Vein",
-    "room-1gohgfx": "Hidden Vein",
-    "room-1gehuqy": "Hidden Vein",
-    "room-itkhbe": "Hidden Vein",
-    "room-2wun2c": "Hidden Vein",
-    "room-36u8rb": "Hidden Vein",
-    "room-1y213tv": "Hidden Vein"
-   },
    "children": [
     {
      "id": "floor-cave-0",
@@ -2398,18 +2333,56 @@
      "textureTint": "#7f7566"
     },
     {
+     "id": "asset-204-ledge",
+     "name": "ledge",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:ledge_1x6_object_A",
+     "position": {
+      "x": 19.412811947553227,
+      "y": 19.355773179907295
+     },
+     "rotation": 1.6757279883818212,
+     "scale": 0.876891680513009,
+     "width": 1,
+     "height": 6,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-206-ledge",
+     "name": "ledge",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:ledge_1x6_object_A",
+     "position": {
+      "x": 25.66927437667774,
+      "y": 8.424379032785602
+     },
+     "rotation": -0.4910787919514408,
+     "scale": 0.881601747612355,
+     "width": 1,
+     "height": 6,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
      "id": "asset-208-ledge",
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 19.41691268025775,
-      "y": 19.35404897691424
+      "x": 30.99075929866121,
+      "y": 2.799246122551012
      },
-     "rotation": -1.4492693740912155,
-     "scale": 0.8773588773101042,
-     "width": 0.745,
+     "rotation": 1.5313939100322143,
+     "scale": 0.9750046692897044,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2421,14 +2394,14 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 25.665525502067503,
-      "y": 8.421940184761507
+      "x": 55.60841800929845,
+      "y": 16.27774288756117
      },
-     "rotation": -3.6160761544244773,
-     "scale": 0.8820714538736312,
-     "width": 0.745,
+     "rotation": 3.186868180336033,
+     "scale": 1.017998435386027,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2440,14 +2413,14 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 30.99499569446454,
-      "y": 2.7966931214185506
+      "x": 33.86778064275335,
+      "y": 24.237199403855207
      },
-     "rotation": -1.5936034524408225,
-     "scale": 0.9755241394463589,
-     "width": 0.745,
+     "rotation": -0.08660844666917433,
+     "scale": 0.8859141508906291,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2459,15 +2432,15 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x4_object_A",
      "position": {
-      "x": 55.61069993625378,
-      "y": 16.282375688836186
+      "x": 54.98300617814277,
+      "y": 33.999292419830304
      },
-     "rotation": 0.061870817862995864,
-     "scale": 1.018540812077504,
-     "width": 0.745,
-     "height": 6,
+     "rotation": 1.9078262059212125,
+     "scale": 1.0717555554115195,
+     "width": 1,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -2478,14 +2451,14 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 33.86528186229733,
-      "y": 24.23346385871279
+      "x": 21.570302204911794,
+      "y": 36.80719735218328
      },
-     "rotation": -3.211605809142211,
-     "scale": 0.8863861547458318,
-     "width": 0.745,
+     "rotation": -1.200325604646312,
+     "scale": 0.890465808179857,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2497,15 +2470,15 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x4_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 55.00487552320172,
-      "y": 33.93068900188129
+      "x": 8.495298726343124,
+      "y": 43.97033072933891
      },
-     "rotation": 1.9113695978237764,
-     "scale": 1.0766315097212769,
-     "width": 0.645,
-     "height": 3.99,
+     "rotation": 4.442844826785917,
+     "scale": 0.9454900509409413,
+     "width": 1,
+     "height": 6,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -2516,15 +2489,15 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x4_object_A",
      "position": {
-      "x": 21.565824458283597,
-      "y": 36.80779406699589
+      "x": 4.212804170058877,
+      "y": 43.54827844888569
      },
-     "rotation": -4.325322967119349,
-     "scale": 0.8909402371004974,
-     "width": 0.745,
-     "height": 6,
+     "rotation": -0.933373520426863,
+     "scale": 0.9987142809478702,
+     "width": 1,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -2535,14 +2508,14 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 8.491863636727473,
-      "y": 43.97367830718254
+      "x": 10.79590175652983,
+      "y": 26.24215280240558
      },
-     "rotation": 1.3178474643128808,
-     "scale": 0.9459937960822187,
-     "width": 0.745,
+     "rotation": 0.022630685685923524,
+     "scale": 0.8597020542041769,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2554,33 +2527,14 @@
      "name": "ledge",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x4_object_A",
+     "assetId": "gg-forge:ledge_1x6_object_A",
      "position": {
-      "x": 4.174421788131365,
-      "y": 43.60331375975052
+      "x": 3.751390191405819,
+      "y": 9.071010554705751
      },
-     "rotation": -0.9298301285242991,
-     "scale": 1.003257933815183,
-     "width": 0.645,
-     "height": 3.99,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-226-ledge",
-     "name": "ledge",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
-     "position": {
-      "x": 10.793886569601142,
-      "y": 26.238285028972708
-     },
-     "rotation": -3.1023666767871134,
-     "scale": 0.8601600925857765,
-     "width": 0.745,
+     "rotation": 0.16559303899058153,
+     "scale": 0.9644595804300781,
+     "width": 1,
      "height": 6,
      "tint": "#ffffff",
      "flipX": false,
@@ -2588,57 +2542,38 @@
      "visible": true
     },
     {
-     "id": "asset-228-ledge",
-     "name": "ledge",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:ledge_1x6_object_A",
-     "position": {
-      "x": 3.749770724186085,
-      "y": 9.066393644906896
-     },
-     "rotation": -2.959404323482455,
-     "scale": 0.9649734322967545,
-     "width": 0.745,
-     "height": 6,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-001-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 16.35419620214354,
-      "y": 1.9024662685448608
-     },
-     "rotation": 0.8303152846020396,
-     "scale": 0.9999191287063391,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-002-wall",
+     "id": "asset-001-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 19.094438047006058,
-      "y": 4.783458442031992
+      "x": 37.10879666421079,
+      "y": 4.83453085860547
      },
-     "rotation": 2.8143478002952813,
-     "scale": 1.0002496889403094,
-     "width": 1.72,
+     "rotation": 2.671491940333257,
+     "scale": 0.9997457396821259,
+     "width": 2,
      "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-002-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
+     "position": {
+      "x": 38.290889366479156,
+      "y": 7.8203653325620595
+     },
+     "rotation": 3.108714934301187,
+     "scale": 0.9995389628286933,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -2649,14 +2584,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 19.57438149988165,
-      "y": 7.444131430866831
+      "x": 40.484298280988185,
+      "y": 8.21099882579549
      },
-     "rotation": 3.1070092034859345,
-     "scale": 0.9994903010925811,
-     "width": 1.495,
+     "rotation": 1.6300706135452727,
+     "scale": 0.9994896212085951,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -2664,37 +2599,18 @@
      "visible": true
     },
     {
-     "id": "asset-004-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
-     "position": {
-      "x": 18.76796012111855,
-      "y": 10.248631240327349
-     },
-     "rotation": 2.8868828774921793,
-     "scale": 0.9998049799008379,
-     "width": 3.73,
-     "height": 3.67,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-005-wall",
+     "id": "asset-004-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 16.649883585993457,
-      "y": 12.19031040682564
+      "x": 42.1803528409828,
+      "y": 8.492357617964718
      },
-     "rotation": 4.453009140476813,
-     "scale": 0.9994917803692372,
-     "width": 1.495,
+     "rotation": 1.8418528352583359,
+     "scale": 0.9994834460497583,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -2702,60 +2618,79 @@
      "visible": true
     },
     {
-     "id": "asset-006-outside",
+     "id": "asset-005-outside",
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:outside_bend_2x2_object_A",
      "position": {
-      "x": 15.270985038341829,
-      "y": 12.907496404049185
+      "x": 43.70010115139262,
+      "y": 8.612449693246559
      },
-     "rotation": 4.866642776577675,
-     "scale": 1.0002543105958526,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 1.3938054004196943,
+     "scale": 0.9992630384640612,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-007-outside",
-     "name": "outside bend",
+     "id": "asset-006-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_4x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 14.407487953383615,
-      "y": 15.713282931365333
+      "x": 43.9825463100661,
+      "y": 6.164195226652462
      },
-     "rotation": 4.0074146105146955,
-     "scale": 0.9996343149481441,
-     "width": 3.49,
-     "height": 3.565,
+     "rotation": -0.3877593686986792,
+     "scale": 0.9998185567368544,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-008-outside",
-     "name": "outside bend",
+     "id": "asset-007-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:inside_bend_3x3_object_A",
      "position": {
-      "x": 15.724993141906824,
-      "y": 18.110233951967803
+      "x": 47.406287812959796,
+      "y": 4.531667596631508
      },
-     "rotation": 2.480515264453419,
-     "scale": 1.0000657869675993,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 1.068952462915453,
+     "scale": 0.999672578825441,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-008-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
+     "position": {
+      "x": 49.485697260877686,
+      "y": 5.54817758167113
+     },
+     "rotation": 1.7541779207175947,
+     "scale": 0.9994926427037845,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -2763,14 +2698,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 18.802463756923856,
-      "y": 17.6981927175563
+      "x": 52.10288582292441,
+      "y": 5.57630411696372
      },
-     "rotation": 1.6187035826305871,
-     "scale": 1.000251116728089,
-     "width": 1.72,
+     "rotation": 1.4823494843033067,
+     "scale": 0.9997475988496801,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -2778,56 +2713,113 @@
      "visible": true
     },
     {
-     "id": "asset-010-wall",
-     "name": "wall short",
+     "id": "asset-010-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 22.42393439228468,
-      "y": 18.499787654137283
+      "x": 55.64521503728428,
+      "y": 5.760790844349699
      },
-     "rotation": 1.9172146943122597,
-     "scale": 1.0002481499465077,
-     "width": 1.72,
-     "height": 4,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-011-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
-     "position": {
-      "x": 25.17355735675363,
-      "y": 18.639359740760273
-     },
-     "rotation": 1.6680753187234538,
-     "scale": 1.0000733560096822,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 1.142857700918825,
+     "scale": 0.9998447358819391,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-012-wall",
+     "id": "asset-011-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 58.02733899429107,
+      "y": 9.49277099351432
+     },
+     "rotation": 2.3063271839170723,
+     "scale": 0.9996814931703095,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-012-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_5x5_object_A",
+     "position": {
+      "x": 56.390998776481624,
+      "y": 13.528433005803013
+     },
+     "rotation": 4.028036847679357,
+     "scale": 0.9996901012206454,
+     "width": 5,
+     "height": 5,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-013-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 57.48922435587411,
+      "y": 17.519925787638932
+     },
+     "rotation": 2.224317536309079,
+     "scale": 0.9998493391061508,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-014-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 54.89739418040083,
+      "y": 21.03755373149013
+     },
+     "rotation": 3.632367507258229,
+     "scale": 0.9996809469092804,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-015-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 26.234812499844722,
-      "y": 16.93873326407391
+      "x": 51.990784225118645,
+      "y": 20.64474817113853
      },
-     "rotation": 0.5191511136898885,
-     "scale": 0.9994913426273295,
-     "width": 1.495,
+     "rotation": -1.038033825717231,
+     "scale": 0.9994920559738003,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -2835,37 +2827,18 @@
      "visible": true
     },
     {
-     "id": "asset-013-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_5x3_object_A",
-     "position": {
-      "x": 26.782974452399266,
-      "y": 14.353326463312868
-     },
-     "rotation": 1.0203997682027637,
-     "scale": 1.0000735193223298,
-     "width": 4.585,
-     "height": 2.52,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-014-wall",
+     "id": "asset-016-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 25.380149337339343,
-      "y": 10.623410045670106
+      "x": 49.49779493952225,
+      "y": 19.907367218433958
      },
-     "rotation": -0.5320623467519403,
-     "scale": 1.0002508864620252,
-     "width": 1.72,
+     "rotation": -1.4297818847054429,
+     "scale": 0.9997478167627056,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -2873,79 +2846,41 @@
      "visible": true
     },
     {
-     "id": "asset-015-inside",
+     "id": "asset-017-inside",
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 23.621743796644978,
-      "y": 7.104615065724939
+      "x": 46.05167643964941,
+      "y": 19.140935091232596
      },
-     "rotation": -1.3248072393250352,
-     "scale": 0.9999247535241046,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": -1.9589509366378395,
+     "scale": 0.9998518665494843,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-016-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 24.770023857392143,
-      "y": 3.047169250153105
-     },
-     "rotation": -0.29661942492347704,
-     "scale": 0.9999264215567076,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-017-wall",
+     "id": "asset-018-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x6_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 29.535163730986667,
-      "y": 1.8546803361075346
+      "x": 44.05928661574862,
+      "y": 16.546674007475332
      },
-     "rotation": 1.5575418285361484,
-     "scale": 1.0001672999962286,
-     "width": 1.645,
-     "height": 6,
+     "rotation": -0.35860993128168994,
+     "scale": 0.999485007150025,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-018-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 34.48450785741751,
-      "y": 2.2382002511983
-     },
-     "rotation": 0.8837708379638212,
-     "scale": 0.9999243117050007,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -2953,15 +2888,15 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 37.35026623728481,
-      "y": 5.049185368311008
+      "x": 43.730711374581496,
+      "y": 14.869583156955999
      },
-     "rotation": 2.71124501830515,
-     "scale": 1.0002501218946658,
-     "width": 1.72,
-     "height": 4,
+     "rotation": -0.04828568751616236,
+     "scale": 0.999491555425474,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
@@ -2972,15 +2907,15 @@
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 38.665524720876334,
-      "y": 7.907958819302542
+      "x": 43.87432324443015,
+      "y": 12.643702688763003
      },
-     "rotation": 2.9894986080305843,
-     "scale": 1.0000662963603943,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 0.4050327167292773,
+     "scale": 0.9995205669609876,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -2991,52 +2926,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 40.6934088742343,
-      "y": 8.175237439147866
+      "x": 41.10933256425385,
+      "y": 11.209510112224287
      },
-     "rotation": 1.6410742276691552,
-     "scale": 0.9994863623251691,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-022-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 42.38806657050221,
-      "y": 8.366353757003408
-     },
-     "rotation": 1.7228507408672404,
-     "scale": 0.9993207159772289,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-023-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
-     "position": {
-      "x": 43.693081092064126,
-      "y": 6.958828795606693
-     },
-     "rotation": 0.4443817449246439,
-     "scale": 1.0002462665434515,
-     "width": 1.72,
+     "rotation": -1.329781112624452,
+     "scale": 0.9997476966882748,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3044,22 +2941,60 @@
      "visible": true
     },
     {
-     "id": "asset-024-inside",
-     "name": "inside bend",
+     "id": "asset-022-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 46.77933660341325,
-      "y": 4.881299071155485
+      "x": 38.07398389963291,
+      "y": 11.354339205955677
      },
-     "rotation": 0.8213635530790289,
-     "scale": 0.9998264428780554,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": 4.662011399986853,
+     "scale": 0.9995906859375931,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-023-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 36.90483246503437,
+      "y": 14.536152352375796
+     },
+     "rotation": 3.0579164755572377,
+     "scale": 0.9996917508247165,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-024-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
+     "position": {
+      "x": 34.393185931052344,
+      "y": 16.034042279640044
+     },
+     "rotation": 4.39938011673374,
+     "scale": 0.9994855996136096,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -3067,14 +3002,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 49.66047341567118,
-      "y": 5.532117845329545
+      "x": 32.7050770981789,
+      "y": 16.273940160763704
      },
-     "rotation": 1.7063967506545277,
-     "scale": 0.9994918690567928,
-     "width": 1.495,
+     "rotation": -1.5667225564773193,
+     "scale": 0.9994892514330609,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -3086,14 +3021,52 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 52.28647956802758,
-      "y": 5.4476311036488445
+      "x": 31.000984774235793,
+      "y": 16.05953547990108
      },
-     "rotation": 1.4766271230038532,
-     "scale": 1.0002503436991406,
-     "width": 1.72,
+     "rotation": -1.3189804811767827,
+     "scale": 0.9994917870352493,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-027-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_2x2_object_A",
+     "position": {
+      "x": 29.471843862742137,
+      "y": 15.795364797734315
+     },
+     "rotation": 4.7436036630741,
+     "scale": 0.9992964240196273,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-028-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
+     "position": {
+      "x": 28.621147348004644,
+      "y": 18.228606455926872
+     },
+     "rotation": 3.70115430896041,
+     "scale": 0.9997480543400235,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3101,95 +3074,57 @@
      "visible": true
     },
     {
-     "id": "asset-027-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 56.05425354426878,
-      "y": 6.303830212335802
-     },
-     "rotation": 1.149520966058959,
-     "scale": 0.9999344712670983,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-028-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 57.69684605827885,
-      "y": 10.178851278317607
-     },
-     "rotation": 2.1779779028596784,
-     "scale": 0.9999209967195493,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
      "id": "asset-029-outside",
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_5x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 57.01119901406276,
-      "y": 14.159724382138284
+      "x": 26.68135231876412,
+      "y": 20.84714802044729
      },
-     "rotation": 4.1897767234241705,
-     "scale": 1.0000736334164082,
-     "width": 4.585,
-     "height": 2.52,
+     "rotation": 4.053021159952959,
+     "scale": 0.9995792663239358,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-030-inside",
-     "name": "inside bend",
+     "id": "asset-030-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 57.09217157979951,
-      "y": 18.4270139745766
+      "x": 27.87589298901679,
+      "y": 23.883942146251755
      },
-     "rotation": 2.653383010083644,
-     "scale": 0.9998063300796212,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": 2.8576995672928582,
+     "scale": 0.9997433451615261,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-031-inside",
-     "name": "inside bend",
+     "id": "asset-031-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 53.95492737023505,
-      "y": 20.881935699631395
+      "x": 28.31743680369324,
+      "y": 27.07407515192592
      },
-     "rotation": 3.577913860034561,
-     "scale": 0.9999288574547205,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": 3.3711468732997263,
+     "scale": 0.9995324892129442,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3200,14 +3135,33 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 50.86425937251393,
-      "y": 20.339009350357536
+      "x": 30.381070395376177,
+      "y": 27.877157660168297
      },
-     "rotation": -1.2353395015605468,
-     "scale": 0.999446969028473,
-     "width": 1.495,
+     "rotation": 1.7002791009596496,
+     "scale": 0.9994894789438001,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-033-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_3x2_object_A",
+     "position": {
+      "x": 31.982532479638465,
+      "y": 28.26345137058026
+     },
+     "rotation": 2.4821977195093026,
+     "scale": 0.9995786640848908,
+     "width": 3,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -3215,41 +3169,22 @@
      "visible": true
     },
     {
-     "id": "asset-033-wall",
-     "name": "wall short",
+     "id": "asset-034-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x2_object_A",
      "position": {
-      "x": 49.31767781576403,
-      "y": 20.037594692014196
+      "x": 33.307607105885474,
+      "y": 26.905518243142204
      },
-     "rotation": 4.7034695331384775,
-     "scale": 0.9994847209190756,
-     "width": 1.495,
+     "rotation": 0.8924065289117349,
+     "scale": 0.9996088009325841,
+     "width": 3,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-034-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 47.60878917325677,
-      "y": 19.782388387598214
-     },
-     "rotation": -1.279858480831066,
-     "scale": 0.9994855217797624,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -3257,15 +3192,15 @@
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 45.1242668560446,
-      "y": 18.118036559126004
+      "x": 31.733539778870945,
+      "y": 23.950247194498814
      },
-     "rotation": -1.8305118433697949,
-     "scale": 0.9999354555311488,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": -0.8790360803523503,
+     "scale": 0.999692341879061,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3276,37 +3211,37 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 43.678356795718436,
-      "y": 14.352821285068904
+      "x": 32.5272767288353,
+      "y": 21.179125487917844
      },
-     "rotation": -0.027035278513576566,
-     "scale": 1.000251681229461,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 0.5418712570064168,
+     "scale": 0.9994860850789152,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-037-outside",
-     "name": "outside bend",
+     "id": "asset-037-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 43.271969459613004,
-      "y": 11.942202065711562
+      "x": 34.548324574754524,
+      "y": 19.375918988480077
      },
-     "rotation": 0.1891002735131022,
-     "scale": 1.0002348077730185,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 1.0189273013511082,
+     "scale": 0.9997442640007935,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -3314,34 +3249,34 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 40.50044405577198,
-      "y": 11.224492522103759
+      "x": 37.00466335233391,
+      "y": 18.32445463525005
      },
-     "rotation": -1.3863522243710888,
-     "scale": 1.0002474256500855,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 1.396284105795288,
+     "scale": 0.9994874024064866,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-039-outside",
-     "name": "outside bend",
+     "id": "asset-039-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 38.20239438013546,
-      "y": 11.423857493395952
+      "x": 39.62663933512396,
+      "y": 18.37595813521021
      },
-     "rotation": 4.83244661794238,
-     "scale": 1.0002470507512407,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 0.9589939358388072,
+     "scale": 0.9998508685436049,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3352,56 +3287,56 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 37.576109337495936,
-      "y": 13.211284807755229
+      "x": 41.90093111463022,
+      "y": 20.691817227798126
      },
-     "rotation": 3.5853751844050987,
-     "scale": 0.9994878181739942,
-     "width": 1.495,
+     "rotation": 2.766812772605559,
+     "scale": 0.9994870506055797,
+     "width": 2,
      "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-041-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
-     "position": {
-      "x": 35.57756984427613,
-      "y": 15.303035110642439
-     },
-     "rotation": 3.3393253735659076,
-     "scale": 0.9998110452934923,
-     "width": 3.73,
-     "height": 3.67,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-042-wall",
-     "name": "wall short",
+     "id": "asset-041-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 32.80634786859775,
-      "y": 16.324716198111226
+      "x": 42.61702298774555,
+      "y": 22.760600842900423
      },
-     "rotation": 4.705397508808332,
-     "scale": 0.9994893482047815,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 3.1960011893823523,
+     "scale": 0.9995859488166268,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-042-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 45.39735422989779,
+      "y": 24.132461995652996
+     },
+     "rotation": 1.3463328944205482,
+     "scale": 0.9998504877816096,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
      "visible": true
     },
     {
@@ -3409,52 +3344,33 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 31.085633468106067,
-      "y": 16.13097424639493
+      "x": 46.98960697394567,
+      "y": 28.049774926533573
      },
-     "rotation": -1.3256303385040442,
-     "scale": 0.9994917330112864,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-044-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
-     "position": {
-      "x": 29.793521572049197,
-      "y": 15.868221718085552
-     },
-     "rotation": 4.882258135254292,
-     "scale": 0.9990522552388605,
-     "width": 1.655,
-     "height": 1.46,
+     "rotation": 3.065020855804865,
+     "scale": 0.9997456897467901,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-045-wall",
+     "id": "asset-044-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 28.82759236467025,
-      "y": 18.11810919669804
+      "x": 46.50908286194408,
+      "y": 31.687171207174607
      },
-     "rotation": 3.688864129828763,
-     "scale": 1.0002514283568615,
-     "width": 1.72,
+     "rotation": 3.4547597865848063,
+     "scale": 0.9997476264566012,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3462,133 +3378,152 @@
      "visible": true
     },
     {
-     "id": "asset-046-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 27.213958419090837,
-      "y": 20.286566240522504
-     },
-     "rotation": 3.8204620175499304,
-     "scale": 0.9994898816266515,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-047-outside",
+     "id": "asset-045-outside",
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 26.528854383267777,
-      "y": 21.373533457316082
+      "x": 45.68692717763253,
+      "y": 34.806567537800134
      },
-     "rotation": 3.667410379601363,
-     "scale": 0.9991931182404283,
-     "width": 1.655,
-     "height": 1.46,
+     "rotation": 3.5284091269560487,
+     "scale": 0.9995520135202013,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-048-wall",
-     "name": "wall short",
+     "id": "asset-046-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_5x3_object_A",
      "position": {
-      "x": 27.480264878049827,
-      "y": 22.497858070746993
+      "x": 48.10240719555966,
+      "y": 36.301924272474764
      },
-     "rotation": 2.6447924072009465,
-     "scale": 0.9994875464095399,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 2.5801849720016543,
+     "scale": 0.9997253661911834,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-049-wall",
+     "id": "asset-047-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 28.256300875286918,
-      "y": 25.132915505101693
+      "x": 50.74786537578423,
+      "y": 34.83448440194779
      },
-     "rotation": 3.0217057036364467,
-     "scale": 1.000251695830051,
-     "width": 1.72,
+     "rotation": 0.7214664169167186,
+     "scale": 0.999464858903364,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-048-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 52.36472417178188,
+      "y": 32.709770858104335
+     },
+     "rotation": -0.04426170978684474,
+     "scale": 0.9998348958722145,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-049-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 56.391711960175094,
+      "y": 32.64496958232383
+     },
+     "rotation": 1.2599019499136141,
+     "scale": 0.9998445489517563,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-050-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 57.96062972275746,
+      "y": 36.77983920147305
+     },
+     "rotation": 2.6926254418592857,
+     "scale": 0.9996959303466991,
+     "width": 4,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-050-outside",
+     "id": "asset-051-outside",
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:outside_bend_2x2_object_A",
      "position": {
-      "x": 28.864117663983233,
-      "y": 27.50788207244957
+      "x": 55.975923984400374,
+      "y": 38.93773052648583
      },
-     "rotation": 3.252493366519265,
-     "scale": 1.0002346681372154,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 3.9241898601849083,
+     "scale": 0.999286357698494,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-051-wall",
-     "name": "wall short",
+     "id": "asset-052-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 30.67462818504388,
-      "y": 27.85989587829412
+      "x": 56.881182149152394,
+      "y": 41.57344519356186
      },
-     "rotation": 1.656084891212462,
-     "scale": 0.9994904595702495,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-052-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
-     "position": {
-      "x": 32.33282609763162,
-      "y": 27.882979066353336
-     },
-     "rotation": 2.313711791557797,
-     "scale": 1.0000759369793164,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 2.5780370779515485,
+     "scale": 0.999699208487625,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3599,14 +3534,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 32.426246208382445,
-      "y": 25.72158675407437
+      "x": 53.989220110920286,
+      "y": 44.04988423436756
      },
-     "rotation": -0.34612052775499746,
-     "scale": 1.00025050434751,
-     "width": 1.72,
+     "rotation": 4.423640133692846,
+     "scale": 0.999746294514699,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3614,41 +3549,41 @@
      "visible": true
     },
     {
-     "id": "asset-054-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 32.340991335374746,
-      "y": 21.842182486845957
-     },
-     "rotation": -0.7015133158008483,
-     "scale": 0.9999245014610031,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-055-wall",
+     "id": "asset-054-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 35.10004754217429,
-      "y": 18.92637637703719
+      "x": 50.4420388178395,
+      "y": 45.13461673537172
      },
-     "rotation": 1.113235345902301,
-     "scale": 1.0002472341656958,
-     "width": 1.72,
+     "rotation": 4.42362537942697,
+     "scale": 0.9997442116947785,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-055-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 46.86003207957178,
+      "y": 45.13683637259251
+     },
+     "rotation": -2.0763546176501464,
+     "scale": 0.9998478054327915,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
      "visible": true
     },
     {
@@ -3656,15 +3591,15 @@
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 38.90389332609272,
-      "y": 18.46238964223186
+      "x": 44.787410087287476,
+      "y": 41.69628590371747
      },
-     "rotation": 0.9866256956996511,
-     "scale": 0.9998265943391706,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": -0.8285781100994335,
+     "scale": 0.9998415365765421,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3675,18 +3610,18 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 41.51779306144507,
-      "y": 19.748197184756496
+      "x": 45.611851943537815,
+      "y": 38.66822625306242
      },
-     "rotation": 2.481199052828655,
-     "scale": 0.999483239873504,
-     "width": 1.495,
+     "rotation": -0.06509336164438562,
+     "scale": 0.9993696893159453,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -3694,14 +3629,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 42.2346717682105,
-      "y": 21.320875824635284
+      "x": 45.01507904524769,
+      "y": 37.45042981860007
      },
-     "rotation": 2.9417095786853764,
-     "scale": 0.9994916725482995,
-     "width": 1.495,
+     "rotation": -1.0288874648409019,
+     "scale": 0.9994836741294253,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -3713,37 +3648,37 @@
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x2_object_A",
      "position": {
-      "x": 42.85108492443407,
-      "y": 22.768722655452635
+      "x": 43.615880169074586,
+      "y": 36.40052344910997
      },
-     "rotation": 3.3557828893113473,
-     "scale": 1.0002423956759667,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": -0.42582561785885575,
+     "scale": 0.9995915422538156,
+     "width": 3,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-060-inside",
-     "name": "inside bend",
+     "id": "asset-060-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 45.499826927541804,
-      "y": 24.53059590346781
+      "x": 41.634581748731364,
+      "y": 37.26810893527704
      },
-     "rotation": 1.2802657658027867,
-     "scale": 0.9999296533347105,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": 4.384388234402103,
+     "scale": 0.9994915163840211,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -3751,14 +3686,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 47.1227540287539,
-      "y": 28.24594477247577
+      "x": 39.45781567202562,
+      "y": 38.7214637454863
      },
-     "rotation": 3.0898025328890686,
-     "scale": 1.000249441300958,
-     "width": 1.72,
+     "rotation": 4.001470048817872,
+     "scale": 0.9997442879821623,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3766,79 +3701,79 @@
      "visible": true
     },
     {
-     "id": "asset-062-wall",
-     "name": "wall short",
+     "id": "asset-062-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 46.55390248738616,
-      "y": 31.912863661077445
+      "x": 36.03858175484831,
+      "y": 40.495597496192616
      },
-     "rotation": 3.4719967001999397,
-     "scale": 1.0002512819435607,
-     "width": 1.72,
+     "rotation": -2.286133408029863,
+     "scale": 0.9996991502271904,
+     "width": 4,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-063-outside",
-     "name": "outside bend",
+     "id": "asset-063-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 45.928326329369135,
-      "y": 34.92699140095295
+      "x": 32.73991744671363,
+      "y": 38.63020904865692
      },
-     "rotation": 3.452757835711126,
-     "scale": 1.0000324097030386,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": -1.637694363549528,
+     "scale": 0.9998405034083648,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-064-outside",
-     "name": "outside bend",
+     "id": "asset-064-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:inside_bend_3x3_object_A",
      "position": {
-      "x": 48.0408395674206,
-      "y": 36.267554746957146
+      "x": 31.64084125466398,
+      "y": 34.9047791996742
      },
-     "rotation": 2.515205323757877,
-     "scale": 1.0000397680695707,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": -0.6006747854375247,
+     "scale": 0.9996801361916168,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-065-wall",
-     "name": "wall short",
+     "id": "asset-065-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 49.92743262440602,
-      "y": 35.62100692787226
+      "x": 32.91004363421481,
+      "y": 32.27849327511825
      },
-     "rotation": 1.050682572051717,
-     "scale": 0.9994880421535314,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 0.712940436858208,
+     "scale": 0.9996028499767878,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -3846,14 +3781,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 51.605306811010124,
-      "y": 33.67413538660009
+      "x": 30.377891773529683,
+      "y": 30.851758090134403
      },
-     "rotation": 0.6557591630540902,
-     "scale": 1.0002422721568613,
-     "width": 1.72,
+     "rotation": -1.417620967126601,
+     "scale": 0.9997469913511525,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3861,56 +3796,18 @@
      "visible": true
     },
     {
-     "id": "asset-067-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
-     "position": {
-      "x": 55.033429026923756,
-      "y": 32.322588467598365
-     },
-     "rotation": 1.0232732632465389,
-     "scale": 0.9997997130337046,
-     "width": 3.73,
-     "height": 3.67,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-068-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 57.823641864267174,
-      "y": 35.24724760346074
-     },
-     "rotation": 1.887155870847805,
-     "scale": 0.9999034432671955,
-     "width": 4.645,
-     "height": 2.96,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-069-wall",
+     "id": "asset-067-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 57.05210280592495,
-      "y": 38.175365472165005
+      "x": 28.557872271362026,
+      "y": 31.442130250792303
      },
-     "rotation": 3.983035246111749,
-     "scale": 0.9993674690490635,
-     "width": 1.495,
+     "rotation": 3.4171645173029654,
+     "scale": 0.999474703576432,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -3918,19 +3815,57 @@
      "visible": true
     },
     {
-     "id": "asset-070-outside",
-     "name": "outside bend",
+     "id": "asset-068-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 56.24278675159839,
-      "y": 39.04924545352303
+      "x": 28.2615281732995,
+      "y": 33.031696651809916
      },
-     "rotation": 3.661164679613534,
-     "scale": 0.999194615959749,
-     "width": 1.655,
-     "height": 1.46,
+     "rotation": 3.2069470306599217,
+     "scale": 0.9994852285123806,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-069-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
+     "position": {
+      "x": 27.355564658238453,
+      "y": 35.59136552794903
+     },
+     "rotation": 3.6526185819776265,
+     "scale": 0.9997438198157865,
+     "width": 2,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-070-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 25.022916805165654,
+      "y": 38.254050418566244
+     },
+     "rotation": 3.270186067503194,
+     "scale": 0.9998499647541099,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3941,15 +3876,15 @@
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 56.5316234121945,
-      "y": 41.57537471435536
+      "x": 20.596929639282514,
+      "y": 38.474281092811815
      },
-     "rotation": 2.6120702067154684,
-     "scale": 0.999808958387942,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": -1.9157783091710154,
+     "scale": 0.9996951490119748,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -3960,14 +3895,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 53.84451151836952,
-      "y": 44.2168101418444
+      "x": 18.075674865417092,
+      "y": 35.55287306864101
      },
-     "rotation": 4.432023475472192,
-     "scale": 1.0002446545224708,
-     "width": 1.72,
+     "rotation": -0.6081383287587574,
+     "scale": 0.9997433542523211,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -3979,14 +3914,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 51.301560887858095,
-      "y": 44.97722485191272
+      "x": 16.389899717883928,
+      "y": 33.57271832475555
      },
-     "rotation": 4.207443001825114,
-     "scale": 0.9994834481872811,
-     "width": 1.495,
+     "rotation": -0.8992449411663084,
+     "scale": 0.9994917542410428,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -3994,57 +3929,57 @@
      "visible": true
     },
     {
-     "id": "asset-074-wall",
-     "name": "wall short",
+     "id": "asset-074-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_2x2_object_A",
      "position": {
-      "x": 49.65299328163557,
-      "y": 45.51186828499813
+      "x": 15.185305286192806,
+      "y": 32.45878482268998
      },
-     "rotation": 4.6006938229841285,
-     "scale": 0.9994866055539048,
-     "width": 1.495,
+     "rotation": 5.420569229775552,
+     "scale": 0.9992026045872187,
+     "width": 2,
      "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-075-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
-     "position": {
-      "x": 46.73512600941343,
-      "y": 44.823163357995156
-     },
-     "rotation": -2.1554170620634365,
-     "scale": 0.9999171240691458,
-     "width": 4.645,
-     "height": 2.96,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-076-inside",
-     "name": "inside bend",
+     "id": "asset-075-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 45.111332768541075,
-      "y": 41.290151535561094
+      "x": 14.282660304673778,
+      "y": 33.77655817435523
      },
-     "rotation": -0.5563855154349228,
-     "scale": 0.9998111316631877,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": 3.7194431266943146,
+     "scale": 0.9994898041649285,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-076-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_5x3_object_A",
+     "position": {
+      "x": 13.119929112412482,
+      "y": 35.77446355295821
+     },
+     "rotation": 4.191003627392588,
+     "scale": 0.9997302826060044,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -4055,33 +3990,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 45.53113760412303,
-      "y": 38.56634986907721
+      "x": 13.957079492359462,
+      "y": 38.84412303869847
      },
-     "rotation": -0.23020879834276875,
-     "scale": 0.9993208580034612,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-078-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 44.817082393918966,
-      "y": 37.38321572285231
-     },
-     "rotation": -1.0058819481660843,
-     "scale": 0.9994815836196725,
-     "width": 1.495,
+     "rotation": 2.9940760405573705,
+     "scale": 0.9994896573358917,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -4089,22 +4005,41 @@
      "visible": true
     },
     {
-     "id": "asset-079-outside",
-     "name": "outside bend",
+     "id": "asset-078-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x2_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 43.320867096604225,
-      "y": 36.67315902151057
+      "x": 13.916342453782903,
+      "y": 41.741878239623404
      },
-     "rotation": 5.783700030127381,
-     "scale": 1.0002425387430751,
-     "width": 2.445,
-     "height": 1.555,
+     "rotation": 2.692228443208238,
+     "scale": 0.9996893062266996,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-079-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
+     "position": {
+      "x": 12.016537100064262,
+      "y": 43.94866647285244
+     },
+     "rotation": 4.13102102320237,
+     "scale": 0.9994856165678414,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -4112,37 +4047,37 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x6_object_A",
      "position": {
-      "x": 41.55623972499564,
-      "y": 37.350667557394985
+      "x": 8.494513591518405,
+      "y": 45.04216205502125
      },
-     "rotation": 4.39405962794803,
-     "scale": 0.9994920307347746,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 4.4695433668353814,
+     "scale": 0.9998308727110871,
+     "width": 2,
+     "height": 6,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-081-wall",
-     "name": "wall short",
+     "id": "asset-081-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
      "position": {
-      "x": 39.46676956818232,
-      "y": 38.86591850227402
+      "x": 3.640545630341821,
+      "y": 45.63642274173694
      },
-     "rotation": 3.9956850191939273,
-     "scale": 1.000246041258617,
-     "width": 1.72,
+     "rotation": -1.99964761165365,
+     "scale": 0.999690669673062,
+     "width": 4,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -4150,37 +4085,37 @@
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 35.80062886379491,
-      "y": 40.14638399355856
+      "x": 1.5613684368906524,
+      "y": 42.58203744682488
      },
-     "rotation": -2.523617411250425,
-     "scale": 0.9999179705493544,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": -0.8583747776102387,
+     "scale": 0.9998293264145769,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-083-inside",
-     "name": "inside bend",
+     "id": "asset-083-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 32.46133880049495,
-      "y": 37.767403154232845
+      "x": 3.859313545690229,
+      "y": 38.84917871533645
      },
-     "rotation": -1.2783353491479472,
-     "scale": 0.999823320419524,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": 0.6624297416263337,
+     "scale": 0.9997474837712738,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -4188,15 +4123,15 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 31.75914286165099,
-      "y": 34.92779396395617
+      "x": 6.449826535507116,
+      "y": 36.26739954553125
      },
-     "rotation": 0.155835640305374,
-     "scale": 0.9994830998617076,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 0.9954810916839387,
+     "scale": 0.9997471643604455,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
@@ -4207,14 +4142,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 32.40326636830579,
-      "y": 33.32421528820879
+      "x": 8.875884448179951,
+      "y": 35.087387535663936
      },
-     "rotation": 0.5821107608719114,
-     "scale": 0.9994856047753155,
-     "width": 1.495,
+     "rotation": 1.3202015777612146,
+     "scale": 0.9994921013356786,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -4226,37 +4161,37 @@
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 32.387630598233144,
-      "y": 31.45983398522884
+      "x": 10.741865186708985,
+      "y": 34.1969088363906
      },
-     "rotation": 0.019819761299183725,
-     "scale": 1.0000623759081655,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 1.4694768484598724,
+     "scale": 0.9995993333076895,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-087-wall",
-     "name": "wall short",
+     "id": "asset-087-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 30.368973230964347,
-      "y": 30.95287639112455
+      "x": 11.688252935289166,
+      "y": 31.676815175704093
      },
-     "rotation": -1.4251641464170324,
-     "scale": 0.9994920764048589,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 0.6309380930865418,
+     "scale": 0.9995577256136133,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -4264,34 +4199,34 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 28.687169368850252,
-      "y": 30.607916913338475
+      "x": 9.901767749624087,
+      "y": 28.99860685274231
      },
-     "rotation": -1.3117079531644076,
-     "scale": 0.9994920917688731,
-     "width": 1.495,
-     "height": 2,
+     "rotation": -0.4851774226096097,
+     "scale": 0.9997466341701686,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-089-wall",
-     "name": "wall short",
+     "id": "asset-089-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 28.27835780929708,
-      "y": 31.219135228352815
+      "x": 8.816668814719765,
+      "y": 25.587171050828193
      },
-     "rotation": 3.0753286558542996,
-     "scale": 0.9994915817900328,
-     "width": 1.495,
-     "height": 2,
+     "rotation": -0.8753769045617327,
+     "scale": 0.9998538623479982,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -4302,53 +4237,53 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 27.933434899131623,
-      "y": 33.91796443521004
+      "x": 10.377481856461085,
+      "y": 22.705338688943595
      },
-     "rotation": 3.376108583298687,
-     "scale": 1.0002414225687932,
-     "width": 1.72,
-     "height": 4,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-091-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
-     "position": {
-      "x": 26.28824417703242,
-      "y": 37.17261246291955
-     },
-     "rotation": 3.9394658967594642,
-     "scale": 1.0002460127323063,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 0.9294357144140896,
+     "scale": 0.9994902143138293,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-092-inside",
-     "name": "inside bend",
+     "id": "asset-091-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 22.672610299900473,
-      "y": 38.62432430581436
+      "x": 12.287216370975905,
+      "y": 21.688381200699325
      },
-     "rotation": -2.6712466850647725,
-     "scale": 0.9999194435631023,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": 1.5429530572648562,
+     "scale": 0.9995911394463378,
+     "width": 3,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-092-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_3x2_object_A",
+     "position": {
+      "x": 12.76067373542339,
+      "y": 19.724743127876714
+     },
+     "rotation": 0.6671993236703275,
+     "scale": 0.9996284659241008,
+     "width": 3,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -4359,14 +4294,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 19.75944056385569,
-      "y": 37.8088955400812
+      "x": 11.517848949382833,
+      "y": 18.080036351672483
      },
-     "rotation": -0.8770863391397179,
-     "scale": 0.9994894561926478,
-     "width": 1.495,
+     "rotation": -0.4213393312326368,
+     "scale": 0.9994888523401289,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
@@ -4378,94 +4313,94 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 18.037687631417278,
-      "y": 35.698297784076395
+      "x": 10.67845857540141,
+      "y": 18.1029318999944
      },
-     "rotation": -0.6041882775450751,
-     "scale": 1.0002484279098174,
-     "width": 1.72,
+     "rotation": 4.003858969146512,
+     "scale": 0.9994775037591903,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-095-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
+     "position": {
+      "x": 8.577532986786244,
+      "y": 19.712651021629515
+     },
+     "rotation": 3.3612511905427485,
+     "scale": 0.9998391040788892,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-096-wall",
+     "name": "wall short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
+     "position": {
+      "x": 5.2607813880169845,
+      "y": 19.616342189740248
+     },
+     "rotation": -1.1702344483459393,
+     "scale": 0.9994867716061592,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-097-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 2.8657490240924735,
+      "y": 17.94687741655161
+     },
+     "rotation": -1.3788259894293926,
+     "scale": 0.9996862917465065,
+     "width": 4,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-095-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 16.436378115052584,
-      "y": 33.67535777548337
-     },
-     "rotation": -0.8998319368769407,
-     "scale": 0.9994904676929047,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-096-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
-     "position": {
-      "x": 15.451085711609878,
-      "y": 32.70412341758679
-     },
-     "rotation": -0.6334791882858504,
-     "scale": 0.9987277356842804,
-     "width": 1.655,
-     "height": 1.46,
-     "tint": "#ffffff",
-     "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-097-wall",
+     "id": "asset-098-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 14.437214979390433,
-      "y": 33.650051075010964
+      "x": 2.2923293150861874,
+      "y": 15.128996617928875
      },
-     "rotation": 3.7545416110510788,
-     "scale": 0.9994885471034982,
-     "width": 1.495,
+     "rotation": 0.11071653726784048,
+     "scale": 0.9994893263830491,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-098-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_4x4_object_A",
-     "position": {
-      "x": 13.636586106960637,
-      "y": 36.22608434982358
-     },
-     "rotation": 3.953916633714183,
-     "scale": 0.9996531135258154,
-     "width": 3.49,
-     "height": 3.565,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
      "visible": true
     },
     {
@@ -4473,37 +4408,37 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 14.028366716921472,
-      "y": 38.93567576015056
+      "x": 2.5275209778740515,
+      "y": 13.462406443214862
      },
-     "rotation": 3.0158047408401067,
-     "scale": 0.999489291214864,
-     "width": 1.495,
+     "rotation": 0.15521479367003943,
+     "scale": 0.9994040932387142,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-100-inside",
-     "name": "inside bend",
+     "id": "asset-100-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 13.528089145641673,
-      "y": 41.88720376454183
+      "x": 2.2705065458033875,
+      "y": 10.837788605651127
      },
-     "rotation": 2.4500301755682377,
-     "scale": 0.9999220585299314,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": -0.1662145479201027,
+     "scale": 0.9997366142308844,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -4511,14 +4446,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 10.59647382353397,
-      "y": 44.56913076439135
+      "x": 2.7345416868183694,
+      "y": 7.164989139484178
      },
-     "rotation": 4.427570264965642,
-     "scale": 1.000250327923329,
-     "width": 1.72,
+     "rotation": 0.39545627451652443,
+     "scale": 0.9997474046539717,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -4530,14 +4465,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 6.99466931112833,
-      "y": 45.53485862588168
+      "x": 4.7777832147095625,
+      "y": 4.1040027453918855
      },
-     "rotation": 4.463649662944792,
-     "scale": 1.0002457840497285,
-     "width": 1.72,
+     "rotation": 0.796482042567367,
+     "scale": 0.9997466167794979,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -4545,41 +4480,41 @@
      "visible": true
     },
     {
-     "id": "asset-103-inside",
-     "name": "inside bend",
+     "id": "asset-103-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 3.0348428651205563,
-      "y": 44.945761570924745
+      "x": 6.921188249246559,
+      "y": 2.4839892450618626
      },
-     "rotation": -2.0399587847394054,
-     "scale": 0.9999236118689351,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": 1.1141709826675048,
+     "scale": 0.9994858250523249,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-104-inside",
-     "name": "inside bend",
+     "id": "asset-104-wall",
+     "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_3x3_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 1.562776635150617,
-      "y": 41.7700240352413
+      "x": 8.550009415177263,
+      "y": 1.943865135181568
      },
-     "rotation": -0.4590264088233842,
-     "scale": 1.0000255383542855,
-     "width": 2.75,
-     "height": 2.73,
+     "rotation": 1.379414103050848,
+     "scale": 0.9994834660827108,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -4587,72 +4522,72 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x6_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 4.152671699085036,
-      "y": 38.43318218087465
+      "x": 10.265664677000888,
+      "y": 1.9277338943742215
      },
-     "rotation": 0.7382230820744886,
-     "scale": 1.000165592304577,
-     "width": 1.645,
-     "height": 6,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-106-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
-     "position": {
-      "x": 7.746944412022155,
-      "y": 35.464196367356415
-     },
-     "rotation": 1.1639572481313785,
-     "scale": 1.0002502612286865,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 1.751595463293645,
+     "scale": 0.9994891389534638,
+     "width": 2,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-107-outside",
+     "id": "asset-106-outside",
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x2_object_A",
      "position": {
-      "x": 10.507065081310797,
-      "y": 34.16945682739351
+      "x": 11.816251572966907,
+      "y": 2.580515114718768
      },
-     "rotation": 1.53404364478865,
-     "scale": 1.0000684188606133,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 2.6300354978968654,
+     "scale": 0.9996258678715267,
+     "width": 3,
+     "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-108-outside",
-     "name": "outside bend",
+     "id": "asset-107-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 11.533309734845487,
-      "y": 31.878922885846503
+      "x": 14.60901710336485,
+      "y": 1.4828361762778401
      },
-     "rotation": 0.7293230185050807,
-     "scale": 1.0000297893810868,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 0.5244738148320219,
+     "scale": 0.9998353613381282,
+     "width": 5,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-108-inside",
+     "name": "inside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:inside_bend_4x4_object_A",
+     "position": {
+      "x": 18.62753978959545,
+      "y": 3.3463750809195085
+     },
+     "rotation": 1.7789725401300425,
+     "scale": 0.9996979088894247,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -4663,14 +4598,14 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 9.892755669743314,
-      "y": 29.230157789026748
+      "x": 19.4286528160441,
+      "y": 7.1654842183184355
      },
-     "rotation": -0.5119459760014107,
-     "scale": 1.0002499990380282,
-     "width": 1.72,
+     "rotation": 3.085532862403325,
+     "scale": 0.9997480224988871,
+     "width": 2,
      "height": 4,
      "tint": "#ffffff",
      "flipX": false,
@@ -4682,37 +4617,37 @@
      "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 9.07644295724586,
-      "y": 25.460253063771987
+      "x": 18.76980021233586,
+      "y": 10.672270557765657
      },
-     "rotation": -0.6768197082108255,
-     "scale": 0.9998089088871355,
-     "width": 3.73,
-     "height": 3.67,
+     "rotation": 2.827986051554888,
+     "scale": 0.999832234522204,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-111-wall",
-     "name": "wall short",
+     "id": "asset-111-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 10.177173248670147,
-      "y": 22.78516743461237
+      "x": 15.482939508303582,
+      "y": 12.455710251852294
      },
-     "rotation": 0.8755328159065268,
-     "scale": 0.9994843285953007,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 4.800738166271661,
+     "scale": 0.9995705590044487,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -4720,18 +4655,18 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 11.560731288711027,
-      "y": 21.79612838837275
+      "x": 14.451468410095185,
+      "y": 14.460064633517348
      },
-     "rotation": 1.0060610532150198,
-     "scale": 0.9994001447734001,
-     "width": 1.495,
+     "rotation": 3.749462527043069,
+     "scale": 0.9994920439401745,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
@@ -4739,15 +4674,15 @@
      "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_3x3_object_A",
+     "assetId": "gg-forge:outside_bend_4x4_object_A",
      "position": {
-      "x": 12.553082331232401,
-      "y": 20.183220966827427
+      "x": 13.869697126845306,
+      "y": 16.991307873593655
      },
-     "rotation": 0.6586887192431499,
-     "scale": 1.0000672618171609,
-     "width": 2.625,
-     "height": 2.785,
+     "rotation": 3.5380161079687378,
+     "scale": 0.9997370879307256,
+     "width": 4,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
@@ -4758,15 +4693,15 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x4_object_A",
      "position": {
-      "x": 11.596079286835698,
-      "y": 18.373025301775957
+      "x": 17.032010357164683,
+      "y": 17.92073593618941
      },
-     "rotation": -0.4273531905712602,
-     "scale": 0.9994921238209672,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 1.4369386585956647,
+     "scale": 0.9997463734498598,
+     "width": 2,
+     "height": 4,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
@@ -4777,75 +4712,75 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x6_object_A",
      "position": {
-      "x": 10.732703246290738,
-      "y": 18.321746845707747
+      "x": 21.61850940941693,
+      "y": 18.439121620118463
      },
-     "rotation": 4.140467521698668,
-     "scale": 0.9994514004984518,
-     "width": 1.495,
-     "height": 2,
+     "rotation": 1.8258533390274712,
+     "scale": 0.9998178162779608,
+     "width": 2,
+     "height": 6,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": false,
+     "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-116-inside",
-     "name": "inside bend",
+     "id": "asset-116-outside",
+     "name": "outside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_5x3_object_A",
+     "assetId": "gg-forge:outside_bend_3x3_object_A",
      "position": {
-      "x": 8.065875943450857,
-      "y": 19.65981906296173
+      "x": 25.427833425013226,
+      "y": 18.65650496036172
      },
-     "rotation": 3.325768613009519,
-     "scale": 0.9999313623809655,
-     "width": 4.645,
-     "height": 2.96,
+     "rotation": 1.5612749766195892,
+     "scale": 0.9995978790880338,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-117-inside",
-     "name": "inside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:inside_bend_4x4_object_A",
-     "position": {
-      "x": 4.039923278021853,
-      "y": 18.739812991259964
-     },
-     "rotation": -1.6660293139130449,
-     "scale": 0.9998100759153261,
-     "width": 3.73,
-     "height": 3.67,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-118-wall",
+     "id": "asset-117-wall",
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x2_object_A",
      "position": {
-      "x": 2.3089841069230017,
-      "y": 16.354499739760236
+      "x": 26.377950332893604,
+      "y": 16.79225552845556
      },
-     "rotation": -0.19423499925638388,
-     "scale": 0.9994848803275885,
-     "width": 1.495,
+     "rotation": 0.5050085606238308,
+     "scale": 0.9994921896283192,
+     "width": 2,
      "height": 2,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
+     "visible": true
+    },
+    {
+     "id": "asset-118-outside",
+     "name": "outside bend",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-forge:outside_bend_4x4_object_A",
+     "position": {
+      "x": 27.52554370076838,
+      "y": 14.302927261954977
+     },
+     "rotation": 0.7171261928653256,
+     "scale": 0.9997831672393168,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
      "visible": true
     },
     {
@@ -4853,56 +4788,56 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:wall_short_2x6_object_A",
      "position": {
-      "x": 2.3405164559852203,
-      "y": 14.61886656019702
+      "x": 25.188921816919393,
+      "y": 10.155516148030706
      },
-     "rotation": 0.24135323906426231,
-     "scale": 0.9994902185506377,
-     "width": 1.495,
-     "height": 2,
+     "rotation": -0.534078537583464,
+     "scale": 0.9998308495830884,
+     "width": 2,
+     "height": 6,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-120-wall",
-     "name": "wall short",
+     "id": "asset-120-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 2.358232581834917,
-      "y": 12.028084186969291
+      "x": 23.266378217947832,
+      "y": 6.091635798378073
      },
-     "rotation": -0.14778773207399665,
-     "scale": 1.000251327828845,
-     "width": 1.72,
-     "height": 4,
+     "rotation": -0.9358549177414682,
+     "scale": 0.9998397484541031,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-121-wall",
-     "name": "wall short",
+     "id": "asset-121-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:inside_bend_5x3_object_A",
      "position": {
-      "x": 2.237538278853223,
-      "y": 8.36232132102903
+      "x": 25.231326167809147,
+      "y": 2.4072757556172997
      },
-     "rotation": 0.2316237744810432,
-     "scale": 1.0002490436549116,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 0.0401577824733933,
+     "scale": 0.9998450500494602,
+     "width": 5,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
-     "flipY": true,
+     "flipY": false,
      "visible": true
     },
     {
@@ -4910,117 +4845,41 @@
      "name": "wall short",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
+     "assetId": "gg-forge:wall_short_2x6_object_A",
      "position": {
-      "x": 3.827310537518704,
-      "y": 5.014820768168496
+      "x": 30.43596147029074,
+      "y": 1.8974505988205732
      },
-     "rotation": 0.6427327665872032,
-     "scale": 1.0002517030820317,
-     "width": 1.72,
-     "height": 4,
+     "rotation": 1.5758261836147451,
+     "scale": 0.9998322132170676,
+     "width": 2,
+     "height": 6,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": true,
      "visible": true
     },
     {
-     "id": "asset-123-wall",
-     "name": "wall short",
+     "id": "asset-123-inside",
+     "name": "inside bend",
      "childType": "asset",
      "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
+     "assetId": "gg-forge:inside_bend_3x3_object_A",
      "position": {
-      "x": 5.762534810212134,
-      "y": 3.1075621075215603
+      "x": 34.79575224154616,
+      "y": 2.03428977468487
      },
-     "rotation": 0.9718167470148795,
-     "scale": 0.9994890025990976,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-124-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x2_object_A",
-     "position": {
-      "x": 7.274167352296696,
-      "y": 2.2737517491664154
-     },
-     "rotation": 1.1792359157905121,
-     "scale": 0.9994843721815204,
-     "width": 1.495,
-     "height": 2,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-125-wall",
-     "name": "wall short",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:wall_short_2x4_object_A",
-     "position": {
-      "x": 10.01060896441977,
-      "y": 1.9174348321715462
-     },
-     "rotation": 1.6723356912753427,
-     "scale": 1.000247754084889,
-     "width": 1.72,
-     "height": 4,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": true,
-     "visible": true
-    },
-    {
-     "id": "asset-126-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
-     "position": {
-      "x": 12.250423322928436,
-      "y": 2.540976495197159
-     },
-     "rotation": 2.1909024972372433,
-     "scale": 0.9319626572560654,
-     "width": 1.655,
-     "height": 1.46,
+     "rotation": 1.2248974798014354,
+     "scale": 1.005306843799486,
+     "width": 3,
+     "height": 3,
      "tint": "#ffffff",
      "flipX": false,
      "flipY": false,
      "visible": true
     },
     {
-     "id": "asset-127-outside",
-     "name": "outside bend",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:outside_bend_2x2_object_A",
-     "position": {
-      "x": 13.447127410569987,
-      "y": 2.0746462765996916
-     },
-     "rotation": 1.974783289604727,
-     "scale": 1.0346484853809166,
-     "width": 1.655,
-     "height": 1.46,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-128-rubble",
+     "id": "asset-124-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5039,7 +4898,7 @@
      "visible": true
     },
     {
-     "id": "asset-129-rubble",
+     "id": "asset-125-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5058,7 +4917,7 @@
      "visible": true
     },
     {
-     "id": "asset-130-rubble",
+     "id": "asset-126-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5077,7 +4936,7 @@
      "visible": true
     },
     {
-     "id": "asset-131-rubble",
+     "id": "asset-127-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5096,7 +4955,7 @@
      "visible": true
     },
     {
-     "id": "asset-132-rubble",
+     "id": "asset-128-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5115,7 +4974,7 @@
      "visible": true
     },
     {
-     "id": "asset-133-rubble",
+     "id": "asset-129-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5134,7 +4993,7 @@
      "visible": true
     },
     {
-     "id": "asset-134-rubble",
+     "id": "asset-130-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5153,7 +5012,7 @@
      "visible": true
     },
     {
-     "id": "asset-135-rubble",
+     "id": "asset-131-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5172,7 +5031,7 @@
      "visible": true
     },
     {
-     "id": "asset-136-rubble",
+     "id": "asset-132-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5191,7 +5050,7 @@
      "visible": true
     },
     {
-     "id": "asset-137-rubble",
+     "id": "asset-133-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5210,7 +5069,7 @@
      "visible": true
     },
     {
-     "id": "asset-138-rubble",
+     "id": "asset-134-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5229,7 +5088,7 @@
      "visible": true
     },
     {
-     "id": "asset-139-rubble",
+     "id": "asset-135-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5248,7 +5107,7 @@
      "visible": true
     },
     {
-     "id": "asset-140-rubble",
+     "id": "asset-136-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5267,7 +5126,7 @@
      "visible": true
     },
     {
-     "id": "asset-141-rubble",
+     "id": "asset-137-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5286,7 +5145,7 @@
      "visible": true
     },
     {
-     "id": "asset-142-rubble",
+     "id": "asset-138-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5305,7 +5164,7 @@
      "visible": true
     },
     {
-     "id": "asset-143-rubble",
+     "id": "asset-139-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5324,7 +5183,7 @@
      "visible": true
     },
     {
-     "id": "asset-144-rubble",
+     "id": "asset-140-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5343,7 +5202,7 @@
      "visible": true
     },
     {
-     "id": "asset-145-rubble",
+     "id": "asset-141-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5362,7 +5221,7 @@
      "visible": true
     },
     {
-     "id": "asset-146-rubble",
+     "id": "asset-142-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5381,7 +5240,7 @@
      "visible": true
     },
     {
-     "id": "asset-147-rubble",
+     "id": "asset-143-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5400,7 +5259,7 @@
      "visible": true
     },
     {
-     "id": "asset-148-rubble",
+     "id": "asset-144-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5419,7 +5278,7 @@
      "visible": true
     },
     {
-     "id": "asset-149-rubble",
+     "id": "asset-145-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5438,7 +5297,7 @@
      "visible": true
     },
     {
-     "id": "asset-150-rubble",
+     "id": "asset-146-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5457,7 +5316,7 @@
      "visible": true
     },
     {
-     "id": "asset-151-rubble",
+     "id": "asset-147-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5476,7 +5335,7 @@
      "visible": true
     },
     {
-     "id": "asset-152-rubble",
+     "id": "asset-148-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5495,7 +5354,7 @@
      "visible": true
     },
     {
-     "id": "asset-153-rubble",
+     "id": "asset-149-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5514,7 +5373,7 @@
      "visible": true
     },
     {
-     "id": "asset-154-rubble",
+     "id": "asset-150-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5533,7 +5392,7 @@
      "visible": true
     },
     {
-     "id": "asset-155-rubble",
+     "id": "asset-151-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5552,7 +5411,7 @@
      "visible": true
     },
     {
-     "id": "asset-156-rubble",
+     "id": "asset-152-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5571,7 +5430,7 @@
      "visible": true
     },
     {
-     "id": "asset-157-rubble",
+     "id": "asset-153-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5590,7 +5449,7 @@
      "visible": true
     },
     {
-     "id": "asset-158-rubble",
+     "id": "asset-154-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5609,7 +5468,7 @@
      "visible": true
     },
     {
-     "id": "asset-159-rubble",
+     "id": "asset-155-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5628,7 +5487,7 @@
      "visible": true
     },
     {
-     "id": "asset-160-rubble",
+     "id": "asset-156-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5647,7 +5506,7 @@
      "visible": true
     },
     {
-     "id": "asset-161-rubble",
+     "id": "asset-157-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5666,7 +5525,7 @@
      "visible": true
     },
     {
-     "id": "asset-162-rubble",
+     "id": "asset-158-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5685,7 +5544,7 @@
      "visible": true
     },
     {
-     "id": "asset-163-rubble",
+     "id": "asset-159-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5704,7 +5563,7 @@
      "visible": true
     },
     {
-     "id": "asset-164-rubble",
+     "id": "asset-160-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5723,7 +5582,7 @@
      "visible": true
     },
     {
-     "id": "asset-165-rubble",
+     "id": "asset-161-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5742,7 +5601,7 @@
      "visible": true
     },
     {
-     "id": "asset-166-rubble",
+     "id": "asset-162-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5761,7 +5620,7 @@
      "visible": true
     },
     {
-     "id": "asset-167-rubble",
+     "id": "asset-163-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5780,7 +5639,7 @@
      "visible": true
     },
     {
-     "id": "asset-168-rubble",
+     "id": "asset-164-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5799,7 +5658,7 @@
      "visible": true
     },
     {
-     "id": "asset-169-rubble",
+     "id": "asset-165-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5818,7 +5677,7 @@
      "visible": true
     },
     {
-     "id": "asset-170-rubble",
+     "id": "asset-166-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5837,7 +5696,7 @@
      "visible": true
     },
     {
-     "id": "asset-171-rubble",
+     "id": "asset-167-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5856,7 +5715,7 @@
      "visible": true
     },
     {
-     "id": "asset-172-rubble",
+     "id": "asset-168-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5875,7 +5734,7 @@
      "visible": true
     },
     {
-     "id": "asset-173-rubble",
+     "id": "asset-169-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5894,7 +5753,7 @@
      "visible": true
     },
     {
-     "id": "asset-174-rubble",
+     "id": "asset-170-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5913,7 +5772,7 @@
      "visible": true
     },
     {
-     "id": "asset-175-rubble",
+     "id": "asset-171-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5932,7 +5791,7 @@
      "visible": true
     },
     {
-     "id": "asset-176-rubble",
+     "id": "asset-172-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5951,7 +5810,7 @@
      "visible": true
     },
     {
-     "id": "asset-177-rubble",
+     "id": "asset-173-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -5970,7 +5829,7 @@
      "visible": true
     },
     {
-     "id": "asset-178-rubble",
+     "id": "asset-174-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -5989,7 +5848,7 @@
      "visible": true
     },
     {
-     "id": "asset-179-rubble",
+     "id": "asset-175-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6008,7 +5867,7 @@
      "visible": true
     },
     {
-     "id": "asset-180-rubble",
+     "id": "asset-176-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6027,7 +5886,7 @@
      "visible": true
     },
     {
-     "id": "asset-181-rubble",
+     "id": "asset-177-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6046,7 +5905,7 @@
      "visible": true
     },
     {
-     "id": "asset-182-rubble",
+     "id": "asset-178-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6065,7 +5924,7 @@
      "visible": true
     },
     {
-     "id": "asset-183-rubble",
+     "id": "asset-179-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6084,7 +5943,7 @@
      "visible": true
     },
     {
-     "id": "asset-184-rubble",
+     "id": "asset-180-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6103,7 +5962,7 @@
      "visible": true
     },
     {
-     "id": "asset-185-rubble",
+     "id": "asset-181-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6122,7 +5981,7 @@
      "visible": true
     },
     {
-     "id": "asset-186-rubble",
+     "id": "asset-182-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6141,7 +6000,7 @@
      "visible": true
     },
     {
-     "id": "asset-187-rubble",
+     "id": "asset-183-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6160,7 +6019,7 @@
      "visible": true
     },
     {
-     "id": "asset-188-rubble",
+     "id": "asset-184-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6179,7 +6038,7 @@
      "visible": true
     },
     {
-     "id": "asset-189-rubble",
+     "id": "asset-185-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6198,7 +6057,7 @@
      "visible": true
     },
     {
-     "id": "asset-190-rubble",
+     "id": "asset-186-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6217,7 +6076,7 @@
      "visible": true
     },
     {
-     "id": "asset-191-rubble",
+     "id": "asset-187-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6236,7 +6095,7 @@
      "visible": true
     },
     {
-     "id": "asset-192-rubble",
+     "id": "asset-188-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6255,7 +6114,7 @@
      "visible": true
     },
     {
-     "id": "asset-193-rubble",
+     "id": "asset-189-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6274,7 +6133,7 @@
      "visible": true
     },
     {
-     "id": "asset-194-rubble",
+     "id": "asset-190-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6293,7 +6152,7 @@
      "visible": true
     },
     {
-     "id": "asset-195-rubble",
+     "id": "asset-191-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6312,7 +6171,7 @@
      "visible": true
     },
     {
-     "id": "asset-196-rubble",
+     "id": "asset-192-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6331,7 +6190,7 @@
      "visible": true
     },
     {
-     "id": "asset-197-rubble",
+     "id": "asset-193-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6350,7 +6209,7 @@
      "visible": true
     },
     {
-     "id": "asset-198-rubble",
+     "id": "asset-194-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6369,7 +6228,7 @@
      "visible": true
     },
     {
-     "id": "asset-199-rubble",
+     "id": "asset-195-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6388,7 +6247,7 @@
      "visible": true
     },
     {
-     "id": "asset-200-rubble",
+     "id": "asset-196-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6407,7 +6266,7 @@
      "visible": true
     },
     {
-     "id": "asset-201-rubble",
+     "id": "asset-197-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6426,7 +6285,7 @@
      "visible": true
     },
     {
-     "id": "asset-202-rubble",
+     "id": "asset-198-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6445,7 +6304,7 @@
      "visible": true
     },
     {
-     "id": "asset-203-rubble",
+     "id": "asset-199-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6464,7 +6323,7 @@
      "visible": true
     },
     {
-     "id": "asset-204-rubble",
+     "id": "asset-200-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6483,7 +6342,7 @@
      "visible": true
     },
     {
-     "id": "asset-205-rubble",
+     "id": "asset-201-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6502,7 +6361,7 @@
      "visible": true
     },
     {
-     "id": "asset-206-rubble",
+     "id": "asset-202-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6521,7 +6380,7 @@
      "visible": true
     },
     {
-     "id": "asset-207-rubble",
+     "id": "asset-203-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6540,17 +6399,55 @@
      "visible": true
     },
     {
+     "id": "asset-205-rubble",
+     "name": "rubble small",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rubble_small_3x3_object_A",
+     "position": {
+      "x": 19.433759788861355,
+      "y": 19.15687323535092
+     },
+     "rotation": 4.023837572323335,
+     "scale": 0.4989699498735908,
+     "width": 2.15,
+     "height": 2.065,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-207-rubble",
+     "name": "rubble small",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rubble_small_3x3_object_A",
+     "position": {
+      "x": 25.49290944910527,
+      "y": 8.518694526329117
+     },
+     "rotation": 0.9068600500182769,
+     "scale": 0.6322757783207782,
+     "width": 2.15,
+     "height": 2.065,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
      "id": "asset-209-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 19.437860521565877,
-      "y": 19.155149032357862
+      "x": 30.99863774303071,
+      "y": 2.9990908875920725
      },
-     "rotation": 4.023837572323335,
-     "scale": 0.4989699498735908,
+     "rotation": 1.724358076858169,
+     "scale": 0.5276340215985055,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6565,11 +6462,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 25.48916057449503,
-      "y": 8.516255678305022
+      "x": 55.80821305698034,
+      "y": 16.286794899591
      },
-     "rotation": 0.9068600500182769,
-     "scale": 0.6322757783207782,
+     "rotation": 4.568401663420701,
+     "scale": 0.5423221782718212,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6584,11 +6481,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 31.002874138834038,
-      "y": 2.996537886459611
+      "x": 34.067031009210574,
+      "y": 24.21989936146618
      },
-     "rotation": 1.724358076858169,
-     "scale": 0.5276340215985055,
+     "rotation": 4.7155544337471,
+     "scale": 0.5001110847805177,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6603,11 +6500,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 55.810494983935676,
-      "y": 16.291427700866016
+      "x": 54.91686907214276,
+      "y": 34.18804062037787
      },
-     "rotation": 4.568401663420701,
-     "scale": 0.5423221782718212,
+     "rotation": 3.7700339559039673,
+     "scale": 0.5818974798322077,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6622,11 +6519,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 34.06453222875455,
-      "y": 24.21616381632376
+      "x": 21.642713056715156,
+      "y": 36.620765947797885
      },
-     "rotation": 4.7155544337471,
-     "scale": 0.5001110847805177,
+     "rotation": 3.2517017019707684,
+     "scale": 0.498107558139517,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6641,11 +6538,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 54.938738417201705,
-      "y": 34.119437202428855
+      "x": 8.44204031084383,
+      "y": 43.77755225238024
      },
-     "rotation": 3.7700339559039673,
-     "scale": 0.5818974798322077,
+     "rotation": 3.9811154826511035,
+     "scale": 0.5371669912766025,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6660,11 +6557,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 21.63823531008696,
-      "y": 36.621362662610494
+      "x": 4.093778909197259,
+      "y": 43.70900488503365
      },
-     "rotation": 3.2517017019707684,
-     "scale": 0.498107558139517,
+     "rotation": 6.139106669017417,
+     "scale": 0.5693656218449187,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6679,11 +6576,11 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 8.438605221228178,
-      "y": 43.780899830223866
+      "x": 10.595952969137533,
+      "y": 26.237627051600466
      },
-     "rotation": 3.9811154826511035,
-     "scale": 0.5371669912766025,
+     "rotation": 6.1061328861098625,
+     "scale": 0.6002649303784202,
      "width": 2.15,
      "height": 2.065,
      "tint": "#ffffff",
@@ -6698,46 +6595,8 @@
      "objectType": "asset",
      "assetId": "gg-demo:rubble_small_3x3_object_A",
      "position": {
-      "x": 4.055396527269747,
-      "y": 43.76404019589848
-     },
-     "rotation": 6.139106669017417,
-     "scale": 0.5693656218449187,
-     "width": 2.15,
-     "height": 2.065,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-227-rubble",
-     "name": "rubble small",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:rubble_small_3x3_object_A",
-     "position": {
-      "x": 10.593937782208846,
-      "y": 26.233759278167593
-     },
-     "rotation": 6.1061328861098625,
-     "scale": 0.6002649303784202,
-     "width": 2.15,
-     "height": 2.065,
-     "tint": "#ffffff",
-     "flipX": false,
-     "flipY": false,
-     "visible": true
-    },
-    {
-     "id": "asset-229-rubble",
-     "name": "rubble small",
-     "childType": "asset",
-     "objectType": "asset",
-     "assetId": "gg-demo:rubble_small_3x3_object_A",
-     "position": {
-      "x": 3.5525065694148514,
-      "y": 9.033426187583185
+      "x": 3.5541260366345853,
+      "y": 9.03804309738204
      },
      "rotation": 0.13732615355693845,
      "scale": 0.4946437066427542,
@@ -6749,7 +6608,7 @@
      "visible": true
     },
     {
-     "id": "asset-230-rubble",
+     "id": "asset-226-rubble",
      "name": "rubble medium",
      "childType": "asset",
      "objectType": "asset",
@@ -6768,7 +6627,7 @@
      "visible": true
     },
     {
-     "id": "asset-231-rubble",
+     "id": "asset-227-rubble",
      "name": "rubble small",
      "childType": "asset",
      "objectType": "asset",
@@ -6787,7 +6646,7 @@
      "visible": true
     },
     {
-     "id": "asset-232-acid",
+     "id": "asset-228-acid",
      "name": "acid mushroom",
      "childType": "asset",
      "objectType": "asset",
@@ -6806,7 +6665,7 @@
      "visible": true
     },
     {
-     "id": "asset-238-acid",
+     "id": "asset-234-acid",
      "name": "acid mushroom",
      "childType": "asset",
      "objectType": "asset",
@@ -6825,7 +6684,7 @@
      "visible": true
     },
     {
-     "id": "asset-239-acid",
+     "id": "asset-235-acid",
      "name": "acid mushroom",
      "childType": "asset",
      "objectType": "asset",
@@ -6844,7 +6703,7 @@
      "visible": true
     },
     {
-     "id": "asset-240-acid",
+     "id": "asset-236-acid",
      "name": "acid mushroom",
      "childType": "asset",
      "objectType": "asset",
@@ -6863,7 +6722,7 @@
      "visible": true
     },
     {
-     "id": "asset-241-rock",
+     "id": "asset-237-rock",
      "name": "rock 2",
      "childType": "asset",
      "objectType": "asset",
@@ -6882,7 +6741,7 @@
      "visible": true
     },
     {
-     "id": "asset-242-rock",
+     "id": "asset-238-rock",
      "name": "rock 1",
      "childType": "asset",
      "objectType": "asset",
@@ -6901,7 +6760,7 @@
      "visible": true
     },
     {
-     "id": "asset-243-clutter",
+     "id": "asset-239-clutter",
      "name": "clutter webs 1 full",
      "childType": "asset",
      "objectType": "asset",
@@ -6920,7 +6779,7 @@
      "visible": true
     },
     {
-     "id": "asset-244-storage",
+     "id": "asset-240-storage",
      "name": "storage barrel 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -6939,7 +6798,7 @@
      "visible": true
     },
     {
-     "id": "asset-245-storage",
+     "id": "asset-241-storage",
      "name": "storage crates 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -6958,7 +6817,7 @@
      "visible": true
     },
     {
-     "id": "asset-246-sack",
+     "id": "asset-242-sack",
      "name": "sack pile kitchen",
      "childType": "asset",
      "objectType": "asset",
@@ -6977,7 +6836,7 @@
      "visible": true
     },
     {
-     "id": "asset-247-storage",
+     "id": "asset-243-storage",
      "name": "storage barrel 5 a dark",
      "childType": "asset",
      "objectType": "asset",
@@ -6996,7 +6855,7 @@
      "visible": true
     },
     {
-     "id": "asset-248-storage",
+     "id": "asset-244-storage",
      "name": "storage crates 2 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7015,7 +6874,7 @@
      "visible": true
     },
     {
-     "id": "asset-249-storage",
+     "id": "asset-245-storage",
      "name": "storage crate broken 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7034,7 +6893,7 @@
      "visible": true
     },
     {
-     "id": "asset-233-bed",
+     "id": "asset-229-bed",
      "name": "bed small single cot",
      "childType": "asset",
      "objectType": "asset",
@@ -7053,7 +6912,7 @@
      "visible": true
     },
     {
-     "id": "asset-250-chest",
+     "id": "asset-246-chest",
      "name": "chest 1 steel",
      "childType": "asset",
      "objectType": "asset",
@@ -7072,7 +6931,7 @@
      "visible": true
     },
     {
-     "id": "asset-234-decoration",
+     "id": "asset-230-decoration",
      "name": "decoration bear skin rug",
      "childType": "asset",
      "objectType": "asset",
@@ -7091,7 +6950,7 @@
      "visible": true
     },
     {
-     "id": "asset-251-clutter",
+     "id": "asset-247-clutter",
      "name": "clutter skull giant",
      "childType": "asset",
      "objectType": "asset",
@@ -7110,7 +6969,7 @@
      "visible": true
     },
     {
-     "id": "asset-252-weapon",
+     "id": "asset-248-weapon",
      "name": "weapon rack 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7129,7 +6988,7 @@
      "visible": true
     },
     {
-     "id": "asset-253-light",
+     "id": "asset-249-light",
      "name": "light brazier 1 a",
      "childType": "asset",
      "objectType": "asset",
@@ -7148,7 +7007,7 @@
      "visible": true
     },
     {
-     "id": "asset-254-campfire",
+     "id": "asset-250-campfire",
      "name": "campfire",
      "childType": "asset",
      "objectType": "asset",
@@ -7167,7 +7026,7 @@
      "visible": true
     },
     {
-     "id": "asset-255-campfire",
+     "id": "asset-251-campfire",
      "name": "campfire pot cooking",
      "childType": "asset",
      "objectType": "asset",
@@ -7186,7 +7045,7 @@
      "visible": true
     },
     {
-     "id": "asset-256-firewood",
+     "id": "asset-252-firewood",
      "name": "firewood pile",
      "childType": "asset",
      "objectType": "asset",
@@ -7205,7 +7064,7 @@
      "visible": true
     },
     {
-     "id": "asset-257-chair",
+     "id": "asset-253-chair",
      "name": "chair stool 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7224,7 +7083,7 @@
      "visible": true
     },
     {
-     "id": "asset-258-chair",
+     "id": "asset-254-chair",
      "name": "chair stool 2 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7243,7 +7102,7 @@
      "visible": true
     },
     {
-     "id": "asset-259-boulder",
+     "id": "asset-255-boulder",
      "name": "boulder",
      "childType": "asset",
      "objectType": "asset",
@@ -7262,7 +7121,7 @@
      "visible": true
     },
     {
-     "id": "asset-260-rock",
+     "id": "asset-256-rock",
      "name": "rock outcrop",
      "childType": "asset",
      "objectType": "asset",
@@ -7281,7 +7140,7 @@
      "visible": true
     },
     {
-     "id": "asset-235-spider",
+     "id": "asset-231-spider",
      "name": "spider web",
      "childType": "asset",
      "objectType": "asset",
@@ -7300,7 +7159,7 @@
      "visible": true
     },
     {
-     "id": "asset-261-clutter",
+     "id": "asset-257-clutter",
      "name": "clutter skull human",
      "childType": "asset",
      "objectType": "asset",
@@ -7319,7 +7178,7 @@
      "visible": true
     },
     {
-     "id": "asset-236-clutter",
+     "id": "asset-232-clutter",
      "name": "clutter webs 2 full",
      "childType": "asset",
      "objectType": "asset",
@@ -7338,7 +7197,7 @@
      "visible": true
     },
     {
-     "id": "asset-262-storage",
+     "id": "asset-258-storage",
      "name": "storage barrel broken dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7357,7 +7216,7 @@
      "visible": true
     },
     {
-     "id": "asset-263-clutter",
+     "id": "asset-259-clutter",
      "name": "clutter webs 3 full",
      "childType": "asset",
      "objectType": "asset",
@@ -7376,7 +7235,7 @@
      "visible": true
     },
     {
-     "id": "asset-264-clutter",
+     "id": "asset-260-clutter",
      "name": "clutter webs 4 full",
      "childType": "asset",
      "objectType": "asset",
@@ -7395,7 +7254,7 @@
      "visible": true
     },
     {
-     "id": "asset-265-campfire",
+     "id": "asset-261-campfire",
      "name": "campfire ring",
      "childType": "asset",
      "objectType": "asset",
@@ -7414,7 +7273,7 @@
      "visible": true
     },
     {
-     "id": "asset-266-bear",
+     "id": "asset-262-bear",
      "name": "bear trap",
      "childType": "asset",
      "objectType": "asset",
@@ -7433,7 +7292,7 @@
      "visible": true
     },
     {
-     "id": "asset-267-rock",
+     "id": "asset-263-rock",
      "name": "rock small 1",
      "childType": "asset",
      "objectType": "asset",
@@ -7452,7 +7311,7 @@
      "visible": true
     },
     {
-     "id": "asset-268-clutter",
+     "id": "asset-264-clutter",
      "name": "clutter broken boards 1 dark",
      "childType": "asset",
      "objectType": "asset",
@@ -7471,7 +7330,7 @@
      "visible": true
     },
     {
-     "id": "asset-237-chest",
+     "id": "asset-233-chest",
      "name": "chest classic large locked",
      "childType": "asset",
      "objectType": "asset",
@@ -7490,7 +7349,7 @@
      "visible": true
     },
     {
-     "id": "asset-269-sack",
+     "id": "asset-265-sack",
      "name": "sack single kitchen",
      "childType": "asset",
      "objectType": "asset",
@@ -7509,7 +7368,7 @@
      "visible": true
     },
     {
-     "id": "asset-270-chest",
+     "id": "asset-266-chest",
      "name": "chest lockbox 2 wood",
      "childType": "asset",
      "objectType": "asset",
@@ -7528,7 +7387,7 @@
      "visible": true
     },
     {
-     "id": "asset-271-rock",
+     "id": "asset-267-rock",
      "name": "rock outcrop",
      "childType": "asset",
      "objectType": "asset",

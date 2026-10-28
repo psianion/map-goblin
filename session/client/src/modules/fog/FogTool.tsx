@@ -14,7 +14,6 @@
 // between them and none is needed; the stores are the shared state.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Room } from '@dnd/core/src/shared/types';
 import {
   autoExploreOn,
   containedSightOn,
@@ -53,6 +52,7 @@ import {
   sceneFog,
   serverLayers,
   serverRooms,
+  type TableRoom,
 } from './fog';
 import { mountFogOverlayWhenReady, setHighlightedRoom } from './FogOverlay';
 
@@ -359,7 +359,7 @@ export function FogTool() {
   const hideArmed = armed && !brushOn && toolDetail === 'Hide';
   const brushArmed = armed && brushOn && vision;
 
-  const statusOf = (room: Room): RoomFogStatus => roomFog(fog, room.id).status;
+  const statusOf = (room: TableRoom): RoomFogStatus => roomFog(fog, room.id).status;
 
   /** What a chip's own click does — the direction the armed button chose, or the old
    *  toggle when neither Reveal nor Hide is armed (Brush armed, or nothing at all). A map
@@ -373,7 +373,7 @@ export function FogTool() {
   const [filter, setFilter] = useState('');
   const overCeiling = rooms.length > ROOM_CEILING;
 
-  const renderChip = (room: Room) => {
+  const renderChip = (room: TableRoom) => {
     const status = statusOf(room);
     const label = status === 're_hidden' && partly.has(room.id) ? 'Partly seen' : FOG_STATUS_LABEL[status];
     const isLocked = locked.has(room.id);

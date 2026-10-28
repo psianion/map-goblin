@@ -12,7 +12,8 @@ const MAP = {
     {
       type: 'dungeon',
       rooms: [
-        { id: 'crypt', name: 'The Crypt', boundary: [], centroid: [0, 0], area: 1, isPathway: false },
+        { id: 'crypt', name: 'The Crypt', number: 3, anchor: [0, 0], boundary: [] },
+        { id: 'unnumbered', name: 'Side Passage', anchor: [5, 0], boundary: [] },
       ],
       children: [
         {
@@ -65,7 +66,15 @@ describe('tableLogLines', () => {
       MAP,
       SCENE,
     );
-    expect(line.text).toBe('revealed The Crypt');
+    expect(line.text).toBe('revealed 3 · The Crypt');
+    // A room without a number is named by its name alone.
+    const [plain] = tableLogLines(
+      undefined,
+      fogWith(entry({ action: 'revealed-room', targetId: 'unnumbered' })),
+      MAP,
+      SCENE,
+    );
+    expect(plain.text).toBe('revealed Side Passage');
   });
 
   // The seat's own map is the only naming authority: a target it does not hold is a target

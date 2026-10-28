@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dmMap, playerMap, tokens } from './__fixtures__/two-rooms'
-import { mapSvg, type MapToken } from './map-svg'
+import { mapSvg, readScene, type MapToken } from './map-svg'
 
 /** The one marker only a secret door draws. */
 const SECRET_LEAF = 'stroke-dasharray="0.22 0.16"'
@@ -73,6 +73,22 @@ describe('mapSvg — the second lock on DM-only geometry', () => {
     ]
     expect(mapSvg(playerMap, { tokens: hidden })).not.toContain(HIDDEN_TOKEN)
     expect(mapSvg(playerMap, { tokens: hidden, dmView: true })).toContain(HIDDEN_TOKEN)
+  })
+})
+
+describe('mapSvg — wall widths', () => {
+  const doc = (walls: Record<string, unknown>[], wallWidth?: number) => ({
+    layers: [{ type: 'dungeon', children: [], style: wallWidth === undefined ? {} : { wallWidth }, standaloneWalls: walls }],
+  })
+  const wall = (extra: Record<string, unknown> = {}) => ({ points: [[0, 0], [4, 0]], wallType: 'normal', ...extra })
+
+  it('a wall without its own width takes its layer width, as the editor draws it', () => {
+    expect(readScene(doc([wall()], 0.5), true).walls[0].width).toBe(0.5)
+    expect(readScene(doc([wall({ width: 0.2 })], 0.5), true).walls[0].width).toBe(0.2)
+  })
+
+  it('falls back to a thin stroke when neither says', () => {
+    expect(readScene(doc([wall()]), true).walls[0].width).toBe(0.3)
   })
 })
 

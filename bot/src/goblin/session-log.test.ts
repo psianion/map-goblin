@@ -133,16 +133,15 @@ describe('createSessionLog', () => {
 })
 
 describe('mapNames', () => {
-  it('indexes room names (override winning) and door names off dungeon layers', () => {
+  it('indexes room labels and door names off dungeon layers', () => {
     const doc = {
       layers: [
         {
           type: 'dungeon',
           rooms: [
-            { id: 'room-1', name: 'Room 1' },
-            { id: 'room-2', name: 'Room 2' },
+            { id: 'room-1', name: 'Chapel of the Pale Flame', number: 1, anchor: [5, 5] },
+            { id: 'room-2', name: 'Room 2', anchor: [15, 5] },
           ],
-          roomNameOverrides: { 'room-1': 'Chapel of the Pale Flame' },
           children: [
             { childType: 'door', id: 'door-1', name: 'the Oak Door' },
             { childType: 'shape', id: 'shape-1', name: 'nope' },
@@ -152,7 +151,7 @@ describe('mapNames', () => {
       ],
     }
     const names = mapNames(doc)
-    expect(names.get('room-1')).toBe('Chapel of the Pale Flame')
+    expect(names.get('room-1')).toBe('1 · Chapel of the Pale Flame')
     expect(names.get('room-2')).toBe('Room 2')
     expect(names.get('door-1')).toBe('the Oak Door')
     expect(names.has('shape-1')).toBe(false)

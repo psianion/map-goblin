@@ -174,7 +174,11 @@ export function listScenes(campaignId: string, token: string): Promise<{ scenes:
  * `loadSceneMap` uses — the picker only reads `layers`, so the images never need fetching.
  */
 export function fetchMapDoc(sceneId: string, token: string): Promise<unknown> {
-  return request(`/api/maps/${encodeURIComponent(sceneId)}?images=external`, { method: 'GET' }, token);
+  return request(
+    `/api/maps/${encodeURIComponent(sceneId)}?images=external&rooms=derived`,
+    { method: 'GET' },
+    token,
+  );
 }
 
 /** PATCH /api/scenes/:id — rename and/or the D5 visibility flag. */
@@ -223,6 +227,9 @@ export function getScenePrep(
   resolved: { id: string; inert?: string }[];
   /** v2 — one verdict per authored note: inert = it can never pop (browse still works). */
   resolvedNotes: { id: string; inert?: string }[];
+  /** v3 — one verdict per room key: the room's label (`N · name`), or why it is inert; and
+   *  why its encounter cannot spawn, when it cannot. Absent from an older server. */
+  resolvedRooms?: ResolvedRoomVerdict[];
 }> {
   return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
 }
@@ -286,4 +293,12 @@ async function request<T>(path: string, init: RequestInit, credential?: string):
   const body = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new Error(FRIENDLY[res.status] ?? body.error ?? `Server error ${res.status}.`);
   return body;
+}
+
+/** What `GET /api/scenes/:id/prep` says about one room key. */
+export interface ResolvedRoomVerdict {
+  roomId: string;
+  label?: string;
+  inert?: string;
+  encounterInert?: string;
 }

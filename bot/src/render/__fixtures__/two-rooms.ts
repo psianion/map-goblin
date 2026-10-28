@@ -21,7 +21,6 @@ const background = {
 
 const mapSettings = {
   name: 'Fieldstone Keep — Lower Vaults',
-  gridType: 'square',
   cellScale: { value: 5, unit: 'ft' },
   ambientLight: '#8a8f98',
 }
@@ -170,17 +169,42 @@ const vaultLabel = {
   height: 0.6,
 }
 
+/**
+ * Rooms as the wire carries them: authored (id, name, number, anchor) with the face the server
+ * derived in `boundary` and the metrics that came with it. The name is the room's own — the
+ * old per-layer override map is gone.
+ */
 const rooms = {
-  west: { id: 'west', name: 'West Hall', boundary: westHall.contours[0], centroid: [5, 5], area: 100, isPathway: false },
+  west: {
+    id: 'west',
+    name: 'West Hall',
+    number: 1,
+    anchor: [5, 5],
+    boundary: westHall.contours[0],
+    centroid: [5, 5],
+    area: 100,
+    isPathway: false,
+  },
   corridor: {
     id: 'corridor',
     name: 'Corridor',
+    number: 2,
+    anchor: [11, 5],
     boundary: corridor.contours[0],
     centroid: [11, 5],
     area: 4,
     isPathway: true,
   },
-  east: { id: 'east', name: 'East Vault', boundary: vault.contours[0], centroid: [17, 8], area: 96, isPathway: false },
+  east: {
+    id: 'east',
+    name: 'Vault of Coins',
+    number: 3,
+    anchor: [17, 8],
+    boundary: vault.contours[0],
+    centroid: [17, 8],
+    area: 96,
+    isPathway: false,
+  },
 }
 
 const style = {
@@ -223,7 +247,6 @@ export const dmMap = {
       mergedFloor: null,
       style,
       rooms: [rooms.west, rooms.corridor, rooms.east],
-      roomNameOverrides: { east: 'Vault of Coins' },
     },
   ],
 }
@@ -247,7 +270,6 @@ export const playerMap = {
       mergedFloor: null,
       style,
       rooms: [rooms.west, rooms.corridor],
-      roomNameOverrides: {},
     },
   ],
 }

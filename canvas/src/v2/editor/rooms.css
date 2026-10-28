@@ -1,0 +1,966 @@
+/*
+ * Rooms UI (boards 1–8): the Rooms tab's tail and the Suggest bar, the level picker, the
+ * small menus, the Room / Area / Level cards, the rooms sheet with its key page, and the
+ * split dialog. Neutral greys only, ink for "on", IBM Plex Sans for words and Mono for
+ * numbers, on the scales v2.css sets out.
+ */
+
+/* ── Dock: Rooms tab ───────────────────────────────────── */
+.v2-rbtn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), border-color 120ms var(--v2-ease);
+}
+.v2-rbtn:hover:not(:disabled) {
+  background: var(--v2-panel-2);
+}
+.v2-rbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.v2-rbtn--ghost {
+  border-color: transparent;
+  color: var(--v2-text-2);
+}
+.v2-rbtn--ghost:hover:not(:disabled) {
+  color: var(--v2-text);
+}
+.v2-dock__body > .v2-rbtn,
+.v2-dock__body > .v2-rooms-count {
+  flex-shrink: 0;
+}
+
+/* The Suggest bar: the dock's own card, floating above it. */
+.v2-suggest {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 14px;
+  white-space: nowrap;
+  pointer-events: auto;
+  animation: v2-pop-in 160ms var(--v2-ease);
+}
+.v2-suggest__count {
+  font-size: 13px;
+  color: var(--v2-text);
+}
+.v2-suggest__note {
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+
+/* ── Level picker (in front of the layer tiles) ───────── */
+.v2-level {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 120px;
+}
+.v2-level__btn {
+  height: 26px;
+  max-width: 100%;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-level__btn:hover {
+  background: var(--v2-panel-2);
+}
+.v2-level__btn--on,
+.v2-level__btn--on:hover {
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-level__btn svg {
+  flex-shrink: 0;
+}
+.v2-level__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-level__count {
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+.v2-level__rename {
+  width: 128px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-ink);
+  border-radius: 6px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+/* The picker is one more fixed column the strip keeps when it gives way. */
+.v2-film:has(> .v2-level) {
+  min-width: calc((var(--v2-film-fixed, 2) + 3) * 46px + 5px + 104px);
+}
+
+/* ── Small menus ───────────────────────────────────────── */
+.v2-fmenu {
+  position: fixed;
+  z-index: 60;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  pointer-events: auto;
+  animation: v2-pop-in 120ms var(--v2-ease);
+}
+.v2-fmenu__item {
+  height: 30px;
+  width: 100%;
+  padding: 0 8px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.v2-fmenu__item:hover:not(:disabled) {
+  background: var(--v2-panel-2);
+}
+.v2-fmenu__item:disabled {
+  color: var(--v2-text-3);
+  cursor: default;
+}
+.v2-fmenu__mark {
+  flex-shrink: 0;
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+}
+.v2-fmenu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v2-fmenu__meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-fmenu__sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--v2-line);
+}
+
+/* ── Room, Area and Level cards ────────────────────────── */
+.v2-rcard__own {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.v2-rrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.v2-rrow__lbl {
+  flex: 0 0 56px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-rrow > .v2-ctl-anchor,
+.v2-rrow > .v2-ctl {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.v2-rrow > .v2-ctl-anchor + .v2-selc__value {
+  margin-left: -4px;
+}
+.v2-rfield {
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-rfield:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-rfield:focus-within {
+  border-color: var(--v2-ink);
+}
+.v2-rfield input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.v2-rfield--narrow {
+  flex: 0 0 64px;
+}
+.v2-rfield__num {
+  text-align: right;
+}
+.v2-rquiet {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rsmall {
+  font-size: 11px;
+}
+.v2-rend {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.v2-rtags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.v2-rtags--start {
+  margin-left: 0;
+}
+.v2-rtag {
+  padding: 0 6px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--v2-text-2);
+  white-space: nowrap;
+}
+.v2-rselect {
+  flex: 1;
+  min-width: 0;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  appearance: auto;
+}
+.v2-rsec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--v2-line);
+}
+.v2-rsec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.v2-rsec__title {
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-rsec__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Mood: stored, drawn by nothing yet. */
+.v2-rsec--greyed > :not(.v2-rsec__head) {
+  opacity: 0.55;
+}
+.v2-rsec--greyed .v2-rsec__head .v2-rquiet {
+  opacity: 0.55;
+}
+.v2-rsec--greyed .v2-seg button:disabled {
+  cursor: not-allowed;
+}
+.v2-rsec .v2-color:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Rooms sheet ───────────────────────────────────────── */
+.v2-rsheet__head {
+  gap: 6px;
+}
+.v2-rsheet__head h2 {
+  white-space: nowrap;
+}
+.v2-rsheet__count {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rsheet__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.v2-rsheet__head--key {
+  justify-content: flex-start;
+  padding: 0 6px;
+}
+.v2-rsheet__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v2-rsheet__kind {
+  padding-right: 6px;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rsheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.v2-rsheet__filter {
+  padding: 10px 12px 8px;
+}
+.v2-rfilter {
+  height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text-3);
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-rfilter:focus-within {
+  border-color: var(--v2-ink);
+}
+.v2-rfilter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.v2-rfilter input::placeholder {
+  color: var(--v2-text-3);
+}
+.v2-rsheet__cols {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 6px;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rsheet__cols > :first-child {
+  flex: 1;
+}
+.v2-rsheet__keycol {
+  width: 36px;
+  text-align: right;
+}
+.v2-rsheet__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 0 4px 8px;
+}
+.v2-rsheet__empty {
+  margin: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--v2-text-3);
+}
+.v2-rsheet__layername {
+  margin: 8px 10px 2px;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v2-rli {
+  position: relative;
+}
+.v2-rli--drop-before::before,
+.v2-rli--drop-after::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--v2-ink);
+  pointer-events: none;
+}
+.v2-rli--drop-before::before {
+  top: -2px;
+}
+.v2-rli--drop-after::after {
+  bottom: -2px;
+}
+.v2-rrow2 {
+  width: 100%;
+  height: 36px;
+  padding: 0 8px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-rrow2:hover {
+  background: var(--v2-panel-2);
+}
+.v2-rrow2--on,
+.v2-rrow2--on:hover {
+  background: var(--v2-panel-3);
+}
+.v2-rrow2__grip {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--v2-line-strong);
+  cursor: grab;
+}
+.v2-rnum {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 999px;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+.v2-rnum--on {
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-rrow2__name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-rrow2__star {
+  flex-shrink: 0;
+  color: var(--v2-text-2);
+}
+.v2-rrow2__sq {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rrow2__ic {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--v2-text-3);
+}
+.v2-rrow2__ic--off {
+  color: var(--v2-line);
+}
+/* The row's icons sit over its right end, as controls of their own beside the row button. */
+.v2-rrow2__icgap {
+  flex-shrink: 0;
+  width: 36px;
+}
+.v2-rrow2__icons {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.v2-rrow2__key {
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+.v2-rrow2__key:hover,
+.v2-rrow2__key:focus-visible {
+  color: var(--v2-text);
+}
+.v2-rrow2__key:focus-visible {
+  outline: 1.5px solid var(--v2-ink);
+  outline-offset: 1px;
+}
+/* While a row is carried: no text selection, and the carried row reads as lifted. */
+.v2-rsheet--dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+.v2-rsheet--dragging .v2-rrow2 {
+  cursor: grabbing;
+}
+.v2-rli--lifted .v2-rrow2 {
+  opacity: 0.5;
+}
+.v2-rinline {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--v2-ink);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.v2-rarea {
+  height: 30px;
+  margin-top: 6px;
+  padding: 0 4px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+  transition: background-color 120ms var(--v2-ease), box-shadow 120ms var(--v2-ease);
+}
+.v2-rarea--on {
+  background: var(--v2-panel-3);
+}
+.v2-rarea--drop {
+  box-shadow: inset 0 0 0 1.5px var(--v2-ink);
+}
+.v2-rarea__fold {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+}
+.v2-rarea__fold svg {
+  transition: transform 160ms var(--v2-ease);
+}
+.v2-rarea__fold[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.v2-rarea__name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.v2-rarea--none .v2-rarea__name {
+  font-weight: 400;
+  color: var(--v2-text-3);
+  cursor: default;
+}
+.v2-rarea__cnt {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-rarea__q {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+.v2-rarea--none .v2-rarea__cnt {
+  margin-right: auto;
+}
+.v2-rarea__menu.v2-ib {
+  width: 22px;
+  height: 22px;
+}
+.v2-rsheet__foot {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--v2-line);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--v2-text-3);
+}
+
+/* ── Room key page ─────────────────────────────────────── */
+.v2-key {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+}
+.v2-ksec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--v2-line);
+}
+.v2-ksec--first {
+  border-top: 0;
+}
+.v2-kfl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-kq {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+.v2-kta {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font: 12px/1.45 'IBM Plex Sans', system-ui, sans-serif;
+  resize: vertical;
+  outline: none;
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-kta:focus {
+  border-color: var(--v2-ink);
+}
+.v2-krow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+}
+.v2-kf {
+  height: 26px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  font-size: 12px;
+  color: var(--v2-text);
+  cursor: text;
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-kf:focus-within {
+  border-color: var(--v2-ink);
+}
+.v2-kf input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  outline: none;
+}
+.v2-kf input::placeholder {
+  color: var(--v2-text-3);
+}
+.v2-kf--mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+.v2-kf--mono input {
+  text-align: center;
+}
+.v2-kf--grow {
+  flex: 1;
+  min-width: 0;
+}
+.v2-kf--count {
+  flex: 0 0 34px;
+  padding: 0 4px;
+}
+.v2-kf--hp {
+  flex: 0 0 52px;
+  padding: 0 4px;
+}
+.v2-kf--dc {
+  flex: 0 0 30px;
+  padding: 0 2px;
+}
+.v2-kf--dmg {
+  flex: 0 0 44px;
+  padding: 0 2px;
+}
+.v2-ksel {
+  position: relative;
+  flex-shrink: 0;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text-3);
+}
+.v2-ksel select {
+  height: 100%;
+  padding: 0 20px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+}
+.v2-ksel select:disabled {
+  color: var(--v2-text-3);
+  cursor: default;
+}
+.v2-ksel svg {
+  position: absolute;
+  right: 6px;
+  pointer-events: none;
+}
+.v2-ksel:focus-within {
+  border-color: var(--v2-ink);
+}
+.v2-kx {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+}
+.v2-kx:hover {
+  color: var(--v2-text);
+  background: var(--v2-panel-2);
+}
+.v2-kadd {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--v2-line-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.v2-kadd:hover {
+  color: var(--v2-text);
+  text-decoration-color: currentColor;
+}
+
+/* ── Split dialog ──────────────────────────────────────── */
+.v2-split__opts {
+  display: flex;
+  gap: 12px;
+}
+.v2-split__opt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms var(--v2-ease), box-shadow 120ms var(--v2-ease);
+}
+.v2-split__opt:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-split__opt--on,
+.v2-split__opt--on:hover {
+  border-color: var(--v2-ink);
+  box-shadow: inset 0 0 0 0.5px var(--v2-ink);
+}
+.v2-split__pv {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--v2-panel-2);
+}
+.v2-split__pv svg {
+  width: 120px;
+  height: 56px;
+}
+.v2-split__floor {
+  fill: #a39d92;
+  stroke: #2a2724;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.v2-split__pick {
+  fill: var(--v2-ink);
+  fill-opacity: 0.22;
+  stroke: none;
+}
+.v2-split__cut {
+  fill: none;
+  stroke: var(--v2-ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.v2-split__optline {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.v2-split__optname {
+  font-size: 13px;
+  font-weight: 500;
+}
+.v2-split__meta {
+  font-size: 11px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+.v2-split__radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.v2-split__radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.v2-split__radio input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--v2-ink);
+}
+.v2-split__quiet {
+  color: var(--v2-text-3);
+}
+
+/* ── Status bar: a room tool's line, label then keycaps ── */
+.v2-status__toolhint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.v2-status__toolhint .v2-status__hintlabel {
+  color: var(--v2-text);
+  font-weight: 500;
+}
+
+/* While the rooms sheet is open the card sits to its left (the sheet is 320px wide, 12px from the edge). */
+.v2-sel[data-beside-sheet='true'] {
+  right: calc(12px + 320px + 12px);
+}

@@ -29,9 +29,9 @@ describe('prep slice', () => {
     expect(useStore.getState().prep).toBeNull();
   });
 
-  it('upsertTrigger lazily creates {version: 2, triggers: [], notes: []} then adds the trigger', () => {
+  it('upsertTrigger lazily creates {version: 3, triggers: [], notes: [], rooms: []} then adds the trigger', () => {
     useStore.getState().upsertTrigger(TRIGGER);
-    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [TRIGGER], notes: [] });
+    expect(useStore.getState().prep).toEqual({ version: 3, triggers: [TRIGGER], notes: [], rooms: [] });
   });
 
   it('upsertTrigger updates an existing trigger in place by id, rather than appending', () => {
@@ -48,7 +48,7 @@ describe('prep slice', () => {
     useStore.getState().removeTrigger(TRIGGER.id);
     // Explicit empty list, not null: an empty prep clears the server's stored
     // prep on republish, while absent (null) leaves it untouched.
-    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [], notes: [] });
+    expect(useStore.getState().prep).toEqual({ version: 3, triggers: [], notes: [], rooms: [] });
   });
 
   it('removeTrigger on an unauthored prep is a no-op', () => {
@@ -58,14 +58,14 @@ describe('prep slice', () => {
 
   it('upsertNote lazily creates prep, updates in place by id, and removeNote keeps the block', () => {
     useStore.getState().upsertNote(NOTE);
-    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [], notes: [NOTE] });
+    expect(useStore.getState().prep).toEqual({ version: 3, triggers: [], notes: [NOTE], rooms: [] });
 
     const updated: RoomNote = { ...NOTE, body: 'The cook is TWO spies.', showOnReveal: true };
     useStore.getState().upsertNote(updated);
     expect(useStore.getState().prep?.notes).toEqual([updated]);
 
     useStore.getState().removeNote(NOTE.id);
-    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [], notes: [] });
+    expect(useStore.getState().prep).toEqual({ version: 3, triggers: [], notes: [], rooms: [] });
   });
 
   it('removeNote on an unauthored prep is a no-op', () => {

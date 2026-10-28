@@ -1,14 +1,16 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Frame } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, AddChildCommand, UpdateChildCommand, createChildRemovalCommand, createRemoveFromGroupCommand } from '@/store/commands'
+import { PropertyCommand, UpdateChildCommand, createChildRemovalCommand, createRemoveFromGroupCommand } from '@/store/commands'
+import { createDuplicateCommand } from '@dnd/core/src/store/propEdits'
 import { canGroupSelection, groupSelection, mergeSelection } from '@/canvas/groupActions'
 import type { AnyChild, DungeonLayer } from '@/store/types'
+import { conditionZoneId } from '@dnd/core/src/shared/prep'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { InlineEditableName } from './InlineEditableName'
@@ -41,13 +43,6 @@ function childIcon(childType: AnyChild['childType']) {
       return <Type size={12} />
     case 'zone':
       return <Crosshair size={12} />
-    // Same icon the toolbar's room tool wears — one concept, one glyph.
-    // Pentagon is taken (it is the Polygon tool's icon).
-    case 'room':
-      return <Frame size={12} />
-    // A door drawn between rooms is a door: same glyph as one on a wall.
-    case 'connector':
-      return <DoorOpen size={12} />
   }
 }
 
@@ -67,7 +62,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   // rerender this row.
   const zoneTriggerCount = useStore((s) =>
     child.childType === 'zone'
-      ? (s.prep?.triggers.filter((t) => t.when.zoneId === child.id).length ?? 0)
+      ? (s.prep?.triggers.filter((t) => conditionZoneId(t.when) === child.id).length ?? 0)
       : 0,
   )
 
@@ -144,28 +139,16 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   // solo (or its own visibility) is not a reason to refuse editing rows the
   // user can still see and click in the panel.
 
-  // Clone with a fresh id and slight offset — same shape as the copy/paste path.
+  // The copy/paste path's own duplicate: a fresh id one square over, its attached
+  // lights copied onto it.
   const duplicate = () => {
     if (layer.locked) {
       notify.warning('Layer is locked')
       return
     }
-    const clone = structuredClone(child)
-    clone.id = crypto.randomUUID()
-    clone.name = `${child.name} (copy)`
-    if ('position' in clone) {
-      const c = clone as AnyChild & { position: { x: number; y: number } }
-      c.position = { x: c.position.x + 1, y: c.position.y + 1 }
-    } else if ('transform' in clone && clone.transform) {
-      clone.transform.translate = [clone.transform.translate[0] + 1, clone.transform.translate[1] + 1]
-    } else if (clone.childType === 'zone') {
-      // Zones keep their position inside `shape` — without this the copy lands
-      // exactly on top of the original.
-      clone.shape = clone.shape.kind === 'rect'
-        ? { ...clone.shape, x: clone.shape.x + 1, y: clone.shape.y + 1 }
-        : { ...clone.shape, position: { x: clone.shape.position.x + 1, y: clone.shape.position.y + 1 } }
-    }
-    undoManager.execute(new AddChildCommand('Duplicate', layerId, clone))
+    const { command } = createDuplicateCommand(useStore.getState().layers, [child.id])
+    if (!command) return
+    undoManager.execute(command)
     notify.action('Duplicated', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'copy' })
   }
 

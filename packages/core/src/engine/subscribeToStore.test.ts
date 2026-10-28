@@ -18,6 +18,7 @@ vi.mock('pixi.js', () => ({
 vi.mock('./floorWallRenderer', () => ({
   rebuildDungeonLayer: vi.fn(),
   redrawDoors: vi.fn(),
+  redrawRoomFills: vi.fn(),
   preloadLayerTextures: vi.fn(() => Promise.resolve(false)),
 }));
 
@@ -36,6 +37,7 @@ vi.mock('./sceneGraph', () => {
       shadows: { visible: true },
       grid: { visible: true },
       walls: { visible: true },
+      wallMarks: { visible: true },
       doors: { visible: true },
       objects: { visible: true },
       labels: { visible: true },
@@ -50,7 +52,7 @@ vi.mock('./sceneGraph', () => {
   };
 });
 
-vi.mock('../store/roomSync', () => ({ scheduleRoomSync: vi.fn() }));
+vi.mock('../store/roomRefresh', () => ({ scheduleRoomSync: vi.fn() }));
 
 vi.mock('../shared/notify', () => ({
   notify: { subtle: vi.fn(), info: vi.fn(), error: vi.fn(), success: vi.fn() },
@@ -60,20 +62,14 @@ import { subscribeToStore, flushLayerDraws } from './subscribeToStore';
 import { useStore } from '../store/store';
 import { LightManager, extractWallSegments } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { rebuildDungeonLayer, redrawDoors } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, redrawRoomFills } from './floorWallRenderer';
 import { getLayerEntry } from './sceneGraph';
-import { scheduleRoomSync } from '../store/roomSync';
+import { scheduleRoomSync } from '../store/roomRefresh';
+import { preloadWallTextures } from './wallNodeRenderer';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import type { DungeonLayer } from '../store/types';
-import type {
-  ConnectorChild,
-  DoorChild,
-  LightChild,
-  RoomChild,
-  ShapeChild,
-  WallSegment,
-} from '../shared/types';
+import type { DoorChild, LightChild, ShapeChild, WallSegment } from '../shared/types';
 
 function shape(id: string, x: number, y: number, size = 40): ShapeChild {
   return {
@@ -120,28 +116,6 @@ function door(id: string, wallId: string, x: number, y: number): DoorChild {
   };
 }
 
-function room(id: string, x: number, y: number, size = 20): RoomChild {
-  return {
-    id,
-    name: id,
-    childType: 'room',
-    visible: true,
-    contours: [[[x, y], [x + size, y], [x + size, y + size], [x, y + size]]],
-  };
-}
-
-function connector(id: string, x: number, y: number, size = 4): ConnectorChild {
-  return {
-    id,
-    name: id,
-    childType: 'connector',
-    visible: true,
-    contours: [[[x, y], [x + size, y], [x + size, y + size], [x, y + size]]],
-    kind: 'arch',
-    state: 'open',
-    isSecret: false,
-  };
-}
 
 function light(id: string, x: number, y: number, radius = 200): LightChild {
   return {
@@ -462,71 +436,104 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(median).toBeLessThan(150);
   });
 
-  // A door can be dragged now, so its authored position is live data. The
-  // signature used to omit it: the commit wrote the store and nothing redrew.
-  //
-  // Position/width/wallId is door GEOMETRY: withoutDoorGaps (wallNodeRenderer)
-  // cuts stone gaps from it, so it still needs the full rebuild. isSecret is
-  // A drawn room IS `layer.rooms` on an authored layer, and a vertex drag on
-  // one reaches the store only through UpdateChildCommand — which carries no
-  // affectsRooms. The debounced key here is the only thing that resyncs it, and
-  // it used to see `childType === 'shape'` geometry alone: the drag landed and
-  // nothing downstream ever heard about it.
-  it('a drawn room vertex drag resyncs the rooms and re-lays nothing', () => {
+  // A threshold cuts room faces and draws nothing: it refreshes the rooms and
+  // must not drag the layer through a stone re-layout.
+  it('a threshold change resyncs the rooms and re-lays nothing', () => {
     const layerId = seed({
-      children: [shape('s1', 500, 500), room('r1', 0, 0)],
+      children: [shape('s1', 0, 0)],
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
     unsub = start();
     const floorBefore = dungeon().mergedFloor;
     vi.clearAllMocks();
-    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
 
-    useStore.getState().updateChild(layerId, 'r1', {
-      contours: [[[0, 0], [30, 0], [30, 20], [0, 20]]],
-    });
+    useStore.getState().setThresholds(layerId, [{ id: 't1', points: [[0, 20], [40, 20]] }]);
     flushLayerDraws();
 
     expect(scheduleRoomSync).toHaveBeenCalled();
-    // A room draws no stone and casts no shadow: it must not drag the layer
-    // through a rebuild or re-sweep every light on the map.
     expect(rebuildDungeonLayer).not.toHaveBeenCalled();
-    expect(invalidateAll).not.toHaveBeenCalled();
     expect(clipper2Engine.union).not.toHaveBeenCalled();
     expect(dungeon().mergedFloor).toBe(floorBefore);
   });
 
-  it('a connector vertex drag resyncs the rooms too (its bindings come from them)', () => {
-    const layerId = seed({
-      children: [shape('s1', 500, 500), connector('c1', 0, 0)],
-      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
-    });
+  // A room's look (and later its mood) is lighting input, so a new rooms array
+  // re-sweeps the lights — but the rooms are the refresh's own output, so they
+  // must never re-arm it.
+  it('a rooms edit re-sweeps the lights without resyncing the rooms', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
 
     unsub = start();
     vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
 
-    useStore.getState().updateChild(layerId, 'c1', {
-      contours: [[[5, 0], [12, 0], [12, 4], [5, 4]]],
-    });
+    useStore.getState().setRooms(layerId, [{ id: 'r1', name: 'Hall', anchor: [10, 10] }]);
     flushLayerDraws();
 
-    expect(scheduleRoomSync).toHaveBeenCalled();
+    expect(invalidateAll).toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
     expect(rebuildDungeonLayer).not.toHaveBeenCalled();
   });
 
-  it('renaming a drawn room resyncs — the room name comes off the child', () => {
-    const layerId = seed({ children: [shape('s1', 500, 500), room('r1', 0, 0)] });
-
+  // A floor look on a room redraws the room fills alone; a wall look re-lays the
+  // stones, since the edges it touches change kit. No pin anywhere: no rebuild.
+  it('a room look edit redraws the fills, a wall pin rebuilds the layer', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
     unsub = start();
     vi.clearAllMocks();
 
-    useStore.getState().updateChild(layerId, 'r1', { name: 'Klarg' });
+    useStore.getState().setRooms(layerId, [{ id: 'r1', name: 'Hall', anchor: [10, 10], look: { floorTint: '#ff0000' } }]);
     flushLayerDraws();
+    expect(redrawRoomFills).toHaveBeenCalledTimes(1);
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
 
-    expect(scheduleRoomSync).toHaveBeenCalled();
+    vi.clearAllMocks();
+    useStore.getState().setRooms(layerId, [{ id: 'r1', name: 'Hall', anchor: [10, 10], look: { wallTextureTint: '#00ff00' } }]);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+
+    // Dropping the last wall pin re-lays them once more, back to the ring's own look.
+    vi.clearAllMocks();
+    useStore.getState().setRooms(layerId, [{ id: 'r1', name: 'Hall', anchor: [10, 10] }]);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
   });
 
+  it('a level look edit: a floor tint redraws the fills, wall keys rebuild with the level folded in', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
+    unsub = start();
+    const levelId = useStore.getState().levels[0].id;
+    vi.clearAllMocks();
+
+    useStore.getState().updateLevel(levelId, { look: { floorTint: '#ff0000' } });
+    flushLayerDraws();
+    expect(redrawRoomFills).toHaveBeenCalledTimes(1);
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    useStore.getState().updateLevel(levelId, { look: { floorTint: '#ff0000', wallTextureTint: '#00ff00', wallWidth: 0.9 } });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    // The set is loaded for the style the walls will actually draw with.
+    const drawn = vi.mocked(preloadWallTextures).mock.calls.at(-1)?.[0];
+    expect(drawn).toMatchObject({ wallTextureTint: '#00ff00', wallWidth: 0.9 });
+
+    // Moving the layer to a level with another look re-lays it too.
+    vi.clearAllMocks();
+    useStore.setState((s) => {
+      s.levels.push({ id: 'other', name: 'Other', look: { wallTextureSetId: 'GG_Fieldstone' } });
+      const l = s.layers.find((x) => x.id === layerId);
+      if (l) l.levelId = 'other';
+    });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+  });
+
+  // A door can be dragged now, so its authored position is live data. The
+  // signature used to omit it: the commit wrote the store and nothing redrew.
+  //
+  // Position/width/wallId is door GEOMETRY: withoutDoorGaps (wallNodeRenderer)
+  // cuts stone gaps from it, so it still needs the full rebuild. isSecret is
   // door STATE — it changes occlusion and the glyph, not where the stones
   // sit, so it takes the doors-only path instead (this is #22, layered on
   // top of #18's floor/room split above).
@@ -633,6 +640,29 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(scheduleRoomSync).not.toHaveBeenCalled();
     expect(invalidateAll).not.toHaveBeenCalled();
     expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('a per-shape floor colour re-bakes the floor, and clearing it re-bakes again', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0), shape('s2', 20, 0)] });
+    unsub = start();
+    vi.clearAllMocks();
+
+    const setOverrides = (overrides: ShapeChild['styleOverrides']) => {
+      useStore.getState().updateChild(layerId, 's1', { styleOverrides: overrides });
+      flushLayerDraws();
+    };
+
+    setOverrides({ floorColor: '#ff0000' });
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    // Paint only: the union and the rooms stay put.
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+
+    setOverrides({ floorColor: '#00ff00' });
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(2);
+
+    setOverrides(undefined);
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(3);
   });
 
   it('several writes before the frame draw once, and a rebuild beats a redraw', () => {

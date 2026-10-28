@@ -2,9 +2,19 @@ import type { Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
 import { OVERLAY_INK, OVERLAY_WHITE } from './overlayPalette';
+import { roomFace } from '../shared/roomUtils';
 
 let highlight: Graphics | null = null;
 let lastRoomId: string | null = null;
+/** Off where a room overlay draws the highlight itself (the v2 editor's hover). */
+let enabled = true;
+
+/** Hand the highlighted room's outline to another overlay (false), or take it back. */
+export function setRoomHighlightEnabled(on: boolean): void {
+  enabled = on;
+  lastRoomId = null;
+  highlight?.clear();
+}
 
 /** Wire the world-space Graphics the highlight is drawn into (see sceneGraph). */
 export function initRoomHighlight(graphics: Graphics): void {
@@ -22,7 +32,7 @@ export function initRoomHighlight(graphics: Graphics): void {
  * that ever shows.
  */
 export function renderRoomHighlight(): void {
-  if (!highlight) return;
+  if (!highlight || !enabled) return;
   const state = useStore.getState();
   const roomId = state.ui.highlightedRoomId;
   if (roomId === lastRoomId) return;
@@ -35,12 +45,13 @@ export function renderRoomHighlight(): void {
     (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
   );
   const room = layer?.rooms?.find((r) => r.id === roomId);
-  if (!room || room.boundary.length < 3) return;
+  const face = room ? roomFace(room) : [];
+  if (face.length < 3) return;
 
   // White over ink, like every canvas overlay — sky-blue disappeared on water.
-  highlight.poly(room.boundary.flat());
+  highlight.poly(face.flat());
   highlight.fill({ color: OVERLAY_WHITE, alpha: 0.12 });
   highlight.stroke({ color: OVERLAY_INK, width: 0.12, alpha: 0.7 });
-  highlight.poly(room.boundary.flat());
+  highlight.poly(face.flat());
   highlight.stroke({ color: OVERLAY_WHITE, width: 0.05, alpha: 1 });
 }

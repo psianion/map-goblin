@@ -15,6 +15,7 @@ import { computeStableRoomId } from '@dnd/core/src/shared/roomUtils';
 import { bindDoorToRooms } from '@dnd/core/src/shared/roomBinding';
 import { buildOcclusionSegments } from '@dnd/core/src/shared/occlusion';
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
+import { migrateRooms } from '@dnd/core/src/store/roomMigration';
 import { validateMapData } from '../../../server/src/mapImport';
 import { withoutSecretDoors } from './loadSceneMap';
 
@@ -29,7 +30,11 @@ if (!imported.ok) throw new Error(`gate map failed import: ${imported.error}`);
 const map = imported.data;
 
 const layer = map.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
-const rooms: Room[] = layer.rooms ?? [];
+/** The fixture predates anchored rooms: every saved room carries the face, centroid and area it
+ *  was detected with, and its name sits in the layer's old override map. */
+type SavedRoom = Room & { boundary: [number, number][]; centroid: [number, number]; area: number; isPathway: boolean };
+const rooms = (layer.rooms ?? []) as SavedRoom[];
+const nameOverrides = (layer as DungeonLayer & { roomNameOverrides?: Record<string, string> }).roomNameOverrides;
 const kids = <T extends AnyChild>(t: AnyChild['childType']) =>
   layer.children.filter((c): c is T => c.childType === t);
 const doors = kids<DoorChild>('door');
@@ -81,11 +86,24 @@ describe('sprint 3 gate map — Emberhold Crypt', () => {
       expect(r.boundary.length).toBeGreaterThanOrEqual(3);
       // Re-detection must not renumber a room out from under its fog state (D1).
       expect(r.id).toBe(computeStableRoomId(r.centroid, GRID_SIZE));
-      expect(layer.roomNameOverrides?.[r.id]).toBe(r.name);
+      expect(nameOverrides?.[r.id]).toBe(r.name);
     }
     // The perf gate stands 20 tokens in the torchlit chamber.
     const biggest = Math.max(...rooms.filter((r) => !r.isPathway).map((r) => r.area));
     expect(biggest).toBeGreaterThanOrEqual(20 * 4);
+  });
+
+  it('opens as anchored rooms with every id, name and door binding kept', () => {
+    // Fog, door state and prep are all keyed on room ids: the migration that every loader
+    // (the editor, the table, the server) runs on this file must not move one.
+    const migrated = migrateRooms(map).layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const after = migrated.rooms ?? [];
+    expect(after.map((r) => r.id).sort()).toEqual(rooms.map((r) => r.id).sort());
+    for (const r of after) {
+      expect(r.name).toBe(nameOverrides?.[r.id] ?? roomById.get(r.id)!.name);
+      expect(pointInPolygon(r.anchor, roomById.get(r.id)!.boundary)).toBe(true);
+    }
+    expect(migrated).not.toHaveProperty('roomNameOverrides');
   });
 
   it('binds every door to a real wall and the two rooms core computes', () => {
