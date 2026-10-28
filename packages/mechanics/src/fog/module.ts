@@ -7,7 +7,7 @@
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
 import type { GameModule, ModuleContext } from '../contract'
-import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook'
+import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {

@@ -4,7 +4,10 @@
     // D3: Node runtime, no renderer. Dropping DOM from `lib` is what makes a stray
     // browser-only API (or a value import that drags pixi.js in) fail to compile.
     "lib": ["ES2022"],
-    "types": ["node"]
+    "types": ["node"],
+    // @dnd/mechanics' fog/module.ts names an import with its `.ts` (see its tsconfig);
+    // tsx runs it as is.
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }
