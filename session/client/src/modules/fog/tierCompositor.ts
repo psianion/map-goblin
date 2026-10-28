@@ -50,6 +50,8 @@ export interface TierCompositor {
   readonly scrim: RenderTexture;
   /** Live sight alone — the stencil the token chips wear. Memory is deliberately not in it. */
   readonly live: RenderTexture;
+  /** Ground seen by darkvision and nothing else — the greyscale tier's coverage. */
+  readonly grey: RenderTexture;
   /**
    * Composite one plan. Answers the world rect every target now covers, or null when the plan
    * covers nothing at all — the caller must draw neither the cover nor the scrim on a null,
@@ -196,6 +198,7 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
     maskSoft,
     scrim: rtOf('scrim'),
     live: rtOf('live'),
+    grey: rtOf('grey'),
     run(plan, look) {
       const cover = plan.cover;
       for (const name of TARGET_ORDER) clearScene(sceneOf(name));

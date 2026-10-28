@@ -72,6 +72,11 @@ export interface Token extends TokenDef {
    * rest of the instance: a sheet is claimed once per placed token, never on the def.
    */
   sheet?: { name: string; id?: string; url?: string; avatar?: string }
+  /**
+   * The map level the token stands on (`set-token-level`). Absent = the map's first level.
+   * A seat sees the level its token stands on, and only the tokens on that level.
+   */
+  levelId?: string
 }
 
 export interface TokensState {
@@ -158,3 +163,10 @@ export const OUTSIDE_MAP = 'outside-map'
  * table answers anyway.
  */
 export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null
+
+/**
+ * Which tokens a seat's level shows: a predicate over a token's `levelId`, or null when the
+ * scene has one level (or no map), which shows every token. The server answers it from the
+ * seat's viewed level (`viewedLevel`, triggers).
+ */
+export type LevelFilterOf = (sceneId: string, viewer: Viewer) => ((levelId: string | undefined) => boolean) | null

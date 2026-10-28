@@ -7,7 +7,7 @@
 
 import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { sightPartyIds } from './links'
-import type { SceneVision, Token, TokenDef, TokensState, VisionOf } from './types'
+import type { LevelFilterOf, SceneVision, Token, TokenDef, TokensState, VisionOf } from './types'
 import {
   DISPOSITIONS,
   ID_MAX,
@@ -68,7 +68,10 @@ const mintId = (prefix: string): string =>
  * `doorsModule(doorsOf)` take their map lookups in. The default answers "no fog anywhere",
  * which is the S2 behaviour and what a scene with no authored rooms gets anyway.
  */
-export function tokensModule(visionOf: VisionOf = () => null): GameModule<TokensState> {
+export function tokensModule(
+  visionOf: VisionOf = () => null,
+  levelFilterOf: LevelFilterOf = () => null,
+): GameModule<TokensState> {
   return {
     name: 'tokens',
     commands: {
@@ -82,6 +85,7 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
       claim: ['player'],
       assign: ['dm'],
       'set-sight-link': ['dm'],
+      'set-token-level': ['dm'],
     },
     initialState: { library: {}, byScene: {} },
 
@@ -107,6 +111,8 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
         // individual share and the party's in party share. The rule below is unchanged;
         // only the eyes behind it narrow.
         const scene = visionOf(sceneId, viewer)
+        // Levels: a seat sees only the tokens on the level it is looking at, its own included.
+        const onLevel = levelFilterOf(sceneId, viewer)
         // P4 §4 — "yours" is the closure of the tokens you claimed over the DM's sight links,
         // so a familiar you were handed is as exempt from the fog as the scout it follows.
         const mine = sightPartyIds(
@@ -115,7 +121,7 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
         )
         const visible: Record<string, Token> = {}
         for (const [id, token] of Object.entries(tokens)) {
-          if (token.hidden || !inSight(token, scene, mine)) dropped = true
+          if (token.hidden || (onLevel && !onLevel(token.levelId)) || !inSight(token, scene, mine)) dropped = true
           else visible[id] = token
         }
         // A link is a token *id*, so a surviving token's `sharesSightWith` is a list of names
@@ -199,6 +205,8 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
       return assign(p, ctx)
     case 'set-sight-link':
       return setSightLink(p, ctx)
+    case 'set-token-level':
+      return setTokenLevel(p, ctx)
     default:
       bad(`tokens has no action '${action}'`)
   }
@@ -529,4 +537,17 @@ function assign(p: Payload, ctx: Ctx): void {
     bad('no such player at this table')
   }
   put(ctx, sceneId, { ...token, ownerId: identityId })
+}
+
+/**
+ * DM-only: moves a token to another map level (`levelId`; `null` puts it back on the first
+ * level). Players on the old level stop seeing it at once; the seat that claims it follows it
+ * unless the DM pinned that seat (`triggers.set-seat-level`).
+ */
+function setTokenLevel(p: Payload, ctx: Ctx): void {
+  const { sceneId, token } = find({ ...p, id: p.tokenId ?? p.id }, ctx)
+  const next = { ...token }
+  if (p.levelId === null) delete next.levelId
+  else next.levelId = str(p.levelId, 'levelId', ID_MAX)
+  put(ctx, sceneId, next)
 }

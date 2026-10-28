@@ -31,6 +31,7 @@ import { BlurFilter, Container, Geometry, Graphics, Mesh, RenderTexture, Shader,
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLook';
 import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
+import { isFrozen } from '@dnd/core/src/shared/freeze';
 import type { Bounds } from './FogRenderer';
 
 /** The table-facing cloud shape — shared with `MapSettings.fogLook` (canvas) and
@@ -763,7 +764,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       setVec(uniforms.uCoverRect, [bounds.minX, bounds.minY, w, h]);
     },
     advance(dtSeconds) {
-      time += dtSeconds;
+      // Freeze mode (`?freeze=`, shared/freeze.ts): the cloud stands at one phase for pixel tests.
+      time = isFrozen() ? 0 : time + dtSeconds;
       uniforms.uTime = time;
     },
     destroy() {

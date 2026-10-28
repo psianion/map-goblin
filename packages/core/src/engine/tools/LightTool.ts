@@ -4,6 +4,17 @@ import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
 import type { LightChild, DungeonLayer, AssetChild } from '../../store/types';
+import { LIGHT_RADIUS_FT } from '../../store/lightPresets';
+
+/** How far one R press turns the next light's cone. */
+const CONE_TURN = 45;
+
+/** Feet snapped to the radius step and held inside the range the card and dock use. */
+const clampFt = (ft: number): number =>
+  Math.min(LIGHT_RADIUS_FT.max, Math.max(LIGHT_RADIUS_FT.min, Math.round(ft / LIGHT_RADIUS_FT.step) * LIGHT_RADIUS_FT.step));
+
+const plainR = (e: KeyboardEvent): boolean =>
+  e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey;
 
 function countLightsInLayer(layer: DungeonLayer): number {
   return layer.children.filter((c) => c.childType === 'light').length;
@@ -57,6 +68,13 @@ export class LightTool implements DrawingTool {
       falloff: defaults.falloff,
       position: { x: point.x, y: point.y },
       ...(attachTarget ? { attachedTo: attachTarget.id } : {}),
+      // The preset's optional fields (store/lightPresets.ts), only the ones it set.
+      ...(defaults.cone ? { cone: { ...defaults.cone } } : {}),
+      ...(defaults.animation ? { animation: { ...defaults.animation } } : {}),
+      ...(defaults.throughWalls ? { throughWalls: true } : {}),
+      ...(defaults.nightOnly ? { nightOnly: { ...defaults.nightOnly } } : {}),
+      ...(defaults.darkness ? { darkness: true } : {}),
+      ...(defaults.darkness && defaults.darkvisionSees ? { darkvisionSees: true } : {}),
     };
 
     undoManager.execute(new AddChildCommand('Place light', activeLayerId, child));
@@ -73,7 +91,46 @@ export class LightTool implements DrawingTool {
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       this.cancel();
+      return;
     }
+    // R turns the next light's cone (Shift+R the other way); a full circle has nothing to turn.
+    if (plainR(event)) {
+      const store = useStore.getState();
+      const cone = store.tools.settings.lightDefaults.cone;
+      if (!cone || cone.angle >= 360) return;
+      const turned = cone.direction + (event.shiftKey ? -CONE_TURN : CONE_TURN);
+      store.updateLightDefaults({ cone: { ...cone, direction: ((turned % 360) + 360) % 360 } });
+    }
+  }
+
+  /** R is this tool's (rotate cone) while it is out, not the Rectangle shortcut's. */
+  ownsKey(event: KeyboardEvent): boolean {
+    return plainR(event);
+  }
+
+  /**
+   * Wheel sizes the next light: bright radius, Shift+Wheel dim, one 5 ft step a notch (up
+   * grows). Bright never passes dim — pushing one past the other carries the other with it.
+   */
+  onWheel(e: WheelEvent): boolean {
+    // Shift+wheel arrives as a horizontal scroll in some browsers.
+    const delta = e.deltaY || e.deltaX;
+    if (delta === 0) return true;
+    const store = useStore.getState();
+    const d = store.tools.settings.lightDefaults;
+    const ftPerCell = store.mapSettings.cellScale.value || 5;
+    const step = delta < 0 ? LIGHT_RADIUS_FT.step : -LIGHT_RADIUS_FT.step;
+    const bright = clampFt(d.featherRadius * ftPerCell);
+    const dim = clampFt(d.radius * ftPerCell);
+    const cells = (ft: number): number => ft / ftPerCell;
+    if (e.shiftKey) {
+      const v = clampFt(dim + step);
+      store.updateLightDefaults(v < bright ? { radius: cells(v), featherRadius: cells(v) } : { radius: cells(v) });
+    } else {
+      const v = clampFt(bright + step);
+      store.updateLightDefaults(v > dim ? { featherRadius: cells(v), radius: cells(v) } : { featherRadius: cells(v) });
+    }
+    return true;
   }
 
   getPreview(): PreviewShape | null {

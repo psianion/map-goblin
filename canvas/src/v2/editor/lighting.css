@@ -1,0 +1,245 @@
+/*
+ * Lighting UI (boards 1–5, 7, 8): the Lights tab of the dock, the light card, the Sky & mood
+ * sheet, the glow rows under a prop's Glows switch and the export dialog's lighting rows.
+ * Neutral greys only, ink for "on". The one colour is content: a preset tile shows the light
+ * it places (`--glow`, set inline from the preset).
+ */
+
+/* ── Dock: Lights tab ──────────────────────────────────── */
+/* Bright, Dim, Colour, Flicker and "⋯", wider than the 340px column. */
+.v2-dock__body .v2-settings.v2-settings--light {
+  max-width: none;
+}
+/* A light preset tile: the preset's colour as a glow behind its glyph. */
+.v2-lswatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-text);
+}
+.v2-lswatch::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--glow) 0 30%, transparent 72%);
+  opacity: 0.9;
+}
+.v2-lswatch svg {
+  position: relative;
+}
+.v2-lswatch--dark::before {
+  background: radial-gradient(circle, #1b1b1b 0 38%, rgb(27 27 27 / 0) 74%);
+  opacity: 1;
+}
+.dark .v2-lswatch--dark::before {
+  background: radial-gradient(circle, #0a0a0a 0 42%, rgb(10 10 10 / 0) 78%);
+}
+.v2-lswatch--dark {
+  color: #ffffff;
+}
+/* The "All settings" card: one row per setting, label left, control right. */
+.v2-pop--lightmore {
+  width: 300px;
+  padding: 4px 0;
+}
+.v2-pop--lightmore .v2-rrow {
+  padding: 0 12px;
+}
+
+/* ── Light card ────────────────────────────────────────── */
+/* A distance is a track and a typed number with its unit. */
+.v2-lcard .v2-pscale {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.v2-lcard .v2-pscale .v2-range {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.v2-lcard .v2-pscale .v2-pnum {
+  flex: 0 0 64px;
+}
+.v2-pnum__unit {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  transform: translateY(1px);
+}
+.v2-lcard .v2-pnum,
+.v2-pcard .v2-pnum {
+  gap: 4px;
+}
+.v2-field.v2-pnum > .v2-pnum__unit:last-child {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-lcard__attach {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.v2-lcard__attach b {
+  font-weight: 500;
+  color: var(--v2-text);
+}
+
+/* Rows that belong to the switch above them (Glows: Strength, Animation, Speed). */
+.v2-prow--sub {
+  position: relative;
+  padding-left: 14px;
+}
+.v2-prow--sub::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--v2-line);
+}
+.v2-prow--sub .v2-rrow__lbl {
+  flex-basis: 64px;
+}
+.v2-lcard .v2-rrow__lbl.v2-prow__wide {
+  flex-basis: 152px;
+}
+.v2-prow--sub .v2-rrow__lbl.v2-prow__wide {
+  flex-basis: 138px;
+}
+.v2-psec--tight .v2-prow--sub {
+  min-height: 28px;
+}
+.v2-prow--greyed {
+  opacity: 0.55;
+}
+/* The glow rows' track and number share the row like the light card's. */
+.v2-pcard .v2-pscale {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.v2-pcard .v2-pscale .v2-range {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.v2-pcard .v2-pscale .v2-pnum {
+  flex: 0 0 64px;
+}
+
+/* ── Sky & mood sheet ──────────────────────────────────── */
+/* Its labels are longer than a card's. */
+.v2-skysheet .v2-rrow__lbl:not(.v2-prow__wide),
+.v2-skysheet .v2-selc .v2-ctl__head > span:first-child {
+  flex-basis: 100px;
+}
+.v2-skysheet .v2-rsec:first-child {
+  border-top: 0;
+}
+.v2-skysheet .v2-select {
+  height: 26px;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 0 6px;
+}
+.v2-skysheet .v2-selc .v2-ctl__body {
+  height: 26px;
+}
+.v2-skysheet .v2-seg button {
+  padding: 0 6px;
+}
+.v2-skysheet__foot {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--v2-line);
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+/* Orientation: a compass dial, the sun's rising side as the needle. */
+.v2-dial {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 999px;
+  background: var(--v2-panel-2);
+  cursor: grab;
+  touch-action: none;
+}
+.v2-dial:focus-visible {
+  outline: 2px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+.v2-dial svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.v2-dial__tick {
+  stroke: var(--v2-line-strong);
+}
+.v2-dial__n {
+  fill: var(--v2-text-3);
+}
+.v2-dial__needle {
+  stroke: var(--v2-ink);
+}
+.v2-dial__tip {
+  fill: var(--v2-ink);
+}
+.v2-dial__hub {
+  fill: var(--v2-panel);
+  stroke: var(--v2-ink);
+}
+
+/* ── Export: the lighting rows under "Apply lighting" ──── */
+.v2-export-light {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-line);
+}
+.v2-export-light__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+  font-size: 13px;
+  color: var(--v2-text);
+}
+.v2-export-light__lbl {
+  flex: 0 0 64px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-export-light__row .v2-range {
+  flex: 1 1 auto;
+  width: auto;
+}
+.v2-export-light__val {
+  flex: 0 0 44px;
+  text-align: right;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--v2-text);
+}
+.v2-export-light__row .v2-segs {
+  flex: 1 1 auto;
+}
+.v2-export-light__row .v2-segs > .v2-seg {
+  height: 26px;
+  font-size: 12px;
+}
+.v2-export-light__row .v2-input {
+  height: 30px;
+  font-size: 13px;
+  padding: 0 8px;
+}

@@ -437,3 +437,48 @@ describe('syncLightsToScene — carried light', () => {
     stop()
   })
 })
+
+describe('the Lighting pass at the table', () => {
+  it('plays a light authored off at the table as off, until a live edit turns it on', () => {
+    const authored = new Map<string, EditableLight>()
+    const layers = [dungeon([light({ tableOn: false })])]
+    expect(lightingDrift({}, layers, authored).get('l1')?.visible).toBe(false)
+    expect(lightingDrift({ l1: { visible: true } }, layers, new Map()).get('l1')).toBeUndefined()
+  })
+
+  it('carries a live cone, animation and darkness edit onto the child', () => {
+    const drift = lightingDrift(
+      { l1: { cone: { angle: 90, direction: 0 }, animation: { kind: 'pulse', speed: 1 }, darkness: true } },
+      [dungeon([light()])],
+      new Map(),
+    )
+    expect(drift.get('l1')).toMatchObject({
+      cone: { angle: 90, direction: 0 },
+      animation: { kind: 'pulse', speed: 1 },
+      darkness: true,
+    })
+  })
+
+  it('reads a carried torch’s angle as its cone', () => {
+    const [torch] = tokenLights([token({ id: 't1', light: { dim: 6, bright: 3, color: '#ffbb66', angle: 90 } })])
+    expect(torch!.cone).toEqual({ angle: 90, direction: 0 })
+    const [round] = tokenLights([token({ id: 't2', light: { dim: 6, bright: 3, color: '#ffbb66', angle: 360 } })])
+    expect(round!.cone).toBeUndefined()
+  })
+
+  it('puts a carried torch on its token’s level, and moves it when the token changes level', () => {
+    const levels = [
+      { id: 'L1', name: 'One' },
+      { id: 'L2', name: 'Two' },
+    ]
+    const up = { ...(dungeon([]) as object), id: 'up', levelId: 'L2' } as unknown as Layer
+    const ground = { ...(dungeon([]) as object), id: 'ground', levelId: 'L1' } as unknown as Layer
+    const carrier = token({ id: 't1', light: { dim: 6, bright: 3, color: '#ffbb66', angle: 360 }, levelId: 'L2' })
+    expect(tokenLightDrift([carrier], [ground, up], levels).write).toHaveLength(1)
+    // Already on its level: nothing to write.
+    const placed = { ...(up as object), children: tokenLights([carrier]) } as unknown as Layer
+    expect(tokenLightDrift([carrier], [ground, placed], levels).write).toHaveLength(0)
+    // The DM moves the token down: the torch is rewritten onto level 1.
+    expect(tokenLightDrift([{ ...carrier, levelId: 'L1' }], [ground, placed], levels).write).toHaveLength(1)
+  })
+})

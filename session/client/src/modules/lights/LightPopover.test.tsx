@@ -5,6 +5,7 @@ import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import { worldToScreen } from '../../renderer/camera';
 import { useSessionStore } from '../../session/store';
+import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 import { LightPopover } from './LightPopover';
 import { useLightSelection } from './selection';
 
@@ -76,9 +77,13 @@ describe('LightPopover', () => {
 
     expect(screen.getByTestId('light-name').textContent).toBe('Brazier');
     expect(screen.getByTestId('light-visible').getAttribute('aria-checked')).toBe('true');
-    expect(screen.getByTestId('light-radius-slider')).toHaveProperty('value', '6');
-    // 3 of 6 cells is 50% bright zone, at 5ft/cell.
-    expect(screen.getByTestId('light-feather-slider')).toHaveProperty('value', '50');
+    // Bright 3 cells and dim 6 cells read as feet at 5 ft a cell, on the editor's one range.
+    expect(screen.getByTestId('light-bright-slider')).toHaveProperty('value', '15');
+    expect(screen.getByTestId('light-dim-slider')).toHaveProperty('value', '30');
+    expect(screen.getByTestId('light-dim-slider')).toHaveProperty('min', String(LIGHT_RADIUS_FT.min));
+    expect(screen.getByTestId('light-dim-slider')).toHaveProperty('max', String(LIGHT_RADIUS_FT.max));
+    expect(screen.getByTestId('light-popover').textContent).toContain('15 ft');
+    expect(screen.queryByTestId('light-feather-slider')).toBeNull();
     expect(screen.getByTestId('light-intensity-slider')).toHaveProperty('value', '0.8');
     expect(screen.getByTestId('light-color')).toHaveProperty('value', '#ffbb66');
 
@@ -86,14 +91,14 @@ describe('LightPopover', () => {
     expect(popover.style.visibility).toBe('visible');
   });
 
-  it('sends set-light with the released radius (and the clamped feather) on slider release', () => {
+  it('sends set-light with the released dim edge in cells (and bright carried down) on release', () => {
     mountMapElement();
     screenOf.mockReturnValue({ x: 100, y: 50 });
     useLightSelection.getState().select('l1');
     render(<LightPopover />);
 
-    const slider = screen.getByTestId('light-radius-slider');
-    fireEvent.change(slider, { target: { value: '2' } }); // below the current 3-cell feather
+    const slider = screen.getByTestId('light-dim-slider');
+    fireEvent.change(slider, { target: { value: '10' } }); // 2 cells, under the 3-cell bright edge
     fireEvent.pointerUp(slider);
 
     expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-light', {
@@ -102,19 +107,19 @@ describe('LightPopover', () => {
     });
   });
 
-  it('sends set-light for the bright-zone slider on release', () => {
+  it('sends set-light for the bright slider on release, carrying dim out past it', () => {
     mountMapElement();
     screenOf.mockReturnValue({ x: 100, y: 50 });
     useLightSelection.getState().select('l1');
     render(<LightPopover />);
 
-    const slider = screen.getByTestId('light-feather-slider');
-    fireEvent.change(slider, { target: { value: '20' } }); // 20% of 6 cells = 1.2
+    const slider = screen.getByTestId('light-bright-slider');
+    fireEvent.change(slider, { target: { value: '40' } }); // 8 cells, past the 6-cell dim edge
     fireEvent.pointerUp(slider);
 
     expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-light', {
       lightId: 'l1',
-      patch: { featherRadius: expect.closeTo(1.2) },
+      patch: { radius: 8, featherRadius: 8 },
     });
   });
 

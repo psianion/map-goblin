@@ -108,7 +108,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
   modules.register(initiativeModule)
-  modules.register(tokensModule(vision.visionOf))
+  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf))
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
@@ -116,7 +116,16 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   // handle is what lets a fired encounter materialize (internal tokens.spawn /
   // initiative.seed dispatches — the same door triggers.event comes in through).
   const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf, modules)
-  modules.register(triggersModule(triggerDeps))
+  // The Lighting pass's two reads of the map: every placed light (`set-lights-all`), and which
+  // of them a player's copy keeps (their live edits ship only for those).
+  modules.register(
+    triggersModule({
+      ...triggerDeps,
+      lightIdsOf: (_campaignId, sceneId) =>
+        vision.sceneMapOf(sceneId)?.lights.filter((l) => !l.darkness).map((l) => l.id) ?? [],
+      keptLightsOf: (sceneId) => vision.keptLightsOf(sceneId),
+    }),
+  )
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {

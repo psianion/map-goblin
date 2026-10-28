@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useStore } from '@dnd/core/src/store/store';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { Token } from '@dnd/mechanics/tokens';
@@ -234,6 +235,42 @@ describe('TokenMenu', () => {
 
       expect(sent[0]).toMatchObject({ action: 'delete', payload: { id: 't1' } });
       expect(useTokenInteraction.getState().selectedId).toBeNull();
+    });
+
+    it('moves a token to another level from behind the more menu, when the map has two', () => {
+      useStore.setState({
+        levels: [
+          { id: 'lv1', name: 'Ground floor' },
+          { id: 'lv2', name: 'Level 2' },
+        ],
+      });
+      const sent: { action: string; payload: unknown }[] = [];
+      useSessionStore.setState({
+        session: session([token()]),
+        you: dm,
+        lastError: null,
+        client: { send: (m: { module: string; action: string; payload: unknown }) => sent.push(m) } as never,
+      });
+      useTokenInteraction.getState().select('t1');
+      render(<TokenMenu />);
+
+      fireEvent.click(screen.getByTestId('token-menu-more'));
+      const levels = screen.getByRole('group', { name: 'Move to level' });
+      // A token without a level stands on the first one.
+      expect((screen.getByRole('button', { name: /Ground floor/ }) as HTMLButtonElement).disabled).toBe(true);
+      expect(levels.textContent).toContain('Level 2');
+      fireEvent.click(screen.getByRole('button', { name: 'Level 2' }));
+      expect(sent[0]).toMatchObject({ module: 'tokens', action: 'set-token-level', payload: { tokenId: 't1', levelId: 'lv2' } });
+      useStore.setState({ levels: [{ id: 'lv1', name: 'Ground floor' }] });
+    });
+
+    it('offers no level move on a one-level map', () => {
+      useStore.setState({ levels: [{ id: 'lv1', name: 'Ground floor' }] });
+      useSessionStore.setState({ session: session([token()]), you: dm, client: null, lastError: null });
+      useTokenInteraction.getState().select('t1');
+      render(<TokenMenu />);
+      fireEvent.click(screen.getByTestId('token-menu-more'));
+      expect(screen.queryByTestId('token-menu-levels')).toBeNull();
     });
 
     it('never offers a Claim button', () => {

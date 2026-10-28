@@ -385,6 +385,13 @@ async function regionLook(page: Page, box: [number, number, number, number]): Pr
   )
 }
 
+/** The darkness the engine is drawing this tick (`worldSync`'s read-only `__ggSky`), eased. */
+function skyDarkness(page: Page): Promise<number | null> {
+  return page.evaluate(
+    () => (window as unknown as { __ggSky?: () => { darkness: number } | null }).__ggSky?.()?.darkness ?? null,
+  )
+}
+
 /** `.mean` alone, off a shot already taken for another reason — no fog toggle, since mean
  *  never depended on the cloud's colour to begin with. */
 function luminanceMean(page: Page, shot: Buffer): Promise<number> {
@@ -967,6 +974,10 @@ test.describe.serial('@sprint3-vision', () => {
     // The badge is the settle signal, not a pixel poll: this dial does not move `lit` at all
     // (see below), so polling on it waited for something that was never going to happen.
     await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
+    // The table eases a darkness change over 2 s (Lighting pass, FADE_MS): read the dark once
+    // it lands. Under the neutral mood tint the daylight it eases from is the art as drawn, so
+    // a frame shot mid-fade still has lit floor in it.
+    await expect.poll(async () => skyDarkness(player)).toBe(1)
     await player.waitForTimeout(REVEAL_MS * 2)
     const blind = await look(player)
 
@@ -1028,10 +1039,9 @@ test.describe.serial('@sprint3-vision', () => {
     // (1.2% of their frame at light-source brightness, against 0.04% before the torch — the
     // old 8.0% was the dim skirt the vector pipeline left unattenuated, for the reason the
     // player's own reading above gives).
-    expect(
-      dmDark.mean,
-      `the DM's canvas went dark with the room: ${show(dmSeeing)} → ${show(dmDark)}`,
-    ).toBeGreaterThan(dmSeeing.mean)
+    // The Lighting pass closed the gap this row used to lean on: the table's grade follows
+    // the DM's darkness now, so the DM's canvas darkens with the room (their way to stage the
+    // dark without sitting in it is "Show me everything lit"). What still holds is the pool:
     // What this bound catches: the torch pool reaching the player's masked tier but never the
     // DM's own canvas — the dial blacking the DM out with the room, against principle 3. That
     // failure reads the pre-torch 0.04%. Measured 1.17%, bit-identical on two runs, so the
@@ -1123,6 +1133,8 @@ test.describe.serial('@sprint3-vision', () => {
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
+    // The table eases a darkness change over 2 s (Lighting pass, FADE_MS): shoot once it lands.
+    await expect.poll(async () => skyDarkness(player)).toBe(0)
     await player.waitForTimeout(REVEAL_MS * 2)
     const day = await shoot(player)
     const moved = await changed(player, nightAgain, day)
@@ -1144,6 +1156,7 @@ test.describe.serial('@sprint3-vision', () => {
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
     await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
+    await expect.poll(async () => skyDarkness(player)).toBe(1)
     await player.waitForTimeout(REVEAL_MS * 2)
     // …and the dial that put it back reads on the canvas: 29.2 against daylight's 34.0 mean.
     // On the mean, not on `lit`: the torch pool this scene is carrying is the only thing above
@@ -1373,6 +1386,9 @@ test.describe.serial('@sprint3-vision', () => {
     // that still shapes the mask is a darkvision eye's range, and only with the lights out.
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
     await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
+    // Both reads below compare one floor: let the 2 s darkness fade land first, or the wide
+    // read catches a floor still dimming toward the narrow one's.
+    await expect.poll(async () => skyDarkness(player)).toBe(1)
 
     // The panel, on the scout: the authored 40 ft (8 cells) of sight.
     await openTokens(dm)

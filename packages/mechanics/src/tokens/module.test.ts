@@ -1079,3 +1079,34 @@ describe('spawn (internal, prep v2 encounters)', () => {
     expect(next.byScene[SCENE].etok1).toBeUndefined()
   })
 })
+
+// ── Levels (the Lighting pass) ───────────────────────────────────────────────
+
+describe('set-token-level', () => {
+  it('is dm-only, moves a token to a level and back to the first on null', () => {
+    const state = stateWith(token())
+    expect(run(state, P1, 'set-token-level', { tokenId: 't1', levelId: 'L2' }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    const moved = run(state, DM, 'set-token-level', { tokenId: 't1', levelId: 'L2' })
+    expect(moved.error).toBeNull()
+    expect(only(moved.next).levelId).toBe('L2')
+    const back = run(moved.next, DM, 'set-token-level', { tokenId: 't1', levelId: null })
+    expect('levelId' in only(back.next)).toBe(false)
+  })
+
+  it('a seat is sent only the tokens on the level it is looking at, its own included', () => {
+    const module = buildTokens(
+      () => null,
+      (_scene, viewer) => (viewer.identityId === 'p-1' ? (levelId) => (levelId ?? 'L1') === 'L2' : null),
+    )
+    const state = stateWith(
+      token({ id: 'mine', ownerId: 'p-1', levelId: 'L2' }),
+      token({ id: 'up', levelId: 'L2' }),
+      token({ id: 'down' }),
+    )
+    expect(Object.keys(module.redact!(state, P1).byScene[SCENE]).sort()).toEqual(['mine', 'up'])
+    // A seat with no level cut (one level, or the DM) is sent every token it may see.
+    expect(Object.keys(module.redact!(state, P2).byScene[SCENE]).sort()).toEqual(['down', 'mine', 'up'])
+  })
+})

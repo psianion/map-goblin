@@ -242,10 +242,27 @@ describe('a standalone wall casts like any other', () => {
     return Math.abs(sum) / 2;
   };
 
+  it('leaves the props out of the wall shadow pass (they cast their own sprite shadow)', () => {
+    const layer = {
+      ...standalone([[9, 43], [58, 43]]),
+      children: [
+        {
+          id: 'crate', name: 'Crate', childType: 'asset', visible: true, objectType: 'asset', assetId: 'crate',
+          position: { x: 20, y: 20 }, rotation: 0, scale: 1, width: 2, height: 2, tint: '#ffffff',
+          flipX: false, flipY: false, blocksLight: true,
+        },
+      ],
+    } as unknown as Parameters<typeof extractWallSegments>[0][number];
+    expect(extractWallSegments([layer], 'light', { props: false })).toHaveLength(1);
+    expect(extractWallSegments([layer])).toHaveLength(5);
+  });
+
   it('reaches the segment list with no floor ring on the layer at all', () => {
     // fieldstone-keep's north courtyard wall, the one the walk sampled across.
     const segments = extractWallSegments([standalone([[9, 43], [58, 43]])]);
-    expect(segments).toEqual([{ x1: 9, y1: 43, x2: 58, y2: 43 }]);
+    expect(segments).toEqual([
+      { x1: 9, y1: 43, x2: 58, y2: 43, direction: 'both', blocksLight: true, blocksSight: true },
+    ]);
   });
 
   it('extrudes to quads with real area at a low sun', () => {
@@ -305,5 +322,45 @@ describe('shadowSignature — the cache key', () => {
     expect(key({ on: false, deg: 0 })).toBe(key({ on: false, deg: 180 }));
     // …but a wall edit still rebuilds it, so turning natural light back on is not a stale draw.
     expect(key({ on: false, epoch: 9 })).not.toBe(key({ on: false }));
+  });
+});
+
+describe('shadowSignature — the sky terms (agreed gap: a sky change did not redraw)', () => {
+  const sun = (kind: 'sun' | 'moon' | null, intensity: number) => ({ azimuth: 10, altitude: 30, intensity, kind });
+  const sky = (over: Partial<{ kind: 'sun' | 'moon' | null; i: number; night: string; weather: string; soft: number }> = {}) => ({
+    sun: sun(over.kind === undefined ? 'moon' : over.kind, over.i ?? 0.35),
+    nightSky: over.night ?? 'full-moon',
+    weather: over.weather ?? 'clear',
+    penumbraScale: over.soft ?? 1,
+  });
+  const key = (s = sky()) => shadowSignature('layer-1', 3, 0, 0, true, s);
+
+  it('is stable under an unchanged sky', () => {
+    expect(key()).toBe(key());
+  });
+
+  it('changes when the night sky changes under the same clock bucket', () => {
+    expect(key(sky({ night: 'crescent', i: 0.15 }))).not.toBe(key());
+  });
+
+  it('changes when which light casts changes', () => {
+    expect(key(sky({ kind: 'sun', i: 0.35 }))).not.toBe(key());
+  });
+
+  it('changes when the casting strength moves a twentieth, not a hair', () => {
+    expect(key(sky({ i: 0.351 }))).toBe(key());
+    expect(key(sky({ i: 0.5 }))).not.toBe(key());
+  });
+
+  it('changes with the weather and its softness', () => {
+    expect(key(sky({ weather: 'storm' }))).not.toBe(key());
+    expect(key(sky({ soft: 2.5 }))).not.toBe(key());
+  });
+
+  it('a clouded sky widens the band taper in the look', () => {
+    const clear = shadowLook(sun('sun', 0.8));
+    const storm = shadowLook(sun('sun', 0.8), 2.5);
+    expect(clear?.taper).toBeUndefined();
+    expect(storm?.taper).toBeGreaterThan(0.22);
   });
 });

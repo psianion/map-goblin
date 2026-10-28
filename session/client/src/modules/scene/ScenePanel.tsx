@@ -1,29 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
-import type { TriggersState } from '@dnd/mechanics/triggers';
-import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import type { SceneMeta } from '../../session/auth';
 import { registerPanel } from '../../session/panels';
-import { useModuleState, useSessionStore } from '../../session/store';
+import { useSessionStore } from '../../session/store';
 import { Icon } from '../../shell/icons';
 import { Portal } from '../../shell/Portal';
 import { useSceneLibrary } from './store';
 
 /**
  * §2.4.2 — the DM's corner of the table: the scene library (activate, visibility, rename,
- * reorder, replace, delete — the last four behind the row's own `⋯` menu) and, for whichever
- * scene is live, its weather. Invite code and roster moved into the Session popover (M1);
- * map import moved into this popover's footer (M3 §Scene).
+ * reorder, replace, delete — the last four behind the row's own `⋯` menu). Weather moved to
+ * the World panel, beside the clock and the sky. Invite code and roster moved into the Session
+ * popover (M1); map import moved into this popover's footer (M3 §Scene).
  */
 
 // No-scroll ledger (docs/2026-08-22-table-shell-plan.md): 8 rows at 32px fit with the
-// weather row, header and footer. Past that the rows compact to 28px.
+// header and footer. Past that the rows compact to 28px.
 const DENSE_AT = 9;
 
 const textInput =
   'h-6 min-w-0 flex-1 rounded border border-border-default bg-surface-0 px-1.5 text-[13px] text-text-primary focus:border-border-focus focus:outline-none';
-const selectInput =
-  'h-7 min-w-0 flex-1 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none';
 const rowIconBtn =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
 const menuItem =
@@ -410,54 +405,6 @@ export function ScenePanel() {
     if (name) void rename(sceneId, name);
   };
 
-  // P2 — weather is what is left of the environment triad here. The hour is the campaign's
-  // world clock and the light level is the vision gate's override, and both of those live in
-  // the World block now: one clock for the world beats a per-scene narration dial that said a
-  // different time than the sky did.
-  const triggersState = useModuleState<TriggersState>('triggers');
-  const env = activeSceneId && triggersState ? sceneTriggersOf(triggersState, activeSceneId).env : {};
-
-  // Optimistic echo: the select shows its own pending pick the instant it's clicked rather
-  // than snapping back to `env` until the server's broadcast round-trips. Cleared once `env`
-  // catches up, and on scene switch — a pending pick from the scene you just left has no
-  // business showing on the one you switched to.
-  //
-  // Both resets are adjusted during render (React's own "reset state when a value changes"
-  // idiom — see the docs on "You Might Not Need An Effect") rather than in a `useEffect`:
-  // landing in the same commit as the change it reacts to instead of one paint later, and it
-  // sidesteps `react-hooks/set-state-in-effect` honestly instead of suppressing it. The ref
-  // itself stays out of the render body (`react-hooks/refs` — reading a ref during render is
-  // its own lint error) and is only ever touched from the effect below or the event handler.
-  const PENDING_TIMEOUT_MS = 4000;
-  const [pending, setPending] = useState<Weather | undefined>();
-  const pendingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const [prevSceneId, setPrevSceneId] = useState(activeSceneId);
-  if (prevSceneId !== activeSceneId) {
-    setPrevSceneId(activeSceneId);
-    setPending(undefined);
-  }
-
-  const [prevEnvWeather, setPrevEnvWeather] = useState(env.weather);
-  if (prevEnvWeather !== env.weather) {
-    setPrevEnvWeather(env.weather);
-    setPending((p) => (p === env.weather ? undefined : p));
-  }
-
-  // The cleanup (not the body) is the point: it fires both when `activeSceneId` is about to
-  // change (clearing the outgoing scene's timeout) and on unmount — one effect covers what
-  // used to be two.
-  useEffect(() => () => clearTimeout(pendingTimeout.current), [activeSceneId]);
-
-  const weather = pending ?? env.weather;
-
-  const setWeather = (value: Weather) => {
-    setPending(value);
-    clearTimeout(pendingTimeout.current);
-    pendingTimeout.current = setTimeout(() => setPending(undefined), PENDING_TIMEOUT_MS);
-    useSessionStore.getState().sendCommand('triggers', 'set-environment', { weather: value });
-  };
-
   const dense = scenes.length >= DENSE_AT;
 
   return (
@@ -495,33 +442,6 @@ export function ScenePanel() {
         </ul>
       )}
 
-      {activeSceneId ? (
-        <div className="flex items-center gap-2">
-          <label htmlFor="env-weather-select" className="w-16 shrink-0 text-xs text-text-muted">
-            Weather
-          </label>
-          <select
-            id="env-weather-select"
-            value={weather ?? ''}
-            aria-label="Weather"
-            data-testid="env-weather"
-            onChange={(e) => e.target.value && setWeather(e.target.value as Weather)}
-            className={selectInput}
-          >
-            {/* Off the table once set: the module only ever sets weather, never clears it. */}
-            <option value="" disabled={weather !== undefined}>
-              Not set
-            </option>
-            {WEATHERS.map((v) => (
-              <option key={v} value={v}>
-                {vocabLabel(v)}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : (
-        <p className="text-sm text-text-muted">Activate a scene to set its environment.</p>
-      )}
     </div>
   );
 }

@@ -10,17 +10,20 @@ import { useActiveTool } from '../session/tools';
 import { TableStatusBar } from './TableStatusBar';
 
 /** A single scene's worth of `SceneTriggers`, plus the campaign's world — the badge reads
- *  the scene's own weather and gate override, and the hour off the one clock. */
+ *  the live weather off the world (set from the World panel), a saved gate override off the
+ *  scene, and the hour off the one clock. */
 function triggersState(
   sceneId: string,
-  env: { weather?: string; ambient?: string },
+  { weather, ...env }: { weather?: string; ambient?: string },
   world?: Partial<{ clock: number; nightSky: string }>,
 ): TriggersState {
   return {
     byScene: {
       [sceneId]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env, prompts: [], log: [] },
     },
-    ...(world ? { world: { clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', ...world } } : {}),
+    ...(world || weather
+      ? { world: { clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', ...(weather ? { weather } : {}), ...world } }
+      : {}),
   } as TriggersState;
 }
 

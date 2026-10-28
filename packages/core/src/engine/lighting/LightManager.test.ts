@@ -98,4 +98,21 @@ describe('LightManager', () => {
     const second = manager.getOrComputePolygon(mockLight())
     expect(second).toBe(first)
   })
+
+  it('staleStamp moves on every invalidation, even while the light is already dirty', () => {
+    manager.syncFromStore([mockLight()])
+    const a = manager.staleStamp('l1')
+    manager.invalidateAll()
+    const b = manager.staleStamp('l1')
+    manager.invalidate('l1')
+    const c = manager.staleStamp('l1')
+    expect(manager.isDirty('l1')).toBe(true)
+    expect(new Set([a, b, c]).size).toBe(3)
+    manager.getOrComputePolygon(mockLight())
+    expect(manager.staleStamp('l1')).toBe(c) // a sweep cleans it without moving the stamp
+  })
+
+  it('staleStamp is 0 for a light it has never seen', () => {
+    expect(manager.staleStamp('nope')).toBe(0)
+  })
 })

@@ -105,12 +105,13 @@ test.describe.serial('@time-weather flagship', () => {
   })
 
   test('DM sets the weather from the real control: every seat sees the badge and hears it', async () => {
-    await openPanel(dm, 'session-controls')
+    // Weather lives in the World panel, beside the clock and the sky (the Lighting pass).
+    await openPanel(dm, 'world')
     // Weather only. The per-scene time-of-day select (`env-time`, 'dusk') left `src` at main
     // c0e068f (PR #99) for the campaign-global World clock — a continuous dial, so there is no
     // discrete 'dusk' to pick and no 'Dusk settles' line to hear; the badge carries the clock's
     // own word for the hour instead.
-    await dm.getByTestId('env-weather').selectOption('rain')
+    await dm.getByTestId('world-weather').selectOption('rain')
     await expect(player.getByTestId('env-badge')).toContainText('Rain', { timeout: 20_000 })
     await expect(player.getByTestId('toast')).toContainText('Rain begins to fall', { timeout: 20_000 })
   })

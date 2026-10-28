@@ -9,13 +9,29 @@
 // polygon is a sweep against the scene's occluders, which each side already does its own way
 // (`fog/sweep.ts` server-side, `visionSight.ts` on the canvas).
 
+/** A wedge, degrees: direction 0 = east, clockwise on screen. Angle >= 360 is a full circle. */
+export interface LightCone {
+  angle: number
+  direction: number
+}
+
 /** An authored light, reduced to what the light test needs. `visible` is the map's own flag. */
 export interface PlacedLight {
   id: string
   x: number
   y: number
+  /** The dim edge: where the light ends. Lit means inside it. */
   radius: number
   visible?: boolean
+  cone?: LightCone
+  /** Swept against no walls. */
+  throughWalls?: boolean
+  /** Burns only while `min <= darkness <= max`. */
+  nightOnly?: { min: number; max: number }
+  /** A darkness source: subtracts light, blocks sight at its edge. */
+  darkness?: boolean
+  /** Darkness sources only: darkvision sees through it. */
+  darkvisionSees?: boolean
 }
 
 /** A token as the light rule reads one — `Token` satisfies this structurally. */
@@ -23,7 +39,12 @@ export interface LightCarrier {
   x: number
   y: number
   hidden: boolean
-  light: { dim: number; bright: number } | null
+  light: { dim: number; bright: number; angle?: number } | null
+}
+
+/** A token light's `angle` as a cone, or none for a full circle (0 and >= 360 both read as full). */
+export function carriedCone(angle: number | undefined): LightCone | undefined {
+  return angle !== undefined && angle > 0 && angle < 360 ? { angle, direction: 0 } : undefined
 }
 
 /**
@@ -55,11 +76,16 @@ export function eyeReach(token: LightCarrier & { sight: { range: number } | null
  */
 export const SIGHT_REACH = 1000
 
-/** Where a light stands and how far it reaches. Lit/unlit is binary in v1 (plan §Visibility). */
+/** Where a light stands and how far it reaches. Lit/unlit is binary: inside the dim edge is lit. */
 export interface LightSource {
   x: number
   y: number
   radius: number
+  cone?: LightCone
+  throughWalls?: boolean
+  /** A darkness source rather than a light (see `PlacedLight.darkness`). */
+  darkness?: boolean
+  darkvisionSees?: boolean
 }
 
 /**
@@ -78,28 +104,44 @@ export interface LightSource {
  * A carried light does not care who claims the token — an NPC with a lantern lights the room
  * like anything else.
  *
- * ponytail: the radius is `max(dim, bright)`; bright-vs-dim is presentation only in v1. The
- * day dim light means something mechanically, this is where the two radii separate.
+ * The radius is the dim edge (`max(dim, bright)` for a carried light): dim light reveals ground
+ * like bright does, it is only drawn dimmer.
  *
- * ponytail: uncapped, while the *renderer* composites only the 24 sources nearest the camera
- * (`MAX_RENDERED_LIGHTS`). Past that count the mask can clear a pool the frame never draws —
- * the fog errs open, and which pool loses moves with the camera. Revisit if the P6 gate map
- * plus a full party of torchbearers crosses 24 (D3).
+ * Darkness sources come back in the same list, flagged, so each side splits them off the way
+ * it sweeps them. `darkness` is the sky's 0..1 darkness: a night-only light outside its window
+ * is out. Uncapped, like the renderer since the Lighting pass: the mask and the picture read
+ * the same light set.
  */
 export function lightSources(
   placed: readonly PlacedLight[],
   tokens: readonly LightCarrier[],
   overrides: Record<string, boolean>,
+  darkness = 1,
 ): LightSource[] {
   const sources: LightSource[] = []
   for (const light of placed) {
-    if (overrides[light.id] ?? light.visible !== false) {
-      sources.push({ x: light.x, y: light.y, radius: light.radius })
-    }
+    if (!(overrides[light.id] ?? light.visible !== false)) continue
+    const window = light.nightOnly
+    if (window && (darkness < window.min || darkness > window.max)) continue
+    sources.push({
+      x: light.x,
+      y: light.y,
+      radius: light.radius,
+      ...(light.cone && light.cone.angle < 360 ? { cone: light.cone } : {}),
+      ...(light.throughWalls ? { throughWalls: true } : {}),
+      ...(light.darkness ? { darkness: true } : {}),
+      ...(light.darkness && light.darkvisionSees ? { darkvisionSees: true } : {}),
+    })
   }
   for (const token of tokens) {
     if (!token.light || token.hidden) continue
-    sources.push({ x: token.x, y: token.y, radius: Math.max(token.light.dim, token.light.bright) })
+    const cone = carriedCone(token.light.angle)
+    sources.push({
+      x: token.x,
+      y: token.y,
+      radius: Math.max(token.light.dim, token.light.bright),
+      ...(cone ? { cone } : {}),
+    })
   }
   // A light with no reach lights nothing, and a zero-radius sweep is a polygon of nothing.
   return sources.filter((source) => source.radius > 0)

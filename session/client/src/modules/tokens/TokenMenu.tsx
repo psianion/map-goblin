@@ -4,6 +4,7 @@
 // notch-left chrome as the door menu.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useStore } from '@dnd/core/src/store/store';
 import { SIZE_CELLS, type TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint, worldToScreen } from '../../renderer/camera';
 import { useModuleState, useSessionStore } from '../../session/store';
@@ -21,13 +22,29 @@ const send = (action: string, payload: unknown): void =>
 const actionButtonClass =
   'flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 text-[11px] text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
 
+/** A level the token can be moved to, and whether it stands there now. */
+interface LevelChoice {
+  id: string;
+  name: string;
+  current: boolean;
+}
+
 /**
- * The `⋯` button and its one-item dropdown, self-contained so its open/closed state needs
+ * The `⋯` button and its dropdown (Move to level, when the map has more than one; Delete),
+ * self-contained so its open/closed state needs
  * no effect to reset: mounted with `key={token.id}` by the caller, a fresh instance (state
  * back to closed) is what a different — or a newly hidden then reshown — token gets, rather
  * than this component reaching for `setState` inside an effect to force the same thing.
  */
-function MoreMenu({ onDelete }: { onDelete: () => void }) {
+function MoreMenu({
+  onDelete,
+  levels = [],
+  onMoveToLevel,
+}: {
+  onDelete: () => void;
+  levels?: readonly LevelChoice[];
+  onMoveToLevel?: (levelId: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative ml-auto">
@@ -42,7 +59,29 @@ function MoreMenu({ onDelete }: { onDelete: () => void }) {
         <Icon name="more" size={13} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-toolbar mt-1 rounded-md border border-border-structure bg-surface-1 p-1 shadow-panel">
+        <div className="absolute right-0 top-full z-toolbar mt-1 flex flex-col rounded-md border border-border-structure bg-surface-1 p-1 shadow-panel">
+          {levels.length > 1 && onMoveToLevel && (
+            <div role="group" aria-label="Move to level" data-testid="token-menu-levels" className="flex flex-col">
+              <span className="px-1.5 pb-0.5 pt-1 text-[10px] uppercase tracking-[.06em] text-text-muted">Move to level</span>
+              {levels.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  aria-current={l.current ? 'true' : undefined}
+                  disabled={l.current}
+                  onClick={() => {
+                    onMoveToLevel(l.id);
+                    setOpen(false);
+                  }}
+                  className={`${actionButtonClass} justify-between disabled:cursor-default disabled:text-text-primary disabled:hover:bg-transparent`}
+                >
+                  {l.name}
+                  {l.current && <span className="text-[10px] text-text-muted">here</span>}
+                </button>
+              ))}
+              <span aria-hidden className="my-1 h-px bg-border-default" />
+            </div>
+          )}
           <button type="button" data-testid="token-menu-delete" onClick={onDelete} className={`${actionButtonClass} text-danger`}>
             <Icon name="close" size={13} />
             Delete
@@ -62,6 +101,8 @@ export function TokenMenu() {
   const players = useSessionStore((s) => s.session?.players);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const state = useModuleState<TokensState>('tokens');
+  // The map's levels: a DM moves a token between floors from here (the seat that claims it follows).
+  const levels = useStore((s) => s.levels);
   const rootRef = useRef<HTMLDivElement>(null);
   const notchRef = useRef<HTMLSpanElement>(null);
 
@@ -195,6 +236,8 @@ export function TokenMenu() {
               </button>
               <MoreMenu
                 key={token.id}
+                levels={levels.map((l) => ({ id: l.id, name: l.name, current: (token.levelId ?? levels[0]?.id) === l.id }))}
+                onMoveToLevel={(levelId) => send('set-token-level', { tokenId: token.id, levelId })}
                 onDelete={() => {
                   send('delete', { id: token.id });
                   select(null);

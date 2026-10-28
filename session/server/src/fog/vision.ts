@@ -9,7 +9,6 @@
 
 import {
   doorsOfScene,
-  seedDoor,
   type AuthoredDoor,
   type DoorLiveState,
   type DoorsState,
@@ -32,7 +31,6 @@ import {
   toBytes,
   visibleRooms,
   visionShareOf,
-  type BlockedEdge,
   type Cell,
   type FogRoom,
   type FogState,
@@ -40,8 +38,17 @@ import {
   type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
-import { sceneTriggersOf, worldLightOf, type TriggersState } from '@dnd/mechanics/triggers'
+import {
+  roomEditsOf,
+  sceneTriggersOf,
+  viewedLevel,
+  worldSkyOf,
+  type SceneTriggers,
+  type TriggersState,
+} from '@dnd/mechanics/triggers'
 import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd/mechanics/tokens'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
+import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
@@ -58,7 +65,6 @@ import {
 import {
   CACHE_MAX,
   createSceneMaps,
-  pointInPoly,
   type SceneMap,
   type SceneMapOf,
 } from './sceneMap'
@@ -67,6 +73,7 @@ import {
   exploreLocks,
   inAnyLock,
   seen,
+  type LightGate,
   type PartyVision,
   type SightFence,
 } from './sweep'
@@ -112,6 +119,16 @@ export interface Vision {
   autoExplorePatch(sceneId: string): AutoExplorePatch | null
   /** #47 — call after a re-publish repoints a scene's map, or its cached answers go stale. */
   invalidateScene(sceneId: string): void
+  /**
+   * The light ids a player's copy of the map keeps (lights in explored rooms) — what the
+   * triggers redaction keeps the live `lightEdits` of. Null when the scene has no map.
+   */
+  keptLightsOf(sceneId: string): ReadonlySet<string> | null
+  /**
+   * Backs `tokensModule`'s level cut: which tokens a player's viewed level shows. Null on a
+   * one-level map, for the DM, or with no map — every token shows.
+   */
+  levelFilterOf(sceneId: string, viewer: Viewer): ((levelId: string | undefined) => boolean) | null
 }
 
 /** The one fog write a successful token move or door toggle can earn (§4). */
@@ -134,61 +151,20 @@ export interface AutoExplorePatch {
   byIdentity?: Record<string, Cell[]>
 }
 
-/**
- * S3 — the room a point inside a connector's blob counts as being in, or null.
- *
- * The joints the DM draws between rooms are ground, not scenery: the party walks through
- * the archway, and for the moment they are in it they are standing on neither room's
- * polygon. Answering with an adjoining room is the whole of it — `occupyRefusal` then
- * judges the space by that room, with no rule of its own for connectors and no new copy.
- *
- * Which room depends on the leaf. A passable joint answers with a room the party has
- * earned, so they may stand there. A shut one answers with the joint itself — see
- * `connectorEdge`. The blobs are never unioned into a room's boundary: that boundary is
- * P2's occluder, and a doorway welded into it is a doorway that cannot be an aperture.
- */
-function connectorRoom(computed: Computed, x: number, y: number): string | null {
-  for (const { door, ring } of computed.map.connectors) {
-    if (!pointInPoly(ring, x, y)) continue
-    const sides = [door.roomA, door.roomB].filter((room): room is string => !!room)
-    // Bound to nothing the party holds: the joint is as unearned as the rooms it joins.
-    if (!sides.some((room) => computed.occupiable.has(room))) continue
-    const live = computed.doors[door.id] ?? seedDoor(door)
-    if (live.open && !live.locked) return sides.find((room) => computed.occupiable.has(room)) ?? null
-    // Shut. Naming the side they had not earned only worked while there was one: with both
-    // rooms credited every side says "come in", and the point fell out of the room lane
-    // entirely as "there is no ground there" — the right refusal under the wrong sentence.
-    // So the joint answers for itself. Its id belongs to no room, which is what makes the
-    // space refuse, and `connectorEdge` reads the id back off `blockedEdge` for the words.
-    //
-    // A secret door they have not found is the one exception, for `blockedEdge`'s own
-    // reason (visibility.ts:166): it is not a fact they are allowed to hear, and unzoned
-    // map is exactly what a secret door should feel like.
-    return door.isSecret && !live.revealed ? null : door.id
-  }
-  return null
-}
-
-/**
- * The shut joint behind a `blockedEdge` question, when `connectorRoom` answered with one.
- *
- * `blockedEdge` searches the room graph for the door between the party and a room; there is
- * no such search to do here, because the id it was handed IS the door standing in the way.
- */
-function connectorEdge(computed: Computed, room: string): BlockedEdge | null {
-  const joint = computed.map.connectors.find(({ door }) => door.id === room)
-  if (!joint) return null
-  const live = computed.doors[room] ?? seedDoor(joint.door)
-  return { kind: live.locked ? 'locked-door' : 'closed-door', doorId: room }
-}
-
 interface Computed {
   revision: number
   map: SceneMap
   fog: SceneFog
-  /** The party's eyes and the lit area they are judged against — null in `'rooms'` mode,
-   *  where nothing sweeps at all. */
+  /** The party's eyes and the lit area they are judged against, on the map's first level —
+   *  null in `'rooms'` mode, where nothing sweeps at all. */
   sight: PartyVision | null
+  /** The party's sight on one level (levels: only the eyes standing on it look at it). */
+  sightOn(levelId: string): PartyVision | null
+  /** Every level some claimed token stands on — what auto-explore sweeps. */
+  eyeLevels: string[]
+  /** The scene's triggers state, for the viewed-level rule. */
+  triggers: SceneTriggers
+  tokens: Record<string, Token>
   /**
    * P5 — the same thing for one seat: the sweep union of the tokens *that identity* claimed,
    * closed over the DM's sight links. Memoized into this record, so it is keyed on the module
@@ -282,11 +258,20 @@ export function createVision(stores: Stores): Vision {
     // dial — every value a DM has ever set — is the override that still beats them
     // (`worldLightOf`). The same function the table's mask calls, on the same two slices, so
     // the referee and the canvas cannot disagree about whether the party needs a torch.
+    //
+    // …and the Lighting pass makes the gate per region: the sky (clock, weather, night sky, the
+    // DM's darkness slider) through each room's mood decides which ground needs light
+    // (`isDarkRegion`), so the gate is the sky, the live light edits and the live room moods.
     const triggersState = read(campaignId, 'triggers', NO_TRIGGERS)
     const triggers = sceneTriggersOf(triggersState, sceneId)
-    const world = worldLightOf(map.data.mapSettings ?? {}, triggersState, sceneId)
-    const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
+    const mapSettings = map.data.mapSettings ?? ({} as NonNullable<typeof map.data.mapSettings>)
+    const gate: LightGate = {
+      sky: worldSkyOf(mapSettings, triggersState),
+      edits: triggers.lightEdits,
+      roomMoods: roomEditsOf(triggers),
+    }
     const vision = fogModeOf(fog) === 'vision'
+    const firstLevel = firstLevelId(map.data)
     const rangeLimited = sightRangeLimitOn(fog)
     const locks = exploreLocks(map.zones)
     // Containment (default on, vision mode only): live sight is fenced by the ground the table
@@ -312,9 +297,24 @@ export function createVision(stores: Stores): Vision {
     // handed to the sweep as a cell test, never as a clip on the polygons (`SightFence`).
     const fenceFor = (stored: RegionMask | undefined): SightFence | null =>
       vision && containedSightOn(fog) ? { held: heldIn(map, fog, stored), locks } : null
-    const sight = vision
-      ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited, fenceFor(fog.region))
-      : null
+    const perLevel = new Map<string, PartyVision | null>()
+    const sightOn = (levelId: string): PartyVision | null => {
+      if (!vision) return null
+      let own = perLevel.get(levelId)
+      if (own === undefined) {
+        own = sweeps.partyVision(map, tokens, doors, gate, undefined, rangeLimited, fenceFor(fog.region), levelId)
+        perLevel.set(levelId, own)
+      }
+      return own
+    }
+    const sight = sightOn(firstLevel)
+    const eyeLevels = [
+      ...new Set(
+        Object.values(tokens)
+          .filter((t) => t.sight != null && t.ownerId !== null)
+          .map((t) => (map.data.levels?.some((l) => l.id === t.levelId) ? t.levelId! : firstLevel)),
+      ),
+    ]
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -327,13 +327,15 @@ export function createVision(stores: Stores): Vision {
           map,
           tokens,
           doors,
-          lights,
+          gate,
           (t) => t.ownerId === identityId,
           rangeLimited,
           // …and fenced by that seat's own memory, not the table's: the whole point of
           // `individual` is that a seat plays by what *it* has opened (`identityRegion`
           // falls back to the party record, which is the seed a seat with none reads).
           fenceFor(identityRegion(fog, identityId)),
+          // …and on the level that seat is looking at.
+          viewedLevel(triggers, Object.values(tokens), { role: 'player', identityId }, firstLevel),
         )
         perIdentity.set(identityId, own)
       }
@@ -386,6 +388,10 @@ export function createVision(stores: Stores): Vision {
       map,
       fog,
       sight,
+      sightOn,
+      eyeLevels,
+      triggers,
+      tokens,
       sightFor,
       share: visionShareOf(fog),
       locks,
@@ -435,14 +441,17 @@ export function createVision(stores: Stores): Vision {
       // P5 — the whole of the per-viewer divergence, in one expression: the same `seen()` rule
       // over a narrower set of eyes. A DM is asked nothing (their redaction is identity), and a
       // caller with no viewer at all — every command path — asks the party question.
+      // Levels: a player is judged on the level their seat is looking at.
       const sight =
         viewer && viewer.role !== 'dm' && computed.share === 'individual'
           ? computed.sightFor(viewer.identityId)
-          : computed.sight
+          : viewer && viewer.role !== 'dm'
+            ? computed.sightOn(
+                viewedLevel(computed.triggers, Object.values(computed.tokens), viewer, firstLevelId(computed.map.data)),
+              )
+            : computed.sight
       return {
-        // S3 — a connector's interior is walkable ground, and it is the one place a token
-        // may stand that no room's polygon covers.
-        roomAt: (x, y) => computed.map.roomAt(x, y) ?? connectorRoom(computed, x, y),
+        roomAt: (x, y) => computed.map.roomAt(x, y),
         visible: computed.visible,
         occupiable: computed.occupiable,
         // P1 — in vision mode a token is judged by the point it stands on, not the room it
@@ -460,9 +469,7 @@ export function createVision(stores: Stores): Vision {
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
-        blockedEdge: (room) =>
-          connectorEdge(computed, room) ??
-          blockedEdge(computed.doors, computed.map.doors, computed.party, room),
+        blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
       }
     },
 
@@ -475,14 +482,31 @@ export function createVision(stores: Stores): Vision {
 
     autoExplorePatch: (sceneId) => {
       const computed = compute(sceneId)
-      if (!computed?.sight?.eyes.length) return null
+      if (!computed) return null
+      // Every level some claimed eye stands on: a party split across floors explores both.
+      const sights = computed.eyeLevels
+        .map((level) => computed.sightOn(level))
+        .filter((s): s is PartyVision => !!s?.eyes.length)
+      if (sights.length === 0) return null
       const { fog, map } = computed
       // Sight still drives redaction with auto-explore off (§4); it simply writes nothing.
       if (!autoExploreOn(fog) || !map.frame) return null
       const frame = map.frame
 
       const locks = computed.locks
-      const { cells, rooms } = swept(computed.sight, map, frame, locks)
+      const cells: Cell[] = []
+      const rooms = new Set<string>()
+      const counted = new Set<string>()
+      for (const s of sights) {
+        const part = swept(s, map, frame, locks)
+        for (const cell of part.cells) {
+          const key = `${cell[0]},${cell[1]}`
+          if (counted.has(key)) continue
+          counted.add(key)
+          cells.push(cell)
+        }
+        for (const room of part.rooms) rooms.add(room)
+      }
 
       // A swept room latches exactly the way the DM's region brush latches one (mechanics'
       // `shipRooms`): `re_hidden` plus the latch, so the geometry travels and what the player
@@ -544,6 +568,22 @@ export function createVision(stores: Stores): Vision {
     invalidateScene: (sceneId) => {
       invalidateSceneMap(sceneId)
       cache.delete(sceneId)
+    },
+
+    keptLightsOf: (sceneId) => {
+      const computed = compute(sceneId)
+      if (!computed) return null
+      return new Set(computed.map.lights.map((l) => l.id).filter((id) => computed.playerChildren.has(id)))
+    },
+
+    levelFilterOf: (sceneId, viewer) => {
+      if (viewer.role === 'dm') return null
+      const computed = compute(sceneId)
+      const levels = computed?.map.data.levels ?? []
+      if (!computed || levels.length <= 1) return null
+      const first = firstLevelId(computed.map.data)
+      const viewed = viewedLevel(computed.triggers, Object.values(computed.tokens), viewer, first)
+      return (levelId) => onLevel(computed.map.data, { levelId }, viewed)
     },
   }
 }

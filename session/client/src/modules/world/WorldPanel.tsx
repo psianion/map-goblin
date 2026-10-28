@@ -1,42 +1,37 @@
-// P2/M3 — the World popover. One clock and one sky for the campaign, and the vision gate
-// they resolve to, in 300px fixed content (M3 §World, the no-scroll ledger).
+// The World popover: one clock and one sky for the campaign, and everything else that sets the
+// ambient at the table — the darkness slider, the weather, every light at once, the level the
+// DM is looking at, and which floor each seat is shown (board 6 of the Lighting pass).
 //
-// The block still reads in two halves: *the world's look* — clock, sky, speed — and *the
-// vision gate* — what the coupling resolved to, whether the DM took it over, and what that
-// does to the players. World is campaign-global (plan decision); what a map authored in the
-// Editor (`MapEnvironment`) is honoured and shown as read-only provenance, never re-authored
-// here — that's `worldProvenance`, not a control.
-//
-// Nothing here computes coupling. `resolveWorldLight` is the same rule the referee gates
-// sight with and the table paints with (`worldLightOf`), called here with the DM's own
-// un-round-tripped picks so the ribbon and the badge move on the same click. `parity.test.ts`
-// is the proof that the Editor's own preview call resolves the same clock/sun off the one
-// core function.
+// The map authors the defaults (Sky & mood in the editor); this panel holds the live state the
+// DM changes. Every dial echoes optimistically and commits one command; the darkness slider
+// previews on the DM's own view while it is dragged and commits once, on release.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AMBIENTS, vocabLabel, type AmbientLevel } from '@dnd/core/src/shared/prep';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
 import { useStore } from '@dnd/core/src/store/store';
+import { BUCKET_MINUTES, DAY_MINUTES, environmentOf, type NightSky, type TimeSpeed } from '@dnd/core/src/shared/world';
+import type { LightChild } from '@dnd/core/src/shared/types';
 import {
-  BUCKET_MINUTES,
-  DAY_MINUTES,
-  environmentOf,
-  resolveWorldLight,
-  type NightSky,
-  type TimeSpeed,
-} from '@dnd/core/src/shared/world';
-import { sceneTriggersOf, worldOf, type TriggersState, type WorldState } from '@dnd/mechanics/triggers';
+  sceneTriggersOf,
+  worldLightOf,
+  worldOf,
+  worldSkyOf,
+  type TriggersState,
+  type WorldState,
+} from '@dnd/mechanics/triggers';
+import type { TokensState } from '@dnd/mechanics/tokens';
 import { Segmented, Switch } from '../../components/controls';
-import { Icon } from '../../shell/icons';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { JUMPS, hhmm, nearestJump, ribbonGradient, worldBadge, worldProvenance } from './world';
+import { tokensOf } from '../tokens/TokenRenderer';
+import { JUMPS, hhmm, nearestJump, ribbonGradient } from './world';
+import { setDarknessPreview, setDmLit, useDarknessPreview, useDmLit } from './worldPrefs';
 
 /** A pick the module state never confirms (dropped command, disconnect) must not show
  *  forever — the same window and the same reason as the environment dials' echo. */
 const PENDING_TIMEOUT_MS = 4000;
 
-/** Everything this panel sets, in one shape: the campaign's world plus the scene's own gate. */
-type Picks = Partial<WorldState> & { override?: AmbientLevel | null };
+type Picks = Partial<Pick<WorldState, 'clock' | 'nightSky' | 'timeSpeed' | 'weather' | 'darkness'>>;
 
 const SKY_OPTIONS: readonly { value: NightSky; label: string; glyph: ReactNode }[] = [
   { value: 'full-moon', label: 'Full', glyph: <Moon phase="full" /> },
@@ -50,41 +45,79 @@ const SPEED_OPTIONS: readonly { value: TimeSpeed; label: string }[] = [
   { value: 'fast', label: 'Fast' },
 ];
 
-const LEVEL_OPTIONS: readonly { value: AmbientLevel; label: string }[] = AMBIENTS.map((value) => ({
-  value,
-  label: vocabLabel(value),
-}));
+const LIGHTS_OPTIONS: readonly { value: 'on' | 'off'; label: string }[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+const label = 'w-16 shrink-0 text-xs text-text-muted';
+const select =
+  'h-7 min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1.5 text-xs text-text-primary focus:border-border-focus focus:outline-none';
+const smallBtn =
+  'h-6 shrink-0 whitespace-nowrap rounded border border-border-default bg-surface-2 px-2 text-[11.5px] text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-default disabled:opacity-40 disabled:hover:bg-surface-2 disabled:hover:text-text-secondary motion-reduce:transition-none';
+
+/** Every placed light's switch, read off the map the table is drawing ('mixed' when they differ). */
+function useAllLights(): 'on' | 'off' | null {
+  return useStore((s) => {
+    let on = 0;
+    let total = 0;
+    for (const layer of s.layers) {
+      if (layer.type !== 'dungeon') continue;
+      for (const c of layer.children) {
+        if (c.childType !== 'light' || c.id.startsWith('token-light:')) continue;
+        total++;
+        if ((c as LightChild).visible !== false) on++;
+      }
+    }
+    if (total === 0) return null;
+    return on === total ? 'on' : on === 0 ? 'off' : null;
+  });
+}
 
 export function WorldPanel() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const sceneName = useSessionStore((s) => s.session?.scenes.find((sc) => sc.id === sceneId)?.name ?? '');
   const triggers = useModuleState<TriggersState>('triggers');
+  const tokens = useModuleState<TokensState>('tokens');
+  const roster = useSessionStore((s) => s.session?.players);
   // The active map's authored half — the palette the ribbon is painted from, the environment
-  // that decides whether any of the sky applies here, and what `worldProvenance` reads.
+  // that decides whether any of the sky applies here, and the defaults the live world sits on.
   const map = useStore((s) => s.mapSettings);
+  const levels = useStore((s) => s.levels);
+  const allLights = useAllLights();
+  const dmLit = useDmLit();
+  const darknessPreview = useDarknessPreview();
 
   const state: TriggersState = triggers ?? { byScene: {} };
   const world = worldOf(state);
-  const override = sceneId ? (sceneTriggersOf(state, sceneId).env.ambient ?? null) : null;
-  const confirmed: Required<Picks> = { ...world, override };
+  const scene = sceneId ? sceneTriggersOf(state, sceneId) : null;
+  const confirmed: Required<Picks> = {
+    clock: world.clock,
+    nightSky: world.nightSky,
+    timeSpeed: world.timeSpeed,
+    weather: world.weather ?? map.weather ?? 'clear',
+    darkness: world.darkness ?? null,
+  };
 
   // Optimistic echo: a pick shows the instant it is clicked rather than after the broadcast
-  // round-trips. One timer for the block rather than one per dial — a DM who moves two dials
-  // in four seconds has simply extended the fallback window, which is what they'd want.
+  // round-trips. One timer for the block rather than one per dial.
   const [pending, setPending] = useState<Picks>({});
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
     setPending((p) => {
       const stale = Object.keys(p).filter((k) => p[k as keyof Picks] === confirmed[k as keyof Picks]);
-      if (stale.length === 0) return p; // unchanged reference — no wasted render
+      if (stale.length === 0) return p;
       const next = { ...p };
       for (const key of stale) delete next[key as keyof Picks];
       return next;
     });
     // The wire caught up; which keys it caught up on is decided above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmed.clock, confirmed.nightSky, confirmed.timeSpeed, confirmed.override]);
+  }, [confirmed.clock, confirmed.nightSky, confirmed.timeSpeed, confirmed.weather, confirmed.darkness]);
+  // The released slider keeps the DM's view at its value until the wire confirms it.
+  useEffect(() => {
+    if (!('darkness' in pending)) setDarknessPreview(null);
+  }, [pending]);
 
   const view = { ...confirmed, ...pending };
 
@@ -95,17 +128,12 @@ export function WorldPanel() {
   };
   const send = (action: string, payload: unknown): void =>
     useSessionStore.getState().sendCommand('triggers', action, payload);
-  const setWorld = (patch: Partial<WorldState>): void => {
+  const setWorld = (patch: Picks): void => {
     stage(patch);
     send('set-world', patch);
   };
-  const setOverride = (value: AmbientLevel | null): void => {
-    stage({ override: value });
-    send('set-environment', { ambient: value });
-  };
 
-  // The clock commits on release, not on every pixel of the drag (the editor's slider idiom):
-  // one command and one broadcast per move, while the ribbon still follows the thumb.
+  // The clock commits on release, not on every pixel of the drag (the editor's slider idiom).
   const [drag, setDrag] = useState<number | null>(null);
   const clock = drag ?? view.clock;
   const commitClock = (): void => {
@@ -113,28 +141,31 @@ export function WorldPanel() {
     setDrag(null);
   };
 
+  // The darkness slider: following the sky it reads what the sky makes of the hour; a drag
+  // previews on the DM's own view and the release lands one `set-world {darkness}`.
+  const skyDarkness = worldSkyOf(map, { ...state, world: { ...world, clock, darkness: null } }).darkness;
+  const following = view.darkness === null && darknessPreview === null;
+  const darkness = darknessPreview ?? view.darkness ?? skyDarkness;
+  const commitDarkness = (): void => {
+    if (darknessPreview === null) return;
+    if (darknessPreview !== view.darkness) setWorld({ darkness: darknessPreview });
+    else setDarknessPreview(null);
+  };
+
+  const outdoor = environmentOf(map) === 'outdoor';
   const environment = environmentOf(map);
-  const outdoor = environment === 'outdoor';
-  const light = resolveWorldLight({
-    ...map,
-    clockMinutes: clock,
-    nightSky: view.nightSky,
-    override: view.override,
-  });
-  const badge = worldBadge(light, map, view.nightSky);
   const jump = nearestJump(clock);
-  // Dormant-but-outdoor (daylight, sky set for tonight) gets no note now — the row's job is
-  // "why is this control unusable", and outdoor is never unusable, only waiting.
   const skyNote = !outdoor
     ? environment === 'underground'
-      ? 'This map is underground. It has no sky and takes no auto gate.'
-      : 'This map is indoor. The hour tints it; the sky never sets its light level.'
+      ? 'This map is underground. It has no sky.'
+      : 'This map is indoor. The hour tints it; the sky stays outside.'
     : null;
-  // The full trace/explainer today's card spelled out, folded into the badge row's own
-  // tooltip rather than a permanent block — hover to read it, nothing lost.
-  const badgeTitle = [`${badge.trace.join(' › ')} → ${badge.traceOut}`, badge.overrideLine, badge.consequence]
-    .filter((line): line is string => Boolean(line))
-    .join('\n');
+
+  const multiLevel = levels.length > 1;
+  const firstLevel = levels[0]?.id ?? '';
+  const dmLevel = scene?.dmLevelId ?? firstLevel;
+  const claimed = tokensOf(tokens, sceneId);
+  const seats = (roster ?? []).filter((p) => p.role !== 'dm');
 
   return (
     <div className="flex flex-col gap-2 text-sm">
@@ -165,8 +196,7 @@ export function WorldPanel() {
           <button
             key={j.key}
             type="button"
-            // Where the clock stands, not a toggle that is on: these five move the world,
-            // they don't hold a state of their own.
+            // Where the clock stands, not a toggle that is on.
             aria-current={j.key === jump ? 'true' : undefined}
             data-value={j.key}
             onClick={() => setWorld({ clock: j.minutes })}
@@ -210,61 +240,165 @@ export function WorldPanel() {
 
       {sceneId ? (
         <>
-          <p data-testid="world-provenance" className="flex items-start gap-1.5 text-xs text-text-muted">
-            <Icon name="scene" size={12} className="mt-0.5 shrink-0" />
-            <span className="line-clamp-2 min-w-0 flex-1" title={worldProvenance(map, sceneName || 'This scene')}>
-              {worldProvenance(map, sceneName || 'This scene')}
+          <div className="flex items-center gap-2" data-testid="world-darkness-row">
+            <span id="world-darkness-label" className={label}>
+              Darkness
             </span>
-            {badge.overridden && (
-              <span className="flex shrink-0 items-center gap-1 text-text-primary">
-                <Icon name="lock" size={11} />
-                override
-              </span>
-            )}
-          </p>
-
-          <div>
-            <div
-              data-testid="world-badge"
-              title={badgeTitle}
-              className="flex items-center gap-2 rounded border border-border-default px-2 py-1.5 text-xs"
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(darkness * 100)}
+              aria-labelledby="world-darkness-label"
+              aria-valuetext={following ? `${darkness.toFixed(2)}, following the sky` : darkness.toFixed(2)}
+              data-testid="world-darkness"
+              className="slider-minimal min-w-0 flex-1"
+              style={{ '--slider-fill': `${Math.round(darkness * 100)}%` } as CSSProperties}
+              onChange={(e) => setDarknessPreview(Number(e.target.value) / 100)}
+              onPointerUp={commitDarkness}
+              onKeyUp={commitDarkness}
+              onBlur={commitDarkness}
+            />
+            <span className="w-[30px] shrink-0 text-right font-mono text-xs text-text-primary" data-testid="world-darkness-value">
+              {darkness.toFixed(2)}
+            </span>
+            <button
+              type="button"
+              className={smallBtn}
+              data-testid="world-follow-sky"
+              aria-pressed={following}
+              disabled={following}
+              onClick={() => {
+                setDarknessPreview(null);
+                setWorld({ darkness: null });
+              }}
             >
-              <span aria-hidden className="shrink-0">
-                {badge.glyph}
-              </span>
-              <span className="shrink-0 font-semibold text-text-primary">{badge.level}</span>
-              {/* M3 review finding 5 — the trace wraps to a second line inside the row rather
-                  than truncating to an unreadable sliver; the switch keeps its own column. */}
-              <span className="min-w-0 flex-1 whitespace-normal text-text-secondary">{badge.trace.join(' › ')}</span>
-              <span className="shrink-0">
-                <Switch
-                  testId="world-override"
-                  checked={view.override !== null}
-                  onToggle={() => setOverride(view.override === null ? 'darkness' : null)}
-                >
-                  Override the light level
-                </Switch>
-              </span>
-            </div>
-            {view.override !== null && (
-              <div className="mt-1 rounded border border-border-default px-2 py-1.5">
-                <Segmented
-                  label="Level"
-                  testId="world-override-level"
-                  value={view.override}
-                  options={LEVEL_OPTIONS}
-                  onPick={(next) => next !== view.override && setOverride(next)}
-                />
-              </div>
-            )}
+              Follow sky
+            </button>
           </div>
 
-          <p className="text-xs text-text-muted" data-testid="world-hint">
-            {badge.consequence} Toggle to override the level.
-          </p>
+          <div className="flex items-center gap-2">
+            <label htmlFor="world-weather" className={label}>
+              Weather
+            </label>
+            <select
+              id="world-weather"
+              className={select}
+              aria-label="Weather"
+              data-testid="world-weather"
+              value={view.weather}
+              onChange={(e) => e.target.value !== view.weather && setWorld({ weather: e.target.value as Weather })}
+            >
+              {WEATHERS.map((w) => (
+                <option key={w} value={w}>
+                  {vocabLabel(w)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Segmented
+            label="All lights"
+            testId="world-all-lights"
+            inline
+            value={allLights}
+            options={LIGHTS_OPTIONS}
+            onPick={(next) => send('set-lights-all', { on: next === 'on' })}
+          />
+
+          {multiLevel && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="world-dm-level" className={label}>
+                My level
+              </label>
+              <select
+                id="world-dm-level"
+                className={select}
+                aria-label="Level you see"
+                data-testid="world-dm-level"
+                value={dmLevel}
+                onChange={(e) => send('set-dm-level', { levelId: e.target.value })}
+              >
+                {levels.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <Switch testId="world-dm-lit" checked={dmLit} onToggle={() => setDmLit(!dmLit)}>
+            Show me everything lit
+          </Switch>
+
+          {multiLevel && seats.length > 0 && (
+            <div className="mt-0.5 flex flex-col gap-1 border-t border-border-default pt-2.5" data-testid="world-seats">
+              <div className="flex justify-between px-0.5 pb-0.5 text-xs text-text-secondary">
+                <span>Seats</span>
+                <span className="text-text-muted">level shown</span>
+              </div>
+              <ul className="flex flex-col gap-1">
+                {seats.map((p) => {
+                  const pinned = scene?.seatLevel?.[p.identityId];
+                  const character = claimed.find((t) => t.ownerId === p.identityId)?.name;
+                  return (
+                    <li key={p.identityId} className="flex items-center gap-2 rounded px-2 py-1 text-sm text-text-secondary">
+                      <span
+                        aria-hidden
+                        className={
+                          p.connected
+                            ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-text-secondary'
+                            : 'h-1.5 w-1.5 shrink-0 rounded-full border border-text-muted'
+                        }
+                      />
+                      <span className="truncate">{p.name}</span>
+                      {character && <span className="min-w-0 truncate text-xs text-text-muted">— {character}</span>}
+                      <span className="relative ml-auto shrink-0">
+                        <select
+                          aria-label={`${p.name}'s level`}
+                          data-testid={`world-seat-${p.identityId}`}
+                          value={pinned ?? ''}
+                          onChange={(e) => send('set-seat-level', { identity: p.identityId, levelId: e.target.value || null })}
+                          className={`appearance-none rounded border py-px pl-1.5 pr-4 text-xs focus:border-border-focus focus:outline-none ${
+                            pinned
+                              ? 'border-border-structure bg-surface-3 font-medium text-text-primary'
+                              : 'border-border-default bg-transparent text-text-muted'
+                          }`}
+                        >
+                          <option value="">Auto</option>
+                          {levels.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                        <svg
+                          aria-hidden
+                          viewBox="0 0 24 24"
+                          width="10"
+                          height="10"
+                          className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-text-muted"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M6 9L12 15L18 9" />
+                        </svg>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mx-0.5 mt-0.5 text-xs text-text-muted">Auto follows the seat&apos;s token. Pin a seat to show it another floor.</p>
+            </div>
+          )}
         </>
       ) : (
-        <p className="text-sm text-text-secondary">Activate a scene to set its light level.</p>
+        <p className="text-sm text-text-secondary">Activate a scene to set its darkness, weather and lights.</p>
       )}
     </div>
   );
@@ -281,23 +415,18 @@ function Moon({ phase }: { phase: 'full' | 'crescent' | 'none' }) {
           <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity=".45" />
         </>
       )}
-      {phase === 'none' && (
-        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeDasharray="2 2" />
-      )}
+      {phase === 'none' && <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeDasharray="2 2" />}
     </svg>
   );
 }
 
-/** `${word} · hh:mm` off the same resolver the badge reads — `Popover` calls this outside
+/** `${word} · hh:mm` off the same resolver the status bar reads — `Popover` calls this outside
  *  React, the way `doorsSubtitle` does. */
 function worldSubtitle(): string {
   const session = useSessionStore.getState().session;
   const map = useStore.getState().mapSettings;
   const state: TriggersState = (session?.modules.triggers as TriggersState | undefined) ?? { byScene: {} };
-  const world = worldOf(state);
-  const sceneId = session?.activeSceneId ?? null;
-  const override = sceneId ? (sceneTriggersOf(state, sceneId).env.ambient ?? null) : null;
-  const light = resolveWorldLight({ ...map, clockMinutes: world.clock, nightSky: world.nightSky, override });
+  const light = worldLightOf(map, state);
   return `${vocabLabel(light.timeOfDay)} · ${hhmm(light.minutes)}`;
 }
 

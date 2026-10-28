@@ -211,6 +211,11 @@ test.describe.serial('@doors', () => {
     await assertMapRendered(dm, FLOOR_DOORS)
 
     playerContext = await browser.newContext({ viewport: VIEWPORT })
+    // Freeze mode (core's shared/freeze.ts): the living-fog cloud stands still at noon, so the
+    // pixel diffs below measure the door and not the weather drifting over it.
+    await playerContext.addInitScript(() => {
+      ;(window as unknown as { __GG_FREEZE__?: { minutes: number } }).__GG_FREEZE__ = { minutes: 720 }
+    })
     player = await playerContext.newPage()
     player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
     await joinTable(player, code, 'Borin')
@@ -578,16 +583,19 @@ test.describe.serial('@doors', () => {
     await openDrawer(player)
     await expect(player.getByTestId('game-log')).toContainText(`closed ${HALLWAY.name}`)
 
-    // …and the fog moves write lines of their own, named from the same map.
+    // …and the fog moves write lines of their own, named from the same map. The log labels a
+    // room the way the table numbers it (core's `roomLabel`: "N · name"); the server numbers
+    // this older fixture's rooms as it opens it, so only the name is known here.
     const room = layer.rooms!.find((r) => r.id === HALLWAY.roomA)!
+    const label = (verb: string) => new RegExp(`${verb} \\d+ · ${room.name}`)
     await openPanel(dm, 'fog')
     const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${room.id}"]`)
     await row.click()
     await openDrawer(dm)
-    await expect(dm.getByTestId('game-log')).toContainText(`hid ${room.name}`)
+    await expect(dm.getByTestId('game-log')).toContainText(label('hid'))
     await openPanel(dm, 'fog')
     await row.click()
     await openDrawer(dm)
-    await expect(dm.getByTestId('game-log')).toContainText(`revealed ${room.name}`)
+    await expect(dm.getByTestId('game-log')).toContainText(label('revealed'))
   })
 })

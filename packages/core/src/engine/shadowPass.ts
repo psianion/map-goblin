@@ -34,7 +34,8 @@ import { worldFrame, type WorldFrame } from './worldOverride';
 /** The look under whichever sun this surface is standing — the Table's, or the Editor's own. */
 function shadowLookNow(): ShadowLook | null {
   const state = useStore.getState();
-  return shadowLook(worldFrame(state.mapSettings, state.ui.previewClock, state.ui.previewSky).sun);
+  const frame = worldFrame(state.mapSettings, state.ui.previewClock, state.ui.previewSky, state.ui.previewWeather);
+  return shadowLook(frame.sun, frame.penumbraScale);
 }
 
 // ─── Per-layer state ──────────────────────────────────────
@@ -134,7 +135,7 @@ export function updateShadows(
     // entry already exists — so the ground lands a notification *later* than the first frame
     // that wants it, moving no shape key, no wall epoch and no clock with it.
     const terrain = useStore.getState().mapSettings.terrain?.bounds ?? null;
-    const signature = shadowSignature(layer.id, wallEpoch, step, orientation, casting);
+    const signature = shadowSignature(layer.id, wallEpoch, step, orientation, casting, frame);
     if (
       signature === state.signature &&
       layer.mergedFloor === state.groundRef &&
@@ -145,7 +146,7 @@ export function updateShadows(
     state.signature = signature;
     state.groundRef = layer.mergedFloor;
     state.terrainRef = terrain;
-    if (look === undefined) look = shadowLook(frame.sun);
+    if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
     drawPropShadows(layer.id, look);
   }
@@ -177,7 +178,7 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
   if (look === null || look.length <= 0 || look.alpha <= 0) return;
   // Per layer, off the same extractor the lights sweep — a layer's walls cast a layer's
   // shadows, and an open door drops its segment here exactly as it drops it there.
-  const segments = extractWallSegments([layer]);
+  const segments = extractWallSegments([layer], 'light', { props: false });
   const ground = groundOf(layer);
   if (segments.length === 0 || ground.length === 0) return;
   const color = parseInt(look.color.replace('#', ''), 16);
@@ -226,14 +227,16 @@ function drawPropShadows(layerId: string, look: ShadowLook | null): void {
   if (!state || !parent) return;
   const props = propInputs.get(layerId) ?? [];
 
-  const wanted = new Set(props.map((p) => p.obj.id));
+  // "Casts shadow" off (the prop card's Behaviour switch) drops the prop's silhouette.
+  const casters = props.filter((p) => p.obj.castsShadow !== false);
+  const wanted = new Set(casters.map((p) => p.obj.id));
   for (const [id, held] of state.props) {
     if (wanted.has(id)) continue;
     if (!held.sprite.destroyed) held.sprite.destroy();
     state.props.delete(id);
   }
 
-  for (const { sprite, obj } of props) {
+  for (const { sprite, obj } of casters) {
     // The prop's own sprite is rebuilt out from under us on a layer rebuild; the next asset
     // sync brings a fresh list, and until it does there is nothing to copy a texture from.
     if (sprite.destroyed) continue;

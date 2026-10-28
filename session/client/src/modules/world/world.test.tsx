@@ -1,7 +1,8 @@
 // P2/M3 — the World block. Three things live here: what the badge *says* about a resolver
 // answer (the provenance/trace half, which is where a DM's trust in the coupling lives), the
 // read-only line that reports what the map itself authored (`worldProvenance`), and the panel
-// wiring that turns a click into a world command plus the popover's no-scroll ceiling.
+// wiring that turns a click into a world command: clock, sky, speed, the darkness slider,
+// weather, all lights, the DM's level and the seats' level pills.
 //
 // The coupling itself is not retested here — `resolveWorldLight` owns that, and this suite
 // calls it rather than restating its table.
@@ -15,6 +16,7 @@ import type { TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
 import { usePanels, usePanel } from '../../session/panels';
 import { WorldPanel } from './WorldPanel';
+import { DM_LIT_KEY, getDarknessPreview, dmLit, resetWorldPrefsForTests } from './worldPrefs';
 import { nearestJump, ribbonGradient, worldBadge, worldProvenance } from './world';
 
 const NIGHT = 1330; // 22:10 — the mockup's night frame
@@ -48,7 +50,7 @@ function session(
   };
 }
 
-function triggers(world?: Partial<{ clock: number; nightSky: NightSky }>, ambient?: string): TriggersState {
+function triggers(world?: Partial<{ clock: number; nightSky: NightSky; darkness: number | null }>, ambient?: string): TriggersState {
   return {
     byScene: {
       'sc-1': {
@@ -216,6 +218,26 @@ describe('worldProvenance reports what the map authored, never a control', () =>
 });
 
 describe('WorldPanel', () => {
+  const send = () => vi.spyOn(useSessionStore.getState(), 'sendCommand').mockClear();
+  const twoLevels = () =>
+    useStore.setState({
+      levels: [
+        { id: 'lv1', name: 'Ground floor' },
+        { id: 'lv2', name: 'Level 2' },
+      ],
+    });
+  const players: SessionState['players'] = [
+    { identityId: 'dm', name: 'Sam', role: 'dm', connected: true },
+    { identityId: 'p1', name: 'Maya', role: 'player', connected: true },
+    { identityId: 'p2', name: 'Tom', role: 'player', connected: true },
+  ];
+
+  beforeEach(() => {
+    resetWorldPrefsForTests();
+    localStorage.clear();
+    useStore.setState({ levels: [{ id: 'lv1', name: 'Ground floor' }] });
+  });
+
   it('is registered DM-only, so a player never gets the world dials at all', () => {
     expect(usePanels('dm').find((p) => p.id === 'world')?.roles).toEqual(['dm']);
     expect(usePanels('player').some((p) => p.id === 'world')).toBe(false);
@@ -224,130 +246,139 @@ describe('WorldPanel', () => {
   it('carries the resolved word and hour in the header subtitle, off the same resolver', () => {
     const def = usePanel('world')!;
     expect(def.subtitle?.()).toBe('Day · 12:00');
-
     useSessionStore.setState({
-      session: session('sc-1', { triggers: triggers({ clock: NIGHT }) }, [
-        { id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' },
-      ]),
+      session: session('sc-1', { triggers: triggers({ clock: NIGHT }) }, [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }]),
     });
     expect(def.subtitle?.()).toBe('Night · 22:10');
   });
 
-  it('sends the clock as a world command, and jumps land as a world command too', () => {
+  it('sends the clock, the sky and the speed as world commands', () => {
     render(<WorldPanel />);
-    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
-
+    const spy = send();
     fireEvent.click(screen.getByText('Night'));
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-world', { clock: 0 });
-  });
-
-  it('sends the sky as a world command and the gate override as a scene command', () => {
-    render(<WorldPanel />);
-    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
-
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { clock: 0 });
     fireEvent.click(screen.getByTestId('world-sky').querySelector('[data-value="moonless"]')!);
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-world', { nightSky: 'moonless' });
-
-    fireEvent.click(screen.getByTestId('world-override'));
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { ambient: 'darkness' });
-    // …and off again is the clear, not `daylight`: untouched and daylight are not one scene.
-    fireEvent.click(screen.getByTestId('world-override'));
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { ambient: null });
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { nightSky: 'moonless' });
+    fireEvent.click(screen.getByTestId('world-speed').querySelector('[data-value="fast"]')!);
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { timeSpeed: 'fast' });
   });
 
-  it('shows the provenance line built from the map, and locks it once the gate is overridden', () => {
+  it('the darkness slider previews on the DM view while dragged and commits once on release', () => {
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-provenance')).toHaveProperty('textContent', 'Fieldstone Keep · outdoor');
-    expect(screen.queryByText('override')).toBeNull();
+    const spy = send();
+    const slider = screen.getByTestId('world-darkness');
+    fireEvent.change(slider, { target: { value: '35' } });
+    expect(getDarknessPreview()).toBe(0.35);
+    expect(screen.getByTestId('world-darkness-value').textContent).toBe('0.35');
+    fireEvent.change(slider, { target: { value: '60' } });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { darkness: 0.6 });
+  });
 
-    cleanup();
+  it('following the sky, the slider reads what the sky makes of the hour and Follow sky is pressed', () => {
     useSessionStore.setState({
-      session: session('sc-1', { triggers: triggers({ clock: 720 }, 'darkness') }, [
+      session: session('sc-1', { triggers: triggers({ clock: NIGHT }) }, [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }]),
+    });
+    render(<WorldPanel />);
+    const follow = screen.getByTestId('world-follow-sky');
+    expect(follow.getAttribute('aria-pressed')).toBe('true');
+    expect(Number(screen.getByTestId('world-darkness-value').textContent)).toBeGreaterThan(0.5);
+  });
+
+  it('Follow sky hands the darkness back to the sky (null)', () => {
+    useSessionStore.setState({
+      session: session('sc-1', { triggers: triggers({ clock: 720, darkness: 0.8 }) }, [
         { id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' },
       ]),
     });
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-provenance').textContent).toBe('Fieldstone Keep · outdooroverride');
-    expect(screen.getByTestId('world-override-level')).not.toBeNull();
+    expect(screen.getByTestId('world-darkness-value').textContent).toBe('0.80');
+    const spy = send();
+    fireEvent.click(screen.getByTestId('world-follow-sky'));
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { darkness: null });
   });
 
-  it('carries the full provenance string as a title too, for when line-clamp-2 still isn’t enough (M3 review finding 6)', () => {
+  it('sends the weather as a world command, starting from the map default', () => {
+    useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, weather: 'fog' } });
     render(<WorldPanel />);
-    const line = screen.getByTestId('world-provenance').querySelector('span')!;
-    expect(line.title).toBe('Fieldstone Keep · outdoor');
-    expect(line.className).toContain('line-clamp-2');
-    expect(line.className).not.toContain('truncate');
+    const weather = screen.getByTestId('world-weather') as HTMLSelectElement;
+    expect(weather.value).toBe('fog');
+    const spy = send();
+    fireEvent.change(weather, { target: { value: 'storm' } });
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-world', { weather: 'storm' });
+    expect(weather.value).toBe('storm');
   });
 
-  it('puts the full trace and consequence on the badge row as a hover title', () => {
+  it('All lights switches every light at once', () => {
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-badge').title).toContain('Outdoor › Day › sky n/a → Daylight');
-    expect(screen.getByTestId('world-badge').title).toContain('Players see the whole map.');
+    const spy = send();
+    fireEvent.click(screen.getByTestId('world-all-lights').querySelector('[data-value="off"]')!);
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-lights-all', { on: false });
   });
 
-  it('lets the trace wrap onto a second line rather than truncating it to a sliver (M3 review finding 5)', () => {
+  it('"Show me everything lit" is the DM’s own view, kept in this browser, sending nothing', () => {
     render(<WorldPanel />);
-    const trace = screen.getByText('Outdoor › Day › sky n/a');
-    expect(trace.className).toContain('whitespace-normal');
-    expect(trace.className).not.toContain('truncate');
+    const spy = send();
+    fireEvent.click(screen.getByTestId('world-dm-lit'));
+    expect(dmLit()).toBe(true);
+    expect(localStorage.getItem(DM_LIT_KEY)).toBe('1');
+    expect(spy).not.toHaveBeenCalled();
   });
 
-  it('keeps the sky segmented on screen while outdoor and dormant, with no note at all', () => {
+  it('with one level there is no level picker and no seats list', () => {
     render(<WorldPanel />);
+    expect(screen.queryByTestId('world-dm-level')).toBeNull();
+    expect(screen.queryByTestId('world-seats')).toBeNull();
+  });
+
+  it('with two levels: My level sets the DM view, and each seat has a level pill (Auto or pinned)', () => {
+    twoLevels();
+    const t = triggers();
+    t.byScene['sc-1'].seatLevel = { p2: 'lv2' };
+    useSessionStore.setState({
+      session: { ...session('sc-1', { triggers: t }, [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }]), players },
+    });
+    render(<WorldPanel />);
+    const spy = send();
+    fireEvent.change(screen.getByTestId('world-dm-level'), { target: { value: 'lv2' } });
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-dm-level', { levelId: 'lv2' });
+    const seats = screen.getByTestId('world-seats');
+    expect(seats.textContent).toContain('level shown');
+    expect(seats.textContent).not.toContain('Sam');
+    const maya = screen.getByLabelText("Maya's level") as HTMLSelectElement;
+    const tom = screen.getByLabelText("Tom's level") as HTMLSelectElement;
+    expect([maya.value, tom.value]).toEqual(['', 'lv2']);
+    expect(tom.className).toContain('font-medium');
+    fireEvent.change(maya, { target: { value: 'lv2' } });
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-seat-level', { identity: 'p1', levelId: 'lv2' });
+    fireEvent.change(tom, { target: { value: '' } });
+    expect(spy).toHaveBeenCalledWith('triggers', 'set-seat-level', { identity: 'p2', levelId: null });
+  });
+
+  it('keeps the sky segmented on screen while outdoor, and notes why it is inapplicable underground', () => {
+    const { unmount } = render(<WorldPanel />);
     expect(screen.queryByTestId('world-sky-note')).toBeNull();
-    expect(screen.getByTestId('world-sky').getAttribute('aria-disabled')).toBeNull();
-  });
-
-  it('notes why the sky is inapplicable once a map is indoor or underground', () => {
+    unmount();
     useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'underground' } });
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-sky-note')).toHaveProperty(
-      'textContent',
-      'This map is underground. It has no sky and takes no auto gate.',
-    );
+    expect(screen.getByTestId('world-sky-note')).toHaveProperty('textContent', 'This map is underground. It has no sky.');
     expect(screen.getByTestId('world-sky').getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('reads an untouched scene as muted, with none of the gate chrome on screen', () => {
+  it('with no scene active keeps the campaign dials and drops the scene ones', () => {
     useSessionStore.setState({ session: session(null) });
     render(<WorldPanel />);
-    expect(screen.getByText('Activate a scene to set its light level.')).not.toBeNull();
-    expect(screen.queryByTestId('world-provenance')).toBeNull();
-    expect(screen.queryByTestId('world-badge')).toBeNull();
-    expect(screen.queryByTestId('world-hint')).toBeNull();
-    // The dials stay: they're campaign-global, not scene-scoped.
+    expect(screen.getByText('Activate a scene to set its darkness, weather and lights.')).not.toBeNull();
+    expect(screen.queryByTestId('world-darkness')).toBeNull();
     expect(screen.getByTestId('world-clock')).not.toBeNull();
   });
-});
 
-describe('the popover ceiling (M3 §World — 300px fixed, n/a past it)', () => {
-  /** The panel's own top-level row count — bounded regardless of state, because every
-   *  conditional line (the sky note, the override level picker) nests inside an existing
-   *  row's wrapper rather than adding a new one. jsdom has no layout, so this is the
-   *  structural stand-in for "never overflows its 300px budget". */
-  function rowCount(): number {
-    const { container } = render(<WorldPanel />);
-    return container.firstElementChild!.children.length;
-  }
-
-  it('holds at 7 rows with a scene active, sky note and override both showing at once', () => {
-    useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'underground' } });
-    useSessionStore.setState({
-      session: session('sc-1', { triggers: triggers({ clock: 720 }, 'darkness') }, [
-        { id: 'sc-1', name: 'Emberhold Crypt', mapId: 'm1' },
-      ]),
-    });
-    expect(rowCount()).toBe(7);
-    expect(screen.getByTestId('world-sky-note')).not.toBeNull();
-    expect(screen.getByTestId('world-override-level')).not.toBeNull();
-  });
-
-  it('holds at 7 rows outdoor, dormant sky, no override — the least-decorated scene case', () => {
-    expect(rowCount()).toBe(7);
-  });
-
-  it('drops to 5 rows with no scene active', () => {
-    useSessionStore.setState({ session: session(null) });
-    expect(rowCount()).toBe(5);
+  it('no longer carries the old three-state override or the provenance badge', () => {
+    render(<WorldPanel />);
+    expect(screen.queryByTestId('world-override')).toBeNull();
+    expect(screen.queryByTestId('world-badge')).toBeNull();
+    expect(screen.queryByTestId('world-provenance')).toBeNull();
   });
 });

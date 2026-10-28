@@ -10,6 +10,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
+import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 import type { LightEdit } from '@dnd/mechanics/triggers';
 import { worldToScreen } from '../../renderer/camera';
 import {
@@ -30,10 +31,6 @@ import { useLightSelection } from './selection';
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('triggers', action, payload);
 
-// Slider bounds in feet, same numbers the canvas editor's own Light properties panel uses —
-// world-unit equivalents are derived at render time from the map's own cell scale.
-const MIN_RADIUS_FT = 5;
-const MAX_RADIUS_FT = 300;
 
 const sliderClass = 'w-full';
 
@@ -122,24 +119,25 @@ export function LightPopover() {
         </Switch>
       </div>
 
+      {/* Bright and dim edges in feet, on the one range every light control uses (the editor's
+          card, dock and menu). Bright never passes dim: dragging either carries the other. */}
       <label className="flex flex-col gap-0.5 text-xs text-text-secondary">
         <span className="flex items-center justify-between">
-          <span>Radius</span>
-          <span className="text-text-muted">{Math.round(light.radius * ftPerCell)} ft</span>
+          <span>Bright</span>
+          <span className="text-text-muted">{Math.round(light.featherRadius * ftPerCell)} ft</span>
         </span>
         <input
           type="range"
-          data-testid="light-radius-slider"
-          aria-label="Radius"
-          min={MIN_RADIUS_FT / ftPerCell}
-          max={MAX_RADIUS_FT / ftPerCell}
-          step={MIN_RADIUS_FT / ftPerCell}
-          value={light.radius}
+          data-testid="light-bright-slider"
+          aria-label="Bright"
+          min={LIGHT_RADIUS_FT.min}
+          max={LIGHT_RADIUS_FT.max}
+          step={LIGHT_RADIUS_FT.step}
+          value={Math.round(light.featherRadius * ftPerCell)}
           onChange={(e) => {
-            const radius = Number(e.target.value);
-            const patch: LightEdit = { radius };
-            // Keep featherRadius ≤ the new radius, same as the canvas Light properties panel.
-            if (light.featherRadius > radius) patch.featherRadius = radius;
+            const featherRadius = Number(e.target.value) / ftPerCell;
+            const patch: LightEdit = { featherRadius };
+            if (featherRadius > light.radius) patch.radius = featherRadius;
             patchLightLocal(light.id, patch);
           }}
           onPointerUp={() => commit({ radius: light.radius, featherRadius: light.featherRadius })}
@@ -150,22 +148,25 @@ export function LightPopover() {
 
       <label className="flex flex-col gap-0.5 text-xs text-text-secondary">
         <span className="flex items-center justify-between">
-          <span>Bright zone</span>
-          <span className="text-text-muted">
-            {light.radius > 0 ? Math.round((light.featherRadius / light.radius) * 100) : 0}%
-          </span>
+          <span>Dim</span>
+          <span className="text-text-muted">{Math.round(light.radius * ftPerCell)} ft</span>
         </span>
         <input
           type="range"
-          data-testid="light-feather-slider"
-          aria-label="Bright zone"
-          min={0}
-          max={100}
-          step={5}
-          value={light.radius > 0 ? Math.round((light.featherRadius / light.radius) * 100) : 0}
-          onChange={(e) => patchLightLocal(light.id, { featherRadius: (Number(e.target.value) / 100) * light.radius })}
-          onPointerUp={() => commit({ featherRadius: light.featherRadius })}
-          onKeyUp={() => commit({ featherRadius: light.featherRadius })}
+          data-testid="light-dim-slider"
+          aria-label="Dim"
+          min={LIGHT_RADIUS_FT.min}
+          max={LIGHT_RADIUS_FT.max}
+          step={LIGHT_RADIUS_FT.step}
+          value={Math.round(light.radius * ftPerCell)}
+          onChange={(e) => {
+            const radius = Number(e.target.value) / ftPerCell;
+            const patch: LightEdit = { radius };
+            if (light.featherRadius > radius) patch.featherRadius = radius;
+            patchLightLocal(light.id, patch);
+          }}
+          onPointerUp={() => commit({ radius: light.radius, featherRadius: light.featherRadius })}
+          onKeyUp={() => commit({ radius: light.radius, featherRadius: light.featherRadius })}
           className={sliderClass}
         />
       </label>
