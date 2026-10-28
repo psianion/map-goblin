@@ -51,6 +51,8 @@ export interface ManifestEntry {
   /** Opaque-content bounds within the entry's cell — renderer trims to this. */
   contentRect?: EntryRect
   set?: string
+  /** Variant family within `set` ('storage_barrel_dark'); absent = a family of one. */
+  family?: string
   tags: string[]
 }
 

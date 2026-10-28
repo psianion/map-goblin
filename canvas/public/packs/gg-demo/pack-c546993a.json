@@ -1,6 +1,6 @@
 {
   "name": "gg-demo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Good Goblin core map assets",
   "theme": [
     "fantasy"
@@ -21,7 +21,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "acid_cloud"
     },
     "acid_mushroom_1x1_object_A": {
       "type": "object",
@@ -38,7 +39,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "acid_mushroom"
     },
     "acid_spray_2x4_object_A": {
       "type": "object",
@@ -55,7 +57,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "acid_spray"
     },
     "anvil_1x1_object_A": {
       "type": "object",
@@ -72,7 +75,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "anvil"
     },
     "armor_helmet_1x1_object_A": {
       "type": "object",
@@ -89,7 +93,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "armor_helmet"
     },
     "armor_plates_2x1_object_A": {
       "type": "object",
@@ -106,7 +111,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "armor_plates"
     },
     "backpack_1x1_object_A": {
       "type": "object",
@@ -123,7 +129,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "backpack"
     },
     "backpack_large_1x2_object_A": {
       "type": "object",
@@ -140,7 +147,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "backpack_large"
     },
     "backpack_small_1x1_object_A": {
       "type": "object",
@@ -157,7 +165,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "backpack_small"
     },
     "ball_bearings_2x2_object_A": {
       "type": "object",
@@ -174,7 +183,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "ball_bearings"
     },
     "bare_tree_large_a_7x7_object_A": {
       "type": "object",
@@ -191,7 +201,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bare_tree_large"
     },
     "bare_tree_medium_a_6x5_object_A": {
       "type": "object",
@@ -208,7 +219,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bare_tree_medium"
     },
     "bare_tree_small_a_5x5_object_A": {
       "type": "object",
@@ -225,7 +237,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bare_tree_small"
     },
     "barrel_1_2x2_object_A": {
       "type": "object",
@@ -242,7 +255,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "barrel"
     },
     "barrel_2_2x2_object_A": {
       "type": "object",
@@ -259,7 +273,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "barrel"
     },
     "barrel_3_2x2_object_A": {
       "type": "object",
@@ -276,7 +291,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "barrel"
     },
     "barrel_horizontal_2x2_object_A": {
       "type": "object",
@@ -293,7 +309,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "barrel_horizontal"
     },
     "barrels_stacked_pile_1x1_object_A": {
       "type": "object",
@@ -310,7 +327,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "barrels_stacked_pile"
     },
     "bear_trap_1x1_object_A": {
       "type": "object",
@@ -327,7 +345,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "bear_trap"
     },
     "bed_1_2x2_object_A": {
       "type": "object",
@@ -344,7 +363,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed"
     },
     "bed_2_1x2_object_A": {
       "type": "object",
@@ -361,7 +381,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed"
     },
     "bed_3_1x2_object_A": {
       "type": "object",
@@ -378,7 +399,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed"
     },
     "bed_discarded_mattress_5_2x2_object_A": {
       "type": "object",
@@ -395,7 +417,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_discarded_mattress"
     },
     "bed_large_royal_double_2x3_object_A": {
       "type": "object",
@@ -412,7 +435,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_large_royal_double"
     },
     "bed_medium_double_2x2_object_A": {
       "type": "object",
@@ -429,7 +453,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_medium_double"
     },
     "bed_pattern_1_a_2x3_object_A": {
       "type": "object",
@@ -446,7 +471,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_1_b_2x2_object_A": {
       "type": "object",
@@ -463,7 +489,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_1_c_3x2_object_A": {
       "type": "object",
@@ -480,7 +507,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_1_d_2x2_object_A": {
       "type": "object",
@@ -497,7 +525,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_1_e_2x2_object_A": {
       "type": "object",
@@ -514,7 +543,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_1_f_2x2_object_A": {
       "type": "object",
@@ -531,7 +561,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_5_cot_1x2_object_A": {
       "type": "object",
@@ -548,7 +579,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern_cot"
     },
     "bed_pattern_7_g_2x2_object_A": {
       "type": "object",
@@ -565,7 +597,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_7_h_2x2_object_A": {
       "type": "object",
@@ -582,7 +615,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_pattern_7_i_2x2_object_A": {
       "type": "object",
@@ -599,7 +633,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_pattern"
     },
     "bed_small_single_cot_1x2_object_A": {
       "type": "object",
@@ -616,7 +651,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bed_small_single_cot"
     },
     "bedframe_dark_1x2_object_A": {
       "type": "object",
@@ -633,7 +669,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bedframe_dark"
     },
     "bedroll_1_1x2_object_A": {
       "type": "object",
@@ -650,7 +687,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "bedroll"
     },
     "bedroll_2_1x2_object_A": {
       "type": "object",
@@ -667,7 +705,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "bedroll"
     },
     "bedroll_3_1x2_object_A": {
       "type": "object",
@@ -684,7 +723,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "bedroll"
     },
     "bedroll_packed_bundle_1x1_object_A": {
       "type": "object",
@@ -701,7 +741,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "bedroll_packed_bundle"
     },
     "bedroom_set_3x3_object_A": {
       "type": "object",
@@ -718,7 +759,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bedroom_set"
     },
     "bench_2x1_object_A": {
       "type": "object",
@@ -735,7 +777,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench"
     },
     "bench_dining_table_1_2x2_object_A": {
       "type": "object",
@@ -752,7 +795,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_dining_table_2_2x1_object_A": {
       "type": "object",
@@ -769,7 +813,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_dining_table_3_2x2_object_A": {
       "type": "object",
@@ -786,7 +831,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_dining_table_4_2x2_object_A": {
       "type": "object",
@@ -803,7 +849,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_dining_table_5_2x2_object_A": {
       "type": "object",
@@ -820,7 +867,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_dining_table_6_2x2_object_A": {
       "type": "object",
@@ -837,7 +885,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_dining_table"
     },
     "bench_shelf_2x1_object_A": {
       "type": "object",
@@ -854,7 +903,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_shelf"
     },
     "bench_shelf_rickety_1x1_object_A": {
       "type": "object",
@@ -871,7 +921,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bench_shelf_rickety"
     },
     "bomb_1x1_object_A": {
       "type": "object",
@@ -888,7 +939,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "bomb"
     },
     "book_1_1x1_object_A": {
       "type": "object",
@@ -905,7 +957,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "book"
     },
     "book_2_1x1_object_A": {
       "type": "object",
@@ -922,7 +975,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "book"
     },
     "book_3_1x1_object_A": {
       "type": "object",
@@ -939,7 +993,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "book"
     },
     "boulder_2x2_object_A": {
       "type": "object",
@@ -956,7 +1011,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "boulder"
     },
     "box_1x1_object_A": {
       "type": "object",
@@ -973,7 +1029,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "box"
     },
     "box_large_2x2_object_A": {
       "type": "object",
@@ -990,7 +1047,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "box_large"
     },
     "box_small_2x1_object_A": {
       "type": "object",
@@ -1007,7 +1065,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "box_small"
     },
     "bucket_1x1_object_A": {
       "type": "object",
@@ -1024,7 +1083,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "bucket"
     },
     "bunk_bed_1_2x2_object_A": {
       "type": "object",
@@ -1041,7 +1101,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bunk_bed"
     },
     "bunk_bed_2_2x2_object_A": {
       "type": "object",
@@ -1058,7 +1119,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bunk_bed"
     },
     "bunk_bed_3_2x2_object_A": {
       "type": "object",
@@ -1075,7 +1137,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bunk_bed"
     },
     "bunk_bed_4_2x2_object_A": {
       "type": "object",
@@ -1092,7 +1155,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "bunk_bed"
     },
     "bush_shrub_1_2x2_object_A": {
       "type": "object",
@@ -1109,7 +1173,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bush_shrub"
     },
     "bush_shrub_2_2x2_object_A": {
       "type": "object",
@@ -1126,7 +1191,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bush_shrub"
     },
     "bush_shrub_3_2x2_object_A": {
       "type": "object",
@@ -1143,7 +1209,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bush_shrub"
     },
     "bush_shrub_cluster_2x3_object_A": {
       "type": "object",
@@ -1160,7 +1227,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "bush_shrub_cluster"
     },
     "caltrops_2x2_object_A": {
       "type": "object",
@@ -1177,7 +1245,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "caltrops"
     },
     "campfire_1x1_object_A": {
       "type": "object",
@@ -1194,7 +1263,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire"
     },
     "campfire_cooking_spit_2x1_object_A": {
       "type": "object",
@@ -1211,7 +1281,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_cooking_spit"
     },
     "campfire_fire_2x2_object_A": {
       "type": "object",
@@ -1228,7 +1299,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_fire"
     },
     "campfire_hog_1x1_object_A": {
       "type": "object",
@@ -1245,7 +1317,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_hog"
     },
     "campfire_pot_cooking_1x1_object_A": {
       "type": "object",
@@ -1262,7 +1335,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_pot_cooking"
     },
     "campfire_ring_2x2_object_A": {
       "type": "object",
@@ -1279,7 +1353,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_ring"
     },
     "campfire_wood_1x1_object_A": {
       "type": "object",
@@ -1296,7 +1371,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "campfire_wood"
     },
     "candle_1_1x1_object_A": {
       "type": "object",
@@ -1313,7 +1389,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "candle"
     },
     "candle_2_1x1_object_A": {
       "type": "object",
@@ -1330,7 +1407,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "candle"
     },
     "canoe_2x4_object_A": {
       "type": "object",
@@ -1347,7 +1425,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "canoe"
     },
     "canoe_paddle_1_1x2_object_A": {
       "type": "object",
@@ -1364,7 +1443,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "canoe_paddle"
     },
     "cart_3x2_object_A": {
       "type": "object",
@@ -1381,7 +1461,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "cart"
     },
     "cart_luggage_1x2_object_A": {
       "type": "object",
@@ -1398,7 +1479,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "cart_luggage"
     },
     "cart_small_2x3_object_A": {
       "type": "object",
@@ -1415,7 +1497,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "cart_small"
     },
     "cat_10_d_1x1_object_A": {
       "type": "object",
@@ -1432,7 +1515,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_11_b_1x1_object_A": {
       "type": "object",
@@ -1449,7 +1533,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_1_a_1x1_object_A": {
       "type": "object",
@@ -1466,7 +1551,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_1x1_object_A": {
       "type": "object",
@@ -1483,7 +1569,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_2_e_1x1_object_A": {
       "type": "object",
@@ -1500,7 +1587,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_3_b_1x1_object_A": {
       "type": "object",
@@ -1517,7 +1605,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_4_d_1x1_object_A": {
       "type": "object",
@@ -1534,7 +1623,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_6_c_1x1_object_A": {
       "type": "object",
@@ -1551,7 +1641,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_7_a_1x1_object_A": {
       "type": "object",
@@ -1568,7 +1659,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cat_8_e_1x1_object_A": {
       "type": "object",
@@ -1585,7 +1677,8 @@
       "set": "demo-creatures",
       "tags": [
         "creature"
-      ]
+      ],
+      "family": "cat"
     },
     "cave_dungeon_adaptor_4x5_object_A": {
       "type": "object",
@@ -1602,7 +1695,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "cave_dungeon_adaptor"
     },
     "ceiling_fan_2x2_object_A": {
       "type": "object",
@@ -1619,7 +1713,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "ceiling_fan"
     },
     "chair_1_1x1_object_A": {
       "type": "object",
@@ -1636,7 +1731,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair"
     },
     "chair_1x1_object_A": {
       "type": "object",
@@ -1653,7 +1749,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair"
     },
     "chair_2_1x1_object_A": {
       "type": "object",
@@ -1670,7 +1767,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair"
     },
     "chair_armchair_1_a_1x2_object_A": {
       "type": "object",
@@ -1687,7 +1785,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair"
     },
     "chair_armchair_1_b_1x1_object_A": {
       "type": "object",
@@ -1704,7 +1803,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair"
     },
     "chair_armchair_1_c_1x1_object_A": {
       "type": "object",
@@ -1721,7 +1821,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair"
     },
     "chair_armchair_1_d_1x1_object_A": {
       "type": "object",
@@ -1738,7 +1839,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair"
     },
     "chair_armchair_1x1_object_A": {
       "type": "object",
@@ -1755,7 +1857,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair"
     },
     "chair_armchair_royal_1x1_object_A": {
       "type": "object",
@@ -1772,7 +1875,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_armchair_royal"
     },
     "chair_bench_1_dark_2x1_object_A": {
       "type": "object",
@@ -1789,7 +1893,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_bench_dark"
     },
     "chair_bench_2_dark_2x1_object_A": {
       "type": "object",
@@ -1806,7 +1911,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_bench_dark"
     },
     "chair_cushion_1_a_1x1_object_A": {
       "type": "object",
@@ -1823,7 +1929,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_cushion"
     },
     "chair_cushion_1_b_1x1_object_A": {
       "type": "object",
@@ -1840,7 +1947,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_cushion"
     },
     "chair_cushion_1_c_1x1_object_A": {
       "type": "object",
@@ -1857,7 +1965,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_cushion"
     },
     "chair_latrine_toilet_1_dark_1x1_object_A": {
       "type": "object",
@@ -1874,7 +1983,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_latrine_toilet_dark"
     },
     "chair_latrine_toilet_2_dark_2x1_object_A": {
       "type": "object",
@@ -1891,7 +2001,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_latrine_toilet_dark"
     },
     "chair_royal_1x1_object_A": {
       "type": "object",
@@ -1908,7 +2019,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_royal"
     },
     "chair_simple_1_dark_1x1_object_A": {
       "type": "object",
@@ -1925,7 +2037,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_dark"
     },
     "chair_simple_1x1_object_A": {
       "type": "object",
@@ -1942,7 +2055,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple"
     },
     "chair_simple_2_dark_1x1_object_A": {
       "type": "object",
@@ -1959,7 +2073,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_dark"
     },
     "chair_simple_3_dark_1x1_object_A": {
       "type": "object",
@@ -1976,7 +2091,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_dark"
     },
     "chair_simple_4_dark_1x1_object_A": {
       "type": "object",
@@ -1993,7 +2109,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_dark"
     },
     "chair_simple_5_dark_1x1_object_A": {
       "type": "object",
@@ -2010,7 +2127,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_dark"
     },
     "chair_simple_broken_1_dark_1x1_object_A": {
       "type": "object",
@@ -2027,7 +2145,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_broken_dark"
     },
     "chair_simple_broken_2_dark_1x2_object_A": {
       "type": "object",
@@ -2044,7 +2163,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_simple_broken_dark"
     },
     "chair_sofa_1_a_3x2_object_A": {
       "type": "object",
@@ -2061,7 +2181,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_sofa"
     },
     "chair_sofa_1_b_2x1_object_A": {
       "type": "object",
@@ -2078,7 +2199,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_sofa"
     },
     "chair_sofa_1_c_2x1_object_A": {
       "type": "object",
@@ -2095,7 +2217,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_sofa"
     },
     "chair_sofa_1_modular_corner_2x2_object_A": {
       "type": "object",
@@ -2112,7 +2235,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_sofa_modular_corner"
     },
     "chair_sofa_1_modular_straight_2x1_object_A": {
       "type": "object",
@@ -2129,7 +2253,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_sofa_modular_straight"
     },
     "chair_stool_1_dark_1x1_object_A": {
       "type": "object",
@@ -2146,7 +2271,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_stool_dark"
     },
     "chair_stool_2_dark_1x1_object_A": {
       "type": "object",
@@ -2163,7 +2289,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_stool_dark"
     },
     "chair_stool_cushioned_1_1x1_object_A": {
       "type": "object",
@@ -2180,7 +2307,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_stool_cushioned"
     },
     "chair_throne_armchair_royal_opulent_1x1_object_A": {
       "type": "object",
@@ -2197,7 +2325,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_throne_armchair_royal_opulent"
     },
     "chair_throne_stone_1x2_object_A": {
       "type": "object",
@@ -2214,7 +2343,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "chair_throne_stone"
     },
     "chest_1_steel_1x1_object_A": {
       "type": "object",
@@ -2231,7 +2361,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_steel"
     },
     "chest_1x1_object_A": {
       "type": "object",
@@ -2248,7 +2379,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest"
     },
     "chest_2_gold_1x1_object_A": {
       "type": "object",
@@ -2265,7 +2397,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_gold"
     },
     "chest_bedroom_1x1_object_A": {
       "type": "object",
@@ -2282,7 +2415,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_bedroom"
     },
     "chest_box_small_1_1x1_object_A": {
       "type": "object",
@@ -2299,7 +2433,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_box_small"
     },
     "chest_box_small_2_1x1_object_A": {
       "type": "object",
@@ -2316,7 +2451,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_box_small"
     },
     "chest_classic_large_locked_1x1_object_A": {
       "type": "object",
@@ -2333,7 +2469,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_classic_large_locked"
     },
     "chest_lockbox_1_iron_1x1_object_A": {
       "type": "object",
@@ -2350,7 +2487,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_lockbox_iron"
     },
     "chest_lockbox_2_wood_1x1_object_A": {
       "type": "object",
@@ -2367,7 +2505,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_lockbox_wood"
     },
     "chest_rickety_1x1_object_A": {
       "type": "object",
@@ -2384,7 +2523,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "chest_rickety"
     },
     "clothing_1x1_object_A": {
       "type": "object",
@@ -2401,7 +2541,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clothing"
     },
     "clutter_anvil_1_2x1_object_A": {
       "type": "object",
@@ -2418,7 +2559,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_anvil"
     },
     "clutter_anvil_2_1x1_object_A": {
       "type": "object",
@@ -2435,7 +2577,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_anvil"
     },
     "clutter_bird_nest_1x1_object_A": {
       "type": "object",
@@ -2452,7 +2595,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_bird_nest"
     },
     "clutter_book_1_a_1x1_object_A": {
       "type": "object",
@@ -2469,7 +2613,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book"
     },
     "clutter_book_1x1_object_A": {
       "type": "object",
@@ -2486,7 +2631,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book"
     },
     "clutter_book_pile_1_a_1x1_object_A": {
       "type": "object",
@@ -2503,7 +2649,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book_pile"
     },
     "clutter_book_pile_2_a_1x1_object_A": {
       "type": "object",
@@ -2520,7 +2667,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book_pile"
     },
     "clutter_book_pile_3_a_1x1_object_A": {
       "type": "object",
@@ -2537,7 +2685,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book_pile"
     },
     "clutter_book_pile_4_a_1x1_object_A": {
       "type": "object",
@@ -2554,7 +2703,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book_pile"
     },
     "clutter_book_pile_5_a_1x1_object_A": {
       "type": "object",
@@ -2571,7 +2721,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_book_pile"
     },
     "clutter_bowl_salad_maybe_1x1_object_A": {
       "type": "object",
@@ -2588,7 +2739,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_bowl_salad_maybe"
     },
     "clutter_bowl_soup_1x1_object_A": {
       "type": "object",
@@ -2605,7 +2757,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_bowl_soup"
     },
     "clutter_broken_boards_1_dark_1x2_object_A": {
       "type": "object",
@@ -2622,7 +2775,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_broken_boards_dark"
     },
     "clutter_broken_boards_2_dark_1x1_object_A": {
       "type": "object",
@@ -2639,7 +2793,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_broken_boards_dark"
     },
     "clutter_bucket_1_dark_1x1_object_A": {
       "type": "object",
@@ -2656,7 +2811,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_bucket_dark"
     },
     "clutter_bucket_2_dark_1x1_object_A": {
       "type": "object",
@@ -2673,7 +2829,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_bucket_dark"
     },
     "clutter_clay_jars_1_1x1_object_A": {
       "type": "object",
@@ -2690,7 +2847,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_clay_jars"
     },
     "clutter_clay_jars_2_1x1_object_A": {
       "type": "object",
@@ -2707,7 +2865,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_clay_jars"
     },
     "clutter_covered_2x2_object_A": {
       "type": "object",
@@ -2724,7 +2883,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_covered"
     },
     "clutter_crystal_ball_1x1_object_A": {
       "type": "object",
@@ -2741,7 +2901,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_crystal_ball"
     },
     "clutter_cutlery_1x1_object_A": {
       "type": "object",
@@ -2758,7 +2919,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_cutlery"
     },
     "clutter_dish_empty_1x1_object_A": {
       "type": "object",
@@ -2775,7 +2937,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_dish_empty"
     },
     "clutter_firewood_1_1x1_object_A": {
       "type": "object",
@@ -2792,7 +2955,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_firewood"
     },
     "clutter_firewood_2_1x1_object_A": {
       "type": "object",
@@ -2809,7 +2973,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_firewood"
     },
     "clutter_flowers_1_a_1x1_object_A": {
       "type": "object",
@@ -2826,7 +2991,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_flowers"
     },
     "clutter_flowers_1_b_1x1_object_A": {
       "type": "object",
@@ -2843,7 +3009,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_flowers"
     },
     "clutter_flowers_1_c_1x1_object_A": {
       "type": "object",
@@ -2860,7 +3027,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_flowers"
     },
     "clutter_flowers_no_flowers_1x1_object_A": {
       "type": "object",
@@ -2877,7 +3045,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_flowers_no_flowers"
     },
     "clutter_food_1_1x1_object_A": {
       "type": "object",
@@ -2894,7 +3063,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food"
     },
     "clutter_food_2_1x1_object_A": {
       "type": "object",
@@ -2911,7 +3081,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food"
     },
     "clutter_food_chicken_1x1_object_A": {
       "type": "object",
@@ -2928,7 +3099,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_chicken"
     },
     "clutter_food_fish_1x1_object_A": {
       "type": "object",
@@ -2945,7 +3117,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_fish"
     },
     "clutter_food_ingredients_1x1_object_A": {
       "type": "object",
@@ -2962,7 +3135,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_ingredients"
     },
     "clutter_food_ingredients_bowls_salads_1x1_object_A": {
       "type": "object",
@@ -2979,7 +3153,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_ingredients_bowls_salads"
     },
     "clutter_food_ingredients_suspended_kitchen_2x1_object_A": {
       "type": "object",
@@ -2996,7 +3171,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_ingredients_suspended_kitchen"
     },
     "clutter_food_loaf_bread_1x1_object_A": {
       "type": "object",
@@ -3013,7 +3189,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_loaf_bread"
     },
     "clutter_food_pork_boar_pig_1x1_object_A": {
       "type": "object",
@@ -3030,7 +3207,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_pork_boar_pig"
     },
     "clutter_food_salad_pork_dish_1x1_object_A": {
       "type": "object",
@@ -3047,7 +3225,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_salad_pork_dish"
     },
     "clutter_food_turkey_1x1_object_A": {
       "type": "object",
@@ -3064,7 +3243,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_food_turkey"
     },
     "clutter_globe_1x1_object_A": {
       "type": "object",
@@ -3081,7 +3261,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_globe"
     },
     "clutter_grindstone_dark_1x1_object_A": {
       "type": "object",
@@ -3098,7 +3279,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_grindstone_dark"
     },
     "clutter_grindstone_light_1x1_object_A": {
       "type": "object",
@@ -3115,7 +3297,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_grindstone_light"
     },
     "clutter_hammer_and_nails_1x1_object_A": {
       "type": "object",
@@ -3132,7 +3315,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_hammer_and_nails"
     },
     "clutter_inkwell_1x1_object_A": {
       "type": "object",
@@ -3149,7 +3333,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_inkwell"
     },
     "clutter_knife_fork_plate_cup_dinner_set_mat_1x1_object_A": {
       "type": "object",
@@ -3166,7 +3351,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_knife_fork_plate_cup_dinner_set_mat"
     },
     "clutter_knife_fork_plate_dinner_set_1x1_object_A": {
       "type": "object",
@@ -3183,7 +3369,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_knife_fork_plate_dinner_set"
     },
     "clutter_light_candle_1x1_object_A": {
       "type": "object",
@@ -3200,7 +3387,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_light_candle"
     },
     "clutter_light_lantern_1x1_object_A": {
       "type": "object",
@@ -3217,7 +3405,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_light_lantern"
     },
     "clutter_paper_inkwell_quill_writing_1x1_object_A": {
       "type": "object",
@@ -3234,7 +3423,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_paper_inkwell_quill_writing"
     },
     "clutter_papers_1x1_object_A": {
       "type": "object",
@@ -3251,7 +3441,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_papers"
     },
     "clutter_papers_2_1x1_object_A": {
       "type": "object",
@@ -3268,7 +3459,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_papers"
     },
     "clutter_pictures_1_1x1_object_A": {
       "type": "object",
@@ -3285,7 +3477,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pictures"
     },
     "clutter_pictures_2_2x1_object_A": {
       "type": "object",
@@ -3302,7 +3495,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pictures"
     },
     "clutter_pictures_3_1x1_object_A": {
       "type": "object",
@@ -3319,7 +3513,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pictures"
     },
     "clutter_pictures_4_1x1_object_A": {
       "type": "object",
@@ -3336,7 +3531,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pictures"
     },
     "clutter_pile_sack_1x2_object_A": {
       "type": "object",
@@ -3353,7 +3549,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pile_sack"
     },
     "clutter_plate_bowl_1x1_object_A": {
       "type": "object",
@@ -3370,7 +3567,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_plate_bowl"
     },
     "clutter_plate_cup_bowl_goblet_1x1_object_A": {
       "type": "object",
@@ -3387,7 +3585,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_plate_cup_bowl_goblet"
     },
     "clutter_playing_cards_1x1_object_A": {
       "type": "object",
@@ -3404,7 +3603,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_playing_cards"
     },
     "clutter_potions_fruit_flowers_m_ms_1x1_object_A": {
       "type": "object",
@@ -3421,7 +3621,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_potions_fruit_flowers_ms"
     },
     "clutter_pumpkin_1x1_object_A": {
       "type": "object",
@@ -3438,7 +3639,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pumpkin"
     },
     "clutter_pumpkin_jack_o_lantern_1x1_object_A": {
       "type": "object",
@@ -3455,7 +3657,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_pumpkin_jack_lantern"
     },
     "clutter_sacks_1_1x1_object_A": {
       "type": "object",
@@ -3472,7 +3675,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_sacks"
     },
     "clutter_sacks_2_1x1_object_A": {
       "type": "object",
@@ -3489,7 +3693,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_sacks"
     },
     "clutter_scales_gold_1x1_object_A": {
       "type": "object",
@@ -3506,7 +3711,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scales_gold"
     },
     "clutter_scroll_1_1x1_object_A": {
       "type": "object",
@@ -3523,7 +3729,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scroll"
     },
     "clutter_scroll_1x1_object_A": {
       "type": "object",
@@ -3540,7 +3747,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scroll"
     },
     "clutter_scroll_2_1x1_object_A": {
       "type": "object",
@@ -3557,7 +3765,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scroll"
     },
     "clutter_scroll_3_1x1_object_A": {
       "type": "object",
@@ -3574,7 +3783,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scroll"
     },
     "clutter_scroll_4_1x1_object_A": {
       "type": "object",
@@ -3591,7 +3801,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scroll"
     },
     "clutter_scrolls_1x1_object_A": {
       "type": "object",
@@ -3608,7 +3819,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_scrolls"
     },
     "clutter_skull_giant_1x1_object_A": {
       "type": "object",
@@ -3625,7 +3837,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_skull_giant"
     },
     "clutter_skull_human_1x1_object_A": {
       "type": "object",
@@ -3642,7 +3855,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_skull_human"
     },
     "clutter_table_mat_1x1_object_A": {
       "type": "object",
@@ -3659,7 +3873,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_table_mat"
     },
     "clutter_tankards_empty_1x1_object_A": {
       "type": "object",
@@ -3676,7 +3891,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_tankards_empty"
     },
     "clutter_tankards_full_1x1_object_A": {
       "type": "object",
@@ -3693,7 +3909,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_tankards_full"
     },
     "clutter_tea_set_1x1_object_A": {
       "type": "object",
@@ -3710,7 +3927,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_tea_set"
     },
     "clutter_webs_10_full_1x2_object_A": {
       "type": "object",
@@ -3727,7 +3945,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_10_thin_1x2_object_A": {
       "type": "object",
@@ -3744,7 +3963,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_11_full_2x1_object_A": {
       "type": "object",
@@ -3761,7 +3981,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_11_thin_2x1_object_A": {
       "type": "object",
@@ -3778,7 +3999,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_12_full_1x1_object_A": {
       "type": "object",
@@ -3795,7 +4017,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_12_thin_1x1_object_A": {
       "type": "object",
@@ -3812,7 +4035,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_13_full_1x1_object_A": {
       "type": "object",
@@ -3829,7 +4053,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_13_thin_1x1_object_A": {
       "type": "object",
@@ -3846,7 +4071,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_14_full_1x1_object_A": {
       "type": "object",
@@ -3863,7 +4089,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_14_thin_1x1_object_A": {
       "type": "object",
@@ -3880,7 +4107,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_15_full_1x1_object_A": {
       "type": "object",
@@ -3897,7 +4125,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_15_thin_1x1_object_A": {
       "type": "object",
@@ -3914,7 +4143,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_16_full_1x2_object_A": {
       "type": "object",
@@ -3931,7 +4161,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_16_thin_1x2_object_A": {
       "type": "object",
@@ -3948,7 +4179,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_1_full_2x1_object_A": {
       "type": "object",
@@ -3965,7 +4197,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_1_thin_2x1_object_A": {
       "type": "object",
@@ -3982,7 +4215,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_2_full_2x1_object_A": {
       "type": "object",
@@ -3999,7 +4233,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_2_thin_2x1_object_A": {
       "type": "object",
@@ -4016,7 +4251,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_3_full_2x1_object_A": {
       "type": "object",
@@ -4033,7 +4269,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_3_thin_2x1_object_A": {
       "type": "object",
@@ -4050,7 +4287,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_4_full_1x1_object_A": {
       "type": "object",
@@ -4067,7 +4305,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_4_thin_1x1_object_A": {
       "type": "object",
@@ -4084,7 +4323,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_5_full_1x1_object_A": {
       "type": "object",
@@ -4101,7 +4341,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_5_thin_1x1_object_A": {
       "type": "object",
@@ -4118,7 +4359,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_6_full_2x1_object_A": {
       "type": "object",
@@ -4135,7 +4377,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_6_thin_2x1_object_A": {
       "type": "object",
@@ -4152,7 +4395,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_7_full_2x1_object_A": {
       "type": "object",
@@ -4169,7 +4413,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_7_thin_2x1_object_A": {
       "type": "object",
@@ -4186,7 +4431,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_8_full_2x2_object_A": {
       "type": "object",
@@ -4203,7 +4449,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_8_thin_2x2_object_A": {
       "type": "object",
@@ -4220,7 +4467,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_webs_9_full_2x1_object_A": {
       "type": "object",
@@ -4237,7 +4485,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_full"
     },
     "clutter_webs_9_thin_2x1_object_A": {
       "type": "object",
@@ -4254,7 +4503,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_webs_thin"
     },
     "clutter_writing_2x1_object_A": {
       "type": "object",
@@ -4271,7 +4521,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "clutter_writing"
     },
     "cooking_cauldron_empty_2x2_object_A": {
       "type": "object",
@@ -4288,7 +4539,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_cauldron_empty"
     },
     "cooking_oven_1_2x2_object_A": {
       "type": "object",
@@ -4305,7 +4557,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_oven"
     },
     "cooking_oven_2_2x2_object_A": {
       "type": "object",
@@ -4322,7 +4575,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_oven"
     },
     "cooking_oven_broken_2x2_object_A": {
       "type": "object",
@@ -4339,7 +4593,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_oven_broken"
     },
     "cooking_oven_fireplace_3_1x2_object_A": {
       "type": "object",
@@ -4356,7 +4611,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_oven_fireplace"
     },
     "cooking_oven_fireplace_4_1x1_object_A": {
       "type": "object",
@@ -4373,7 +4629,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_oven_fireplace"
     },
     "cooking_stove_2x1_object_A": {
       "type": "object",
@@ -4390,7 +4647,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cooking_stove"
     },
     "covered_cart_3x2_object_A": {
       "type": "object",
@@ -4407,7 +4665,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "covered_cart"
     },
     "covered_cart_blue_5x3_object_A": {
       "type": "object",
@@ -4424,7 +4683,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "covered_cart_blue"
     },
     "covered_cart_green_5x3_object_A": {
       "type": "object",
@@ -4441,7 +4701,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "covered_cart_green"
     },
     "covered_cart_red_5x3_object_A": {
       "type": "object",
@@ -4458,7 +4719,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "covered_cart_red"
     },
     "cracked_floor_3x3_object_A": {
       "type": "object",
@@ -4475,7 +4737,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "cracked_floor"
     },
     "crate_1_1x1_object_A": {
       "type": "object",
@@ -4492,7 +4755,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_1_2x2_object_A": {
       "type": "object",
@@ -4509,7 +4773,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_2_1x1_object_A": {
       "type": "object",
@@ -4526,7 +4791,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_2_2x2_object_A": {
       "type": "object",
@@ -4543,7 +4809,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_3_1x1_object_A": {
       "type": "object",
@@ -4560,7 +4827,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_3_2x2_object_A": {
       "type": "object",
@@ -4577,7 +4845,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_4_2x2_object_A": {
       "type": "object",
@@ -4594,7 +4863,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate"
     },
     "crate_box_1_1x1_object_A": {
       "type": "object",
@@ -4611,7 +4881,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box"
     },
     "crate_box_2_1x1_object_A": {
       "type": "object",
@@ -4628,7 +4899,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box"
     },
     "crate_box_3_1x1_object_A": {
       "type": "object",
@@ -4645,7 +4917,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box"
     },
     "crate_box_4_1x1_object_A": {
       "type": "object",
@@ -4662,7 +4935,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box"
     },
     "crate_box_baby_small_1x1_object_A": {
       "type": "object",
@@ -4679,7 +4953,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box_baby_small"
     },
     "crate_box_large_1x1_object_A": {
       "type": "object",
@@ -4696,7 +4971,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box_large"
     },
     "crate_box_pile_1_1x1_object_A": {
       "type": "object",
@@ -4713,7 +4989,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box_pile"
     },
     "crate_box_pile_2_2x1_object_A": {
       "type": "object",
@@ -4730,7 +5007,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crate_box_pile"
     },
     "crates_1_1x2_object_A": {
       "type": "object",
@@ -4747,7 +5025,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crates"
     },
     "crates_2_2x1_object_A": {
       "type": "object",
@@ -4764,7 +5043,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "crates"
     },
     "curtain_1_2x1_object_A": {
       "type": "object",
@@ -4781,7 +5061,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "curtain"
     },
     "cutlery_fork_1x1_object_A": {
       "type": "object",
@@ -4798,7 +5079,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cutlery_fork"
     },
     "cutlery_knife_1x1_object_A": {
       "type": "object",
@@ -4815,7 +5097,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cutlery_knife"
     },
     "cutlery_meal_2x1_object_A": {
       "type": "object",
@@ -4832,7 +5115,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cutlery_meal"
     },
     "cutlery_plate_bowl_1x1_object_A": {
       "type": "object",
@@ -4849,7 +5133,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "cutlery_plate_bowl"
     },
     "danger_slit_3x1_object_A": {
       "type": "object",
@@ -4866,7 +5151,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "danger_slit"
     },
     "decoration_armor_suit_statue_1x1_object_A": {
       "type": "object",
@@ -4883,7 +5169,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_armor_suit_statue"
     },
     "decoration_banner_1_1x1_object_A": {
       "type": "object",
@@ -4900,7 +5187,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_banner"
     },
     "decoration_banner_2_1x1_object_A": {
       "type": "object",
@@ -4917,7 +5205,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_banner"
     },
     "decoration_bear_skin_rug_2x2_object_A": {
       "type": "object",
@@ -4934,7 +5223,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_bear_skin_rug"
     },
     "decoration_rug_carpet_long_3x2_object_A": {
       "type": "object",
@@ -4951,7 +5241,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_rug_carpet_long"
     },
     "decoration_rug_carpet_small_1x1_object_A": {
       "type": "object",
@@ -4968,7 +5259,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_rug_carpet_small"
     },
     "decoration_rug_carpet_square_2x2_object_A": {
       "type": "object",
@@ -4985,7 +5277,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_rug_carpet_square"
     },
     "decoration_taxidermy_mount_boar_head_1x1_object_A": {
       "type": "object",
@@ -5002,7 +5295,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_taxidermy_mount_boar_head"
     },
     "decoration_taxidermy_mount_deer_head_1x1_object_A": {
       "type": "object",
@@ -5019,7 +5313,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_taxidermy_mount_deer_head"
     },
     "decoration_taxidermy_mount_dragon_head_2x1_object_A": {
       "type": "object",
@@ -5036,7 +5331,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "decoration_taxidermy_mount_dragon_head"
     },
     "desk_1_2x1_object_A": {
       "type": "object",
@@ -5053,7 +5349,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "desk"
     },
     "dining_table_1_2x2_object_A": {
       "type": "object",
@@ -5070,7 +5367,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_2_2x2_object_A": {
       "type": "object",
@@ -5087,7 +5385,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_3_2x2_object_A": {
       "type": "object",
@@ -5104,7 +5403,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_4_2x2_object_A": {
       "type": "object",
@@ -5121,7 +5421,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_5_2x2_object_A": {
       "type": "object",
@@ -5138,7 +5439,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_6_2x2_object_A": {
       "type": "object",
@@ -5155,7 +5457,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_7_2x2_object_A": {
       "type": "object",
@@ -5172,7 +5475,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_8_2x2_object_A": {
       "type": "object",
@@ -5189,7 +5493,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "dining_table_9_2x1_object_A": {
       "type": "object",
@@ -5206,7 +5511,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dining_table"
     },
     "door-double-closed": {
       "type": "door",
@@ -5257,7 +5563,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_1x1_object_A": {
       "type": "object",
@@ -5274,7 +5581,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_2_1x1_object_A": {
       "type": "object",
@@ -5291,7 +5599,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_3_2x1_object_A": {
       "type": "object",
@@ -5308,7 +5617,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_4_1x1_object_A": {
       "type": "object",
@@ -5325,7 +5635,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_6_1x1_object_A": {
       "type": "object",
@@ -5342,7 +5653,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_7_1x1_object_A": {
       "type": "object",
@@ -5359,7 +5671,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "door_8_1x1_object_A": {
       "type": "object",
@@ -5376,7 +5689,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "door"
     },
     "dragon_bust_1x1_object_A": {
       "type": "object",
@@ -5393,7 +5707,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "dragon_bust"
     },
     "dressing_table_vanity_1x1_object_A": {
       "type": "object",
@@ -5410,7 +5725,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "dressing_table_vanity"
     },
     "electricity_burst_2x3_object_A": {
       "type": "object",
@@ -5427,7 +5743,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "electricity_burst"
     },
     "explosion_2x2_object_A": {
       "type": "object",
@@ -5444,7 +5761,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "explosion"
     },
     "eyeball_1x1_object_A": {
       "type": "object",
@@ -5461,7 +5779,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "eyeball"
     },
     "eyeball_wall_1x1_object_A": {
       "type": "object",
@@ -5478,7 +5797,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "eyeball_wall"
     },
     "feature_altar_gold_1x1_object_A": {
       "type": "object",
@@ -5495,7 +5815,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_altar_gold"
     },
     "feature_armillary_sphere_brass_3x3_object_A": {
       "type": "object",
@@ -5512,7 +5833,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_armillary_sphere_brass"
     },
     "feature_bath_tub_large_empty_dark_2x2_object_A": {
       "type": "object",
@@ -5529,7 +5851,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_large_empty_dark"
     },
     "feature_bath_tub_large_full_dark_2x2_object_A": {
       "type": "object",
@@ -5546,7 +5869,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_large_full_dark"
     },
     "feature_bath_tub_oval_empty_dark_2x1_object_A": {
       "type": "object",
@@ -5563,7 +5887,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_oval_empty_dark"
     },
     "feature_bath_tub_oval_full_dark_2x1_object_A": {
       "type": "object",
@@ -5580,7 +5905,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_oval_full_dark"
     },
     "feature_bath_tub_small_empty_dark_1x1_object_A": {
       "type": "object",
@@ -5597,7 +5923,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_small_empty_dark"
     },
     "feature_bath_tub_small_full_dark_1x1_object_A": {
       "type": "object",
@@ -5614,7 +5941,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_bath_tub_small_full_dark"
     },
     "feature_billiards_ball_1x1_object_A": {
       "type": "object",
@@ -5631,7 +5959,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_ball"
     },
     "feature_billiards_balls_1_1x1_object_A": {
       "type": "object",
@@ -5648,7 +5977,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_balls"
     },
     "feature_billiards_balls_2_1x1_object_A": {
       "type": "object",
@@ -5665,7 +5995,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_balls"
     },
     "feature_billiards_balls_3_1x1_object_A": {
       "type": "object",
@@ -5682,7 +6013,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_balls"
     },
     "feature_billiards_cue_1x1_object_A": {
       "type": "object",
@@ -5699,7 +6031,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_cue"
     },
     "feature_billiards_table_2x3_object_A": {
       "type": "object",
@@ -5716,7 +6049,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_billiards_table"
     },
     "feature_crustal_ball_1x1_object_A": {
       "type": "object",
@@ -5733,7 +6067,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_crustal_ball"
     },
     "feature_globe_2x2_object_A": {
       "type": "object",
@@ -5750,7 +6085,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_globe"
     },
     "feature_loom_2_2x2_object_A": {
       "type": "object",
@@ -5767,7 +6103,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_loom"
     },
     "feature_metal_cage_gold_4x4_object_A": {
       "type": "object",
@@ -5784,7 +6121,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_metal_cage_gold"
     },
     "feature_orrery_huge_gold_3x4_object_A": {
       "type": "object",
@@ -5801,7 +6139,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_orrery_huge_gold"
     },
     "feature_orrery_small_gold_2x1_object_A": {
       "type": "object",
@@ -5818,7 +6157,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_orrery_small_gold"
     },
     "feature_piano_1_a_2x2_object_A": {
       "type": "object",
@@ -5835,7 +6175,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_piano"
     },
     "feature_piano_2_b_2x2_object_A": {
       "type": "object",
@@ -5852,7 +6193,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_piano"
     },
     "feature_spinning_wheel_1x1_object_A": {
       "type": "object",
@@ -5869,7 +6211,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_spinning_wheel"
     },
     "feature_statue_1_stone_1x1_object_A": {
       "type": "object",
@@ -5886,7 +6229,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_statue_stone"
     },
     "feature_statue_2_stone_1x1_object_A": {
       "type": "object",
@@ -5903,7 +6247,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_statue_stone"
     },
     "feature_statue_3_stone_1x1_object_A": {
       "type": "object",
@@ -5920,7 +6265,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_statue_stone"
     },
     "feature_suit_of_armor_1_silver_1x1_object_A": {
       "type": "object",
@@ -5937,7 +6283,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_suit_of_armor_silver"
     },
     "feature_suit_of_armor_2_gold_1x1_object_A": {
       "type": "object",
@@ -5954,7 +6301,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_suit_of_armor_gold"
     },
     "feature_telescope_huge_gold_2x4_object_A": {
       "type": "object",
@@ -5971,7 +6319,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_telescope_huge_gold"
     },
     "feature_telescope_ladder_dark_1x2_object_A": {
       "type": "object",
@@ -5988,7 +6337,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_telescope_ladder_dark"
     },
     "feature_telescope_ladder_light_1x2_object_A": {
       "type": "object",
@@ -6005,7 +6355,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_telescope_ladder_light"
     },
     "feature_telescope_medium_gold_1x2_object_A": {
       "type": "object",
@@ -6022,7 +6373,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_telescope_medium_gold"
     },
     "feature_telescope_small_gold_1x2_object_A": {
       "type": "object",
@@ -6039,7 +6391,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "feature_telescope_small_gold"
     },
     "fence_stone_2x1_object_A": {
       "type": "object",
@@ -6056,7 +6409,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "fence_stone"
     },
     "fence_wood_3x2_object_A": {
       "type": "object",
@@ -6073,7 +6427,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "fence_wood"
     },
     "fire_3x3_object_A": {
       "type": "object",
@@ -6090,7 +6445,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "fire"
     },
     "fire_gout_2x3_object_A": {
       "type": "object",
@@ -6107,7 +6463,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "fire_gout"
     },
     "fireplace_2x1_object_A": {
       "type": "object",
@@ -6124,7 +6481,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "fireplace"
     },
     "firewood_pile_2x1_object_A": {
       "type": "object",
@@ -6141,7 +6499,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "firewood_pile"
     },
     "fish_large_1x1_object_A": {
       "type": "object",
@@ -6158,7 +6517,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "fish_large"
     },
     "fish_large_red_1x1_object_A": {
       "type": "object",
@@ -6175,7 +6535,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "fish_large_red"
     },
     "floor_flesh_3x3_object_A": {
       "type": "object",
@@ -6192,7 +6553,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "floor_flesh"
     },
     "floor_large_24x24_floor_A": {
       "type": "floor",
@@ -6243,7 +6605,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_ale"
     },
     "food_ale_2_1x1_object_A": {
       "type": "object",
@@ -6260,7 +6623,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_ale"
     },
     "food_bread_1_1x1_object_A": {
       "type": "object",
@@ -6277,7 +6641,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_bread"
     },
     "food_bread_2_2x1_object_A": {
       "type": "object",
@@ -6294,7 +6659,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_bread"
     },
     "food_cheese_1x1_object_A": {
       "type": "object",
@@ -6311,7 +6677,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_cheese"
     },
     "food_fish_2x1_object_A": {
       "type": "object",
@@ -6328,7 +6695,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_fish"
     },
     "food_fish_red_2x1_object_A": {
       "type": "object",
@@ -6345,7 +6713,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_fish_red"
     },
     "food_poultry_1x1_object_A": {
       "type": "object",
@@ -6362,7 +6731,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_poultry"
     },
     "food_poultry_leg_1x1_object_A": {
       "type": "object",
@@ -6379,7 +6749,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "food_poultry_leg"
     },
     "grate_2x2_object_A": {
       "type": "object",
@@ -6396,7 +6767,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "grate"
     },
     "hallway_table_1_2x1_object_A": {
       "type": "object",
@@ -6413,7 +6785,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "hallway_table"
     },
     "hallway_table_2_2x1_object_A": {
       "type": "object",
@@ -6430,7 +6803,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "hallway_table"
     },
     "hammock_1_1x2_object_A": {
       "type": "object",
@@ -6447,7 +6821,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "hammock"
     },
     "hammock_2_1x2_object_A": {
       "type": "object",
@@ -6464,7 +6839,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "hammock"
     },
     "hammock_3_1x2_object_A": {
       "type": "object",
@@ -6481,7 +6857,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "hammock"
     },
     "hand_warmer_1x1_object_A": {
       "type": "object",
@@ -6498,7 +6875,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "hand_warmer"
     },
     "hatch_trap_door_1x1_object_A": {
       "type": "object",
@@ -6515,7 +6893,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "hatch_trap_door"
     },
     "hatch_trap_door_small_1x1_object_A": {
       "type": "object",
@@ -6532,7 +6911,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "hatch_trap_door_small"
     },
     "inside_bend_2x2_object_A": {
       "type": "object",
@@ -6549,7 +6929,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "inside_bend"
     },
     "inside_bend_3x2_object_A": {
       "type": "object",
@@ -6566,7 +6947,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "inside_bend"
     },
     "inside_bend_3x3_object_A": {
       "type": "object",
@@ -6583,7 +6965,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "inside_bend"
     },
     "inside_bend_4x4_object_A": {
       "type": "object",
@@ -6600,7 +6983,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "inside_bend"
     },
     "inside_bend_5x3_object_A": {
       "type": "object",
@@ -6617,7 +7001,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "inside_bend"
     },
     "iron_boulder_2x2_object_A": {
       "type": "object",
@@ -6634,7 +7019,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "iron_boulder"
     },
     "ladder_1x1_object_A": {
       "type": "object",
@@ -6651,7 +7037,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ladder"
     },
     "lantern_1x1_object_A": {
       "type": "object",
@@ -6668,7 +7055,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "lantern"
     },
     "latrine_2x2_object_A": {
       "type": "object",
@@ -6685,7 +7073,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "latrine"
     },
     "latrine_intimate_2x1_object_A": {
       "type": "object",
@@ -6702,7 +7091,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "latrine_intimate"
     },
     "ledge_1x2_object_A": {
       "type": "object",
@@ -6719,7 +7109,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge"
     },
     "ledge_1x4_object_A": {
       "type": "object",
@@ -6736,7 +7127,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge"
     },
     "ledge_1x6_object_A": {
       "type": "object",
@@ -6753,7 +7145,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge"
     },
     "ledge_bend_1x1_object_A": {
       "type": "object",
@@ -6770,7 +7163,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge_bend"
     },
     "ledge_bend_2x1_object_A": {
       "type": "object",
@@ -6787,7 +7181,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge_bend"
     },
     "ledge_bend_2x2_object_A": {
       "type": "object",
@@ -6804,7 +7199,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge_bend"
     },
     "ledge_bend_3x3_object_A": {
       "type": "object",
@@ -6821,7 +7217,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge_bend"
     },
     "ledge_bend_4x2_object_A": {
       "type": "object",
@@ -6838,7 +7235,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "ledge_bend"
     },
     "light_brazier_1_a_1x1_object_A": {
       "type": "object",
@@ -6855,7 +7253,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_1_b_1x1_object_A": {
       "type": "object",
@@ -6872,7 +7271,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_1_c_1x1_object_A": {
       "type": "object",
@@ -6889,7 +7289,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_2_a_1x1_object_A": {
       "type": "object",
@@ -6906,7 +7307,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_2_b_1x1_object_A": {
       "type": "object",
@@ -6923,7 +7325,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_2_c_1x1_object_A": {
       "type": "object",
@@ -6940,7 +7343,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_3_a_1x1_object_A": {
       "type": "object",
@@ -6957,7 +7361,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_3_b_1x1_object_A": {
       "type": "object",
@@ -6974,7 +7379,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_brazier_3_c_1x1_object_A": {
       "type": "object",
@@ -6991,7 +7397,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_brazier"
     },
     "light_candle_cluster_lit_1x1_object_A": {
       "type": "object",
@@ -7008,7 +7415,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_cluster_lit"
     },
     "light_candle_cluster_unlit_1x1_object_A": {
       "type": "object",
@@ -7025,7 +7433,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_cluster_unlit"
     },
     "light_candle_large_lit_1x1_object_A": {
       "type": "object",
@@ -7042,7 +7451,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_large_lit"
     },
     "light_candle_large_unlit_1x1_object_A": {
       "type": "object",
@@ -7059,7 +7469,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_large_unlit"
     },
     "light_candle_small_lit_1x1_object_A": {
       "type": "object",
@@ -7076,7 +7487,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_small_lit"
     },
     "light_candle_small_unlit_1x1_object_A": {
       "type": "object",
@@ -7093,7 +7505,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_small_unlit"
     },
     "light_candle_stand_lit_1x1_object_A": {
       "type": "object",
@@ -7110,7 +7523,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_stand_lit"
     },
     "light_candle_stand_small_lit_1x1_object_A": {
       "type": "object",
@@ -7127,7 +7541,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_stand_small_lit"
     },
     "light_candle_stand_small_unlit_1x1_object_A": {
       "type": "object",
@@ -7144,7 +7559,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_stand_small_unlit"
     },
     "light_candle_stand_unlit_1x1_object_A": {
       "type": "object",
@@ -7161,7 +7577,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_candle_stand_unlit"
     },
     "light_chandelier_1_lit_gold_2x2_object_A": {
       "type": "object",
@@ -7178,7 +7595,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_lit_gold"
     },
     "light_chandelier_1_unlit_gold_2x2_object_A": {
       "type": "object",
@@ -7195,7 +7613,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_unlit_gold"
     },
     "light_chandelier_2_lit_iron_2x2_object_A": {
       "type": "object",
@@ -7212,7 +7631,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_lit_iron"
     },
     "light_chandelier_2_unlit_iron_2x2_object_A": {
       "type": "object",
@@ -7229,7 +7649,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_unlit_iron"
     },
     "light_chandelier_3_lit_gold_2x2_object_A": {
       "type": "object",
@@ -7246,7 +7667,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_lit_gold"
     },
     "light_chandelier_3_unlit_gold_2x2_object_A": {
       "type": "object",
@@ -7263,7 +7685,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_unlit_gold"
     },
     "light_chandelier_4_lit_iron_1x1_object_A": {
       "type": "object",
@@ -7280,7 +7703,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_lit_iron"
     },
     "light_chandelier_4_unlit_iron_1x1_object_A": {
       "type": "object",
@@ -7297,7 +7721,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_unlit_iron"
     },
     "light_chandelier_antler_lit_1x1_object_A": {
       "type": "object",
@@ -7314,7 +7739,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_antler_lit"
     },
     "light_chandelier_antler_unlit_1x1_object_A": {
       "type": "object",
@@ -7331,7 +7757,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_chandelier_antler_unlit"
     },
     "light_lantern_lit_1x1_object_A": {
       "type": "object",
@@ -7348,7 +7775,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_lantern_lit"
     },
     "light_lantern_unlit_1x1_object_A": {
       "type": "object",
@@ -7365,7 +7793,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_lantern_unlit"
     },
     "light_stand_lit_iron_1x1_object_A": {
       "type": "object",
@@ -7382,7 +7811,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_stand_lit_iron"
     },
     "light_stand_unlit_iron_1x1_object_A": {
       "type": "object",
@@ -7399,7 +7829,8 @@
       "set": "demo-lighting",
       "tags": [
         "light"
-      ]
+      ],
+      "family": "light_stand_unlit_iron"
     },
     "log_fallen_tree_2x1_object_A": {
       "type": "object",
@@ -7416,7 +7847,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "log_fallen_tree"
     },
     "log_rolling_swinging_3x1_object_A": {
       "type": "object",
@@ -7433,7 +7865,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "log_rolling_swinging"
     },
     "log_seat_1_1x1_object_A": {
       "type": "object",
@@ -7450,7 +7883,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "log_seat"
     },
     "log_seat_2_1x1_object_A": {
       "type": "object",
@@ -7467,7 +7901,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "log_seat"
     },
     "mat_3x3_object_A": {
       "type": "object",
@@ -7484,7 +7919,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat"
     },
     "mat_blue_3x3_object_A": {
       "type": "object",
@@ -7501,7 +7937,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_blue"
     },
     "mat_green_3x3_object_A": {
       "type": "object",
@@ -7518,7 +7955,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_green"
     },
     "mat_large_4x4_object_A": {
       "type": "object",
@@ -7535,7 +7973,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_large"
     },
     "mat_large_blue_4x4_object_A": {
       "type": "object",
@@ -7552,7 +7991,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_large_blue"
     },
     "mat_large_green_4x4_object_A": {
       "type": "object",
@@ -7569,7 +8009,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_large_green"
     },
     "mat_large_red_4x4_object_A": {
       "type": "object",
@@ -7586,7 +8027,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_large_red"
     },
     "mat_long_4x3_object_A": {
       "type": "object",
@@ -7603,7 +8045,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_long"
     },
     "mat_long_blue_4x3_object_A": {
       "type": "object",
@@ -7620,7 +8063,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_long_blue"
     },
     "mat_long_green_4x3_object_A": {
       "type": "object",
@@ -7637,7 +8081,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_long_green"
     },
     "mat_long_red_4x3_object_A": {
       "type": "object",
@@ -7654,7 +8099,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_long_red"
     },
     "mat_red_3x3_object_A": {
       "type": "object",
@@ -7671,7 +8117,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "mat_red"
     },
     "merchant_wagon_4x3_object_A": {
       "type": "object",
@@ -7688,7 +8135,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "merchant_wagon"
     },
     "merchant_wagon_blue_7x5_object_A": {
       "type": "object",
@@ -7705,7 +8153,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "merchant_wagon_blue"
     },
     "merchant_wagon_green_7x5_object_A": {
       "type": "object",
@@ -7722,7 +8171,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "merchant_wagon_green"
     },
     "merchant_wagon_red_7x5_object_A": {
       "type": "object",
@@ -7739,7 +8189,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "merchant_wagon_red"
     },
     "mystery_sack_1x1_object_A": {
       "type": "object",
@@ -7756,7 +8207,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "mystery_sack"
     },
     "obvious_pressure_pad_1x1_object_A": {
       "type": "object",
@@ -7773,7 +8225,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "obvious_pressure_pad"
     },
     "outside_bend_2x2_object_A": {
       "type": "object",
@@ -7790,7 +8243,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "outside_bend_3x2_object_A": {
       "type": "object",
@@ -7807,7 +8261,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "outside_bend_3x3_object_A": {
       "type": "object",
@@ -7824,7 +8279,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "outside_bend_4x4_object_A": {
       "type": "object",
@@ -7841,7 +8297,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "outside_bend_5x3_object_A": {
       "type": "object",
@@ -7858,7 +8315,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "outside_bend_5x5_object_A": {
       "type": "object",
@@ -7875,7 +8333,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "outside_bend"
     },
     "oven_stove_cooking_kicthen_2x1_object_A": {
       "type": "object",
@@ -7892,7 +8351,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "oven_stove_cooking_kicthen"
     },
     "painting_1_1x2_object_A": {
       "type": "object",
@@ -7909,7 +8369,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "painting"
     },
     "painting_2_1x1_object_A": {
       "type": "object",
@@ -7926,7 +8387,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "painting"
     },
     "painting_3_1x1_object_A": {
       "type": "object",
@@ -7943,7 +8405,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "painting"
     },
     "painting_4_1x1_object_A": {
       "type": "object",
@@ -7960,7 +8423,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "painting"
     },
     "pit_3x3_object_A": {
       "type": "object",
@@ -7977,7 +8441,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit"
     },
     "pit_acid_2x2_object_A": {
       "type": "object",
@@ -7994,7 +8459,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit_acid"
     },
     "pit_collapsed_3x3_object_A": {
       "type": "object",
@@ -8011,7 +8477,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit_collapsed"
     },
     "pit_lava_2x2_object_A": {
       "type": "object",
@@ -8028,7 +8495,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit_lava"
     },
     "pit_spikes_2x2_object_A": {
       "type": "object",
@@ -8045,7 +8513,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit_spikes"
     },
     "pit_water_2x2_object_A": {
       "type": "object",
@@ -8062,7 +8531,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "pit_water"
     },
     "platform_stone_2x2_object_A": {
       "type": "object",
@@ -8079,7 +8549,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "platform_stone"
     },
     "platform_wood_2x2_object_A": {
       "type": "object",
@@ -8096,7 +8567,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "platform_wood"
     },
     "pot_closed_2x2_object_A": {
       "type": "object",
@@ -8113,7 +8585,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_closed"
     },
     "pot_open_1_2x2_object_A": {
       "type": "object",
@@ -8130,7 +8603,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_open"
     },
     "pot_open_2_1x2_object_A": {
       "type": "object",
@@ -8147,7 +8621,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_open"
     },
     "pot_open_3_2x2_object_A": {
       "type": "object",
@@ -8164,7 +8639,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_open"
     },
     "pot_vase_black_1x1_object_A": {
       "type": "object",
@@ -8181,7 +8657,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_vase_black"
     },
     "pot_vase_brown_1x1_object_A": {
       "type": "object",
@@ -8198,7 +8675,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_vase_brown"
     },
     "pot_vase_red_1x1_object_A": {
       "type": "object",
@@ -8215,7 +8693,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "pot_vase_red"
     },
     "potions_few_1x1_object_A": {
       "type": "object",
@@ -8232,7 +8711,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "potions_few"
     },
     "potions_many_2x1_object_A": {
       "type": "object",
@@ -8249,7 +8729,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "potions_many"
     },
     "pots_pans_kitchen_2x1_object_A": {
       "type": "object",
@@ -8266,7 +8747,8 @@
       "set": "demo-kitchen",
       "tags": [
         "kitchen"
-      ]
+      ],
+      "family": "pots_pans_kitchen"
     },
     "produce_barrel_cabbages_2x2_object_A": {
       "type": "object",
@@ -8283,7 +8765,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_barrel_cabbages"
     },
     "produce_barrel_orange_2x2_object_A": {
       "type": "object",
@@ -8300,7 +8783,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_barrel_orange"
     },
     "produce_barrel_red_2x2_object_A": {
       "type": "object",
@@ -8317,7 +8801,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_barrel_red"
     },
     "produce_crate_cabbages_2x2_object_A": {
       "type": "object",
@@ -8334,7 +8819,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_crate_cabbages"
     },
     "produce_crate_orange_2x2_object_A": {
       "type": "object",
@@ -8351,7 +8837,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_crate_orange"
     },
     "produce_crate_red_2x2_object_A": {
       "type": "object",
@@ -8368,7 +8855,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_crate_red"
     },
     "produce_pumpkin_2x2_object_A": {
       "type": "object",
@@ -8385,7 +8873,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_pumpkin"
     },
     "produce_pumpkins_2x2_object_A": {
       "type": "object",
@@ -8402,7 +8891,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_pumpkins"
     },
     "produce_stand_3x3_object_A": {
       "type": "object",
@@ -8419,7 +8909,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_stand"
     },
     "produce_trough_cabbages_3x2_object_A": {
       "type": "object",
@@ -8436,7 +8927,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_trough_cabbages"
     },
     "produce_trough_orange_3x2_object_A": {
       "type": "object",
@@ -8453,7 +8945,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_trough_orange"
     },
     "produce_trough_red_3x2_object_A": {
       "type": "object",
@@ -8470,7 +8963,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "produce_trough_red"
     },
     "quiver_arrows_1x2_object_A": {
       "type": "object",
@@ -8487,7 +8981,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "quiver_arrows"
     },
     "rampart_buttress_1x1_object_A": {
       "type": "object",
@@ -8504,7 +8999,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_buttress"
     },
     "rampart_long_6x4_object_A": {
       "type": "object",
@@ -8521,7 +9017,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_long"
     },
     "rampart_round_bastion_5x3_object_A": {
       "type": "object",
@@ -8538,7 +9035,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_round_bastion"
     },
     "rampart_round_corner_6x5_object_A": {
       "type": "object",
@@ -8555,7 +9053,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_round_corner"
     },
     "rampart_short_4x4_object_A": {
       "type": "object",
@@ -8572,7 +9071,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_short"
     },
     "rampart_square_bastion_5x3_object_A": {
       "type": "object",
@@ -8589,7 +9089,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_square_bastion"
     },
     "rampart_square_corner_6x5_object_A": {
       "type": "object",
@@ -8606,7 +9107,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "rampart_square_corner"
     },
     "rock_1_2x1_object_A": {
       "type": "object",
@@ -8623,7 +9125,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock"
     },
     "rock_2_2x1_object_A": {
       "type": "object",
@@ -8640,7 +9143,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock"
     },
     "rock_3_2x2_object_A": {
       "type": "object",
@@ -8657,7 +9161,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock"
     },
     "rock_outcrop_3x3_object_A": {
       "type": "object",
@@ -8674,7 +9179,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock_outcrop"
     },
     "rock_small_1_1x1_object_A": {
       "type": "object",
@@ -8691,7 +9197,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock_small"
     },
     "rock_small_2_1x1_object_A": {
       "type": "object",
@@ -8708,7 +9215,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "rock_small"
     },
     "rolling_pin_of_doom_3x3_object_A": {
       "type": "object",
@@ -8725,7 +9233,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "rolling_pin_of_doom"
     },
     "rubble_large_7x4_object_A": {
       "type": "object",
@@ -8742,7 +9251,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "rubble_large"
     },
     "rubble_medium_4x2_object_A": {
       "type": "object",
@@ -8759,7 +9269,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "rubble_medium"
     },
     "rubble_small_3x3_object_A": {
       "type": "object",
@@ -8776,7 +9287,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "rubble_small"
     },
     "rug_6_a_2x1_object_A": {
       "type": "object",
@@ -8793,7 +9305,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_b_2x1_object_A": {
       "type": "object",
@@ -8810,7 +9323,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_c_3x2_object_A": {
       "type": "object",
@@ -8827,7 +9341,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_d_2x2_object_A": {
       "type": "object",
@@ -8844,7 +9359,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_e_2x2_object_A": {
       "type": "object",
@@ -8861,7 +9377,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_f_1x1_object_A": {
       "type": "object",
@@ -8878,7 +9395,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_6_g_2x1_object_A": {
       "type": "object",
@@ -8895,7 +9413,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug"
     },
     "rug_animal_skin_3x2_object_A": {
       "type": "object",
@@ -8912,7 +9431,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug_animal_skin"
     },
     "rug_bear_1_3x3_object_A": {
       "type": "object",
@@ -8929,7 +9449,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug_bear"
     },
     "rug_doormat_7_1x1_object_A": {
       "type": "object",
@@ -8946,7 +9467,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug_doormat"
     },
     "rug_wrinkled_1_2x2_object_A": {
       "type": "object",
@@ -8963,7 +9485,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "rug_wrinkled"
     },
     "sack_1x1_object_A": {
       "type": "object",
@@ -8980,7 +9503,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack"
     },
     "sack_pile_kitchen_1x1_object_A": {
       "type": "object",
@@ -8997,7 +9521,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack_pile_kitchen"
     },
     "sack_single_kitchen_1x1_object_A": {
       "type": "object",
@@ -9014,7 +9539,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack_single_kitchen"
     },
     "sack_stack_1_2x1_object_A": {
       "type": "object",
@@ -9031,7 +9557,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack_stack"
     },
     "sack_stack_2_2x1_object_A": {
       "type": "object",
@@ -9048,7 +9575,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack_stack"
     },
     "sack_standing_1x1_object_A": {
       "type": "object",
@@ -9065,7 +9593,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "sack_standing"
     },
     "scythe_2x2_object_A": {
       "type": "object",
@@ -9082,7 +9611,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "scythe"
     },
     "shelf_2x1_object_A": {
       "type": "object",
@@ -9099,7 +9629,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "shelf"
     },
     "shelf_bookshelf_1_2x1_object_A": {
       "type": "object",
@@ -9116,7 +9647,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "shelf_bookshelf"
     },
     "shelf_bookshelf_2_2x1_object_A": {
       "type": "object",
@@ -9133,7 +9665,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "shelf_bookshelf"
     },
     "shelf_bookshelf_3_2x1_object_A": {
       "type": "object",
@@ -9150,7 +9683,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "shelf_bookshelf"
     },
     "shield_buckler_1x1_object_A": {
       "type": "object",
@@ -9167,7 +9701,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_buckler"
     },
     "shield_buckler_blue_1x1_object_A": {
       "type": "object",
@@ -9184,7 +9719,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_buckler_blue"
     },
     "shield_buckler_green_1x1_object_A": {
       "type": "object",
@@ -9201,7 +9737,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_buckler_green"
     },
     "shield_buckler_red_1x1_object_A": {
       "type": "object",
@@ -9218,7 +9755,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_buckler_red"
     },
     "shield_buckler_wood_1x1_object_A": {
       "type": "object",
@@ -9235,7 +9773,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_buckler_wood"
     },
     "shield_heater_1x1_object_A": {
       "type": "object",
@@ -9252,7 +9791,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_heater"
     },
     "shield_kite_blue_1x2_object_A": {
       "type": "object",
@@ -9269,7 +9809,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_kite_blue"
     },
     "shield_kite_canvas_1x2_object_A": {
       "type": "object",
@@ -9286,7 +9827,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_kite_canvas"
     },
     "shield_kite_green_1x2_object_A": {
       "type": "object",
@@ -9303,7 +9845,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_kite_green"
     },
     "shield_kite_red_1x2_object_A": {
       "type": "object",
@@ -9320,7 +9863,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_kite_red"
     },
     "shield_tower_1x2_object_A": {
       "type": "object",
@@ -9337,7 +9881,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shield_tower"
     },
     "shoes_1x1_object_A": {
       "type": "object",
@@ -9354,7 +9899,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shoes"
     },
     "shoes_black_1x1_object_A": {
       "type": "object",
@@ -9371,7 +9917,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shoes_black"
     },
     "shoes_group_2x1_object_A": {
       "type": "object",
@@ -9388,7 +9935,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "shoes_group"
     },
     "side_table_1_1x1_object_A": {
       "type": "object",
@@ -9405,7 +9953,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "side_table"
     },
     "side_table_2_1x1_object_A": {
       "type": "object",
@@ -9422,7 +9971,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "side_table"
     },
     "side_table_3_1x1_object_A": {
       "type": "object",
@@ -9439,7 +9989,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "side_table"
     },
     "side_table_4_1x1_object_A": {
       "type": "object",
@@ -9456,7 +10007,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "side_table"
     },
     "sliding_spikes_2x3_object_A": {
       "type": "object",
@@ -9473,7 +10025,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "sliding_spikes"
     },
     "spider_web_3x2_object_A": {
       "type": "object",
@@ -9490,7 +10043,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "spider_web"
     },
     "stairs_stone_long_2x4_object_A": {
       "type": "object",
@@ -9507,7 +10061,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_stone_long"
     },
     "stairs_stone_short_2x2_object_A": {
       "type": "object",
@@ -9524,7 +10079,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_stone_short"
     },
     "stairs_stone_wide_3x2_object_A": {
       "type": "object",
@@ -9541,7 +10097,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_stone_wide"
     },
     "stairs_wood_long_2x4_object_A": {
       "type": "object",
@@ -9558,7 +10115,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_long"
     },
     "stairs_wood_short_2x2_object_A": {
       "type": "object",
@@ -9575,7 +10133,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_short"
     },
     "stairs_wood_short_down_2x2_object_A": {
       "type": "object",
@@ -9592,7 +10151,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_short_down"
     },
     "stairs_wood_short_up_2x2_object_A": {
       "type": "object",
@@ -9609,7 +10169,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_short_up"
     },
     "stairs_wood_spiral_down_3x3_object_A": {
       "type": "object",
@@ -9626,7 +10187,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_spiral_down"
     },
     "stairs_wood_spiral_up_3x3_object_A": {
       "type": "object",
@@ -9643,7 +10205,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_spiral_up"
     },
     "stairs_wood_wide_3x2_object_A": {
       "type": "object",
@@ -9660,7 +10223,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "stairs_wood_wide"
     },
     "stand_1_3x1_object_A": {
       "type": "object",
@@ -9677,7 +10241,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stand"
     },
     "stand_2_3x1_object_A": {
       "type": "object",
@@ -9694,7 +10259,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stand"
     },
     "stand_2x1_object_A": {
       "type": "object",
@@ -9711,7 +10277,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stand"
     },
     "statue_platform_1x1_object_A": {
       "type": "object",
@@ -9728,7 +10295,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "statue_platform"
     },
     "stool_round_1x1_object_A": {
       "type": "object",
@@ -9745,7 +10313,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_round"
     },
     "stool_round_rickety_1x1_object_A": {
       "type": "object",
@@ -9762,7 +10331,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_round_rickety"
     },
     "stool_royal_cushion_ottoman_1x1_object_A": {
       "type": "object",
@@ -9779,7 +10349,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_royal_cushion_ottoman"
     },
     "stool_square_1_1x1_object_A": {
       "type": "object",
@@ -9796,7 +10367,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_square"
     },
     "stool_square_1x1_object_A": {
       "type": "object",
@@ -9813,7 +10385,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_square"
     },
     "stool_square_2_1x1_object_A": {
       "type": "object",
@@ -9830,7 +10403,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_square"
     },
     "stool_square_rickety_1x1_object_A": {
       "type": "object",
@@ -9847,7 +10421,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "stool_square_rickety"
     },
     "storage_barrel_1_dark_1x1_object_A": {
       "type": "object",
@@ -9864,7 +10439,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_dark"
     },
     "storage_barrel_2_dark_1x1_object_A": {
       "type": "object",
@@ -9881,7 +10457,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_dark"
     },
     "storage_barrel_3_dark_1x1_object_A": {
       "type": "object",
@@ -9898,7 +10475,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_dark"
     },
     "storage_barrel_4_a_dark_1x2_object_A": {
       "type": "object",
@@ -9915,7 +10493,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_dark"
     },
     "storage_barrel_5_a_dark_1x1_object_A": {
       "type": "object",
@@ -9932,7 +10511,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_dark"
     },
     "storage_barrel_broken_dark_1x1_object_A": {
       "type": "object",
@@ -9949,7 +10529,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_barrel_broken_dark"
     },
     "storage_bookshelf_1_a_dark_2x1_object_A": {
       "type": "object",
@@ -9966,7 +10547,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_bookshelf_dark"
     },
     "storage_bookshelf_1_b_dark_2x1_object_A": {
       "type": "object",
@@ -9983,7 +10565,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_bookshelf_dark"
     },
     "storage_bookshelf_2_dark_2x1_object_A": {
       "type": "object",
@@ -10000,7 +10583,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_bookshelf_dark"
     },
     "storage_bookshelf_3_dark_2x1_object_A": {
       "type": "object",
@@ -10017,7 +10601,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_bookshelf_dark"
     },
     "storage_canvas_bundle_1x1_object_A": {
       "type": "object",
@@ -10034,7 +10619,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_canvas_bundle"
     },
     "storage_crate_1_dark_1x1_object_A": {
       "type": "object",
@@ -10051,7 +10637,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_2_dark_1x1_object_A": {
       "type": "object",
@@ -10068,7 +10655,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_3_dark_1x1_object_A": {
       "type": "object",
@@ -10085,7 +10673,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_4_dark_1x1_object_A": {
       "type": "object",
@@ -10102,7 +10691,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_5_covered_1x1_object_A": {
       "type": "object",
@@ -10119,7 +10709,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_covered"
     },
     "storage_crate_6_covered_1x1_object_A": {
       "type": "object",
@@ -10136,7 +10727,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_covered"
     },
     "storage_crate_7_dark_1x1_object_A": {
       "type": "object",
@@ -10153,7 +10745,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_8_dark_1x1_object_A": {
       "type": "object",
@@ -10170,7 +10763,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_dark"
     },
     "storage_crate_broken_1_dark_1x1_object_A": {
       "type": "object",
@@ -10187,7 +10781,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_broken_dark"
     },
     "storage_crate_broken_2_dark_1x1_object_A": {
       "type": "object",
@@ -10204,7 +10799,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crate_broken_dark"
     },
     "storage_crates_1_dark_1x1_object_A": {
       "type": "object",
@@ -10221,7 +10817,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crates_dark"
     },
     "storage_crates_2_dark_1x1_object_A": {
       "type": "object",
@@ -10238,7 +10835,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crates_dark"
     },
     "storage_crates_and_barrels_2x4_object_A": {
       "type": "object",
@@ -10255,7 +10853,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_crates_and_barrels"
     },
     "storage_dresser_1_dark_2x1_object_A": {
       "type": "object",
@@ -10272,7 +10871,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_dresser_dark"
     },
     "storage_dresser_2_dark_1x1_object_A": {
       "type": "object",
@@ -10289,7 +10889,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_dresser_dark"
     },
     "storage_keg_barrels_and_sacks_2x1_object_A": {
       "type": "object",
@@ -10306,7 +10907,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_keg_barrels_and_sacks"
     },
     "storage_modular_shelf_corner_dark_2x2_object_A": {
       "type": "object",
@@ -10323,7 +10925,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_modular_shelf_corner_dark"
     },
     "storage_modular_shelf_straight_dark_2x1_object_A": {
       "type": "object",
@@ -10340,7 +10943,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_modular_shelf_straight_dark"
     },
     "storage_shelf_1_dark_2x1_object_A": {
       "type": "object",
@@ -10357,7 +10961,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_shelf_dark"
     },
     "storage_shelf_2_dark_2x1_object_A": {
       "type": "object",
@@ -10374,7 +10979,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_shelf_dark"
     },
     "storage_shelf_dark_2x1_object_A": {
       "type": "object",
@@ -10391,7 +10997,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_shelf_dark"
     },
     "storage_vase_1_1x1_object_A": {
       "type": "object",
@@ -10408,7 +11015,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_vase"
     },
     "storage_vase_2_1x1_object_A": {
       "type": "object",
@@ -10425,7 +11033,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_vase"
     },
     "storage_wicker_basket_1x1_object_A": {
       "type": "object",
@@ -10442,7 +11051,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_wicker_basket"
     },
     "storage_wicker_basket_lid_1x1_object_A": {
       "type": "object",
@@ -10459,7 +11069,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "storage_wicker_basket_lid"
     },
     "stump_2x2_object_A": {
       "type": "object",
@@ -10476,7 +11087,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "stump"
     },
     "stump_axe_chopping_1x1_object_A": {
       "type": "object",
@@ -10493,7 +11105,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "stump_axe_chopping"
     },
     "suit_of_armor_1x1_object_A": {
       "type": "object",
@@ -10510,7 +11123,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "suit_of_armor"
     },
     "support_post_column_1_1x1_object_A": {
       "type": "object",
@@ -10527,7 +11141,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "support_post_column"
     },
     "support_post_column_2_1x1_object_A": {
       "type": "object",
@@ -10544,7 +11159,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "support_post_column"
     },
     "support_post_column_3_1x1_object_A": {
       "type": "object",
@@ -10561,7 +11177,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "support_post_column"
     },
     "swinging_blade_3x1_object_A": {
       "type": "object",
@@ -10578,7 +11195,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "swinging_blade"
     },
     "swinging_blade_floor_3x1_object_A": {
       "type": "object",
@@ -10595,7 +11213,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "swinging_blade_floor"
     },
     "table_3x2_object_A": {
       "type": "object",
@@ -10612,7 +11231,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table"
     },
     "table_bend_3x3_object_A": {
       "type": "object",
@@ -10629,7 +11249,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_bend"
     },
     "table_broken_1_dark_1x2_object_A": {
       "type": "object",
@@ -10646,7 +11267,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_broken_dark"
     },
     "table_broken_2_dark_2x1_object_A": {
       "type": "object",
@@ -10663,7 +11285,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_broken_dark"
     },
     "table_cloth_3x2_object_A": {
       "type": "object",
@@ -10680,7 +11303,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth"
     },
     "table_cloth_blue_3x2_object_A": {
       "type": "object",
@@ -10697,7 +11321,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_blue"
     },
     "table_cloth_green_3x2_object_A": {
       "type": "object",
@@ -10714,7 +11339,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_green"
     },
     "table_cloth_large_3x3_object_A": {
       "type": "object",
@@ -10731,7 +11357,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_large"
     },
     "table_cloth_large_blue_3x3_object_A": {
       "type": "object",
@@ -10748,7 +11375,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_large_blue"
     },
     "table_cloth_large_green_3x3_object_A": {
       "type": "object",
@@ -10765,7 +11393,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_large_green"
     },
     "table_cloth_large_red_3x3_object_A": {
       "type": "object",
@@ -10782,7 +11411,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_large_red"
     },
     "table_cloth_red_3x2_object_A": {
       "type": "object",
@@ -10799,7 +11429,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_cloth_red"
     },
     "table_end_1_dark_1x1_object_A": {
       "type": "object",
@@ -10816,7 +11447,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end_dark"
     },
     "table_end_2_dark_1x1_object_A": {
       "type": "object",
@@ -10833,7 +11465,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end_dark"
     },
     "table_end_3_dark_1x1_object_A": {
       "type": "object",
@@ -10850,7 +11483,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end_dark"
     },
     "table_end_4_dark_2x1_object_A": {
       "type": "object",
@@ -10867,7 +11501,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end_dark"
     },
     "table_end_5_1_2x1_object_A": {
       "type": "object",
@@ -10884,7 +11519,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end"
     },
     "table_end_5_dark_2x1_object_A": {
       "type": "object",
@@ -10901,7 +11537,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_end_dark"
     },
     "table_kitchen_butcher_2x1_object_A": {
       "type": "object",
@@ -10918,7 +11555,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_kitchen_butcher"
     },
     "table_large_round_2x2_object_A": {
       "type": "object",
@@ -10935,7 +11573,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_large_round"
     },
     "table_large_round_rickety_2x2_object_A": {
       "type": "object",
@@ -10952,7 +11591,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_large_round_rickety"
     },
     "table_large_square_2x2_object_A": {
       "type": "object",
@@ -10969,7 +11609,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_large_square"
     },
     "table_large_square_rickety_2x2_object_A": {
       "type": "object",
@@ -10986,7 +11627,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_large_square_rickety"
     },
     "table_long_1_5x2_object_A": {
       "type": "object",
@@ -11003,7 +11645,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_long"
     },
     "table_long_3x1_object_A": {
       "type": "object",
@@ -11020,7 +11663,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_long"
     },
     "table_long_table_cloth_3x1_object_A": {
       "type": "object",
@@ -11037,7 +11681,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_long_table_cloth"
     },
     "table_medium_2x1_object_A": {
       "type": "object",
@@ -11054,7 +11699,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_medium"
     },
     "table_medium_rickety_2x1_object_A": {
       "type": "object",
@@ -11071,7 +11717,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_medium_rickety"
     },
     "table_medium_round_1x1_object_A": {
       "type": "object",
@@ -11088,7 +11735,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_medium_round"
     },
     "table_modular_corner_dark_1x1_object_A": {
       "type": "object",
@@ -11105,7 +11753,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_modular_corner_dark"
     },
     "table_modular_straight_dark_2x1_object_A": {
       "type": "object",
@@ -11122,7 +11771,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_modular_straight_dark"
     },
     "table_rectangle_1_dark_2x1_object_A": {
       "type": "object",
@@ -11139,7 +11789,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_dark"
     },
     "table_rectangle_2_dark_2x1_object_A": {
       "type": "object",
@@ -11156,7 +11807,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_dark"
     },
     "table_rectangle_3_dark_1x1_object_A": {
       "type": "object",
@@ -11173,7 +11825,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_dark"
     },
     "table_rectangle_4_dark_3x2_object_A": {
       "type": "object",
@@ -11190,7 +11843,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_dark"
     },
     "table_rectangle_covered_1_dark_2x1_object_A": {
       "type": "object",
@@ -11207,7 +11861,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_covered_dark"
     },
     "table_rectangle_covered_2_dark_1x1_object_A": {
       "type": "object",
@@ -11224,7 +11879,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rectangle_covered_dark"
     },
     "table_rickety_3x2_object_A": {
       "type": "object",
@@ -11241,7 +11897,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_rickety"
     },
     "table_round_1_dark_2x2_object_A": {
       "type": "object",
@@ -11258,7 +11915,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_round_dark"
     },
     "table_round_2_dark_2x2_object_A": {
       "type": "object",
@@ -11275,7 +11933,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_round_dark"
     },
     "table_round_2x3_object_A": {
       "type": "object",
@@ -11292,7 +11951,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_round"
     },
     "table_round_3_dark_1x1_object_A": {
       "type": "object",
@@ -11309,7 +11969,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_round_dark"
     },
     "table_round_4_dark_1x1_object_A": {
       "type": "object",
@@ -11326,7 +11987,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_round_dark"
     },
     "table_square_3x3_object_A": {
       "type": "object",
@@ -11343,7 +12005,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_square"
     },
     "table_writing_desk_dark_1x1_object_A": {
       "type": "object",
@@ -11360,7 +12023,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "table_writing_desk_dark"
     },
     "tarp_4x3_object_A": {
       "type": "object",
@@ -11377,7 +12041,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp"
     },
     "tarp_blue_4x3_object_A": {
       "type": "object",
@@ -11394,7 +12059,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_blue"
     },
     "tarp_green_4x3_object_A": {
       "type": "object",
@@ -11411,7 +12077,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_green"
     },
     "tarp_large_4x3_object_A": {
       "type": "object",
@@ -11428,7 +12095,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_large"
     },
     "tarp_large_blue_4x3_object_A": {
       "type": "object",
@@ -11445,7 +12113,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_large_blue"
     },
     "tarp_large_green_4x3_object_A": {
       "type": "object",
@@ -11462,7 +12131,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_large_green"
     },
     "tarp_large_red_4x3_object_A": {
       "type": "object",
@@ -11479,7 +12149,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_large_red"
     },
     "tarp_red_4x3_object_A": {
       "type": "object",
@@ -11496,7 +12167,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_red"
     },
     "tarp_tent_bundled_2x1_object_A": {
       "type": "object",
@@ -11513,7 +12185,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_tent_bundled"
     },
     "tarp_tent_bundled_blue_2x1_object_A": {
       "type": "object",
@@ -11530,7 +12203,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_tent_bundled_blue"
     },
     "tarp_tent_bundled_green_2x1_object_A": {
       "type": "object",
@@ -11547,7 +12221,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_tent_bundled_green"
     },
     "tarp_tent_bundled_red_2x1_object_A": {
       "type": "object",
@@ -11564,7 +12239,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tarp_tent_bundled_red"
     },
     "tavern_bar_3x2_object_A": {
       "type": "object",
@@ -11581,7 +12257,8 @@
       "set": "demo-furniture",
       "tags": [
         "furniture"
-      ]
+      ],
+      "family": "tavern_bar"
     },
     "tent_3x3_object_A": {
       "type": "object",
@@ -11598,7 +12275,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent"
     },
     "tent_blue_3x3_object_A": {
       "type": "object",
@@ -11615,7 +12293,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_blue"
     },
     "tent_green_3x3_object_A": {
       "type": "object",
@@ -11632,7 +12311,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_green"
     },
     "tent_large_4x4_object_A": {
       "type": "object",
@@ -11649,7 +12329,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_large"
     },
     "tent_large_blue_4x4_object_A": {
       "type": "object",
@@ -11666,7 +12347,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_large_blue"
     },
     "tent_large_green_4x4_object_A": {
       "type": "object",
@@ -11683,7 +12365,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_large_green"
     },
     "tent_large_red_4x4_object_A": {
       "type": "object",
@@ -11700,7 +12383,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_large_red"
     },
     "tent_narrow_1_2x3_object_A": {
       "type": "object",
@@ -11717,7 +12401,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_narrow"
     },
     "tent_narrow_2_2x2_object_A": {
       "type": "object",
@@ -11734,7 +12419,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_narrow"
     },
     "tent_packed_bundle_1x2_object_A": {
       "type": "object",
@@ -11751,7 +12437,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_packed_bundle"
     },
     "tent_red_3x3_object_A": {
       "type": "object",
@@ -11768,7 +12455,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_red"
     },
     "tent_round_large_pavillion_4x4_object_A": {
       "type": "object",
@@ -11785,7 +12473,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_round_large_pavillion"
     },
     "tent_round_small_3x3_object_A": {
       "type": "object",
@@ -11802,7 +12491,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_round_small"
     },
     "tent_square_1_3x3_object_A": {
       "type": "object",
@@ -11819,7 +12509,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_square"
     },
     "tent_square_2_3x3_object_A": {
       "type": "object",
@@ -11836,7 +12527,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_square"
     },
     "tent_square_3_3x3_object_A": {
       "type": "object",
@@ -11853,7 +12545,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_square"
     },
     "tent_tarp_shade_2x3_object_A": {
       "type": "object",
@@ -11870,7 +12563,8 @@
       "set": "demo-camp",
       "tags": [
         "camp"
-      ]
+      ],
+      "family": "tent_tarp_shade"
     },
     "textiles_1x1_object_A": {
       "type": "object",
@@ -11887,7 +12581,8 @@
       "set": "demo-clutter",
       "tags": [
         "clutter"
-      ]
+      ],
+      "family": "textiles"
     },
     "thatch_roof_4x3_object_A": {
       "type": "object",
@@ -11904,7 +12599,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "thatch_roof"
     },
     "tilting_floor_3x3_object_A": {
       "type": "object",
@@ -11921,7 +12617,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "tilting_floor"
     },
     "tower_round_exterior_6x6_object_A": {
       "type": "object",
@@ -11938,7 +12635,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_round_exterior"
     },
     "tower_round_interior_6x6_object_A": {
       "type": "object",
@@ -11955,7 +12653,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_round_interior"
     },
     "tower_round_prefab_6x6_object_A": {
       "type": "object",
@@ -11972,7 +12671,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_round_prefab"
     },
     "tower_round_roof_6x6_object_A": {
       "type": "object",
@@ -11989,7 +12689,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_round_roof"
     },
     "tower_square_exterior_4x4_object_A": {
       "type": "object",
@@ -12006,7 +12707,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_square_exterior"
     },
     "tower_square_interior_4x5_object_A": {
       "type": "object",
@@ -12023,7 +12725,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_square_interior"
     },
     "tower_square_prefab_4x5_object_A": {
       "type": "object",
@@ -12040,7 +12743,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_square_prefab"
     },
     "tower_square_roof_4x4_object_A": {
       "type": "object",
@@ -12057,7 +12761,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "tower_square_roof"
     },
     "trapdoor_1x1_object_A": {
       "type": "object",
@@ -12074,7 +12779,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "trapdoor"
     },
     "trapdoor_bordered_1x1_object_A": {
       "type": "object",
@@ -12091,7 +12797,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "trapdoor_bordered"
     },
     "tree_isometric_large_green_1_6x6_object_A": {
       "type": "object",
@@ -12108,7 +12815,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_large_green"
     },
     "tree_isometric_large_green_2_6x6_object_A": {
       "type": "object",
@@ -12125,7 +12833,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_large_green"
     },
     "tree_isometric_large_green_3_6x6_object_A": {
       "type": "object",
@@ -12142,7 +12851,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_large_green"
     },
     "tree_isometric_medium_green_1_5x6_object_A": {
       "type": "object",
@@ -12159,7 +12869,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_medium_green"
     },
     "tree_isometric_medium_green_2_5x6_object_A": {
       "type": "object",
@@ -12176,7 +12887,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_medium_green"
     },
     "tree_isometric_medium_green_3_5x6_object_A": {
       "type": "object",
@@ -12193,7 +12905,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_medium_green"
     },
     "tree_isometric_small_green_1_4x4_object_A": {
       "type": "object",
@@ -12210,7 +12923,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_small_green"
     },
     "tree_isometric_small_green_2_4x4_object_A": {
       "type": "object",
@@ -12227,7 +12941,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_small_green"
     },
     "tree_isometric_small_green_3_4x4_object_A": {
       "type": "object",
@@ -12244,7 +12959,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_isometric_small_green"
     },
     "tree_large_1_4x4_object_A": {
       "type": "object",
@@ -12261,7 +12977,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_large"
     },
     "tree_large_2_4x4_object_A": {
       "type": "object",
@@ -12278,7 +12995,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_large"
     },
     "tree_shade_large_4x4_object_A": {
       "type": "object",
@@ -12295,7 +13013,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_shade_large"
     },
     "tree_shade_small_3x3_object_A": {
       "type": "object",
@@ -12312,7 +13031,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_shade_small"
     },
     "tree_small_1_3x3_object_A": {
       "type": "object",
@@ -12329,7 +13049,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_small"
     },
     "tree_small_2_3x3_object_A": {
       "type": "object",
@@ -12346,7 +13067,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_small"
     },
     "tree_top_down_broadleaf_large_green_1_6x6_object_A": {
       "type": "object",
@@ -12363,7 +13085,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_large_green"
     },
     "tree_top_down_broadleaf_large_green_2_6x6_object_A": {
       "type": "object",
@@ -12380,7 +13103,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_large_green"
     },
     "tree_top_down_broadleaf_large_green_3_6x6_object_A": {
       "type": "object",
@@ -12397,7 +13121,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_large_green"
     },
     "tree_top_down_broadleaf_medium_green_1_5x5_object_A": {
       "type": "object",
@@ -12414,7 +13139,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_medium_green"
     },
     "tree_top_down_broadleaf_medium_green_2_5x5_object_A": {
       "type": "object",
@@ -12431,7 +13157,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_medium_green"
     },
     "tree_top_down_broadleaf_medium_green_3_5x5_object_A": {
       "type": "object",
@@ -12448,7 +13175,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_medium_green"
     },
     "tree_top_down_broadleaf_small_green_1_4x5_object_A": {
       "type": "object",
@@ -12465,7 +13193,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_small_green"
     },
     "tree_top_down_broadleaf_small_green_2_4x5_object_A": {
       "type": "object",
@@ -12482,7 +13211,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_small_green"
     },
     "tree_top_down_broadleaf_small_green_3_4x5_object_A": {
       "type": "object",
@@ -12499,7 +13229,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_broadleaf_small_green"
     },
     "tree_top_down_coniferous_large_green_1_6x6_object_A": {
       "type": "object",
@@ -12516,7 +13247,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_large_green"
     },
     "tree_top_down_coniferous_large_green_2_6x6_object_A": {
       "type": "object",
@@ -12533,7 +13265,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_large_green"
     },
     "tree_top_down_coniferous_large_green_3_6x6_object_A": {
       "type": "object",
@@ -12550,7 +13283,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_large_green"
     },
     "tree_top_down_coniferous_small_green_1_4x4_object_A": {
       "type": "object",
@@ -12567,7 +13301,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_small_green"
     },
     "tree_top_down_coniferous_small_green_2_4x4_object_A": {
       "type": "object",
@@ -12584,7 +13319,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_small_green"
     },
     "tree_top_down_coniferous_small_green_3_4x4_object_A": {
       "type": "object",
@@ -12601,7 +13337,8 @@
       "set": "demo-nature",
       "tags": [
         "nature"
-      ]
+      ],
+      "family": "tree_top_down_coniferous_small_green"
     },
     "trip_wire_2x1_object_A": {
       "type": "object",
@@ -12618,7 +13355,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "trip_wire"
     },
     "trophy_antlers_2x1_object_A": {
       "type": "object",
@@ -12635,7 +13373,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_antlers"
     },
     "trophy_bear_1_1x1_object_A": {
       "type": "object",
@@ -12652,7 +13391,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_bear"
     },
     "trophy_deer_2x1_object_A": {
       "type": "object",
@@ -12669,7 +13409,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_deer"
     },
     "trophy_dragon_large_1_2x2_object_A": {
       "type": "object",
@@ -12686,7 +13427,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_dragon_large"
     },
     "trophy_dragon_small_1_1x1_object_A": {
       "type": "object",
@@ -12703,7 +13445,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_dragon_small"
     },
     "trophy_eyeball_1x1_object_A": {
       "type": "object",
@@ -12720,7 +13463,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_eyeball"
     },
     "trophy_fish_1_a_1x1_object_A": {
       "type": "object",
@@ -12737,7 +13481,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_fish"
     },
     "trophy_fish_2_b_1x1_object_A": {
       "type": "object",
@@ -12754,7 +13499,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_fish"
     },
     "trophy_lion_1x1_object_A": {
       "type": "object",
@@ -12771,7 +13517,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_lion"
     },
     "trophy_moose_3x2_object_A": {
       "type": "object",
@@ -12788,7 +13535,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_moose"
     },
     "trophy_tooth_1x1_object_A": {
       "type": "object",
@@ -12805,7 +13553,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_tooth"
     },
     "trophy_wolf_1_1x1_object_A": {
       "type": "object",
@@ -12822,7 +13571,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_wolf"
     },
     "trophy_yeti_2x1_object_A": {
       "type": "object",
@@ -12839,7 +13589,8 @@
       "set": "demo-decor",
       "tags": [
         "decor"
-      ]
+      ],
+      "family": "trophy_yeti"
     },
     "tunic_1x1_object_A": {
       "type": "object",
@@ -12856,7 +13607,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic"
     },
     "tunic_stack_1_2x2_object_A": {
       "type": "object",
@@ -12873,7 +13625,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack"
     },
     "tunic_stack_1_blue_2x2_object_A": {
       "type": "object",
@@ -12890,7 +13643,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_blue"
     },
     "tunic_stack_1_green_2x2_object_A": {
       "type": "object",
@@ -12907,7 +13661,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_green"
     },
     "tunic_stack_1_red_2x2_object_A": {
       "type": "object",
@@ -12924,7 +13679,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_red"
     },
     "tunic_stack_2_2x1_object_A": {
       "type": "object",
@@ -12941,7 +13697,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack"
     },
     "tunic_stack_2_blue_2x1_object_A": {
       "type": "object",
@@ -12958,7 +13715,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_blue"
     },
     "tunic_stack_2_green_2x1_object_A": {
       "type": "object",
@@ -12975,7 +13733,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_green"
     },
     "tunic_stack_2_red_2x1_object_A": {
       "type": "object",
@@ -12992,7 +13751,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "tunic_stack_red"
     },
     "unskilled_spider_s_web_3x2_object_A": {
       "type": "object",
@@ -13009,7 +13769,8 @@
       "set": "demo-effects",
       "tags": [
         "effect"
-      ]
+      ],
+      "family": "unskilled_spider_web"
     },
     "upper_limb_1_1x1_object_A": {
       "type": "object",
@@ -13026,7 +13787,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_2_1x1_object_A": {
       "type": "object",
@@ -13043,7 +13805,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_3_1x1_object_A": {
       "type": "object",
@@ -13060,7 +13823,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_4_1x1_object_A": {
       "type": "object",
@@ -13077,7 +13841,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_5_1x1_object_A": {
       "type": "object",
@@ -13094,7 +13859,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_6_1x1_object_A": {
       "type": "object",
@@ -13111,7 +13877,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_7_1x2_object_A": {
       "type": "object",
@@ -13128,7 +13895,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "upper_limb_8_1x2_object_A": {
       "type": "object",
@@ -13145,7 +13913,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "upper_limb"
     },
     "walkway_corner_4x5_object_A": {
       "type": "object",
@@ -13162,7 +13931,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "walkway_corner"
     },
     "walkway_long_6x3_object_A": {
       "type": "object",
@@ -13179,7 +13949,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "walkway_long"
     },
     "walkway_short_4x3_object_A": {
       "type": "object",
@@ -13196,7 +13967,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "walkway_short"
     },
     "wall_arrowslit_1x1_object_A": {
       "type": "object",
@@ -13213,7 +13985,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "wall_arrowslit"
     },
     "wall_buzzsaw_1x1_object_A": {
       "type": "object",
@@ -13230,7 +14003,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_buzzsaw"
     },
     "wall_chomper_2x2_object_A": {
       "type": "object",
@@ -13247,7 +14021,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_chomper"
     },
     "wall_crystal_1x1_object_A": {
       "type": "object",
@@ -13264,7 +14039,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_crystal"
     },
     "wall_cutter_1x2_object_A": {
       "type": "object",
@@ -13281,7 +14057,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_cutter"
     },
     "wall_flesh_2x1_object_A": {
       "type": "object",
@@ -13298,7 +14075,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_flesh"
     },
     "wall_hatch_1x1_object_A": {
       "type": "object",
@@ -13315,7 +14093,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "wall_hatch"
     },
     "wall_hatch_open_1x1_object_A": {
       "type": "object",
@@ -13332,7 +14111,8 @@
       "set": "demo-door-props",
       "tags": [
         "door"
-      ]
+      ],
+      "family": "wall_hatch_open"
     },
     "wall_holes_1x1_object_A": {
       "type": "object",
@@ -13349,7 +14129,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_holes"
     },
     "wall_short_2x2_object_A": {
       "type": "object",
@@ -13366,7 +14147,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "wall_short"
     },
     "wall_short_2x4_object_A": {
       "type": "object",
@@ -13383,7 +14165,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "wall_short"
     },
     "wall_short_2x6_object_A": {
       "type": "object",
@@ -13400,7 +14183,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "wall_short"
     },
     "wall_spikes_2x1_object_A": {
       "type": "object",
@@ -13417,7 +14201,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_spikes"
     },
     "wall_vent_1x1_object_A": {
       "type": "object",
@@ -13434,7 +14219,8 @@
       "set": "demo-traps",
       "tags": [
         "trap"
-      ]
+      ],
+      "family": "wall_vent"
     },
     "wall_window_1x1_object_A": {
       "type": "object",
@@ -13451,7 +14237,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "wall_window"
     },
     "wardrobe_1_1x1_object_A": {
       "type": "object",
@@ -13468,7 +14255,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe"
     },
     "wardrobe_2_1x2_object_A": {
       "type": "object",
@@ -13485,7 +14273,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe"
     },
     "wardrobe_2x1_object_A": {
       "type": "object",
@@ -13502,7 +14291,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe"
     },
     "wardrobe_3_1x1_object_A": {
       "type": "object",
@@ -13519,7 +14309,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe"
     },
     "wardrobe_4_1x1_object_A": {
       "type": "object",
@@ -13536,7 +14327,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe"
     },
     "wardrobe_short_2x1_object_A": {
       "type": "object",
@@ -13553,7 +14345,8 @@
       "set": "demo-storage",
       "tags": [
         "storage"
-      ]
+      ],
+      "family": "wardrobe_short"
     },
     "water_tub_1_2x1_object_A": {
       "type": "object",
@@ -13570,7 +14363,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "water_tub"
     },
     "water_tub_2_2x2_object_A": {
       "type": "object",
@@ -13587,7 +14381,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "water_tub"
     },
     "water_wash_tub_set_2x2_object_A": {
       "type": "object",
@@ -13604,7 +14399,8 @@
       "set": "demo-features",
       "tags": [
         "feature"
-      ]
+      ],
+      "family": "water_wash_tub_set"
     },
     "weapon_axe_1_1x1_object_A": {
       "type": "object",
@@ -13621,7 +14417,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_axe"
     },
     "weapon_axe_2_1x1_object_A": {
       "type": "object",
@@ -13638,7 +14435,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_axe"
     },
     "weapon_battleaxe_2x2_object_A": {
       "type": "object",
@@ -13655,7 +14453,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_battleaxe"
     },
     "weapon_bow_1x2_object_A": {
       "type": "object",
@@ -13672,7 +14471,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_bow"
     },
     "weapon_crossbow_2x2_object_A": {
       "type": "object",
@@ -13689,7 +14489,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_crossbow"
     },
     "weapon_dagger_1x1_object_A": {
       "type": "object",
@@ -13706,7 +14507,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_dagger"
     },
     "weapon_falchion_1x2_object_A": {
       "type": "object",
@@ -13723,7 +14525,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_falchion"
     },
     "weapon_greataxe_1x2_object_A": {
       "type": "object",
@@ -13740,7 +14543,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_greataxe"
     },
     "weapon_greatsword_1x2_object_A": {
       "type": "object",
@@ -13757,7 +14561,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_greatsword"
     },
     "weapon_hammer_pick_1x1_object_A": {
       "type": "object",
@@ -13774,7 +14579,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_hammer_pick"
     },
     "weapon_handaxe_1x1_object_A": {
       "type": "object",
@@ -13791,7 +14597,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_handaxe"
     },
     "weapon_longsword_1x2_object_A": {
       "type": "object",
@@ -13808,7 +14615,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_longsword"
     },
     "weapon_lute_1x2_object_A": {
       "type": "object",
@@ -13825,7 +14633,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_lute"
     },
     "weapon_maul_1x2_object_A": {
       "type": "object",
@@ -13842,7 +14651,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_maul"
     },
     "weapon_polearm_1x2_object_A": {
       "type": "object",
@@ -13859,7 +14669,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_polearm"
     },
     "weapon_rack_1_dark_1x1_object_A": {
       "type": "object",
@@ -13876,7 +14687,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_rack_dark"
     },
     "weapon_rack_2_dark_1x1_object_A": {
       "type": "object",
@@ -13893,7 +14705,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_rack_dark"
     },
     "weapon_rapier_1x2_object_A": {
       "type": "object",
@@ -13910,7 +14723,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_rapier"
     },
     "weapon_scimitar_1x2_object_A": {
       "type": "object",
@@ -13927,7 +14741,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_scimitar"
     },
     "weapon_shield_1_1x1_object_A": {
       "type": "object",
@@ -13944,7 +14759,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_shield"
     },
     "weapon_shield_2_1x1_object_A": {
       "type": "object",
@@ -13961,7 +14777,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_shield"
     },
     "weapon_shortsword_1x1_object_A": {
       "type": "object",
@@ -13978,7 +14795,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_shortsword"
     },
     "weapon_sword_1_1x1_object_A": {
       "type": "object",
@@ -13995,7 +14813,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_sword"
     },
     "weapon_sword_2_1x1_object_A": {
       "type": "object",
@@ -14012,7 +14831,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_sword"
     },
     "weapon_sword_3_1x2_object_A": {
       "type": "object",
@@ -14029,7 +14849,8 @@
       "set": "demo-gear",
       "tags": [
         "gear"
-      ]
+      ],
+      "family": "weapon_sword"
     },
     "window_1_2x1_object_A": {
       "type": "object",
@@ -14046,7 +14867,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "window"
     },
     "window_2_1x1_object_A": {
       "type": "object",
@@ -14063,7 +14885,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "window"
     },
     "window_3_3x1_object_A": {
       "type": "object",
@@ -14080,7 +14903,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "window"
     },
     "window_4_1x1_object_A": {
       "type": "object",
@@ -14097,7 +14921,8 @@
       "set": "demo-structures",
       "tags": [
         "structure"
-      ]
+      ],
+      "family": "window"
     }
   },
   "atlases": {},

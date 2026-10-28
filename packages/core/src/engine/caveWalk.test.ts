@@ -55,3 +55,27 @@ describe('walkClosed', () => {
     }
   });
 });
+
+describe('walkClosed options the live band uses', () => {
+  const curve = circle(7);
+  const firstOf = (r: ReturnType<typeof walkClosed>): Vec => r.placed[0].P;
+  const lastOf = (r: ReturnType<typeof walkClosed>): Vec => r.placed[r.placed.length - 1].Q;
+
+  it('closes onto the first piece end to end by default (the solver fixture relies on it)', () => {
+    const r = walkClosed(curve, caveBandPieces());
+    expect(dist(lastOf(r), firstOf(r))).toBeLessThan(1e-9);
+  });
+
+  it('with lap, runs the closing piece past the first piece by the overlap', () => {
+    const r = walkClosed(curve, caveBandPieces(), { lap: true });
+    expect(r.holes).toEqual([]);
+    expect(dist(lastOf(r), firstOf(r))).toBeGreaterThan(0.2);
+    expect(dist(lastOf(r), firstOf(r))).toBeLessThan(0.45);
+  });
+
+  it('keeps every piece to the stretch budget with splits and fill on', () => {
+    const r = walkClosed(curve, caveBandPieces(), { lap: true, splits: 4, fill: true });
+    expect(r.holes).toEqual([]);
+    for (const pl of r.placed) expect(Math.abs(pl.at.scale - 1)).toBeLessThanOrEqual(0.12);
+  });
+});

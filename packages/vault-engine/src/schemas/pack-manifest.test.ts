@@ -42,6 +42,15 @@ describe('PackManifestSchema', () => {
     expect(PackManifestSchema.safeParse(rest).success).toBe(false);
   });
 
+  it('keeps the family key on an entry', () => {
+    const withFamily = {
+      ...VALID_MANIFEST,
+      entries: { crate_1_1x1_object_A: { ...Object.values(VALID_MANIFEST.entries)[0], type: 'object', family: 'crate' } },
+    };
+    const parsed = PackManifestSchema.parse(withFamily);
+    expect(parsed.entries['crate_1_1x1_object_A']!.family).toBe('crate');
+  });
+
   it('rejects entry with invalid type', () => {
     const bad = {
       ...VALID_MANIFEST,

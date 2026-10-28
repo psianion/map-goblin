@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1241,6 +1241,674 @@
       "tags": [
         "fantasy"
       ]
+    },
+    "bank-grassy-01-a1": {
+      "type": "water",
+      "material": "bank-grassy-01-a1",
+      "gridSize": "2x1",
+      "pieceType": "bank",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "water",
+      "tags": [
+        "bank",
+        "placeholder"
+      ]
+    },
+    "bit_2x1_object_A": {
+      "type": "object",
+      "material": "bit",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "bit_2x2_object_A": {
+      "type": "object",
+      "material": "bit",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "cave_floor_8x8_floor_A": {
+      "type": "floor",
+      "material": "cave_floor",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Cave_Floor",
+      "tags": [
+        "cave",
+        "stone"
+      ]
+    },
+    "doorkit-cave-hinge": {
+      "type": "door",
+      "material": "doorkit-cave-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-cave-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-jamb": {
+      "type": "door",
+      "material": "doorkit-cave-jamb",
+      "gridSize": "1x1",
+      "pieceType": "jamb",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 280,
+        "h": 544
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-latch": {
+      "type": "door",
+      "material": "doorkit-cave-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-tile-a": {
+      "type": "door",
+      "material": "doorkit-cave-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-tile-b": {
+      "type": "door",
+      "material": "doorkit-cave-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-hinge": {
+      "type": "door",
+      "material": "doorkit-stone-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-stone-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-latch": {
+      "type": "door",
+      "material": "doorkit-stone-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-tile-a": {
+      "type": "door",
+      "material": "doorkit-stone-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-tile-b": {
+      "type": "door",
+      "material": "doorkit-stone-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-hinge": {
+      "type": "door",
+      "material": "doorkit-wood-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-wood-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-latch": {
+      "type": "door",
+      "material": "doorkit-wood-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-tile-a": {
+      "type": "door",
+      "material": "doorkit-wood-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-tile-b": {
+      "type": "door",
+      "material": "doorkit-wood-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "inside_bend_2x2_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "inside_bend_3x2_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "3x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "inside_bend_3x3_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "inside_bend_4x4_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "4x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "inside_bend_5x3_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "5x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "ledge_1x2_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "ledge_1x4_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "ledge_1x6_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_2x2_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_3x2_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "3x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_3x3_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_4x4_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "4x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_5x3_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "5x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "outside_bend_5x5_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "5x5",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "wall_short_2x2_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "wall_short_2x4_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "wall_short_2x6_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ]
+    },
+    "water-still-a-01": {
+      "type": "water",
+      "material": "water-still-a-01",
+      "gridSize": "2x2",
+      "pieceType": "surface",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "water",
+      "tags": [
+        "water",
+        "placeholder"
+      ]
     }
   },
   "atlases": {
@@ -1261,6 +1929,159 @@
       "size": 94228
     }
   },
-  "files": {},
-  "bundleSize": 285552
+  "files": {
+    "bank-grassy-01-a1_2x1_A-8dc740f6.webp": {
+      "checksum": "sha256:8dc740f63cb802e73f4c3db296814271150cac10b9a370e74620d0a256b602cf",
+      "size": 14576
+    },
+    "bit_2x1_A-e6020db0.webp": {
+      "checksum": "sha256:e6020db051c69ec5232ac1ee5de0d6abc348c458362bd2544d0b3f576a340b97",
+      "size": 9542
+    },
+    "bit_2x2_A-088e3bf5.webp": {
+      "checksum": "sha256:088e3bf5fb9c1d46f53824f5f3cea55abeaea595dcf8c093e8479738389649e0",
+      "size": 20876
+    },
+    "cave_floor_8x8_A-2afd5eb3.webp": {
+      "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
+      "size": 160988
+    },
+    "doorkit-cave-hinge-plain_1x1_A-28d2bbd4.webp": {
+      "checksum": "sha256:28d2bbd425dc9524567ba27e03d11e58f7d9d58645154363e9c027178ce60697",
+      "size": 914
+    },
+    "doorkit-cave-hinge_1x1_A-ffa8e34c.webp": {
+      "checksum": "sha256:ffa8e34cce5eadba88d4f3c9d1092dc016437d849e4fa2a76aabfa765bfe1119",
+      "size": 1034
+    },
+    "doorkit-cave-jamb_1x1_A-a999b293.webp": {
+      "checksum": "sha256:a999b293217be78f4e7ea19e76c06981ead43e2e5e32f29d311da2eaf846a10a",
+      "size": 4938
+    },
+    "doorkit-cave-latch_1x1_A-1200be1a.webp": {
+      "checksum": "sha256:1200be1ac2ef521c1d9e90e92028939b996221926f71f694387f35b82d048be9",
+      "size": 2076
+    },
+    "doorkit-cave-tile-a_1x1_A-fb81e406.webp": {
+      "checksum": "sha256:fb81e406f509e4e380eae4795d6a2bcb91522a3bf4546dfa1fbc4b28025afabd",
+      "size": 1570
+    },
+    "doorkit-cave-tile-b_1x1_A-b1dffded.webp": {
+      "checksum": "sha256:b1dffded9e8ca106821dd78db65e6228854ac09effe948aa7253e5bd628d9511",
+      "size": 1814
+    },
+    "doorkit-stone-hinge-plain_1x1_A-c51188aa.webp": {
+      "checksum": "sha256:c51188aa901c0a7c0056992703420373ea2ffcb6c70bb98a1e07d22f70aaf514",
+      "size": 512
+    },
+    "doorkit-stone-hinge_1x1_A-2018dee3.webp": {
+      "checksum": "sha256:2018dee34281c15e7a79e04057df372d491395bddc532e7f54f6d359282752a6",
+      "size": 804
+    },
+    "doorkit-stone-latch_1x1_A-36c24dff.webp": {
+      "checksum": "sha256:36c24dff2996b06a3d9bea75199309c7da0030b0accb4e6409d836634e526449",
+      "size": 1068
+    },
+    "doorkit-stone-tile-a_1x1_A-57cae151.webp": {
+      "checksum": "sha256:57cae151869ed47339d55aa6d377ba8a5306e28aea92cd0c0f732771c6842d25",
+      "size": 1132
+    },
+    "doorkit-stone-tile-b_1x1_A-341cf6cf.webp": {
+      "checksum": "sha256:341cf6cfd806232259bd808033fd6215b1e3e04b25c91dc8f5de48c9d702ed1c",
+      "size": 1222
+    },
+    "doorkit-wood-hinge-plain_1x1_A-4b9d9e64.webp": {
+      "checksum": "sha256:4b9d9e6438f409acd358e0e3e9aa9fb20f8a28de097454fa2ef244c5f2e6e3c3",
+      "size": 628
+    },
+    "doorkit-wood-hinge_1x1_A-a1855a18.webp": {
+      "checksum": "sha256:a1855a1888a01b4d490f73770a81aa8060d7487eaf4d251707370e3f3aadda30",
+      "size": 1488
+    },
+    "doorkit-wood-latch_1x1_A-43f782de.webp": {
+      "checksum": "sha256:43f782dec9ac0904f0555e9e63ea3a1cf9d41ea574e7325405c3ab559156317e",
+      "size": 1726
+    },
+    "doorkit-wood-tile-a_1x1_A-61bc6cfe.webp": {
+      "checksum": "sha256:61bc6cfe27287a91a0d4a1b2fabe9ae7e5e720d438707895afbf05b77bef7c0a",
+      "size": 780
+    },
+    "doorkit-wood-tile-b_1x1_A-b91770f7.webp": {
+      "checksum": "sha256:b91770f780e26765fd8e15657bfa25517e2c566e734d650806f31d834593bf7f",
+      "size": 902
+    },
+    "inside_bend_2x2_A-e2335a6e.webp": {
+      "checksum": "sha256:e2335a6e6094097d2b3c1b4fc249d2d99012c147ff915a07f0a2456ba72ed004",
+      "size": 22414
+    },
+    "inside_bend_3x2_A-b66cefb9.webp": {
+      "checksum": "sha256:b66cefb92517f8715498495daada3799af537ebe4416897a81dfdca543a70b05",
+      "size": 29478
+    },
+    "inside_bend_3x3_A-a2c5219d.webp": {
+      "checksum": "sha256:a2c5219d17cebca36217311e734e2bb6d945b1abf3fa1327f4a5da3380441138",
+      "size": 30866
+    },
+    "inside_bend_4x4_A-c1e89da0.webp": {
+      "checksum": "sha256:c1e89da03f4f66e78c9bbf9980080aba0446d3e7a39cc8c44568b04567af8da0",
+      "size": 47166
+    },
+    "inside_bend_5x3_A-f5f599b2.webp": {
+      "checksum": "sha256:f5f599b2a59f8cfece5b475f470e68ecab2e1b8ba12708e43aeda4708085ba67",
+      "size": 49524
+    },
+    "ledge_1x2_A-1eedd3bb.webp": {
+      "checksum": "sha256:1eedd3bbfc8d002be40aaae4648539a4dd0f71f752aee3ea86a3244266e297f9",
+      "size": 16958
+    },
+    "ledge_1x4_A-e509301e.webp": {
+      "checksum": "sha256:e509301e2e777f20dd9b9e073a552890ced39370293bead30e3621b38cc81259",
+      "size": 29988
+    },
+    "ledge_1x6_A-ba67ef5b.webp": {
+      "checksum": "sha256:ba67ef5b326ce275dbf970d537d1f534e7eecdfcb6220a35ba1f00ebc0b5cef2",
+      "size": 40008
+    },
+    "outside_bend_2x2_A-a95f4649.webp": {
+      "checksum": "sha256:a95f46492011bd9c91e5ff179834a7b1168c5cc7058ae5537dbff583f0719dd4",
+      "size": 20490
+    },
+    "outside_bend_3x2_A-9fce129a.webp": {
+      "checksum": "sha256:9fce129a4031da4f6b2c324d98c54133362a3e5d4eba3ec41fadc67ddb731bdb",
+      "size": 27614
+    },
+    "outside_bend_3x3_A-ef662bcf.webp": {
+      "checksum": "sha256:ef662bcfc7265bb77dafe92a4bf96481efc48cede999ad24019da8f00219b160",
+      "size": 35736
+    },
+    "outside_bend_4x4_A-4c5ba7c8.webp": {
+      "checksum": "sha256:4c5ba7c8dda2c4641c67253de1dfaa9cf107867f4b7ca929adcb799c6da62d99",
+      "size": 51582
+    },
+    "outside_bend_5x3_A-ada1e416.webp": {
+      "checksum": "sha256:ada1e416a2dbfd18b6cda156764c2d591ffd8fd0f58f92b1463e1c5e2ff783c5",
+      "size": 46218
+    },
+    "outside_bend_5x5_A-c96de146.webp": {
+      "checksum": "sha256:c96de146500c3e6630fc8f60c4781d9b69f8221c2c0912f39250838d7ea224fd",
+      "size": 61122
+    },
+    "wall_short_2x2_A-479bf070.webp": {
+      "checksum": "sha256:479bf07087d4be26efa0b0ab6bbd36eb07197913c6b6a597efce5bef59fc74a1",
+      "size": 20316
+    },
+    "wall_short_2x4_A-e68b090a.webp": {
+      "checksum": "sha256:e68b090a0c0a8cb290a6a53e836c24fde43ee58ced7946382fa94e6480e85859",
+      "size": 41812
+    },
+    "wall_short_2x6_A-dac3f2b8.webp": {
+      "checksum": "sha256:dac3f2b8e21beec51036fe4171c8c41a34b23258c6bd4b6908d3d9aaf31d031d",
+      "size": 58820
+    },
+    "water-still-a-01_2x2_A-69f84bfe.webp": {
+      "checksum": "sha256:69f84bfee06eacb3617d230cc50bfb3dddde6a1a3451b971eca0de78ab1e7bbf",
+      "size": 1688
+    }
+  },
+  "bundleSize": 1145942
 }

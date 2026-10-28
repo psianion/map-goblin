@@ -1,7 +1,7 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
-import type { ConnectorChild, DoorChild, DungeonLayer } from '../../store/types';
+import type { AnyChild, DoorChild, DungeonLayer } from '../../store/types';
 import type { DoorState, DoorStyle } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
@@ -14,16 +14,12 @@ import {
 } from '../../shared/wallResolve';
 import { renderResolvedDoor } from '../doorRenderer';
 import { bindDoorToRooms } from '../../shared/roomBinding';
-import {
-  bindConnectorToRooms,
-  connectorKindForStyle,
-  connectorStyle,
-  nextAuthoredName,
-} from '../../shared/authoredRooms';
-import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS, getChildBounds } from '../hitTest';
+import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
+import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
+import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '../../store/doorwayCommands';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
 
@@ -67,10 +63,9 @@ const GHOST_ALPHA = 0.5;
 const INVALID_TINT = 0xcc3344;
 
 /**
- * World-unit step the ghost's rebuild key quantizes to. Same trick as
- * `StampScatterTool`'s `POSITION_QUANTIZE`, but keyed on the *snapped* door
- * rather than the cursor: sliding along a wall inside a quarter cell, or moving
- * perpendicular to one at all, changes nothing that is drawn.
+ * World-unit step the ghost's rebuild key quantizes to. Keyed on the *snapped*
+ * door rather than the cursor: sliding along a wall inside a quarter cell, or
+ * moving perpendicular to one at all, changes nothing that is drawn.
  */
 const GHOST_QUANTIZE = 0.25;
 
@@ -131,99 +126,24 @@ export function clampDoorWidth(width: number, style: DoorStyle, wallLength: numb
   return Math.max(minDoorWidth(style), Math.min(width, wallLength));
 }
 
-/** Blob thickness across the seam, world units — a joint is a doorway, not a room. */
-const BLOB_WIDTH = 1;
-
-/** Shortest joint a drag can commit — a deliberate short drag still reads as one. */
-const BLOB_MIN_LENGTH = 0.8;
-
 /**
- * How far a placement press must pull before it stops meaning the leaf the
- * ghost shows and starts meaning a joint. Half {@link BLOB_MIN_LENGTH}: a
- * wobbly click near a wall must stay a click, and a pull this long already
- * reads as drawing something.
- */
-const LEAF_DRAG_SLOP = 0.4;
-
-/** Ellipse resolution. Enough to read as a blob, few enough to stay cheap in the overlay. */
-const BLOB_SEGMENTS = 16;
-
-/** Blob ghost is the "not committed yet" muted tone — see ZoneTool. */
-const MUTED_COLOR = 0x94a3b8;
-const BLOB_GHOST_ALPHA = 0.6;
-
-/**
- * The blob a drag from `start` to `end` describes: an ellipse whose long axis is
- * the drag. The drag direction is the axis the door crosses the seam on, which is
- * also the principal axis its glyph anchors to downstream (C3).
- */
-export function connectorBlob(start: Point, end: Point): [number, number][] {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const dragged = Math.hypot(dx, dy);
-  const angle = dragged === 0 ? 0 : Math.atan2(dy, dx);
-  const a = Math.max(BLOB_MIN_LENGTH, dragged) / 2;
-  const b = BLOB_WIDTH / 2;
-  const cx = (start.x + end.x) / 2;
-  const cy = (start.y + end.y) / 2;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const ring: [number, number][] = [];
-  for (let i = 0; i < BLOB_SEGMENTS; i++) {
-    const t = (i / BLOB_SEGMENTS) * Math.PI * 2;
-    const ex = Math.cos(t) * a;
-    const ey = Math.sin(t) * b;
-    ring.push([cx + ex * cos - ey * sin, cy + ex * sin + ey * cos]);
-  }
-  return ring;
-}
-
-function translateContours(
-  contours: [number, number][][],
-  dx: number,
-  dy: number,
-): [number, number][][] {
-  return contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
-}
-
-/**
- * A blob door with everything but its id and name — the ghost's bind probe and
- * the commit read the same draft, the way `plan()` serves the wall anchor.
- */
-function blobDraft(ring: [number, number][], style: DoorStyle, isSecret: boolean): ConnectorChild {
-  return {
-    id: '',
-    name: '',
-    childType: 'connector',
-    visible: true,
-    style,
-    kind: connectorKindForStyle(style),
-    // An archway is always open — the archway machinery forces it anyway (C1),
-    // so authoring one closed would only be a lie in the layers panel.
-    state: style === 'archway' ? 'open' : 'closed',
-    isSecret,
-    contours: [ring],
-  };
-}
-
-/**
- * Topmost blob door whose bounds contain `point`, or null.
+ * The next free `"{prefix} {n}"` on a layer.
  *
- * Bounds, not the ring: a joint is small prep geometry and `hitTestChildren` has
- * no 'connector' case (the deliberate omission zones have too), so this tool owns
- * every interaction with one.
+ * Counting how many already exist gets this wrong the moment one is deleted:
+ * place two, delete the first, place again and the count says 2 — a second
+ * "Single 2", and now the layers panel and the DM's own notes name two
+ * different doors the same thing. Reading the highest number actually in use
+ * instead means a name is only ever handed out once per layer.
  */
-function blobAt(point: Point, layer: DungeonLayer): ConnectorChild | null {
-  const items = layer.children.filter(
-    (c): c is ConnectorChild => c.childType === 'connector' && c.visible,
-  );
-  for (let i = items.length - 1; i >= 0; i--) {
-    const b = getChildBounds(items[i]);
-    if (point.x >= b.x && point.x <= b.x + b.width && point.y >= b.y && point.y <= b.y + b.height) {
-      return items[i];
-    }
+export function nextAuthoredName(children: readonly AnyChild[], prefix: string): string {
+  const pattern = new RegExp(`^${prefix} (\\d+)$`);
+  let highest = 0;
+  for (const child of children) {
+    // NaN when the name is not `"{prefix} {digits}"` at all, and NaN > n is false.
+    const n = Number(pattern.exec(child.name)?.[1]);
+    if (n > highest) highest = n;
   }
-  return null;
+  return `${prefix} ${highest + 1}`;
 }
 
 /** What a click would place, and whether it would be allowed to. */
@@ -270,24 +190,9 @@ function anchorOf(door: DoorChild): DoorAnchor {
   };
 }
 
-/**
- * Walls a leaf door can hang on. A drawn room's boundary is promoted into
- * `resolveWalls` as an occluder, and on an authored map those ring edges run
- * exactly where the seams are — snap to them and the wall-door path wins the
- * placement fork everywhere a blob belongs, making the blob unreachable at the
- * one place it exists for. The seam takes a blob; a jamb takes a real wall.
- *
- * On an authored-rooms layer the floor rings are out too: their promoted edges
- * hug the same seams the drawn boundaries do (the live bridge floor edge sits
- * 0.65wu from its seam), and a leaf door snapped there binds half a room and
- * steals the fork from the blob all over again. A detection-mode map keeps its
- * floor-ring doors exactly as before.
- */
+/** Walls a door can hang on: every resolved wall, standalone and floor ring alike. */
 function doorSnapWalls(layer: DungeonLayer): ResolvedWall[] {
-  const authored = layer.children.some((c) => c.childType === 'room');
-  return resolveWalls(layer).filter(
-    (w) => w.kind !== 'room' && (!authored || w.kind !== 'floor'),
-  );
+  return resolveWalls(layer);
 }
 
 function activeDungeonLayer(): DungeonLayer | undefined {
@@ -307,8 +212,6 @@ export class DoorTool implements DrawingTool {
   snapResult: WallSnapResult | null = null;
   /** Door under the cursor — the Delete target when nothing is selected. */
   hoveredDoorId: string | null = null;
-  /** Blob door under the cursor, same job for the other anchor. */
-  hoveredBlobId: string | null = null;
 
   private lastClick: { point: Point; time: number } | null = null;
   /** Door under a held pointer, and where the press started. */
@@ -316,36 +219,24 @@ export class DoorTool implements DrawingTool {
   private pressPoint: Point | null = null;
   /** Set once the press passes `DRAG_SLOP`; holds what to put back on Escape/undo. */
   private dragFrom: DoorAnchor | null = null;
+  /** The layer as the slide found it, and the last point slid to inside the door's doorway. */
+  private dragLayerFrom: DungeonLayer | null = null;
+  private sealAt: [number, number] | null = null;
   /** Holds the placement ghost. Owned here, parented to the shared preview layer. */
   private ghost: Container;
   /** What the ghost currently shows, quantized; null when it is empty. */
   private ghostKey: string | null = null;
 
-  /** Blob door under a held pointer, and the contours to restore on Escape/undo. */
-  private pressedBlobId: string | null = null;
-  private blobDragFrom: [number, number][][] | null = null;
-  /** A placement drag with no wall in range: where it started, and where it is now. */
-  /** The leaf a click will commit on release — nulled the moment the press becomes a drag. */
+  /** The leaf a placement press will commit on release. */
   private pendingLeaf: DoorPlan | null = null;
-  private blobStart: Point | null = null;
-  private blobCurrent: Point | null = null;
-  /** Layer the placement drag started on — see RectangleTool for why. */
-  private blobLayerId: string | null = null;
-  private blobGhost: Graphics;
-  private blobGhostDrawn = false;
-  /** Quantized drag the bind was last run for, and what it said. */
-  private blobBindKey: string | null = null;
-  private blobBound = false;
+  /** Layer the placement press started on — see RectangleTool for why. */
+  private placeLayerId: string | null = null;
 
   constructor(previewContainer: Container) {
     this.ghost = new Container();
     this.ghost.label = 'doorGhost';
     this.ghost.alpha = GHOST_ALPHA;
     previewContainer.addChild(this.ghost);
-    this.blobGhost = new Graphics();
-    this.blobGhost.label = 'doorBlobGhost';
-    this.blobGhost.alpha = BLOB_GHOST_ALPHA;
-    previewContainer.addChild(this.blobGhost);
   }
 
   onPointerDown(point: Point): void {
@@ -370,41 +261,6 @@ export class DoorTool implements DrawingTool {
     }
     const locked = reason === 'Layer is locked';
 
-    // Blob doors sit under the wall-door test: a joint is drawn away from any
-    // wall, so the two never compete, and testing bounds first keeps a joint
-    // clickable anywhere inside it rather than only near its centre.
-    const blob = blobAt(point, activeLayer);
-    if (blob) {
-      if (isDoubleClick(this.lastClick, point, Date.now())) {
-        if (locked) {
-          notify.warning('Layer is locked');
-          return;
-        }
-        this.lastClick = null;
-        this.pressedBlobId = null;
-        this.pressPoint = null;
-        // An archway is a permanent opening and its panel hides the state row —
-        // there is nothing here to cycle it to.
-        if (connectorStyle(blob) === 'archway') return;
-        undoManager.execute(
-          new UpdateChildCommand(
-            'Cycle door',
-            activeLayerId,
-            blob.id,
-            { state: blob.state },
-            { state: NEXT_STATE[blob.state] ?? 'closed' },
-          ),
-        );
-        return;
-      }
-      // Selecting works on a locked layer so the panel can inspect it (DR10).
-      store.setSelectedIds([blob.id]);
-      this.lastClick = { point, time: Date.now() };
-      this.pressedBlobId = blob.id;
-      this.pressPoint = point;
-      return;
-    }
-
     const hit = doorAt(point, activeLayer);
     if (hit) {
       // Second click of a double cycles the state; the first already selected the
@@ -417,8 +273,8 @@ export class DoorTool implements DrawingTool {
         this.lastClick = null;
         this.pressedDoorId = null;
         this.pressPoint = null;
-        // Same no-op an archway blob gets — a permanent opening has no state
-        // to cycle, and its panel hides the row a cycle would write to.
+        // A permanent opening has no state to cycle, and its panel hides the
+        // row a cycle would write to.
         if (hit.style === 'archway') return;
         undoManager.execute(
           new UpdateChildCommand(
@@ -467,18 +323,14 @@ export class DoorTool implements DrawingTool {
     // nothing: two identical clicks were needed for one door. Touch never
     // hovers at all, so it could not place a door by any number of taps.
     this.snapResult = snapToNearestWall([point.x, point.y], allWalls, SNAP_THRESHOLD);
-    // From here the gesture decides the anchor. A wall in snap range means the
-    // leaf the ghost has been promising — but walls and floor edges hug the
-    // very seams blobs exist for (the live bridge chord sits 1.2wu from its
-    // seam), so committing the leaf on the press foreclosed the joint
-    // everywhere near one. The leaf now lands on release, where a click and a
-    // drag have become tellable: a click takes the leaf, a drag is a joint
-    // even with a wall in range.
+    // A wall in snap range means the leaf the ghost has been promising; it lands
+    // on release. No wall in range places nothing.
     this.pendingLeaf = this.snapResult ? this.plan(activeLayer, allWalls) : null;
-    if (!this.pendingLeaf) this.clearGhost();
-    this.blobStart = point;
-    this.blobCurrent = point;
-    this.blobLayerId = activeLayerId;
+    if (!this.pendingLeaf) {
+      this.clearGhost();
+      return;
+    }
+    this.placeLayerId = activeLayerId;
   }
 
   /** The release of a placement press that stayed a click: the leaf the ghost showed. */
@@ -489,9 +341,7 @@ export class DoorTool implements DrawingTool {
     const door: DoorChild = {
       ...plan.door,
       id: crypto.randomUUID(),
-      // L6: auto-named by style — "Portcullis 1", "Archway 2". Counted over every
-      // child so both anchors share one counter: a joint and a wall door of the
-      // same style can't end up both called "Single 2".
+      // L6: auto-named by style — "Portcullis 1", "Archway 2".
       name: nextAuthoredName(layer.children, doorStyleLabel(plan.door.style)),
     };
 
@@ -593,7 +443,7 @@ export class DoorTool implements DrawingTool {
     // slide the door itself is tracking the cursor: either way a placement
     // ghost would be a lie.
     const plan =
-      this.hoveredDoorId || this.hoveredBlobId || this.dragFrom || layer.locked
+      this.hoveredDoorId || this.dragFrom || layer.locked
         ? null
         : this.plan(layer, doorSnapWalls(layer));
     if (!plan) {
@@ -629,118 +479,6 @@ export class DoorTool implements DrawingTool {
     this.ghostKey = null;
   }
 
-  /**
-   * Draws the blob the drag would commit, red when it joins fewer than two rooms.
-   *
-   * Red here is not a refusal — the release still commits, because a joint drawn
-   * a shade short of a room is a fixable authoring state the overlay already
-   * flags, not a placement the tool should silently swallow. (Wall doors keep
-   * refusing their own invalid placements; those are unfixable in place.)
-   *
-   * The bind is a Clipper2 boolean per candidate room, so it runs on the same
-   * quantized step the wall ghost keys on rather than once per pointer move; the
-   * outline itself still tracks the cursor exactly.
-   */
-  private updateBlobGhost(layer: DungeonLayer): void {
-    if (!this.blobStart || !this.blobCurrent) return;
-    const ring = connectorBlob(this.blobStart, this.blobCurrent);
-    const key = [this.blobStart.x, this.blobStart.y, this.blobCurrent.x, this.blobCurrent.y]
-      .map((n) => Math.round(n / GHOST_QUANTIZE))
-      .join(':');
-    if (key !== this.blobBindKey) {
-      this.blobBindKey = key;
-      const rooms = layer.rooms ?? [];
-      // Fewer than two rooms can never make a pair, and the early out keeps the
-      // ghost off Clipper entirely on a map with nothing yet drawn to join.
-      const bound =
-        rooms.length >= 2 ? bindConnectorToRooms(blobDraft(ring, 'single', false), rooms) : null;
-      this.blobBound = bound !== null && bound.roomA !== null && bound.roomB !== null;
-    }
-
-    const color = this.blobBound ? MUTED_COLOR : INVALID_TINT;
-    this.blobGhost.clear();
-    this.blobGhostDrawn = true;
-    this.blobGhost.poly(ring.flat());
-    this.blobGhost.fill({ color, alpha: 0.25 });
-    this.blobGhost.poly(ring.flat());
-    this.blobGhost.stroke({ color, width: 0.05, alpha: 0.85 });
-  }
-
-  private clearBlobGhost(): void {
-    this.blobBindKey = null;
-    if (!this.blobGhostDrawn) return;
-    this.blobGhost.clear();
-    this.blobGhostDrawn = false;
-  }
-
-  /** Live-drags the pressed blob; `onPointerUp` replays it as one undo entry. */
-  private dragBlobTo(point: Point, layer: DungeonLayer): void {
-    const blob = layer.children.find(
-      (c): c is ConnectorChild => c.id === this.pressedBlobId && c.childType === 'connector',
-    );
-    if (!blob || !this.pressPoint) return;
-
-    this.blobDragFrom ??= blob.contours;
-    const contours = translateContours(
-      this.blobDragFrom,
-      point.x - this.pressPoint.x,
-      point.y - this.pressPoint.y,
-    );
-    useStore.getState().updateChild(layer.id, blob.id, { contours });
-  }
-
-  /** The release of a press that started on a blob: one move entry, or nothing. */
-  private commitBlobMove(): void {
-    const from = this.blobDragFrom;
-    const id = this.pressedBlobId;
-    this.pressedBlobId = null;
-    this.pressPoint = null;
-    this.blobDragFrom = null;
-    if (!from || !id) return;
-
-    const layer = activeDungeonLayer();
-    const moved = layer?.children.find(
-      (c): c is ConnectorChild => c.id === id && c.childType === 'connector',
-    );
-    if (!layer || !moved) return;
-    const to = moved.contours;
-    useStore.getState().updateChild(layer.id, id, { contours: from });
-    undoManager.execute(
-      new UpdateChildCommand('Move door', layer.id, id, { contours: from }, { contours: to }),
-    );
-  }
-
-  /** The release of a placement drag that found no wall: commit the blob. */
-  private commitBlobPlacement(point: Point): void {
-    const start = this.blobStart;
-    const layerId = this.blobLayerId;
-    this.blobStart = null;
-    this.blobCurrent = null;
-    this.blobLayerId = null;
-    this.clearBlobGhost();
-    if (!start || !layerId) return;
-    // A press that never became a drag is a click on empty ground — the press
-    // already cleared the selection, and minting a minimum-length joint from
-    // pointer noise is exactly the accident a merged tool must not have.
-    if (Math.hypot(point.x - start.x, point.y - start.y) <= DRAG_SLOP) return;
-
-    const layer = resolveEditableLayer(layerId);
-    if (!layer) return;
-
-    const settings = useStore.getState().tools.settings;
-    const style = settings.doorStyle ?? 'single';
-    const blob: ConnectorChild = {
-      ...blobDraft(connectorBlob(start, point), style, settings.doorSecret ?? false),
-      id: crypto.randomUUID(),
-      name: nextAuthoredName(layer.children, doorStyleLabel(style)),
-    };
-    // ponytail: no bind on commit — `syncRooms` owns connector binding and the
-    // add already invalidates its key. Bind here too if the overlay's "not
-    // linked" flash across one debounce ever reads as a bug.
-    undoManager.execute(new AddChildCommand('Place door', layerId, blob));
-    useStore.getState().setSelectedIds([blob.id]);
-  }
-
   onPointerMove(point: Point): void {
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
@@ -763,35 +501,10 @@ export class DoorTool implements DrawingTool {
       }
     }
 
-    if (this.pressedBlobId && this.pressPoint) {
-      const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
-      if (this.blobDragFrom || moved > DRAG_SLOP) {
-        if (activeLayer.locked) {
-          notify.warning('Layer is locked');
-          this.cancel();
-          return;
-        }
-        this.dragBlobTo(point, activeLayer);
-        return;
-      }
-    }
-
-    if (this.blobStart) {
-      if (this.pendingLeaf) {
-        const pulled = Math.hypot(point.x - this.blobStart.x, point.y - this.blobStart.y);
-        // A wobble is still the click the leaf ghost promises; a deliberate
-        // pull switches the gesture to the joint.
-        if (pulled <= LEAF_DRAG_SLOP) return;
-        this.pendingLeaf = null;
-        this.clearGhost();
-      }
-      this.blobCurrent = point;
-      this.updateBlobGhost(activeLayer);
-      return;
-    }
+    // A placement press holds the leaf it will commit; the ghost stays where it was pressed.
+    if (this.pendingLeaf) return;
 
     this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
-    this.hoveredBlobId = blobAt(point, activeLayer)?.id ?? null;
 
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
@@ -813,11 +526,27 @@ export class DoorTool implements DrawingTool {
     );
     if (!door) return;
 
+    // A door in a doorway (its own short piece between collinear walls) slides along
+    // it with the walls following, so the opening stays the door's width wherever it
+    // stops. Off that run it is re-anchored as any door is, and the walls go back.
+    this.dragLayerFrom ??= layer;
+    const from = this.dragLayerFrom;
+    const doorway = findDoorway(from, door.id);
+    if (doorway && overDoorway(doorway, [point.x, point.y], SNAP_THRESHOLD)) {
+      this.dragFrom ??= anchorOf(door);
+      this.sealAt = [point.x, point.y];
+      writeDoorwayLive(from, door.id, {}, { at: this.sealAt });
+      return;
+    }
+    if (this.sealAt) {
+      revertDoorwayLive(from, door.id);
+      this.sealAt = null;
+    }
+
     const walls = doorSnapWalls(layer);
     // The nearest wall within snap range wins, so dragging past a corner
     // re-anchors to the wall the pointer has crossed to. Out of range nothing
-    // moves — a door cannot be dragged off the walls (or onto a room boundary,
-    // which takes blobs, not leaves).
+    // moves — a door cannot be dragged off the walls.
     const snap = snapToNearestWall([point.x, point.y], walls, SNAP_THRESHOLD);
     const wall = snap && walls.find((w) => w.id === snap.wallId);
     if (!wall) return;
@@ -839,32 +568,34 @@ export class DoorTool implements DrawingTool {
     useStore.getState().updateChild(layer.id, door.id, next);
   }
 
-  onPointerUp(point: Point): void {
-    if (this.pressedBlobId) {
-      this.commitBlobMove();
-      return;
-    }
-    if (this.blobStart) {
+  onPointerUp(_point?: Point): void {
+    if (this.pendingLeaf) {
       const leaf = this.pendingLeaf;
-      const layerId = this.blobLayerId;
+      const layerId = this.placeLayerId;
       this.pendingLeaf = null;
-      if (leaf && layerId) {
-        this.blobStart = null;
-        this.blobCurrent = null;
-        this.blobLayerId = null;
-        this.commitLeafPlacement(leaf, layerId);
-        return;
-      }
-      this.commitBlobPlacement(point);
+      this.placeLayerId = null;
+      if (layerId) this.commitLeafPlacement(leaf, layerId);
       return;
     }
 
     const from = this.dragFrom;
     const doorId = this.pressedDoorId;
+    const layerFrom = this.dragLayerFrom;
+    const sealAt = this.sealAt;
     this.pressedDoorId = null;
     this.pressPoint = null;
     this.dragFrom = null;
+    this.dragLayerFrom = null;
+    this.sealAt = null;
     if (!from || !doorId) return;
+
+    // A slide inside the doorway: the door and the walls it moved, as one undo entry.
+    if (layerFrom && sealAt) {
+      revertDoorwayLive(layerFrom, doorId);
+      const cmd = doorwayEditCommand('Move door', layerFrom, doorId, {}, {}, { at: sealAt });
+      if (cmd) undoManager.execute(cmd);
+      return;
+    }
 
     const layer = activeDungeonLayer();
     const moved = layer?.children.find(
@@ -891,11 +622,9 @@ export class DoorTool implements DrawingTool {
     // Delete removes the selection; hover stays the target when nothing is
     // selected, which is how the tool worked before it could select.
     const selected = store.selection.selectedIds.find((id) =>
-      layer.children.some(
-        (c) => c.id === id && (c.childType === 'door' || c.childType === 'connector'),
-      ),
+      layer.children.some((c) => c.id === id && c.childType === 'door'),
     );
-    const target = selected ?? this.hoveredDoorId ?? this.hoveredBlobId;
+    const target = selected ?? this.hoveredDoorId;
     if (!target) return;
     // Hover is set by an unguarded onPointerMove and the keydown listener is
     // document-level, so neither path already checked the layer — do it here,
@@ -908,7 +637,6 @@ export class DoorTool implements DrawingTool {
     undoManager.execute(new RemoveChildCommand('Delete door', layer.id, target));
     if (selected) store.setSelectedIds([]);
     this.hoveredDoorId = null;
-    this.hoveredBlobId = null;
   }
 
   getPreview(): PreviewShape | null {
@@ -920,40 +648,35 @@ export class DoorTool implements DrawingTool {
 
   /** A placed door is draggable, so say so before the user finds out by accident. */
   getHoverCursor(): string | null {
-    if (this.dragFrom || this.blobDragFrom) return 'grabbing';
-    return this.hoveredDoorId || this.hoveredBlobId ? 'move' : null;
+    if (this.dragFrom) return 'grabbing';
+    return this.hoveredDoorId ? 'move' : null;
   }
 
   cancel(): void {
     // Escape mid-slide puts the door back where it was picked up; the tool exit
     // that Escape also means then has nothing half-applied behind it.
-    const layer = this.dragFrom || this.blobDragFrom ? activeDungeonLayer() : undefined;
-    if (layer && this.dragFrom && this.pressedDoorId) {
+    const layer = this.dragFrom ? activeDungeonLayer() : undefined;
+    if (this.dragLayerFrom && this.sealAt && this.pressedDoorId) {
+      revertDoorwayLive(this.dragLayerFrom, this.pressedDoorId);
+    } else if (layer && this.dragFrom && this.pressedDoorId) {
       useStore.getState().updateChild(layer.id, this.pressedDoorId, this.dragFrom);
     }
-    if (layer && this.blobDragFrom && this.pressedBlobId) {
-      useStore.getState().updateChild(layer.id, this.pressedBlobId, { contours: this.blobDragFrom });
-    }
+    this.dragLayerFrom = null;
+    this.sealAt = null;
     this.dragFrom = null;
     this.pressedDoorId = null;
     this.pressPoint = null;
     this.lastClick = null;
     this.snapResult = null;
     this.hoveredDoorId = null;
-    this.pressedBlobId = null;
-    this.blobDragFrom = null;
     this.pendingLeaf = null;
-    this.blobStart = null;
-    this.blobCurrent = null;
-    this.blobLayerId = null;
-    this.hoveredBlobId = null;
+    this.placeLayerId = null;
     // `ToolManager.switchTool` cancels the outgoing tool, so this is also the
     // tool-exit clear — the ghost must not outlive the door tool being active.
     this.clearGhost();
-    this.clearBlobGhost();
   }
 
   isActive(): boolean {
-    return this.dragFrom !== null || this.blobDragFrom !== null || this.blobStart !== null;
+    return this.dragFrom !== null || this.pendingLeaf !== null;
   }
 }

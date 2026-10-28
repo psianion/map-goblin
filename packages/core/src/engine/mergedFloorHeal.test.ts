@@ -11,9 +11,13 @@ vi.mock('../assets/textureLoader', () => ({
   load: vi.fn(() => Promise.resolve(null)),
 }));
 vi.mock('../assets/packCatalog', () => ({
+  isBandSet: () => false,
+  getBandSet: () => [],
+  bandSetArt: () => new Map(),
   getWallPieces: () => [],
   getCatalogEntry: () => undefined,
   GRID_CELL_PX: 200,
+  hasLiveTexture: (id: string | undefined) => !!id,
 }));
 
 import { Container } from 'pixi.js';
@@ -33,6 +37,7 @@ function makeEntry(id: string): LayerEntry {
       shadows: new Container(),
       grid: new Container(),
       walls: new Container(),
+      wallMarks: new Container(),
       doors: new Container(),
       objects: new Container(),
       labels: new Container(),

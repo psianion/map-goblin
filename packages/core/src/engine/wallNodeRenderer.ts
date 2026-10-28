@@ -3,13 +3,25 @@
 // Geometry decisions live in wallLayout.ts (pure, unit-tested). This file only
 // turns nodes into sprites: resolve the texture, anchor it, rotate it, scale it.
 
-import { Sprite, Container } from 'pixi.js';
+import { Sprite, Container, Graphics } from 'pixi.js';
 import type { DungeonStyle, WallSegment } from '../store/types';
 import type { WallEdits } from '../shared/types';
 import type { Polygon } from '../types/geometry';
+import { standaloneWallLook, styleWallLook, wallTypeGroup, type WallTypeGroup } from '../shared/wallLook';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
-import { getWallPieces, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, getBandSet, getWallPieces, isBandSet, type CatalogEntry } from '../assets/packCatalog';
+import {
+  bandFillColor,
+  layBandChain,
+  layBandRing,
+  orientRings,
+  placeBand,
+  planDrawnBand,
+  type BandFloor,
+  type BandRingRef,
+  type DrawnBandPlan,
+} from './caveBandRenderer';
 import {
   layoutWall,
   applyWallEdits,
@@ -42,7 +54,7 @@ export interface DoorGap {
  * carry no contentRect (corners, endings) are scaled against this so their arms
  * match the straights they join.
  */
-function referenceBandPx(setId: string): number {
+export function referenceBandPx(setId: string): number {
   const straights = getWallPieces(setId, 'straight');
   const longest = [...straights].sort(
     (a, b) => (b.contentRect?.w ?? b.naturalWidth) - (a.contentRect?.w ?? a.naturalWidth),
@@ -136,12 +148,17 @@ function placeNodes(
     const tex = resolveTexture(node.pieceId);
     if (tex.width === 0) continue;
 
-    let sprite = parent.children[at] as Sprite | undefined;
-    if (sprite) {
+    // A cave band's ground strip shares this pool (placeBand); a slot holding
+    // one is pushed along rather than dressed up as a stone.
+    const slot = parent.children[at];
+    let sprite: Sprite;
+    if (slot instanceof Sprite) {
+      sprite = slot;
       sprite.texture = tex;
     } else {
       sprite = new Sprite(tex);
-      parent.addChild(sprite);
+      if (slot) parent.addChildAt(sprite, at);
+      else parent.addChild(sprite);
     }
     // 0.5 lands on the visible stone for straights and rocks: resolveTexture
     // hands those back already trimmed to contentRect, so the anchor is the
@@ -449,6 +466,111 @@ interface ResolvedSet {
   specById: Map<string, WallPieceSpec>;
 }
 
+/** How light a wall's stones draw in the editor when light passes through it. */
+export const WALL_MARK_ALPHA: Record<Exclude<WallTypeGroup, 'solid'>, number> = { window: 0.5, open: 0.22 };
+/** The dashed spine an open wall gets in the editor: neutral ink, readable on light and dark floors. */
+const MARK_INK = 0x7a7a7a;
+const MARK_DASH = 0.3;
+const MARK_GAP = 0.2;
+const MARK_STROKE = 0.07;
+
+interface MarkParts {
+  window: Container;
+  open: Container;
+  lines: Graphics;
+}
+
+/**
+ * The editor-only look of walls that let light through, in its own container above the
+ * stones: their stones drawn lighter (a window a little, an open wall a lot) and an open
+ * wall's spine dashed. Built on first use; `authoredWallMarks` holds it at the authored
+ * look for an export.
+ */
+function markParts(marks: Container): MarkParts {
+  if (marks.children.length !== 3) {
+    for (const c of marks.removeChildren()) c.destroy({ children: true });
+    const window = new Container();
+    window.label = 'wall-marks-window';
+    const open = new Container();
+    open.label = 'wall-marks-open';
+    const lines = new Graphics();
+    lines.label = 'wall-marks-lines';
+    marks.addChild(window, open, lines);
+  }
+  const [window, open, lines] = marks.children as [Container, Container, Graphics];
+  return { window, open, lines };
+}
+
+function applyMarkAlpha(parts: MarkParts): void {
+  parts.window.alpha = WALL_MARK_ALPHA.window;
+  parts.open.alpha = WALL_MARK_ALPHA.open;
+  parts.lines.visible = true;
+}
+
+/** Puts a layer's wall marks at the authored look (full stones, no dashes) until the undo is called. */
+export function authoredWallMarks(marks: Container): () => void {
+  if (marks.children.length !== 3) return () => {};
+  const parts = markParts(marks);
+  parts.window.alpha = 1;
+  parts.open.alpha = 1;
+  parts.lines.visible = false;
+  return () => applyMarkAlpha(parts);
+}
+
+/** Dashes along a polyline, the pattern carried across its corners. */
+export function dashSpine(g: Graphics, points: [number, number][], dash = MARK_DASH, gap = MARK_GAP): void {
+  let on = true;
+  let left = dash;
+  for (let i = 0; i + 1 < points.length; i++) {
+    let [x, y] = points[i];
+    const [bx, by] = points[i + 1];
+    let seg = Math.hypot(bx - x, by - y);
+    if (seg < 1e-9) continue;
+    const ux = (bx - x) / seg;
+    const uy = (by - y) / seg;
+    while (seg > 1e-9) {
+      const step = Math.min(left, seg);
+      if (on) {
+        g.moveTo(x, y);
+        g.lineTo(x + ux * step, y + uy * step);
+      }
+      x += ux * step;
+      y += uy * step;
+      seg -= step;
+      left -= step;
+      if (left <= 1e-9) {
+        on = !on;
+        left = on ? dash : gap;
+      }
+    }
+  }
+}
+
+export interface RenderNodeWallsOptions {
+  /**
+   * The style each floor ring draws with, by ring index (see `ringStyles`): a floor a
+   * preset pinned keeps its outline's set, tint and width. The layer style when absent.
+   */
+  ringStyles?: readonly DungeonStyle[];
+  /**
+   * The style of each edge of each ring (see `edgeStyles`): null for a ring whose edges
+   * all take its ring style, which then lays out exactly as without this option. Set
+   * where a room or area pins a wall look on part of the ring.
+   */
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[];
+  /**
+   * The editor's wall-mark container. When given, walls that let light through draw their
+   * stones lighter into it, and open walls get a dashed spine. Without it (the table, a
+   * host with no editor desk) every wall draws as authored.
+   */
+  marks?: Container;
+  /**
+   * The floor a cave band stands on, by ring index (-1 for a drawn wall), for the
+   * ground strip behind its rock (see `ringFloorOf`). The ring's floor colour when absent.
+   */
+  floorOf?: (ring: number) => BandFloor;
+}
+
 /**
  * Render walls as composed sprite nodes.
  * No wallTextureSetId means invisible walls, same as before.
@@ -461,8 +583,8 @@ export function renderNodeWalls(
   doorGaps: DoorGap[] = [],
   /** Hand edits for floor rings, keyed by ring index. */
   floorEdits: Record<string, WallEdits> = {},
+  options: RenderNodeWallsOptions = {},
 ): void {
-  const layerSetId = style.wallTextureSetId;
   // A standalone wall may pin its own set — see `WallSegment.textureSetId`. It only
   // ever does so to hold the look it already had when a preset moved the layer on,
   // so in practice every run shares one set and this cache is hit every time.
@@ -478,52 +600,230 @@ export function renderNodeWalls(
     specCache.set(id, resolved);
     return resolved;
   };
+  const tintOf = (hex: string): number => parseInt(hex.replace('#', ''), 16) || 0xffffff;
+  // A cave band kit is a wall family the walk lays rather than one the layout
+  // composes: its rock rides the ring as placed pieces, so stone edits and
+  // wall width mean nothing to it and it takes the ring, the gaps and the tint.
+  // Keyed on the set each run resolves to (a ring's pin, a wall's pin, else the
+  // layer's), the same resolution the stones use.
+  const bandCache = new Map<string, Map<string, CatalogEntry> | null>();
+  const bandFor = (id: string | undefined): Map<string, CatalogEntry> | null => {
+    if (!id || !isBandSet(id)) return null;
+    let art = bandCache.get(id);
+    if (art === undefined) {
+      art = bandSetArt(id);
+      bandCache.set(id, art);
+    }
+    return art;
+  };
+  const floorOf =
+    options.floorOf ??
+    ((ring: number): BandFloor => ({ floorColor: (options.ringStyles?.[Math.max(0, ring)] ?? style).floorColor }));
+  // The walk needs every ring wound floor-right; winding a ring reads the others
+  // (a hole winds opposite its outer ring), so it is done once for all of them.
+  let oriented: Polygon[] | null = null;
 
-  // No set on the layer AND none pinned on a wall means invisible walls, as before.
-  if (!layerSetId && !standaloneWalls.some((w) => w.textureSetId)) {
-    trimTo(wallsContainer, 0);
-    return;
+  // Drawn cave walls are planned before the rings (planDrawnBand): which side
+  // of each is void, and which stretches a banded ring's edge already carries.
+  // A door on such a stretch goes to the ring, so it is known before the rings
+  // are laid. Only a band layer pays for this; stone walls skip it entirely.
+  const drawnPlans = new Map<string, DrawnBandPlan>();
+  const ringGaps: DoorGap[] = [];
+  if (standaloneWalls.some((w) => bandFor(standaloneWallLook(w, style).setId))) {
+    const bandRings: BandRingRef[] = [];
+    polygons.forEach((poly, i) => {
+      if (poly.length < 3 || !bandFor(styleWallLook(options.ringStyles?.[i] ?? style).setId)) return;
+      oriented ??= orientRings(polygons);
+      bandRings.push({ ring: i, poly: oriented[i] });
+    });
+    for (const wall of standaloneWalls) {
+      if (wall.points.length < 2 || !bandFor(standaloneWallLook(wall, style).setId)) continue;
+      // Only a solid wall gives way to the ring's rock; a window or open wall
+      // drawn on a ring edge keeps its own lighter band.
+      const carriers = wallTypeGroup(wall.wallType) === 'solid' ? bandRings : [];
+      const plan = planDrawnBand(wall.points, polygons, carriers, doorGaps.filter((g) => g.wallId === wall.id));
+      drawnPlans.set(wall.id, plan);
+      ringGaps.push(...plan.ringGaps);
+    }
   }
 
-  const tintOf = (hex: string | undefined): number =>
-    parseInt((hex ?? style.wallTextureTint).replace('#', ''), 16) || 0xffffff;
-  const layerSet = specsFor(layerSetId || undefined);
-  const layerTint = tintOf(undefined);
-  const wallWidth = style.wallWidth;
+  const parts = options.marks ? markParts(options.marks) : null;
+  if (parts) {
+    parts.lines.clear();
+    applyMarkAlpha(parts);
+  }
+  const pools = new Map<Container, number>([[wallsContainer, 0]]);
+  if (parts) {
+    pools.set(parts.window, 0);
+    pools.set(parts.open, 0);
+  }
+  const place = (
+    target: Container,
+    nodes: WallNode[],
+    specById: Map<string, WallPieceSpec>,
+    width: number,
+    tint: number,
+  ) => {
+    pools.set(target, placeNodes(target, nodes, specById, width, tint, pools.get(target) ?? 0));
+  };
 
-  let placed = 0;
+  /**
+   * A ring whose edges do not all draw alike (a room or area pins a wall look on part
+   * of it). Edges that differ only in tint keep the ring's own layout, hand edits and
+   * all, and only the stones' tint follows the edge each stands on. Edges that differ
+   * in set or width (or a cave band ring) are laid as open runs, one per stretch of
+   * like edges, each in its own look; hand edits on such a ring are not applied, since
+   * they are keyed on the whole ring's layout.
+   */
+  const renderRingEdges = (i: number, poly: Polygon, edges: readonly DungeonStyle[]): void => {
+    const n = poly.length;
+    const looks = edges.map((s) => styleWallLook(s));
+    const sameShape = looks.every((l) => l.setId === looks[0].setId && l.width === looks[0].width);
+    const ringDoorGaps = doorGaps.filter((g) => g.ring === i);
 
-  if (layerSet) {
-    for (let i = 0; i < polygons.length; i++) {
-      const poly = polygons[i];
-      if (poly.length < 3) continue;
-      const auto = layoutWall(poly, true, layerSet.specs, { wallWidth, seed: seedForPoints(poly) });
-      // A floor ring's stones are hand-editable too; its edits live on the layer
-      // because the ring itself is recomputed from the shapes every time. Only
-      // the cosmetic ones: a ring stone is moved by moving the outline it
-      // stands on, so an offset here could only be a leftover.
-      const nodes = applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
-        pieces: layerSet.specs,
+    if (sameShape && !bandFor(looks[0].setId)) {
+      const set = specsFor(looks[0].setId);
+      if (!set) return;
+      const wallWidth = looks[0].width;
+      const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly) });
+      const nodes = withoutDoorGaps(
+        applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, { pieces: set.specs, wallWidth }),
+        ringDoorGaps,
+        set.specById,
         wallWidth,
-      });
-      const gaps = doorGaps.filter((g) => g.ring === i);
-      placed = placeNodes(
+      );
+      const byTint = new Map<string, WallNode[]>();
+      for (const node of nodes) {
+        const tint = looks[nearestEdge(poly, node.x, node.y)].tint;
+        const group = byTint.get(tint);
+        if (group) group.push(node);
+        else byTint.set(tint, [node]);
+      }
+      for (const [tint, group] of byTint) place(wallsContainer, group, set.specById, wallWidth, tintOf(tint));
+      return;
+    }
+
+    // Runs of like edges. Start the walk at an edge whose look differs from the one
+    // before it, so no run straddles the seam.
+    const key = (e: number): string => `${looks[e].setId ?? ''}|${looks[e].width}|${looks[e].tint}`;
+    let start = 0;
+    while (start < n && key(start) === key((start + n - 1) % n)) start++;
+    if (start === n) start = 0;
+    const isOriented = (() => {
+      if (!looks.some((l) => bandFor(l.setId))) return true;
+      oriented ??= orientRings(polygons);
+      return oriented[i] === poly;
+    })();
+    const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i)];
+    for (let k = 0; k < n; ) {
+      const e0 = (start + k) % n;
+      let len = 1;
+      while (k + len < n && key((start + k + len) % n) === key(e0)) len++;
+      const points: [number, number][] = [];
+      for (let j = 0; j <= len; j++) {
+        const [x, y] = poly[(e0 + j) % n];
+        points.push([x, y]);
+      }
+      k += len;
+      const look = looks[e0];
+      const band = bandFor(look.setId);
+      if (band) {
+        // The walk wants the floor on the ring's side: a reversed ring reverses its runs.
+        const run = isOriented ? points : [...points].reverse();
+        pools.set(
+          wallsContainer,
+          placeBand(wallsContainer, layBandChain(run, gaps), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, {
+            edge: run,
+            closed: false,
+            gaps,
+            color: bandFillColor(floorOf(i)),
+          }),
+        );
+        continue;
+      }
+      const set = specsFor(look.setId);
+      if (!set) continue;
+      const w = look.width;
+      const auto = layoutWall(points, false, set.specs, { wallWidth: w, seed: seedForPoints(points) });
+      place(
         wallsContainer,
-        withoutDoorGaps(nodes, gaps, layerSet.specById, wallWidth),
-        layerSet.specById, wallWidth, layerTint, placed,
+        withoutDoorGaps(auto, ringDoorGaps, set.specById, w, [points[0], points[points.length - 1]]),
+        set.specById,
+        w,
+        tintOf(look.tint),
       );
     }
+  };
+
+  for (let i = 0; i < polygons.length; i++) {
+    const poly = polygons[i];
+    if (poly.length < 3) continue;
+    const edges = options.edgeStyles?.[i];
+    if (edges && edges.length === poly.length) {
+      renderRingEdges(i, poly, edges);
+      continue;
+    }
+    const look = styleWallLook(options.ringStyles?.[i] ?? style);
+    const band = bandFor(look.setId);
+    if (band) {
+      oriented ??= orientRings(polygons);
+      const gaps = [...doorGaps, ...ringGaps].filter((g) => g.ring === i);
+      const fill = { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)) };
+      pools.set(
+        wallsContainer,
+        placeBand(wallsContainer, layBandRing(oriented[i], gaps), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, fill),
+      );
+      continue;
+    }
+    const set = specsFor(look.setId);
+    if (!set) continue;
+    const wallWidth = look.width;
+    const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly) });
+    // A floor ring's stones are hand-editable too; its edits live on the layer
+    // because the ring itself is recomputed from the shapes every time. Only
+    // the cosmetic ones: a ring stone is moved by moving the outline it
+    // stands on, so an offset here could only be a leftover.
+    const nodes = applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
+      pieces: set.specs,
+      wallWidth,
+    });
+    const gaps = doorGaps.filter((g) => g.ring === i);
+    place(
+      wallsContainer,
+      withoutDoorGaps(nodes, gaps, set.specById, wallWidth),
+      set.specById,
+      wallWidth,
+      tintOf(look.tint),
+    );
   }
 
   for (const wall of standaloneWalls) {
     if (wall.points.length < 2) continue;
-    const set = wall.textureSetId ? specsFor(wall.textureSetId) : layerSet;
-    if (!set) continue;
-    const tint = wall.textureTint ? tintOf(wall.textureTint) : layerTint;
-    const w = wall.width || wallWidth;
+    const group = wallTypeGroup(wall.wallType);
+    // The dash shows an open wall even on a layer with no stones to lighten.
+    if (parts && group === 'open') dashSpine(parts.lines, wall.points);
+    const look = standaloneWallLook(wall, style);
     // A drawn wall that loops back onto itself is a ring, not a chain: laid out
     // open it dropped two end caps at the seam and skipped the junction there.
     const closed = isClosedSpine(wall.points);
+    const band = bandFor(look.setId);
+    if (band) {
+      // Laid as planned: the stretches no ring carries, each turned so the
+      // floor's side gets the floor side of the rock (planDrawnBand).
+      const gaps = doorGaps.filter((g) => g.wallId === wall.id);
+      const target = parts && group !== 'solid' ? parts[group] : wallsContainer;
+      const color = bandFillColor(floorOf(-1));
+      let at = pools.get(target) ?? 0;
+      for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
+        const laid = run.closed ? layBandRing(run.points, gaps) : layBandChain(run.points, gaps);
+        at = placeBand(target, laid, band, tintOf(look.tint), at, { edge: run.points, closed: run.closed, gaps, color });
+      }
+      pools.set(target, at);
+      continue;
+    }
+    const set = specsFor(look.setId);
+    if (!set) continue;
+    const w = look.width;
     const auto = layoutWall(wall.points, closed, set.specs, {
       wallWidth: w,
       seed: seedForPoints(wall.points),
@@ -532,8 +832,8 @@ export function renderNodeWalls(
     // edits — the common case — pass straight through.
     const nodes = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w });
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
-    placed = placeNodes(
-      wallsContainer,
+    place(
+      parts && group !== 'solid' ? parts[group] : wallsContainer,
       // A ring has no ends to hold a nudged stone inside — both "ends" are the
       // same seam point, so clamping to them would drag it there.
       withoutDoorGaps(
@@ -543,16 +843,44 @@ export function renderNodeWalls(
         w,
         closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
       ),
-      set.specById, w, tint, placed,
+      set.specById,
+      w,
+      tintOf(look.tint),
     );
   }
 
-  trimTo(wallsContainer, placed);
+  if (parts) parts.lines.stroke({ color: MARK_INK, width: MARK_STROKE, alpha: 0.9 });
+  for (const [target, count] of pools) trimTo(target, count);
+}
+
+/** The index of the ring edge (vertex `e` to `e + 1`) nearest the point. */
+function nearestEdge(poly: Polygon, x: number, y: number): number {
+  let best = 0;
+  let bestD = Infinity;
+  for (let e = 0; e < poly.length; e++) {
+    const [ax, ay] = poly[e];
+    const [bx, by] = poly[(e + 1) % poly.length];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+    const d = Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+    if (d < bestD) {
+      bestD = d;
+      best = e;
+    }
+  }
+  return best;
 }
 
 /** Preload every piece the layout engine can place. */
 export function preloadWallTextures(style: DungeonStyle): Promise<boolean> {
   if (!style.wallTextureSetId) return Promise.resolve(false);
+  if (isBandSet(style.wallTextureSetId)) {
+    return Promise.all(getBandSet(style.wallTextureSetId).map((e) => textureLoader.load(e.id)))
+      .then(() => true)
+      .catch(() => false);
+  }
   const specs = buildPieceSpecs(style.wallTextureSetId);
   if (specs.length === 0) return Promise.resolve(false);
   return Promise.all(specs.map((s) => textureLoader.load(s.id)))

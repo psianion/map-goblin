@@ -4,10 +4,11 @@ const SemverSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Must be semver (N.N.N)
 
 // 'door' postdates this schema — doors shipped as a first-class asset type and the
 // bundled pack has carried six of them since, so validation rejected the very pack
-// the app ships. The schema was the stale side, not the pack.
+// the app ships. The schema was the stale side, not the pack. 'water' covers the
+// surface and bank textures the water tool samples.
 const AssetTypeEnum = z.enum([
   'floor', 'wall', 'pattern', 'edge', 'object',
-  'scatter', 'path', 'portal', 'light-mask', 'door',
+  'scatter', 'path', 'portal', 'light-mask', 'door', 'water',
 ]);
 
 const FrameSchema = z.object({
@@ -31,6 +32,9 @@ const ManifestEntrySchema = z.object({
   // Forge-set provenance (set integration writes this; hand-authored packs don't have it).
   set: z.string().min(1).optional(),
   tags: z.array(z.string()),
+  // Variant family within its set (vault-cli `families` writes it on object entries).
+  // Last so a re-parse keeps the key order and the manifest hash stable.
+  family: z.string().min(1).optional(),
 });
 
 const FileRefSchema = z.object({

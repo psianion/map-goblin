@@ -6,9 +6,10 @@ import {
   mergeSpanEdit,
   layoutWall,
   applyWallEdits,
+  isClosedSpine,
   type WallNode,
 } from '@/engine/wallLayout';
-import { buildPieceSpecs, seedForPoints } from '@/engine/wallNodeRenderer';
+import { seedForPoints } from '@/engine/wallNodeRenderer';
 import {
   currentWallNodes,
   activeEditableRun,
@@ -19,7 +20,12 @@ import {
   bandRunIndex,
   setBandTransientT,
   noWallStonesReason,
+  runSetSpecs,
+  wallRunSetId,
+  spineCornerIndex,
+  spineWallId,
   FLOOR_WALL_PREFIX,
+  SPINE_WALL_PREFIX,
   type EditableRun,
 } from '@/engine/wallNodeOverlay';
 import { bandJointDrag, rewalkWholeBand, straightenBandJoints } from '@/engine/bandJointDrag';
@@ -30,6 +36,10 @@ import {
   cancelRingStoneDrag,
   isDraggingRingStone,
 } from '@/engine/ringStoneDrag';
+import { isBandSet } from '@dnd/core/src/assets/packCatalog';
+import { toggleShapeNodeEditAt } from '@dnd/core/src/engine/shapeNodeEdit';
+import { ringLook, standaloneWallLook } from '@dnd/core/src/shared/wallLook';
+import { layerDrawStyle, layerLevelLook } from '@dnd/core/src/engine/levelLook';
 import { notify } from '@dnd/core/src/shared/notify';
 import { snapToNearestWall } from '@/shared/wallSnap';
 import { isLayerEffectivelyVisible } from '@/store/selectors';
@@ -39,6 +49,11 @@ import type { Point } from '@/types/geometry';
 
 /** Max distance, in world units, for a double-click to claim a wall. */
 const PICK_RADIUS = 0.6;
+/**
+ * How far from its line a drawn cave wall is picked: its rock rides about a
+ * cell into the void beside the line, and the double-click lands on the rock.
+ */
+const BAND_PICK_RADIUS = 1;
 
 /**
  * Enter node-edit mode on the wall under the pointer, or leave it if that wall
@@ -62,11 +77,22 @@ export function toggleNodeEditAt(world: Point): boolean {
 
   const hit = snapToNearestWall([world.x, world.y], layer.standaloneWalls, PICK_RADIUS);
   let id = hit?.wallId ?? null;
+  // A drawn wall on a cave kit is reached from its rock, not just its line.
+  const drawStyle = layerDrawStyle(layer);
+  const bandWalls = layer.standaloneWalls.filter((w) => isBandSet(standaloneWallLook(w, drawStyle).setId));
+  const bandWallHit = !id && bandWalls.length
+    ? snapToNearestWall([world.x, world.y], bandWalls, BAND_PICK_RADIUS)
+    : null;
 
   // Most walls on a finished map are derived from the floor outline rather than
   // drawn by hand. Their stones are composed the same way and are just as worth
-  // adjusting, so fall through to the nearest ring.
+  // adjusting, so fall through to the nearest ring. A cave kit's rock reaches
+  // about a cell past the edge it rides, so a ring drawn with one is picked
+  // from that far.
   if (!id && layer.mergedFloor) {
+    const level = layerLevelLook(layer);
+    const anyBand = layer.mergedFloor.some((_, i) => isBandSet(ringLook(layer, i, level).setId));
+    const reach = Math.max(PICK_RADIUS, drawStyle.wallWidth, anyBand ? 1 : 0);
     const rings = layer.mergedFloor.map((points, i) => ({
       id: `${FLOOR_WALL_PREFIX}${i}`,
       points,
@@ -85,9 +111,14 @@ export function toggleNodeEditAt(world: Point): boolean {
         width: 1,
         roughness: 0,
       })),
-      Math.max(PICK_RADIUS, layer.style.wallWidth),
+      reach,
     );
     id = ringHit?.wallId ?? null;
+    // The nearer of the two: a drawn cave wall's rock and a floor edge's can
+    // both be within a cell of the double-click.
+    if (bandWallHit && (!ringHit || bandWallHit.distance <= ringHit.distance)) id = bandWallHit.wallId;
+  } else if (!id && bandWallHit) {
+    id = bandWallHit.wallId;
   }
 
   // A cave layer's walls are placed rock, not wall-set stones, so nothing above
@@ -96,21 +127,40 @@ export function toggleNodeEditAt(world: Point): boolean {
   // Asked only when the stone path has nothing to offer, so a layer that does
   // carry a wall set behaves exactly as it did.
   const bandId = noWallStonesReason(layer)
-    ? bandRunAt(layer, world, Math.max(PICK_RADIUS, layer.style.wallWidth))
+    ? bandRunAt(layer, world, Math.max(PICK_RADIUS, drawStyle.wallWidth))
     : null;
   if (bandId) id = bandId;
+
+  // A drawn wall on a cave kit has no stones: its rock is walked along the
+  // wall's own line on every redraw. Its editor is that line's corners (see
+  // SPINE_WALL_PREFIX) — not the floor outline, which is a different wall.
+  if (id && !bandId && floorRingIndex(id) === null && isBandSet(wallRunSetId(layer, id))) {
+    id = `${SPINE_WALL_PREFIX}${id}`;
+  }
 
   const next = id && id !== state.tools.nodeEditWallId ? id : null;
   // A wall was aimed at but this layer has no stones to show — refuse here,
   // with the reason, rather than dim the map into a mode holding no handles.
-  // The check is layer-wide, so it cannot come out differently for the drawn
-  // wall than for the ring under it: whichever the hit resolved to, the same
-  // set is what would have supplied its stones. Claiming the double-click
+  // The check reads the set the hit resolved to, the same one `activeWall`
+  // would compose its stones from, so a refusal and an empty run never
+  // disagree. Claiming the double-click
   // (true) rather than falling through keeps the answer to "edit this wall"
   // from being an outline editor the DM did not ask for.
-  if (next && !bandId) {
-    const reason = noWallStonesReason(layer);
+  if (next && !bandId && spineWallId(next) === null) {
+    // The set the hit wall is actually drawn with: a preset may have pinned a
+    // floor or a drawn wall to a set other than the layer's.
+    const setId = wallRunSetId(layer, next);
+    const reason = noWallStonesReason(layer, setId);
     if (reason) {
+      // A cave kit's rock is laid from the floor outline on every redraw, so
+      // the outline editor IS its node mode: say so and let the double-click
+      // fall through to it rather than stopping at a warning.
+      if (isBandSet(setId)) {
+        notify.info(reason);
+        // The rock reaches about a cell into the void past the edge it rides,
+        // so the outline is picked by nearness rather than containment.
+        return toggleShapeNodeEditAt(world, 1);
+      }
       notify.warning(reason);
       return true;
     }
@@ -136,9 +186,9 @@ export function exitNodeEdit(): void {
 function writeEdits(patch: Partial<WallEdits>): void {
   const run = activeEditableRun();
   // A band has no WallEdits to patch — its pieces are real children, and moving
-  // one is the solver's job. One guard here covers the whole keyboard table,
-  // which all routes through this.
-  if (!run || run.kind === 'band') return;
+  // one is the solver's job; a drawn cave wall's only edit is its line. One
+  // guard here covers the whole keyboard table, which all routes through this.
+  if (!run || run.kind !== 'stones') return;
   const before: WallEdits = {
     nodeEdits: run.edits?.nodeEdits,
     spanEdits: run.edits?.spanEdits,
@@ -182,9 +232,7 @@ function commitEdits(run: EditableRun, before: WallEdits, after: WallEdits): voi
  * it back keeps this honest if the interpolation rule ever changes.
  */
 function materialisedInserts(run: EditableRun, edits: WallEdits): WallNodeInsert[] | undefined {
-  const setId = run.layer.style.wallTextureSetId;
-  if (!setId) return edits.nodeInserts;
-  const pieces = buildPieceSpecs(setId);
+  const pieces = runSetSpecs(run);
   if (pieces.length === 0) return edits.nodeInserts;
 
   const fill = { pieces, wallWidth: run.width };
@@ -320,13 +368,13 @@ function cyclePiece(t: number, direction: number): void {
       isLayerEffectivelyVisible(state, l) &&
       !l.locked,
   );
-  const setId = layer?.style.wallTextureSetId;
-  if (!setId) return;
+  if (!layer || layer.id !== run.layer.id) return;
 
   const node = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9);
   if (!node) return;
 
-  const specs = buildPieceSpecs(setId);
+  // The run's own set: a wall a preset pinned swaps among the pieces it is drawn with.
+  const specs = runSetSpecs(run);
   const role = specs.find((p) => p.id === node.pieceId)?.role;
   const swappable = specs.filter(
     role === 'corner' || role === 'ending'
@@ -421,7 +469,36 @@ function handleBandKey(key: string, t: number): boolean {
  * the global shortcut table — Delete is already bound there to removing the
  * shape selection, and with a node selected it must mean this node.
  */
+/**
+ * A drawn cave wall's table: Delete takes the selected corner out of its line.
+ * Every other session key is swallowed — there are no stones to turn or swap.
+ */
+function handleSpineKey(key: string, t: number): boolean {
+  if (key !== 'Delete' && key !== 'Backspace') return true;
+  const run = activeEditableRun();
+  if (run?.kind !== 'spine') return true;
+  const pts = run.wall.points;
+  const closed = run.closed;
+  const corners = closed ? pts.slice(0, -1) : pts;
+  // An open line needs two corners, a loop three.
+  if (corners.length <= (closed ? 3 : 2)) {
+    notify.info('A wall needs at least ' + (closed ? 'three corners to loop' : 'two ends'));
+    return true;
+  }
+  const at = spineCornerIndex(t, pts);
+  const kept = corners.filter((_, i) => i !== at);
+  const after = closed ? [...kept, kept[0]] : kept;
+  undoManager.execute(
+    new UpdateWallCommand(run.layer.id, run.wall.id, { points: pts }, { points: after }),
+  );
+  useStore.getState().selectNode(null);
+  return true;
+}
+
 export function handleNodeKey(key: string, t: number): boolean {
+  if (spineWallId(useStore.getState().tools.nodeEditWallId ?? '') !== null) {
+    return handleSpineKey(key, t);
+  }
   // A band has its own, much shorter table: the kit does the fitting, so there
   // is nothing to rotate, resize or swap. Routed off the wall id rather than by
   // resolving the run, so a stone keypress costs exactly what it did before.
@@ -482,6 +559,9 @@ export function handleNodeKey(key: string, t: number): boolean {
 
 let dragBefore: WallNodeEdit[] | undefined;
 let dragWallId: string | null = null;
+/** A drawn cave wall's line at press, and the corners the drag moves. */
+let spineBefore: [number, number][] | null = null;
+let spineCorners: number[] = [];
 /** The layer the drag began on — rewindDrag resolves against this, not
  *  whatever the active layer happens to be at cancel/release time. */
 let dragLayerId: string | null = null;
@@ -498,6 +578,11 @@ export function beginNodeDrag(ts: number[] = []): void {
   dragLayerId = run.layer.id;
   if (run.kind === 'band') {
     bandJointDrag({ phase: 'begin', run, ts });
+    return;
+  }
+  if (run.kind === 'spine') {
+    spineBefore = run.wall.points.map(([x, y]): [number, number] => [x, y]);
+    spineCorners = [...new Set(ts.map((t) => spineCornerIndex(t, run.wall.points)))];
     return;
   }
   const ring = floorRingIndex(run.id);
@@ -529,9 +614,33 @@ export function nudgeWallNode(ts: number[], dx: number, dy: number): void {
     bandJointDrag({ phase: 'move', run, ts, dx, dy });
     return;
   }
+  if (run.kind === 'spine') {
+    useStore.getState().updateWall(run.layer.id, run.wall.id, {
+      points: movedCorners(run.wall.points, spineCorners, dx, dy),
+    });
+    return;
+  }
   let nodeEdits = run.edits?.nodeEdits;
   for (const t of ts) nodeEdits = mergeNodeEdit(nodeEdits, { t, dx, dy });
   useStore.getState().updateWall(run.layer.id, run.id, { nodeEdits });
+}
+
+/**
+ * A drawn wall's line with `corners` moved by (dx, dy). A loop's closing
+ * point is its first corner, so the two move together.
+ */
+export function movedCorners(
+  points: [number, number][],
+  corners: number[],
+  dx: number,
+  dy: number,
+): [number, number][] {
+  const closed = isClosedSpine(points);
+  const moving = new Set(corners);
+  return points.map(([x, y], i): [number, number] => {
+    const corner = closed && i === points.length - 1 ? 0 : i;
+    return moving.has(corner) ? [x + dx, y + dy] : [x, y];
+  });
 }
 
 /** True while a handle drag is in flight. */
@@ -574,10 +683,20 @@ export function cancelNodeDrag(): void {
   dragWallId = null;
   dragLayerId = null;
   dragBefore = undefined;
+  const spinePoints = spineBefore;
+  spineBefore = null;
+  spineCorners = [];
   if (wallId && bandRunIndex(wallId) !== null) {
     // Read off the id rather than a flag of its own: the seam wrote nothing, so
     // there is nothing to rewind and no state to keep in step with.
     bandJointDrag({ phase: 'cancel' });
+    return;
+  }
+  const spineOf = wallId ? spineWallId(wallId) : null;
+  if (spineOf !== null) {
+    // Same rule as rewindDrag: put the line back on the layer the drag began
+    // on, whatever has happened to it since.
+    if (spinePoints && layerId) useStore.getState().updateWall(layerId, spineOf, { points: spinePoints });
     return;
   }
   if (isDraggingRingStone()) {
@@ -596,6 +715,29 @@ export function endNodeDrag(): void {
   dragLayerId = null;
   const before = dragBefore;
   dragBefore = undefined;
+  const spinePoints = spineBefore;
+  spineBefore = null;
+  spineCorners = [];
+  const spineOf = wallId ? spineWallId(wallId) : null;
+  if (spineOf !== null) {
+    if (!spinePoints || !layerId) return;
+    const layer = useStore
+      .getState()
+      .layers.find((l): l is DungeonLayer => l.type === 'dungeon' && l.id === layerId);
+    const after = layer?.standaloneWalls.find((w) => w.id === spineOf)?.points;
+    if (!after || JSON.stringify(after) === JSON.stringify(spinePoints)) return;
+    // Blocked mid-drag: put the line back rather than land an edit with no undo.
+    if (!activeEditableRun()) {
+      useStore.getState().updateWall(layerId, spineOf, { points: spinePoints });
+      return;
+    }
+    // The store already holds `after`; execute() re-applying it is harmless,
+    // and the command is what undo walks back.
+    undoManager.execute(
+      new UpdateWallCommand(layerId, spineOf, { points: spinePoints }, { points: after }),
+    );
+    return;
+  }
   if (wallId && bandRunIndex(wallId) !== null) {
     // No re-resolve here: the session captured the layer, the floor child and
     // the band at press, and it re-resolves all three against the live store

@@ -18,14 +18,17 @@ const REPO = resolve(process.cwd(), '../..');
 
 beforeAll(() => {
   resetAssetPackManager();
-  const dir = resolve(REPO, 'canvas/public/packs/gg-demo');
-  const file = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))!;
-  const manifest = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')) as PackManifest;
   const manager = getAssetPackManager();
-  (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
-    'gg-demo',
-    manifest,
-  );
+  // gg-demo dresses the Warren; the band itself is the forge's cave kit in gg-forge.
+  for (const packId of ['gg-demo', 'gg-forge']) {
+    const dir = resolve(REPO, `canvas/public/packs/${packId}`);
+    const file = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))!;
+    const manifest = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')) as PackManifest;
+    (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
+      packId,
+      manifest,
+    );
+  }
   manager.catalogVersion++;
 });
 
@@ -81,16 +84,16 @@ describe('detectBands on the shipped Warren', () => {
     return map.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
   };
 
-  it('walks the cave wall as one closed ring of 127 pieces', () => {
+  it('walks the cave wall as one closed ring of 123 pieces', () => {
     // The Warren's band is a single cycle around the whole cave; anything else
     // means the chain broke somewhere and node editing would only reach part of
-    // the wall. 127 of the layer's 271 asset children are band rock — the rest
+    // the wall. 123 of the layer's 267 asset children are band rock — the rest
     // is rubble, ledges, mushrooms and furniture, which must not be swept in.
     const bands = detectBands(warren());
     expect(bands).toHaveLength(1);
     expect(bands[0].closed).toBe(true);
-    expect(bands[0].pieces).toHaveLength(127);
-    expect(bands[0].joints).toHaveLength(127);
+    expect(bands[0].pieces).toHaveLength(123);
+    expect(bands[0].joints).toHaveLength(123);
   });
 
   it('leaves no seam wider than the acceptance gate', () => {

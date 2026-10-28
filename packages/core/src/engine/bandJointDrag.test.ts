@@ -34,14 +34,17 @@ const REPO = resolve(process.cwd(), '../..');
 
 beforeAll(() => {
   resetAssetPackManager();
-  const dir = resolve(REPO, 'canvas/public/packs/gg-demo');
-  const file = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))!;
-  const manifest = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')) as PackManifest;
   const manager = getAssetPackManager();
-  (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
-    'gg-demo',
-    manifest,
-  );
+  // gg-demo dresses the Warren; the band itself is the forge's cave kit in gg-forge.
+  for (const packId of ['gg-demo', 'gg-forge']) {
+    const dir = resolve(REPO, `canvas/public/packs/${packId}`);
+    const file = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))!;
+    const manifest = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8')) as PackManifest;
+    (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
+      packId,
+      manifest,
+    );
+  }
   manager.catalogVersion++;
 });
 
@@ -426,7 +429,8 @@ describe('a joint drag, end to end against the store', () => {
     // Two joints picked, so the group is there to be dropped.
     useStore.getState().toggleNodeSelection(bandJointT(70, was));
 
-    const to = dragJoint(40, 0.5);
+    // Joint 44: one of the drags that lands with a different joint count.
+    const to = dragJoint(44, 0.5);
 
     const band = detectBands(layer())[0];
     // The case the stale `t` broke: half the Warren's half-cell drags come back
@@ -473,7 +477,7 @@ describe('a joint drag, end to end against the store', () => {
   it('keeps Delete meaning straighten after the drag is undone', () => {
     seedWarren();
     const was = bandRun().band.joints.length;
-    dragJoint(40, 0.5);
+    dragJoint(44, 0.5);
     const landed = bandRun().band.joints.length;
     expect(landed).not.toBe(was);
     const t = useStore.getState().tools.selectedNodeT!;
@@ -503,7 +507,7 @@ describe('a joint drag, end to end against the store', () => {
   it('keeps Delete meaning straighten after the drag is redone', () => {
     seedWarren();
     const was = bandRun().band.joints.length;
-    dragJoint(40, 0.5);
+    dragJoint(44, 0.5);
     const landed = bandRun().band.joints.length;
     undoManager.undo();
 

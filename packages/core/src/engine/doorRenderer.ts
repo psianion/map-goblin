@@ -1,10 +1,25 @@
-import { Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { DoorChild } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
+import { getWallPieces } from '../assets/packCatalog';
+import {
+  DOOR_SLICE_CELLS,
+  doorKitFor,
+  doorKitKey,
+  doorKitOf,
+  isKitStyle,
+  kitWallSet,
+  leafPoses,
+  leafSlices,
+  type DoorKit,
+  type LeafPiece,
+  type LeafPose,
+} from '../assets/doorKits';
 import { getAssetPackManager } from './assetPackInstance';
+import { standaloneWallLook, styleWallLook, type WallLook } from '../shared/wallLook';
+import { referenceBandPx } from './wallNodeRenderer';
 
 /**
  * Draw every resolved door. Position and angle come from the resolver — the
@@ -18,13 +33,17 @@ export function renderDoors(
   doors: ResolvedDoor[],
   style: DungeonStyle,
   _gridCellSize: number,
+  /** The style each floor ring draws with (see `ringStyles`), so a door on a pinned ring takes that ring's kit. */
+  ringStyles?: readonly DungeonStyle[],
+  /** Per-edge styles (see `edgeStyles`): a door on an edge a room pins takes that edge's kit. */
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
 ): void {
   // H3: Door graphics are cleaned up by rebuildDungeonLayer which clears the
   // entire walls sublayer before calling renderTexturedWalls + renderDoors.
   // Do NOT clear the container here — it contains wall texture sprites too.
 
   for (const resolved of doors) {
-    renderResolvedDoor(container, resolved, style);
+    renderResolvedDoor(container, resolved, style, ringStyles, edgeStyles);
   }
 }
 
@@ -39,6 +58,8 @@ export function renderResolvedDoor(
   container: Container,
   resolved: ResolvedDoor,
   style: DungeonStyle,
+  ringStyles?: readonly DungeonStyle[],
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
 ): void {
   const { door, position, angle: wallAngle } = resolved;
   if (!door.visible) return;
@@ -79,7 +100,11 @@ export function renderResolvedDoor(
   // to fill the hole they left.
   const wallWidth = resolved.wall?.width || style.wallWidth;
 
-  const drewSprite = renderDoorSprite(container, door, position, wallAngle, wallWidth);
+  // A wall that belongs to a door kit builds its own door first; the
+  // `door-<style>-<state>` entries below are for every other wall.
+  const drewSprite =
+    renderKitDoor(container, resolved, style, ringStyles, edgeStyles) ||
+    renderDoorSprite(container, door, position, wallAngle, wallWidth);
   if (!drewSprite) {
     if (door.style === 'archway') {
       renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
@@ -274,6 +299,183 @@ function renderDoorSprite(
   sprite.scale.set(fit.scaleX, fit.scaleY);
   container.addChild(sprite);
   return true;
+}
+
+/** World-unit overlap between neighbouring leaf slices, so filtering never opens a seam. */
+const SLICE_SEAM = 0.003;
+/** The leaf's drop shadow: black at this alpha, this far down-right in world units. */
+const LEAF_SHADOW_ALPHA = 0.32;
+const LEAF_SHADOW_OFFSET: [number, number] = [0.05, 0.06];
+const LEAF_PIECES: LeafPiece[] = ['hinge', 'tile-a', 'tile-b', 'latch'];
+
+/**
+ * A single or double door built from its wall kit (assets/doorKits.ts): jambs
+ * closing the wall either side, then each leaf posed at the door's open angle.
+ *
+ * The kit is the door's own pick (`door.kit`) when it has one, else its wall's.
+ * False when neither names a kit or the kit's slices are not installed,
+ * so the caller falls back to the style's sprite or glyph exactly as before.
+ */
+function renderKitDoor(
+  container: Container,
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+  ringStyles?: readonly DungeonStyle[],
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
+): boolean {
+  const { door, position, angle } = resolved;
+  if (!isKitStyle(door.style)) return false;
+  const look = doorWallLook(resolved, style, ringStyles, edgeStyles);
+  // The door's own pick wins over its wall's kit; absent, the wall decides.
+  const wallKit = doorKitFor(look.setId);
+  const kit = doorKitOf(door, look.setId);
+  if (!kit) return false;
+  // A kit closes the opening with its own set's end caps, whatever the wall is.
+  const setId = kit === wallKit && look.setId ? look.setId : kitWallSet(kit);
+
+  const slices = new Map<LeafPiece, Texture>();
+  for (const piece of LEAF_PIECES) {
+    const hit = doorSpriteTexture(doorKitKey(kit, piece));
+    if (!hit) return false;
+    slices.set(piece, hit.tex);
+  }
+  // A door hung without hardware swaps in the bare hinge cap, when the pack has it.
+  if (door.hinges === false) {
+    const plain = doorSpriteTexture(doorKitKey(kit, 'hinge-plain'));
+    if (plain) slices.set('hinge', plain.tex);
+  }
+
+  // Floor-ring and room edges resolve with a placeholder width of 1, but their
+  // stones are laid at the ring's (or layer's) width, so that is the wall the
+  // door is in.
+  const wallWidth = look.width;
+  const wallTint = hexColor(look.tint ?? '#ffffff');
+
+  renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint);
+  const leafTint = hexColor(kit.tint);
+  for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
+    container.addChild(buildLeaf(pose, kit, slices, 0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET));
+    container.addChild(buildLeaf(pose, kit, slices, leafTint, 1, [0, 0]));
+  }
+  return true;
+}
+
+/**
+ * The look of the wall a door sits in, resolved the way `renderNodeWalls` lays
+ * it: a drawn wall's own pins, a floor ring's pins (a preset pins the floors it
+ * found), else the layer's. Which kit the door is built from follows the set.
+ */
+export function doorWallLook(
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+  ringStyles?: readonly DungeonStyle[],
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
+): WallLook {
+  const wall = resolved.wall;
+  if (wall?.kind === 'standalone') return standaloneWallLook(wall, style);
+  if (wall?.kind === 'floor' && wall.ring !== undefined) {
+    const edge = wall.edge !== undefined ? edgeStyles?.[wall.ring]?.[wall.edge] : undefined;
+    return styleWallLook(edge ?? ringStyles?.[wall.ring] ?? style);
+  }
+  const look = styleWallLook(style);
+  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint };
+}
+
+function hexColor(hex: string): number {
+  return parseInt(hex.replace('#', ''), 16);
+}
+
+function buildLeaf(
+  pose: LeafPose,
+  kit: DoorKit,
+  slices: Map<LeafPiece, Texture>,
+  tint: number,
+  alpha: number,
+  offset: [number, number],
+): Container {
+  const leaf = new Container();
+  leaf.position.set(pose.origin[0] + offset[0], pose.origin[1] + offset[1]);
+  leaf.rotation = pose.rotation;
+  if (pose.flip) leaf.scale.y = -1;
+  leaf.alpha = alpha;
+  for (const s of leafSlices(kit, pose.length)) {
+    const sprite = new Sprite(slices.get(s.piece)!);
+    sprite.anchor.set(0, 0.5);
+    sprite.position.set(s.x - SLICE_SEAM, 0);
+    sprite.width = s.length + 2 * SLICE_SEAM;
+    sprite.height = DOOR_SLICE_CELLS;
+    sprite.tint = tint;
+    leaf.addChild(sprite);
+  }
+  return leaf;
+}
+
+/**
+ * Close the wall either side of the opening, as deep as the wall is.
+ *
+ * Composed walls are cut flush at the opening (withoutDoorGaps), which leaves a
+ * raw edge; the set's own end cap is laid over the last stretch of each side,
+ * its finished face on the opening's edge, scaled to the wall's width the way
+ * the layout scales it at a free end. A kit with its own jamb (the cave) draws
+ * that at each edge instead, mirrored on the far side.
+ */
+function renderKitJambs(
+  container: Container,
+  kit: DoorKit,
+  setId: string,
+  position: [number, number],
+  angle: number,
+  width: number,
+  wallWidth: number,
+  tint: number,
+): void {
+  const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
+  const half = width / 2;
+  const edges: { at: [number, number]; into: 1 | -1 }[] = [
+    { at: [position[0] - dir[0] * half, position[1] - dir[1] * half], into: 1 },
+    { at: [position[0] + dir[0] * half, position[1] + dir[1] * half], into: -1 },
+  ];
+
+  if (kit.jamb.kind === 'ending') {
+    const ending = getWallPieces(setId, 'ending')[0];
+    // An end cap with a content rect arrives trimmed, and capPx measures the
+    // padded tile; none ships one, so a set that did would just go without.
+    if (!ending || ending.contentRect) return;
+    const tex = resolveTexture(ending.id);
+    if (tex.width <= 1) return;
+    const perPx = wallWidth / referenceBandPx(setId);
+    const cap = kit.jamb.capPx * perPx;
+    for (const { at, into } of edges) {
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(0.5);
+      // Centre `cap` back from the edge, pointing into the opening: the stone
+      // then runs from inside the wall out to a finished face on the edge.
+      sprite.position.set(at[0] - dir[0] * into * cap, at[1] - dir[1] * into * cap);
+      sprite.rotation = into > 0 ? angle : angle + Math.PI;
+      sprite.scale.set(
+        (perPx * ending.naturalWidth) / tex.width,
+        (perPx * ending.naturalHeight) / tex.height,
+      );
+      sprite.tint = tint;
+      container.addChild(sprite);
+    }
+    return;
+  }
+
+  const hit = doorSpriteTexture(doorKitKey(kit, 'jamb'));
+  if (!hit) return;
+  const j = kit.jamb;
+  for (const { at, into } of edges) {
+    const sprite = new Sprite(hit.tex);
+    sprite.anchor.set(j.originX / j.w, j.originY / j.h);
+    sprite.position.set(at[0], at[1]);
+    sprite.rotation = angle;
+    sprite.width = j.w;
+    sprite.height = j.h;
+    if (into < 0) sprite.scale.x = -sprite.scale.x;
+    sprite.tint = tint;
+    container.addChild(sprite);
+  }
 }
 
 // Stroke width proportional to wall — thin enough to read as a symbol, not a filled shape.

@@ -83,6 +83,24 @@ describe('resolveTexture', () => {
     expect(result).toBe(mockTex);
   });
 
+  it('resolves a bare id that names an installed pack entry through that pack', () => {
+    const mockTex = makeTex('water');
+    const pm = createMockPackManager({ 'gg-forge:water-still-a-01': mockTex }, [
+      {
+        packId: 'gg-forge',
+        manifest: manifestWith({
+          'water-still-a-01': {
+            type: 'water', material: 'water-still-a-01', gridSize: '2x2', pieceType: 'surface', variant: 'A', tags: [],
+          },
+        }),
+      },
+    ]);
+    vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
+
+    expect(resolveTexture('water-still-a-01')).toBe(mockTex);
+    expect(unitTexture('water-still-a-01').cellsWide).toBe(2);
+  });
+
   it('returns magenta fallback for unknown non-pack IDs', () => {
     const pm = createMockPackManager({});
     vi.mocked(getAssetPackManager).mockReturnValue(pm as never);

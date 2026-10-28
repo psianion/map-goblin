@@ -11,7 +11,7 @@ import type { RenderEngine } from './RenderEngine';
 import { lucideTexture } from './lucideIcons';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { useStore } from '../store/store';
-import { isLayerEffectivelyVisible } from '../store/selectors';
+import { isLayerShown } from '../store/selectors';
 
 /** Glyph height in world units, and the raster size behind it — both the table's numbers. */
 const GLYPH_WU = 0.75;
@@ -44,7 +44,7 @@ export function mountDoorIcons(engine: RenderEngine): () => void {
     const state = useStore.getState();
     const drawn = new Set<string>();
     for (const layerState of state.layers) {
-      if (layerState.type !== 'dungeon' || !isLayerEffectivelyVisible(state, layerState)) continue;
+      if (layerState.type !== 'dungeon' || !isLayerShown(state, layerState)) continue;
       for (const { door, position } of resolveDoors(layerState, resolveWalls(layerState))) {
         // An archway is a hole in a wall: nothing to open or shut, so no mark — the same
         // drop the table makes, for the same reason.
@@ -78,13 +78,15 @@ export function mountDoorIcons(engine: RenderEngine): () => void {
   // frame instead of a resolve plus a sprite walk per door.
   let lastLayers: unknown = null;
   let lastSolo: unknown = null;
+  let lastLevel: unknown = null;
   const tick = (): void => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
     const state = useStore.getState();
-    if (state.layers === lastLayers && state.ui.solo === lastSolo) return;
+    if (state.layers === lastLayers && state.ui.solo === lastSolo && state.ui.activeLevelId === lastLevel) return;
     lastLayers = state.layers;
     lastSolo = state.ui.solo;
+    lastLevel = state.ui.activeLevelId;
     draw();
   };
   tick();

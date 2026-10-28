@@ -40,7 +40,15 @@ const CAVE_BAND_PACK = 'gg-demo';
  * the shipped manifest on disk, which is the only place it is worth proving.
  * Everything else only needs a band to exist.
  */
-export function seedCaveBandPack(packId = CAVE_BAND_PACK): void {
+export function seedCaveBandPack(
+  packId = CAVE_BAND_PACK,
+  /**
+   * `set` and `tags` as the forge ships them (`GG_Cave_Ink`, tagged `cave`)
+   * make the kit a band set the catalogue offers as a wall texture; the
+   * defaults seed plain placed-rock art, which is all the band editor needs.
+   */
+  opts: { set?: string; tags?: string[] } = {},
+): void {
   const entries: Record<string, ManifestEntry> = {};
   for (const piece of caveBandPieces()) {
     // The key IS `<material>_<gridSize>` (see caveWallKit), so split it back at
@@ -53,8 +61,8 @@ export function seedCaveBandPack(packId = CAVE_BAND_PACK): void {
       pieceType: 'object',
       variant: 'A',
       frame: { x: 0, y: 0, w: 200, h: 200 },
-      set: packId,
-      tags: [],
+      set: opts.set ?? packId,
+      tags: opts.tags ?? [],
     };
   }
   seedPack(packId, entries);

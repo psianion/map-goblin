@@ -244,6 +244,28 @@ describe('integrateSets', () => {
     expect(`sha256:${sha256File(onDisk)}`).toBe(result.manifest.files[chairFile]!.checksum);
   });
 
+  it('writes family on minted object entries and on nothing else', async () => {
+    const propSet = join(TEST_DIR, 'prop-set');
+    await mkdir(propSet, { recursive: true });
+    await writeFile(join(propSet, 'storage_barrel_1_dark.png'), await makePng(200, 200, 30));
+    await writeFile(
+      join(propSet, 'manifest.json'),
+      JSON.stringify({
+        set: 'demo-gear',
+        type: 'object',
+        pieces: [{ file: 'storage_barrel_1_dark.png', piece: 'object', gridSize: '1x1', naturalWidth: 200, naturalHeight: 200 }],
+      }),
+    );
+
+    const result = await integrateSets({ basePackDir, setDirs: [propSet, setDir], type: 'wall', version: '1.1.0', output: join(TEST_DIR, 'prop-out') });
+
+    expect(result.manifest.entries['storage_barrel_1_dark_1x1_object_A']!.family).toBe('storage_barrel_dark');
+    expect(result.manifest.entries['Wood_B_2x1_wall_A']).not.toHaveProperty('family');
+    const manifestFile = result.writtenFiles.find((f) => f.split(/[\\/]/).pop()!.startsWith('pack-'))!;
+    const onDisk = JSON.parse(await readFile(manifestFile, 'utf-8'));
+    expect(onDisk.entries['storage_barrel_1_dark_1x1_object_A'].family).toBe('storage_barrel_dark');
+  });
+
   it('routes an atlas type through the loose path when the set says loose', async () => {
     const bigFloorSet = join(TEST_DIR, 'big-floor-set');
     await mkdir(bigFloorSet, { recursive: true });

@@ -4,27 +4,24 @@ import { snapToNearestWall } from './wallSnap';
 import {
   authoredBoundaries,
   authoredRing,
-  authoredRoomChildren,
   connectorChildren,
   connectorToDoor,
   spansInside,
 } from './authoredRooms';
 
 /**
- * A wall the rest of the engine can consume: a standalone `WallSegment`, one edge
- * of a `mergedFloor` ring, or one edge of a room the DM drew — all promoted to
- * real walls. Resolved in one place so occlusion, lighting, the door tool and the
- * renderers all agree on what a wall is instead of each extracting edges its own
- * way.
+ * A wall the rest of the engine can consume: a standalone `WallSegment` or one
+ * edge of a `mergedFloor` ring, promoted to a real wall. Resolved in one place so
+ * occlusion, lighting, the door tool and the renderers all agree on what a wall
+ * is instead of each extracting edges its own way. Rooms are places, not walls:
+ * nothing about a room occludes.
  */
 export interface ResolvedWall extends WallSegment {
-  kind: 'standalone' | 'floor' | 'room';
+  kind: 'standalone' | 'floor';
   /** Index into `mergedFloor`. Floor kind only — the ring's stone edits key on it. */
   ring?: number;
-  /** Index of this edge within its ring or room contour. Floor and room kinds. */
+  /** Index of this edge within its ring. Floor kind only. */
   edge?: number;
-  /** The RoomChild this edge came from. Room kind only. */
-  roomId?: string;
 }
 
 /**
@@ -65,14 +62,6 @@ function floorEdgeId(ring: number, edge: number): string {
   return `floor:${ring}:${edge}`;
 }
 
-/**
- * Room edges are named `room:{childId}:{edge}`, following the same convention.
- * The child id is a real uuid that survives republish, so unlike a floor edge id
- * this one is stable across a redraw of the rest of the map.
- */
-function roomEdgeId(roomId: string, edge: number): string {
-  return `room:${roomId}:${edge}`;
-}
 
 type Memo<T> = Map<string, { keys: readonly unknown[]; out: T }>;
 const wallMemo: Memo<ResolvedWall[]> = new Map();
@@ -99,14 +88,10 @@ function memo<T>(
 }
 
 /**
- * Every wall on a layer: standalone segments, one wall per floor-ring edge, and
- * one per edge of every room the DM drew.
- *
- * A drawn room's boundary *is* its wall — that is the whole of O1. Promoting it
- * here rather than at either sweep is what makes the referee's sweep and the
- * table's mask occlude on the same union: both read `extractWallSegments`, which
- * reads this. Where a connector crosses that boundary the edge is pierced instead
- * (`connectorApertures`), which is the doorway.
+ * Every wall on a layer: standalone segments and one wall per floor-ring edge.
+ * Promoting the ring edges here rather than at either sweep is what makes the
+ * referee's sweep and the table's mask occlude on the same union: both read
+ * `extractWallSegments`, which reads this.
  */
 export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
   return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children], () => {
@@ -132,25 +117,6 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
           kind: 'floor',
           ring,
           edge,
-        });
-      }
-    }
-    for (const room of authoredRoomChildren(layer.children ?? [])) {
-      if (room.visible === false) continue;
-      const ring = authoredRing(room);
-      if (ring.length < 2) continue;
-      for (let edge = 0; edge < ring.length; edge++) {
-        walls.push({
-          id: roomEdgeId(room.id, edge),
-          points: [ring[edge], ring[(edge + 1) % ring.length]],
-          wallType: 'normal',
-          direction: 'both',
-          color: '#000000',
-          width: 1,
-          roughness: 0,
-          kind: 'room',
-          edge,
-          roomId: room.id,
         });
       }
     }
@@ -329,6 +295,108 @@ export function toOcclusionDoors(
     }
   }
   return doors;
+}
+
+/** How far off a door's line another wall may lie and still be part of the same run. */
+const RUN_LINE_SLACK = 0.05;
+/** Past this much sine between them, two walls do not run the same way. ~1°. */
+const RUN_PARALLEL = 0.02;
+
+/** A 2-point wall lying on the door's own line, as its span along that line. */
+function onDoorLine(
+  wall: ResolvedWall,
+  origin: [number, number],
+  angle: number,
+): [number, number] | null {
+  if (wall.points.length !== 2) return null;
+  const [a, b] = wall.points;
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < APERTURE_MIN_SPAN) return null;
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  if (Math.abs((ux * (b[1] - a[1]) - uy * (b[0] - a[0])) / len) > RUN_PARALLEL) return null;
+  const off = (p: [number, number]) => ux * (p[1] - origin[1]) - uy * (p[0] - origin[0]);
+  if (Math.abs(off(a)) > RUN_LINE_SLACK || Math.abs(off(b)) > RUN_LINE_SLACK) return null;
+  const along = (p: [number, number]) => (p[0] - origin[0]) * ux + (p[1] - origin[1]) * uy;
+  const s = along(a);
+  const e = along(b);
+  return [Math.min(s, e), Math.max(s, e)];
+}
+
+/**
+ * The widest a door may be where it sits, cells.
+ *
+ * A door no wider than its own wall slides along it to fit, so the wall's length
+ * is always room enough. Past that the door sits centred on its wall (see
+ * `resolveDoor`), and it may keep growing over every wall that carries on along
+ * the same line without a break: a doorway drawn as its own short piece between
+ * two longer ones (fieldstone-keep, emberhold-crypt) opens into them, and they
+ * are cut to match (`doorOpeningCuts`). The run is measured both ways from the
+ * wall's middle and the nearer end wins, so the door never hangs past either.
+ * A bent wall keeps its own length. Infinity for a detached door.
+ */
+export function doorOpeningLimit(resolved: ResolvedDoor, walls: ResolvedWall[]): number {
+  const host = resolved.wall;
+  if (!host) return Infinity;
+  const own = polylineLength(host.points);
+  if (host.points.length !== 2) return own;
+  const [a, b] = host.points;
+  const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const spans = walls
+    .map((w) => onDoorLine(w, mid, angle))
+    .filter((s): s is [number, number] => s !== null);
+  let lo = -own / 2;
+  let hi = own / 2;
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [s, e] of spans) {
+      if (s <= hi + RUN_LINE_SLACK && e > hi + APERTURE_MIN_SPAN) {
+        hi = e;
+        grew = true;
+      }
+      if (e >= lo - RUN_LINE_SLACK && s < lo - APERTURE_MIN_SPAN) {
+        lo = s;
+        grew = true;
+      }
+    }
+  }
+  return Math.max(own, 2 * Math.min(-lo, hi));
+}
+
+/**
+ * The widest the door `doorId` on `layer` may be (see `doorOpeningLimit`);
+ * Infinity when it is not a wall door or has no wall.
+ */
+export function doorOpeningLimitOn(layer: DungeonLayer, doorId: string): number {
+  const walls = resolveWalls(layer);
+  const r = resolveDoors(layer, walls).find((d) => d.door.id === doorId);
+  return r ? doorOpeningLimit(r, walls) : Infinity;
+}
+
+/**
+ * Every stretch of wall a door's opening takes out of the drawn walls: its own
+ * wall across the door's whole width, and each wall lying on the same line that
+ * the opening reaches into, clipped to the part it covers. A door wider than its
+ * own short wall therefore cuts its neighbours too, and a floor edge running
+ * under a drawn wall opens with it. Same shape `buildOcclusionSegments` takes,
+ * with `ring` set on floor-ring edges. Empty for a detached door.
+ */
+export function doorOpeningCuts(
+  resolved: ResolvedDoor,
+  walls: ResolvedWall[],
+): { wallId: string; position: [number, number]; width: number; ring?: number }[] {
+  const host = resolved.wall;
+  if (!host) return [];
+  const cuts: { wallId: string; position: [number, number]; width: number; ring?: number }[] = [
+    { wallId: host.id, position: resolved.position, width: resolved.door.width, ring: host.ring },
+  ];
+  for (const wall of walls) {
+    if (wall.id === host.id || !onDoorLine(wall, resolved.position, resolved.angle)) continue;
+    const cut = apertureOnWall(resolved, wall);
+    if (cut) cuts.push({ wallId: wall.id, ...cut, ring: wall.ring });
+  }
+  return cuts;
 }
 
 /**

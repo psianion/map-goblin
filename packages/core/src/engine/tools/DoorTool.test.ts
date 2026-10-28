@@ -53,11 +53,11 @@ import { createWallRemovalCommand } from '../../store/commands';
 import { createDungeonLayer } from '../../store/factories';
 import { setNotify } from '../../store/notify';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
-import type { ConnectorChild, DoorChild, Room, RoomChild, WallSegment } from '../../shared/types';
+import type { DoorChild, WallSegment } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
 
 /**
- * Same wasm hand-off as authoredRooms.test.ts — jsdom can't fetch the .wasm, and
+ * Same wasm hand-off as roomSync.test.ts — jsdom can't fetch the .wasm, and
  * the blob ghost's room bind is a Clipper2 boolean.
  */
 beforeAll(async () => {
@@ -195,11 +195,11 @@ describe('DoorTool', () => {
     click(tool, 5, 5.1);
     expect(selectedIds()).toEqual([placed.id]);
 
-    // A click on empty ground is a deselect, not a placement: only a real drag
-    // commits a joint, so pointer noise far from any wall mints nothing.
+    // A click on empty ground is a deselect, not a placement: far from any
+    // wall there is nothing to hang a door on, so nothing is minted.
     click(tool, 5, 50);
     expect(selectedIds()).toEqual([]);
-    expect(layer().children.filter((c) => c.childType === 'connector')).toHaveLength(0);
+    expect(doors()).toHaveLength(1);
   });
 
   it('cycles closed → open → locked → closed on double-click', () => {
@@ -273,6 +273,55 @@ describe('DoorTool', () => {
     drag(tool, [8, 5], [10.8, 5]);
     expect(doors()[0].position[0]).toBeCloseTo(9.5);
     expect(doors()[0].wallId).toBe('w1');
+  });
+
+  describe('in a doorway piece between collinear walls', () => {
+    const piece = (id: string, a: number, b: number) =>
+      useStore.getState().addWall(layer().id, { ...structuredClone(WALL), id, points: [[a, 20], [b, 20]] });
+    const pts = (id: string) => layer().standaloneWalls.find((w) => w.id === id)!.points;
+    beforeEach(() => {
+      piece('L', 0, 8);
+      piece('G', 8, 10);
+      piece('R', 10, 16);
+      useStore.getState().addChild(layer().id, {
+        id: 'dw', name: 'Doorway', childType: 'door', visible: true, wallId: 'G', position: [9, 20], angle: 0,
+        width: 2, style: 'single', state: 'closed', isSecret: false,
+      } as DoorChild);
+      undoManager.clear();
+    });
+    const dw = () => doors().find((d) => d.id === 'dw')!;
+
+    it('slides with the walls following, one undo step for door and walls', () => {
+      drag(tool, [9, 20], [12, 20.1]);
+      expect(dw().position[0]).toBeCloseTo(12);
+      expect(pts('G')).toEqual([[11, 20], [13, 20]]);
+      expect(pts('L')).toEqual([[0, 20], [11, 20]]);
+      expect(pts('R')).toEqual([[13, 20], [16, 20]]);
+      undoManager.undo();
+      expect(undoManager.canUndo()).toBe(false);
+      expect(dw().position[0]).toBeCloseTo(9);
+      expect(pts('L')).toEqual([[0, 20], [8, 20]]);
+      expect(pts('R')).toEqual([[10, 20], [16, 20]]);
+    });
+
+    it('Escape mid-slide puts the door and the walls back', () => {
+      tool.onPointerMove({ x: 9, y: 20 });
+      tool.onPointerDown({ x: 9, y: 20 });
+      tool.onPointerMove({ x: 11, y: 20 });
+      expect(pts('L')).toEqual([[0, 20], [10, 20]]);
+      tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(dw().position[0]).toBeCloseTo(9);
+      expect(pts('L')).toEqual([[0, 20], [8, 20]]);
+      expect(pts('G')).toEqual([[8, 20], [10, 20]]);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('dragged off its run onto another wall, it re-anchors and the walls go back', () => {
+      drag(tool, [9, 20], [5, 5.1]);
+      expect(dw().wallId).toBe('w1');
+      expect(pts('L')).toEqual([[0, 20], [8, 20]]);
+      expect(pts('R')).toEqual([[10, 20], [16, 20]]);
+    });
   });
 
   it('leaves the door where it was when the drag leaves every wall', () => {
@@ -655,275 +704,6 @@ describe('DoorTool — effective visibility under solo (F1)', () => {
   });
 });
 
-/**
- * The other anchor a door can have: no wall, just the blob straddling the seam
- * between two drawn rooms. Retargeted from the connector tool these rows used to
- * belong to — one tool places both now, and the press decides which.
- */
-describe('DoorTool — blob doors', () => {
-  let tool: DoorTool;
-  let blobGhost: { fills: { color?: number }[] };
-  let warning: ReturnType<typeof vi.fn<(msg: string) => void>>;
-
-  /** Far from the only wall in the fixture, so every press here is a blob press. */
-  const AWAY: [number, number] = [5, 50];
-
-  beforeEach(() => {
-    undoManager.clear();
-    useStore.getState().resetToDefault();
-    useStore.getState().addWall(layer().id, structuredClone(WALL));
-    warning = vi.fn();
-    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
-    const preview = new Container();
-    tool = new DoorTool(preview);
-    blobGhost = preview.children[1] as unknown as { fills: { color?: number }[] };
-  });
-
-  function blobs(): ConnectorChild[] {
-    return layer().children.filter((c): c is ConnectorChild => c.childType === 'connector');
-  }
-
-  function draw(from: [number, number], to: [number, number]): ConnectorChild {
-    tool.onPointerMove({ x: from[0], y: from[1] });
-    tool.onPointerDown({ x: from[0], y: from[1] });
-    tool.onPointerMove({ x: (from[0] + to[0]) / 2, y: (from[1] + to[1]) / 2 });
-    tool.onPointerMove({ x: to[0], y: to[1] });
-    tool.onPointerUp({ x: to[0], y: to[1] });
-    const all = blobs();
-    return all[all.length - 1];
-  }
-
-  function span(ring: [number, number][]) {
-    const xs = ring.map(([x]) => x);
-    const ys = ring.map(([, y]) => y);
-    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-  }
-
-  it('draws a blob door where no wall is in range, in the tool popover style', () => {
-    const blob = draw([5, 50], [8, 50]);
-
-    expect(blobs()).toHaveLength(1);
-    expect(doors()).toHaveLength(0);
-    expect(blob.style).toBe('single');
-    expect(blob.kind).toBe('door');
-    expect(blob.state).toBe('closed');
-    expect(blob.isSecret).toBe(false);
-    expect(selectedIds()).toEqual([blob.id]);
-
-    // The drag is the blob's long axis, and it is thinner across the seam.
-    const s = span(blob.contours[0]);
-    expect(s.maxX - s.minX).toBeCloseTo(3, 5);
-    expect(s.maxY - s.minY).toBeLessThan(s.maxX - s.minX);
-  });
-
-  it('commits an archway blob open, the only state an arch has', () => {
-    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
-    const blob = draw(AWAY, [8, 50]);
-
-    expect(blob.style).toBe('archway');
-    expect(blob.kind).toBe('arch');
-    expect(blob.state).toBe('open');
-  });
-
-  it('draws a blob across a room seam — a promoted boundary is not a jamb', () => {
-    const room = (id: string, x0: number, x1: number): RoomChild => ({
-      id,
-      name: id,
-      childType: 'room',
-      visible: true,
-      contours: [[[x0, 20], [x1, 20], [x1, 26], [x0, 26]]],
-    });
-    useStore.getState().addChild(layer().id, room('room-a', 20, 26));
-    useStore.getState().addChild(layer().id, room('room-b', 26, 32));
-
-    // Every point of this drag sits within snap range of the seam edge x=26
-    // that resolveWalls promotes to an occluder — the exact gesture the merge
-    // exists for. Unfiltered, the wall path won this fork and hung a leaf door
-    // on the boundary; the seam takes a blob.
-    draw([24.5, 23], [27.5, 23]);
-    expect(blobs()).toHaveLength(1);
-    expect(doors()).toHaveLength(0);
-  });
-
-  it('ignores floor rings too on an authored map — the live bridge regression', () => {
-    useStore.getState().addChild(layer().id, {
-      id: 'room-a',
-      name: 'room-a',
-      childType: 'room',
-      visible: true,
-      contours: [[[20, 20], [26, 20], [26, 26], [20, 26]]],
-    } as RoomChild);
-    // A floor ring whose edge hugs the seam, the way the authored bridge floor
-    // does on the Warren (its edge sat 0.65wu from the drag) — snapped, the
-    // leaf-door path stole the fork back and committed a half-bound archway.
-    useStore.getState().updateLayer(layer().id, {
-      mergedFloor: [[[23.5, 18], [23.5, 28], [30, 28], [30, 18]]],
-    });
-
-    draw([24.5, 23], [27.5, 23]);
-    expect(blobs()).toHaveLength(1);
-    expect(doors()).toHaveLength(0);
-  });
-
-  it('a drag across a walled seam is a joint; the click still takes the leaf', () => {
-    // The live bridge: a real wall chord runs along the seam, inside snap range
-    // of any blob drag across it. The gesture disambiguates — the press arms
-    // the leaf, and the pull past LEAF_DRAG_SLOP hands the gesture to the blob.
-    addWall('chord', 6, 52);
-
-    draw([2, 51], [2, 53.5]);
-    expect(blobs()).toHaveLength(1);
-    expect(doors()).toHaveLength(0);
-
-    // The plain click keeps meaning the leaf the ghost promised — further
-    // along the chord, clear of the blob that now owns clicks where it sits.
-    click(tool, 5, 52.1);
-    expect(doors()).toHaveLength(1);
-    expect(blobs()).toHaveLength(1);
-  });
-
-  it('commits nothing for a press with no drag — a click is a deselect', () => {
-    tool.onPointerDown({ x: AWAY[0], y: AWAY[1] });
-    tool.onPointerUp({ x: AWAY[0], y: AWAY[1] });
-    expect(blobs()).toHaveLength(0);
-    expect(useStore.getState().selection.selectedIds).toEqual([]);
-  });
-
-  it('places a wall door, not a blob, when a wall is in range', () => {
-    click(tool, 5, 5.1);
-    expect(doors()).toHaveLength(1);
-    expect(blobs()).toHaveLength(0);
-  });
-
-  it('undoes the blob placement as one entry', () => {
-    draw(AWAY, [8, 50]);
-    undoManager.undo();
-    expect(blobs()).toHaveLength(0);
-  });
-
-  it('selects a blob on a single click, without moving it', () => {
-    const blob = draw(AWAY, [8, 50]);
-    const before = blob.contours;
-    useStore.getState().setSelectedIds([]);
-
-    click(tool, 6.5, 50);
-
-    expect(selectedIds()).toEqual([blob.id]);
-    expect(blobs()[0].contours).toEqual(before);
-    // A plain click is not an undo entry of its own — the placement is still the top one.
-    undoManager.undo();
-    expect(blobs()).toHaveLength(0);
-  });
-
-  it('drags a blob past the slop and records one move entry', () => {
-    const before = span(draw(AWAY, [8, 50]).contours[0]);
-
-    tool.onPointerDown({ x: 6.5, y: 50 });
-    tool.onPointerMove({ x: 8.5, y: 50 });
-    tool.onPointerUp({ x: 8.5, y: 50 });
-
-    expect(span(blobs()[0].contours[0]).minX - before.minX).toBeCloseTo(2, 5);
-
-    undoManager.undo();
-    expect(span(blobs()[0].contours[0]).minX).toBeCloseTo(before.minX, 5);
-  });
-
-  it('restores a dragged blob on Escape', () => {
-    const before = span(draw(AWAY, [8, 50]).contours[0]);
-
-    tool.onPointerDown({ x: 6.5, y: 50 });
-    tool.onPointerMove({ x: 8.5, y: 50 });
-    tool.onKeyDown({ key: 'Escape' } as KeyboardEvent);
-
-    expect(span(blobs()[0].contours[0]).minX).toBeCloseTo(before.minX, 5);
-    expect(tool.isActive()).toBe(false);
-  });
-
-  it('deletes the selected blob on Delete', () => {
-    draw(AWAY, [8, 50]);
-    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
-
-    expect(blobs()).toHaveLength(0);
-    expect(selectedIds()).toEqual([]);
-  });
-
-  it('cycles a blob door closed → open → locked on double-click', () => {
-    draw(AWAY, [8, 50]);
-
-    doubleClick(tool, 6.5, 50);
-    expect(blobs()[0].state).toBe('open');
-
-    doubleClick(tool, 6.5, 50);
-    expect(blobs()[0].state).toBe('locked');
-  });
-
-  it('leaves an archway blob alone on double-click — an arch has no shut state', () => {
-    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
-    draw(AWAY, [8, 50]);
-
-    doubleClick(tool, 6.5, 50);
-    expect(blobs()[0].state).toBe('open');
-    expect(undoManager.canUndo()).toBe(true);
-    undoManager.undo();
-    // The only entry was the placement: the double-click recorded nothing.
-    expect(blobs()).toHaveLength(0);
-  });
-
-  // One counter across both anchors, and read off the names in use rather than
-  // counted: place two, delete the first, and a reused number would point a DM's
-  // prep notes at the wrong door.
-  it('numbers blobs past every name in use, wall doors included', () => {
-    click(tool, 5, 5.1);
-    expect(doors()[0].name).toBe('Single 1');
-
-    const first = draw(AWAY, [8, 50]);
-    const second = draw([5, 55], [8, 55]);
-    expect([first.name, second.name]).toEqual(['Single 2', 'Single 3']);
-
-    useStore.getState().setSelectedIds([first.id]);
-    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
-
-    expect(draw([5, 60], [8, 60]).name).toBe('Single 4');
-  });
-
-  it('tints the blob ghost invalid while it joins fewer than two rooms', () => {
-    tool.onPointerDown({ x: 5, y: 50 });
-    tool.onPointerMove({ x: 8, y: 50 });
-
-    expect(blobGhost.fills.at(-1)?.color).toBe(0xcc3344);
-
-    // Red is a warning, not a refusal: an unlinked joint is fixable in place.
-    tool.onPointerUp({ x: 8, y: 50 });
-    expect(blobs()).toHaveLength(1);
-  });
-
-  it('drops the invalid tint once the blob spans two rooms', () => {
-    const rooms: Room[] = [
-      room('a', [[40, 40], [50, 40], [50, 50], [40, 50]]),
-      room('b', [[50.4, 40], [60, 40], [60, 50], [50.4, 50]]),
-    ];
-    useStore.getState().updateLayer(layer().id, { rooms } as never);
-
-    tool.onPointerDown({ x: 49.5, y: 45 });
-    tool.onPointerMove({ x: 51, y: 45 });
-
-    expect(blobGhost.fills.at(-1)?.color).toBe(0x94a3b8);
-  });
-
-  it('refuses to draw a blob on a locked layer', () => {
-    useStore.getState().updateLayer(layer().id, { locked: true } as never);
-
-    tool.onPointerDown({ x: 5, y: 50 });
-    tool.onPointerUp({ x: 8, y: 50 });
-
-    expect(blobs()).toHaveLength(0);
-    expect(warning).toHaveBeenCalledWith('Layer is locked');
-  });
-});
-
-function room(id: string, boundary: [number, number][]): Room {
-  return { id, name: id, boundary, centroid: [0, 0], area: 1, isPathway: false };
-}
 
 describe('clampDoorWidth', () => {
   // Single→double bumps up; the reverse used to leave the bumped width behind,

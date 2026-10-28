@@ -51,7 +51,18 @@ class FakeTexture {
   get height(): number { return this.frame.height; }
 }
 
+/** A kit leaf: its slices are sprites inside it. */
+class FakeContainer {
+  children: unknown[] = [];
+  position = { set: vi.fn() };
+  scale = { x: 1, y: 1 };
+  rotation = 0;
+  alpha = 1;
+  addChild(c: unknown) { this.children.push(c); return c; }
+}
+
 vi.mock('pixi.js', () => ({
+  Container: FakeContainer,
   Graphics: FakeGraphics,
   Sprite: FakeSprite,
   Rectangle: FakeRectangle,
@@ -260,5 +271,47 @@ describe('doorSpriteFit', () => {
   it('uses the whole canvas for an entry with no measured paint', () => {
     const fit = doorSpriteFit('door-portcullis-open', 400, 200, 2, WALL);
     expect(fit.frame).toEqual({ x: 0, y: 0, w: 400, h: 200 });
+  });
+});
+
+describe("renderDoors with a door's own kit", () => {
+  beforeEach(() => {
+    getTextureOrNull.mockReset();
+    getTextureOrNull.mockReturnValue(null);
+  });
+
+  const asked = () => new Set(getTextureOrNull.mock.calls.map((c) => c[0]));
+
+  it('builds the picked kit even on a wall whose set has none', () => {
+    getTextureOrNull.mockReturnValue(packTexture(160, 160));
+    const children = render([resolved('double', { kit: 'cave', width: 2 })]);
+    expect(asked().has('gg-demo:doorkit-cave-hinge')).toBe(true);
+    // Two leaves, each drawn twice (shadow, then the leaf), and no glyph.
+    expect(children.filter((c) => c instanceof FakeContainer)).toHaveLength(4);
+    expect(children.some((c) => c instanceof FakeGraphics)).toBe(false);
+  });
+
+  it('asks for no kit at all when neither the door nor its wall names one', () => {
+    render([resolved('single'), resolved('double')]);
+    expect([...asked()].some((k) => String(k).includes('doorkit'))).toBe(false);
+  });
+
+  it("swaps the wall's kit for the door's pick", () => {
+    const onCave = (patch: Partial<DoorChild>) => {
+      const r = resolved('single', patch);
+      return { ...r, wall: { id: 'w1', kind: 'standalone', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' } } as unknown as ResolvedDoor;
+    };
+    render([onCave({})]);
+    expect(asked().has('gg-demo:doorkit-cave-hinge')).toBe(true);
+    getTextureOrNull.mockClear();
+    render([onCave({ kit: 'wood' })]);
+    expect(asked().has('gg-demo:doorkit-wood-hinge')).toBe(true);
+    expect(asked().has('gg-demo:doorkit-cave-hinge')).toBe(false);
+  });
+
+  it('falls back to the glyph when the picked kit is not installed', () => {
+    const children = render([resolved('single', { kit: 'stone' })]);
+    expect(asked().has('gg-demo:doorkit-stone-hinge')).toBe(true);
+    expect(children.some((c) => c instanceof FakeGraphics)).toBe(true);
   });
 });

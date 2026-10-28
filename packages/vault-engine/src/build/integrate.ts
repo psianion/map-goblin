@@ -8,13 +8,14 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { packSprites, type SpriteInput } from './pack-sprites.js';
 import { writeBundle } from './bundle.js';
+import { deriveFamily } from './families.js';
 import { contentHash, sha256File } from '../hash.js';
 import { ATLAS_TYPES } from '../types.js';
 import type { AssetType } from '../types.js';
 import { PackManifestSchema, type PackManifest, type ManifestEntry } from '../schemas/pack-manifest.js';
 
-/** 'door' lives in the manifest schema but predates types.ts — accept it here too. */
-type EntryType = AssetType | 'door';
+/** 'door' and 'water' live in the manifest schema but not in types.ts. Accept them here too. */
+type EntryType = AssetType | 'door' | 'water';
 
 interface ForgePiece {
   file: string;
@@ -96,7 +97,7 @@ function sortRecord<T>(rec: Record<string, T>): Record<string, T> {
 }
 
 const KNOWN_TYPES = new Set<string>([
-  'floor', 'wall', 'pattern', 'edge', 'object', 'scatter', 'path', 'portal', 'light-mask', 'door',
+  'floor', 'wall', 'pattern', 'edge', 'object', 'scatter', 'path', 'portal', 'light-mask', 'door', 'water',
 ]);
 
 export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateResult> {
@@ -186,6 +187,8 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
           contentRect: piece.contentRect,
           set: forgeManifest.set,
           tags: piece.tags ?? baseManifest.theme,
+          // Objects are always loose (never in ATLAS_TYPES), so only this path needs it.
+          ...(setType === 'object' ? { family: deriveFamily(material) } : {}),
         };
         dropReplacedEntryFiles(key);
       }

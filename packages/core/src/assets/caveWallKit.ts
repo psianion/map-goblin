@@ -1,21 +1,24 @@
-// The cave wall kit: what gg-demo's rock band pieces actually measure.
+// The cave wall kit: what the forge's rock band pieces (GG_Cave_Ink, shipped in
+// gg-forge) actually measure.
 //
-// These walls are not composed stones. A cave band is a run of ordinary asset
-// children, one per rock piece, each mapped so its two butt joints land on a
-// chord of the floor outline (see scripts/gen-goblin-warren.mjs). Editing that
+// These walls are not composed stones. A cave band is a run of rock pieces, each
+// mapped so its two butt joints land on a chord of the floor outline: laid live
+// by the wall renderer when a layer names the kit as its wall texture
+// (caveBandRenderer.ts), or placed as ordinary asset children by
+// scripts/gen-goblin-warren.mjs so their joints can be dragged. Editing that
 // band means knowing where a piece's joints are and which chords the kit can
 // span, so the measurements have to live where the engine can read them.
 //
-// `caveWallKit.json` is measured from the source art by scripts/cave/measure-pieces.mjs,
+// `caveWallKit.json` is measured from the drawn art by forge/cave-measure.mjs,
 // not authored. It carries the family handedness fix already applied: an inside
 // bend always turns +90 and an outside bend always -90 walking with the void on
-// the left. The per-piece void-centroid guess mis-reads on three pieces whose
-// floor side carries a dark decorative crack, which is why handedness is a
-// property of the family and is settled at measurement time rather than here.
+// the left. Handedness is a property of the family and is settled at measurement
+// time rather than here.
 //
-// The manifest would be the natural home for this, but gg-demo cannot be rebuilt
-// from inside this repo — its build inputs live outside it — so the measurements
-// ride alongside instead, joined to pack entries by `material` + `gridSize`.
+// The manifest would be the natural home for this, but the measurements ride
+// alongside instead, joined to pack entries by `material` + `gridSize` — which
+// is also why gg-demo's structures of the same names, measured differently, are
+// never laid on these numbers (see bandPieceArt in bandCommit.ts).
 
 import kit from './caveWallKit.json';
 import { getCatalogEntry } from './packCatalog';
