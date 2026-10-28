@@ -1,11 +1,13 @@
 import type { StateCreator } from 'zustand';
-import type { AssetManifest, AssetRef, MapBuilderStore } from '../types';
+import type { AssetManifest, MapBuilderStore } from '../types';
+
+/** How many picks the recents list remembers, newest first. */
+export const RECENT_ASSET_LIMIT = 24;
 
 export interface AssetActions {
-  toggleFavorite: (assetId: string) => void;
   trackRecentUse: (assetId: string) => void;
-  addCustomUpload: (ref: AssetRef) => void;
-  removeCustomUpload: (id: string) => void;
+  /** Stars a prop (newest first), or unstars it. */
+  toggleFavourite: (assetId: string) => void;
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
@@ -19,28 +21,19 @@ export const createAssetsSlice: StateCreator<
   [],
   AssetActions
 > = (set) => ({
-  toggleFavorite: (assetId) =>
-    set((state) => {
-      const idx = state.assets.favorites.indexOf(assetId);
-      if (idx === -1) state.assets.favorites.push(assetId);
-      else state.assets.favorites.splice(idx, 1);
-    }),
   trackRecentUse: (assetId) =>
     set((state) => {
       state.assets.recentlyUsed = [
         assetId,
         ...state.assets.recentlyUsed.filter((id) => id !== assetId),
-      ].slice(0, 10);
+      ].slice(0, RECENT_ASSET_LIMIT);
     }),
-  addCustomUpload: (ref) =>
+  toggleFavourite: (assetId) =>
     set((state) => {
-      state.assets.customUploads.push(ref);
-    }),
-  removeCustomUpload: (id) =>
-    set((state) => {
-      state.assets.customUploads = state.assets.customUploads.filter(
-        (u) => u.id !== id,
-      );
+      const { favourites } = state.assets;
+      state.assets.favourites = favourites.includes(assetId)
+        ? favourites.filter((id) => id !== assetId)
+        : [assetId, ...favourites];
     }),
   setManifest: (manifest) =>
     set((state) => {

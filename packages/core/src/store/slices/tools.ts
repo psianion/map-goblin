@@ -8,9 +8,18 @@ export const TERRAIN_BRUSH_RANGES = {
   tintOpacity: { min: 0, max: 1, step: 0.05 },
 } as const;
 
+/** Props tool clamps — the dock's sliders read these too. */
+export const PROPS_RANGES = {
+  brushRadius: { min: 0.5, max: 10, step: 0.5 },
+  density: { min: 0.05, max: 1.5, step: 0.05 },
+  stampScale: { min: 0.25, max: 4, step: 0.05 },
+} as const;
+
+/** How many tints the scatter pool holds. */
+export const MAX_SCATTER_TINTS = 4;
+
 export const WATER_RANGES = {
   width: { min: 0.5, max: 10, step: 0.5 },
-  flowSpeed: { min: 0, max: 1, step: 0.05 },
 } as const;
 
 function clamp(v: number, { min, max }: { min: number; max: number }): number {
@@ -20,10 +29,8 @@ function clamp(v: number, { min, max }: { min: number; max: number }): number {
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
-  setRoughMode: (enabled: boolean) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
-  addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
@@ -119,10 +126,6 @@ export const createToolsSlice: StateCreator<
     set((state) => {
       state.tools.eraseMode = enabled;
     }),
-  setRoughMode: (enabled) =>
-    set((state) => {
-      state.tools.roughMode = enabled;
-    }),
   setCurveMode: (enabled) =>
     set((state) => {
       state.tools.curveMode = enabled;
@@ -130,13 +133,6 @@ export const createToolsSlice: StateCreator<
   updateToolSettings: (patch) =>
     set((state) => {
       Object.assign(state.tools.settings, patch);
-    }),
-  addRecentAsset: (assetId) =>
-    set((state) => {
-      state.tools.recentAssets = [
-        assetId,
-        ...state.tools.recentAssets.filter((id: string) => id !== assetId),
-      ].slice(0, 8);
     }),
   updateLightDefaults: (patch) =>
     set((state) => {
@@ -147,8 +143,12 @@ export const createToolsSlice: StateCreator<
       Object.assign(state.tools.settings.scatterBrush, patch);
       // Clamp to valid ranges to prevent infinite loops and rendering bugs
       const s = state.tools.settings.scatterBrush;
-      s.brushRadius = Math.max(0.5, s.brushRadius);
-      s.count = Math.min(Math.max(1, Math.round(s.count)), 30);
+      s.brushRadius = clamp(s.brushRadius, PROPS_RANGES.brushRadius);
+      s.density = clamp(s.density, PROPS_RANGES.density);
+      s.stampScale = clamp(s.stampScale, PROPS_RANGES.stampScale);
+      const turn = Math.PI * 2;
+      s.stampRotation = ((s.stampRotation % turn) + turn) % turn;
+      if (s.tints.length > MAX_SCATTER_TINTS) s.tints = s.tints.slice(0, MAX_SCATTER_TINTS);
       s.minSpacing = Math.max(0.1, s.minSpacing);
       s.scaleRange[0] = Math.max(0.1, s.scaleRange[0]);
       s.scaleRange[1] = Math.max(s.scaleRange[0], s.scaleRange[1]);
@@ -156,7 +156,18 @@ export const createToolsSlice: StateCreator<
     }),
   updateTerrainBrushSettings: (patch) =>
     set((state) => {
-      Object.assign(state.tools.settings.terrainBrush, patch);
+      const was = state.tools.settings.terrainBrush;
+      // Tint opacity starts at zero so the brush paints untinted until asked,
+      // which means a colour picked on its own would never show. Picking a
+      // real colour IS the ask: lift a zero opacity to full with it. White
+      // stays a no-op, and an opacity sent alongside the colour wins.
+      const tintAsk =
+        patch.tintColor !== undefined &&
+        patch.tintOpacity === undefined &&
+        was.tintOpacity === 0 &&
+        patch.tintColor.toLowerCase() !== '#ffffff';
+      Object.assign(was, patch);
+      if (tintAsk) was.tintOpacity = 1;
       const t = state.tools.settings.terrainBrush;
       t.slot = Math.min(Math.max(0, Math.round(t.slot)), 5);
       t.radius = clamp(t.radius, TERRAIN_BRUSH_RANGES.radius);
@@ -168,6 +179,5 @@ export const createToolsSlice: StateCreator<
       Object.assign(state.tools.settings.water, patch);
       const w = state.tools.settings.water;
       w.width = clamp(w.width, WATER_RANGES.width);
-      w.flowSpeed = clamp(w.flowSpeed, WATER_RANGES.flowSpeed);
     }),
 });

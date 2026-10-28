@@ -6,8 +6,6 @@ import {
   constrainProportions,
   clampScale,
 } from './transformMath';
-import type { AnyChild } from '../../store/types';
-import { getChildBounds, unionChildBounds } from '../hitTest';
 import {
   OVERLAY_WHITE,
   OVERLAY_INK,
@@ -41,12 +39,19 @@ interface HandleZone {
 
 const MIN_EDGE_PX = 40; // only show mid-edge handles if dimension > this
 
+type ResizeDir = Exclude<HandleType, 'rotate' | 'move'>;
+
 /** What the gizmo offers for the current selection. */
 export interface GizmoConfig {
   /** Rotation stem — off for children with no rotation (lights). */
   showRotate: boolean;
   /** Measurement chip content; null hides the chip. */
   chip: string | null;
+  /**
+   * The box's own angle, radians. A single prop or label is boxed on its own axes, so
+   * its handles sit on its sides and drag along them; a union box stays at 0.
+   */
+  rotation: number;
 }
 
 // Built lazily: TextStyle touches canvas text metrics at construction, which
@@ -62,37 +67,25 @@ function chipStyle(): TextStyle {
 
 export class TransformGizmo {
   readonly container = new Container();
+  /** Box and handles, turned about the box centre by `config.rotation`. */
+  private frame = new Container();
   private graphics = new Graphics();
   private chipText: Text;
   private chipBg = new Graphics();
   private handles: HandleZone[] = [];
   private bbox: BoundingBox = { x: 0, y: 0, width: 0, height: 0 };
-  private objectRotation = 0;
-  private config: GizmoConfig = { showRotate: true, chip: null };
+  private config: GizmoConfig = { showRotate: true, chip: null, rotation: 0 };
 
   // Drag state
   private dragging = false;
   private dragHandle: HandleType | null = null;
   private dragStart: { x: number; y: number } = { x: 0, y: 0 };
   private originalBBox: BoundingBox = { x: 0, y: 0, width: 0, height: 0 };
-  private originalRotation = 0;
-
-  // Callbacks
-  onTransformDelta: ((delta: {
-    translateX: number;
-    translateY: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-    handle: HandleType;
-  }) => void) | null = null;
-
-  onTransformEnd: (() => void) | null = null;
-  onTransformCancel: (() => void) | null = null;
 
   constructor() {
     this.container.label = 'transformGizmo';
-    this.container.addChild(this.graphics);
+    this.frame.addChild(this.graphics);
+    this.container.addChild(this.frame);
     this.chipText = new Text({ text: '', style: chipStyle(), resolution: 2 });
     this.container.addChild(this.chipBg);
     this.container.addChild(this.chipText);
@@ -100,11 +93,11 @@ export class TransformGizmo {
 
   /**
    * Update the gizmo position/size based on the object's screen-space bounding box.
-   * Called every frame from the render loop when an object is selected.
+   * Called every frame from the render loop when an object is selected. With a
+   * `rotation`, the box is the unturned one around the centre it turns about.
    */
-  update(screenBBox: BoundingBox, rotation: number, config?: Partial<GizmoConfig>): void {
+  update(screenBBox: BoundingBox, config?: Partial<GizmoConfig>): void {
     this.bbox = screenBBox;
-    this.objectRotation = rotation;
     if (config) this.config = { ...this.config, ...config };
     this.draw();
   }
@@ -116,6 +109,10 @@ export class TransformGizmo {
 
     const { x, y, width, height } = this.bbox;
     const cx = x + width / 2;
+    // Drawn unturned, then the frame turns about the centre.
+    this.frame.pivot.set(cx, y + height / 2);
+    this.frame.position.set(cx, y + height / 2);
+    this.frame.rotation = this.config.rotation;
 
     // Bounding box: white line carried by an ink underlay so it reads on any art.
     g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_INK, alpha: OVERLAY_INK_ALPHA });
@@ -203,11 +200,15 @@ export class TransformGizmo {
 
     if (this.chipText.text !== text) this.chipText.text = text;
     const { x, y, width, height } = this.bbox;
+    // Under the turned box: the lowest of its corners.
+    const c = Math.abs(Math.cos(this.config.rotation));
+    const s = Math.abs(Math.sin(this.config.rotation));
+    const halfH = (width * s + height * c) / 2;
     const pad = 5;
     const tw = this.chipText.width;
     const th = this.chipText.height;
     const chipX = x + width / 2 - tw / 2;
-    const chipY = y + height + 10;
+    const chipY = y + height / 2 + halfH + 10;
     this.chipText.position.set(chipX, chipY);
     this.chipBg.roundRect(chipX - pad, chipY - 2, tw + pad * 2, th + 4, 4);
     this.chipBg.fill({ color: OVERLAY_INK, alpha: 0.78 });
@@ -225,6 +226,7 @@ export class TransformGizmo {
    * children to re-hit-test.
    */
   hitTest(screenX: number, screenY: number, opts?: { bboxIsMove?: boolean }): HandleType | null {
+    [screenX, screenY] = this.toLocal(screenX, screenY);
     // Check handles in reverse (top-drawn = highest priority)
     for (let i = this.handles.length - 1; i >= 0; i--) {
       const h = this.handles[i];
@@ -248,19 +250,31 @@ export class TransformGizmo {
     return null;
   }
 
+  /** A screen point in the unturned frame the handles were laid out in. */
+  private toLocal(sx: number, sy: number): [number, number] {
+    const angle = this.config.rotation;
+    if (angle === 0) return [sx, sy];
+    const cx = this.bbox.x + this.bbox.width / 2;
+    const cy = this.bbox.y + this.bbox.height / 2;
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    const dx = sx - cx;
+    const dy = sy - cy;
+    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+  }
+
   /**
-   * Get the CSS cursor string for a handle type.
+   * Get the CSS cursor string for a handle type: the resize arrow that points the way
+   * the handle moves on screen, so a turned box's handles show turned arrows.
    */
   getCursor(handle: HandleType | null): string {
     if (!handle) return 'default';
-    const cursors: Record<HandleType, string> = {
-      nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize',
-      w: 'w-resize', e: 'e-resize',
-      sw: 'sw-resize', s: 's-resize', se: 'se-resize',
-      rotate: 'grab',
-      move: 'move',
-    };
-    return cursors[handle];
+    if (handle === 'rotate') return 'grab';
+    if (handle === 'move') return 'move';
+    const dirs: ResizeDir[] = ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'];
+    const octant = Math.round(this.config.rotation / (Math.PI / 4));
+    const turned = dirs[(((dirs.indexOf(handle) + octant) % 8) + 8) % 8];
+    return `${turned}-resize`;
   }
 
   startDrag(handle: HandleType, screenX: number, screenY: number): void {
@@ -268,7 +282,6 @@ export class TransformGizmo {
     this.dragHandle = handle;
     this.dragStart = { x: screenX, y: screenY };
     this.originalBBox = { ...this.bbox };
-    this.originalRotation = this.objectRotation;
   }
 
   updateDrag(
@@ -343,42 +356,21 @@ export class TransformGizmo {
   endDrag(): void {
     this.dragging = false;
     this.dragHandle = null;
-    this.onTransformEnd?.();
   }
 
   cancelDrag(): void {
     this.dragging = false;
     this.dragHandle = null;
-    this.onTransformCancel?.();
   }
 
   isDragging(): boolean {
     return this.dragging;
   }
 
-  getOriginalRotation(): number {
-    return this.originalRotation;
-  }
-
-  /**
-   * Returns the world-space AABB for a single child.
-   * Useful for callers that need per-child bounds without importing hitTest directly.
-   */
-  static getChildBounds(child: AnyChild): BoundingBox {
-    return getChildBounds(child);
-  }
-
-  /**
-   * Returns the union world-space AABB for multiple children.
-   * Returns null if the array is empty.
-   */
-  static unionChildBounds(children: AnyChild[]): BoundingBox | null {
-    return unionChildBounds(children);
-  }
-
   destroy(): void {
     this.container.removeFromParent();
     this.graphics.destroy();
+    this.frame.destroy();
     this.chipText.destroy();
     this.chipBg.destroy();
     this.container.destroy();

@@ -8,6 +8,7 @@ import type { AnyChild } from '../../store/types';
 import type { RingGeometry } from '../../shared/types';
 import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
+import { localScaleFor } from './transformMath';
 
 /** A similarity transform in world units, about a point that stays fixed. */
 export interface WorldTransform {
@@ -133,11 +134,7 @@ export type ChildSnapshot =
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
-    // Authored rooms and connectors carry ShapeChild's ring fields on purpose,
-    // so the gizmo moves them through the same exact point-by-point remap.
     case 'shape':
-    case 'room':
-    case 'connector':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
     case 'water':
       return {
@@ -197,12 +194,15 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
       }
       // Assets resize width/height directly — that is what the renderer draws —
       // so edge drags are non-uniform for free. Legacy `scale` stays a
-      // multiplier on top and is left untouched.
+      // multiplier on top and is left untouched. The box scales on the world
+      // axes; a turned prop takes them on its own (a quarter-turned prop's width
+      // follows the box's height), else a resize stretched it sideways.
+      const { su, sv } = localScaleFor(snap.rotation, t.scaleX, t.scaleY);
       return {
         position: { x, y },
         rotation: snap.rotation + t.rotation,
-        width: Math.max(snap.width * Math.abs(t.scaleX), 0.01),
-        height: Math.max(snap.height * Math.abs(t.scaleY), 0.01),
+        width: Math.max(snap.width * su, 0.01),
+        height: Math.max(snap.height * sv, 0.01),
       } as Partial<AnyChild>;
     }
     case 'radius': {

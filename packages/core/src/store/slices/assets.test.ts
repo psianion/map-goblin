@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore } from '../store'
 import type { AssetManifest } from '../types'
+import { RECENT_ASSET_LIMIT } from './assets'
 
 describe('AssetsSlice — manifest state', () => {
   beforeEach(() => {
@@ -61,3 +62,59 @@ describe('AssetsSlice — manifest state', () => {
   })
 })
 
+
+describe('AssetsSlice — recently used', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault()
+    useStore.setState((s) => {
+      s.assets.recentlyUsed = []
+    })
+  })
+
+  it('puts the latest use first and drops its older entry', () => {
+    const { trackRecentUse } = useStore.getState()
+    trackRecentUse('a')
+    trackRecentUse('b')
+    trackRecentUse('a')
+    expect(useStore.getState().assets.recentlyUsed).toEqual(['a', 'b'])
+  })
+
+  it(`keeps the newest ${RECENT_ASSET_LIMIT}`, () => {
+    const { trackRecentUse } = useStore.getState()
+    for (let i = 0; i < RECENT_ASSET_LIMIT + 5; i++) trackRecentUse(`id-${i}`)
+    const recent = useStore.getState().assets.recentlyUsed
+    expect(recent).toHaveLength(RECENT_ASSET_LIMIT)
+    expect(recent[0]).toBe(`id-${RECENT_ASSET_LIMIT + 4}`)
+    expect(recent).not.toContain('id-0')
+  })
+
+  it('survives resetToDefault: recents belong to the DM, not the map', () => {
+    useStore.getState().trackRecentUse('a')
+    useStore.getState().resetToDefault()
+    expect(useStore.getState().assets.recentlyUsed).toEqual(['a'])
+  })
+})
+
+describe('AssetsSlice — favourites', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault()
+    useStore.setState((s) => {
+      s.assets.favourites = []
+    })
+  })
+
+  it('stars newest first and unstars on a second toggle', () => {
+    const { toggleFavourite } = useStore.getState()
+    toggleFavourite('a')
+    toggleFavourite('b')
+    expect(useStore.getState().assets.favourites).toEqual(['b', 'a'])
+    toggleFavourite('a')
+    expect(useStore.getState().assets.favourites).toEqual(['b'])
+  })
+
+  it('survives resetToDefault: favourites belong to the DM, not the map', () => {
+    useStore.getState().toggleFavourite('a')
+    useStore.getState().resetToDefault()
+    expect(useStore.getState().assets.favourites).toEqual(['a'])
+  })
+})
