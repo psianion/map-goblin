@@ -1,6 +1,33 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { computeMapWorldBounds } from './exportPipeline';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Container } from 'pixi.js';
+import { BAND_REACH, computeMapWorldBounds, runExportPipeline } from './exportPipeline';
+import type { RenderEngine } from '../RenderEngine';
+import { buildSceneGraph, type SceneGraph } from '../sceneGraph';
 import { useStore } from '../../store/store';
+import { setAuthoredLookHold, setEditorDesk, type AuthoredLookOptions } from '../editorDesk';
+
+const { bandSets } = vi.hoisted(() => ({ bandSets: new Set<string>() }));
+vi.mock('../../assets/packCatalog', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../assets/packCatalog')>()),
+  isBandSet: (id: string | undefined) => !!id && bandSets.has(id),
+}));
+// buildSceneGraph's heavier neighbours need a GPU/2d canvas; the overhead test below only
+// needs the real container tree.
+vi.mock('../terrain/TerrainRenderer', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../terrain/TerrainRenderer')>()),
+  TerrainRenderer: class {
+    container = new Container();
+  },
+  setTerrainRenderer: () => {},
+}));
+vi.mock('../lighting', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lighting')>()),
+  LightingRenderer: class {},
+}));
+vi.mock('../fogTransition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../fogTransition')>()),
+  FogTransition: class {},
+}));
 import type { DungeonLayer } from '../../store/types';
 import type { WaterChild } from '../../shared/types';
 
@@ -20,9 +47,7 @@ function makeWater(outer: [number, number][], visible = true): WaterChild {
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
-    bankWidth: 0.5,
-    flowSpeed: 0,
-    flowAngle: 0,
+    bankWidth: 0.5,
   };
 }
 
@@ -102,5 +127,207 @@ describe('computeMapWorldBounds', () => {
 
     expect(b.maxX).toBeGreaterThanOrEqual(40);
     expect(b.maxY).toBeGreaterThanOrEqual(25);
+  });
+});
+
+describe('runExportPipeline', () => {
+  it('hands the scene back and frees the texture when the render throws', async () => {
+    const destroy = vi.fn();
+    const position = { x: 3, y: 4, set(x: number, y: number) { this.x = x; this.y = y; } };
+    const scale = { x: 0.5, set(v: number) { this.x = v; } };
+    const gridContainer = { visible: true };
+    const sceneGraph = {
+      worldContainer: { position, scale },
+      gridRenderer: { container: gridContainer },
+      lightingRenderer: { renderInto: vi.fn() },
+    } as unknown as SceneGraph;
+    const engine = {
+      createRenderTexture: () => ({ destroy }),
+      renderToTexture: () => { throw new Error('render failed'); },
+      renderer: vi.fn(),
+    } as unknown as RenderEngine;
+
+    await expect(
+      runExportPipeline(engine, sceneGraph, useStore.getState().layers, {
+        format: 'png',
+        pxPerCell: 64,
+        includeGrid: false,
+        mapName: 'Test',
+      }),
+    ).rejects.toThrow('render failed');
+
+    expect(position).toMatchObject({ x: 3, y: 4 });
+    expect(scale.x).toBe(0.5);
+    expect(gridContainer.visible).toBe(true);
+    expect(destroy).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('runExportPipeline: the file', () => {
+  type Calls = {
+    rt: unknown[][];
+    lighting: number;
+    drawn: unknown[][];
+    held: AuthoredLookOptions[];
+    position: { x: number; y: number } | null;
+    canvas: number[];
+  };
+
+  /** A scene and engine that record what the export asked of them. */
+  function rig() {
+    const calls: Calls = { rt: [], lighting: 0, drawn: [], held: [], position: null, canvas: [] };
+    const position = { x: 0, y: 0, set(x: number, y: number) { this.x = x; this.y = y; } };
+    const scale = { x: 1, set(v: number) { this.x = v; } };
+    const sceneGraph = {
+      worldContainer: { position, scale },
+      gridRenderer: { container: { visible: true } },
+      lightingRenderer: { renderInto: () => { calls.lighting++; } },
+    } as unknown as SceneGraph;
+    const engine = {
+      viewport: () => ({ width: 800, height: 600, dpr: 2 }),
+      createRenderTexture: (...args: unknown[]) => {
+        calls.rt.push(args);
+        return { destroy: () => {} };
+      },
+      renderToTexture: () => {
+        calls.position = { x: position.x, y: position.y };
+      },
+      renderer: () => ({ extract: { image: async () => ({ naturalWidth: 2816, naturalHeight: 2048 }) } }),
+    } as unknown as RenderEngine;
+    (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas = class {
+      constructor(w: number, h: number) {
+        calls.canvas = [w, h];
+      }
+      getContext() {
+        return { drawImage: (...args: unknown[]) => calls.drawn.push(args.slice(1)) };
+      }
+      convertToBlob() {
+        return Promise.resolve(new Blob());
+      }
+    };
+    setAuthoredLookHold((opts) => {
+      calls.held.push(opts);
+      return () => {};
+    });
+    return { engine, sceneGraph, calls };
+  }
+
+  /** A 9.5x6.5 room: 10.1x7.1 cells with its walls, so an 11x8 file. */
+  function room() {
+    const dl = dungeonLayer();
+    useStore.setState({
+      layers: useStore.getState().layers.map((l) =>
+        l.id === dl.id ? { ...dl, mergedFloor: [[[2, 3], [11.5, 3], [11.5, 9.5], [2, 9.5]]] } : l,
+      ) as DungeonLayer[],
+    });
+    return useStore.getState().layers;
+  }
+
+  const opts = { format: 'png' as const, pxPerCell: 128, includeGrid: false, mapName: 'Room' };
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    setEditorDesk({ desk: '#f2f2f2', dot: '#c6c6c6', sheet: '#fbfbfb', ink: '#1b1b1b' });
+  });
+
+  afterEach(() => {
+    setEditorDesk(null);
+    setAuthoredLookHold(null);
+  });
+
+  it('renders at resolution 1 whatever the screen DPR, and draws the image at the file size', async () => {
+    const { engine, sceneGraph, calls } = rig();
+    const layers = room();
+    const { filename } = await runExportPipeline(engine, sceneGraph, layers, opts);
+
+    expect(filename).toContain('1408x1024');
+    expect(calls.rt).toEqual([[1408, 1024, 1]]);
+    expect(calls.canvas).toEqual([1408, 1024]);
+    // Sized, so an image that ever came back larger is scaled to fit, not cropped.
+    expect(calls.drawn).toEqual([[0, 0, 1408, 1024]]);
+  });
+
+  it('applies the lighting by default and when asked', async () => {
+    const { engine, sceneGraph, calls } = rig();
+    const layers = room();
+    await runExportPipeline(engine, sceneGraph, layers, opts);
+    await runExportPipeline(engine, sceneGraph, layers, { ...opts, lighting: true });
+
+    expect(calls.lighting).toBe(2);
+    expect(calls.held).toEqual([{ lit: true }, { lit: true }]);
+  });
+
+  it('skips the lighting pass and holds the plain look for an unlit file', async () => {
+    const { engine, sceneGraph, calls } = rig();
+    await runExportPipeline(engine, sceneGraph, room(), { ...opts, lighting: false });
+
+    expect(calls.lighting).toBe(0);
+    expect(calls.held).toEqual([{ lit: false }]);
+  });
+
+  it('centres the room in the whole-cell file', async () => {
+    const { engine, sceneGraph, calls } = rig();
+    const layers = room();
+    const b = computeMapWorldBounds(layers);
+    await runExportPipeline(engine, sceneGraph, layers, opts);
+
+    const { x, y } = calls.position!;
+    const left = b.minX * 128 + x;
+    const right = 1408 - (b.maxX * 128 + x);
+    const top = b.minY * 128 + y;
+    const bottom = 1024 - (b.maxY * 128 + y);
+    expect(left).toBeGreaterThan(1);
+    expect(left).toBeCloseTo(right, 6);
+    expect(top).toBeCloseTo(bottom, 6);
+  });
+
+  it('renders the overhead props: their container sits inside the tree the file is drawn from', async () => {
+    const { engine } = rig();
+    const sceneGraph = buildSceneGraph({
+      viewport: () => ({ width: 800, height: 600, dpr: 1 }),
+      stage: () => new Container(),
+      overlay: () => new Container(),
+      ticker: () => ({ add: () => {}, remove: () => {} }),
+    } as unknown as RenderEngine);
+    const rendered: unknown[] = [];
+    const recording = { ...engine, renderToTexture: (c: unknown) => { rendered.push(c); } } as unknown as RenderEngine;
+
+    await runExportPipeline(recording, sceneGraph, room(), { ...opts, lighting: false });
+
+    expect(rendered).toEqual([sceneGraph.worldContainer]);
+    let node: Container | null = sceneGraph.overheadContainer;
+    while (node && node !== sceneGraph.worldContainer) node = node.parent as Container | null;
+    expect(node).toBe(sceneGraph.worldContainer);
+  });
+});
+
+describe('computeMapWorldBounds: cave band rock', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    bandSets.clear();
+  });
+
+  function bandRoom(setId: string) {
+    const dl = dungeonLayer();
+    return useStore.getState().layers.map((l) =>
+      l.id === dl.id
+        ? { ...dl, style: { ...dl.style, wallTextureSetId: setId, wallWidth: 0.5 }, mergedFloor: [[[0, 0], [10, 0], [10, 6], [0, 6]]] }
+        : l,
+    ) as DungeonLayer[];
+  }
+
+  it('reaches BAND_REACH past the floor on a band layer, where rock is laid', () => {
+    bandSets.add('GG_Cave_Ink');
+    const b = computeMapWorldBounds(bandRoom('GG_Cave_Ink'), null, null);
+    expect(b.minX).toBeCloseTo(-BAND_REACH, 6);
+    expect(b.minY).toBeCloseTo(-BAND_REACH, 6);
+    expect(b.maxX).toBeCloseTo(10 + BAND_REACH, 6);
+    expect(b.maxY).toBeCloseTo(6 + BAND_REACH, 6);
+  });
+
+  it('keeps the stroke pad alone for an ordinary wall set', () => {
+    const b = computeMapWorldBounds(bandRoom('GG_Fieldstone'), null, null);
+    expect(b.minX).toBeCloseTo(-0.3, 6);
+    expect(b.maxX).toBeCloseTo(10.3, 6);
   });
 });

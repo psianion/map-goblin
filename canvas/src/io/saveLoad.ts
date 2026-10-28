@@ -16,7 +16,7 @@ import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
-import { encodeMapFile, decodeMapFile, MAGIC_HEADER } from './mapFormat';
+import { encodeMapFile, decodeMapFile, decodeAnyMapFile, hasMagicHeader, MAGIC_HEADER } from './mapFormat';
 
 export { MAGIC_HEADER };
 
@@ -122,6 +122,9 @@ export async function serializeToBytes(data: SerializedMapData): Promise<Uint8Ar
  * `customImages` here — `loadFromFile` splits them into binary terrainSplats.
  */
 export async function deserializeFromBytes(bytes: Uint8Array): Promise<SerializedMapData> {
+  // Older .mapbuilder files are plain JSON rather than the container; they parse
+  // here (or throw the not-a-map-file error) without a trip to the worker.
+  if (!hasMagicHeader(bytes)) return decodeAnyMapFile(bytes);
   const worker = getSaveWorker();
   if (!worker) return decodeMapFile(bytes);
   // Copy: callers may reuse their buffer, and transfer detaches it.

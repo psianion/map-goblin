@@ -30,6 +30,7 @@ export function MapsSidePanel() {
     const fog = singleton?.sceneGraph.fogTransition;
 
     const targetName = useStore.getState().mapIndex.find((m) => m.id === id)?.name ?? 'map';
+    const fromId = useStore.getState().activeMapId;
 
     return switchMap(id, {
       getActiveMapId: () => useStore.getState().activeMapId,
@@ -54,7 +55,9 @@ export function MapsSidePanel() {
         else notify.info(msg);
       },
     }).then(() => {
-      notify.info(`Switched to '${targetName}'`);
+      // switchMap resolves without switching when one is already in flight, the map
+      // is already open, or the load failed; only announce a switch that landed here.
+      if (fromId !== id && useStore.getState().activeMapId === id) notify.info(`Switched to '${targetName}'`);
     }).catch((err: unknown) => {
       console.error('[MapsSidePanel] Switch failed:', err);
     });

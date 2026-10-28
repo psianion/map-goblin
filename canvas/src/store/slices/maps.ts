@@ -1,1 +1,1 @@
-export { createMapsSlice, getMapDB, resetMapDB } from '@dnd/core/src/store/slices/maps';
+export { createMapsSlice, getMapDB, resetMapDB, setThumbnailProvider } from '@dnd/core/src/store/slices/maps';

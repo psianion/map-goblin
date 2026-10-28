@@ -9,104 +9,8 @@ import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { cn } from '@/lib/utils';
-import { pointInPolygon } from '@/lib/pointInPolygon';
-import { isValidFormula } from '@dnd/core/src/shared/dice-format';
-import type {
-  DungeonLayer,
-  LightChild,
-  RoomNote,
-  TriggerAction,
-  TriggerDef,
-  ZoneChild,
-} from '@/store/types';
-
-const CONDITION_LABELS: Record<TriggerDef['when']['kind'], string> = {
-  'room-revealed': 'Room revealed',
-  'enter-region': 'Enter region',
-  'within-radius': 'Within radius',
-};
-
-interface ZoneInfo {
-  zone: ZoneChild;
-  layer: DungeonLayer;
-}
-
-/** Mirrors the server resolver's inert reasons closely enough to warn while authoring —
- *  the server stays the authority at the table. */
-function triggerInert(t: TriggerDef, zones: Map<string, ZoneInfo>): string | null {
-  const info = zones.get(t.when.zoneId);
-  if (!info) return 'zone deleted';
-  const shape = info.zone.shape;
-  if (t.when.kind === 'room-revealed') {
-    if (shape.kind !== 'point') return 'needs a point zone';
-    const rooms = info.layer.rooms ?? [];
-    if (!rooms.some((r) => pointInPolygon([shape.position.x, shape.position.y], r.boundary))) {
-      return 'pin not inside a room';
-    }
-  } else if (shape.kind === 'point') {
-    return 'zone has no area';
-  }
-  const lights = new Set(
-    info.layer.children.filter((c): c is LightChild => c.childType === 'light').map((c) => c.id),
-  );
-  for (const action of t.actions) {
-    if (action.kind === 'light' && !lights.has(action.lightId)) return 'light missing';
-    if (action.kind === 'trap' && action.damage && !isValidFormula(action.damage)) {
-      return 'bad damage formula';
-    }
-    if (action.kind === 'encounter') {
-      if (action.monsters.length === 0) return 'encounter has no monsters';
-      if (action.monsters.some((m) => m.hp !== undefined && !isValidFormula(m.hp))) {
-        return 'bad monster HP formula';
-      }
-    }
-  }
-  return null;
-}
-
-function noteInert(n: RoomNote, zones: Map<string, ZoneInfo>): string | null {
-  const info = zones.get(n.zoneId);
-  if (!info) return 'zone deleted';
-  if (!n.showOnReveal) return null;
-  const shape = info.zone.shape;
-  if (shape.kind === 'point') {
-    const rooms = info.layer.rooms ?? [];
-    if (!rooms.some((r) => pointInPolygon([shape.position.x, shape.position.y], r.boundary))) {
-      return 'pin not inside a room';
-    }
-  }
-  return null;
-}
-
-function triggerSummary(t: TriggerDef): string {
-  const what = t.actions.length === 0 ? 'no actions' : t.actions.map(actionSummary).join(', ');
-  return `${CONDITION_LABELS[t.when.kind]} → ${what}`;
-}
-
-function actionSummary(a: TriggerAction): string {
-  switch (a.kind) {
-    case 'show-text':
-      return a.toPlayers ? 'Text to players' : 'Text to DM';
-    case 'light':
-      return a.on ? 'Light on' : 'Light off';
-    case 'trap':
-      return `Trap${a.save ? ` · DC ${a.save.dc} ${a.save.ability.toUpperCase()}` : ''}${a.damage ? ` · ${a.damage}` : ''}`;
-    case 'ability-check':
-      return `Check · DC ${a.dc} ${a.ability.toUpperCase()}`;
-    case 'prompt':
-      return `${a.prompt === 'initiative' ? 'Initiative' : 'Attack'} prompt`;
-    case 'environment':
-      return 'Environment';
-    case 'encounter':
-      return a.monsters.map((m) => `${m.count}× ${m.name}`).join(', ');
-  }
-}
-
-function zoneAnchor(zone: ZoneChild): { x: number; y: number } {
-  const shape = zone.shape;
-  if (shape.kind === 'rect') return { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 };
-  return { x: shape.position.x, y: shape.position.y };
-}
+import { buildPrepGroups, zoneAnchor } from '@/v2/editor/prepModel';
+import type { ZoneChild } from '@/store/types';
 
 /** Select the zone and pan the camera to it (same 150ms ease as zoom-to-fit, zoom kept). */
 function jumpToZone(zone: ZoneChild) {
@@ -144,83 +48,12 @@ function jumpToZone(zone: ZoneChild) {
   requestAnimationFrame(tick);
 }
 
-interface Row {
-  key: string;
-  kind: 'trigger' | 'note' | 'encounter';
-  name: string;
-  summary: string;
-  inert: string | null;
-  pops: boolean;
-}
-
-interface Group {
-  zoneId: string;
-  zoneName: string;
-  zone: ZoneChild | null;
-  rows: Row[];
-}
-
 export function PrepPanel() {
   const prep = useStore((s) => s.prep);
   const layers = useStore((s) => s.layers);
   const selectedIds = useStore(useShallow((s) => s.selection.selectedIds));
 
-  const groups = useMemo(() => {
-    const zones = new Map<string, ZoneInfo>();
-    for (const layer of layers) {
-      if (layer.type !== 'dungeon') continue;
-      for (const child of (layer as DungeonLayer).children) {
-        if (child.childType === 'zone') {
-          zones.set(child.id, { zone: child as ZoneChild, layer: layer as DungeonLayer });
-        }
-      }
-    }
-
-    const byZone = new Map<string, Group>();
-    const groupFor = (zoneId: string): Group => {
-      let g = byZone.get(zoneId);
-      if (!g) {
-        const info = zones.get(zoneId);
-        g = {
-          zoneId,
-          zoneName: info?.zone.name ?? 'Deleted zone',
-          zone: info?.zone ?? null,
-          rows: [],
-        };
-        byZone.set(zoneId, g);
-      }
-      return g;
-    };
-
-    for (const t of prep?.triggers ?? []) {
-      groupFor(t.when.zoneId).rows.push({
-        key: t.id,
-        kind: t.actions.some((a) => a.kind === 'encounter') ? 'encounter' : 'trigger',
-        name: t.name,
-        summary: triggerSummary(t),
-        inert: triggerInert(t, zones),
-        pops: false,
-      });
-    }
-    for (const n of prep?.notes ?? []) {
-      const images = n.imageKeys.length;
-      groupFor(n.zoneId).rows.push({
-        key: n.id,
-        kind: 'note',
-        name: n.title || 'Untitled note',
-        summary: `Note · DM only${images > 0 ? ` · ${images} image${images === 1 ? '' : 's'}` : ''}`,
-        inert: noteInert(n, zones),
-        pops: n.showOnReveal,
-      });
-    }
-
-    // Zone-name order keeps the list stable while prep is being edited; unanchored
-    // (deleted-zone) groups sink to the bottom where their warnings are visible together.
-    return [...byZone.values()].sort((a, b) => {
-      if (!a.zone !== !b.zone) return a.zone ? -1 : 1;
-      return a.zoneName.localeCompare(b.zoneName);
-    });
-  }, [prep, layers]);
+  const groups = useMemo(() => buildPrepGroups(prep, layers), [prep, layers]);
 
   if (groups.length === 0) {
     return (

@@ -268,8 +268,10 @@ test.describe('27 - Layer Tree v2', () => {
       const cx = box!.x + box!.width / 2;
       const cy = box!.y + box!.height / 2;
       const dpr = await page.evaluate(() => window.devicePixelRatio);
-      const sampleX = Math.round((box!.width / 2) * dpr);
-      const sampleY = Math.round((box!.height / 2) * dpr);
+      // Off the centre, which is a grid crossing: a background dot and the floor's grid ink
+      // there are nearly the same grey.
+      const sampleX = Math.round((box!.width / 2 + 7) * dpr);
+      const sampleY = Math.round((box!.height / 2 + 7) * dpr);
 
       const before = await getPixelColor(page, sampleX, sampleY);
 
@@ -295,8 +297,10 @@ test.describe('27 - Layer Tree v2', () => {
 
       const box = await page.locator('canvas').boundingBox();
       const dpr = await page.evaluate(() => window.devicePixelRatio);
-      const sampleX = Math.round((box!.width / 2) * dpr);
-      const sampleY = Math.round((box!.height / 2) * dpr);
+      // Off the centre, which is a grid crossing: a background dot and the floor's grid ink
+      // there are nearly the same grey.
+      const sampleX = Math.round((box!.width / 2 + 7) * dpr);
+      const sampleY = Math.round((box!.height / 2 + 7) * dpr);
 
       // Take screenshot with shape visible
       const visible = await getPixelColor(page, sampleX, sampleY);

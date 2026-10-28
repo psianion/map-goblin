@@ -24,6 +24,9 @@ const PAD = 6;
 // redraw (which also re-derives the screen-constant dot radius for the new
 // zoom level). Chosen to be well under human-perceptible "did it just pop".
 const SETTLE_MS = 120;
+// Stock dots: mid grey, part transparent, so they read on any background colour.
+const DEFAULT_DOT_COLOR = 0x888888;
+const DEFAULT_DOT_ALPHA = 0.45;
 
 export class GridRenderer {
   readonly container: Container;
@@ -49,7 +52,19 @@ export class GridRenderer {
     this.container = new Container();
     this.container.label = 'gridRenderer';
     this.graphics = new Graphics();
+    this.graphics.tint = DEFAULT_DOT_COLOR;
+    this.graphics.alpha = DEFAULT_DOT_ALPHA;
     this.container.addChild(this.graphics);
+  }
+
+  /**
+   * Colour the dots, or `null` for the stock grey. A host that lays the map on a desk of
+   * its own (`editorDesk`) passes its dot colour, drawn solid. Only the colour changes:
+   * the grid is the same world-space grid either way.
+   */
+  setDotColor(color: number | null): void {
+    this.graphics.tint = color ?? DEFAULT_DOT_COLOR;
+    this.graphics.alpha = color === null ? DEFAULT_DOT_ALPHA : 1;
   }
 
   markDirty(): void {
@@ -129,7 +144,8 @@ export class GridRenderer {
         this.graphics.circle(x, y, dotR);
       }
     }
-    this.graphics.fill({ color: 0x888888, alpha: 0.45 });
+    // White, tinted by `setDotColor`, so a colour change needs no redraw.
+    this.graphics.fill({ color: 0xffffff });
   }
 
   destroy(): void {

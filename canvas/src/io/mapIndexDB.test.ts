@@ -236,5 +236,20 @@ describe('MapIndexDB', () => {
       expect(Array.from(data!)).toEqual(Array.from(blob));
       expect(meta!.layerCount).toBe(2);
     });
+
+    // The publish record names the source's scenes; a copy carrying it would publish over them.
+    it('leaves the publish record behind, so the copy publishes as a new scene', async () => {
+      const id = await db.createMap('Original', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      await db.setPublishState(id, 'camp-1', { sceneId: 'scene-1', mapHash: 'h', prepHash: 'p' });
+
+      const newId = await db.duplicateMap(id);
+
+      expect(await db.getPublishState(newId)).toBeNull();
+      expect((await db.getMapRecord(newId))!.publish).toBeUndefined();
+      // The source keeps its own.
+      expect(await db.getPublishState(id)).toEqual({
+        'camp-1': { sceneId: 'scene-1', mapHash: 'h', prepHash: 'p' },
+      });
+    });
   });
 });

@@ -1,16 +1,10 @@
 import type { MapStylePreset } from '@/store/presetRegistry';
-import type { DungeonStyle } from '@/store/types';
 import { cn } from '@/lib/utils';
 
 interface PresetGridProps {
   presets: MapStylePreset[];
   activeId?: string;
   onSelect: (preset: MapStylePreset) => void;
-}
-
-/** Solid fill for the bottom hint section of a swatch — shadow color if enabled, else a neutral. */
-function shadowBackground(style: Partial<DungeonStyle>): string {
-  return style.shadowEnabled ? (style.shadowColor ?? '#444') : '#1a1a1a';
 }
 
 export function PresetGrid({ presets, activeId, onSelect }: PresetGridProps) {
@@ -32,23 +26,15 @@ export function PresetGrid({ presets, activeId, onSelect }: PresetGridProps) {
                 : 'border border-border-default hover:border-border-focus',
             )}
           >
-            {/* Floor color — top 60% */}
+            {/* Floor color — top 65% */}
             <div
               className="w-full"
-              style={{ height: '60%', backgroundColor: s.floorColor ?? '#c8b89a' }}
+              style={{ height: '65%', backgroundColor: s.floorColor ?? '#c8b89a' }}
             />
-            {/* Wall stripe — 4px */}
+            {/* Wall color — remaining bottom */}
             <div
               className="w-full"
-              style={{ height: '4px', backgroundColor: s.wallColor ?? '#222' }}
-            />
-            {/* Shadow hint — remaining bottom */}
-            <div
-              className="w-full"
-              style={{
-                height: 'calc(40% - 4px)',
-                background: shadowBackground(s),
-              }}
+              style={{ height: '35%', backgroundColor: s.wallColor ?? '#222' }}
             />
           </button>
         );

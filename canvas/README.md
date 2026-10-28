@@ -17,14 +17,13 @@ no nonsense, just maps.
 - **Rectangle, Polygon, Regular Polygon, Path** — full tool belt, snap-to-grid
 - **Wall tool** — light-blocking walls with adjustable thickness
 - **Erase mode** — carve holes through existing floors
-- **Rough mode** — noise-roughened edges for organic caves and caverns
 - **Auto-merge floors** — overlapping shapes fuse into one (Clipper2 WASM)
 
 ### Paint the Mood
 - **Multi-layer dungeons** — stack and reorder with drag-and-drop
-- **4 sublayers** — shadow, floor, grid, walls per layer
+- **3 sublayers** — floor, grid, walls per layer, each toggled on its own
 - **8 style presets** — one-click looks: from clean parchment to gritty stone
-- **Per-layer colors** — floor, wall, shadow — all yours to tweak
+- **Per-layer colors** — floor and wall, all yours to tweak
 - **Background layer** — solid fill, always at the bottom of the pile
 
 ### Light the Torches

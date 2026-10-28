@@ -1,0 +1,1634 @@
+/*
+ * V2 editor shell: the chrome drawn over the canvas once a map is open.
+ *
+ * One visual system for every region, defined here and nowhere else:
+ *   surface   --v2-panel, 1px --v2-line, one soft low shadow (--v2-e-shadow)
+ *   radius    8 cards and the dock, 6 buttons and tiles, 4 swatches
+ *   type      12/13px Plex Sans for labels, Plex Mono only for numbers, keys, coordinates
+ *   space     8px grid (4 for the tightest pairs)
+ *   sizes     28px icon buttons in cards, 32px in the rail and the dock's tool row
+ *   states    hover --v2-panel-2, on = inverted ink, focus ring in ink, no accent colour
+ *   motion    120ms colour, 160ms movement
+ * Dashed borders mark add slots and presets that have nothing behind them yet.
+ */
+
+.v2-editor,
+.v2-pop,
+.v2-sheet,
+.v2-tipbox {
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --v2-e-rail: 44px;
+  --v2-e-status: 28px;
+}
+.dark .v2-editor,
+.dark .v2-pop,
+.dark .v2-sheet,
+.dark .v2-tipbox {
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+}
+
+/* Fixed to the viewport, so nothing the shell draws can land below the fold. The layer
+   itself lets pointers through to the canvas; each region takes them back. */
+.v2-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+.v2-editor > * {
+  pointer-events: auto;
+}
+.v2-editor :focus-visible,
+.v2-pop :focus-visible,
+.v2-sheet :focus-visible {
+  outline: 1.5px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+.v2-num {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.v2-editor kbd,
+.v2-pop kbd,
+.v2-tipbox kbd {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--v2-line);
+  background: var(--v2-panel-2);
+  color: var(--v2-text-3);
+}
+
+/* The one floating surface */
+.v2-float {
+  background: var(--v2-panel);
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  box-shadow: var(--v2-e-shadow);
+}
+
+/* The one icon button: 28px in cards, 32px where it is a primary tool */
+.v2-ib {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-ib:hover {
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+}
+.v2-ib:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+.v2-ib--lg {
+  width: 32px;
+  height: 32px;
+}
+.v2-ib--on,
+.v2-ib--on:hover {
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-vr {
+  flex-shrink: 0;
+  width: 1px;
+  align-self: stretch;
+  background: var(--v2-line);
+}
+
+/* Primary action: inverted ink, the only filled control in the shell */
+.v2-primary {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-primary:hover {
+  background: var(--v2-ink-hover);
+}
+
+/* Tooltip: one floating label for the whole shell, never clipped by a scroller */
+.v2-tipbox {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--v2-e-shadow);
+  animation: v2-tip-in 120ms var(--v2-ease);
+}
+.v2-tipbox kbd {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--v2-on-ink) 28%, transparent);
+  color: color-mix(in srgb, var(--v2-on-ink) 80%, transparent);
+}
+@keyframes v2-tip-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Rail ─────────────────────────────────────────────── */
+.v2-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--v2-e-rail);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--v2-panel);
+  border-right: 1px solid var(--v2-line);
+}
+.v2-rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.v2-rail__group--end {
+  margin-top: auto;
+}
+.v2-rail__divider {
+  width: 20px;
+  height: 1px;
+  background: var(--v2-line);
+}
+
+/* ── Title card and top-right cluster: the same card ──── */
+.v2-bar-card {
+  position: absolute;
+  top: 12px;
+  z-index: 25;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+.v2-title-card {
+  left: calc(var(--v2-e-rail) + 12px);
+  max-width: 340px;
+  padding-right: 12px;
+}
+.v2-title-card .v2-vr {
+  margin: 8px 0;
+}
+.v2-title-card__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.v2-title-card__name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-title-card__meta {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--v2-text-3);
+}
+.v2-top-actions {
+  right: 12px;
+  gap: 4px;
+}
+.v2-top-actions .v2-vr {
+  margin: 8px 4px;
+}
+
+/* Menus and popovers share the surface */
+.v2-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 224px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.v2-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-menu__item:hover {
+  background: var(--v2-panel-2);
+}
+.v2-menu__sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--v2-line);
+}
+/* A quiet heading over a few rows; its key, when it has one, drives the whole group. */
+.v2-menu__caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 24px;
+  padding: 4px 8px 0;
+  color: var(--v2-text-3);
+  font-size: 11px;
+  user-select: none;
+}
+/* Checkbox and radio rows: the mark sits in its own column, so the labels line up. */
+.v2-menu__item--check {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.v2-menu__item--check .v2-menu__label {
+  flex: 1;
+}
+.v2-menu__mark {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-ink);
+}
+.v2-pop {
+  position: absolute;
+  bottom: calc(100% + 20px);
+  z-index: 40;
+  padding: 12px;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  animation: v2-pop-in 160ms var(--v2-ease);
+}
+.v2-pop--settings {
+  right: -8px;
+  width: 248px;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.v2-pop--swatches {
+  left: -8px;
+}
+.v2-pop__title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--v2-text-2);
+}
+@keyframes v2-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* ── Selection card ───────────────────────────────────── */
+.v2-sel {
+  position: absolute;
+  top: 68px;
+  right: 12px;
+  z-index: 24;
+  width: 272px;
+  max-height: calc(100vh - 68px - 160px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+}
+.v2-sel__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--v2-line);
+}
+.v2-sel__name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-sel__kind {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+.v2-sel__dims {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
+}
+.v2-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+}
+.v2-field > span:first-child {
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+.v2-field > span:last-child {
+  font-size: 12px;
+}
+.v2-sel__fields {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-sel__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.v2-sel__row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--v2-text-2);
+}
+.v2-sel__row > span:last-child {
+  color: var(--v2-text);
+  text-transform: capitalize;
+}
+.v2-sel__links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.v2-sel__quiet {
+  font-weight: 400;
+  color: var(--v2-text-3);
+}
+.v2-sel__head + .v2-sel__rows,
+.v2-sel__head + .v2-sel__note {
+  padding-top: 12px;
+}
+.v2-sel__note {
+  margin: 0;
+  padding: 0 12px 12px;
+  color: var(--v2-text-3);
+}
+
+/* ── Dock ─────────────────────────────────────────────── */
+.v2-dock {
+  position: absolute;
+  left: calc(var(--v2-e-rail) + 12px);
+  right: 12px;
+  bottom: calc(var(--v2-e-status) + 12px);
+  z-index: 24;
+  /* One width for every tab, so the tabs never move under the pointer. Wide enough for the
+     Floors row (filmstrip with one layer, tools, presets, two floor tiles, settings). */
+  width: min(992px, calc(100vw - var(--v2-e-rail) - 24px));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.v2-dock__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 36px;
+  padding: 0 4px 0 8px;
+}
+.v2-dock:not(.v2-dock--collapsed) .v2-dock__tabs {
+  border-bottom: 1px solid var(--v2-line);
+}
+.v2-dock__tab {
+  position: relative;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 120ms var(--v2-ease);
+}
+.v2-dock__tab:hover {
+  color: var(--v2-text);
+}
+.v2-dock__tab::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 1.5px;
+  background: var(--v2-ink);
+  transform: scaleX(0);
+  transition: transform 160ms var(--v2-ease);
+}
+.v2-dock--collapsed .v2-dock__tab::after {
+  bottom: 0;
+}
+.v2-dock__tab--on,
+.v2-dock__tab--on:hover {
+  color: var(--v2-text);
+}
+.v2-dock__tab--on::after {
+  transform: scaleX(1);
+}
+.v2-dock__context {
+  align-self: center;
+  max-width: 220px;
+  padding: 0 8px 0 16px;
+  font-size: 12px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-dock__context b {
+  font-weight: 500;
+  color: var(--v2-text-2);
+}
+.v2-dock__chevron {
+  align-self: center;
+}
+.v2-dock__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 0 12px;
+}
+.v2-dock__section {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.v2-dock__body > .v2-swatches,
+.v2-dock__body > .v2-dock__note {
+  flex-shrink: 0;
+}
+.v2-dock__body > .v2-vr {
+  margin: 12px 0;
+}
+.v2-dock__note {
+  font-size: 12px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+
+/* Filmstrip */
+.v2-film {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Takes the dock's overflow first (the scroll hides layers before the asset strip drops a
+     tile), but no further than one tile in the scroll: the fixed tiles, the scrolled tile,
+     Add and All layers (40px, 6px apart) and the divider. Past that the strip gives way. */
+  flex-shrink: 1000;
+  min-width: calc((var(--v2-film-fixed, 2) + 3) * 46px + 5px);
+}
+.v2-film__scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Shrinks first when the window is narrow, never below one tile; eight before it scrolls. */
+  min-width: 44px;
+  max-width: calc(8 * 40px + 7 * 6px + 4px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 2px;
+  margin: -2px;
+}
+.v2-film__scroll::-webkit-scrollbar {
+  display: none;
+}
+.v2-film__scroll--fade-r {
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.v2-film__scroll--fade-l {
+  mask-image: linear-gradient(to right, transparent, #000 24px);
+}
+.v2-film__scroll--fade-l.v2-film__scroll--fade-r {
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+}
+.v2-film__divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 24px;
+  margin: 0 2px;
+  background: var(--v2-line);
+}
+.v2-tile {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+}
+.v2-tile__pick {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: border-color 120ms var(--v2-ease), box-shadow 120ms var(--v2-ease),
+    opacity 120ms var(--v2-ease);
+}
+.v2-tile__pick:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-tile--on .v2-tile__pick,
+.v2-tile--on .v2-tile__pick:hover {
+  border-color: var(--v2-ink);
+  box-shadow: inset 0 0 0 0.5px var(--v2-ink);
+}
+.v2-tile--hidden .v2-tile__pick {
+  opacity: 0.4;
+}
+.v2-tile__swatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  border: 2px solid transparent;
+}
+.v2-tile__eye,
+.v2-tile__lock {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: opacity 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-tile__eye {
+  top: 2px;
+  right: 2px;
+  opacity: 0;
+}
+.v2-tile__lock {
+  bottom: 2px;
+  right: 2px;
+}
+.v2-tile:hover .v2-tile__eye,
+.v2-tile:focus-within .v2-tile__eye,
+.v2-tile--hidden .v2-tile__eye {
+  opacity: 1;
+}
+.v2-tile__eye:hover,
+.v2-tile__lock:hover {
+  color: var(--v2-text);
+}
+.v2-tile--add {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--v2-line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+  transition: color 120ms var(--v2-ease), border-color 120ms var(--v2-ease);
+}
+.v2-tile--add:hover {
+  color: var(--v2-text);
+  border-color: var(--v2-ink);
+}
+.v2-tile--btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--v2-line);
+}
+
+/* Swatches */
+.v2-swatches {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.v2-swatch {
+  position: relative;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel-2);
+  cursor: pointer;
+  outline: 1.5px solid transparent;
+  outline-offset: 2px;
+  transition: border-color 120ms var(--v2-ease), outline-color 120ms var(--v2-ease);
+}
+.v2-swatch:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-swatch--on,
+.v2-swatch--on:hover {
+  outline-color: var(--v2-ink);
+}
+.v2-swatch:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.v2-swatch__floor {
+  position: absolute;
+  inset: 0;
+}
+.v2-swatch__wall {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9px;
+}
+.v2-swatch--soon,
+.v2-swatch--soon:hover {
+  border-style: dashed;
+  border-color: var(--v2-line-strong);
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.v2-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 28px);
+  gap: 8px;
+}
+
+/* Asset strips: pack thumbnails on the swatch tiles. The row gives up room only by whole
+   tiles: extra tiles wrap to a second row the strip clips away. The padding keeps the
+   picked tile's outline inside the clip. While the filmstrip is still shrinking the strip
+   takes a sliver of the overflow too; the 1px spacer after the tiles wraps away first, so
+   a sliver never costs a whole tile. */
+.v2-dock__body > .v2-swatches.v2-strip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.v2-strip__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: calc(28px + 8px);
+  height: calc(28px + 8px);
+  padding: 4px;
+  margin: -4px 0 -4px -4px;
+  overflow: hidden;
+}
+.v2-strip__tiles::after {
+  content: '';
+  width: 1px;
+  margin-left: -6px;
+}
+.v2-strip__tiles .v2-swatch canvas {
+  display: block;
+}
+.v2-strip > .v2-link {
+  flex-shrink: 0;
+}
+
+/* Settings: the few controls that matter, then "more" */
+/* A fixed column: three controls and the "all settings" button fit in 260px, so it never
+   scrolls and never pushes the presets around when the tool changes. */
+.v2-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 260px;
+}
+.v2-settings__more {
+  margin-left: 2px;
+}
+.v2-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: 64px;
+  flex-shrink: 0;
+}
+.v2-ctl--wide {
+  width: auto;
+}
+.v2-ctl__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--v2-text-2);
+  white-space: nowrap;
+}
+.v2-ctl__head .v2-num {
+  font-size: 11px;
+  color: var(--v2-text);
+}
+.v2-ctl__body {
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+.v2-seg {
+  display: inline-flex;
+  height: 22px;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  border: 1px solid var(--v2-line);
+}
+.v2-seg button {
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-seg button:hover {
+  color: var(--v2-text);
+}
+.v2-settings .v2-seg button:not(.v2-seg__icon) {
+  padding: 0 6px;
+}
+.v2-seg button.v2-seg__icon {
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+}
+.v2-seg button[aria-pressed='true'] {
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-select {
+  width: 100%;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.v2-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.v2-stepper button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-2);
+  cursor: pointer;
+}
+.v2-stepper button:hover:not(:disabled) {
+  color: var(--v2-text);
+  background: var(--v2-panel-2);
+}
+.v2-stepper button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Colour: the swatch is the colour itself; only its frame is chrome. */
+.v2-ctl-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+.v2-color {
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: 1.5px solid transparent;
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  transition: border-color 120ms var(--v2-ease), outline-color 120ms var(--v2-ease);
+}
+.v2-color:hover {
+  border-color: var(--v2-text-3);
+}
+.v2-color--open {
+  outline-color: var(--v2-ink);
+}
+.v2-pop--color {
+  left: -8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.v2-pop--color .react-colorful {
+  width: 184px !important;
+}
+.v2-pop--color .react-colorful__saturation {
+  height: 132px !important;
+  border-radius: 6px 6px 0 0 !important;
+  border-bottom: 0;
+}
+.v2-pop--color .react-colorful__hue {
+  height: 10px !important;
+  border-radius: 0 0 6px 6px !important;
+}
+.v2-pop--color .react-colorful__saturation-pointer,
+.v2-pop--color .react-colorful__hue-pointer {
+  width: 14px !important;
+  height: 14px !important;
+  border-width: 2px;
+}
+.v2-hex {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font-size: 11px;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-hex:focus {
+  border-color: var(--v2-line-strong);
+}
+
+/* Two thumbs on one track: each input lets pointers through except at its thumb. */
+.v2-pair {
+  position: relative;
+  display: block;
+  width: 96px;
+  height: 16px;
+}
+.v2-pair::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--v2-line-strong) var(--v2-lo),
+    var(--v2-ink) var(--v2-lo),
+    var(--v2-ink) var(--v2-hi),
+    var(--v2-line-strong) var(--v2-hi)
+  );
+}
+.v2-pair .v2-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+}
+.v2-pair .v2-range::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.v2-pair .v2-range::-moz-range-track {
+  background: transparent;
+}
+.v2-pair .v2-range::-webkit-slider-thumb {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.v2-pair .v2-range::-moz-range-thumb {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.v2-stepper .v2-num {
+  min-width: 2ch;
+  text-align: center;
+  font-size: 11px;
+}
+
+/* ── Status bar ───────────────────────────────────────── */
+.v2-status {
+  position: absolute;
+  left: var(--v2-e-rail);
+  right: 0;
+  bottom: 0;
+  height: var(--v2-e-status);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 8px 0 12px;
+  background: var(--v2-panel);
+  border-top: 1px solid var(--v2-line);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+}
+.v2-status__cursor {
+  min-width: 136px;
+  color: var(--v2-text-2);
+  white-space: pre;
+}
+.v2-status__mid {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+.v2-status__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font: inherit;
+  cursor: pointer;
+}
+/* Node-edit key map: the mode in ink, the words muted, keys as small paper keycaps. */
+.v2-status__hint {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+.v2-status__hintlabel {
+  color: var(--v2-text);
+  font-weight: 500;
+}
+.v2-status__hint kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 2px 4px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  color: var(--v2-ink);
+  text-align: center;
+}
+
+/* Grid chip: the grid's state at a glance, its popover on a click */
+.v2-status__grid {
+  position: relative;
+  display: inline-flex;
+}
+.v2-status__gridchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-2);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-status__gridchip:hover,
+.v2-status__gridchip--open {
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+}
+.v2-status__gridchip--hidden,
+.v2-status__gridchip--hidden:hover {
+  color: var(--v2-text-3);
+}
+.v2-status__gridchip--hidden svg {
+  opacity: 0.55;
+}
+.v2-status__gridstate {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+.v2-pop--grid {
+  right: -4px;
+  bottom: calc(100% + 10px);
+  width: 224px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  white-space: normal;
+}
+.v2-gridpop__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 24px;
+  color: var(--v2-text);
+  cursor: pointer;
+}
+/* A colour in the grid card sits on one line, label left and swatch right, like the switches. */
+.v2-gridpop__color .v2-ctl {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 24px;
+}
+.v2-gridpop__color .v2-ctl-anchor {
+  width: 100%;
+}
+.v2-gridpop__color .v2-ctl__head {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--v2-text);
+}
+.v2-gridpop__color .v2-ctl__body {
+  height: auto;
+}
+.v2-gridpop__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--v2-line);
+  color: var(--v2-text);
+}
+.v2-gridpop__field .v2-seg {
+  display: flex;
+  width: 100%;
+}
+.v2-gridpop__field .v2-seg button {
+  flex: 1;
+  padding: 0;
+}
+.v2-gridpop__field--off {
+  color: var(--v2-text-3);
+}
+.v2-gridpop__field--off .v2-seg {
+  opacity: 0.55;
+}
+.v2-status__sep {
+  width: 1px;
+  height: 12px;
+  background: var(--v2-line);
+}
+.v2-status__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.v2-status .v2-ib {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+.v2-status__fit {
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--v2-text-2);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease);
+}
+.v2-status__fit:hover {
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+}
+.v2-status__pct {
+  min-width: 4ch;
+  text-align: right;
+  color: var(--v2-text-2);
+}
+.v2-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 24px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 999px;
+  background: var(--v2-panel-2);
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), border-color 120ms var(--v2-ease);
+}
+.v2-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--v2-text-3);
+  transition: transform 160ms var(--v2-ease), background-color 120ms var(--v2-ease);
+}
+.v2-switch--on {
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+}
+.v2-switch--on > span {
+  transform: translateX(10px);
+  background: var(--v2-on-ink);
+}
+.v2-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 96px;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.v2-ctl .v2-range {
+  width: 100%;
+}
+.v2-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--v2-ink) var(--v2-fill), var(--v2-line-strong) var(--v2-fill));
+}
+.v2-range::-moz-range-track {
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--v2-ink) var(--v2-fill), var(--v2-line-strong) var(--v2-fill));
+}
+.v2-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border-radius: 999px;
+  border: 1.5px solid var(--v2-ink);
+  background: var(--v2-panel);
+}
+.v2-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--v2-ink);
+  background: var(--v2-panel);
+}
+
+/* ── Slide-over sheet ─────────────────────────────────── */
+.v2-sheet {
+  position: fixed;
+  top: 68px;
+  right: 12px;
+  bottom: calc(var(--v2-e-status) + 12px);
+  z-index: 30;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  animation: v2-sheet-in 160ms var(--v2-ease);
+}
+/* A popover's z-index (40) only counts inside its region, and the status bar (25) sits
+   below the sheet (30), which clipped the Grid and snap popover. The bar never overlaps
+   the sheet, so while it holds an open popover it rises above it. */
+.v2-status:has(.v2-pop) {
+  z-index: 31;
+}
+@keyframes v2-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+.v2-sheet__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--v2-line);
+}
+.v2-sheet__head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.v2-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Prep overview (a sheet body) ─────────────────────── */
+.v2-prep {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 8px;
+}
+.v2-prep__group + .v2-prep__group {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-prep__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 12px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--v2-text-3);
+}
+.v2-prep__zone {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-prep__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-prep__row:hover {
+  background: var(--v2-panel-2);
+}
+.v2-prep__row--on,
+.v2-prep__row--on:hover {
+  background: var(--v2-panel-3);
+}
+.v2-prep__row:disabled {
+  cursor: default;
+  background: transparent;
+}
+.v2-prep__row:focus-visible {
+  outline-offset: -2px;
+}
+.v2-prep__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--v2-text-3);
+}
+.v2-prep__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v2-prep__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.v2-prep__name {
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-prep__flag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-prep__chip {
+  flex-shrink: 0;
+  margin-left: auto;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--v2-text-2);
+}
+.v2-prep__chip + .v2-prep__chip {
+  margin-left: 0;
+}
+.v2-prep__chip--ink {
+  border-color: var(--v2-ink);
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-prep__meta {
+  font-size: 12px;
+  color: var(--v2-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-prep__empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--v2-text-2);
+}
+.v2-prep__empty p {
+  margin: 0;
+}
+.v2-prep__hint {
+  margin-top: 4px !important;
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+
+/* Focus mode: everything goes but the way back */
+.v2-focus-exit {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 8px;
+  color: var(--v2-text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.v2-focus-exit:hover {
+  color: var(--v2-text);
+  background: var(--v2-panel-2);
+}
+
+/* Focus mode Auto: after a while off the chrome it eases back, so the map carries the
+   screen; the pointer over any of it, or keyboard focus inside it, brings it back. The
+   status bar keeps more, since its readouts are what is glanced at while drawing. */
+.v2-chrome-contents {
+  display: contents;
+}
+.v2-editor > [data-chrome],
+.v2-chrome-contents > * {
+  transition: opacity 400ms var(--v2-ease);
+}
+.v2-editor[data-faded] > [data-chrome]:not(.v2-chrome-contents):not(:has(:focus-visible)) {
+  opacity: 0.35;
+}
+.v2-editor[data-faded] > .v2-chrome-contents > :not(:has(:focus-visible)) {
+  opacity: 0.6;
+}
+
+/*
+ * v1 components living inside the shell (tool options, property sections, the layer
+ * panel, the asset browser) keep their own markup but read neutral tokens here, so the
+ * v1 accent never shows inside v2.
+ */
+.v2-legacy {
+  --surface-0: 247 247 247;
+  --surface-1: 255 255 255;
+  --surface-2: 240 240 240;
+  --surface-3: 230 230 230;
+  --text-primary: 27 27 27;
+  --text-secondary: 77 77 77;
+  --text-muted: 92 92 92;
+  --text-dim: 45 45 45;
+  --border-structure: 194 194 194;
+  --border-default: 214 214 214;
+  --border-subtle: 232 232 232;
+  --border-focus: 27 27 27;
+  --accent-active: 27 27 27;
+  --accent-dim: 107 107 107;
+  --on-accent: 255 255 255;
+  --success: 27 27 27;
+  --primary: var(--accent-active);
+  --primary-foreground: var(--on-accent);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--text-primary);
+  --ring: var(--border-focus);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --hover-tint: rgb(0 0 0 / 0.05);
+  --hover-glow: none;
+  color: rgb(var(--text-primary));
+}
+.dark .v2-legacy {
+  --surface-0: 43 43 43;
+  --surface-1: 51 51 51;
+  --surface-2: 56 56 56;
+  --surface-3: 68 68 68;
+  --text-primary: 236 236 236;
+  --text-secondary: 189 189 189;
+  --text-muted: 160 160 160;
+  --text-dim: 220 220 220;
+  --border-structure: 92 92 92;
+  --border-default: 76 76 76;
+  --border-subtle: 60 60 60;
+  --border-focus: 236 236 236;
+  --accent-active: 236 236 236;
+  --accent-dim: 156 156 156;
+  --on-accent: 27 27 27;
+  --success: 236 236 236;
+  --hover-tint: rgb(255 255 255 / 0.05);
+}
+.v2-legacy .gg-grain {
+  background-image: none;
+}
+/* v1 hint lines (the asset browser's "what a click does") are accent text; with the accent
+   mapped to a surface grey above they read near-white on white. */
+.v2-legacy .text-accent {
+  color: var(--v2-text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-sheet,
+  .v2-pop,
+  .v2-tipbox {
+    animation: none;
+  }
+  .v2-dock__tab::after,
+  .v2-switch > span,
+  .v2-editor > [data-chrome],
+  .v2-chrome-contents > * {
+    transition: none;
+  }
+}
+.v2-dock__spacer {
+  flex: 1;
+}
+
+/* ── Toasts ───────────────────────────────────────────── */
+/* Sonner's toasts on this route: the dock's card, small, centred in the band the title card
+   sits in, so they never land on the fitted map. Scoped to the class App gives the toaster
+   when a host draws its own chrome; v1's pill toasts keep their own rules in index.css. */
+.v2-toaster {
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+}
+.dark .v2-toaster {
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+}
+.v2-toaster [data-sonner-toast] {
+  background: var(--v2-panel) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--v2-line) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--v2-e-shadow) !important;
+  color: var(--v2-text) !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
+  font-size: 13px !important;
+  line-height: 18px !important;
+  padding: 7px 12px 7px 10px !important;
+  gap: 8px !important;
+  min-height: 34px !important;
+  max-width: 300px !important;
+  /* Sized to the message and centred on the toaster, not stretched to its fixed width. */
+  width: auto !important;
+  left: 50% !important;
+  right: auto !important;
+  translate: -50% 0;
+  white-space: nowrap;
+  -webkit-font-smoothing: antialiased;
+  transition-duration: 160ms !important;
+  transition-timing-function: var(--v2-ease) !important;
+}
+.v2-toaster [data-sonner-toast][data-type] {
+  border-color: var(--v2-line) !important;
+}
+.v2-toaster [data-sonner-toast] [data-title] {
+  font-weight: 400;
+}
+/* One ink for every icon. Kinds differ by glyph, not by colour. */
+.v2-toaster [data-sonner-toast] [data-icon],
+.v2-toaster [data-sonner-toast] [data-icon] .ti {
+  color: var(--v2-text-2) !important;
+}
+.v2-toaster [data-sonner-toast] .ti {
+  animation-duration: 160ms;
+}
+.v2-toaster [data-sonner-toast] [data-icon] svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.75;
+}
+.v2-toaster [data-sonner-toast] [data-button] {
+  height: 22px !important;
+  margin-left: 4px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--v2-line) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--v2-text) !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  transition: background-color 120ms var(--v2-ease) !important;
+}
+.v2-toaster [data-sonner-toast] [data-button]:hover {
+  background: var(--v2-panel-2) !important;
+}

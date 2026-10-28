@@ -11,8 +11,10 @@ test.describe('02 - Rectangle Tool', () => {
     const cy = box!.y + box!.height / 2;
 
     const dpr = await page.evaluate(() => window.devicePixelRatio);
-    const sampleX = Math.round((box!.width / 2) * dpr);
-    const sampleY = Math.round((box!.height / 2) * dpr);
+    // A few pixels off the centre: the centre is a grid crossing, where a dot on the
+    // background and the grid ink on the floor come out almost the same grey.
+    const sampleX = Math.round((box!.width / 2 + 7) * dpr);
+    const sampleY = Math.round((box!.height / 2 + 7) * dpr);
 
     const shapesBefore = await shapeCount(page);
     const before = await getPixelColor(page, sampleX, sampleY);

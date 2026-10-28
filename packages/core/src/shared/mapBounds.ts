@@ -49,13 +49,13 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
 }
 
 /**
- * Axis-aligned bounds of everything drawn — floor geometry, water, standalone walls,
- * placed assets, painted terrain — padded for wall strokes and shadows. Null when the map
- * has nothing on it at all (callers that want an export-friendly default box add their own).
+ * The raw extent of everything drawn — floor geometry, water, standalone walls, placed
+ * assets, painted terrain — with no allowance yet for how wide a wall is stroked. Null when
+ * nothing is drawn.
  */
-export function computeContentBounds(
+function drawnBounds(
   layers: readonly Layer[],
-  terrainBounds: TerrainData['bounds'] = null,
+  terrainBounds: TerrainData['bounds'],
 ): WorldBounds | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -116,9 +116,11 @@ export function computeContentBounds(
     maxY = Math.max(maxY, terrainBounds.maxY);
   }
 
-  if (!isFinite(minX)) return null;
+  return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
 
-  // Pad bounds to capture wall strokes and shadows that extend beyond floor geometry
+/** How far wall strokes reach past the geometry that carries them. */
+function strokePad(layers: readonly Layer[]): number {
   let pad = 0;
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
@@ -129,17 +131,29 @@ export function computeContentBounds(
     pad = Math.max(pad, wallW / 2);
     // A standalone wall carries its own width, which need not match the layer's
     for (const wall of dl.standaloneWalls ?? []) pad = Math.max(pad, (wall.width ?? wallW) / 2);
-    // Shadow is offset from the floor
-    if (s?.shadowEnabled) {
-      pad = Math.max(pad, Math.abs(s.shadowOffset?.x ?? 0) + wallW / 2);
-      pad = Math.max(pad, Math.abs(s.shadowOffset?.y ?? 0) + wallW / 2);
-    }
   }
   // Add a small extra margin for anti-aliasing
-  pad += 0.05;
-
-  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  return pad + 0.05;
 }
+
+/**
+ * Axis-aligned bounds of everything drawn — floor geometry, water, standalone walls,
+ * placed assets, painted terrain — padded for wall strokes. Null when the map
+ * has nothing on it at all (callers that want an export-friendly default box add their own).
+ */
+export function computeContentBounds(
+  layers: readonly Layer[],
+  terrainBounds: TerrainData['bounds'] = null,
+): WorldBounds | null {
+  const b = drawnBounds(layers, terrainBounds);
+  if (!b) return null;
+  // Pad bounds to capture wall strokes that extend beyond floor geometry
+  const pad = strokePad(layers);
+  return { minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad };
+}
+
+/** Float slack for "drawn past the pinned edge": a sprite sized to the map is not past it. */
+const EDGE_EPSILON = 1e-6;
 
 /**
  * The map's confining rectangle: content bounds snapped out to the enclosing whole cells,
@@ -148,22 +162,36 @@ export function computeContentBounds(
  * dotted void begins is one agreed-upon line. Null while nothing is drawn — an empty map is
  * all void, no frame.
  *
- * `fixedSize` is the DM pinning the frame instead of measuring it: the rectangle is that
- * size anchored at the origin, and drawing outside it is still allowed — it simply falls
- * outside the map, cropped on export and void to the fog. No tool clamps to this.
+ * `fixedSize` is the DM pinning a minimum sheet instead of measuring one: that size,
+ * anchored at the origin, is the frame for as long as everything drawn sits on it. It is a
+ * floor, not a cap. Draw past one of its edges and the frame grows on that side — and only
+ * that side — out to where the measured frame would put it, so the map never has drawn
+ * geometry hanging off its edge into the void, the export or the fog. "Past" means the
+ * geometry itself, not its stroke padding: a battlemap or a room built flush to the pinned
+ * edge leaves the frame exactly where the DM pinned it. No tool clamps to this.
  */
 export function computeMapFrame(
   layers: readonly Layer[],
   terrainBounds: TerrainData['bounds'] = null,
   fixedSize: MapSettings['fixedSize'] = null,
 ): WorldBounds | null {
-  if (fixedSize) return { minX: 0, minY: 0, maxX: fixedSize.width, maxY: fixedSize.height };
-  const b = computeContentBounds(layers, terrainBounds);
-  if (!b) return null;
+  const drawn = drawnBounds(layers, terrainBounds);
+  const pinned = fixedSize
+    ? { minX: 0, minY: 0, maxX: fixedSize.width, maxY: fixedSize.height }
+    : null;
+  if (!drawn) return pinned;
+  const pad = strokePad(layers);
+  const measured = {
+    minX: Math.floor(drawn.minX - pad) - 1,
+    minY: Math.floor(drawn.minY - pad) - 1,
+    maxX: Math.ceil(drawn.maxX + pad) + 1,
+    maxY: Math.ceil(drawn.maxY + pad) + 1,
+  };
+  if (!pinned) return measured;
   return {
-    minX: Math.floor(b.minX) - 1,
-    minY: Math.floor(b.minY) - 1,
-    maxX: Math.ceil(b.maxX) + 1,
-    maxY: Math.ceil(b.maxY) + 1,
+    minX: drawn.minX < pinned.minX - EDGE_EPSILON ? Math.min(pinned.minX, measured.minX) : pinned.minX,
+    minY: drawn.minY < pinned.minY - EDGE_EPSILON ? Math.min(pinned.minY, measured.minY) : pinned.minY,
+    maxX: drawn.maxX > pinned.maxX + EDGE_EPSILON ? Math.max(pinned.maxX, measured.maxX) : pinned.maxX,
+    maxY: drawn.maxY > pinned.maxY + EDGE_EPSILON ? Math.max(pinned.maxY, measured.maxY) : pinned.maxY,
   };
 }

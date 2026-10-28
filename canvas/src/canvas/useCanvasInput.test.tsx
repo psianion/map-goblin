@@ -24,7 +24,18 @@ import {
 import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
 import { toggleNodeEditAt } from './wallNodeEdit';
-import { useCanvasInput, setToolManager } from './useCanvasInput';
+import {
+  useCanvasInput,
+  setToolManager,
+  setDimensionHud,
+  registerCanvasPressHandler,
+  registerInputMiddleware,
+  roomUnder,
+} from './useCanvasInput';
+import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
+import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
+import type { DimensionHud } from './dimensionHud';
+import { WallTool } from '@dnd/core/src/engine/tools/WallTool';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import type { ToolManager } from '@/engine/tools/ToolManager';
 import type { DungeonLayer } from '@/store/types';
@@ -51,7 +62,13 @@ const status = () => useStore.getState().tools.bandDragStatus;
 let unmount: (() => void) | null = null;
 let canvasEl: HTMLCanvasElement | null = null;
 
-function mountInput(): void {
+/** A stage that keeps its zoom between calls, for the wheel tests. */
+interface StubStage {
+  scale: { x: number; set(v: number): void };
+  position: { x: number; y: number };
+}
+
+function mountInput(stage?: StubStage): void {
   const container = document.createElement('div');
   canvasEl = document.createElement('canvas');
   // jsdom has no pointer capture; the drag paths call it unconditionally.
@@ -60,9 +77,10 @@ function mountInput(): void {
   container.appendChild(canvasEl);
   const ref = { current: container };
   const engine = {
-    stage: () => ({ scale: { x: 32 }, position: { x: 0, y: 0 } }),
+    stage: () => stage ?? { scale: { x: 32 }, position: { x: 0, y: 0 } },
     // Identity mapping, so a test can aim a pointer event at a world point.
     screenToWorld: (x: number, y: number) => ({ x, y }),
+    worldToScreen: (x: number, y: number) => ({ x, y }),
   } as unknown as RenderEngine;
   unmount = renderHook(() => useCanvasInput(ref, engine)).unmount;
 }
@@ -129,6 +147,7 @@ afterEach(() => {
   unmount = null;
   canvasEl = null;
   setToolManager(null);
+  setDimensionHud(null);
   document.body.innerHTML = '';
 });
 
@@ -238,12 +257,38 @@ describe('precedence between the band table and the global table', () => {
   it('a key the band does not claim falls through to the global table', () => {
     seedBandInEditMode();
     useStore.getState().selectNode(currentWallNodes()[1].t);
-    const before = useStore.getState().tools.roughMode;
+    const before = useStore.getState().tools.curveMode;
 
-    const e = press('x');
+    const e = press('c');
 
-    expect(useStore.getState().tools.roughMode).toBe(!before);
+    expect(useStore.getState().tools.curveMode).toBe(!before);
     expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('with nothing picked, the session still owns Tab, so the v2 dock never sees it', () => {
+    seedBandInEditMode();
+    expect(useStore.getState().tools.selectedNodeT).toBeNull();
+
+    const e = press('Tab');
+
+    expect(e.defaultPrevented).toBe(true);
+    expect(useStore.getState().tools.nodeEditWallId).toBe('band:0');
+  });
+
+  it('with nothing picked, Delete stays in the session instead of taking the shape', () => {
+    const { committedCount } = seedBandInEditMode();
+    useStore.getState().setSelectedIds([layer().children[0].id]);
+
+    const e = press('Delete');
+
+    expect(e.defaultPrevented).toBe(true);
+    expect(layer().children).toHaveLength(committedCount);
+    expect(useStore.getState().selection.selectedIds).toHaveLength(1);
+  });
+
+  it('outside an edit session Tab is not claimed', () => {
+    const e = press('Tab');
+    expect(e.defaultPrevented).toBe(false);
   });
 
   it('Escape leaves node edit first, and only clears solo on the next press', () => {
@@ -273,11 +318,11 @@ describe('focus in a text field', () => {
 
   it('swallows a bare shortcut', () => {
     seedBandInEditMode();
-    const before = useStore.getState().tools.roughMode;
+    const before = useStore.getState().tools.curveMode;
 
-    press('x', {}, focusedInput());
+    press('c', {}, focusedInput());
 
-    expect(useStore.getState().tools.roughMode).toBe(before);
+    expect(useStore.getState().tools.curveMode).toBe(before);
   });
 
   it('still lets Ctrl+Z through', () => {
@@ -344,5 +389,298 @@ describe('a miss-click in band node mode never reaches the tools', () => {
     clickCanvas();
 
     expect(manager.onPointerDown).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The dimension readout follows the chain it measures: every way a chain ends without
+// the pointer moving (Escape, a tool switch, a pointer taken away) has to take the
+// readout with it, or "0 · 0 ft" hangs on the canvas after the wall is gone.
+describe('the dimension readout goes with a cancelled wall chain', () => {
+  let hud: { update: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; visible: boolean };
+  let wall: WallTool;
+
+  beforeEach(() => {
+    hud = { update: vi.fn(), hide: vi.fn(), visible: false };
+    hud.update.mockImplementation(() => (hud.visible = true));
+    hud.hide.mockImplementation(() => (hud.visible = false));
+    setDimensionHud(hud as unknown as DimensionHud);
+
+    // The real wall tool behind a manager that forwards to it, as ToolManager does.
+    wall = new WallTool();
+    const manager = {
+      onPointerDown: vi.fn((p, e) => wall.onPointerDown(p, e)),
+      onPointerMove: vi.fn((p, e) => wall.onPointerMove(p, e)),
+      onPointerUp: vi.fn(),
+      onKeyDown: vi.fn((e: KeyboardEvent) => {
+        const was = wall.isActive();
+        wall.onKeyDown(e);
+        return was;
+      }),
+      cancelActive: vi.fn(() => wall.cancel()),
+      switchTool: vi.fn(() => wall.cancel()),
+      getCursor: vi.fn(() => 'crosshair'),
+      getHoverCursor: vi.fn(() => null),
+      getActivePreview: vi.fn(() => {
+        const preview = wall.getPreview();
+        return preview ? { toolType: 'wall', preview } : null;
+      }),
+    };
+    setToolManager(manager as unknown as ToolManager);
+    useStore.getState().setActiveTool('wall');
+  });
+
+  function startWall(): void {
+    canvasEl!.dispatchEvent(
+      new MouseEvent('pointerdown', { button: 0, clientX: 40, clientY: 40, bubbles: true, cancelable: true }),
+    );
+    expect(wall.isActive()).toBe(true);
+    expect(hud.visible).toBe(true);
+  }
+
+  it('hides on Escape', () => {
+    startWall();
+    press('Escape');
+    expect(wall.isActive()).toBe(false);
+    expect(hud.visible).toBe(false);
+  });
+
+  it('hides when the tool is switched mid-chain', () => {
+    startWall();
+    useStore.getState().setActiveTool('rectangle');
+    expect(wall.isActive()).toBe(false);
+    expect(hud.visible).toBe(false);
+  });
+
+  it('hides when the pointer is taken away mid-chain', () => {
+    startWall();
+    canvasEl!.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
+    expect(wall.isActive()).toBe(false);
+    expect(hud.visible).toBe(false);
+  });
+});
+
+// Rooms on the canvas: a press an overlay claims (a suggestion's ✓ / ✕) never reaches
+// the tools; a double-click in a room edits the floor under its anchor; a right-click
+// on a room opens the room's own menu.
+describe('rooms', () => {
+  const floor = () =>
+    ({
+      id: 'floor-1',
+      name: 'Floor',
+      childType: 'shape',
+      shapeType: 'rectangle',
+      visible: true,
+      contours: [[[0, 0], [12, 0], [12, 8], [0, 8]]],
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    }) as never;
+
+  function seedRoom(): void {
+    const l = layer();
+    useStore.getState().setActiveLayerId(l.id);
+    useStore.getState().updateLayer(l.id, { children: [floor()], mergedFloor: [RING] } as Partial<DungeonLayer>);
+    useStore.getState().setRooms(l.id, [
+      { id: 'hall', name: 'Hall', number: 1, anchor: [6, 4], face: [[0, 0], [12, 0], [12, 8], [0, 8]] },
+    ]);
+  }
+
+  afterEach(() => setRoomPicking(false));
+
+  it('a press an overlay claims never reaches the tools', () => {
+    const manager = {
+      onPointerDown: vi.fn(),
+      onPointerMove: vi.fn(),
+      onPointerUp: vi.fn(),
+      onKeyDown: vi.fn(() => false),
+      cancelActive: vi.fn(),
+      switchTool: vi.fn(),
+      getCursor: vi.fn(() => 'default'),
+      getHoverCursor: vi.fn(() => null),
+      getActivePreview: vi.fn(() => null),
+    };
+    setToolManager(manager as unknown as ToolManager);
+    const claim = vi.fn((sx: number) => sx === 7);
+    const unreg = registerCanvasPressHandler(claim);
+    canvasEl!.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 7, clientY: 7, bubbles: true }));
+    expect(manager.onPointerDown).not.toHaveBeenCalled();
+    canvasEl!.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 3, clientY: 3, bubbles: true }));
+    expect(manager.onPointerDown).toHaveBeenCalledTimes(1);
+    unreg();
+  });
+
+  it('a double-click in a room edits the floor under its anchor', () => {
+    seedRoom();
+    setRoomPicking(true);
+    useStore.getState().setActiveTool('select');
+    canvasEl!.dispatchEvent(new MouseEvent('dblclick', { clientX: 2, clientY: 2, bubbles: true, cancelable: true }));
+    expect(useStore.getState().tools.shapeNodeEditId).toBe('floor-1');
+  });
+
+  it('roomUnder answers only where rooms pick', () => {
+    seedRoom();
+    expect(roomUnder({ x: 2, y: 2 }, 32)).toBeNull();
+    setRoomPicking(true);
+    expect(roomUnder({ x: 2, y: 2 }, 32)).toEqual({ layerId: layer().id, anchor: [6, 4] });
+  });
+
+  it("a right-click on a room selects it and opens the room's menu", () => {
+    seedRoom();
+    setRoomPicking(true);
+    const open = vi.fn();
+    openCanvasMenuRef.current = open;
+    canvasEl!.dispatchEvent(new MouseEvent('contextmenu', { clientX: 2, clientY: 2, bubbles: true, cancelable: true }));
+    expect(useStore.getState().selection.selectedIds).toEqual(['hall']);
+    expect(open.mock.calls[0][0].target).toEqual({ kind: 'room', roomId: 'hall', layerId: layer().id });
+    openCanvasMenuRef.current = null;
+  });
+});
+
+// The Props tool shapes its stamp with the wheel and right-click, so both reach the
+// active tool before the canvas zooms or opens its menu. Ctrl+wheel (and a trackpad
+// pinch, which arrives as one) always zooms.
+describe('wheel and right-click reach the tool', () => {
+  let stage: StubStage;
+  let tool: { onWheel: ReturnType<typeof vi.fn>; onContextMenu: ReturnType<typeof vi.fn>; onPointerDown: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    unmount?.();
+    stage = { scale: { x: 32, set(v: number) { this.x = v; } }, position: { x: 0, y: 0 } };
+    mountInput(stage);
+    tool = { onWheel: vi.fn(() => true), onContextMenu: vi.fn(() => true), onPointerDown: vi.fn() };
+    setToolManager({
+      ...tool,
+      onPointerMove: vi.fn(),
+      onPointerUp: vi.fn(),
+      onKeyDown: vi.fn(() => false),
+      cancelActive: vi.fn(),
+      switchTool: vi.fn(),
+      getCursor: vi.fn(() => 'crosshair'),
+      getHoverCursor: vi.fn(() => null),
+      getActivePreview: vi.fn(() => null),
+    } as unknown as ToolManager);
+  });
+
+  const wheel = (init: WheelEventInit): void => {
+    canvasEl!.dispatchEvent(new WheelEvent('wheel', { clientX: 5, clientY: 6, bubbles: true, cancelable: true, ...init }));
+  };
+
+  it('a wheel the tool takes does not zoom', () => {
+    wheel({ deltaY: 100 });
+    expect(tool.onWheel).toHaveBeenCalledTimes(1);
+    expect(tool.onWheel.mock.calls[0][1]).toEqual({ x: 5, y: 6 });
+    expect(stage.scale.x).toBe(32);
+  });
+
+  it('a wheel the tool declines zooms, Shift+wheel (deltaX on Windows) included', () => {
+    tool.onWheel.mockReturnValue(false);
+    wheel({ deltaY: -100 });
+    expect(stage.scale.x).toBeCloseTo(32 * 1.1);
+    wheel({ deltaX: 100, shiftKey: true });
+    expect(stage.scale.x).toBeCloseTo(32);
+  });
+
+  it('Ctrl+wheel always zooms and never reaches the tool', () => {
+    wheel({ deltaY: -100, ctrlKey: true });
+    expect(tool.onWheel).not.toHaveBeenCalled();
+    expect(stage.scale.x).toBeCloseTo(32 * 1.1);
+  });
+
+  it('a right-click the tool takes opens no menu; one it declines does', () => {
+    const open = vi.fn();
+    openCanvasMenuRef.current = open;
+    const rightClick = () =>
+      canvasEl!.dispatchEvent(new MouseEvent('contextmenu', { clientX: 2, clientY: 3, bubbles: true, cancelable: true }));
+    rightClick();
+    expect(tool.onContextMenu).toHaveBeenCalledTimes(1);
+    expect(tool.onContextMenu.mock.calls[0][0]).toEqual({ x: 2, y: 3 });
+    expect(open).not.toHaveBeenCalled();
+    tool.onContextMenu.mockReturnValue(false);
+    rightClick();
+    expect(open).toHaveBeenCalledTimes(1);
+    openCanvasMenuRef.current = null;
+  });
+
+  it('a right-click on a locked prop still selects it and opens its menu (for Unlock)', () => {
+    tool.onContextMenu.mockReturnValue(false);
+    const open = vi.fn();
+    openCanvasMenuRef.current = open;
+    useStore.getState().addChild(layer().id, {
+      id: 'crate',
+      name: 'Crate',
+      childType: 'asset',
+      visible: true,
+      objectType: 'asset',
+      assetId: 'test:crate',
+      position: { x: 2, y: 3 },
+      rotation: 0,
+      scale: 1,
+      width: 1,
+      height: 1,
+      tint: '#ffffff',
+      flipX: false,
+      flipY: false,
+      locked: true,
+    });
+    canvasEl!.dispatchEvent(new MouseEvent('contextmenu', { clientX: 2, clientY: 3, bubbles: true, cancelable: true }));
+    expect(useStore.getState().selection.selectedIds).toEqual(['crate']);
+    expect(open.mock.calls[0][0].target).toEqual({ kind: 'child', childId: 'crate' });
+    openCanvasMenuRef.current = null;
+  });
+
+  it('a right-click picks an overhead prop above a higher layer, unless the DM sees under overhead', () => {
+    tool.onContextMenu.mockReturnValue(false);
+    const open = vi.fn();
+    openCanvasMenuRef.current = open;
+    const prop = (id: string, overhead: boolean) => ({
+      id,
+      name: id,
+      childType: 'asset' as const,
+      visible: true,
+      objectType: 'asset' as const,
+      assetId: `test:${id}`,
+      position: { x: 2, y: 3 },
+      rotation: 0,
+      scale: 1,
+      width: 1,
+      height: 1,
+      tint: '#ffffff',
+      flipX: false,
+      flipY: false,
+      overhead,
+    });
+    useStore.getState().addChild(layer().id, prop('canopy', true));
+    useStore.getState().addLayer({ ...structuredClone(layer()), id: 'layer-2', children: [prop('crate', false)] });
+    const rightClick = (): void => {
+      canvasEl!.dispatchEvent(new MouseEvent('contextmenu', { clientX: 2, clientY: 3, bubbles: true, cancelable: true }));
+    };
+    rightClick();
+    expect(useStore.getState().selection.selectedIds).toEqual(['canopy']);
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = true;
+    });
+    useStore.getState().setSelectedIds([]);
+    rightClick();
+    expect(useStore.getState().selection.selectedIds).toEqual(['crate']);
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = false;
+    });
+    openCanvasMenuRef.current = null;
+  });
+
+  it('the Props tool gets the raw cursor, since it snaps by footprint itself', () => {
+    const unreg = registerInputMiddleware((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+    const down = (): void => {
+      canvasEl!.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 3.3, clientY: 4.8, bubbles: true }));
+    };
+    useStore.getState().setActiveTool('scatterBrush');
+    down();
+    expect(tool.onPointerDown.mock.calls[0][0]).toEqual({ x: 3.3, y: 4.8 });
+    useStore.getState().setActiveTool('rectangle');
+    down();
+    expect(tool.onPointerDown.mock.calls[1][0]).toEqual({ x: 3, y: 5 });
+    unreg();
   });
 });

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { assetBounds, computeContentBounds, computeMapFrame } from './mapBounds';
 import { useStore } from '../store/store';
+import { readUvtt } from './import/uvtt';
+import { importedMapToDocument } from './import/toDocument';
 import type { AssetChild, DungeonLayer, Layer, WallSegment } from '../store/types';
 
 function dungeonLayer(): DungeonLayer {
@@ -69,6 +71,16 @@ describe('computeContentBounds', () => {
     expect(b!.minY).toBeLessThanOrEqual(4);
   });
 
+  it('pads floor geometry by half the layer wall width plus the AA margin', () => {
+    const layer = layerWith([[[2, 2], [7, 2], [7, 5], [2, 5]]]);
+    const pad = layer.style.wallWidth / 2 + 0.05;
+    const b = computeContentBounds([layer], null);
+    expect(b!.minX).toBeCloseTo(2 - pad);
+    expect(b!.minY).toBeCloseTo(2 - pad);
+    expect(b!.maxX).toBeCloseTo(7 + pad);
+    expect(b!.maxY).toBeCloseTo(5 + pad);
+  });
+
   it('grows for a standalone wall wider than its layer style', () => {
     const thin = computeContentBounds(
       [{ ...layerWith(null), standaloneWalls: [makeWall([[0, 0], [4, 0]], 0.2)] }],
@@ -84,7 +96,7 @@ describe('computeContentBounds', () => {
   it('measures an asset-only map — placing art grows the boundary', () => {
     const layer = { ...layerWith(null), children: [makeAsset(10, 10)] };
     const b = computeContentBounds([layer], null);
-    // The 2x2 sprite reaches one cell each way, plus the stroke/shadow padding
+    // The 2x2 sprite reaches one cell each way, plus the wall-stroke padding
     // computeContentBounds adds on top of raw content.
     expect(b!.minX).toBeLessThanOrEqual(9);
     expect(b!.maxY).toBeGreaterThanOrEqual(11);
@@ -128,8 +140,8 @@ describe('computeMapFrame', () => {
 
   it('snaps content bounds out to the enclosing whole cells, plus a cell all round', () => {
     const frame = computeMapFrame([layerWith([[[2, 2], [7, 2], [7, 5], [2, 5]]])], null);
-    // Content bounds carry sub-cell padding (wall stroke + shadow + AA, 0.7 with the
-    // default style): floor(2 - 0.7) = 1, then one more cell of clear air = 0.
+    // Content bounds carry sub-cell padding (half the wall stroke + AA, 0.3 with the
+    // default style): floor(2 - 0.3) = 1, then one more cell of clear air = 0.
     expect(frame).toEqual({ minX: 0, minY: 0, maxX: 9, maxY: 7 });
   });
 
@@ -146,14 +158,86 @@ describe('computeMapFrame', () => {
     expect(computeMapFrame(layers, null, { width: 30, height: 20 })).toEqual({
       minX: 0, minY: 0, maxX: 30, maxY: 20,
     });
-    // Content outside a fixed frame is allowed — it just falls outside the map
-    expect(computeMapFrame(layers, null, { width: 3, height: 3 })).toEqual({
-      minX: 0, minY: 0, maxX: 3, maxY: 3,
-    });
     // A fixed map has a frame even with nothing drawn on it
     expect(computeMapFrame([layerWith(null)], null, { width: 8, height: 8 })).toEqual({
       minX: 0, minY: 0, maxX: 8, maxY: 8,
     });
+  });
+
+  it('a pinned map with nothing drawn keeps exactly its pinned size', () => {
+    expect(computeMapFrame([layerWith(null)], null, { width: 30, height: 20 })).toEqual({
+      minX: 0, minY: 0, maxX: 30, maxY: 20,
+    });
+  });
+
+  it("a pinned map's frame grows to enclose content drawn past its edge", () => {
+    // A 30x20 pin with the dungeon built on down to y=26: the bottom moves out to the
+    // measured frame's edge, and the three sides nothing crossed stay where they were pinned.
+    const layers = [layerWith([[[2, 4], [28, 4], [28, 26], [2, 26]]])];
+    const frame = computeMapFrame(layers, null, { width: 30, height: 20 })!;
+    expect(frame.maxY).toBeGreaterThan(20);
+    expect(frame.maxY - 26).toBeGreaterThanOrEqual(1);
+    expect(frame.minX).toBe(0);
+    expect(frame.minY).toBe(0);
+    expect(frame.maxX).toBe(30);
+    // The same edge a growing map would measure on that side
+    expect(frame.maxY).toBe(computeMapFrame(layers, null)!.maxY);
+  });
+
+  it('keeps the pin where content is built flush to it, stroke padding and all', () => {
+    // An imported battlemap is a sprite exactly the size of the pin; its wall-stroke padding
+    // pokes past the edge, but nothing drawn does, so the frame stays the pinned one.
+    const battlemap = { ...makeAsset(15, 10), width: 30, height: 20 };
+    expect(
+      computeMapFrame([{ ...layerWith(null), children: [battlemap] }], null, { width: 30, height: 20 }),
+    ).toEqual({ minX: 0, minY: 0, maxX: 30, maxY: 20 });
+  });
+
+  it('keeps an imported map at its pinned size: battlemap exactly covering it, walls on it', () => {
+    // The shape a UVTT import builds: a 65x33 pin, a locked sprite exactly that size, and
+    // walls running right along all four edges of the image.
+    const battlemap = { ...makeAsset(32.5, 16.5), objectType: 'image' as const, width: 65, height: 33 };
+    const walls = [
+      makeWall([[0, 0], [65, 0], [65, 33], [0, 33], [0, 0]], 0.25),
+      makeWall([[10, 4], [10, 20]], 0.25),
+    ];
+    expect(
+      computeMapFrame(
+        [{ ...layerWith(null), children: [battlemap] }, { ...layerWith(null), standaloneWalls: walls }],
+        null,
+        { width: 65, height: 33 },
+      ),
+    ).toEqual({ minX: 0, minY: 0, maxX: 65, maxY: 33 });
+  });
+
+  it('keeps a Dungeondraft import at its pinned size though its walls hug the image from outside', () => {
+    // Pools of Mystery: 65x33 at 32 px a cell, the outer walls written a fraction of a cell
+    // past the left and top edges. Unclamped, the frame came out 67x35.
+    const file = {
+      resolution: { map_origin: { x: 0, y: 0 }, map_size: { x: 65, y: 33 }, pixels_per_grid: 32 },
+      line_of_sight: [
+        [{ x: -0.296875, y: 3.15625 }, { x: -0.160156, y: 3.464844 }, { x: 1.527344, y: -0.136719 }, { x: 64, y: 0.5 }],
+        [{ x: 64, y: 32 }, { x: 40, y: 32 }],
+      ],
+      portals: [{ bounds: [{ x: -0.2, y: 10 }, { x: 0.8, y: 10 }], closed: true }],
+      image: '/9j/AAAA',
+    };
+    const doc = importedMapToDocument(readUvtt(file, 'Pools'));
+    expect(computeMapFrame(doc.layers, null, doc.mapSettings.fixedSize)).toEqual({
+      minX: 0, minY: 0, maxX: 65, maxY: 33,
+    });
+  });
+
+  it('grows a pinned map out to the left and top as well', () => {
+    const frame = computeMapFrame(
+      [{ ...layerWith(null), standaloneWalls: [makeWall([[-4, -3], [10, -3]])] }],
+      null,
+      { width: 30, height: 20 },
+    )!;
+    expect(frame.minX).toBeLessThanOrEqual(-5);
+    expect(frame.minY).toBeLessThanOrEqual(-4);
+    expect(frame.maxX).toBe(30);
+    expect(frame.maxY).toBe(20);
   });
 
   it('measures floor shape children when mergedFloor is null — the server case', () => {

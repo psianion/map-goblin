@@ -1,8 +1,8 @@
 // src/store/presetRegistry.ts
-// Static registries for dungeon style, path, and scatter presets.
+// Static registry of dungeon style presets.
 // No store slice — pure data. Import from here wherever presets are needed.
 
-import type { DungeonStyle, ScatterBrushSettings } from './types';
+import type { DungeonStyle } from './types';
 
 // ─── Shared Preset Shape ──────────────────────────────────
 
@@ -10,15 +10,8 @@ export interface MapStylePreset {
   id: string;
   label: string;
   category: string;
-  /** Floor, wall, shadow, edge transition settings */
+  /** Floor, wall, edge transition settings */
   dungeonStyle: Partial<DungeonStyle>;
-}
-
-export interface ScatterPreset {
-  id: string;
-  label: string;
-  category: string;
-  values: Partial<ScatterBrushSettings>;
 }
 
 // ─── S5: Texture-aware dungeon style presets ──────────────
@@ -32,10 +25,6 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       floorColor: '#b8ac92',
       wallColor: '#26221c',
       wallWidth: 0.5,
-      shadowEnabled: true,
-      shadowColor: '#5c544a',
-      shadowOffset: { x: 0.4, y: 0.3 },
-      shadowIntensity: 0.5,
       edgeTransitionWidth: 0.5,
       showEdgeTransitions: true,
       wallTextureSetId: 'GG_Fieldstone',
@@ -50,10 +39,6 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       floorColor: '#94875f',
       wallColor: '#221a12',
       wallWidth: 0.5,
-      shadowEnabled: true,
-      shadowColor: '#4a3d2c',
-      shadowOffset: { x: 0.4, y: 0.3 },
-      shadowIntensity: 0.5,
       edgeTransitionWidth: 0.5,
       showEdgeTransitions: true,
       wallTextureSetId: 'GG_Palisade',
@@ -69,17 +54,14 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       floorColor: '#7a6a58',
       wallColor: '#1a1410',
       wallWidth: 0.5,
-      shadowEnabled: true,
-      shadowColor: '#2a2018',
-      shadowOffset: { x: 0.5, y: 0.4 },
-      shadowIntensity: 0.6,
       edgeTransitionWidth: 0.6,
       showEdgeTransitions: true,
-      wallTextureSetId: undefined,
+      // The forge's cave kit: rock the walk lays along the floor edge rather
+      // than stones composed along it (caveBandRenderer.ts).
+      wallTextureSetId: 'GG_Cave_Ink',
       wallTextureTint: '#ffffff',
-      // No wall texture set means the walls here are scattered rock art standing
-      // ON the floor edge rather than stones composed along it, so the edge is
-      // never the visible boundary — the rock is. Run the paint on underneath it.
+      // The rock straddles the floor edge, so the edge is never the visible
+      // boundary — the rock is. Run the paint on underneath it.
       floorBleed: 0.45,
     },
   },
@@ -91,10 +73,6 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       floorColor: '#F1ECDF',
       wallColor: '#000000',
       wallWidth: 0.5,
-      shadowEnabled: true,
-      shadowColor: '#8C867D',
-      shadowOffset: { x: 0.4, y: 0.3 },
-      shadowIntensity: 0.4,
       edgeTransitionWidth: 0.5,
       showEdgeTransitions: true,
       wallTextureTint: '#ffffff',
@@ -108,10 +86,6 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       floorColor: '#2A2A2A',
       wallColor: '#111111',
       wallWidth: 0.5,
-      shadowEnabled: true,
-      shadowColor: '#000000',
-      shadowOffset: { x: 0.3, y: 0.3 },
-      shadowIntensity: 0.6,
       edgeTransitionWidth: 0.5,
       showEdgeTransitions: true,
       wallTextureTint: '#ffffff',
@@ -119,11 +93,6 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
   },
 ];
 
-// ─── S7: Scatter presets ──────────────────────────────────
-// Empty until gg-demo ships object assets — presets get rebuilt around the new
-// art's actual ids (forest, rubble, etc.).
-
-export const SCATTER_PRESETS: ScatterPreset[] = [];
 
 /**
  * The preset a layer's style currently matches, or `undefined`.

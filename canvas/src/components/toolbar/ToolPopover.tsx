@@ -11,6 +11,7 @@ import { DualRangeSlider } from '@/components/inputs/DualRangeSlider';
 import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WATER_BANK_TEXTURE_ID } from '@dnd/core/src/engine/water/waterTextures';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import {
   minDoorWidth,
@@ -37,9 +38,11 @@ interface ToolPopoverProps {
   onClose: () => void;
 }
 
-export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
+/**
+ * A tool's settings without the popover around them, for chrome that places them itself.
+ * Renders nothing for a tool with nothing to configure.
+ */
+export function ToolOptions({ tool }: { tool: ToolType }) {
   // Cleanup preview on unmount
   useEffect(() => {
     return () => hideToolPreview();
@@ -72,6 +75,26 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
 
     showToolPreview(settings);
   }, [tool]);
+
+  const isDrawingTool =
+    tool === 'rectangle' || tool === 'polygon' || tool === 'regularPolygon' || tool === 'path';
+
+  return (
+    <>
+      {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
+      {tool === 'wall' && <WallToolContent onValueChange={triggerPreview} />}
+      {tool === 'door' && <DoorToolContent onValueChange={triggerPreview} />}
+      {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
+      {tool === 'scatterBrush' && <ScatterBrushContent />}
+      {tool === 'terrain' && <TerrainBrushContent onValueChange={triggerPreview} />}
+      {tool === 'water' && <WaterToolContent />}
+      {tool === 'zone' && <ZoneToolContent />}
+    </>
+  );
+}
+
+export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Click-outside dismiss
   useEffect(() => {
@@ -111,23 +134,13 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
     }
   }, [activeLayerId, onClose]);
 
-  const isDrawingTool =
-    tool === 'rectangle' || tool === 'polygon' || tool === 'regularPolygon' || tool === 'path';
-
   return (
     <div
       ref={panelRef}
       className="gg-grain absolute z-50 w-[200px] bg-surface-1 border border-border-structure rounded shadow-panel p-3"
       style={{ left: 52, top: anchorY }}
     >
-      {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
-      {tool === 'wall' && <WallToolContent onValueChange={triggerPreview} />}
-      {tool === 'door' && <DoorToolContent onValueChange={triggerPreview} />}
-      {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
-      {tool === 'scatterBrush' && <ScatterBrushContent />}
-      {tool === 'terrain' && <TerrainBrushContent onValueChange={triggerPreview} />}
-      {tool === 'water' && <WaterToolContent />}
-      {tool === 'zone' && <ZoneToolContent />}
+      <ToolOptions tool={tool} />
     </div>
   );
 }
@@ -263,24 +276,6 @@ function DrawingToolContent({
           min={0.05}
           max={1}
           step={0.05}
-        />
-      </PropertyField>
-
-      <PropertyField label="Shadow">
-        <ToggleSwitch
-          checked={s.shadowEnabled}
-          onChange={(v) => {
-            const cmd = new LayerStyleChangeCommand(
-              'Toggle shadow',
-              layer.id,
-              'shadowEnabled',
-              s.shadowEnabled,
-              v,
-            );
-            undoManager.execute(cmd);
-            onValueChange?.();
-          }}
-          label="Enable shadow"
         />
       </PropertyField>
     </div>
@@ -602,10 +597,10 @@ function ScatterBrushContent() {
           </div>
           <div>
             <div className="flex justify-between mb-1">
-              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Count</span>
-              <span className="text-xs text-text-primary font-mono">{settings.count}</span>
+              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Density</span>
+              <span className="text-xs text-text-primary font-mono">{settings.density.toFixed(2)}</span>
             </div>
-            <SliderInput value={settings.count} onChange={(v) => patch({ count: Math.round(v) })} min={1} max={30} step={1} />
+            <SliderInput value={settings.density} onChange={(v) => patch({ density: v })} min={0.05} max={1.5} step={0.05} />
           </div>
           <div>
             <div className="flex justify-between mb-1">
@@ -864,19 +859,11 @@ function WaterToolContent() {
         </div>
       )}
 
-      <div>
-        <div className="flex justify-between mb-1">
-          <span className="text-[11px] text-text-secondary uppercase tracking-wider">Flow Speed</span>
-          <span className="text-xs text-text-primary font-mono">{settings.flowSpeed.toFixed(2)}</span>
-        </div>
-        <SliderInput value={settings.flowSpeed} onChange={(v) => updateSettings({ flowSpeed: v })} {...WATER_RANGES.flowSpeed} />
-      </div>
-
       <PropertyField label="Banks">
         <ToggleSwitch
           checked={!!settings.bankTextureId}
           onChange={(checked) => {
-            updateSettings({ bankTextureId: checked ? 'bank-grassy-01-a1' : '' });
+            updateSettings({ bankTextureId: checked ? WATER_BANK_TEXTURE_ID : '' });
           }}
           label="Shoreline banks"
         />

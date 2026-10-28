@@ -29,12 +29,4 @@ test.describe('06 - Keyboard Shortcuts', () => {
     const canvas = page.locator('canvas');
     await expect(canvas).toBeVisible();
   });
-
-  test('X toggles rough mode', async ({ page }) => {
-    await gotoApp(page);
-    await page.keyboard.press('x');
-    await waitFrame(page, 2);
-    const canvas = page.locator('canvas');
-    await expect(canvas).toBeVisible();
-  });
 });

@@ -44,7 +44,7 @@ export function importedMapToDocument(map: ImportedMap): SerializedMapData {
     wallType,
     direction,
     color: walls.style.wallColor,
-    width: walls.style.wallWidth,
+    // No width: imported walls follow the layer's Width like drawn ones.
     roughness: 0,
   });
 
@@ -92,8 +92,8 @@ export function importedMapToDocument(map: ImportedMap): SerializedMapData {
     version: '3.1',
     mapSettings: {
       name: map.name,
-      gridType: 'square',
-      cellScale: { value: 5, unit: 'ft' },
+      // UVTT carries no scale; 5 ft is the editor's own default.
+      cellScale: map.cellScale ?? { value: 5, unit: 'ft' },
       ambientLight: map.ambientLight,
       fixedSize: { width: map.size.width, height: map.size.height },
     },

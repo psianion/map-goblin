@@ -129,14 +129,12 @@ export class PathTool implements DrawingTool {
         visible: true,
         shapeType: 'path',
         contours: inflated as [number, number][][],
-        roughnessEnabled: store.tools.roughMode,
-        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
         textureOffsetY: 0,
         textureFillRotation: 0,
-        textureTint: lastTextured?.textureTint ?? '#ffffff',
+        textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
       undoManager.execute(new AddChildCommand('Draw path', activeLayerId, child));

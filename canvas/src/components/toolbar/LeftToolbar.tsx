@@ -10,7 +10,6 @@ import {
   Lightbulb,
   DoorOpen,
   Eraser,
-  Waves,
   ChevronRight,
   TreeDeciduous,
   LayoutGrid,
@@ -20,7 +19,6 @@ import {
   Type,
   Spline,
   Crosshair,
-  Frame,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -51,11 +49,9 @@ const TOOLS: ToolButton[] = [
   { tool: 'water', icon: Droplets, label: 'Water', shortcut: 'U' },
   // M for measure — R is already the rectangle.
   { tool: 'ruler', icon: Ruler, label: 'Measure', shortcut: 'M' },
-  // N for note — T is terrain and X is the rough-mode toggle.
+  // N for note — T is terrain.
   { tool: 'text', icon: Type, label: 'Label', shortcut: 'N' },
   { tool: 'zone', icon: Crosshair, label: 'Zone', shortcut: 'Z' },
-  // O for rOom — R is the rectangle.
-  { tool: 'room', icon: Frame, label: 'Room', shortcut: 'O' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */
@@ -74,12 +70,10 @@ const INACTIVE_BTN = `${BASE_BTN} bg-transparent border-transparent text-text-mu
 export function LeftToolbar() {
   const activeTool = useStore((s) => s.tools.activeTool);
   const eraseMode = useStore((s) => s.tools.eraseMode);
-  const roughMode = useStore((s) => s.tools.roughMode);
   const curveMode = useStore((s) => s.tools.curveMode);
   const leftPanelOpen = useStore((s) => s.ui.leftPanelOpen);
   const setActiveTool = useStore((s) => s.setActiveTool);
   const setEraseMode = useStore((s) => s.setEraseMode);
-  const setRoughMode = useStore((s) => s.setRoughMode);
   const setCurveMode = useStore((s) => s.setCurveMode);
   const togglePanel = useStore((s) => s.togglePanel);
 
@@ -204,16 +198,6 @@ export function LeftToolbar() {
         className={eraseMode ? ACTIVE_BTN : INACTIVE_BTN}
       >
         <Eraser size={18} strokeWidth={1.75} />
-      </button>
-
-      {/* Rough mode toggle */}
-      <button
-        data-toolbar-button
-        title="Rough mode (X)"
-        onClick={() => setRoughMode(!roughMode)}
-        className={roughMode ? ACTIVE_BTN : INACTIVE_BTN}
-      >
-        <Waves size={18} strokeWidth={1.75} />
       </button>
 
       {/* Curve mode toggle — wall/path chains commit as smooth curves */}

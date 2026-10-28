@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { gzipSync, strToU8 } from 'fflate';
 import type { SerializedMapData } from '@/store/types';
 import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
-import { MAGIC_HEADER, bytesToBase64, decodeMapFile, encodeMapFile } from './mapFormat';
+import { MAGIC_HEADER, bytesToBase64, decodeMapFile, encodeMapFile, hashMapBytes } from './mapFormat';
+import { useStore } from '@/store/store';
+import type { DoorChild, DungeonLayer } from '@/store/types';
 
 function doc(customImages: Record<string, string> = {}): SerializedMapData {
   return {
     version: '3.0',
-    mapSettings: { name: 'T', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000000' },
+    mapSettings: { name: 'T', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000000' },
     grid: { visible: true, snapDivision: 2 },
     layers: [],
     customImages,
@@ -82,7 +84,8 @@ describe('mapFormat', () => {
         } as unknown as SerializedMapData['layers'][number],
       ],
       prep: {
-        version: 2,
+        version: 3,
+        rooms: [],
         notes: [],
         triggers: [
           {
@@ -102,5 +105,27 @@ describe('mapFormat', () => {
   it('bytesToBase64 survives multi-chunk input', () => {
     const big = new Uint8Array(0x8000 * 2 + 3).fill(65);
     expect(atob(bytesToBase64(big)).length).toBe(big.length);
+  });
+
+  it("keeps a door's own kit through save, reload and the publish hash", async () => {
+    useStore.getState().resetToDefault();
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const door: DoorChild = {
+      id: 'd-kit', name: 'Kit door', childType: 'door', visible: true, wallId: '', position: [0, 0], angle: 0,
+      width: 2, style: 'double', state: 'closed', isSecret: false, kit: 'cave', openAngle: 120,
+    };
+    useStore.getState().addChild(layer.id, door);
+    const saved = structuredClone(useStore.getState().getSerializableState());
+    const loaded = decodeMapFile(encodeMapFile(saved));
+    useStore.getState().resetToDefault();
+    useStore.getState().loadFromFile(loaded);
+    const back = useStore.getState().layers.flatMap((l) => (l.type === 'dungeon' ? (l as DungeonLayer).children : []))
+      .find((c) => c.id === 'd-kit') as DoorChild;
+    expect([back.kit, back.openAngle]).toEqual(['cave', 120]);
+    // The publish hash reads it, so a material change counts as a map change.
+    const other = structuredClone(saved);
+    const od = (other.layers.find((l) => l.id === layer.id) as DungeonLayer).children.find((c) => c.id === 'd-kit') as DoorChild;
+    od.kit = 'wood';
+    expect(await hashMapBytes(other)).not.toBe(await hashMapBytes(saved));
   });
 });

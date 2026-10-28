@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
 import { downloadMapFile } from '@/io/saveLoad';
 import { MAX_EXPORT_PX, computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
+import { editorShowsLighting } from '@dnd/core/src/engine/editorDesk';
 import {
   Dialog,
   DialogPortal,
@@ -41,6 +42,11 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const [format, setFormat] = useState<ExportFormat>('png');
   const [pxPerCell, setPxPerCell] = useState<PxPerCell>(128);
   const [includeGrid, setIncludeGrid] = useState(false);
+  // Starts at what the editor shows on each open, so the file matches the canvas.
+  const [lighting, setLighting] = useState(true);
+  useEffect(() => {
+    if (open) setLighting(editorShowsLighting());
+  }, [open]);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +91,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         singleton.engine,
         singleton.sceneGraph,
         layers,
-        { format, pxPerCell, includeGrid, mapName },
+        { format, pxPerCell, includeGrid, mapName, lighting },
       );
       triggerDownload(blob, filename);
       const formatLabel = format.toUpperCase();
@@ -98,7 +104,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     } finally {
       setExporting(false);
     }
-  }, [layers, format, pxPerCell, includeGrid, mapName, onOpenChange]);
+  }, [layers, format, pxPerCell, includeGrid, mapName, lighting, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -174,6 +180,17 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                 className="accent-accent"
               />
               <span className="text-sm text-foreground">Include grid lines</span>
+            </label>
+
+            {/* Lighting toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={lighting}
+                onChange={(e) => setLighting(e.target.checked)}
+                className="accent-accent"
+              />
+              <span className="text-sm text-foreground">Apply lighting</span>
             </label>
 
             {/* Preview dimensions */}

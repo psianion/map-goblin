@@ -1,0 +1,180 @@
+/* Layer sheet: plain stacked groups, one rule between them, no cards inside the sheet. */
+.v2-lsheet {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+  color: var(--v2-text);
+}
+.v2-lsheet__sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.v2-lsheet__sec + .v2-lsheet__sec {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-lsheet__head {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+  color: var(--v2-text-3);
+}
+/* Controls run the full width of the sheet rather than the dock's fixed columns. */
+.v2-lsheet .v2-ctl {
+  width: auto;
+}
+.v2-lsheet__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Full width, label left and switch on the right edge, the way a slider row ends in
+   its value. min-width rather than width: Switch sizes its Ctl inline, and an inline
+   width outranks any rule here, but min-width wins over width. */
+.v2-lsheet__row > .v2-ctl {
+  min-width: 100%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.v2-lsheet__row > .v2-ctl .v2-ctl__head {
+  color: var(--v2-text);
+}
+.v2-lsheet__row--muted > .v2-ctl .v2-ctl__head {
+  color: var(--v2-text-3);
+}
+.v2-lsheet__note,
+.v2-lsheet__empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--v2-text-3);
+}
+.v2-lsheet__empty {
+  font-size: 12px;
+}
+
+/* Name fields reuse the dock field box, as an input. */
+.v2-lsheet__input {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--v2-text);
+  outline: none;
+  transition: border-color 120ms var(--v2-ease);
+}
+.v2-lsheet__input:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-lsheet__input:focus {
+  border-color: var(--v2-ink);
+  background: var(--v2-panel);
+}
+.v2-lsheet__input[aria-invalid='true'] {
+  border-color: var(--v2-line-strong);
+}
+
+/* Rooms */
+.v2-lsheet__rooms {
+  list-style: none;
+  margin: 0 -6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v2-lsheet__room {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-lsheet__room:hover,
+.v2-lsheet__room:focus-visible {
+  background: var(--v2-panel-2);
+}
+.v2-lsheet__room:active {
+  background: var(--v2-panel-3);
+}
+.v2-lsheet__room-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v2-lsheet__tag {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--v2-text-3);
+}
+.v2-lsheet__area {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-lsheet__room-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px;
+}
+.v2-lsheet__seed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+/* Filmstrip: the settings glyph sits on the active tile, shown on hover or focus. */
+.v2-tile .v2-tile__set {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  opacity: 0;
+  transition: opacity 120ms var(--v2-ease), color 120ms var(--v2-ease), background-color 120ms var(--v2-ease);
+}
+.v2-tile:hover .v2-tile__set,
+.v2-tile:focus-within .v2-tile__set {
+  opacity: 1;
+}
+.v2-tile .v2-tile__set:hover {
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+}
+.v2-tile .v2-tile__set:active {
+  background: var(--v2-panel-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-tile .v2-tile__set,
+  .v2-lsheet__room,
+  .v2-lsheet__input {
+    transition: none;
+  }
+}

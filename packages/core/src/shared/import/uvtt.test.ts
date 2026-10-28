@@ -65,6 +65,28 @@ describe('readUvtt', () => {
     expect(readUvtt({ ...FILE, environment: undefined }, 'x').ambientLight).toBe('#ffffff');
   });
 
+  it('pulls walls and doors hugging the image from outside onto its edge, once warned', () => {
+    const m = readUvtt(
+      {
+        resolution: { map_origin: { x: 0, y: 0 }, map_size: { x: 65, y: 33 }, pixels_per_grid: 32 },
+        line_of_sight: [[{ x: 60, y: 5 }, { x: 65.3, y: 5 }, { x: 65.3, y: -0.2 }]],
+        portals: [{ bounds: [{ x: -0.25, y: 10 }, { x: 0.75, y: 10 }], closed: true }],
+        lights: [{ position: { x: 30, y: 33.5 }, range: 4 }],
+        image: 'iVBORw0KGgo=',
+      },
+      'Pools',
+    );
+    expect(m.walls[0].points).toEqual([[60, 5], [65, 5], [65, 0]]);
+    expect(m.doors[0]).toMatchObject({ a: [0, 10], b: [0.75, 10] });
+    // A light off the edge still lights the map from there
+    expect(m.lights[0]).toMatchObject({ x: 30, y: 33.5 });
+    expect(m.warnings).toContain('3 wall points outside the map were pulled to its edge');
+  });
+
+  it('says nothing about the edge when every point is on the map', () => {
+    expect(map.warnings.some((w) => w.includes('pulled to its edge'))).toBe(false);
+  });
+
   it('refuses a file with no size', () => {
     expect(() => readUvtt({}, 'x')).toThrow(/map_size/);
   });

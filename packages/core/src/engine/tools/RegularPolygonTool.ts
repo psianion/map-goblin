@@ -94,14 +94,12 @@ export class RegularPolygonTool implements DrawingTool {
         visible: true,
         shapeType: 'regularPolygon',
         contours: [polyPoints],
-        roughnessEnabled: store.tools.roughMode,
-        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
         textureOffsetY: 0,
         textureFillRotation: 0,
-        textureTint: lastTextured?.textureTint ?? '#ffffff',
+        textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
       undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, child));

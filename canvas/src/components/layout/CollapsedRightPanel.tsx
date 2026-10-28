@@ -1,4 +1,4 @@
-import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket, PanelRightOpen, Mountain } from 'lucide-react'
+import { Palette, Minus, Sun, Grid3x3, Lightbulb, Package, PaintBucket, PanelRightOpen, Mountain } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/selectors'
@@ -13,9 +13,7 @@ interface StripItem {
 const DUNGEON_ITEMS: StripItem[] = [
   { icon: Palette, label: 'Colors' },
   { icon: Minus, label: 'Walls' },
-  { icon: Sun, label: 'Shadow' },
   { icon: Grid3x3, label: 'Hatch' },
-  { icon: Waves, label: 'Rough' },
   { icon: Lightbulb, label: 'Ambient' },
 ]
 

@@ -128,11 +128,7 @@ function renderShapePreview(
   }
 
   g.fill(floorColor);
-  if (style.shadowEnabled) {
-    g.setStrokeStyle({ color: wallColor, width: style.wallWidth * 1.5 });
-  } else {
-    g.setStrokeStyle({ color: wallColor, width: style.wallWidth });
-  }
+  g.setStrokeStyle({ color: wallColor, width: style.wallWidth });
   g.stroke();
 }
 

@@ -3,6 +3,9 @@ import {
   computeExportDimensions,
   buildExportFilename,
   worldBoundsToCells,
+  exportWorldOffset,
+  EXPORT_RESOLUTION,
+  MAX_EXPORT_PX,
 } from './exportMath';
 
 describe('computeExportDimensions', () => {
@@ -97,5 +100,55 @@ describe('worldBoundsToCells', () => {
     const result = worldBoundsToCells({ minX: 5, minY: 5, maxX: 5, maxY: 5 });
     expect(result.cellWidth).toBe(1);
     expect(result.cellHeight).toBe(1);
+  });
+});
+
+describe('export resolution', () => {
+  it('renders one texture pixel per file pixel', () => {
+    expect(EXPORT_RESOLUTION).toBe(1);
+  });
+
+  it('caps the real pixels: a 2x texture hits the limit at half the file size', () => {
+    // 40 cells at 128 = 5120 px: under the cap at 1x, 10240 real pixels at 2x.
+    expect(computeExportDimensions(40, 10, 128).clampedToLimit).toBe(false);
+    const hi = computeExportDimensions(40, 10, 128, 2);
+    expect(hi.clampedToLimit).toBe(true);
+    expect(hi.widthPx * 2).toBeLessThanOrEqual(MAX_EXPORT_PX);
+  });
+
+  it('defaults to the export resolution', () => {
+    expect(computeExportDimensions(47, 42, 256)).toEqual(computeExportDimensions(47, 42, 256, EXPORT_RESOLUTION));
+  });
+});
+
+describe('exportWorldOffset', () => {
+  // A 9.5x6.5 room with walls: 10.1x7.1 cells of content, an 11x8 file.
+  const bounds = { minX: 1.95, minY: 2.95, maxX: 12.05, maxY: 10.05 };
+  const ppc = 128;
+  const { widthPx, heightPx } = computeExportDimensions(11, 8, ppc);
+
+  it('centres the content in the whole-cell file', () => {
+    const o = exportWorldOffset(bounds, widthPx, heightPx, ppc);
+    const left = bounds.minX * ppc + o.x;
+    const right = widthPx - (bounds.maxX * ppc + o.x);
+    const top = bounds.minY * ppc + o.y;
+    const bottom = heightPx - (bounds.maxY * ppc + o.y);
+    expect(left).toBeCloseTo(right, 6);
+    expect(top).toBeCloseTo(bottom, 6);
+    expect(left).toBeCloseTo(((11 - 10.1) / 2) * ppc, 6);
+  });
+
+  it('puts whole-cell bounds flush at the top-left, as before', () => {
+    const o = exportWorldOffset({ minX: -5, minY: -5, maxX: 5, maxY: 5 }, 640, 640, 64);
+    expect(o).toEqual({ x: 320, y: 320 });
+  });
+
+  it('centres at a clamped scale too', () => {
+    const big = { minX: 0.4, minY: 0, maxX: 99.6, maxY: 10 };
+    const d = computeExportDimensions(100, 10, 256);
+    const o = exportWorldOffset(big, d.widthPx, d.heightPx, d.pxPerCell);
+    const left = big.minX * d.pxPerCell + o.x;
+    const right = d.widthPx - (big.maxX * d.pxPerCell + o.x);
+    expect(left).toBeCloseTo(right, 6);
   });
 });

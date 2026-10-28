@@ -6,7 +6,7 @@
 
 import type { DoorState, WallDirection, WallType } from '../types';
 import type { ImportedDoor, ImportedImage, ImportedLight, ImportedMap, ImportedWall } from './types';
-import { ambientForDarkness, round3 } from './types';
+import { ambientForDarkness, edgeClamp, pulledWarning, round3 } from './types';
 
 export interface FoundryWall {
   c: [number, number, number, number];
@@ -43,8 +43,10 @@ export interface FoundryScene {
   width?: number;
   height?: number;
   padding?: number;
-  grid?: number | { size?: number; distance?: number };
+  grid?: number | { size?: number; distance?: number; units?: string };
+  /** Pre-v10 names for `grid.distance` and `grid.units`. */
   gridDistance?: number;
+  gridUnits?: string;
   img?: string | null;
   background?: { src?: string | null };
   thumb?: string | null;
@@ -112,6 +114,22 @@ function gridDistance(scene: FoundryScene): number {
   return (typeof scene.grid === 'object' ? scene.grid?.distance : undefined) ?? scene.gridDistance ?? 5;
 }
 
+/** "ft", "feet", "'" → "ft"; "m", "meters", "metres" → "m"; anything else lower-cased as is. */
+export function foundryUnit(raw: string | undefined): string {
+  const u = (raw ?? '').trim().toLowerCase();
+  if (!u || u === 'ft' || u === 'feet' || u === "'") return 'ft';
+  if (u === 'm' || u === 'meters' || u === 'metres') return 'm';
+  return u;
+}
+
+/** The scene's own cell measure; undefined when it names no usable distance. */
+function cellScaleOf(scene: FoundryScene): ImportedMap['cellScale'] {
+  const grid = typeof scene.grid === 'object' ? scene.grid : undefined;
+  const value = grid?.distance ?? scene.gridDistance;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
+  return { value, unit: foundryUnit(grid?.units ?? scene.gridUnits) };
+}
+
 /** Canvas offset of the map image — Foundry's own rounding, whole cells up. */
 export function foundryPadding(scene: FoundryScene): { x: number; y: number } {
   const g = gridSize(scene);
@@ -175,6 +193,10 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
   const pad = foundryPadding(scene);
   const warnings: string[] = [];
   const px = (x: number, y: number): [number, number] => [round3((x - pad.x) / g), round3((y - pad.y) / g)];
+  // Walls drawn out in the scene padding are off the image, and a wall past the pinned edge
+  // grows the frame past the picture — pull them onto it. Lights stay put: they never grow
+  // the frame, and moving one would change what it lights.
+  const wallEdge = edgeClamp((scene.width ?? 0) / g, (scene.height ?? 0) / g);
 
   const allWalls = scene.walls ?? [];
   const keep = keptBands(allWalls);
@@ -188,8 +210,11 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
       offFloor++;
       continue;
     }
-    const a = px(w.c[0], w.c[1]);
-    const b = px(w.c[2], w.c[3]);
+    const a = wallEdge.point(...px(w.c[0], w.c[1]));
+    const b = wallEdge.point(...px(w.c[2], w.c[3]));
+    // A wall with no length — or one wholly off the image past a corner, pulled down to a
+    // point — has nothing left to import.
+    if (a[0] === b[0] && a[1] === b[1]) continue;
     if ((w.door ?? 0) > 0) {
       const sight = w.sight ?? w.sense ?? 20;
       doors.push({
@@ -210,6 +235,7 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
   }
   if (offFloor) warnings.push(`${offFloor} walls on other floors skipped (multi-floor scene)`);
   if (inert) warnings.push(`${inert} walls that block nothing skipped`);
+  warnings.push(...pulledWarning(wallEdge.pulled, 'wall points'));
 
   const lights: ImportedLight[] = [];
   let cones = 0;
@@ -256,6 +282,7 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
     doors,
     lights,
     ambientLight: ambientForDarkness(scene.darkness ?? 0),
+    cellScale: cellScaleOf(scene),
     warnings,
   };
 }

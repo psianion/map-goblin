@@ -8,6 +8,8 @@ import type { DungeonLayer, TextChild } from '../../store/types';
 
 /** World units (grid cells). Roughly a room name at default map scale. */
 const DEFAULT_FONT_SIZE = 0.8;
+/** The size range the label tool's settings offer, in world units. */
+export const LABEL_SIZE_RANGE = { min: 0.3, max: 3, step: 0.1 } as const;
 const DEFAULT_TEXT = 'Label';
 
 function countLabels(layer: DungeonLayer): number {
@@ -36,7 +38,9 @@ export class TextTool implements DrawingTool {
     );
     if (!activeLayer) return;
 
-    const { width, height } = measureLabel(DEFAULT_TEXT, DEFAULT_FONT_SIZE);
+    const defaults = store.tools.settings.label;
+    const fontSize = defaults?.fontSize ?? DEFAULT_FONT_SIZE;
+    const { width, height } = measureLabel(DEFAULT_TEXT, fontSize);
     const child: TextChild = {
       id: crypto.randomUUID(),
       name: `Label ${countLabels(activeLayer) + 1}`,
@@ -46,8 +50,8 @@ export class TextTool implements DrawingTool {
       position: { x: point.x, y: point.y },
       rotation: 0,
       scale: 1,
-      fontSize: DEFAULT_FONT_SIZE,
-      color: activeLayer.style.wallColor,
+      fontSize,
+      color: defaults?.color ?? activeLayer.style.wallColor,
       width,
       height,
     };

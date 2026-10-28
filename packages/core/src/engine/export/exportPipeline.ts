@@ -4,14 +4,31 @@ import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
 import type { Layer } from '../../store/types';
 import { useStore } from '../../store/store';
-import { computeExportDimensions, buildExportFilename, worldBoundsToCells } from './exportMath';
+import {
+  EXPORT_RESOLUTION,
+  computeExportDimensions,
+  buildExportFilename,
+  exportWorldOffset,
+  worldBoundsToCells,
+} from './exportMath';
 import { computeContentBounds, computeMapFrame } from '../../shared/mapBounds';
+import { holdAuthoredLook } from '../editorDesk';
+import { isBandSet } from '../../assets/packCatalog';
+import type { NightSky } from '../../shared/world';
+import type { Weather } from '../../shared/prep';
+import { skyFrame } from '../../shared/sky';
 
 export interface ExportOptions {
   format: 'png' | 'jpeg';
   pxPerCell: number;   // 64 | 128 | 256
   includeGrid: boolean;
   mapName: string;
+  /**
+   * Apply the map's lighting (its moods and its lights) to the file, at the hour, night sky
+   * and weather given — or, with `true`, under the sky the live preview stands at. `false`
+   * is the map as the unlit editing view shows it. Defaults to on (`true`).
+   */
+  lighting?: boolean | { minutes: number; nightSky: NightSky; weather: Weather };
 }
 
 /**
@@ -30,11 +47,33 @@ export function computeMapWorldBounds(
   maxX: number;
   maxY: number;
 } {
-  // A pinned map exports exactly its frame — whatever was drawn outside is cropped away.
+  // A pinned map exports its frame: the pinned size, grown wherever something was drawn
+  // past it, so nothing on the map is ever cropped away.
   if (fixedSize) return computeMapFrame(layers, terrainBounds, fixedSize)!;
-  return (
-    computeContentBounds(layers, terrainBounds) ?? { minX: -5, minY: -5, maxX: 5, maxY: 5 }
-  );
+  const b = computeContentBounds(layers, terrainBounds);
+  if (!b) return { minX: -5, minY: -5, maxX: 5, maxY: 5 };
+  const band = bandPad(layers);
+  return { minX: b.minX - band, minY: b.minY - band, maxX: b.maxX + band, maxY: b.maxY + band };
+}
+
+/**
+ * How far cave band rock reaches past a floor edge, in cells. The content bounds pad a
+ * wall by half its stroke width, but a band layer's rock is laid by the cave walk at
+ * render time, pushed out past the ring and a good deal thicker than any stroke: about
+ * 1.3 cells past the floor edge measured on a Cave Ink room. Without this the file cut
+ * the outer rock off on every side.
+ */
+export const BAND_REACH = 1.5;
+
+/** Extra pad the content bounds need on top of their stroke pad for band layers. */
+function bandPad(layers: readonly Layer[]): number {
+  let pad = 0;
+  for (const layer of layers) {
+    if (layer.type !== 'dungeon' || !isBandSet(layer.style?.wallTextureSetId)) continue;
+    // computeContentBounds already padded half the wall width plus 0.05 of slack.
+    pad = Math.max(pad, BAND_REACH - ((layer.style?.wallWidth ?? 0) / 2 + 0.05));
+  }
+  return pad;
 }
 
 /**
@@ -48,7 +87,13 @@ export async function runExportPipeline(
 ): Promise<{ blob: Blob; filename: string }> {
   const bounds = computeMapWorldBounds(layers);
   const { cellWidth, cellHeight } = worldBoundsToCells(bounds);
-  const { widthPx, heightPx, pxPerCell } = computeExportDimensions(cellWidth, cellHeight, opts.pxPerCell);
+  const { widthPx, heightPx, pxPerCell } = computeExportDimensions(
+    cellWidth,
+    cellHeight,
+    opts.pxPerCell,
+    EXPORT_RESOLUTION,
+  );
+  const lighting = opts.lighting !== false;
 
   const filename = buildExportFilename(
     opts.mapName,
@@ -58,86 +103,110 @@ export async function runExportPipeline(
     opts.format,
   );
 
-  // Create an offscreen RenderTexture at export resolution
-  const exportRT = engine.createRenderTexture(widthPx, heightPx);
+  // An offscreen RenderTexture holding exactly the file's pixels. Not the screen's DPR: a
+  // HiDPI texture came back DPR times too big and the file kept only its top-left corner.
+  const exportRT = engine.createRenderTexture(widthPx, heightPx, EXPORT_RESOLUTION);
 
-  // Temporarily hide grids if requested — both the global grid renderer
-  // AND per-layer grid sublayers inside each dungeon layer
-  const gridVisible = sceneGraph.gridRenderer.container.visible;
-  const savedGridSubVis: { id: string; visible: boolean }[] = [];
-  if (!opts.includeGrid) {
-    sceneGraph.gridRenderer.container.visible = false;
-    for (const layer of layers) {
-      if (layer.type !== 'dungeon') continue;
-      const entry = getLayerEntry(layer.id);
-      if (entry?.sublayers?.grid) {
-        savedGridSubVis.push({ id: layer.id, visible: entry.sublayers.grid.visible });
-        entry.sublayers.grid.visible = false;
+  let imgEl: HTMLImageElement;
+  try {
+    // Capture the live scene state the export borrows, so the finally below can hand
+    // it back even when a render step throws.
+    const gridVisible = sceneGraph.gridRenderer.container.visible;
+    const savedGridSubVis: { id: string; visible: boolean }[] = [];
+    const origX = sceneGraph.worldContainer.position.x;
+    const origY = sceneGraph.worldContainer.position.y;
+    const origScale = sceneGraph.worldContainer.scale.x;
+    let releaseLook: (() => void) | null = null;
+
+    try {
+      // Temporarily hide grids if requested — both the global grid renderer
+      // AND per-layer grid sublayers inside each dungeon layer
+      if (!opts.includeGrid) {
+        sceneGraph.gridRenderer.container.visible = false;
+        for (const layer of layers) {
+          if (layer.type !== 'dungeon') continue;
+          const entry = getLayerEntry(layer.id);
+          if (entry?.sublayers?.grid) {
+            savedGridSubVis.push({ id: layer.id, visible: entry.sublayers.grid.visible });
+            entry.sublayers.grid.visible = false;
+          }
+        }
+      }
+
+      // Compute export-space transform: scale world container so that
+      // pxPerCell world units map to pxPerCell pixels, centered on bounds
+      // The effective scale, so a map past the texture limit shrinks to fit instead of cropping.
+      // The file is whole cells; the bounds sit in its middle, not its top-left corner.
+      const zoom = pxPerCell;
+      const { x: worldX, y: worldY } = exportWorldOffset(bounds, widthPx, heightPx, zoom);
+
+      // An editor that lays the map on its own desk paints a presentation sheet; the file gets
+      // the map as authored, so hold that look for the length of the (synchronous) render.
+      // Unlit, the background is the plain one the unlit editing view shows.
+      releaseLook = holdAuthoredLook({ lit: lighting });
+
+      // Apply export transform
+      sceneGraph.worldContainer.position.set(worldX, worldY);
+      sceneGraph.worldContainer.scale.set(zoom);
+
+      // Render world to export texture
+      engine.renderToTexture(sceneGraph.worldContainer, exportRT);
+
+      // The lighting pass rides on top, still under the export transform — it reads the light
+      // positions back through `engine.worldToScreen`, which is that transform, so it has to run
+      // before the restore below. Without it the file came out at the map's authored daylight
+      // brightness whatever the hour was: the composite is a screen-space overlay sprite, and
+      // the export only ever rendered the world container. Skipped for an unlit file.
+      if (lighting) {
+        const sky =
+          typeof opts.lighting === 'object'
+            ? skyFrame({
+                ...useStore.getState().mapSettings,
+                // The dialog's hour is the hour: a fixed map's own is only the seed.
+                timeMode: 'clock',
+                minutes: opts.lighting.minutes,
+                nightSky: opts.lighting.nightSky,
+                weather: opts.lighting.weather,
+              })
+            : undefined;
+        sceneGraph.lightingRenderer.renderInto(exportRT, zoom, widthPx, heightPx, sky);
+      }
+    } finally {
+      releaseLook?.();
+
+      // Restore original transform and grid visibility
+      sceneGraph.worldContainer.position.set(origX, origY);
+      sceneGraph.worldContainer.scale.set(origScale);
+      sceneGraph.gridRenderer.container.visible = gridVisible;
+      for (const { id, visible } of savedGridSubVis) {
+        const entry = getLayerEntry(id);
+        if (entry?.sublayers?.grid) entry.sublayers.grid.visible = visible;
       }
     }
-  }
 
-  // Compute export-space transform: scale world container so that
-  // pxPerCell world units map to pxPerCell pixels, centered on bounds
-  // The effective scale, so a map past the texture limit shrinks to fit instead of cropping.
-  const zoom = pxPerCell;
-  const worldX = -bounds.minX * zoom;
-  const worldY = -bounds.minY * zoom;
-
-  // Capture original transform
-  const origX = sceneGraph.worldContainer.position.x;
-  const origY = sceneGraph.worldContainer.position.y;
-  const origScale = sceneGraph.worldContainer.scale.x;
-
-  // Apply export transform
-  sceneGraph.worldContainer.position.set(worldX, worldY);
-  sceneGraph.worldContainer.scale.set(zoom);
-
-  // Render world to export texture
-  engine.renderToTexture(sceneGraph.worldContainer, exportRT);
-
-  // The lighting pass rides on top, still under the export transform — it reads the light
-  // positions back through `engine.worldToScreen`, which is that transform, so it has to run
-  // before the restore below. Without it the file came out at the map's authored daylight
-  // brightness whatever the hour was: the composite is a screen-space overlay sprite, and
-  // the export only ever rendered the world container.
-  sceneGraph.lightingRenderer.renderInto(
-    exportRT,
-    zoom,
-    widthPx,
-    heightPx,
-    useStore.getState().mapSettings.ambientLight,
-  );
-
-  // Restore original transform and grid visibility
-  sceneGraph.worldContainer.position.set(origX, origY);
-  sceneGraph.worldContainer.scale.set(origScale);
-  sceneGraph.gridRenderer.container.visible = gridVisible;
-  for (const { id, visible } of savedGridSubVis) {
-    const entry = getLayerEntry(id);
-    if (entry?.sublayers?.grid) entry.sublayers.grid.visible = visible;
-  }
-
-  // Extract pixels from the RenderTexture via PixiJS extract API
-  const pixiRenderer = engine.renderer() as Renderer & {
-    extract: {
-      image(opts: { target: RenderTexture; format?: string; quality?: number }): Promise<HTMLImageElement>;
+    // Extract pixels from the RenderTexture via PixiJS extract API
+    const pixiRenderer = engine.renderer() as Renderer & {
+      extract: {
+        image(opts: { target: RenderTexture; format?: string; quality?: number }): Promise<HTMLImageElement>;
+      };
     };
-  };
 
-  const imgEl = await pixiRenderer.extract.image({
-    target: exportRT,
-    format: opts.format === 'jpeg' ? 'image/jpeg' : 'image/png',
-    quality: opts.format === 'jpeg' ? 0.85 : undefined,
-  });
-
-  exportRT.destroy(true);
+    imgEl = await pixiRenderer.extract.image({
+      target: exportRT,
+      format: opts.format === 'jpeg' ? 'image/jpeg' : 'image/png',
+      quality: opts.format === 'jpeg' ? 0.85 : undefined,
+    });
+  } finally {
+    exportRT.destroy(true);
+  }
 
   // Convert HTMLImageElement → Blob via OffscreenCanvas
   const canvas = new OffscreenCanvas(widthPx, heightPx);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('OffscreenCanvas 2d context unavailable');
-  ctx.drawImage(imgEl as CanvasImageSource, 0, 0);
+  // Sized, not natural: should the texture ever come back at another resolution, the file
+  // is scaled to fit rather than cropped to its top-left corner.
+  ctx.drawImage(imgEl as CanvasImageSource, 0, 0, widthPx, heightPx);
 
   const mimeType = opts.format === 'jpeg' ? 'image/jpeg' : 'image/png';
   const quality = opts.format === 'jpeg' ? 0.85 : undefined;

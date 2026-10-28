@@ -32,9 +32,21 @@ export function resetMapDB(): void {
 }
 
 /**
+ * Renders the open map to a small image for its card. Core has no renderer, so the app
+ * that does registers one; a save with none registered stores no thumbnail.
+ */
+type ThumbnailProvider = () => Promise<Blob | null>;
+let thumbnailProvider: ThumbnailProvider | null = null;
+
+export function setThumbnailProvider(provider: ThumbnailProvider | null): void {
+  thumbnailProvider = provider;
+}
+
+/**
  * The map's size in whole cells. Every card used to print a hardcoded 40×40 that meant
- * nothing. A pinned map reports the size it was pinned to; otherwise this measures off
- * what is actually drawn, and a map with nothing on it has no frame at all and measures
+ * nothing. A pinned map reports the size it was pinned to, or more where something was
+ * drawn past the pin (the pin is a minimum, see `computeMapFrame`); otherwise this measures
+ * off what is actually drawn, and a map with nothing on it has no frame at all and measures
  * 0×0 — the card renders that as "Empty" rather than inventing a number.
  *
  * Pass `fixedSize` wherever the answer stands for the map itself. Omit it where the
@@ -163,6 +175,27 @@ export const createMapsSlice: StateCreator<
         entry.layerCount = layerCount;
       }
     });
+
+    // The card preview, taken off the same save. A map with nothing on it measures 0×0
+    // and keeps no picture: its card says "Empty" instead. A drawn map whose render came
+    // back empty-handed (no canvas yet, say, because the save ran before the renderer
+    // finished starting) keeps the picture it already has: null there means "could not
+    // take one", not "there is nothing to show". Never lets a render hiccup fail the
+    // save that already happened.
+    if (thumbnailProvider && db.saveThumbnail) {
+      try {
+        const empty = !gridSize.width || !gridSize.height;
+        const thumbnail = empty ? null : await thumbnailProvider();
+        if (!empty && !thumbnail) return;
+        await db.saveThumbnail(activeMapId, thumbnail);
+        set((s) => {
+          const entry = s.mapIndex.find((m) => m.id === activeMapId);
+          if (entry) entry.thumbnail = thumbnail ?? undefined;
+        });
+      } catch (err) {
+        console.warn('[saveCurrentMap] thumbnail failed:', err);
+      }
+    }
   },
 
   async loadMap(id: string) {
@@ -241,6 +274,10 @@ export const createMapsSlice: StateCreator<
     // Stash the whole record first — after the delete there is nothing left to read, and
     // the toast's Undo (restoreLastDeletedMap) puts exactly this back.
     lastDeleted = await db.getMapRecord(id);
+    // A blank from an earlier delete belongs to that delete's Undo, not this one. Left set,
+    // this Undo would take it back out too, or, when this delete was of that very blank,
+    // delete again the map it had just put back.
+    autoCreatedBlank = null;
     await db.deleteMap(id);
     set((s) => {
       s.mapIndex = s.mapIndex.filter((m) => m.id !== id);
@@ -282,6 +319,9 @@ export const createMapsSlice: StateCreator<
   },
 
   async duplicateMap(id: string) {
+    // The copy is made from the stored record, so the open map is flushed first — otherwise
+    // whatever was drawn since the last autosave is left out of the copy.
+    if (get().activeMapId === id) await get().saveCurrentMap();
     const db = await getMapDB();
     const newId = await db.duplicateMap(id);
     const meta = await db.getMapMeta(newId);

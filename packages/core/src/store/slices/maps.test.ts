@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMapsSlice, measureGridSize, resetMapDB, restoreLastDeletedMap } from './maps';
+import {
+  createMapsSlice,
+  measureGridSize,
+  resetMapDB,
+  restoreLastDeletedMap,
+  setThumbnailProvider,
+} from './maps';
 import { setMapDBFactory, setMapSerializer } from '../mapIO';
 import type { MapDB, MapRecord } from '../mapIO';
 
@@ -91,15 +97,27 @@ describe('MapsSlice', () => {
         width: 30,
         height: 20,
       });
-      // Drawn past the edge: the pin wins. Drawing outside a fixed map is allowed, and
-      // it must not quietly grow the map back.
+      // Drawn inside the pin: still the pinned size, not the (smaller) measured one.
       expect(
         measureGridSize(
-          [layerWith([[[0, 0], [80, 0], [80, 60], [0, 60]]])],
+          [layerWith([[[2, 2], [12, 2], [12, 8], [2, 8]]])],
           null,
           { width: 30, height: 20 },
         ),
       ).toEqual({ width: 30, height: 20 });
+    });
+
+    it('a pinned map drawn past its edge reports the size it grew to', () => {
+      // The pin is a minimum sheet. Building on below y=20 makes the map taller, and the
+      // card says so, while the width nothing crossed stays the pinned 30.
+      const size = measureGridSize(
+        [layerWith([[[2, 4], [28, 4], [28, 26], [2, 26]]])],
+        null,
+        { width: 30, height: 20 },
+      );
+      expect(size.width).toBe(30);
+      expect(size.height).toBeGreaterThan(20);
+      expect(size.height).toBeGreaterThanOrEqual(27);
     });
 
     it('omitting fixedSize still measures the content, for settings mode', () => {
@@ -180,6 +198,25 @@ describe('MapsSlice', () => {
       rows.set('blank', { ...blank, gridSize: { width: 8, height: 6 } });
 
       const restored = await restoreLastDeletedMap();
+      expect(restored!.removedBlankId).toBeNull();
+      expect(rows.has('blank')).toBe(true);
+    });
+
+    it('forgets the blank once a later delete takes the stash', async () => {
+      const blank = record('blank', { name: 'Untitled Map', gridSize: { width: 0, height: 0 } });
+      const { rows, db } = fakeDB([record('m1')]);
+      setMapDBFactory(() => db);
+      const state = stateLosingItsLastMap(blank, rows);
+      const slice = sliceOver(state);
+
+      await slice.deleteMap('m1');
+      // Not undone: another map is open now, and the untouched blank is deleted from its card.
+      state.activeMapId = 'other';
+      await slice.deleteMap('blank');
+      const restored = await restoreLastDeletedMap();
+
+      // Undo puts the blank back and leaves it there.
+      expect(restored!.meta.id).toBe('blank');
       expect(restored!.removedBlankId).toBeNull();
       expect(rows.has('blank')).toBe(true);
     });
@@ -269,5 +306,131 @@ describe('name stays in sync across the index and the document', () => {
     expect(order).toEqual(['restore', 'load']);
     expect(restoreCustomImages).toHaveBeenCalledWith({ img1: 'data:image/webp;base64,AAAA' });
     expect(state.activeMapId).toBe('m1');
+  });
+});
+
+// Every save also stores the card's thumbnail. The provider resolves to null when it has
+// no canvas to render from, and a drawn map must not lose the picture it already has to
+// that: only a map that is genuinely empty (0x0) drops its thumbnail.
+describe('saveCurrentMap thumbnail', () => {
+  beforeEach(() => resetMapDB());
+
+  const stored = new Blob(['old']);
+
+  function setup(fixedSize: { width: number; height: number } | null) {
+    const thumbs: Array<Blob | null> = [];
+    setMapDBFactory(
+      () =>
+        ({
+          open: async () => {},
+          saveMapBlob: async () => {},
+          saveThumbnail: async (_id: string, t: Blob | null) => { thumbs.push(t); },
+        }) as unknown as MapDB,
+    );
+    setMapSerializer({ serializeToBytes: async () => blob(1) } as never);
+    const state = {
+      mapIndex: [{ id: 'm1', name: 'Kell', thumbnail: stored as Blob | undefined }],
+      activeMapId: 'm1',
+      layers: [],
+      mapSettings: { fixedSize },
+      getSerializableState: () => ({}),
+    };
+    const slice = createMapsSlice(
+      ((fn: (s: object) => void) => fn(state)) as never,
+      (() => state) as never,
+      {} as never,
+    );
+    return { thumbs, state, slice };
+  }
+
+  async function saveWith(slice: ReturnType<typeof setup>['slice'], provider: () => Promise<Blob | null>) {
+    setThumbnailProvider(provider);
+    try {
+      await slice.saveCurrentMap();
+    } finally {
+      setThumbnailProvider(null);
+    }
+  }
+
+  it('keeps the existing thumbnail when a drawn map could not be captured', async () => {
+    const { thumbs, state, slice } = setup({ width: 10, height: 8 });
+    await saveWith(slice, async () => null);
+    expect(thumbs).toEqual([]);
+    expect(state.mapIndex[0].thumbnail).toBe(stored);
+  });
+
+  it('stores a fresh capture', async () => {
+    const { thumbs, state, slice } = setup({ width: 10, height: 8 });
+    const fresh = new Blob(['new']);
+    await saveWith(slice, async () => fresh);
+    expect(thumbs).toEqual([fresh]);
+    expect(state.mapIndex[0].thumbnail).toBe(fresh);
+  });
+
+  it('drops the thumbnail of a map with nothing on it', async () => {
+    const { thumbs, state, slice } = setup(null);
+    const provider = vi.fn(async () => new Blob(['never']));
+    await saveWith(slice, provider);
+    expect(provider).not.toHaveBeenCalled();
+    expect(thumbs).toEqual([null]);
+    expect(state.mapIndex[0].thumbnail).toBeUndefined();
+  });
+});
+
+// A copy is made from the stored record, so duplicating the map that is open has to flush
+// it first — the canvas can be ahead of the last autosave.
+describe('duplicateMap', () => {
+  beforeEach(() => resetMapDB());
+
+  function setup(activeMapId: string | null) {
+    const rows = new Map<string, MapRecord>([['m1', record('m1', { name: 'Keep', data: blob(1) })]]);
+    setMapDBFactory(
+      () =>
+        ({
+          open: async () => {},
+          duplicateMap: async (id: string) => {
+            rows.set('copy', { ...rows.get(id)!, id: 'copy', name: `Copy of ${rows.get(id)!.name}` });
+            return 'copy';
+          },
+          getMapMeta: async (id: string) => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { data: _, ...meta } = rows.get(id)!;
+            return meta;
+          },
+        }) as unknown as MapDB,
+    );
+    const state = {
+      mapIndex: [{ id: 'm1', name: 'Keep' }] as { id: string; name: string }[],
+      activeMapId,
+      // Stands in for the real save: whatever is on the canvas reaches the stored record.
+      saveCurrentMap: vi.fn(async () => {
+        rows.set('m1', { ...rows.get('m1')!, data: blob(9, 9) });
+      }),
+    };
+    const slice = createMapsSlice(
+      ((fn: (s: object) => void) => fn(state)) as never,
+      (() => state) as never,
+      {} as never,
+    );
+    return { rows, state, slice };
+  }
+
+  it('saves the open map first, so the copy has the latest edits', async () => {
+    const { rows, state, slice } = setup('m1');
+    const newId = await slice.duplicateMap('m1');
+
+    expect(state.saveCurrentMap).toHaveBeenCalledTimes(1);
+    expect(Array.from(rows.get(newId)!.data)).toEqual([9, 9]);
+    // Newest first, and the open map stays the open map.
+    expect(state.mapIndex[0]).toMatchObject({ id: 'copy', name: 'Copy of Keep' });
+    expect(state.activeMapId).toBe('m1');
+  });
+
+  it('does not save over anything when the source is not the open map', async () => {
+    const { rows, state, slice } = setup('other');
+    await slice.duplicateMap('m1');
+
+    expect(state.saveCurrentMap).not.toHaveBeenCalled();
+    expect(Array.from(rows.get('copy')!.data)).toEqual([1]);
   });
 });

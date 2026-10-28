@@ -14,70 +14,17 @@ vi.mock('@/lib/toast', () => ({
 }));
 
 import {
-  AUTOSAVE_DB_NAME,
-  AUTOSAVE_STORE_NAME,
-  AUTOSAVE_KEY,
-  DIRTY_FLAG_KEY,
-  setDirtyFlag,
-  clearDirtyFlag,
-  isDirtyFlagSet,
   isDocumentChange,
-  saveToIndexedDB,
-  loadFromIndexedDB,
+  isSettingsChange,
+  AUTOSAVE_PROMPT_DELAY_MS,
   startAutosave,
 } from './autosave.ts';
 import { notify } from '@/lib/toast';
-import type { SerializedMapData } from '@/store/types';
-
-const SAMPLE_DATA: SerializedMapData = {
-  version: '2.0',
-  mapSettings: {
-    name: 'Autosave Test',
-    gridType: 'square',
-    cellScale: { value: 5, unit: 'ft' },
-    ambientLight: '#000000',
-  },
-  grid: { visible: true, snapDivision: 2 },
-  layers: [],
-  customImages: {},
-};
-
-describe('autosave constants', () => {
-  it('exports correct key constants', () => {
-    expect(AUTOSAVE_DB_NAME).toBe('mapbuilder');
-    expect(AUTOSAVE_STORE_NAME).toBe('saves');
-    expect(AUTOSAVE_KEY).toBe('mapbuilder-autosave');
-    expect(DIRTY_FLAG_KEY).toBe('mapbuilder-dirty');
-  });
-});
-
-describe('dirty flag (localStorage)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-  afterEach(() => {
-    localStorage.clear();
-  });
-
-  it('isDirtyFlagSet returns false when flag is absent', () => {
-    expect(isDirtyFlagSet()).toBe(false);
-  });
-
-  it('setDirtyFlag sets the flag', () => {
-    setDirtyFlag();
-    expect(isDirtyFlagSet()).toBe(true);
-  });
-
-  it('clearDirtyFlag clears the flag', () => {
-    setDirtyFlag();
-    clearDirtyFlag();
-    expect(isDirtyFlagSet()).toBe(false);
-  });
-});
+import { useStore } from '@/store/store';
 
 describe('isDocumentChange', () => {
   const base = () => {
-    const layer = { id: 'l1', children: [], mergedFloor: null, rooms: [] };
+    const layer = { id: 'l1', children: [], mergedFloor: null, rooms: [{ id: 'r', name: 'Hall', anchor: [1, 1] }] };
     return {
       mapSettings: { name: 'a' },
       grid: { visible: true },
@@ -94,11 +41,28 @@ describe('isDocumentChange', () => {
 
   it('is false when only the derived layer caches were rewritten', () => {
     const prev = base();
+    // The refresh after load fills each room's face, centroid and doors: derived.
+    const refreshed = { ...prev.layers[0].rooms[0], face: [[0, 0], [2, 0], [2, 2]], centroid: [1, 1], doors: [] };
     const next = {
       ...prev,
-      layers: [{ ...prev.layers[0], mergedFloor: [[]], rooms: [{ id: 'r' }] }],
+      layers: [{ ...prev.layers[0], mergedFloor: [[]], rooms: [refreshed] }],
     };
     expect(isDocumentChange(next, prev)).toBe(false);
+  });
+
+  it('counts a room edit as a prompt change: rooms are authored now', () => {
+    const prev = base();
+    const renamed = { ...prev.layers[0].rooms[0], name: 'Great Hall' };
+    const next = { ...prev, layers: [{ ...prev.layers[0], rooms: [renamed] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('counts a levels change as a prompt change', () => {
+    const prev = { ...base(), levels: [{ id: 'a', name: 'Ground' }] };
+    const next = { ...prev, levels: [{ id: 'a', name: 'Cellar' }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
   });
 
   it('is true when a layer gains a child', () => {
@@ -114,6 +78,66 @@ describe('isDocumentChange', () => {
     expect(isDocumentChange({ ...prev, assets: { customImages: { a: 'b' } } }, prev)).toBe(true);
   });
 
+  it('counts a snap division change as a change, and as a prompt one', () => {
+    const prev = { ...base(), grid: { visible: true, snapDivision: 2 } };
+    const next = { ...prev, grid: { ...prev.grid, snapDivision: 4 } };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('does not count snap on/off, which is a per-browser preference', () => {
+    const prev = { ...base(), grid: { visible: true, snapDivision: 2, snapEnabled: true } };
+    const next = { ...prev, grid: { ...prev.grid, snapEnabled: false } };
+    expect(isDocumentChange(next, prev)).toBe(false);
+  });
+
+  it('is not prompt for a drawing change', () => {
+    const prev = base();
+    const next = { ...prev, layers: [{ ...prev.layers[0], children: [{ id: 'c' }] }] };
+    expect(isSettingsChange(next, prev)).toBe(false);
+  });
+
+  it("sees the store's own setSnapDivision as a prompt change", () => {
+    const seen: [boolean, boolean][] = [];
+    const stop = useStore.subscribe((s, prev) => {
+      seen.push([isDocumentChange(s, prev), isSettingsChange(s, prev)]);
+    });
+    const was = useStore.getState().grid.snapDivision;
+    useStore.getState().setSnapDivision(was === 4 ? 2 : 4);
+    stop();
+    expect(seen).toEqual([[true, true]]);
+  });
+
+  it('counts a layer opacity change as a change, and as a prompt one', () => {
+    const prev = base();
+    const next = { ...prev, layers: [{ ...prev.layers[0], opacity: 0.55 }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('is not prompt when a layer setting changes together with drawing', () => {
+    const prev = base();
+    const next = { ...prev, layers: [{ ...prev.layers[0], opacity: 0.55, children: [{ id: 'c' }] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(false);
+  });
+
+  it("sees the store's own layer opacity edit as a prompt change that survives save and load", () => {
+    const layerId = useStore.getState().layers.find((l) => l.type === 'dungeon')!.id;
+    const seen: [boolean, boolean][] = [];
+    const stop = useStore.subscribe((s, prev) => {
+      seen.push([isDocumentChange(s, prev), isSettingsChange(s, prev)]);
+    });
+    useStore.getState().updateLayer(layerId, { opacity: 0.55 });
+    stop();
+    expect(seen).toEqual([[true, true]]);
+
+    const saved = JSON.parse(JSON.stringify(useStore.getState().getSerializableState()));
+    useStore.getState().updateLayer(layerId, { opacity: 1 });
+    useStore.getState().loadFromFile(saved);
+    expect(useStore.getState().layers.find((l) => l.id === layerId)!.opacity).toBe(0.55);
+  });
+
   it('is true when the terrain splat rev moves', () => {
     const prev = base();
     expect(isDocumentChange({ ...prev, terrainSplats: { rev: 1 } }, prev)).toBe(true);
@@ -125,83 +149,10 @@ describe('isDocumentChange', () => {
   });
 });
 
-describe('IndexedDB autosave', () => {
-  beforeEach(async () => {
-    await new Promise<void>((resolve) => {
-      const req = indexedDB.deleteDatabase(AUTOSAVE_DB_NAME);
-      req.onsuccess = () => resolve();
-      req.onerror = () => resolve();
-    });
-  });
-
-  it('loadFromIndexedDB returns null when no data exists', async () => {
-    const result = await loadFromIndexedDB();
-    expect(result).toBeNull();
-  });
-
-  it('saveToIndexedDB persists data and loadFromIndexedDB retrieves it', async () => {
-    await saveToIndexedDB(SAMPLE_DATA);
-    const result = await loadFromIndexedDB();
-    expect(result).not.toBeNull();
-    expect(result?.data.mapSettings.name).toBe('Autosave Test');
-    expect(typeof result?.savedAt).toBe('number');
-  });
-
-  it('loadFromIndexedDB accepts a 3.0 autosave entry', async () => {
-    await saveToIndexedDB({ ...SAMPLE_DATA, version: '3.0' });
-    const result = await loadFromIndexedDB();
-    expect(result).not.toBeNull();
-    expect(result?.data.version).toBe('3.0');
-  });
-
-  // Regression lock: the version gate was `!== '2.0'` until schema 3.1 shipped,
-  // which silently discarded every autosave written since the format moved to
-  // 3.0 — see the comment on the gate in autosave.ts.
-  it('loadFromIndexedDB accepts a 3.1 autosave entry', async () => {
-    await saveToIndexedDB({ ...SAMPLE_DATA, version: '3.1' });
-    const result = await loadFromIndexedDB();
-    expect(result).not.toBeNull();
-    expect(result?.data.version).toBe('3.1');
-  });
-
-  it('loadFromIndexedDB discards a 9.9 autosave and returns null', async () => {
-    await saveToIndexedDB({ ...SAMPLE_DATA, version: '9.9' } as unknown as SerializedMapData);
-    const result = await loadFromIndexedDB();
-    expect(result).toBeNull();
-  });
-
-  it('loadFromIndexedDB discards stale v1.x autosaves and returns null', async () => {
-    const staleData = {
-      version: '1.4',
-      mapSettings: { name: 'Old Map', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
-      grid: { visible: true, snapDivision: 2 },
-      layers: [],
-      lights: [],
-      placedObjects: [],
-      customImages: {},
-    };
-    await saveToIndexedDB(staleData as unknown as SerializedMapData);
-    const result = await loadFromIndexedDB();
-    expect(result).toBeNull();
-  });
-
-  it('saveToIndexedDB overwrites previous save', async () => {
-    await saveToIndexedDB(SAMPLE_DATA);
-    const updated: SerializedMapData = {
-      ...SAMPLE_DATA,
-      mapSettings: { ...SAMPLE_DATA.mapSettings, name: 'Updated Map' },
-    };
-    await saveToIndexedDB(updated);
-    const result = await loadFromIndexedDB();
-    expect(result?.data.mapSettings.name).toBe('Updated Map');
-  });
-});
-
 describe('startAutosave failure surfacing', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    localStorage.clear();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -224,6 +175,86 @@ describe('startAutosave failure surfacing', () => {
       'Autosave failed — your changes may not be saved',
       expect.objectContaining({ label: 'Retry' }),
     );
+    stop();
+  });
+});
+
+describe('startAutosave timing', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function start() {
+    let listener: (prompt?: boolean) => void = () => {};
+    const saveCurrentMap = vi.fn().mockResolvedValue(undefined);
+    const stop = startAutosave(saveCurrentMap, (l) => {
+      listener = l;
+      return () => {};
+    });
+    return { change: (prompt?: boolean) => listener(prompt), saveCurrentMap, stop };
+  }
+
+  it('saves a prompt change within seconds, not after the 30 s debounce', async () => {
+    const { change, saveCurrentMap, stop } = start();
+    change(true);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('does not save a prompt change while a map switch is in flight', async () => {
+    useStore.setState({ isMapSwitching: true });
+    try {
+      const { change, saveCurrentMap, stop } = start();
+      change(true);
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
+      expect(saveCurrentMap).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      useStore.setState({ isMapSwitching: false });
+    }
+  });
+
+  it('does not let drawing that follows push a prompt save back out', async () => {
+    const { change, saveCurrentMap, stop } = start();
+    change(true);
+    await vi.advanceTimersByTimeAsync(500);
+    change(false);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS - 500);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('still waits the full debounce for a drawing change', async () => {
+    const { change, saveCurrentMap, stop } = start();
+    change();
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(saveCurrentMap).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('writes a pending save when the page goes away', async () => {
+    const { change, saveCurrentMap, stop } = start();
+    change();
+    window.dispatchEvent(new Event('pagehide'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    // Nothing left pending, so the timer does not save it a second time.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('does nothing on page hide with no change pending', () => {
+    const { saveCurrentMap, stop } = start();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(saveCurrentMap).not.toHaveBeenCalled();
     stop();
   });
 });

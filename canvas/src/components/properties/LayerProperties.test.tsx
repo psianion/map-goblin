@@ -20,8 +20,7 @@ function wallWidthSlider() {
   return within(screen.getByRole('group', { name: 'Wall Width' })).getByRole('slider')
 }
 
-// D4: Floor Color, Wall Width, Wall Tint, Edge Transition width, and
-// Roughness amplitude used to route through the no-undo `patch()` only —
+// D4: Floor Color, Wall Width, Wall Tint and Edge Transition width used to route through the no-undo `patch()` only —
 // releasing the slider/picker left nothing on the undo stack. Wall Width is
 // the representative case here; the rest share the same commitStyleField
 // wiring (PropertyCommand on release, patch() still driving the live drag).

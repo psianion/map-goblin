@@ -78,6 +78,50 @@ export async function hashMapBytes(
   return sha256Hex(combined);
 }
 
+/** Whether the bytes start with the container's magic header. */
+export function hasMagicHeader(bytes: Uint8Array): boolean {
+  return bytes.length >= MAGIC_BYTES.length && MAGIC_BYTES.every((byte, i) => bytes[i] === byte);
+}
+
+/**
+ * A map document saved as plain JSON: the older .mapbuilder files (format 3.0 and
+ * 3.1, such as the session test maps) were written that way, before the container.
+ * Recognised by its root carrying `version` and a `layers` array, which no
+ * Foundry scene or Universal VTT file has. Returns null for anything else.
+ */
+export function parsePlainMapJson(bytes: Uint8Array): SerializedMapData | null {
+  let i = 0;
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) i = 3; // UTF-8 BOM
+  while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) i++;
+  if (bytes[i] !== 0x7b) return null; // '{'
+  let doc: unknown;
+  try {
+    doc = JSON.parse(new TextDecoder().decode(bytes.subarray(i)));
+  } catch {
+    return null;
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+  const root = doc as { version?: unknown; layers?: unknown };
+  if (typeof root.version !== 'string' || !Array.isArray(root.layers)) return null;
+  return doc as SerializedMapData;
+}
+
+/**
+ * Read a map file in either form: the container (header + gzip) or plain JSON.
+ * Throws on anything else, and on a version this app cannot open.
+ */
+export function decodeAnyMapFile(bytes: Uint8Array): SerializedMapData {
+  if (hasMagicHeader(bytes)) return decodeMapFile(bytes);
+  const plain = parsePlainMapJson(bytes);
+  if (!plain) throw new Error('Invalid map file. That is not a Good Goblin map file.');
+  if (!isSupportedVersion(plain.version)) {
+    throw new Error(
+      `Incompatible file version "${String(plain.version)}". This app requires one of: ${SUPPORTED_VERSIONS.join(', ')}.`,
+    );
+  }
+  return plain;
+}
+
 /** Validate the magic header and unpack the JSON document. Throws on bad input. */
 export function decodeMapFile(bytes: Uint8Array): SerializedMapData {
   const header = new TextDecoder().decode(bytes.slice(0, MAGIC_BYTES.length));

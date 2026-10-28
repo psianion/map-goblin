@@ -1,35 +1,26 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react';
-import { getEngineSingleton } from '@/engine/engineSingleton';
-import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
-import { useStore } from '@/store/store';
-import { zoomToFitRef, cancelZoomAnimationRef, viewportInsetsRef } from './zoomToFitRef';
-
-const MIN_ZOOM = 10;
-const MAX_ZOOM = 100;
-
-let animationRafId = 0;
-
-/** Convert linear slider [0,1] → exponential zoom */
-function sliderToZoom(t: number): number {
-  return MIN_ZOOM * Math.pow(MAX_ZOOM / MIN_ZOOM, t);
-}
-
-/** Convert zoom → linear slider [0,1] */
-function zoomToSlider(zoom: number): number {
-  return Math.log(zoom / MIN_ZOOM) / Math.log(MAX_ZOOM / MIN_ZOOM);
-}
+import { zoomToFitRef, cancelZoomAnimationRef } from './zoomToFitRef';
+import {
+  sliderToZoom,
+  zoomToSlider,
+  currentZoom,
+  setZoomAtCentre,
+  fitToContent,
+  cancelZoomAnimation,
+  zoomPercent,
+  DEFAULT_ZOOM,
+} from './zoomControl';
 
 export function ZoomSlider() {
-  const [zoom, setZoom] = useState(20);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const rafRef = useRef<number>(0);
 
   // Poll the stage zoom every frame so the slider stays in sync with wheel zoom
   useEffect(() => {
     const tick = () => {
-      const singleton = getEngineSingleton();
-      if (singleton) {
-        const currentZoom = singleton.engine.stage().scale.x;
-        setZoom((prev) => (Math.abs(prev - currentZoom) > 0.01 ? currentZoom : prev));
+      const z = currentZoom();
+      if (z !== null) {
+        setZoom((prev) => (Math.abs(prev - z) > 0.01 ? z : prev));
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -37,108 +28,29 @@ export function ZoomSlider() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  const cancelAnimation = useCallback(() => {
-    cancelAnimationFrame(animationRafId);
-    animationRafId = 0;
-  }, []);
-
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // Cancel any in-flight zoom-to-fit animation
-    cancelAnimation();
-
-    const t = parseFloat(e.target.value);
-    const newZoom = sliderToZoom(t);
-    const singleton = getEngineSingleton();
-    if (!singleton) return;
-
-    const stage = singleton.engine.stage();
-    const vp = singleton.engine.viewport();
-    const cx = vp.width / 2;
-    const cy = vp.height / 2;
-    const oldZoom = stage.scale.x;
-
-    // Zoom toward center of viewport
-    stage.position.x = cx - (cx - stage.position.x) * (newZoom / oldZoom);
-    stage.position.y = cy - (cy - stage.position.y) * (newZoom / oldZoom);
-    stage.scale.set(newZoom);
+    const newZoom = sliderToZoom(parseFloat(e.target.value));
+    setZoomAtCentre(newZoom);
     setZoom(newZoom);
-  }, [cancelAnimation]);
-
-  const handleFitToContent = useCallback(() => {
-    const singleton = getEngineSingleton();
-    if (!singleton) return;
-
-    const stage = singleton.engine.stage();
-    const vp = singleton.engine.viewport();
-    const layers = useStore.getState().layers;
-    const bounds = computeMapWorldBounds(layers);
-
-    let worldWidth = bounds.maxX - bounds.minX;
-    let worldHeight = bounds.maxY - bounds.minY;
-
-    // Guard against near-zero dimensions (single point or collinear content)
-    if (worldWidth < 1) worldWidth = 10;
-    if (worldHeight < 1) worldHeight = 10;
-
-    const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerY = (bounds.minY + bounds.maxY) / 2;
-
-    // Fit into the gap the overlaid panels leave, not the full window — otherwise the map
-    // centres behind the sidebars and opens half-hidden.
-    const insets = viewportInsetsRef.current;
-    const vpWidth = Math.max(1, vp.width - insets.left - insets.right);
-    const vpHeight = Math.max(1, vp.height - insets.bottom);
-
-    const requiredZoom = Math.min(vpWidth / worldWidth, vpHeight / worldHeight) * 0.9;
-    const newZoom = Math.min(Math.max(requiredZoom, MIN_ZOOM), MAX_ZOOM);
-
-    const targetX = insets.left + vpWidth / 2 - centerX * newZoom;
-    const targetY = vpHeight / 2 - centerY * newZoom;
-
-    // Animate to the target position
-    cancelAnimationFrame(animationRafId);
-
-    const startZoom = stage.scale.x;
-    const startX = stage.position.x;
-    const startY = stage.position.y;
-    const startTime = performance.now();
-    const duration = 150;
-
-    function tick(): void {
-      const elapsed = performance.now() - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
-
-      stage.scale.set(startZoom + (newZoom - startZoom) * ease);
-      stage.position.x = startX + (targetX - startX) * ease;
-      stage.position.y = startY + (targetY - startY) * ease;
-
-      if (t < 1) {
-        animationRafId = requestAnimationFrame(tick);
-      } else {
-        animationRafId = 0;
-      }
-    }
-    animationRafId = requestAnimationFrame(tick);
   }, []);
 
-  // Expose handleFitToContent and cancelAnimation for shortcut system + input handlers
+  // Expose fit-to-content and cancelAnimation for shortcut system + input handlers
   useEffect(() => {
-    zoomToFitRef.current = handleFitToContent;
-    cancelZoomAnimationRef.current = cancelAnimation;
+    zoomToFitRef.current = fitToContent;
+    cancelZoomAnimationRef.current = cancelZoomAnimation;
     return () => {
       zoomToFitRef.current = null;
       cancelZoomAnimationRef.current = null;
     };
-  }, [handleFitToContent, cancelAnimation]);
+  }, []);
 
   const sliderVal = zoomToSlider(zoom);
-  const pct = Math.round(sliderVal * 100);
+  const pct = zoomPercent(zoom);
 
   return (
     <div className="flex items-center gap-2">
       <button
-        onClick={handleFitToContent}
+        onClick={fitToContent}
         className="font-mono text-panel-small text-text-muted hover:text-text-primary tabular-nums min-w-[3ch] text-right transition-colors"
         title="Fit to content (Ctrl+0)"
       >

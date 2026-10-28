@@ -18,7 +18,6 @@ const MAP = {
   version: '3.0',
   mapSettings: {
     name: 'Cragmaw Hideout',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#101018',
   },

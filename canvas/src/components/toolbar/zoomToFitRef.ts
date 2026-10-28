@@ -9,4 +9,6 @@ export const cancelZoomAnimationRef: { current: (() => void) | null } = { curren
  * kept current by App. Zoom-to-fit centres the map in what is actually visible
  * between the panels rather than behind them.
  */
-export const viewportInsetsRef = { current: { left: 0, right: 0, bottom: 0 } };
+export const viewportInsetsRef: { current: { left: number; right: number; bottom: number; top?: number } } = {
+  current: { left: 0, right: 0, bottom: 0 },
+};

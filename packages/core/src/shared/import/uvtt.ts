@@ -3,7 +3,7 @@
 // mostly a rename; the image rides along as base64 with no data: prefix.
 
 import type { ImportedDoor, ImportedLight, ImportedMap, ImportedWall } from './types';
-import { round3 } from './types';
+import { edgeClamp, pulledWarning, round3 } from './types';
 
 interface Pt {
   x: number;
@@ -63,9 +63,14 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
   if (!(size.x > 0 && size.y > 0)) throw new Error('UVTT file has no map_size');
 
   const pt = (p: Pt): [number, number] => [round3(p.x - origin.x), round3(p.y - origin.y)];
+  // Walls sit on the image. Dungeondraft hugs the outer ones a fraction of a cell outside
+  // it, which would grow the pinned frame a cell or two past the picture. Lights stay put:
+  // they never grow the frame, and one just off the edge still lights the map.
+  const wallEdge = edgeClamp(size.x, size.y);
+  const wallPt = (p: Pt): [number, number] => wallEdge.point(...pt(p));
   const poly = (ring: Pt[]): ImportedWall | null =>
     ring.length >= 2
-      ? { points: ring.map(pt), wallType: 'normal', direction: 'both' }
+      ? { points: ring.map(wallPt), wallType: 'normal', direction: 'both' }
       : null;
 
   const walls: ImportedWall[] = [];
@@ -89,14 +94,15 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
       continue;
     }
     doors.push({
-      a: pt(b[0]),
-      b: pt(b[b.length - 1]),
+      a: wallPt(b[0]),
+      b: wallPt(b[b.length - 1]),
       state: p.closed === false ? 'open' : 'closed',
       isSecret: false,
       archway: false,
     });
   }
   if (freestanding) warnings.push(`${freestanding} freestanding portals skipped`);
+  warnings.push(...pulledWarning(wallEdge.pulled, 'wall points'));
 
   const lights: ImportedLight[] = (file.lights ?? [])
     .filter((l) => l.position && (l.range ?? 0) > 0)
@@ -142,6 +148,8 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
     doors,
     lights,
     ambientLight,
+    // No scale in the format (only pixels_per_grid); the document builder supplies 5 ft.
+    cellScale: undefined,
     warnings,
   };
 }

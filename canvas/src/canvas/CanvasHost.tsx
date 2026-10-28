@@ -10,9 +10,15 @@ import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSinglet
 import { LightManager } from '@dnd/core/src/engine/lighting/index';
 import { mountDoorIcons } from '@dnd/core/src/engine/doorIconRenderer';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
-import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { useCanvasResize } from './useCanvasResize';
-import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator, setDimensionHud } from './useCanvasInput';
+import {
+  useCanvasInput,
+  registerInputMiddleware,
+  registerCanvasPressHandler,
+  setToolManager,
+  setSnapIndicator,
+  setDimensionHud,
+} from './useCanvasInput';
 import { listenDprChanges } from '@/engine/camera';
 import { gridSnap } from './gridSnap';
 import { wallEndpointSnap } from './wallEndpointSnap';
@@ -22,6 +28,11 @@ import { SnapIndicator } from './snapIndicator';
 import { DimensionHud } from './dimensionHud';
 import { mountZoneOverlay } from './zoneOverlay';
 import { mountRoomConnectorOverlay } from './roomConnectorOverlay';
+import { mountRoomOverlay } from '@/v2/canvas/roomOverlay';
+import { mountPropOverlay } from '@/v2/canvas/propOverlay';
+import { mountLightOverlay } from '@/v2/canvas/lightOverlay';
+import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
+import { setRoomHighlightEnabled } from '@dnd/core/src/engine/roomHighlight';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
@@ -32,6 +43,9 @@ import { buildMergedManifest } from '@/engine/manifestBridge';
 // second concurrent pack boot — two ensureBundledPack runs could interleave
 // uninstallPack/registerPack and half-install a pack.
 let packBootPromise: Promise<void> | null = null;
+
+/** The v2 editor (`/v2`) draws rooms with its own overlay and lets clicks pick them. */
+const isV2Route = (): boolean => /^\/v2(\/|$)/.test(window.location.pathname);
 
 export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -170,8 +184,35 @@ export function CanvasHost() {
       // Zone markers — editor-only, never present in the session/table bundle
       const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
 
-      // Authored rooms + connectors — same editor-only reasoning as zones
-      const unmountRoomConnectorOverlay = mountRoomConnectorOverlay(sceneGraph.worldContainer);
+      // Rooms — same editor-only reasoning as zones. The v2 editor has its own overlay
+      // (outlines, badges, suggestions) and picks rooms on click; v1 keeps the legacy ink.
+      let unmountRoomConnectorOverlay: () => void;
+      if (isV2Route()) {
+        const roomOverlay = mountRoomOverlay(pixiEngine);
+        // Dev builds hand the overlay's counters to the console and the e2e suite.
+        if (import.meta.env.DEV) (window as Window & { __roomOverlay?: typeof roomOverlay }).__roomOverlay = roomOverlay;
+        const unregPress = registerCanvasPressHandler((sx, sy) => roomOverlay.pressAt(sx, sy));
+        setRoomPicking(() => useStore.getState().ui.roomOverlayVisible);
+        setRoomHighlightEnabled(false);
+        // Locks and selected groups, v2 only like the rooms.
+        const propOverlay = mountPropOverlay(pixiEngine);
+        if (import.meta.env.DEV) (window as Window & { __propOverlay?: typeof propOverlay }).__propOverlay = propOverlay;
+        // The selected light's rings and handles, and the Light tool's ghost rings.
+        const lightOverlay = mountLightOverlay(pixiEngine);
+        if (import.meta.env.DEV) (window as Window & { __lightOverlay?: typeof lightOverlay }).__lightOverlay = lightOverlay;
+        const unregLightPress = registerCanvasPressHandler((sx, sy) => lightOverlay.pressAt(sx, sy));
+        unmountRoomConnectorOverlay = () => {
+          unregPress();
+          unregLightPress();
+          lightOverlay.destroy();
+          setRoomPicking(false);
+          setRoomHighlightEnabled(true);
+          roomOverlay.destroy();
+          propOverlay.destroy();
+        };
+      } else {
+        unmountRoomConnectorOverlay = mountRoomConnectorOverlay(sceneGraph.worldContainer);
+      }
 
       // Door marks — same opt-in reasoning: the table draws its own live ones (DoorRenderer),
       // so core only ever has them where a surface asks.
@@ -209,7 +250,6 @@ export function CanvasHost() {
         sceneGraph.fogTransition.destroy();
         sceneGraph.terrainRenderer.destroy();
         setTerrainRenderer(null);
-        destroyWaterAnimation();
         unsubStore();
         unsubAssets();
         unsubLabels();
