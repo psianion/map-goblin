@@ -76,7 +76,7 @@ type MapBuilderState = Omit<
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel'
   | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
-  | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex' | 'setBandDragStatus'
+  | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
@@ -193,7 +193,6 @@ export function createDefaultState(): MapBuilderState {
       selectedNodeTs: [],
       shapeNodeEditId: null,
       selectedVertex: null,
-      bandDragStatus: null,
     },
     ui: {
       leftPanelOpen: true,

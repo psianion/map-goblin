@@ -22,9 +22,6 @@ import { isBandSet } from '../assets/packCatalog';
 import { blockedLayerReason } from './tools/layerGuard';
 import { notify } from '../shared/notify';
 import { strokeRopeDash, drawNodeHandle, drawEditDim } from './overlayDraw';
-import { bandJointPoint } from './bandSolver';
-import { detectBands, type CaveBand } from './caveBand';
-import { projectPointOntoLineSegment } from '../shared/wallSnap';
 import { ringLook, standaloneWallLook } from '../shared/wallLook';
 import { layerDrawStyle, layerLevelLook } from './levelLook';
 
@@ -79,14 +76,6 @@ function ensureChip(): Text | null {
  */
 export const FLOOR_WALL_PREFIX = 'floor:';
 
-/**
- * Ids of the form `band:<index>` address a cave band: a run of placed rock
- * children that nothing in the map records as belonging together, recovered by
- * `detectBands`. Positional for the same reason a ring index is — it only means
- * anything against the layer's children as they stand right now.
- */
-export const BAND_WALL_PREFIX = 'band:';
-
 function suffixIndex(id: string, prefix: string): number | null {
   if (!id.startsWith(prefix)) return null;
   const suffix = id.slice(prefix.length);
@@ -118,14 +107,10 @@ export function floorRingIndex(wallId: string): number | null {
   return suffixIndex(wallId, FLOOR_WALL_PREFIX);
 }
 
-export function bandRunIndex(wallId: string): number | null {
-  return suffixIndex(wallId, BAND_WALL_PREFIX);
-}
-
 interface RunBase {
   layer: DungeonLayer;
   id: string;
-  /** The spine the handles ride: a wall or ring outline, or a band's joints. */
+  /** The spine the handles ride: a wall or ring outline. */
   points: [number, number][];
   /** Closed rings never get end caps; a drawn chain does. */
   closed: boolean;
@@ -144,16 +129,12 @@ interface RunBase {
  * - `stones` — a WallSegment or a floor ring. Its wall is composed out of a wall
  *   texture set's pieces along the spine, and hand edits are a `WallEdits` patch
  *   keyed by `t`.
- * - `band` — a cave wall: a run of placed asset children with no texture set
- *   behind it (see caveBand.ts). Handles ride the joints between pieces, and
- *   there is no patch to write — the pieces themselves are what moves.
  * - `spine` — a drawn wall on a cave band kit (see SPINE_WALL_PREFIX). Handles
  *   are the polyline's own corners; moving one moves the wall, and the live
  *   band re-lays along it.
  */
 export type EditableRun =
   | (RunBase & { kind: 'stones'; edits: WallEdits | undefined })
-  | (RunBase & { kind: 'band'; band: CaveBand; edits?: undefined })
   | (RunBase & { kind: 'spine'; wall: WallSegment; edits?: undefined });
 
 function activeWall(): EditableRun | null {
@@ -164,25 +145,6 @@ function activeWall(): EditableRun | null {
     (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
   );
   if (!layer) return null;
-
-  const bandAt = bandRunIndex(wallId);
-  if (bandAt !== null) {
-    // Re-detected rather than cached: the band is derived from the children, so
-    // a cache would go stale exactly when a piece moves. Only ever runs while
-    // band edit mode is open, over the layer's asset children (127 on the
-    // Warren), which is well under a frame.
-    const band = detectBands(layer)[bandAt];
-    if (!band || band.joints.length < 2) return null;
-    return {
-      kind: 'band',
-      layer,
-      id: wallId,
-      points: band.joints.map(([x, y]): [number, number] => [x, y]),
-      closed: band.closed,
-      width: layerDrawStyle(layer).wallWidth,
-      band,
-    };
-  }
 
   const spineOf = spineWallId(wallId);
   if (spineOf !== null) {
@@ -260,8 +222,7 @@ export function wallRunSetId(layer: DungeonLayer, wallId: string): string | unde
 
 /** Pieces a run's stones come from: its own set, see `RunBase.setId`. */
 export function runSetSpecs(run: EditableRun): WallPieceSpec[] {
-  const setId = run.kind === 'band' ? layerDrawStyle(run.layer).wallTextureSetId : run.setId;
-  return setId ? buildPieceSpecs(setId) : [];
+  return run.setId ? buildPieceSpecs(run.setId) : [];
 }
 
 /**
@@ -297,157 +258,11 @@ export function noWallStonesReason(
 }
 
 /**
- * The band under a world point, as a `band:<index>` id, or null.
- *
- * Tested against the whole spine rather than the joints alone: the double-click
- * lands wherever the rock is, and on a six-cell straight the nearest joint can
- * be three cells away. Which joint gets the handle is `wallNodeAt`'s problem,
- * later and at a much tighter radius.
- */
-export function bandRunAt(layer: DungeonLayer, world: Point, radius: number): string | null {
-  let best: string | null = null;
-  let bestDist = radius;
-  for (const [i, band] of detectBands(layer).entries()) {
-    // A closed band's joints do not repeat the first, so the seam between the
-    // last piece and the first would be a gap in the pick otherwise.
-    const spine = band.closed ? [...band.joints, band.joints[0]] : band.joints;
-    for (let k = 0; k < spine.length - 1; k++) {
-      const { distance } = projectPointOntoLineSegment([world.x, world.y], spine[k], spine[k + 1]);
-      if (distance < bestDist) {
-        bestDist = distance;
-        best = `${BAND_WALL_PREFIX}${i}`;
-      }
-    }
-  }
-  return best;
-}
-
-/**
- * A joint's synthetic position along the band.
- *
- * A joint has an index, not a `t`. Widening `selectedNodeT` / `selectedNodeTs`
- * to carry either would touch every selection call site; `index / count` keys a
- * joint into the plumbing that is already there — toggleNodeSelection,
- * shift-click, group drag and the status bar all keep working untouched.
- */
-export function bandJointT(index: number, count: number): number {
-  return count > 0 ? index / count : 0;
-}
-
-/**
- * The `t` of the transient insert handle, or null when there is none.
- *
- * Transience used to be read off the `t` being fractional, and that inference is
- * what broke: an undo or a redo puts a band with a different joint count back
- * under a selection that kept its old `t`, which then decodes against the new
- * count to a fraction and reads as a handle nobody inserted — Delete right after
- * an undo silently deselected instead of straightening. Only the insert gesture
- * puts a handle between two joints, so only it says so.
- *
- * Module state rather than a store field on purpose: nothing about the handle
- * survives a deselect, a mode exit or a reload, which is the whole lifetime it
- * asks for. Compared by value, so a `t` left behind by a gesture that has since
- * ended cannot claim a later selection that happens to be keyed elsewhere.
- */
-let transientT: number | null = null;
-
-/** Mark — or, with null, take back — the handle the insert gesture dropped. */
-export function setBandTransientT(t: number | null): void {
-  transientT = t;
-}
-
-/**
- * The joint a synthetic `t` came from — whole for a real joint, fractional for
- * the transient insert handle sitting between two of them.
- *
- * Exact inverse of {@link bandJointT} for a real joint: `index / count * count`
- * lands within a rounding error of the integer for any band a map can hold, and
- * that error is snapped away.
- *
- * The insert handle's fraction is kept: rounding it to the nearest joint would
- * hand the solver the wrong span and the DM a handle that jumped half a stone
- * the moment it was dragged. Every other `t` names a real joint — a fraction
- * there is a `t` keyed to a joint count that has since moved (an undo, a redo, a
- * re-lay, another window), and the joint it lands nearest is the honest reading
- * of it. Clamped, because a count that shrank can put the nearest one past the
- * end of the band.
- */
-export function bandJointIndex(t: number, count: number): number {
-  const raw = t * count;
-  const near = Math.round(raw);
-  if (t !== transientT) return Math.min(Math.max(near, 0), Math.max(count - 1, 0));
-  return Math.abs(raw - near) < 1e-6 ? near : raw;
-}
-
-/**
- * One handle per joint of a band, in walk order, plus the transient insert
- * handle if one is selected.
- *
- * That handle is nothing but a selection: a fractional `t` and the mark beside
- * it (see {@link setBandTransientT}) are the whole of it, so there is no store
- * write to make and none to undo. Deselect it, or leave the mode, and it is gone
- * — which is the whole lifetime the insert gesture asks for. It becomes a real
- * joint only where a drag's re-walk lands a seam.
- */
-function bandNodes(band: CaveBand, selectedT: number | null): WallNode[] {
-  const n = band.joints.length;
-  const nodes = band.joints.map(([x, y], i): WallNode => {
-    // Direction of travel through the joint, wrapping only when the band does —
-    // a free end has one neighbour, and borrowing the other end's would point
-    // the handle back across the cave.
-    const a = band.joints[i - 1] ?? (band.closed ? band.joints[n - 1] : [x, y]);
-    const b = band.joints[i + 1] ?? (band.closed ? band.joints[0] : [x, y]);
-    // The piece that STARTS here: on a closed band joint i follows piece i, on
-    // an open one it follows piece i-1. The trailing free end has no such piece,
-    // so it names the one that ends there.
-    const piece = band.closed
-      ? band.pieces[(i + 1) % band.pieces.length]
-      : band.pieces[Math.min(i, band.pieces.length - 1)];
-    return {
-      t: bandJointT(i, n),
-      x,
-      y,
-      angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
-      pieceId: piece?.piece.key ?? '',
-      scale: 1,
-      sizeScale: 1,
-      // A joint is where the band turns over, which is what a corner node means
-      // everywhere else. Nothing draws off it — band handles are circles like
-      // the rest — but a straight would be a lie.
-      kind: 'corner',
-    };
-  });
-
-  const at = selectedT === null ? null : bandJointIndex(selectedT, n);
-  // Strictly between two joints: a closed band's last span wraps back to its
-  // first, an open run has nothing past its free ends.
-  if (at !== null && !Number.isInteger(at) && at > 0 && at < (band.closed ? n : n - 1)) {
-    const lo = Math.floor(at);
-    const a = band.joints[lo];
-    const b = band.joints[(lo + 1) % n];
-    const [x, y] = bandJointPoint(band, at);
-    nodes.push({
-      t: selectedT!,
-      x,
-      y,
-      angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
-      // The piece the handle stands on, named the same way a joint names the
-      // one that starts there.
-      pieceId:
-        (band.closed ? band.pieces[(lo + 1) % band.pieces.length] : band.pieces[lo])?.piece.key ??
-        '',
-      scale: 1,
-      sizeScale: 1,
-      kind: 'corner',
-    });
-  }
-  return nodes;
-}
-
-/**
- * The corners of a drawn wall, one handle each, keyed `t = index / count` the
- * way band joints are (see bandJointT). A loop repeats its first point as its
- * last; that copy is the same corner and gets no handle of its own.
+ * The corners of a drawn wall, one handle each, keyed `t = index / count`. A
+ * corner has an index, not a `t`; keying it this way lets selection, shift-click
+ * and group drag work through the plumbing stones already use. A loop repeats
+ * its first point as its last; that copy is the same corner and gets no handle
+ * of its own.
  */
 export function spineNodes(points: [number, number][]): WallNode[] {
   const closed = isClosedSpine(points);
@@ -457,7 +272,7 @@ export function spineNodes(points: [number, number][]): WallNode[] {
     const a = corners[i - 1] ?? (closed ? corners[n - 1] : [x, y]);
     const b = corners[i + 1] ?? (closed ? corners[0] : [x, y]);
     return {
-      t: bandJointT(i, n),
+      t: i / n,
       x,
       y,
       angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
@@ -499,7 +314,6 @@ export function activeEditableRun(): EditableRun | null {
 export function currentWallNodes(): WallNode[] {
   const run = activeWall();
   if (!run) return [];
-  if (run.kind === 'band') return bandNodes(run.band, useStore.getState().tools.selectedNodeT);
   if (run.kind === 'spine') return spineNodes(run.points);
   const specs = runSetSpecs(run);
   if (specs.length === 0) return [];
@@ -593,14 +407,9 @@ export function renderWallNodeHandles(
   // full map, this is the glanceable reminder at the point of action.
   const hint = ensureChip();
   if (hint) {
-    // A band's table is much shorter — the kit chooses the pieces, so all the
-    // DM decides is where the wall goes and how many corners it keeps.
-    const keys =
-      found.kind === 'band'
-        ? 'drag joint · { } insert · Del straighten · Tab re-lay wall'
-        : found.kind === 'spine'
-          ? 'drag corner · Del remove'
-          : '[ ] rotate · - + size · , . gap';
+    // A cave wall's table is much shorter — the kit chooses the pieces, so all
+    // the DM decides is where the wall goes and how many corners it keeps.
+    const keys = found.kind === 'spine' ? 'drag corner · Del remove' : '[ ] rotate · - + size · , . gap';
     if (hint.text !== keys) hint.text = keys;
     const on = primaryNode;
     hint.visible = on !== null;

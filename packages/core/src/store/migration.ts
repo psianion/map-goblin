@@ -1,5 +1,7 @@
 // src/store/migration.ts
 import type { SerializedMapData } from './types'
+import type { Level } from '../shared/types'
+import { levelOf } from '../shared/lookScope'
 
 export const CURRENT_VERSION = '3.1' as const
 
@@ -37,7 +39,19 @@ interface V2Layer {
   [key: string]: unknown
 }
 
-export function migrateToLatest(data: V2Data | SerializedMapData): SerializedMapData {
+/**
+ * What the cave-band cleanup asks the pack catalog. Passed in rather than imported: the
+ * session server reads this module and has neither a catalog nor Pixi, which the catalog
+ * pulls in. Without it the cleanup is skipped.
+ */
+export interface CaveKitLookup {
+  /** True when a wall texture set id names a cave band kit (packCatalog's `isBandSet`). */
+  isBandSet: (setId: string | undefined) => boolean
+  /** True when a placed asset is one of a band kit's rock pieces (caveWallKit's `isCaveBandAsset`). */
+  isCaveBandAsset: (assetId: string) => boolean
+}
+
+export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: CaveKitLookup): SerializedMapData {
   let result: V2Data | SerializedMapData = data
 
   if (result.version === '2.0') {
@@ -52,7 +66,56 @@ export function migrateToLatest(data: V2Data | SerializedMapData): SerializedMap
     )
   }
 
-  return neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData))
+  const migrated = neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData))
+  if (!caveKit) return migrated
+  const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
+  return layers === migrated.layers ? migrated : { ...migrated, layers }
+}
+
+/**
+ * A layer whose wall set is a band kit has its cave band drawn live, from the wall texture,
+ * so the same kit's rock placed as ordinary asset children is a second copy of the wall
+ * that the wall settings never reach. Dropped on load. Every other
+ * prop stays, kit dressing such as ledges included, and so does a piece on a layer drawn
+ * with anything else: there it is the only rock the layer has.
+ *
+ * The wall set is the one the layer draws with: its own, else its level's, the same
+ * fallback `levelStyle` applies. Reads the catalog through `caveKit`, so the editor runs it
+ * again once packs land (see CanvasHost) for a map that opened before they did. Hands back
+ * `layers` itself when there is nothing to drop.
+ */
+export function dropPlacedCaveBand(
+  layers: SerializedMapData['layers'],
+  levels: readonly Level[],
+  caveKit: CaveKitLookup,
+): SerializedMapData['layers'] {
+  const drops = (layer: unknown): boolean => hasPlacedCaveBand(layer, levels, caveKit)
+  if (!Array.isArray(layers) || !layers.some(drops)) return layers
+  return layers.map((layer) => {
+    if (!drops(layer)) return layer
+    const children = (layer as unknown as { children: unknown[] }).children
+    return {
+      ...layer,
+      children: children.filter((child) => !isPlacedCaveBandPiece(child, caveKit)),
+    } as unknown as typeof layer
+  })
+}
+
+function isPlacedCaveBandPiece(child: unknown, caveKit: CaveKitLookup): boolean {
+  if (!child || typeof child !== 'object') return false
+  const c = child as { childType?: unknown; assetId?: unknown }
+  return c.childType === 'asset' && typeof c.assetId === 'string' && caveKit.isCaveBandAsset(c.assetId)
+}
+
+function hasPlacedCaveBand(layer: unknown, levels: readonly Level[], caveKit: CaveKitLookup): boolean {
+  const l = layer as
+    | { type?: unknown; levelId?: string; style?: { wallTextureSetId?: unknown }; children?: unknown }
+    | null
+  if (l?.type !== 'dungeon' || !Array.isArray(l.children)) return false
+  const own = l.style?.wallTextureSetId
+  const setId = own === undefined ? levelOf(levels, { levelId: l.levelId ?? '' }).look?.wallTextureSetId : own
+  if (typeof setId !== 'string' || !caveKit.isBandSet(setId)) return false
+  return l.children.some((child) => isPlacedCaveBandPiece(child, caveKit))
 }
 
 /** The mood tint that changes nothing: the world in neutral daylight (`shared/world`). */

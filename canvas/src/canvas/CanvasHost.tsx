@@ -38,6 +38,9 @@ import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { ensureBundledPack } from '@/engine/firstBootInstall';
 import { buildMergedManifest } from '@/engine/manifestBridge';
+import { dropPlacedCaveBand } from '@dnd/core/src/store/migration';
+import { isBandSet } from '@dnd/core/src/assets/packCatalog';
+import { isCaveBandAsset } from '@dnd/core/src/assets/caveWallKit';
 
 // Module-scoped so a Pixi-init failure + retry (retryKey bump) can't start a
 // second concurrent pack boot — two ensureBundledPack runs could interleave
@@ -108,6 +111,11 @@ export function CanvasHost() {
           // before this point couldn't (loadFromFile runs the same shim for
           // the opposite ordering).
           store.applyAssetNameShim();
+          // Same ordering problem for the load migration's cave band cleanup, which
+          // needs the catalog to tell a band kit and its pieces apart.
+          const { layers, levels } = useStore.getState();
+          const kept = dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset });
+          if (kept !== layers) useStore.setState({ layers: kept });
 
           // Fire checkForUpdates in background — don't block boot
           packManager.checkForUpdates().then((updates) => {

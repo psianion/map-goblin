@@ -1,6 +1,9 @@
 // src/store/migration.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { migrateToLatest, CURRENT_VERSION, NEUTRAL_TINT, isLegacyTint } from './migration'
+import { isBandSet } from '../assets/packCatalog'
+import { isCaveBandAsset } from '../assets/caveWallKit'
+import { seedCaveBandPack, caveBandChildren, resetAssetPackManager } from '../testing/seedCatalog'
 
 const V2_BASE = {
   version: '2.0',
@@ -209,5 +212,82 @@ describe('the mood tint on load', () => {
     // A Foundry scene at darkness 1 reads as #2d2d44 (`ambientForDarkness`).
     const imported = { ...V2_BASE, version: '3.1', mapSettings: { ...V2_BASE.mapSettings, ambientLight: '#2d2d44' } }
     expect(migrateToLatest(imported).mapSettings.ambientLight).toBe('#ffffff')
+  })
+})
+
+describe('placed cave band pieces', () => {
+  // The forge kit as a band set (GG_Cave_Ink, tagged cave) and the plain pack the
+  // fixture's rock children resolve against, both answering the kit's measurements.
+  beforeEach(() => {
+    resetAssetPackManager()
+    seedCaveBandPack()
+    seedCaveBandPack('gg-forge', { set: 'GG_Cave_Ink', tags: ['cave'] })
+  })
+  afterEach(() => resetAssetPackManager())
+
+  const caveKit = { isBandSet, isCaveBandAsset }
+  const rubble = {
+    id: 'rubble', name: 'Rubble', childType: 'asset', objectType: 'asset',
+    assetId: 'gg-demo:rubble_small_3x3_object_A', position: { x: 2, y: 2 }, rotation: 0, scale: 1,
+    width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false, visible: true,
+  }
+  const torch = { id: 'torch', name: 'Torch', childType: 'light', position: { x: 1, y: 1 } }
+
+  function savedWith(wallTextureSetId: string | undefined, extra: Record<string, unknown> = {}) {
+    const rock = caveBandChildren().children
+    return {
+      ...V2_BASE,
+      version: '3.1',
+      layers: [
+        {
+          type: 'dungeon', id: 'l1', name: 'L1', visible: true, locked: false, opacity: 1,
+          children: [...rock, rubble, torch], standaloneWalls: [], mergedFloor: null,
+          style: { floorColor: '#F1ECDF', wallColor: '#000000', wallWidth: 0.5, wallTextureSetId },
+          sublayerVisibility: {},
+        },
+      ],
+      ...extra,
+    } as unknown as Parameters<typeof migrateToLatest>[0]
+  }
+  const ids = (data: { layers: unknown[] }) =>
+    (data.layers[0] as { children: { id: string }[] }).children.map((c) => c.id)
+
+  it('drops the pieces from a layer drawn with a band set, and nothing else', () => {
+    const result = migrateToLatest(savedWith('GG_Cave_Ink'), caveKit)
+    expect(ids(result)).toEqual(['rubble', 'torch'])
+  })
+
+  it('reads the wall set off the level when the layer names none', () => {
+    const saved = savedWith(undefined, {
+      levels: [{ id: 'lv1', name: 'Ground', look: { wallTextureSetId: 'GG_Cave_Ink' } }],
+    })
+    expect(ids(migrateToLatest(saved, caveKit))).toEqual(['rubble', 'torch'])
+  })
+
+  it('leaves the pieces on a layer that is not on a band set', () => {
+    for (const setId of [undefined, 'GG_Fieldstone']) {
+      const saved = savedWith(setId)
+      const result = migrateToLatest(saved, caveKit)
+      expect(ids(result)).toEqual(ids(saved))
+      expect(ids(result)).toHaveLength(5)
+    }
+  })
+
+  it('leaves every layer as it was when there is nothing to drop', () => {
+    const saved = savedWith('GG_Cave_Ink')
+    const layer = saved.layers[0] as unknown as { children: { id: string; childType: string }[] }
+    layer.children = layer.children.filter((c) => c.childType !== 'asset' || c.id === 'rubble')
+    expect(migrateToLatest(saved, caveKit).layers).toBe(saved.layers)
+  })
+
+  it('is skipped without a catalog lookup, as the server reads this module', () => {
+    const saved = savedWith('GG_Cave_Ink')
+    expect(ids(migrateToLatest(saved))).toEqual(ids(saved))
+  })
+
+  it("leaves the caller's document alone", () => {
+    const saved = savedWith('GG_Cave_Ink')
+    migrateToLatest(saved, caveKit)
+    expect(ids(saved)).toHaveLength(5)
   })
 })

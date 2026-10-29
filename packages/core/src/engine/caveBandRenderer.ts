@@ -6,10 +6,6 @@
 // and this file turns them into pooled sprites. Nothing is written to the
 // store, so the band follows every edit of the ring it rides, and a door on
 // the ring simply splits the walk into the spans the opening leaves.
-//
-// The generated Warren lays the same kit as asset children instead, so its
-// joints can be dragged (bandSolver.ts). Both go through caveWalk.ts, which is
-// what keeps a drawn band and a placed one the same wall.
 
 import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
@@ -43,8 +39,7 @@ const END_PAD = 4;
  * where no kit bend fits — the smallest inside bend spans two cells of arc and
  * misses an L by half a cell — so the walk fell back to a straight laid across
  * the corner and left the tip bare. Rounding the ride curve to roughly a cell's
- * radius gives every corner a bend's shape. The same rounding the Warren
- * generator's `smoothRing` applies.
+ * radius gives every corner a bend's shape.
  *
  * Rounding alone cuts a convex corner by four tenths of the radius and leaves
  * the floor's sharp tip poking out past the rock, so the curve is lifted

@@ -99,9 +99,9 @@ function build(): CatalogState {
         if (setList) setList.push(entry);
         else wallSets.set(entry.set, [entry]);
       }
-      // A cave band kit ships as `object` entries — the band editor moves them
-      // as placed rock — tagged `cave`, which is what tells the forge's kit
-      // apart from gg-demo's structures that share the family names.
+      // A cave band kit ships as `object` entries tagged `cave`, which is what
+      // tells the forge's kit apart from gg-demo's structures that share the
+      // family names.
       if (entry.type === 'object' && entry.set && entry.tags.includes('cave')) {
         const setList = bandSets.get(entry.set);
         if (setList) setList.push(entry);

@@ -134,15 +134,6 @@ describe('v2 StatusBar edit hints', () => {
     expect(keys).toContain('Esc');
   });
 
-  it('carries the cave-band solver read-out during a drag', () => {
-    useStore.getState().setNodeEditWall('band:0');
-    useStore.getState().setBandDragStatus({ pieces: ['wall_short_2x4'], kitPull: 0.5 });
-    render(<StatusBar />);
-    expect(screen.getByTestId('v2-status-hint').textContent).toBe(
-      'Editing cave wall · wall short 2x4 · kit pull 0.50 cells',
-    );
-  });
-
   it('gives the slot back to the solo chip once editing ends', () => {
     const layerId = useStore.getState().layers.find((l) => l.type === 'dungeon')!.id;
     useStore.getState().setShapeNodeEdit('shape-1');

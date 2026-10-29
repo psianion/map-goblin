@@ -5,7 +5,6 @@ import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
-import { bandRunIndex } from '@/engine/wallNodeOverlay';
 import { strokeStatus, subscribeStrokeStatus } from '@dnd/core/src/engine/tools/StampScatterTool';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { useStore } from '@/store/store';
@@ -225,10 +224,9 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
       shapeNodeEditId: s.tools.shapeNodeEditId,
       selectedNodeT: s.tools.selectedNodeT,
       selectedNodeTs: s.tools.selectedNodeTs,
-      bandDragStatus: s.tools.bandDragStatus,
     })),
   );
-  const hint = useMemo(() => editHint(hintTools, bandRunIndex), [hintTools]);
+  const hint = useMemo(() => editHint(hintTools), [hintTools]);
   // Built from store state into one of a few shapes; the label string keys it so the
   // selector hands back the same value while nothing it says has moved.
   const roomHintKey = useStore((s) => {

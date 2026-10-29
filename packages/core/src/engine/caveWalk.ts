@@ -1,15 +1,12 @@
 // Chord-walking a curve with the measured cave kit.
 //
-// One copy, shared by `scripts/gen-goblin-warren.mjs` (which lays the whole ring
-// in one pass) and the band editor (which re-lays one stretch when a joint is
-// dragged). Separate copies would drift, and an edited stretch would slowly stop
-// matching the stretch beside it — the same reason the kit MEASUREMENTS moved to
-// `../assets/caveWallKit.ts`.
+// The live band renderer (caveBandRenderer.ts) walks every cave ring and drawn
+// cave wall through here, the same way the kit MEASUREMENTS live in one place
+// (`../assets/caveWallKit.ts`).
 //
 // Pure geometry: no Pixi, no store, no pack. A piece is a measurement
 // (`CaveKitPiece`) and the walk answers with placements (`KitPlacement`);
-// turning a placement into an asset child is the caller's business, because the
-// generator wants a `.mapbuilder` object and the editor wants a store command.
+// turning a placement into a sprite is the caller's business.
 //
 // The numbers in here were tuned against the shipped Goblin Warren. Changing one
 // re-lays the whole cave, so treat them as measurements, not preferences.
@@ -246,9 +243,8 @@ export interface WalkResult {
  * `i0` and `i1` are curve indices and may run past the end of the array: every
  * index here wraps modulo the curve, so a span that crosses the seam of a closed
  * ring is simply a span whose `i1` is the larger number. {@link walkClosed} is
- * this walk with the whole ring as its span, and the band editor re-lays one
- * dragged stretch with the same call — that shared body is the point, because
- * two copies would let an edited stretch drift away from the one beside it.
+ * this walk with the whole ring as its span, and an open run or a door-cut span
+ * is laid with the same call, so every stretch of a band is walked alike.
  *
  * The curve is expected to be the band's own ride line — `offsetCurve(floor,
  * BAND_OUT)` — and the placements come back with BAND_OUT re-applied, so the
@@ -486,8 +482,7 @@ const RING_EVEN = Math.log(1.04);
 
 /**
  * One pass all the way round a closed curve. The whole-ring case of
- * {@link walkSpan}, and what the generator and the live band renderer lay a
- * cave with.
+ * {@link walkSpan}, and what the live band renderer lays a cave with.
  *
  * Where the walk starts decides which chords it meets on the way round, and
  * so what is left for the closing piece: from one start a ring comes out even,
@@ -543,8 +538,7 @@ export function walkClosed(
 }
 
 /**
- * The closure gate, in one place — the band editor holds an edited stretch to
- * the same bar the generator holds a whole cave to.
+ * The closure gate, in one place, so every walk is held to the same bar.
  *
  * Each piece is meant to run PAST its successor's start by BAND_OVERLAP, so a
  * positive gap here is rock that was never laid: the band has a hole in it and

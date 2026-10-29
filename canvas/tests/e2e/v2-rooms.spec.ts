@@ -201,6 +201,28 @@ async function roomShot(page: Page, name: string): Promise<Buffer> {
   return page.screenshot({ clip: box })
 }
 
+/** Pixels of two same-sized shots that read as the pinned red (#ff2020) after and did not before. */
+async function newRedPixels(page: Page, before: Buffer, after: Buffer): Promise<number> {
+  return page.evaluate(async ([a, b]) => {
+    const pixels = async (png: string): Promise<Uint8ClampedArray> => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${png}`
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.width
+      c.height = img.height
+      const g = c.getContext('2d')!
+      g.drawImage(img, 0, 0)
+      return g.getImageData(0, 0, img.width, img.height).data
+    }
+    const [was, now] = [await pixels(a), await pixels(b)]
+    const red = (d: Uint8ClampedArray, i: number): boolean => d[i] > 150 && d[i + 1] < 90 && d[i + 2] < 90
+    let n = 0
+    for (let i = 0; i < now.length; i += 4) if (red(now, i) && !red(was, i)) n++
+    return n
+  }, [before.toString('base64'), after.toString('base64')])
+}
+
 test('the warren opens with seven numbered, named rooms and the Rooms tab', async ({ page }) => {
   await openWarren(page)
   const list = await rooms(page)
@@ -278,7 +300,11 @@ test('a wall tint pinned on one room recolours that room only, and undoes', asyn
   const hallAfter = await roomShot(page, 'Warren Hall')
   const denAfter = await roomShot(page, "Chief's Den")
   expect(hallAfter.equals(hallBefore)).toBe(false)
-  expect(denAfter.equals(denBefore)).toBe(true)
+  expect(await newRedPixels(page, hallBefore, hallAfter)).toBeGreaterThan(0)
+  // The Warren's walls are the live cave band, walked round the whole floor ring, so the
+  // hall's pin re-lays rock beyond the hall and the den's shot is not pixel-identical. The
+  // tint is what must stay in the hall.
+  expect(await newRedPixels(page, denBefore, denAfter)).toBe(0)
 
   // Undo takes the tint off; Reset clears every wall pin at once.
   await undo(page)
