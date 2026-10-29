@@ -260,7 +260,21 @@ export default function HostSetup() {
               {/* The service docker-compose.yml defines for session/server/Dockerfile. */}
               <Command value="docker compose up game-server" />
               <p className="mt-3 text-xs text-text-muted">
-                It prints an admin pass on first run — that is what goes below.
+                It prints an admin pass the first time it starts — that is what goes below.
+              </p>
+              <p className="mt-3 text-sm text-text-secondary">Already running? The pass is in its first start’s log:</p>
+              <Command value="docker compose logs game-server" />
+              {/*
+                Only the hash is stored (auth.ts), so there is no "show it again". A container
+                that has been recreated since — every update does that — no longer has that
+                log, and then the only way back is a new pass, which is a new data volume.
+              */}
+              <p className="mt-3 text-xs text-text-muted">
+                It cannot be shown again, so keep it somewhere. If the log is gone (the
+                server has been updated or recreated since) or the pass is lost, the only way
+                back is a fresh one: stop the server, remove its <code>game-server-data</code>{' '}
+                volume and start it again — it prints a new pass, and every campaign on it is
+                gone with the old volume.
               </p>
             </div>
 

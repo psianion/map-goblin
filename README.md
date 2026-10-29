@@ -19,7 +19,14 @@ docker compose up -d
 | Table (players) | http://localhost:5622 |
 | Game server | http://localhost:5620 (this machine only; the editor and table reach it inside Docker) |
 
-The game server prints a one-time admin pass to its log the first time it starts. Read it with `docker compose logs game-server` and keep it: only its hash is stored, in the `game-server-data` volume.
+The game server prints a one-time admin pass to its log the first time it starts. Read it with `docker compose logs game-server` and keep it: only its hash is stored, in the `game-server-data` volume, so it cannot be shown again. That log line goes away once the container is recreated (an update does that). If the pass is lost, the only way back is a fresh one, which costs every campaign on the server:
+
+```bash
+docker compose stop game-server
+docker volume rm map-goblin_game-server-data
+docker compose up -d game-server
+docker compose logs game-server
+```
 
 To update, pull and start again. Your data lives in named volumes and survives both.
 
