@@ -1,6 +1,7 @@
 // Boot: config → db → http → ws upgrade → SessionManager.
 
-import { createServer, type IncomingMessage } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
+import type { Socket } from 'node:net'
 import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
@@ -17,7 +18,7 @@ import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
 import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
-import { createRequestHandler } from './http'
+import { clientAddress, createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
@@ -72,6 +73,8 @@ export function authenticateUpgrade(
 export interface StartOptions extends SessionManagerOptions {
   /** Overrides PORT. 0 binds an ephemeral port — that is how the tests run. */
   port?: number
+  /** Overrides TRUSTED_PORT; 0 is ephemeral, as above. */
+  trustedPort?: number
   /** Overrides the configured database path. Tests pass `:memory:`. */
   dbPath?: string
   /** Registered alongside the built-ins — the seam a test module arrives through. */
@@ -80,6 +83,8 @@ export interface StartOptions extends SessionManagerOptions {
 
 export interface RunningServer {
   port: number
+  /** Null when no trusted listener was asked for. */
+  trustedPort: number | null
   sessions: SessionManager
   stores: Stores
   config: Config
@@ -161,44 +166,64 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     ...options,
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
-  const http = createServer(
-    createRequestHandler({
-      hmacSecret: config.secrets.hmacSecret,
-      stores,
-      sessionManager: sessions,
-      vision,
-      modules,
-      triggerDeps,
-    }),
-  )
-
-  http.on('upgrade', (req, socket, head) => {
-    const identity = authenticateUpgrade(req, config.secrets.hmacSecret, stores)
-    if (!identity) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => sessions.accept(new ClientConnection(ws, identity)))
+  // Trust is a property of the listener a socket arrived on, not of a port number: the
+  // tests bind ephemeral ports, and a socket remembers nothing else about where it came in.
+  const trustedSockets = new WeakSet<Socket>()
+  const trusted = (socket: Socket): boolean => trustedSockets.has(socket)
+  const handler = createRequestHandler({
+    hmacSecret: config.secrets.hmacSecret,
+    stores,
+    sessionManager: sessions,
+    vision,
+    modules,
+    triggerDeps,
+    trusted,
   })
+  const http = createServer(handler)
+  const trustedPort = options.trustedPort ?? config.trustedPort
+  const trustedHttp = trustedPort === null ? null : createServer(handler)
+  trustedHttp?.on('connection', (socket: Socket) => trustedSockets.add(socket))
 
-  await new Promise<void>((ready) =>
-    http.listen(options.port ?? config.port, config.host || undefined, ready),
+  for (const server of [http, trustedHttp]) {
+    server?.on('upgrade', (req, socket, head) => {
+      const identity = authenticateUpgrade(req, config.secrets.hmacSecret, stores)
+      if (!identity) {
+        console.warn(`ws: upgrade refused from ${clientAddress(req, trusted)}`)
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => sessions.accept(new ClientConnection(ws, identity)))
+    })
+  }
+
+  const listen = (server: Server, on: number): Promise<number> =>
+    new Promise<number>((ready) =>
+      server.listen(on, config.host || undefined, () => {
+        const address = server.address()
+        ready(typeof address === 'object' && address !== null ? address.port : on)
+      }),
+    )
+  const port = await listen(http, options.port ?? config.port)
+  const boundTrustedPort = trustedHttp && trustedPort !== null ? await listen(trustedHttp, trustedPort) : null
+  console.log(
+    `game-server listening on :${port}` + (boundTrustedPort === null ? '' : ` (trusted :${boundTrustedPort})`),
   )
-  const address = http.address()
-  const port = typeof address === 'object' && address !== null ? address.port : config.port
-  console.log(`game-server listening on :${port}`)
 
   return {
     port,
+    trustedPort: boundTrustedPort,
     sessions,
     stores,
     config,
     close: async () => {
       sessions.close() // terminates live sockets so http.close() can actually settle
       wss.close()
-      http.closeAllConnections() // ...and so does a keep-alive socket nobody is using
-      await new Promise<void>((done) => http.close(() => done()))
+      for (const server of [http, trustedHttp]) {
+        if (!server) continue
+        server.closeAllConnections() // ...and so does a keep-alive socket nobody is using
+        await new Promise<void>((done) => server.close(() => done()))
+      }
       db.close()
     },
   }

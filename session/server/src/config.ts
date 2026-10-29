@@ -22,6 +22,12 @@ export interface Secrets {
 
 export interface Config {
   port: number
+  /**
+   * A second listener that believes `X-Real-IP` (http.ts's `clientAddress`). Null = none,
+   * which is the dev runner's case: its lanes are adjacent ports, and nothing trusted sits
+   * in front of them. docker-compose.yml sets it, and only its own nginx can reach it.
+   */
+  trustedPort: number | null
   /** Interface to bind. Empty = all interfaces (what the container needs); the dev runner
    * and the E2E harness set HOST=127.0.0.1 so local lanes are not LAN-visible. */
   host: string
@@ -35,6 +41,7 @@ export function loadConfig(): Config {
   const secretsPath = resolve(dataDir, 'secrets.json')
   return {
     port: Number(process.env.PORT ?? 8787),
+    trustedPort: process.env.TRUSTED_PORT ? Number(process.env.TRUSTED_PORT) : null,
     host: process.env.HOST ?? '',
     dbPath: resolve(dataDir, 'game.db'),
     secretsPath,
