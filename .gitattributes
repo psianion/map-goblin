@@ -1,0 +1,2 @@
+# A shell script checked out with CRLF (core.autocrlf on Windows) dies on the first line.
+*.sh text eol=lf

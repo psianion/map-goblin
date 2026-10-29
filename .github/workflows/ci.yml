@@ -30,6 +30,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r check
 
+  # nginx -t on both proxy configs, then the stack up under Compose with the trust rules
+  # checked end to end (scripts/smoke.sh). Builds the images itself: a PR's are never
+  # pushed, so there is nothing to pull.
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/smoke.sh
+
   images:
     needs: check
     runs-on: ubuntu-latest

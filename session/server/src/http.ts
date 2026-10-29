@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { isIP, type Socket } from 'node:net'
 import {
   isAdminPass,
   issueToken,
@@ -46,28 +47,34 @@ export interface HttpDeps {
   /** F3 — the same resolver `triggersModule` runs against, reused so GET .../prep can report
    *  which triggers are inert without a second resolution path to drift from the first. */
   triggerDeps: Pick<TriggerDeps, 'prepOf'>
+  /** Whether a socket arrived on the trusted listener — see `clientAddress`. */
+  trusted: (socket: Socket) => boolean
 }
 
 /** Everything but a map upload is a handful of fields. */
 const JSON_BODY_LIMIT = 64 * 1024
 
-/** What the two public, guessable routes get: generous for typing, useless for a script. */
-const INVITE_ATTEMPTS = 10
-const INVITE_WINDOW_MS = 60_000
+/** What a guessable route gets: generous for typing, useless for a script. */
+const MISSES = 10
+const MISS_WINDOW_MS = 60_000
 
-type RouteDeps = HttpDeps & { rateLimit: RateLimiter }
+type RouteDeps = HttpDeps & { budgets: Budgets }
 
 export function createRequestHandler(deps: HttpDeps) {
   // Per handler, not per module: the test suite runs several servers in one process and
   // they must not share a budget.
-  const rateLimit = createRateLimiter(INVITE_ATTEMPTS, INVITE_WINDOW_MS)
+  const budgets: Budgets = {
+    invite: createBudget('invite', MISSES, MISS_WINDOW_MS),
+    admin: createBudget('admin', MISSES, MISS_WINDOW_MS),
+    waitlist: createBudget('waitlist', MISSES, MISS_WINDOW_MS),
+  }
   return (req: IncomingMessage, res: ServerResponse): void => {
     cors(res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
       return
     }
-    route({ ...deps, rateLimit }, req, res).catch((error: unknown) => {
+    route({ ...deps, budgets }, req, res).catch((error: unknown) => {
       console.error('request failed:', error)
       if (!res.headersSent) json(res, 500, { error: 'internal error' })
       else res.end()
@@ -133,10 +140,7 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
  * come back and see what they created". A self-hosted table has exactly one such person.
  */
 function listCampaigns(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): void {
-  if (rateLimited(deps, req, res)) return
-  if (!isAdminPass(deps.stores.passes, credential(req))) {
-    return json(res, 401, { error: 'invalid admin pass' })
-  }
+  if (!requireAdmin(deps, req, res, 'campaigns')) return
   const campaigns = deps.stores.campaigns.list().map((c) => ({
     id: c.id,
     name: c.name,
@@ -148,10 +152,7 @@ function listCampaigns(deps: RouteDeps, req: IncomingMessage, res: ServerRespons
 
 /** POST /api/campaigns — admin pass in, campaign + DM session token out. */
 async function createCampaign(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (rateLimited(deps, req, res)) return
-  if (!isAdminPass(deps.stores.passes, credential(req))) {
-    return json(res, 401, { error: 'invalid admin pass' })
-  }
+  if (!requireAdmin(deps, req, res, 'campaigns')) return
   const body = await readJson(req, res)
   if (!body) return
 
@@ -176,10 +177,7 @@ function mintDmToken(
   res: ServerResponse,
   campaignId: string,
 ): void {
-  if (rateLimited(deps, req, res)) return
-  if (!isAdminPass(deps.stores.passes, credential(req))) {
-    return json(res, 401, { error: 'invalid admin pass' })
-  }
+  if (!requireAdmin(deps, req, res, 'dm-token')) return
   const campaign = deps.stores.campaigns.get(campaignId)
   if (!campaign) return json(res, 404, { error: 'no such campaign' })
 
@@ -214,10 +212,7 @@ async function mintServiceToken(
   res: ServerResponse,
   campaignId: string,
 ): Promise<void> {
-  if (rateLimited(deps, req, res)) return
-  if (!isAdminPass(deps.stores.passes, credential(req))) {
-    return json(res, 401, { error: 'invalid admin pass' })
-  }
+  if (!requireAdmin(deps, req, res, 'service-token')) return
   const campaign = deps.stores.campaigns.get(campaignId)
   if (!campaign) return json(res, 404, { error: 'no such campaign' })
 
@@ -833,24 +828,29 @@ function isUnsharedNoteImage(deps: HttpDeps, campaignId: string, sceneId: string
 
 /** GET /api/resolve/:code — public; the join page calls it before asking for a name. */
 function resolveCode(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, code: string): void {
-  if (rateLimited(deps, req, res)) return
+  if (overBudget(deps, req, res, deps.budgets.invite, 'resolve')) return
   const session = resolveInviteCode(deps.stores.sessions, code)
-  if (!session) return json(res, 404, { error: 'no active session for that code' })
+  if (!session) {
+    miss(deps, req, deps.budgets.invite, 'resolve')
+    return json(res, 404, { error: 'no active session for that code' })
+  }
   json(res, 200, { campaignId: session.campaign_id, sessionId: session.id })
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * POST /api/waitlist — public; `{email}` in, `{duplicate}` out (P5a). Same shared budget
- * as `/api/join`/`/api/resolve`: all three are unauthenticated, and a script hammering
- * this one is exactly the traffic that limiter exists for.
+ * POST /api/waitlist — public; `{email}` in, `{duplicate}` out (P5a). Unauthenticated and
+ * nothing to guess, so its budget counts writes rather than misses: every accepted
+ * submission is a row, and a script hammering this one is exactly the traffic that
+ * limiter exists for. Its own budget, not the invite one, so a waitlist flood from an
+ * address does not stop that address joining a table.
  *
  * The only thing this route ever says about the list is whether *this* address is
  * already on it — never a count, never another address, never anything else.
  */
 async function joinWaitlist(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (rateLimited(deps, req, res)) return
+  if (overBudget(deps, req, res, deps.budgets.waitlist, 'waitlist')) return
   const body = await readJson(req, res)
   if (!body) return
 
@@ -858,24 +858,29 @@ async function joinWaitlist(deps: RouteDeps, req: IncomingMessage, res: ServerRe
   if (!email || !EMAIL_RE.test(email)) return json(res, 400, { error: 'invalid email' })
 
   const { duplicate } = deps.stores.waitlist.add(email)
+  deps.budgets.waitlist.spend(clientAddress(req, deps.trusted))
   json(res, duplicate ? 200 : 201, { duplicate })
 }
 
 /** POST /api/join — public; `{code, name}` in, player session token out. */
 async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (rateLimited(deps, req, res)) return
+  if (overBudget(deps, req, res, deps.budgets.invite, 'join')) return
   const body = await readJson(req, res)
   if (!body) return
 
   const code = text(body.code)
   // §2.3.7 — `text` trims, so "   " is no name at all. Without this the table fills up
   // with blank seats the client then renders as a ghost "Someone" (S1 gate finding).
+  // Neither 400 is a guess, so neither is charged.
   const name = text(body.name)
   if (!name) return json(res, 400, { error: 'name-required' })
   if (!code) return json(res, 400, { error: 'code is required' })
 
   const session = resolveInviteCode(deps.stores.sessions, code)
-  if (!session) return json(res, 404, { error: 'no active session for that code' })
+  if (!session) {
+    miss(deps, req, deps.budgets.invite, 'join')
+    return json(res, 404, { error: 'no active session for that code' })
+  }
 
   // Always a fresh identity, never one named by the caller: identityIds are public roster
   // data (they key players client-side), so honouring a supplied one would let anyone read
@@ -1037,6 +1042,21 @@ function credential(req: IncomingMessage): string | null {
 }
 
 /**
+ * The admin-pass gate every admin route goes through: over budget answers 429, a wrong
+ * pass answers 401 and spends one miss, a right one spends nothing. `route` is only for
+ * the log line.
+ */
+function requireAdmin(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, route: string): boolean {
+  if (overBudget(deps, req, res, deps.budgets.admin, route)) return false
+  if (!isAdminPass(deps.stores.passes, credential(req))) {
+    miss(deps, req, deps.budgets.admin, route)
+    json(res, 401, { error: 'invalid admin pass' })
+    return false
+  }
+  return true
+}
+
+/**
  * Verifies the session token and the identity behind it, answering the request itself on
  * failure. `campaignId`/`role` narrow it to one campaign and one seat at that table.
  */
@@ -1075,47 +1095,100 @@ function requireSession(
 
 // ─── Rate limiting ────────────────────────────────────────
 
-/** Seconds the caller must wait, or 0 when the request is within budget. */
-type RateLimiter = (key: string) => number
+/** A per-address allowance of misses: `wait` asks, `spend` records one. */
+interface Budget {
+  name: string
+  /** Seconds the address must wait, or 0 while it is within budget. */
+  wait(key: string): number
+  spend(key: string): void
+}
+
+/**
+ * One budget per thing that can be guessed, so a wrong admin pass says nothing about
+ * invite codes and a waitlist flood blocks neither.
+ */
+interface Budgets {
+  invite: Budget
+  admin: Budget
+  waitlist: Budget
+}
 
 /**
  * An invite code is six characters from a 31-letter alphabet — 887M combinations, which is
- * only out of reach if guessing is slow. `/api/join` and `/api/resolve` are the two routes
- * that will answer a guess, so they get a budget.
+ * only out of reach if guessing is slow. So the routes that will answer a guess get a
+ * budget — of *misses*. A correct code or pass costs nothing: a party of eight joining
+ * through one proxy address is sixteen correct answers, and the old all-requests budget
+ * turned the ninth player away for the first eight being right.
  *
  * ponytail: a Map of timestamps in this process. That is the right size for a self-hosted
  * table; it counts per server rather than per cluster, so put a real store behind this if
  * the day ever comes that two of these run behind one address.
  */
-function createRateLimiter(limit: number, windowMs: number): RateLimiter {
-  const hits = new Map<string, number[]>()
-  return (key) => {
-    const now = Date.now()
-    // Anything that has aged out of the window is not an attempt any more.
-    const recent = (hits.get(key) ?? []).filter((at) => now - at < windowMs)
-    hits.set(key, recent)
-
-    if (recent.length >= limit) return Math.ceil((windowMs - (now - recent[0]!)) / 1000)
-    recent.push(now)
-
-    // One array per address that has ever called is a slow leak; sweep the idle ones
-    // rather than hold every address the server has seen since boot.
-    if (hits.size > 1024) {
-      for (const [seen, at] of hits) if (now - (at[at.length - 1] ?? 0) >= windowMs) hits.delete(seen)
-    }
-    return 0
+function createBudget(name: string, limit: number, windowMs: number): Budget {
+  const misses = new Map<string, number[]>()
+  // Anything that has aged out of the window is not a miss any more.
+  const recent = (key: string, now: number): number[] => {
+    const kept = (misses.get(key) ?? []).filter((at) => now - at < windowMs)
+    misses.set(key, kept)
+    return kept
+  }
+  return {
+    name,
+    wait(key) {
+      const now = Date.now()
+      const spent = recent(key, now)
+      return spent.length >= limit ? Math.ceil((windowMs - (now - spent[0]!)) / 1000) : 0
+    },
+    spend(key) {
+      const now = Date.now()
+      recent(key, now).push(now)
+      // One array per address that has ever missed is a slow leak; sweep the idle ones
+      // rather than hold every address the server has seen since boot.
+      if (misses.size > 1024) {
+        for (const [seen, at] of misses) if (now - (at[at.length - 1] ?? 0) >= windowMs) misses.delete(seen)
+      }
+    },
   }
 }
 
-/** Answers 429 and returns true when the caller has spent its budget. */
-function rateLimited(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): boolean {
-  // `remoteAddress`, never `x-forwarded-for`: nothing trusted sits in front of this server,
-  // and a limit keyed on a header the caller writes is a limit with an opt-out.
-  const retryAfter = deps.rateLimit(req.socket.remoteAddress ?? 'unknown')
+/** Answers 429 and returns true when the caller has spent the budget. */
+function overBudget(
+  deps: RouteDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  budget: Budget,
+  route: string,
+): boolean {
+  const address = clientAddress(req, deps.trusted)
+  const retryAfter = budget.wait(address)
   if (retryAfter === 0) return false
+  console.warn(`${budget.name}: ${address} is over budget on ${route}, waits ${retryAfter}s`)
   res.setHeader('retry-after', String(retryAfter))
   json(res, 429, { error: 'too many attempts — wait a moment and try again' })
   return true
+}
+
+/** Records a wrong guess. The route is logged, never the guess — for `resolve` it is the URL. */
+function miss(deps: RouteDeps, req: IncomingMessage, budget: Budget, route: string): void {
+  const address = clientAddress(req, deps.trusted)
+  budget.spend(address)
+  console.warn(`${budget.name}: miss from ${address} on ${route}`)
+}
+
+/**
+ * The address a request is counted against.
+ *
+ * On the trusted listener (TRUSTED_PORT, reached only by this deployment's own nginx)
+ * that is the `X-Real-IP` nginx wrote, so players behind the proxy are told apart. On any
+ * other listener it is the connection's own address and the header is ignored: a limit
+ * keyed on a header the caller writes is a limit with an opt-out. A header that is not an
+ * IP at all falls back the same way rather than minting a budget per junk value.
+ */
+export function clientAddress(req: IncomingMessage, trusted: (socket: Socket) => boolean): string {
+  const connection = req.socket.remoteAddress ?? 'unknown'
+  if (!trusted(req.socket)) return connection
+  const header = req.headers['x-real-ip']
+  return typeof header === 'string' && isIP(header) ? header : connection
 }
 
 // ─── Plumbing ─────────────────────────────────────────────

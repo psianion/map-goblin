@@ -37,16 +37,19 @@ const MAP = {
 interface Fixture {
   server: RunningServer
   base: string
+  /** The same server on its trusted listener — the one that believes `X-Real-IP`. */
+  trustedBase: string
   /** A known-good admin pass; the one printed at boot is deliberately unrecoverable. */
   adminPass: string
 }
 
 async function withServer(body: (fixture: Fixture) => Promise<void>): Promise<void> {
-  const server = await startServer({ port: 0, heartbeatMs: 60_000, dbPath: ':memory:' })
+  const server = await startServer({ port: 0, trustedPort: 0, heartbeatMs: 60_000, dbPath: ':memory:' })
   try {
     await body({
       server,
       base: `http://127.0.0.1:${server.port}`,
+      trustedBase: `http://127.0.0.1:${server.trustedPort}`,
       adminPass: createAdminPass(server.stores.passes),
     })
   } finally {
@@ -62,13 +65,15 @@ interface Sent {
   raw?: string
   /** Raw bytes — how an image goes up (D11). */
   bytes?: Buffer
+  /** Extra headers — what a proxy in front of the server would add. */
+  headers?: Record<string, string>
 }
 
 async function api(
   base: string,
   method: string,
   path: string,
-  { token, body, raw, bytes }: Sent = {},
+  { token, body, raw, bytes, headers }: Sent = {},
 ): Promise<{ status: number; body: Record<string, unknown>; text: string }> {
   const payload = bytes ?? raw ?? (body === undefined ? undefined : JSON.stringify(body))
   const response = await fetch(`${base}${path}`, {
@@ -76,6 +81,7 @@ async function api(
     headers: {
       ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
+      ...headers,
     },
     body: payload,
   })
@@ -1486,6 +1492,86 @@ describe('brute force', () => {
       expect(res.status).toBe(429)
       expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
       await res.text()
+    })
+  })
+
+  it('never charges a correct invite code: a whole party joins from one address', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { inviteCode } = await table(base, adminPass)
+      // Behind a proxy every player is one address to this server. Eight players each
+      // resolve and then join — sixteen requests, more than the budget — and none of them
+      // guessed anything.
+      for (let seat = 0; seat < 8; seat++) {
+        expect((await api(base, 'GET', `/api/resolve/${inviteCode}`)).status).toBe(200)
+        expect(
+          (await api(base, 'POST', '/api/join', { body: { code: inviteCode, name: `Player ${seat}` } })).status,
+        ).toBe(200)
+      }
+    })
+  })
+
+  it('never charges a correct admin pass', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      for (let call = 0; call < 15; call++) {
+        expect((await api(base, 'GET', '/api/campaigns', { token: adminPass })).status).toBe(200)
+      }
+    })
+  })
+
+  it('keeps the invite, admin and waitlist budgets apart', async () => {
+    await withServer(async ({ base }) => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect((await api(base, 'GET', '/api/campaigns', { token: 'hunter2' })).status).toBe(401)
+      }
+      expect((await api(base, 'GET', '/api/campaigns', { token: 'hunter2' })).status).toBe(429)
+      // Ten wrong admin passes from this address say nothing about its invite codes.
+      expect((await api(base, 'GET', '/api/resolve/ZZZZZZ')).status).toBe(404)
+
+      for (let n = 0; n < 10; n++) {
+        expect((await api(base, 'POST', '/api/waitlist', { body: { email: `dm${n}@yourtable.com` } })).status).toBe(201)
+      }
+      expect((await api(base, 'POST', '/api/waitlist', { body: { email: 'dm11@yourtable.com' } })).status).toBe(429)
+      // ...nor does a full waitlist budget; the invite one still has nine misses left.
+      expect((await api(base, 'GET', '/api/resolve/ZZZZZZ')).status).toBe(404)
+    })
+  })
+
+  it('does not charge a join that was refused for a blank name', async () => {
+    await withServer(async ({ base }) => {
+      for (let attempt = 0; attempt < 11; attempt++) {
+        expect((await api(base, 'POST', '/api/join', { body: { code: 'ZZZZZZ', name: '   ' } })).status).toBe(400)
+      }
+    })
+  })
+
+  it('ignores X-Real-IP on the plain listener', async () => {
+    await withServer(async ({ base }) => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect(
+          (await api(base, 'GET', '/api/resolve/ZZZZZZ', { headers: { 'x-real-ip': '203.0.113.1' } })).status,
+        ).toBe(404)
+      }
+      // A different claimed address buys nothing: the connection is the only address here.
+      expect(
+        (await api(base, 'GET', '/api/resolve/ZZZZZZ', { headers: { 'x-real-ip': '203.0.113.2' } })).status,
+      ).toBe(429)
+    })
+  })
+
+  it('keys on X-Real-IP on the trusted listener, and on the connection when it is junk', async () => {
+    await withServer(async ({ trustedBase }) => {
+      const as = (ip: string) => api(trustedBase, 'GET', '/api/resolve/ZZZZZZ', { headers: { 'x-real-ip': ip } })
+      for (let attempt = 0; attempt < 10; attempt++) expect((await as('203.0.113.1')).status).toBe(404)
+      expect((await as('203.0.113.1')).status).toBe(429)
+      // The address nginx wrote is the one that is counted — the next player is unaffected.
+      expect((await as('203.0.113.2')).status).toBe(404)
+      expect((await api(trustedBase, 'GET', '/api/resolve/ZZZZZZ')).status).toBe(404)
+
+      // Anything that is not an IP falls back to the connection's own address, so junk
+      // shares a budget with the header-less calls rather than minting a fresh one.
+      for (let attempt = 0; attempt < 9; attempt++) expect((await as('not an address')).status).toBe(404)
+      expect((await api(trustedBase, 'GET', '/api/resolve/ZZZZZZ')).status).toBe(429)
+      expect((await as('')).status).toBe(429)
     })
   })
 
