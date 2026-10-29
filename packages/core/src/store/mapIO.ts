@@ -1,4 +1,6 @@
-import type { SerializedMapData } from './types';
+import type { MapMeta, SerializedMapData } from './types';
+
+export type { MapMeta };
 
 /** Interface matching the subset of MapIndexDB used by the maps slice. */
 export interface MapDB {
@@ -15,15 +17,9 @@ export interface MapDB {
   restoreMap(record: MapRecord): Promise<void>;
   updateMapMeta(id: string, patch: Partial<Pick<MapMeta, 'name'>>): Promise<void>;
   duplicateMap(id: string): Promise<string>;
-}
-
-export interface MapMeta {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  gridSize: { width: number; height: number };
-  layerCount: number;
+  /** Stores (or with null, drops) the small render the map's card shows. Optional: a DB
+   * without it simply has cards with no preview. */
+  saveThumbnail?(id: string, thumbnail: Blob | null): Promise<void>;
 }
 
 /** One map as the DB stores it. Core only ever moves these around whole — anything the

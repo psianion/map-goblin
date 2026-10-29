@@ -554,7 +554,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
 
   function mapWithFieldstone(): MapTextureSource {
     return {
-      mapSettings: { name: 'x', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+      mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
       layers: [
         {
           id: 'l1',
@@ -578,8 +578,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
           ],
           mergedFloor: null,
           style: {
-            floorColor: '#fff', wallColor: '#000', wallWidth: 0.5, shadowEnabled: false,
-            shadowColor: '#000', shadowOffset: { x: 0, y: 0 }, shadowIntensity: 0, roughnessAmplitude: 0,
+            floorColor: '#fff', wallColor: '#000', wallWidth: 0.5,
             lineWidth: 0.04, edgeTransitionWidth: 0.5, showEdgeTransitions: false, wallTextureTint: '#fff',
           },
           sublayerVisibility: { floor: true, grid: true, walls: true },
@@ -591,7 +590,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
   it('never throws for a map with no dungeon layers', async () => {
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
     const map: MapTextureSource = {
-      mapSettings: { name: 'x', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+      mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
       layers: [],
     }
     await expect(mgr.ensureTexturesForMap(map)).resolves.toBeUndefined()

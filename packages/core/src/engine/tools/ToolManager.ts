@@ -5,6 +5,9 @@ import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
+/** Tools that ignore the erase toggle: they add a room, never cut one. */
+const ALWAYS_DRAWS = new Set<string>(['roomRect', 'roomPolygon', 'divide']);
+
 /**
  * Manages drawing tools — registration, activation, and input forwarding.
  * Renders a preview shape overlay during active drawing.
@@ -14,12 +17,19 @@ export class ToolManager {
   private activeTool: DrawingTool | null = null;
   private previewGraphics: Graphics;
   private worldContainer: Container;
+  private overlay: Container | null;
 
-  constructor(worldContainer: Container) {
+  /**
+   * `overlay` (the engine's screen-space layer): when given, the preview is drawn there, posed
+   * under the camera, on top of everything in it — above the lighting composite and the light
+   * and prop overlays, so a marquee is never dimmed by the dark or hidden under a light's rings.
+   */
+  constructor(worldContainer: Container, overlay: Container | null = null) {
     this.worldContainer = worldContainer;
+    this.overlay = overlay;
     this.previewGraphics = new Graphics();
     this.previewGraphics.label = 'toolPreview';
-    this.worldContainer.addChild(this.previewGraphics);
+    (overlay ?? this.worldContainer).addChild(this.previewGraphics);
   }
 
   registerTool(tool: DrawingTool): void {
@@ -90,6 +100,21 @@ export class ToolManager {
     return wasActive;
   }
 
+  /** Whether the active tool answers this key itself, ahead of the global shortcuts. */
+  ownsKey(e: KeyboardEvent): boolean {
+    return this.activeTool?.ownsKey?.(e) ?? false;
+  }
+
+  /** Offer a wheel turn to the active tool; true when it took it. */
+  onWheel(e: WheelEvent, world: Point): boolean {
+    return this.activeTool?.onWheel?.(e, world) ?? false;
+  }
+
+  /** Offer a right-click to the active tool; true when it took it. */
+  onContextMenu(world: Point, e: MouseEvent): boolean {
+    return this.activeTool?.onContextMenu?.(world, e) ?? false;
+  }
+
   updatePreview(): void {
     const preview = this.activeTool?.getPreview() ?? null;
     this.renderPreview(preview);
@@ -124,10 +149,19 @@ export class ToolManager {
     this.previewGraphics.clear();
     if (!preview || preview.points.length === 0) return;
 
+    if (this.overlay) {
+      const g = this.previewGraphics;
+      // Overlays mount after the engine does; stay the topmost child as they arrive.
+      if (this.overlay.children[this.overlay.children.length - 1] !== g) this.overlay.addChild(g);
+      g.position.copyFrom(this.worldContainer.position);
+      g.scale.copyFrom(this.worldContainer.scale);
+    }
+
     const pts = preview.points;
 
     const zoom = this.worldContainer.scale.x;
-    const eraseMode = useStore.getState().tools.eraseMode;
+    // The room tools always draw, whatever the erase toggle says, so their preview never turns red.
+    const eraseMode = useStore.getState().tools.eraseMode && !ALWAYS_DRAWS.has(this.activeTool?.type ?? '');
     this.previewGraphics.setStrokeStyle({ color: eraseMode ? 0xff4444 : 0x4488ff, width: 1 / zoom });
 
     if (preview.type === 'circle' && pts.length >= 1) {

@@ -23,6 +23,12 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
 export const togglePopoverRef: { current: (() => void) | null } = { current: null };
 
 /**
+ * Set by the /v2 route while it is mounted: opens its own New map dialog. Ctrl+Shift+N
+ * calls it when set, and falls back to the v1 dialog (App.tsx's modal state) when not.
+ */
+export const openNewMapRef: { current: (() => void) | null } = { current: null };
+
+/**
  * Layer id active just before the user clicked into the pinned Terrain row.
  * LayerPanel's TerrainRow sets it on entry; useCanvasInput's Escape handler
  * restores it and clears this back to null. Picking a different layer row

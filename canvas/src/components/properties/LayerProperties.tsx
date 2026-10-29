@@ -9,7 +9,7 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw, Layers, Eye } from 'lucide-react'
+import { Palette, Minus, Blend, Sparkles, RotateCcw, Layers, Eye } from 'lucide-react'
 import { getWallSetDefaults, getWallSetIds } from '@dnd/core/src/assets/packCatalog'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
@@ -216,7 +216,6 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         wallTextureTint: getShapeValue('wallTextureTint') as string,
         showEdgeTransitions: getShapeValue('showEdgeTransitions') as boolean,
         edgeTransitionWidth: getShapeValue('edgeTransitionWidth') as number,
-        roughnessAmplitude: getShapeValue('roughnessAmplitude') as number,
       }
     : layer.style
 
@@ -234,7 +233,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
   }
 
   // ── Layer-style fields (Floor Color, Wall Width/Tint, Edge Transition
-  // width, Roughness amplitude) — same live-patch/commit-on-release split as
+  // width) — same live-patch/commit-on-release split as
   // opacity above. `patch()` keeps driving the live drag/picker preview;
   // this fires once when the drag/picker session ends, same PropertyCommand
   // vehicle as opacity (a `{ style: {...} }` patch is just Partial<Layer>),
@@ -592,41 +591,6 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         )}
       </CollapsibleSection>
 
-      {/* ── Roughness ── */}
-      <CollapsibleSection
-        id="rough"
-        title="Roughness"
-        icon={Waves}
-        defaultOpen={false}
-        isOpen={openSections?.has('rough')}
-        onToggle={onToggleSection}
-      >
-        <div className="flex flex-col gap-2 pt-2">
-          <PropertyField
-            label={
-              <span className="flex items-center">
-                Amplitude
-                {hasSelection && hasOverride('roughnessAmplitude') && <OverrideDot />}
-              </span>
-            }
-          >
-            <SliderInput
-              value={s.roughnessAmplitude as number}
-              onChange={(v) =>
-                hasSelection
-                  ? applyShapeOverride('roughnessAmplitude', v)
-                  : patch({ roughnessAmplitude: v })
-              }
-              onChangeCommit={(v, start) => {
-                if (!hasSelection) commitStyleField('roughnessAmplitude', v, start)
-              }}
-              min={0}
-              max={0.5}
-              step={0.01}
-            />
-          </PropertyField>
-        </div>
-      </CollapsibleSection>
     </div>
   )
 }

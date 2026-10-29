@@ -1,61 +1,24 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
-import type { AssetEntry, AssetCategory, AssetManifest, ToolType } from '@/store/types';
+import type { AssetEntry, AssetCategory, AssetManifest } from '@/store/types';
 import { cn } from '@/lib/utils';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { pickAssetForTool } from '@/v2/editor/assetStrip';
+import { categoryToType, recentAssetsOfType, toolToTypeFilter, type AssetTypeFilter } from './assetTypeFilter';
+
+export type { AssetTypeFilter } from './assetTypeFilter';
 
 // ─── Type Filters ────────────────────────────────────────
-
-type AssetTypeFilter = 'all' | 'floor' | 'wall' | 'object' | 'scatter' | 'edge' | 'path';
 
 const TYPE_FILTER_TABS: { id: AssetTypeFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'floor', label: 'Floor' },
   { id: 'wall', label: 'Wall' },
   { id: 'object', label: 'Object' },
-  { id: 'scatter', label: 'Scatter' },
   { id: 'edge', label: 'Edge' },
   { id: 'path', label: 'Path' },
 ];
-
-/** Map category IDs to asset type for filtering */
-function categoryToType(categoryId: string): AssetTypeFilter | null {
-  // Pack categories use "packId:type" format
-  if (categoryId.includes(':')) {
-    const type = categoryId.split(':')[1] as AssetTypeFilter;
-    if (TYPE_FILTER_TABS.some((t) => t.id === type)) return type;
-    return null;
-  }
-  // Legacy categories
-  if (categoryId === 'floors') return 'floor';
-  if (categoryId === 'walls') return 'wall';
-  if (categoryId === 'edges') return 'edge';
-  if (categoryId === 'nature' || categoryId === 'miscellaneous') return 'object';
-  if (categoryId === 'scatter') return 'scatter';
-  return null;
-}
-
-/** Auto-select type filter based on active tool */
-function toolToTypeFilter(tool: ToolType): AssetTypeFilter {
-  switch (tool) {
-    case 'rectangle':
-    case 'polygon':
-    case 'regularPolygon':
-      return 'floor';
-    case 'path':
-      return 'path';
-    case 'wall':
-    case 'door':
-      return 'wall';
-    case 'assetPlacement':
-      return 'object';
-    case 'scatterBrush':
-      return 'scatter';
-    default:
-      return 'all';
-  }
-}
 
 // ─── Asset Thumbnail ──────────────────────────────────────
 
@@ -162,13 +125,23 @@ const selectManifest = (s: { assets: { manifest: AssetManifest | null; recentlyU
   recentlyUsed: s.assets.recentlyUsed,
 });
 
-export function AssetBrowserPanel() {
+/** `initialType` opens the browser on that type tab instead of the one the tool suggests. */
+export function AssetBrowserPanel({
+  initialType,
+  hint,
+  floorHint,
+}: {
+  initialType?: AssetTypeFilter;
+  /** What a click does, when the host knows better than "stamp" (a pick that retextures floors). */
+  hint?: string;
+  /** What a click does on the Floor tab, where nothing is ever stamped. */
+  floorHint?: string;
+} = {}) {
   const { manifest, recentlyUsed } = useStore(useShallow(selectManifest));
-  const trackRecentUse = useStore((s) => s.trackRecentUse);
   const activeTool = useStore((s) => s.tools.activeTool);
 
   // User override: null = follow tool, string = user's choice
-  const [userTypeOverride, setUserTypeOverride] = useState<AssetTypeFilter | null>(null);
+  const [userTypeOverride, setUserTypeOverride] = useState<AssetTypeFilter | null>(initialType ?? null);
   const typeFilter: AssetTypeFilter = userTypeOverride ?? toolToTypeFilter(activeTool);
   const [activeCategory, setActiveCategory] = useState<string>('recent');
   const [search, setSearch] = useState('');
@@ -189,12 +162,11 @@ export function AssetBrowserPanel() {
     return categories.filter((c) => categoryToType(c.id) === typeFilter);
   }, [categories, typeFilter]);
 
-  const recentAssets = useMemo(() => {
-    const allAssetsMap = new Map(categories.flatMap((c) => c.assets).map((a) => [a.id, a]));
-    return recentlyUsed
-      .map((id) => allAssetsMap.get(id))
-      .filter((a): a is AssetEntry => a !== undefined);
-  }, [recentlyUsed, categories]);
+  // Recent follows the type tab too: a bush picked for the brush has no place under Floor.
+  const recentAssets = useMemo(
+    () => recentAssetsOfType(recentlyUsed, categories, typeFilter),
+    [recentlyUsed, categories, typeFilter],
+  );
 
   const currentAssets = useMemo(() => {
     let assets: AssetEntry[] =
@@ -210,37 +182,17 @@ export function AssetBrowserPanel() {
   }, [activeCategory, recentAssets, filteredCategories, search]);
 
   const scatterSettings = useStore(useShallow((s) => s.tools.settings.scatterBrush));
-  const updateScatterBrushSettings = useStore((s) => s.updateScatterBrushSettings);
-  const setActiveTool = useStore((s) => s.setActiveTool);
 
   const selectedIds = useMemo(
     () => new Set(scatterSettings.assetIds),
     [scatterSettings.assetIds],
   );
 
-  const handleSelect = useCallback(
-    (assetId: string) => {
-      const store = useStore.getState();
-      const settings = store.tools.settings.scatterBrush;
-      const currentTool = store.tools.activeTool;
-
-      if (currentTool === 'scatterBrush' && !settings.stampMode) {
-        // Scatter mode: toggle asset in/out of pool
-        const current = settings.assetIds;
-        const next = current.includes(assetId)
-          ? current.filter((id) => id !== assetId)
-          : [...current, assetId];
-        updateScatterBrushSettings({ assetIds: next });
-      } else {
-        // Stamp mode (or any other tool): set single asset + activate stamp
-        updateScatterBrushSettings({ assetIds: [assetId], stampMode: true });
-        setActiveTool('scatterBrush');
-      }
-
-      trackRecentUse(assetId);
-    },
-    [updateScatterBrushSettings, setActiveTool, trackRecentUse],
-  );
+  // Floor textures go on the floors (the selected ones, else every floor on the layer) and
+  // wall pieces to the wall tool; anything else is a prop (scatter mode
+  // toggles it in the pool, otherwise it becomes the stamp). The dock's strips pick through
+  // the same helpers, so the two never disagree.
+  const handleSelect = useCallback((assetId: string) => pickAssetForTool(assetId), []);
 
   const categoryTabs = [
     { id: 'recent', label: 'Recent' },
@@ -295,13 +247,18 @@ export function AssetBrowserPanel() {
           <p className="py-6 text-center text-xs text-muted-foreground">No assets available.</p>
         ) : (
           <>
-            {activeTool === 'scatterBrush' && !scatterSettings.stampMode ? (
+            {typeFilter === 'floor' ? (
+              // Floor textures always go on floors (pickAssetForTool), never into the brush.
+              <p className="px-2 py-1 text-[10px] text-accent" data-testid="asset-browser-hint">
+                {floorHint ?? 'Click a texture to apply it to the floors'}
+              </p>
+            ) : activeTool === 'scatterBrush' && !scatterSettings.stampMode ? (
               <p className="px-2 py-1 text-[10px] text-accent">
                 Click assets to add/remove from scatter pool
               </p>
             ) : (
-              <p className="px-2 py-1 text-[10px] text-accent">
-                Click an asset to stamp it
+              <p className="px-2 py-1 text-[10px] text-accent" data-testid="asset-browser-hint">
+                {hint ?? 'Click an asset to stamp it'}
               </p>
             )}
             <AssetGrid assets={currentAssets} selectedIds={selectedIds} onSelect={handleSelect} />

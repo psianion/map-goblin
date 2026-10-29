@@ -10,6 +10,7 @@
 import type {
   Ability,
   AmbientLevel,
+  RoomKey,
   RoomNote,
   TimeOfDay,
   TriggerDef,
@@ -23,21 +24,24 @@ import {
   type TimeSpeed,
   type WorldLight,
 } from '@dnd/core/src/shared/world'
+import { skyFrame, type SkyFrame } from '@dnd/core/src/shared/sky'
+import type { LightAnimation, Mood } from '@dnd/core/src/shared/types'
 
 // Consumers of the module (server wiring, table client) get the shared prep vocabulary from
 // here rather than deep-importing @dnd/core themselves. `normalizePrep` rides along as a
 // value for the same reason `resolveWorldLight` does: D3 bars the server from runtime-
 // importing @dnd/core directly, and this leaf is pure.
-export { normalizePrep } from '@dnd/core/src/shared/prep'
-export type { Ability, AmbientLevel, RoomNote, TimeOfDay, TriggerDef, Weather }
+export { normalizePrep, roomLabel } from '@dnd/core/src/shared/prep'
+export type { Ability, AmbientLevel, RoomKey, RoomNote, TimeOfDay, TriggerDef, Weather }
 // …and the world rules with it, so the referee and the table read the light off one import
 // (`worldLightOf` below) the way they already read `needsLight`.
-export { resolveWorldLight }
-export type { MapEnvironment, NightSky, TimeSpeed, WorldLight }
+export { resolveWorldLight, skyFrame }
+export type { MapEnvironment, Mood, NightSky, SkyFrame, TimeSpeed, WorldLight }
 
 export interface ResolvedTrigger {
   def: TriggerDef
-  /** room-revealed only: the zone's containing room, resolved server-side. */
+  /** room-revealed only: the condition's own `roomId`, or its zone's containing room, resolved
+   *  server-side. */
   roomId?: string
   /** enter-region / within-radius: the zone's shape in map units. */
   shape?:
@@ -63,9 +67,30 @@ export interface ResolvedNote {
   inert?: string
 }
 
+/**
+ * A v3 room key, resolved against the map it keys: the room's display label for the Journal
+ * card and the DM's toast, and where its encounter spawns. `inert` when the key names a room
+ * the map no longer has; the key still lists at the table, it just cannot pop or spawn.
+ */
+export interface ResolvedRoomKey {
+  key: RoomKey
+  /** `N · name` (the bare name when unnumbered), what the DM and the Journal read. */
+  label?: string
+  /** A point inside the room (its anchor) that spawned tokens fan out from. */
+  spawnAt?: { x: number; y: number }
+  /** The room's face in map units; spawn positions are kept inside it. */
+  region?: readonly [number, number][]
+  inert?: string
+  /** Why the key's encounter cannot spawn (bad count, bad HP formula, roster too big) — the
+   *  same checks an `encounter` trigger action gets. The rest of the key still works. */
+  encounterInert?: string
+}
+
 export interface ResolvedPrep {
   triggers: ResolvedTrigger[]
   notes: ResolvedNote[]
+  /** v3 room keys. Absent reads as none (a resolver that predates v3). */
+  rooms?: ResolvedRoomKey[]
 }
 
 export interface TriggerPrompt {
@@ -107,7 +132,16 @@ export type LightEdit = Partial<{
   color: string
   falloff: 'linear' | 'quadratic'
   position: { x: number; y: number }
+  cone: { angle: number; direction: number }
+  animation: LightAnimation
+  throughWalls: boolean
+  nightOnly: { min: number; max: number }
+  darkness: boolean
+  darkvisionSees: boolean
 }>
+
+/** A DM's live edit to one room: today only its mood. Moods are not secrets, so these ship whole. */
+export type RoomEdit = { mood?: Mood }
 
 export interface SceneTriggers {
   /** triggerId → the `now()` it last fired. */
@@ -122,9 +156,17 @@ export interface SceneTriggers {
   /** DM's live per-light edits (M2), keyed by light id — the table's own truth for a light,
    *  overlaid on whatever the map authored it as (`effectiveLight` in module.ts). */
   lightEdits: Record<string, LightEdit>
-  /** `ambient` absent ⇒ `'daylight'` — a scene played before the dial existed keeps the
-   *  purely geometric vision it was played with (S3 P3 §1). */
-  env: { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
+  /** DM's live per-room edits (`set-room`), keyed by room id, overlaid on the authored look.
+   *  Absent on a row saved before the Lighting pass — read through `roomEditsOf`. */
+  roomEdits?: Record<string, RoomEdit>
+  /** Seats the DM pinned to a level, by identity (`set-seat-level`). Absent ⇒ none. */
+  seatLevel?: Record<string, string>
+  /** The level the DM's own view shows (`set-dm-level`). Absent ⇒ the map's first level. */
+  dmLevelId?: string
+  /** Narration labels. `weather` here is legacy: the live weather is `world.weather` now.
+   *  A row saved before the Lighting pass may still carry an `ambient` key; `worldOf` folds
+   *  it into `world.darkness` on read (`legacyDarkness`). */
+  env: { time?: TimeOfDay; weather?: Weather }
   /** Open prompts, cap 20 (drop oldest). */
   prompts: TriggerPrompt[]
   /** Cap 200 (drop oldest). */
@@ -145,6 +187,10 @@ export interface WorldState {
   nightSky: NightSky
   /** Auto-advance rate. Stored and synced here; the ticking that reads it is P4. */
   timeSpeed: TimeSpeed
+  /** The live weather (light only). Absent ⇒ the map's default weather. */
+  weather?: Weather
+  /** The DM's darkness slider, 0..1. `null` ⇒ follow the sky; absent ⇒ not yet migrated. */
+  darkness?: number | null
 }
 
 /** The four voices a Journal card can carry — `vocabLabel`-style Title case is the UI's job,
@@ -169,6 +215,8 @@ export interface JournalEntry {
   sceneId: string
   /** Set only by `share-note` — the `RoomNote` this entry was snapshotted from. */
   sourceNoteId?: string
+  /** Set only by `share-card` with a `roomId`: the room whose key's read-aloud this is. */
+  sourceRoomId?: string
 }
 
 /** DM-only bookkeeping: the last time a given note was shared, and into which entry — lets
@@ -188,34 +236,95 @@ export interface TriggersState {
   /** Published Journal cards — session-scoped like `world`, not per-scene: a card persists
    *  across scene switches. Visible to every role in redaction, since publishing IS sharing. */
   journal?: JournalEntry[]
-  /** noteId → its last share. DM-only in redaction. */
+  /** noteId (or `roomShareKey(roomId)` for a room key's read-aloud) → its last share. DM-only
+   *  in redaction. */
   shareReceipts?: Record<string, ShareReceipt>
 }
 
-/**
- * The scene's light level, as the vision rules read it (S3 P3 §1) — one reading of the
- * optional field, shared by the referee and the canvas so the two cannot disagree about
- * whether a normal eye needs a torch.
- */
-export const ambientOf = (scene: SceneTriggers): AmbientLevel => scene.env.ambient ?? 'daylight'
+/** The old 3-state ambient dial as a darkness slider value (the Lighting pass migration). */
+export const AMBIENT_DARKNESS: Record<AmbientLevel, number> = { daylight: 0, dusk: 0.5, darkness: 1 }
+
+/** The darkness slider read back as the old 3-state level, for the badge and narration. */
+export function darknessLevel(darkness: number): AmbientLevel {
+  return darkness >= 0.75 ? 'darkness' : darkness >= 0.25 ? 'dusk' : 'daylight'
+}
 
 /**
- * The one mechanical distinction the three levels draw: in `darkness` normal vision is
- * clipped to light-source coverage, and in `daylight`/`dusk` the whole sweep counts as lit.
- *
- * The scene's own dial only — a map that follows the sky asks `worldLightOf` instead, which
- * answers the same question with the clock in it.
+ * Read-compat for the Lighting pass: a row saved before the darkness slider carries the old
+ * per-scene `env.ambient` dial. The first scene that has one becomes the campaign's slider
+ * value; none is `null` (follow the sky). Only consulted while `world.darkness` is absent, so
+ * the first `set-world` after an upgrade writes it down and this never runs again.
  */
-export const needsLight = (scene: SceneTriggers): boolean => ambientOf(scene) === 'darkness'
+export function legacyDarkness(state: TriggersState): number | null {
+  for (const scene of Object.values(state.byScene)) {
+    const ambient = (scene.env as { ambient?: AmbientLevel }).ambient
+    if (ambient && ambient in AMBIENT_DARKNESS) return AMBIENT_DARKNESS[ambient]
+  }
+  return null
+}
 
 /** The world as it stands, defaulted: midday, a full moon over it, and not moving. */
 export const WORLD_DEFAULT: WorldState = { clock: NOON, nightSky: 'full-moon', timeSpeed: 'paused' }
 
 /** The one reading of the optional slice — a campaign that predates the clock reads midday. */
-export const worldOf = (state: TriggersState): WorldState => ({ ...WORLD_DEFAULT, ...state.world })
+export const worldOf = (state: TriggersState): WorldState => {
+  const world = { ...WORLD_DEFAULT, ...state.world }
+  if (world.darkness === undefined) world.darkness = legacyDarkness(state)
+  return world
+}
+
+/**
+ * The sky the table is playing under: the map's authored defaults, the campaign's clock, and
+ * the DM's live weather, night sky and darkness on top. The one `SkyFrame` the referee, the
+ * table renderer and the fog all read.
+ */
+export function worldSkyOf(map: MapEnvironment, state: TriggersState): SkyFrame {
+  const world = worldOf(state)
+  return skyFrame({
+    ...map,
+    minutes: world.clock,
+    nightSky: state.world?.nightSky ?? map.nightSky ?? world.nightSky,
+    weather: world.weather ?? map.weather,
+    override: world.darkness ?? null,
+  })
+}
+
+/** A scene's room edits, defaulted: a row saved before the Lighting pass has none. */
+export const roomEditsOf = (scene: SceneTriggers): Record<string, RoomEdit> => scene.roomEdits ?? {}
+
+/**
+ * The level a seat is looking at: the DM's own pick for the DM; for a player, the level the
+ * DM pinned the seat to, else the level of the first token the seat claims, else the map's
+ * first level. A token without a level stands on the first level.
+ */
+export function viewedLevel(
+  scene: SceneTriggers,
+  tokens: Iterable<{ ownerId: string | null; levelId?: string }>,
+  viewer: { role: string; identityId: string },
+  firstLevelId: string,
+): string {
+  if (viewer.role === 'dm') return scene.dmLevelId ?? firstLevelId
+  const pinned = scene.seatLevel?.[viewer.identityId]
+  if (pinned) return pinned
+  for (const token of tokens) if (token.ownerId === viewer.identityId) return token.levelId ?? firstLevelId
+  return firstLevelId
+}
 
 /** The one reading of the optional slice — a campaign with nothing shared yet reads empty. */
 export const journalOf = (state: TriggersState): JournalEntry[] => state.journal ?? []
+
+/** The receipt key a room key's read-aloud share is filed under: prefixed so a room id can
+ *  never collide with a note id in the one shared map. */
+export const roomShareKey = (roomId: string): string => `room:${roomId}`
+
+/** `SceneTriggers.fired` keys for room keys, prefixed like reveal-notes' `note:` so the room,
+ *  note and trigger namespaces never mix in the one map: the reveal pop (re-armed by a fog
+ *  reset), and the last time the DM spawned the key's encounter. */
+export const roomRevealKey = (roomId: string): string => `room:${roomId}`
+export const roomSpawnKey = (roomId: string): string => `spawn:${roomId}`
+
+/** The one reading of the optional v3 slice: a resolver that predates room keys has none. */
+export const roomKeysOf = (prep: ResolvedPrep): ResolvedRoomKey[] => prep.rooms ?? []
 
 /** ditto, for the DM-only receipt map. */
 export const shareReceiptsOf = (state: TriggersState): Record<string, ShareReceipt> =>
@@ -225,25 +334,21 @@ export const shareReceiptsOf = (state: TriggersState): Record<string, ShareRecei
  * The scene's light, as the whole rule sees it: the map's authored environment, the campaign's
  * clock and sky, and the DM's own override on top.
  *
- * This is the seam `ambientOf`/`needsLight` used to be — one function the referee
- * (`fog/vision.ts`) and the canvas (`FogRenderer`) both call, so the mask and the redaction
- * cannot disagree about whether the party needs a torch.
- *
- * The migration is the `override` argument: a scene's stored `env.ambient` — every value a DM
- * has ever set — *is* the override, so a campaign upgraded into this feature plays exactly as
- * it did until someone clears the dial.
+ * The badge and narration read this; the vision gate reads `worldSkyOf` and the per-region
+ * rule (`isDarkRegion`). The DM's darkness slider stands in as the override, read back as the
+ * old three levels (`darknessLevel`).
  */
 export function worldLightOf(
   map: MapEnvironment,
   state: TriggersState,
-  sceneId: string,
+  _sceneId?: string,
 ): WorldLight {
   const world = worldOf(state)
   return resolveWorldLight({
     ...map,
     clockMinutes: world.clock,
     nightSky: world.nightSky,
-    override: sceneTriggersOf(state, sceneId).env.ambient ?? null,
+    override: world.darkness === null || world.darkness === undefined ? null : darknessLevel(world.darkness),
   })
 }
 

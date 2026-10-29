@@ -128,8 +128,8 @@ export class WallTool implements DrawingTool {
         wallType: store.tools.settings.wallType,
         direction: store.tools.settings.wallDirection,
         color: activeLayer.style.wallColor,
-        width: activeLayer.style.wallWidth,
-        roughness: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+        // No width: a drawn wall takes the layer's, and follows it when it changes.
+        roughness: 0,
       }),
     );
   }

@@ -1,70 +1,22 @@
 // src/io/autosave.ts
-// IndexedDB autosave + dirty flag management.
+// Debounced autosave of the active map.
 //
-// Dirty flag lifecycle:
-//   - Set: immediately on any store mutation (via Zustand subscriber)
-//   - Cleared: on successful explicit save OR successful autosave
-//
-// Autosave trigger: debounced 30s after last store mutation.
-// Recovery check: on app mount, if dirty flag is set, prompt user to restore.
+// Autosave trigger: debounced 30s after the last document change, brought
+// forward for a one-click setting (see isSettingsChange). Skipped while a map
+// switch is in flight (the store's isMapSwitching flag).
 
-import type { SerializedMapData } from '@/store/types';
-import { isSupportedVersion } from '@dnd/core/src/store/migration';
+import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-export const AUTOSAVE_DB_NAME = 'mapbuilder';
-export const AUTOSAVE_STORE_NAME = 'saves';
-export const AUTOSAVE_KEY = 'mapbuilder-autosave';
-export const DIRTY_FLAG_KEY = 'mapbuilder-dirty';
-
-// Guard: set to true during map switch to skip autosave writes
-let _isMapSwitching = false;
-
-export function setMapSwitching(switching: boolean): void {
-  _isMapSwitching = switching;
-}
-
-export function isMapSwitchingActive(): boolean {
-  return _isMapSwitching;
-}
-
-// ─── Dirty Flag (localStorage) ────────────────────────────────────────────────
-
-export function setDirtyFlag(): void {
-  localStorage.setItem(DIRTY_FLAG_KEY, 'true');
-}
-
-export function clearDirtyFlag(): void {
-  localStorage.removeItem(DIRTY_FLAG_KEY);
-}
-
-/** Delete the autosave entry from IndexedDB. Call on discard to prevent stale data. */
-export async function deleteAutosaveFromIndexedDB(): Promise<void> {
-  try {
-    const db = await openDB();
-    const tx = db.transaction(AUTOSAVE_STORE_NAME, 'readwrite');
-    tx.objectStore(AUTOSAVE_STORE_NAME).delete(AUTOSAVE_KEY);
-    await new Promise<void>((resolve) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-    });
-  } catch (err) {
-    // Best-effort — don't block app
-    console.warn('[autosave] failed to delete autosave entry:', err);
-  }
-}
-
-export function isDirtyFlagSet(): boolean {
-  return localStorage.getItem(DIRTY_FLAG_KEY) === 'true';
-}
+import { ROOM_RUNTIME_KEYS } from '@dnd/core/src/shared/types';
 
 // ─── What counts as an unsaved change ─────────────────────────────────────────
 
 /** The slices `getSerializableState` actually writes to a save file. */
 interface DocumentSlices {
   mapSettings: unknown;
-  grid: unknown;
+  /** The map's levels. Optional so callers holding an older shape still type. */
+  levels?: unknown;
+  grid: { visible?: unknown; snapDivision?: unknown };
   layers: readonly object[];
   assets: { customImages: unknown };
   /** Splat bitmaps live outside customImages now — their rev is the change signal. */
@@ -75,191 +27,218 @@ interface DocumentSlices {
  * Fields on a layer that are recomputed from its geometry rather than authored.
  *
  * `mergedFloor` is the boolean-op cache the engine fills in once the scene is
- * built (and `getSerializableState` strips it before saving); `rooms` is
- * re-derived by `syncRooms` from the same geometry. Both get rewritten during a
- * boot nobody touched, which is what left every session ending "dirty". A real
- * edit changes the geometry they come from, so ignoring them loses nothing.
+ * built (and `getSerializableState` strips it before saving). It gets rewritten
+ * during a boot nobody touched, which is what left every session ending "dirty".
+ * A real edit changes the geometry it comes from, so ignoring it loses nothing.
  */
-const DERIVED_LAYER_FIELDS = ['mergedFloor', 'rooms'];
+const DERIVED_LAYER_FIELDS = ['mergedFloor'];
+
+/**
+ * A layer's rooms as the file holds them: each room without its derived face,
+ * centroid, doors… Rooms are authored now (name, number, anchor, look), so they
+ * count — but `syncRooms` rewrites the derived half on every boot, and that alone
+ * must not read as an edit.
+ */
+function authoredRooms(rooms: unknown): string {
+  if (!Array.isArray(rooms)) return '';
+  return JSON.stringify(
+    rooms.map((room: Record<string, unknown>) => {
+      const out = { ...room };
+      for (const key of ROOM_RUNTIME_KEYS) delete out[key];
+      return out;
+    }),
+  );
+}
+
+/** Whether one layer field differs, reading `rooms` through its authored half. */
+function fieldDiffers(key: string, a: unknown, b: unknown): boolean {
+  if (a === b) return false;
+  if (key === 'rooms') return authoredRooms(a) !== authoredRooms(b);
+  return true;
+}
+
+/**
+ * Layer fields set by a single pick in a settings control (opacity, name, which
+ * parts show, the style chips) rather than drawn. Like map settings they save
+ * promptly: a layer opacity left for a few seconds before a reload used to come
+ * back at 100% because it waited out the 30 s drawing debounce.
+ */
+const SETTING_LAYER_FIELDS = new Set([
+  'name',
+  'visible',
+  'locked',
+  'opacity',
+  'style',
+  'sublayerVisibility',
+  // A room or area edit (a rename, a number, a look, an area) is a pick in a
+  // field, like a layer name; so is moving a layer to another level.
+  'rooms',
+  'areas',
+  'levelId',
+  'backgroundColor',
+  'backgroundTexture',
+  'textureScale',
+  'textureTint',
+  'presetLock',
+]);
+
+/** The authored fields that differ between two versions of a layer. */
+function changedLayerFields(a: Record<string, unknown>, b: Record<string, unknown>): string[] {
+  if (a === b) return [];
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const derived of DERIVED_LAYER_FIELDS) keys.delete(derived);
+  return [...keys].filter((k) => fieldDiffers(k, a[k], b[k]));
+}
 
 /** Layers, ignoring the derived fields above. */
 function layersDiffer(next: readonly object[], prev: readonly object[]): boolean {
   if (next === prev) return false;
   if (next.length !== prev.length) return true;
-  return next.some((layer, i) => {
-    const a = layer as Record<string, unknown>;
+  return next.some(
+    (layer, i) => changedLayerFields(layer as Record<string, unknown>, prev[i] as Record<string, unknown>).length > 0,
+  );
+}
+
+/** Did only layer settings change (see SETTING_LAYER_FIELDS), with no drawing mixed in? */
+function onlyLayerSettingsChanged(next: readonly object[], prev: readonly object[]): boolean {
+  if (next === prev || next.length !== prev.length) return false;
+  let any = false;
+  for (let i = 0; i < next.length; i++) {
+    const a = next[i] as Record<string, unknown>;
     const b = prev[i] as Record<string, unknown>;
-    if (a === b) return false;
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const derived of DERIVED_LAYER_FIELDS) keys.delete(derived);
-    for (const k of keys) if (a[k] !== b[k]) return true;
-    return false;
-  });
+    if (a.id !== b.id) return false;
+    for (const k of changedLayerFields(a, b)) {
+      if (!SETTING_LAYER_FIELDS.has(k)) return false;
+      any = true;
+    }
+  }
+  return any;
 }
 
 /**
  * Did this store change touch the saved document?
  *
  * The autosave subscriber used to fire on *any* state change — selecting a tool,
- * panning the camera, the asset packs finishing their install. Those set the
- * dirty flag on a boot where the user did nothing, so the next visit opened on
- * "Recover Unsaved Changes?". Only the slices that end up in a save file count.
+ * panning the camera, the asset packs finishing their install. Those scheduled
+ * saves on a boot where the user did nothing. Only the slices that end up in a
+ * save file count.
  */
 export function isDocumentChange(next: DocumentSlices, prev: DocumentSlices): boolean {
-  if (next.mapSettings !== prev.mapSettings) return true;
-  if (next.grid !== prev.grid) return true;
+  if (isSettingsChange(next, prev)) return true;
   if (next.assets.customImages !== prev.assets.customImages) return true;
   if (next.terrainSplats.rev !== prev.terrainSplats.rev) return true;
   return layersDiffer(next.layers, prev.layers);
 }
 
-// ─── IndexedDB ────────────────────────────────────────────────────────────────
-
-export interface AutosaveEntry {
-  key: string;
-  data: SerializedMapData;
-  savedAt: number; // Date.now() timestamp
-}
-
-/** Open (or create) the mapbuilder IndexedDB. */
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(AUTOSAVE_DB_NAME, 1);
-    req.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(AUTOSAVE_STORE_NAME)) {
-        db.createObjectStore(AUTOSAVE_STORE_NAME, { keyPath: 'key' });
-      }
-    };
-    req.onsuccess = (event) => resolve((event.target as IDBOpenDBRequest).result);
-    req.onerror = (event) => reject((event.target as IDBOpenDBRequest).error);
-  });
-}
-
 /**
- * Save the given SerializedMapData to IndexedDB under AUTOSAVE_KEY.
+ * A one-click setting: the map settings, the grid fields the file keeps (shown,
+ * snap division), or a layer's settings (see SETTING_LAYER_FIELDS). Snap on/off is left out — it is the DM's per-browser
+ * preference (io/snapPref.ts) and is not written to the map.
+ *
+ * These are single discrete picks, not a stream of strokes to coalesce, so they
+ * are saved promptly rather than after the 30 s drawing debounce — a reload a few
+ * seconds after choosing 1/4 snap used to bring the map back at 1/2.
  */
-export async function saveToIndexedDB(data: SerializedMapData): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(AUTOSAVE_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(AUTOSAVE_STORE_NAME);
-    const entry: AutosaveEntry = {
-      key: AUTOSAVE_KEY,
-      data,
-      savedAt: Date.now(),
-    };
-    const req = store.put(entry);
-    req.onsuccess = () => resolve();
-    req.onerror = (event) => reject((event.target as IDBRequest).error);
-    tx.oncomplete = () => db.close();
-  });
-}
-
-/**
- * Load the autosave entry from IndexedDB.
- * Returns null if no autosave exists or its version is unsupported.
- * Unsupported autosaves are discarded and the entry is cleared.
- */
-export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(AUTOSAVE_STORE_NAME, 'readonly');
-    const store = tx.objectStore(AUTOSAVE_STORE_NAME);
-    const req = store.get(AUTOSAVE_KEY);
-    req.onsuccess = (event) => {
-      const result = (event.target as IDBRequest<AutosaveEntry | undefined>).result;
-      if (!result) {
-        resolve(null);
-        db.close();
-        return;
-      }
-      // Discard autosaves from format versions no reader accepts. This gate was
-      // `!== '2.0'` until schema 3.1 — silently discarding every autosave written
-      // since the format moved to 3.0.
-      if (!isSupportedVersion(result.data.version)) {
-        console.warn(
-          `[autosave] Discarding stale autosave (unsupported version "${String((result.data as { version?: unknown }).version)}")`,
-        );
-        // Best-effort delete — do not block on it
-        try {
-          const deleteTx = db.transaction(AUTOSAVE_STORE_NAME, 'readwrite');
-          deleteTx.objectStore(AUTOSAVE_STORE_NAME).delete(AUTOSAVE_KEY);
-        } catch (err) {
-          console.warn('[autosave] failed to delete stale autosave entry:', err);
-        }
-        clearDirtyFlag();
-        resolve(null);
-        db.close();
-        return;
-      }
-      resolve(result);
-      db.close();
-    };
-    req.onerror = (event) => reject((event.target as IDBRequest).error);
-  });
+export function isSettingsChange(next: DocumentSlices, prev: DocumentSlices): boolean {
+  if (next.mapSettings !== prev.mapSettings) return true;
+  if (next.levels !== prev.levels) return true;
+  if (onlyLayerSettingsChanged(next.layers, prev.layers)) return true;
+  if (next.grid === prev.grid) return false;
+  return next.grid.visible !== prev.grid.visible || next.grid.snapDivision !== prev.grid.snapDivision;
 }
 
 // ─── Autosave Subscriber ──────────────────────────────────────────────────────
 
 let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+/** When the pending save is due, and whether a prompt (settings) change set it. */
+let _dueAt = 0;
+let _duePrompt = false;
 const AUTOSAVE_DELAY_MS = 30_000; // 30 seconds
+/** Delay after a one-click setting (see isSettingsChange): just long enough to batch a few picks. */
+export const AUTOSAVE_PROMPT_DELAY_MS = 1_500;
 
 /**
  * Start the autosave system.
  * Call once on app mount. Returns a cleanup function for unmount.
  *
- * The subscriber sets the dirty flag on every state change and schedules
- * an autosave 30 seconds after the last mutation.
+ * The subscriber schedules an autosave 30 seconds after the last document
+ * change. A change the listener is told is prompt (a map setting, see
+ * `isSettingsChange`) brings the save forward to
+ * {@link AUTOSAVE_PROMPT_DELAY_MS}, and later drawing does not push it back out. Whatever is still pending when the page is hidden (tab switched,
+ * closed, reloaded) is saved then rather than dropped with the timer.
  *
  * In multi-map mode, the debounced save calls `saveCurrentMap()` on the
  * store, which persists the active map to the new IndexedDB maps store.
- * The `isMapSwitching` guard prevents autosave during map switch transitions.
+ * The store's `isMapSwitching` flag skips the save while a map switch is in
+ * flight, so a half-loaded map is never written over the one being opened.
  */
 export function startAutosave(
   saveCurrentMap: () => Promise<void>,
-  subscribe: (listener: () => void) => () => void,
+  subscribe: (listener: (prompt?: boolean) => void) => () => void,
 ): () => void {
-  const handleChange = () => {
-    setDirtyFlag();
+  const runSave = () => {
+    _debounceTimer = null;
+    _duePrompt = false;
+    // Skip autosave during map switch
+    if (useStore.getState().isMapSwitching) return;
+
+    saveCurrentMap()
+      .then(() => {
+        notify.subtle('Autosaved', { icon: 'save' });
+      })
+      .catch((err: unknown) => {
+        console.error('[autosave] save failed:', err);
+        notify.action('Autosave failed — your changes may not be saved', {
+          label: 'Retry',
+          onClick: () => {
+            saveCurrentMap()
+              .then(() => {
+                notify.subtle('Autosaved', { icon: 'save' });
+              })
+              .catch((retryErr: unknown) => {
+                console.error('[autosave] retry failed:', retryErr);
+                notify.error('Autosave retry failed — save manually to avoid losing work');
+              });
+          },
+        });
+      });
+  };
+
+  const handleChange = (prompt = false) => {
+    const now = Date.now();
+    let due = now + (prompt ? AUTOSAVE_PROMPT_DELAY_MS : AUTOSAVE_DELAY_MS);
+    // A prompt save already on the way keeps its slot: strokes that follow it
+    // would otherwise slide the setting back to 30 s out.
+    if (_debounceTimer !== null && _duePrompt) due = Math.min(due, _dueAt);
+    _duePrompt = prompt || (_debounceTimer !== null && _duePrompt);
+    _dueAt = due;
 
     if (_debounceTimer !== null) clearTimeout(_debounceTimer);
-    _debounceTimer = setTimeout(() => {
-      // Skip autosave during map switch
-      if (_isMapSwitching) return;
-
-      saveCurrentMap()
-        .then(() => {
-          clearDirtyFlag();
-          notify.subtle('Autosaved', { icon: 'save' });
-        })
-        .catch((err: unknown) => {
-          console.error('[autosave] save failed:', err);
-          notify.action('Autosave failed — your changes may not be saved', {
-            label: 'Retry',
-            onClick: () => {
-              saveCurrentMap()
-                .then(() => {
-                  clearDirtyFlag();
-                  notify.subtle('Autosaved', { icon: 'save' });
-                })
-                .catch((retryErr: unknown) => {
-                  console.error('[autosave] retry failed:', retryErr);
-                  notify.error('Autosave retry failed — save manually to avoid losing work');
-                });
-            },
-          });
-        });
-    }, AUTOSAVE_DELAY_MS);
+    _debounceTimer = setTimeout(runSave, Math.max(0, due - now));
   };
+
+  // Leaving the page: a pending save is written now rather than lost with the timer.
+  const flush = () => {
+    if (_debounceTimer === null) return;
+    clearTimeout(_debounceTimer);
+    runSave();
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') flush();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('pagehide', flush);
 
   const unsubscribe = subscribe(handleChange);
 
   return () => {
     unsubscribe();
+    document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('pagehide', flush);
     if (_debounceTimer !== null) {
       clearTimeout(_debounceTimer);
       _debounceTimer = null;
     }
+    _duePrompt = false;
   };
 }

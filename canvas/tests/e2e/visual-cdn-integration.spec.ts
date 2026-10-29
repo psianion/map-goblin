@@ -24,7 +24,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 
-/** Must stay in step with `cdnConfig.baseUrl` (src/config/cdnConfig.ts). */
+/** Must stay in step with `cdnConfig.baseUrl` (packages/core/src/config/cdnConfig.ts). */
 const CDN_BASE = '/packs'
 const PACK_ID = 'gg-forge'
 
@@ -269,18 +269,15 @@ test.describe('CDN Connectivity', () => {
 
     await gotoApp(page)
 
-    const configuredBase = await page.evaluate(async () => {
-      const { cdnConfig } = (await import('/src/config/cdnConfig.ts')) as typeof import(
-        '@/config/cdnConfig'
-      )
-      const res = await fetch(`${cdnConfig.baseUrl}/index.json`)
-      return { baseUrl: cdnConfig.baseUrl, ok: res.ok, status: res.status }
-    })
+    const configuredBase = await page.evaluate(async (cdnBase) => {
+      const res = await fetch(`${cdnBase}/index.json`)
+      return { ok: res.ok, status: res.status }
+    }, CDN_BASE)
 
-    expect(configuredBase.baseUrl).toBe(CDN_BASE)
     expect(configuredBase.ok).toBe(true)
     expect(configuredBase.status).toBe(200)
     expect(packIndexRequests.length).toBeGreaterThan(0)
+    expect(packIndexRequests.every((url) => new URL(url).pathname === `${CDN_BASE}/index.json`)).toBe(true)
   })
 
   test('pack manifest is fetchable from CDN', async ({ page }) => {
@@ -311,7 +308,7 @@ test.describe('CDN Connectivity', () => {
     expect(result.version).toBe(await publishedPackVersion(page))
     expect(result.name).toBe('gg-forge')
     // Pinned regression tripwire — verified against the committed manifest.
-    expect(result.entryCount).toBe(58)
+    expect(result.entryCount).toBe(96)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
@@ -467,68 +464,36 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     await expect(page.getByPlaceholder('Search assets…')).toBeVisible()
   })
 
-  test('catalog browser panel is accessible from packs tab or assets tab', async ({ page }) => {
+  test('asset browser is reachable from the assets tab', async ({ page }) => {
     await gotoApp(page)
 
-    // Try to find catalog-related UI (either in assets or a packs tab)
     await page.getByRole('button', { name: /assets/i }).click()
     await waitFrame(page, 3)
 
-    // Either the asset browser or catalog should be visible
-    const searchVisible = await page.getByPlaceholder('Search assets…').isVisible()
-    const catalogConnectVisible = await page
-      .getByRole('button', { name: /connect|browse catalog|load catalog/i })
-      .isVisible()
-      .catch(() => false)
-
-    expect(searchVisible || catalogConnectVisible).toBe(true)
+    await expect(page.getByPlaceholder('Search assets…')).toBeVisible()
   })
 
-  test('catalog browser can fetch CDN metadata and display entry counts', async ({ page }) => {
+  test('the pack index lists a manifest with entries', async ({ page }) => {
     await gotoApp(page)
 
-    // Use CatalogBrowser directly in the browser context to verify CDN data
     const result = await page.evaluate(async (cdnBase) => {
-      const { CatalogBrowser } = (await import(
-        '/src/engine/catalogBrowser.ts'
-      )) as typeof import('@/engine/catalogBrowser')
-
-      // The catalog endpoint may not exist (only packs/index.json does)
-      // Try fetching index directly to verify pack entry types
-      try {
-        const browser = new CatalogBrowser(cdnBase)
-        const meta = await browser.loadMeta()
-        return {
-          hasMeta: true,
-          totalEntries: meta.totalEntries,
-          chunkCount: meta.chunkCount,
-        }
-      } catch {
-        // Catalog meta endpoint not present — fall back to pack manifest check
-        const indexRes = await fetch(`${cdnBase}/index.json`)
-        const index = (await indexRes.json()) as { packs: Record<string, { manifest: string }> }
-        const manifestPath = index.packs['gg-forge']!.manifest
-        const manifestRes = await fetch(`${cdnBase}/${manifestPath}`)
-        const manifest = (await manifestRes.json()) as {
-          entries: Record<string, { type: string }>
-        }
-        const types: Record<string, number> = {}
-        for (const entry of Object.values(manifest.entries)) {
-          types[entry.type] = (types[entry.type] ?? 0) + 1
-        }
-        return {
-          hasMeta: false,
-          types,
-          totalEntries: Object.keys(manifest.entries).length,
-        }
+      const indexRes = await fetch(`${cdnBase}/index.json`)
+      const index = (await indexRes.json()) as { packs: Record<string, { manifest: string }> }
+      const manifestPath = index.packs['gg-forge']!.manifest
+      const manifestRes = await fetch(`${cdnBase}/${manifestPath}`)
+      const manifest = (await manifestRes.json()) as {
+        entries: Record<string, { type: string }>
       }
+      const types: Record<string, number> = {}
+      for (const entry of Object.values(manifest.entries)) {
+        types[entry.type] = (types[entry.type] ?? 0) + 1
+      }
+      return { types, totalEntries: Object.keys(manifest.entries).length }
     }, CDN_BASE)
 
     expect(result.totalEntries).toBeGreaterThan(0)
-    // gg-forge carries walls only until gg-demo ships the other types
-    if (!result.hasMeta && result.types) {
-      expect(result.types['wall']).toBeGreaterThan(0)
-    }
+    // gg-forge carries the wall sets alongside its cave, door and water pieces
+    expect(result.types['wall']).toBeGreaterThan(0)
   })
 
   test('pack manifest entry counts match expected gg-forge spec', async ({ page }) => {
@@ -559,14 +524,15 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     )
 
     // Verify known gg-forge composition — pinned regression tripwire,
-    // verified against the committed manifest (58 wall entries, two sets).
-    expect(counts.total).toBe(58)
+    // verified against the committed manifest (gg-forge 1.5.0: two wall sets, the cave
+    // ink pieces and floor, the door kits and the two water textures).
+    expect(counts.total).toBe(96)
     expect(counts.wall).toBe(58)
-    expect(counts.floor).toBe(0)
-    expect(counts.object).toBe(0)
+    expect(counts.floor).toBe(1)
+    expect(counts.object).toBe(19)
     expect(counts.edge).toBe(0)
     expect(counts.scatter).toBe(0)
-    expect(counts.door).toBe(0)
+    expect(counts.door).toBe(16)
   })
 
   test('asset search/filter works in asset browser without crash', async ({ page }) => {

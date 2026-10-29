@@ -1,6 +1,10 @@
 import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, FogLook, Layer } from './types';
 import { useStore } from './store';
 import type { MapStylePreset } from './presetRegistry';
+import { styleValueOrDefault } from '../shared/wallLook';
+import { RemoveRoomCommand } from './roomCommands';
+import { lightsOn } from './attachedLights';
+import { createDuplicateCommand } from './propEdits';
 
 // ─── PropertyCommand ─────────────────────────────────────
 
@@ -87,40 +91,35 @@ export class CompositeCommand implements Command {
 }
 
 /**
- * Child types whose add/remove moves the room graph: shapes are what
+ * Child types whose add/remove moves the room faces: shapes are what
  * `mergedFloor` is unioned from, and a door needs a roomA/B the moment it
- * appears. A drawn room IS the room graph on an authored layer, and adding the
- * first one flips that layer off detection entirely; a connector needs its
- * roomA/B bound as soon as it lands. Lights, labels and assets sit on top of
- * the geometry.
+ * appears. Lights, labels and assets sit on top of the geometry.
  */
 function childAffectsRooms(child: AnyChild | null): boolean {
-  return (
-    child?.childType === 'shape' ||
-    child?.childType === 'door' ||
-    child?.childType === 'room' ||
-    child?.childType === 'connector'
-  );
+  return child?.childType === 'shape' || child?.childType === 'door';
 }
 
 /**
- * Adds a child to a dungeon layer. Removes it on undo.
+ * Adds a child to a dungeon layer, on top or at `index` (placing a prop under the
+ * others). Removes it on undo.
  */
 export class AddChildCommand implements Command {
   readonly label: string;
   readonly affectsRooms: boolean;
   private layerId: string;
   private child: AnyChild;
+  private index: number | undefined;
 
-  constructor(label: string, layerId: string, child: AnyChild) {
+  constructor(label: string, layerId: string, child: AnyChild, index?: number) {
     this.label = label;
     this.layerId = layerId;
     this.child = structuredClone(child);
+    this.index = index;
     this.affectsRooms = childAffectsRooms(this.child);
   }
 
   execute(): void {
-    useStore.getState().addChild(this.layerId, structuredClone(this.child));
+    useStore.getState().addChild(this.layerId, structuredClone(this.child), this.index);
   }
 
   undo(): void {
@@ -203,6 +202,33 @@ export class ReorderChildCommand implements Command {
 
   undo(): void {
     useStore.getState().reorderChild(this.layerId, this.toIndex, this.fromIndex);
+  }
+}
+
+/**
+ * Puts a layer's children in `order` (z-order: later draws on top). Ids it does not
+ * list keep their slots (see `setChildOrder`). Undo restores the order it found.
+ */
+export class ChildOrderCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly order: string[];
+  private prior: string[] = [];
+
+  constructor(label: string, layerId: string, order: string[]) {
+    this.label = label;
+    this.layerId = layerId;
+    this.order = [...order];
+  }
+
+  execute(): void {
+    const layer = useStore.getState().layers.find((l) => l.id === this.layerId);
+    this.prior = layer?.type === 'dungeon' ? layer.children.map((c) => c.id) : [];
+    useStore.getState().setChildOrder(this.layerId, this.order);
+  }
+
+  undo(): void {
+    useStore.getState().setChildOrder(this.layerId, this.prior);
   }
 }
 
@@ -321,6 +347,13 @@ export class AddLayerCommand implements Command {
   }
 
   execute(): void {
+    // A new layer joins the level on show (a layer naming a level the map knows,
+    // such as an undone delete, keeps its own). Stamped on the first run so redo
+    // puts it back on the same level whatever is on show by then.
+    const { levels, ui } = useStore.getState();
+    if (!levels.some((l) => l.id === this.layer.levelId)) {
+      this.layer.levelId = levels.some((l) => l.id === ui.activeLevelId) ? ui.activeLevelId : (levels[0]?.id ?? '');
+    }
     useStore.getState().addLayer(structuredClone(this.layer));
   }
 
@@ -395,6 +428,8 @@ export class RemoveWallCommand implements Command {
   removedWall: import('./types').WallSegment | null = null;
   layerId: string;
   wallId: string;
+  /** Where the wall sat in `standaloneWalls`, so undo puts it back in the same draw order. */
+  private originalIndex = -1;
 
   constructor(layerId: string, wallId: string) {
     this.layerId = layerId;
@@ -405,15 +440,18 @@ export class RemoveWallCommand implements Command {
     const store = useStore.getState();
     const layer = store.layers.find(l => l.id === this.layerId);
     if (layer && layer.type === 'dungeon') {
-      const wall = (layer as import('./types').DungeonLayer).standaloneWalls.find(w => w.id === this.wallId);
-      if (wall) this.removedWall = structuredClone(wall);
+      const walls = (layer as import('./types').DungeonLayer).standaloneWalls;
+      this.originalIndex = walls.findIndex(w => w.id === this.wallId);
+      if (this.originalIndex >= 0) this.removedWall = structuredClone(walls[this.originalIndex]);
     }
     store.removeWall(this.layerId, this.wallId);
   }
 
   undo(): void {
     if (this.removedWall) {
-      useStore.getState().addWall(this.layerId, structuredClone(this.removedWall));
+      useStore
+        .getState()
+        .addWall(this.layerId, structuredClone(this.removedWall), this.originalIndex >= 0 ? this.originalIndex : undefined);
     }
   }
 }
@@ -510,6 +548,71 @@ export function createWallRemovalCommand(layerId: string, wallId: string): Comma
   return new CompositeCommand('Remove wall', commands);
 }
 
+/** What deleting a selection takes with it, for the toast. */
+export interface SelectionRemoval {
+  /** One undo step for the whole selection; null when nothing selected still exists. */
+  command: Command | null;
+  /** Children removed for being selected (doors that go with their wall not counted). */
+  children: number;
+  walls: number;
+  /** Doors that went with a deleted wall, picked or not: a door never outlives its wall. */
+  doors: number;
+  /** Rooms removed (their floors stay: a room is a place on the floor, not the floor). */
+  rooms?: number;
+}
+
+/**
+ * Removal of a selection that may hold drawn walls as well as children, as one undo
+ * step. Walls go through `createWallRemovalCommand`, so the doors bound to them go too;
+ * a selected door that rides along with its wall is removed once, by the wall.
+ */
+export function createSelectionRemovalCommand(
+  ids: readonly string[],
+  label = 'Delete',
+  groupLabel = label,
+): SelectionRemoval {
+  const layers = useStore
+    .getState()
+    .layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  const walls: { layerId: string; wallId: string }[] = [];
+  const childIds: { layerId: string; id: string }[] = [];
+  const rooms: { layerId: string; roomId: string }[] = [];
+  for (const id of ids) {
+    const roomLayer = layers.find((l) => (l.rooms ?? []).some((r) => r.id === id));
+    if (roomLayer) {
+      rooms.push({ layerId: roomLayer.id, roomId: id });
+      continue;
+    }
+    const wallLayer = layers.find((l) => (l.standaloneWalls ?? []).some((w) => w.id === id));
+    if (wallLayer) {
+      walls.push({ layerId: wallLayer.id, wallId: id });
+      continue;
+    }
+    const childLayer = layers.find((l) => l.children.some((c) => c.id === id));
+    if (childLayer) childIds.push({ layerId: childLayer.id, id });
+  }
+  const withWall = new Set<string>();
+  for (const { layerId, wallId } of walls) {
+    const layer = layers.find((l) => l.id === layerId);
+    for (const c of layer?.children ?? []) {
+      if (c.childType === 'door' && (c as import('../shared/types').DoorChild).wallId === wallId) withWall.add(c.id);
+    }
+  }
+  const kept = childIds.filter((c) => !withWall.has(c.id));
+  const commands: Command[] = [
+    ...kept.map((c) => createChildRemovalCommand(c.layerId, c.id, label)),
+    ...walls.map((w) => createWallRemovalCommand(w.layerId, w.wallId)),
+    ...rooms.map((r) => new RemoveRoomCommand(r.layerId, r.roomId)),
+  ];
+  return {
+    command: commands.length === 0 ? null : new CompositeCommand(groupLabel, commands),
+    children: kept.length,
+    walls: walls.length,
+    doors: withWall.size,
+    rooms: rooms.length,
+  };
+}
+
 /**
  * Creates a child removal command that cascade-deletes any lights attached
  * to it (M1 — a `LightChild.attachedTo` pointing at an asset). Returns a
@@ -521,21 +624,13 @@ export function createWallRemovalCommand(layerId: string, wallId: string): Comma
  * leaves its light behind.
  */
 export function createChildRemovalCommand(layerId: string, childId: string, label = 'Delete'): Command {
-  const state = useStore.getState();
-  const layer = state.layers.find((l) => l.id === layerId);
-  if (!layer || layer.type !== 'dungeon') {
-    return new RemoveChildCommand(label, layerId, childId);
-  }
-  const dungeonLayer = layer as import('./types').DungeonLayer;
-  const attachedLights = dungeonLayer.children.filter(
-    (c): c is import('../shared/types').LightChild =>
-      c.childType === 'light' && (c as import('../shared/types').LightChild).attachedTo === childId,
-  );
+  // On any layer: a lamp's light may sit on a lighting layer above the lamp.
+  const attachedLights = lightsOn(useStore.getState().layers, [childId]);
   if (attachedLights.length === 0) {
     return new RemoveChildCommand(label, layerId, childId);
   }
   const commands: Command[] = [
-    ...attachedLights.map((l) => new RemoveChildCommand(label, layerId, l.id)),
+    ...attachedLights.map((l) => new RemoveChildCommand(label, l.layerId, l.light.id)),
     new RemoveChildCommand(label, layerId, childId),
   ];
   return new CompositeCommand(label, commands);
@@ -651,35 +746,6 @@ export class SetEnvironmentSettingsCommand implements Command {
   }
 }
 
-/**
- * Renames a detected room. The name lives in `roomNameOverrides`, which is
- * what survives re-detection, so undo just writes the previous name back.
- *
- * ponytail: a room that had no override before gets one equal to its default
- * name on undo. Harmless — re-detection produces the same string either way.
- */
-export class RenameRoomCommand implements Command {
-  readonly label = 'Rename room';
-  private readonly layerId: string;
-  private readonly roomId: string;
-  private readonly before: string;
-  private readonly after: string;
-
-  constructor(layerId: string, roomId: string, before: string, after: string) {
-    this.layerId = layerId;
-    this.roomId = roomId;
-    this.before = before;
-    this.after = after;
-  }
-
-  execute(): void {
-    useStore.getState().renameRoom(this.layerId, this.roomId, this.after);
-  }
-
-  undo(): void {
-    useStore.getState().renameRoom(this.layerId, this.roomId, this.before);
-  }
-}
 
 /**
  * Command for applying a style preset to a dungeon layer.
@@ -691,6 +757,9 @@ export class RenameRoomCommand implements Command {
  * the map. Existing shapes are therefore pinned to their current appearance
  * before the layer style moves under them.
  */
+/** The look pins a standalone wall can carry; see `WallSegment`. */
+type WallPins = { textureSetId?: string; textureTint?: string; width?: number };
+
 export class PresetApplyCommand implements Command {
   readonly label: string;
   private readonly layerId: string;
@@ -699,10 +768,7 @@ export class PresetApplyCommand implements Command {
   /** `styleOverrides` each shape had before the apply, keyed by child id. */
   private readonly previousOverrides = new Map<string, Record<string, unknown> | undefined>();
   /** The style pins each standalone wall had before the apply, keyed by wall id. */
-  private readonly previousWallPins = new Map<
-    string,
-    { textureSetId?: string; textureTint?: string }
-  >();
+  private readonly previousWallPins = new Map<string, WallPins>();
 
   constructor(label: string, layerId: string, preset: MapStylePreset, previousStyle: DungeonStyle) {
     this.label = label;
@@ -733,9 +799,11 @@ export class PresetApplyCommand implements Command {
       const existing = child.styleOverrides as Record<string, unknown> | undefined;
       this.previousOverrides.set(child.id, existing ? structuredClone(existing) : undefined);
       // An override the shape already had is its own authored intent — keep it.
+      // A key the layer never set pins the value the renderer used for it, never
+      // `undefined`: that loses to the new layer value and does not survive a save.
       const pinned: Record<string, unknown> = { ...existing };
       for (const key of keys) {
-        if (!(key in pinned)) pinned[key] = before[key];
+        if (pinned[key] === undefined) pinned[key] = styleValueOrDefault(before, key);
       }
       state.updateChild(this.layerId, child.id, { styleOverrides: pinned });
     }
@@ -746,17 +814,25 @@ export class PresetApplyCommand implements Command {
     // the wall already had is its own authored intent.
     this.previousWallPins.clear();
     for (const wall of layer.standaloneWalls) {
-      const pin: { textureSetId?: string; textureTint?: string } = {};
+      const pin: WallPins = {};
       if ('wallTextureSetId' in this.presetStyle && wall.textureSetId === undefined) {
-        pin.textureSetId = before.wallTextureSetId;
+        // '' is "no set": a wall drawn bare stays bare under a preset that brings stones.
+        pin.textureSetId = before.wallTextureSetId ?? '';
       }
       if ('wallTextureTint' in this.presetStyle && wall.textureTint === undefined) {
         pin.textureTint = before.wallTextureTint;
+      }
+      if ('wallWidth' in this.presetStyle && wall.width === undefined) {
+        pin.width = before.wallWidth;
+        // A width is only read back as a pin beside a look pin (see migration's
+        // `hasDrawTimeWidth`), so it never travels alone.
+        if (wall.textureTint === undefined) pin.textureTint = before.wallTextureTint;
       }
       if (Object.keys(pin).length === 0) continue;
       this.previousWallPins.set(wall.id, {
         textureSetId: wall.textureSetId,
         textureTint: wall.textureTint,
+        width: wall.width,
       });
       state.updateWall(this.layerId, wall.id, pin);
     }
@@ -777,6 +853,7 @@ export class PresetApplyCommand implements Command {
       state.updateWall(this.layerId, wallId, {
         textureSetId: pins.textureSetId,
         textureTint: pins.textureTint,
+        width: pins.width,
       });
     }
     state.updateLayer(this.layerId, {
@@ -1045,6 +1122,44 @@ export function createRemoveFromGroupCommand(
   );
 }
 
+/** Merge or unmerge a group: merged behaves as one object, a plain group is a folder. */
+export class SetGroupMergedCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly groupId: string;
+  private readonly merged: boolean;
+  private prior: boolean | undefined;
+
+  constructor(layerId: string, groupId: string, merged: boolean) {
+    this.label = merged ? 'Merge group' : 'Unmerge group';
+    this.layerId = layerId;
+    this.groupId = groupId;
+    this.merged = merged;
+  }
+
+  private write(merged: boolean | undefined): void {
+    const layer = findDungeonLayer(useStore.getState().layers, this.layerId);
+    if (!layer?.groups) return;
+    const groups = layer.groups.map((g) => {
+      if (g.id !== this.groupId) return g;
+      const next = { ...g, merged };
+      if (merged === undefined) delete next.merged;
+      return next;
+    });
+    useStore.getState().updateLayer(this.layerId, { groups });
+  }
+
+  execute(): void {
+    const layer = findDungeonLayer(useStore.getState().layers, this.layerId);
+    this.prior = layer?.groups?.find((g) => g.id === this.groupId)?.merged;
+    this.write(this.merged);
+  }
+
+  undo(): void {
+    this.write(this.prior);
+  }
+}
+
 export function createRenameGroupCommand(
   layers: Layer[],
   layerId: string,
@@ -1089,8 +1204,9 @@ export function createDeleteGroupCommand(
 }
 
 /**
- * Clones a group: fresh ids, " (copy)" names and the one-unit offset the
- * panel's duplicate uses, under a new group record.
+ * Clones a group: fresh ids, " (copy)" names and the one-unit offset every
+ * duplicate uses, under a new group record. Built on the one duplicate path
+ * (`createDuplicateCommand`), so attached lights come along.
  */
 export function createDuplicateGroupCommand(
   layers: Layer[],
@@ -1099,49 +1215,8 @@ export function createDuplicateGroupCommand(
 ): Command | null {
   const layer = findDungeonLayer(layers, layerId);
   if (!layer) return null;
-  const members = layer.children.filter((c) => c.groupId === groupId);
-  if (members.length === 0) return null;
-  const group = layer.groups?.find((g) => g.id === groupId);
-
-  const newGroupId = crypto.randomUUID();
-  const clones = members.map((c) => {
-    const clone = withGroupId(c, newGroupId);
-    clone.id = crypto.randomUUID();
-    clone.name = `${c.name} (copy)`;
-    offsetChild(clone);
-    return clone;
-  });
-  const meta = new ChildGroupsCommand(
-    'Duplicate group',
-    layerId,
-    { groups: layer.groups },
-    {
-      groups: [
-        ...(layer.groups ?? []),
-        { id: newGroupId, name: `${group?.name ?? 'Group'} (copy)`, merged: group?.merged },
-      ],
-    },
-  );
-  return new CompositeCommand('Duplicate group', [
-    meta,
-    ...clones.map((c) => new AddChildCommand('Duplicate group', layerId, c)),
-  ]);
-}
-
-/** Nudge a clone off its original, the way ChildRow's duplicate does. */
-function offsetChild(clone: AnyChild): void {
-  if ('position' in clone) {
-    const c = clone as AnyChild & { position: { x: number; y: number } };
-    c.position = { x: c.position.x + 1, y: c.position.y + 1 };
-  } else if ('transform' in clone && clone.transform) {
-    clone.transform.translate = [clone.transform.translate[0] + 1, clone.transform.translate[1] + 1];
-  } else if (clone.childType === 'zone') {
-    // A zone keeps its position inside `shape`.
-    clone.shape =
-      clone.shape.kind === 'rect'
-        ? { ...clone.shape, x: clone.shape.x + 1, y: clone.shape.y + 1 }
-        : { ...clone.shape, position: { x: clone.shape.position.x + 1, y: clone.shape.position.y + 1 } };
-  }
+  const ids = layer.children.filter((c) => c.groupId === groupId).map((c) => c.id);
+  return createDuplicateCommand(layers, ids, { label: 'Duplicate group' }).command;
 }
 
 /**
@@ -1183,3 +1258,6 @@ export class ShapeStyleCommand implements Command {
     });
   }
 }
+
+// Room, area, level and room-key commands live beside these; one import path for all.
+export * from './roomCommands';

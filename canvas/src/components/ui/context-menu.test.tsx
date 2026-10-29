@@ -52,6 +52,36 @@ describe('ContextMenu', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('a thumb strip marked closeOnPick closes on a pick; one without stays open', () => {
+    const onClose = vi.fn()
+    const onPick = vi.fn()
+    const strip = (closeOnPick?: boolean) => ({
+      type: 'thumbStrip' as const,
+      label: 'Swap',
+      items: [{ id: 'a', src: 'a.png', title: 'Crate A' }],
+      onPick,
+      closeOnPick,
+    })
+    const { rerender } = render(<ContextMenu pos={{ x: 0, y: 0 }} onClose={onClose} items={[strip()]} />)
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Crate A' }))
+    expect(onPick).toHaveBeenCalledWith('a')
+    expect(onClose).not.toHaveBeenCalled()
+    rerender(<ContextMenu pos={{ x: 0, y: 0 }} onClose={onClose} items={[strip(true)]} />)
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Crate A' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('a toggle with the check look is an empty box until checked, never a switch', () => {
+    const row = (checked: boolean) => ({ type: 'toggle' as const, label: 'Overhead', checked, look: 'check' as const, onToggle: vi.fn() })
+    const { rerender } = render(<ContextMenu pos={{ x: 0, y: 0 }} onClose={() => {}} items={[row(false)]} />)
+    const box = () => screen.getByRole('menuitemcheckbox', { name: 'Overhead' }).querySelector('[data-look="check"]')
+    expect(box()).not.toBeNull()
+    expect(box()!.querySelector('svg')).toBeNull()
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Overhead' }).querySelector('.rounded-full')).toBeNull()
+    rerender(<ContextMenu pos={{ x: 0, y: 0 }} onClose={() => {}} items={[row(true)]} />)
+    expect(box()!.querySelector('svg')).not.toBeNull()
+  })
+
   // D6: Escape is table-stakes keyboard support even before the full contract.
   it('closes on Escape', () => {
     const onClose = vi.fn()

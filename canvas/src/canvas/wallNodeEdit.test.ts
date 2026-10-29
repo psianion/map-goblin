@@ -186,6 +186,144 @@ describe('toggleNodeEditAt', () => {
       expect(warning).not.toHaveBeenCalled();
     });
   });
+
+  // A cave kit's rock is laid from the floor outline on every redraw
+  // (caveBandRenderer.ts), so the outline editor is its node mode: a
+  // double-click on the rock says so and opens the outline, even from just
+  // outside the floor where the rock reaches.
+  describe('a layer whose wall texture is a cave kit', () => {
+    const info = vi.fn();
+    const warning = vi.fn();
+
+    beforeEach(() => {
+      info.mockClear();
+      warning.mockClear();
+      setNotify({ warning, error: vi.fn(), success: vi.fn(), info });
+      seedCaveBandPack('gg-forge', { set: 'GG_Cave_Test', tags: ['structure', 'cave'] });
+      const l = seed();
+      useStore.getState().addChild(l.id, {
+        id: 'cave-floor',
+        name: 'Cave',
+        childType: 'shape',
+        visible: true,
+        contours: [RING.map(([x, y]) => [x, y])],
+      } as unknown as DungeonLayer['children'][number]);
+      useStore.getState().updateLayer(l.id, {
+        style: { ...l.style, wallTextureSetId: 'GG_Cave_Test' },
+      } as Partial<DungeonLayer>);
+    });
+
+    it('opens the outline editor instead of stone mode, and says why', () => {
+      expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(true);
+      expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+      expect(useStore.getState().tools.shapeNodeEditId).toBe('cave-floor');
+      expect(info).toHaveBeenCalledWith(
+        'Cave rock follows the floor edge — move the outline to move the wall',
+      );
+      expect(warning).not.toHaveBeenCalled();
+    });
+
+    it('takes a double-click on the rock just outside the floor', () => {
+      expect(toggleNodeEditAt({ x: 6, y: -0.6 })).toBe(true);
+      expect(useStore.getState().tools.shapeNodeEditId).toBe('cave-floor');
+    });
+
+    it('stays quiet when the double-click missed every wall', () => {
+      expect(toggleNodeEditAt({ x: 6, y: 4 })).toBe(false);
+      expect(info).not.toHaveBeenCalled();
+      expect(useStore.getState().tools.shapeNodeEditId).toBeNull();
+    });
+
+    // A DRAWN wall on the kit is walked along its own line, not the floor's:
+    // its editor is that line's corners, and the floor outline stays shut.
+    describe('a drawn cave wall', () => {
+      const LINE: [number, number][] = [[2, 2], [6, 4], [10, 2]];
+      const drawn = () => layer().standaloneWalls.find((w) => w.id === 'cw')!;
+      beforeEach(() => {
+        useStore.getState().addWall(layer().id, {
+          id: 'cw',
+          points: LINE.map(([x, y]): [number, number] => [x, y]),
+          wallType: 'normal',
+          direction: 'both',
+          color: '#000000',
+          roughness: 0,
+        } as Parameters<ReturnType<typeof useStore.getState>['addWall']>[1]);
+      });
+
+      it('opens its own line, not the floor outline, and says nothing about the floor', () => {
+        expect(toggleNodeEditAt({ x: 4, y: 3 })).toBe(true);
+        expect(useStore.getState().tools.nodeEditWallId).toBe('spine:cw');
+        expect(useStore.getState().tools.shapeNodeEditId).toBeNull();
+        expect(info).not.toHaveBeenCalled();
+        expect(warning).not.toHaveBeenCalled();
+        // One handle per corner of the line.
+        expect(currentWallNodes().map((n) => [n.x, n.y])).toEqual(LINE);
+      });
+
+      it('is picked from its rock, a cell into the void beside the line', () => {
+        expect(toggleNodeEditAt({ x: 4, y: 2.1 })).toBe(true);
+        expect(useStore.getState().tools.nodeEditWallId).toBe('spine:cw');
+      });
+
+      it('toggles off when picked again', () => {
+        toggleNodeEditAt({ x: 4, y: 3 });
+        expect(toggleNodeEditAt({ x: 4, y: 3 })).toBe(false);
+        expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+      });
+
+      it('drags a corner as one undo step, and the line moves with it', () => {
+        toggleNodeEditAt({ x: 4, y: 3 });
+        const mid = currentWallNodes()[1].t;
+        useStore.getState().selectNode(mid);
+        beginNodeDrag([mid]);
+        nudgeWallNode([mid], 0.5, 0);
+        nudgeWallNode([mid], 0.5, 1);
+        endNodeDrag();
+        expect(drawn().points).toEqual([[2, 2], [7, 5], [10, 2]]);
+        undoManager.undo();
+        expect(drawn().points).toEqual(LINE);
+        undoManager.redo();
+        expect(drawn().points).toEqual([[2, 2], [7, 5], [10, 2]]);
+      });
+
+      it('puts the line back on a cancelled drag', () => {
+        toggleNodeEditAt({ x: 4, y: 3 });
+        const end = currentWallNodes()[0].t;
+        beginNodeDrag([end]);
+        nudgeWallNode([end], -1, -1);
+        cancelNodeDrag();
+        expect(drawn().points).toEqual(LINE);
+        expect(undoManager.canUndo()).toBe(false);
+      });
+
+      it('Delete takes the selected corner out, and keeps two ends at least', () => {
+        toggleNodeEditAt({ x: 4, y: 3 });
+        const mid = currentWallNodes()[1].t;
+        expect(handleNodeKey('Delete', mid)).toBe(true);
+        expect(drawn().points).toEqual([[2, 2], [10, 2]]);
+        expect(handleNodeKey('Delete', currentWallNodes()[0].t)).toBe(true);
+        expect(drawn().points).toEqual([[2, 2], [10, 2]]);
+        // The stone keys have nothing to act on here.
+        expect(handleNodeKey('[', currentWallNodes()[0].t)).toBe(true);
+        expect(drawn().nodeEdits).toBeUndefined();
+      });
+
+      it('moves a loop closing point with its first corner', () => {
+        useStore.getState().updateWall(layer().id, 'cw', {
+          points: [[2, 2], [6, 2], [6, 5], [2, 5], [2, 2]],
+        });
+        toggleNodeEditAt({ x: 4, y: 2 });
+        const nodes = currentWallNodes();
+        expect(nodes).toHaveLength(4);
+        beginNodeDrag([nodes[0].t]);
+        nudgeWallNode([nodes[0].t], -1, 0);
+        endNodeDrag();
+        const pts = drawn().points;
+        expect(pts[0]).toEqual([1, 2]);
+        expect(pts[pts.length - 1]).toEqual([1, 2]);
+      });
+    });
+  });
 });
 
 describe('editing a floor ring stone', () => {

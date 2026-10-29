@@ -41,8 +41,10 @@
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics, Sprite } from 'pixi.js';
+// The greyscale tier desaturates through the 'saturation' blend mode, one of Pixi's advanced
+// blend modes, which this registers.
+import 'pixi.js/advanced-blend-modes';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import type { Room } from '@dnd/core/src/shared/types';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
@@ -66,18 +68,25 @@ import {
 } from '@dnd/mechanics/fog';
 import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import {
+  roomEditsOf,
   sceneTriggersOf,
   worldLightOf,
+  worldSkyOf,
   type LightEdit,
   type TriggersState,
 } from '@dnd/mechanics/triggers';
 import {
   NOON,
-  composeGrade,
   timeBucket,
   type BiteLevel,
   type WorldLight,
 } from '@dnd/core/src/shared/world';
+import { litFrame, skyFrame } from '@dnd/core/src/shared/sky';
+import { levelGrade, levelMood, regionGrade } from '@dnd/core/src/shared/regionGrade';
+import { tableAllLit } from '@dnd/core/src/engine/worldOverride';
+import { darkTest, layersOnLevel, onLevel } from '@dnd/core/src/shared/visionGate';
+import { shownLevelId } from '@dnd/core/src/store/selectors';
+import { isFrozen } from '@dnd/core/src/shared/freeze';
 import {
   SHOWN_MASK,
   SIGHT_MASK,
@@ -104,8 +113,9 @@ import {
   serverDoors,
   serverLayers,
   serverRooms,
+  type TableRoom,
 } from './fog';
-import { placedLights, sightCache, sighted } from './visionSight';
+import { placedLights, sightCache, sighted, type DarkArea } from './visionSight';
 import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
 import { effectiveFogLook } from './effectiveFogLook';
 import { tierPlan, type DrawPlan, type TierScene } from './tierPlan';
@@ -216,6 +226,17 @@ export const SCENE_DARKNESS: Record<BiteLevel, number> = {
   'darkness-soft': 0.9,
   darkness: 1,
 };
+
+/**
+ * The wash strength off the sky's own darkness (the Lighting pass's one darkness number, the
+ * DM's slider included): full sun reads as the old `daylight` (0.45), a moonless midnight or
+ * the slider at 1 as full dark. Replaces the old level lookup, which only knew three steps.
+ */
+/** How much the greyscale tier dims darkvision-only ground under the lit ground beside it. */
+export const DARKVISION_WASH = 0.2;
+
+export const washDarkness = (skyDarkness: number): number =>
+  SCENE_DARKNESS.daylight + (1 - SCENE_DARKNESS.daylight) * Math.min(1, Math.max(0, skyDarkness));
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
@@ -300,7 +321,7 @@ export interface VoidStyle {
 }
 
 export interface FogScene {
-  rooms: Room[];
+  rooms: TableRoom[];
   views: Map<string, RoomView>;
   /** null when there is no geometry yet — the layer draws nothing rather than guessing. */
   bounds: Bounds | null;
@@ -353,13 +374,15 @@ export interface FogScene {
    */
   night?: NightSight;
   /**
-   * How dark the scene is, by its light level alone (`SCENE_DARKNESS`; 1 when nobody stated
-   * one) — the same on every seat, so the DM's sight preview draws the tiers exactly as the
-   * player's seat does. The memory wash, the mist and the cloud's palette follow it.
+   * How dark the scene reads, 0.45..1, off the sky's darkness (`washDarkness`) — the same on
+   * every seat, so the DM's sight preview draws the tiers exactly as the player's seat does.
+   * The memory wash, the mist and the cloud's palette follow it.
    */
   darkness: number;
-  /** P2 — the one composed colour the lighting pass fills its base with (`composeGrade`). */
+  /** The shown level's grade, as the lighting pass lands on it for this sky. */
   grade: string;
+  /** The shown level's tint carrying the hour, darkness left out: the cloud palette's hue. */
+  cloudTint: string;
   /** …and the coarsened clock it was composed at, which is what the pass memoizes on. */
   timeBucket: number;
   /**
@@ -410,7 +433,7 @@ const NO_VIEWS: Map<string, RoomView> = new Map();
  * Everything else the party has ever seen is explored; everything left is black.
  */
 export function roomViews(
-  rooms: readonly Room[],
+  rooms: readonly TableRoom[],
   storedFog: SceneFog,
   doors: readonly LiveDoor[],
   partyRooms: readonly string[],
@@ -468,7 +491,7 @@ export const PARTY_ROOM_UNKNOWN = '\0party-elsewhere';
  * render a linked hawk's room as memory while the server ships it lit. One function, both
  * sides. (Hidden and unclaimed-unlinked tokens are excluded inside it.)
  */
-export function partyRoomIds(tokens: readonly Token[], rooms: readonly Room[]): string[] {
+export function partyRoomIds(tokens: readonly Token[], rooms: readonly TableRoom[]): string[] {
   const ids = new Set<string>();
   for (const token of sightParty(tokens)) {
     const room = roomAt(rooms, token.x, token.y);
@@ -500,7 +523,7 @@ export function revealsBetween(
 }
 
 /** How long a reveal takes on this machine. Reduced motion ⇒ a cut, per PRODUCT §A11y. */
-export const revealDurationMs = (): number => (prefersReducedMotion() ? 0 : REVEAL_MS);
+export const revealDurationMs = (): number => (prefersReducedMotion() || isFrozen() ? 0 : REVEAL_MS);
 
 /** Ease-out quart. No bounce, no elastic — the room settles, it does not spring. */
 export const easeOutQuart = (t: number): number => 1 - (1 - t) ** 4;
@@ -551,7 +574,7 @@ const holdsUnzonedMap = (layers: readonly Layer[]): boolean =>
  */
 export function fogBounds(
   layers: readonly Layer[],
-  rooms: readonly Room[],
+  rooms: readonly TableRoom[],
   frame: Bounds | null = null,
   mode: FogMode = 'rooms',
 ): Bounds | null {
@@ -670,7 +693,8 @@ export function nightPools(
   for (const [id, edit] of Object.entries(lightEdits)) {
     if (edit.visible !== undefined) switches[id] = edit.visible;
   }
-  const sources = lightSources(placedLights(layers), tokens, switches);
+  // A darkness source is no pool: it gets no warm glow.
+  const sources = lightSources(placedLights(layers), tokens, switches).filter((s) => !s.darkness);
   const dark: LightSource[] = eyes
     .filter((t) => t.sight!.visionMode === 'darkvision')
     .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
@@ -735,18 +759,32 @@ export function fogScene(): FogScene {
   // campaign's clock and sky, with the DM's dial as the override that beats them. The referee
   // resolves the same thing from the same two slices (`vision.ts`), which is the whole point
   // of the rule being one function.
-  const mapSettings = useStore.getState().mapSettings;
+  const core = useStore.getState();
+  const mapSettings = core.mapSettings;
   const light =
     sceneId && triggers ? worldLightOf(mapSettings, triggers, sceneId) : undefined;
-  // How dark the scene is. `null` from the resolver is still "nobody has stated a level",
-  // which is full dark: an indoor map nobody has dialled draws exactly as it did before the
-  // clock existed.
-  const darkness = light?.biteLevel ? SCENE_DARKNESS[light.biteLevel] : 1;
-  // The composed grade — mood × hour × how much sky this map has — and the bucket the lighting
-  // pass memoizes it on. One colour, every seat.
-  // Midday until the join snapshot lands: an unknown clock must not paint the first frame of
-  // a map at midnight.
-  const grade = composeGrade(mapSettings, light?.minutes ?? NOON);
+  // The Lighting pass: one sky (clock, weather, night sky, the DM's slider) for the referee,
+  // the picture and this mask. Midday until the join snapshot lands: an unknown clock must not
+  // paint the first frame of a map at midnight.
+  const sky = triggers ? worldSkyOf(mapSettings, triggers) : skyFrame({ ...mapSettings, minutes: NOON });
+  // The shown level (this seat's viewed level, which worldSync installs as `ui.activeLevelId`):
+  // its walls, lights, rooms and the eyes standing on it.
+  const level = shownLevelId(core);
+  const levelLayers = layersOnLevel(core, layers, level);
+  // How dark the scene reads: the sky's one darkness number (the DM's slider included).
+  const darkness = washDarkness(sky.darkness);
+  // The grade the lighting pass lands on for this sky (DM-lit view included) — the void imitation
+  // goes through the very colour the composite fills with. The target, not the pass's eased
+  // `currentGrade`: a rebuild runs as a darkness change starts, and nothing rebuilds when the
+  // 2 s ease ends, so a read of the eased grade kept the colour from before the change.
+  const levelObj = core.levels?.find((l) => l.id === level);
+  const levelLook = levelMood(mapSettings, levelObj);
+  const grade = tableAllLit()
+    ? regionGrade({ ...levelLook, mood: 'lit' }, litFrame(sky))
+    : levelGrade(mapSettings, levelObj, sky);
+  // The cloud's hue: the level's tint carrying the hour, darkness left out — `fogPalette` takes
+  // only the hue and dims by the wash itself, and a grade near black reads as no hue at all.
+  const cloudTint = regionGrade({ ...levelLook, mood: 'lit' }, tableAllLit() ? litFrame(sky) : { ...sky, darkness: 0 });
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
@@ -761,14 +799,33 @@ export function fogScene(): FogScene {
   // A preview seeds on the one token and carries its linked familiars, the way the referee's
   // own per-seat sweep does — and un-hides it for its own sweep: a hidden ambusher's sight
   // is exactly the question a DM previews.
-  const eyes = previewed
-    ? sighted(
-        tokens.map((t) => (t.id === previewed.id ? { ...t, hidden: false } : t)),
-        (t) => t.id === previewed.id,
-      )
-    : isVision && isPlayer
-      ? sighted(tokens, mine)
-      : [];
+  const eyes = (
+    previewed
+      ? sighted(
+          tokens.map((t) => (t.id === previewed.id ? { ...t, hidden: false } : t)),
+          (t) => t.id === previewed.id,
+        )
+      : isVision && isPlayer
+        ? sighted(tokens, mine)
+        : []
+  ).filter((t) => onLevel(core, t, level));
+  const levelTokens = tokens.filter((t) => onLevel(core, t, level));
+  // The table's light switches (`lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
+  // `sceneTriggersOf` has already folded in) and every source burning on this level, darkness
+  // sources flagged; night-only lights filtered by the sky's darkness.
+  const switches: Record<string, boolean> = {};
+  for (const [id, edit] of Object.entries(scene?.lightEdits ?? {})) {
+    if (edit.visible !== undefined) switches[id] = edit.visible;
+  }
+  const sources = isVision && masked ? lightSources(placedLights(levelLayers), levelTokens, switches, sky.darkness) : [];
+  const darkSources = sources.filter((s) => s.darkness);
+  const darkAreas: DarkArea[] = sightCache
+    .litArea(levelLayers, darkSources)
+    .map((polygon, i) => ({
+      polygon,
+      darkvisionSees: darkSources[i]!.darkvisionSees === true,
+      key: `${darkSources[i]!.x},${darkSources[i]!.y},${darkSources[i]!.radius}`,
+    }));
   //
   // Off *core's* layers rather than the document's, which is the one place this file reads
   // core on purpose: the table's live door state is stamped onto them for the lighting pass
@@ -777,7 +834,7 @@ export function fogScene(): FogScene {
   // reason `serverRooms` gives — those are what core re-detects, and walls are not.
   const sight =
     isVision && masked
-      ? sightCache.partySight(layers, eyes, sightRangeLimitOn(fog))
+      ? sightCache.partySight(levelLayers, eyes, sightRangeLimitOn(fog), darkAreas)
       : undefined;
   // Contained sight's second pass: the same eyes, the same occluders, swept to each eye's own
   // `range` instead of to `SIGHT_REACH`. Taken *here* rather than inside `partySight`, which
@@ -787,7 +844,7 @@ export function fogScene(): FogScene {
   // them. With `sightRangeLimit` on, the full sweep *is* this sweep and the memo returns the
   // very same polygons: containment collapses to the range limit, no special case.
   const contained = isVision && containedSightOn(fog);
-  const near = sight && contained ? sightCache.partySight(layers, eyes, true) : undefined;
+  const near = sight && contained ? sightCache.partySight(levelLayers, eyes, true, darkAreas) : undefined;
 
   // S3 P3 §2 — the light gate, when the scene is turned to `darkness`. Every light source's
   // own sweep (placed lights the table has left on, plus token-carried ones), and separately
@@ -796,23 +853,25 @@ export function fogScene(): FogScene {
   // same sweep from the same spot at a shorter reach, so it shares the memo a torch there
   // would. Both go to the cloud as pools too, for the rim fade (`NightSight.pools`).
   const pad = fogPad(serverLayers(mapData));
+  // The Lighting pass's per-region gate: which ground on this level is dark enough to need
+  // light — the same `isDarkRegion` rule the referee runs, under the same sky and room moods.
+  const gate = sight && scene ? darkTest(core, levelLayers, level, sky, roomEditsOf(scene)) : null;
   const nightSight = (): NightSight => {
-    // The table's own switch is `lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
-    // `sceneTriggersOf` has already folded in, and reading it directly would let a stale `false`
-    // outvote a light the DM has since turned back on. `lightSync` writes the same answer onto
-    // the children this reads, but this pass can run before that write lands.
-    const switches: Record<string, boolean> = {};
-    for (const [id, edit] of Object.entries(scene!.lightEdits)) {
-      if (edit.visible !== undefined) switches[id] = edit.visible;
-    }
-    const sources = lightSources(placedLights(layers), tokens, switches);
     const dark: LightSource[] = eyes
       .filter((t) => t.sight!.visionMode === 'darkvision')
       .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
+    const anyDarkvision = dark.length > 0;
     return {
-      lit: sightCache.litArea(layers, sources),
-      darkvision: sightCache.litArea(layers, dark),
-      pools: nightPools(layers, tokens, scene!.lightEdits, eyes),
+      // Lit by a light, or by the sky in a room that is not dark inside a dark level.
+      lit: [...sightCache.litArea(levelLayers, sources.filter((s) => !s.darkness)), ...(gate!.levelDark ? gate!.litFaces : [])],
+      darkvision: sightCache.litArea(levelLayers, dark),
+      pools: nightPools(levelLayers, levelTokens, scene!.lightEdits, eyes),
+      // Only these rooms are dark when the level's own ground is not.
+      ...(gate!.levelDark ? {} : { dark: gate!.darkFaces }),
+      // Darkness sources hide what is inside them from light; only darkvision a source lets
+      // through sees in (approximated per party: with any darkvision eye, such a source is
+      // left to the darkvision ring).
+      blind: darkAreas.filter((d) => !(anyDarkvision && d.darkvisionSees)).map((d) => d.polygon),
     };
   };
 
@@ -889,13 +948,14 @@ export function fogScene(): FogScene {
     // to `darkness`. Every light source's own sweep (placed lights the table has left on, plus
     // token-carried ones), and separately the sweeps of the party's darkvision eyes, which are
     // the polygons already computed above — a darkvision eye is not swept twice.
-    night: sight && scene && light?.effectiveLevel === 'darkness' ? nightSight() : undefined,
+    night: sight && scene && gate && (gate.any || darkAreas.length > 0) ? nightSight() : undefined,
     // …and the presentation half, which is not gated on vision mode at all: a rooms-mode scene
     // the DM calls dark should read dark too. Deliberate (D6): the dial is world state, not a
     // vision-mode feature, so it reaches every scene the DM turns it on.
     darkness,
     grade,
-    timeBucket: timeBucket(light?.minutes ?? NOON),
+    cloudTint,
+    timeBucket: timeBucket(sky.minutes),
     light,
     // Off the *unadjusted* fog record, not the preview's region-stripped copy above: the
     // weather is table state, not something a sight preview changes.
@@ -1004,7 +1064,7 @@ export function subscribeFogScene(onChange: () => void): () => void {
  * the room hidden, `MASK_MEMORY` holds it at the mist, and the graphic's alpha easing to
  * nothing is what hands the ground to whatever the rebuilt mask says underneath.
  */
-function fadeCover(g: Graphics, room: Room, view: RoomView, pad: number): void {
+function fadeCover(g: Graphics, room: TableRoom, view: RoomView, pad: number): void {
   if (room.boundary.length < 3 || view === 'visible') return;
   const color = view === 'dark' ? 0x000000 : MASK_MEMORY;
   for (const ring of fogRegion([room.boundary], [], pad, FOG_FEATHER).reach) {
@@ -1268,6 +1328,21 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // pass that does not run leaves it covering everything.
   const scrimSprite = new Sprite(tiers.scrim);
   scrimSprite.visible = false;
+  // The greyscale tier (decision 7): ground a darkvision eye sees and no light reaches is drawn
+  // without colour — a grey 'saturation' blend takes the colour out of what is under it and
+  // leaves its brightness — and a touch dimmer than lit ground. Under the scrim and the cloud,
+  // over the world and the lighting composite, which stays the world's light and the same
+  // whoever is looking (no per-seat lift: a seat's sight is the fog's business).
+  const greySprite = new Sprite(tiers.grey);
+  greySprite.label = 'darkvisionGrey';
+  greySprite.tint = 0x808080;
+  greySprite.blendMode = 'saturation';
+  greySprite.visible = false;
+  const greyWash = new Sprite(tiers.grey);
+  greyWash.label = 'darkvisionWash';
+  greyWash.tint = 0x000000;
+  greyWash.alpha = DARKVISION_WASH;
+  greyWash.visible = false;
   // The stencil the chip and ring layers wear (`sightMaskOf`). A child here so it shares this
   // layer's camera mirror; Pixi keeps a mask out of the normal draw, so it paints nothing.
   const sightMask = new Graphics();
@@ -1294,7 +1369,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   shownMask.includeInBuild = false;
   const shownSprite = new Sprite(tiers.mask);
   shownSprite.includeInBuild = false;
-  layer.addChild(scrim, scrimSprite, fog.mesh, sightMask, sightSprite, shownMask, shownSprite);
+  layer.addChild(greySprite, greyWash, scrim, scrimSprite, fog.mesh, sightMask, sightSprite, shownMask, shownSprite);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1306,6 +1381,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       | undefined) ?? null;
 
   const world = sceneGraph.worldContainer;
+  /** The cover the composited tiers stood for at the last rebuild (`liveAt`). */
+  let liveCover: Bounds | null = null;
   const fades: Fade[] = [];
   let views: Map<string, RoomView> | null = null;
   let sceneId: string | null = null;
@@ -1342,6 +1419,25 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     /** How long the last mask took to *build* — §4's budget is about mutation, not frames. */
     lastRebuildMs: 0,
     memoryCells: (): number => cells,
+    /** Whether the greyscale (darkvision-only) tier is drawn on this seat right now. */
+    greyTier: (): boolean => greySprite.visible,
+    /**
+     * Whether a world point is in this seat's LIVE sight right now (vision mode, composited
+     * mask): the `live` tier's texel there. Unlike `maskAt` this runs in the production build
+     * the E2E lanes serve; it reads the texture back off the GPU, so it is for a test row,
+     * never for anything per-frame. Null without a composited mask.
+     */
+    liveAt: (x: number, y: number): boolean | null => {
+      const read = engine.renderer?.()?.extract;
+      const c = liveCover;
+      if (!c || !read) return null;
+      const rt = tiers.live;
+      const tx = Math.floor(((x - c.minX) / (c.maxX - c.minX)) * rt.width);
+      const ty = Math.floor(((y - c.minY) / (c.maxY - c.minY)) * rt.height);
+      if (tx < 0 || ty < 0 || tx >= rt.width || ty >= rt.height) return false;
+      const { pixels } = read.pixels(rt);
+      return pixels[(ty * rt.width + tx) * 4 + 3]! > 128;
+    },
     // S3 P4 — where a world point is on this canvas right now. The brush rows drive the real
     // pointer over named cells, and the camera transform is the one thing a Node process
     // cannot work out for itself. Read-only, and it discloses nothing the page does not
@@ -1465,7 +1561,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       }
     }
     const cover = raster ? (built.cover as Bounds) : null;
+    liveCover = cover;
     scrimSprite.visible = raster;
+    const greyOn = raster && (scene.night?.darkvision.length ?? 0) > 0;
+    greySprite.visible = greyOn;
+    greyWash.visible = greyOn;
     // …and the cloud, which is the one thing here with no geometry to come back empty. A scene
     // that carries no fog at all — an unzoned map in rooms mode (D6), or a seat with no
     // document yet — leaves `setMaskBounds` a degenerate rect, and every fragment then samples
@@ -1479,6 +1579,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // and it is exactly the one that still answers with a cover.
     fog.mesh.visible = built.cover !== null;
     if (cover) {
+      for (const s of [greySprite, greyWash]) {
+        s.position.set(cover.minX, cover.minY);
+        s.width = cover.maxX - cover.minX;
+        s.height = cover.maxY - cover.minY;
+      }
       scrimSprite.position.set(cover.minX, cover.minY);
       scrimSprite.width = cover.maxX - cover.minX;
       scrimSprite.height = cover.maxY - cover.minY;
@@ -1504,7 +1609,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // nothing is covering) and a fogged scene must always leave one.
     shownMask.label = raster || !built.cover ? '' : SHOWN_MASK;
     shownSprite.label = raster ? SHOWN_MASK : '';
-    fog.setPalette(fogPalette(scene.grade, scene.darkness));
+    fog.setPalette(fogPalette(scene.cloudTint, scene.darkness));
     // D7/WP2 — the weather itself: the map's authored look, live-overridden by the DM. Keyed
     // rather than called every rebuild, since `setLook` re-renders the soft mask when a rect
     // is already sized — a cost every mutation should not pay for weather that did not move.

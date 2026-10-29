@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TerrainStrokeCommand, SNAPSHOT_BUDGET_BYTES } from './terrainCommands';
-import { setTerrainRenderer, type StrokeRegionSnapshot, type TerrainRenderer } from './TerrainRenderer';
+import {
+  DISPLAY_FRAGMENT_SRC,
+  setTerrainRenderer,
+  type StrokeRegionSnapshot,
+  type TerrainRenderer,
+} from './TerrainRenderer';
 import { useStore } from '../../store/store';
 import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '../../store/slices/tools';
 import type { WaterChild } from '../../shared/types';
@@ -80,20 +85,59 @@ describe('TerrainStrokeCommand', () => {
   });
 });
 
+describe('terrain display shader', () => {
+  // The mesh pipe hands every mesh its alpha in uColor (and the render
+  // group's in uWorldColorAlpha), but a custom shader has to apply it itself.
+  // Without this the terrain opacity and a dungeon layer's opacity do nothing.
+  it('scales the premultiplied bake sample by the mesh and world colour', () => {
+    const src = DISPLAY_FRAGMENT_SRC.replace(/\s+/g, ' ');
+    expect(src).toContain('uniform vec4 uColor;');
+    expect(src).toContain('uniform vec4 uWorldColorAlpha;');
+    expect(src).toContain('finalColor = texture(uBake, vUV) * uColor * uWorldColorAlpha;');
+  });
+});
+
 describe('tool setting clamps', () => {
   beforeEach(() => useStore.getState().resetToDefault());
 
   it('clamps to the same ranges the sliders expose', () => {
     const s = useStore.getState();
     s.updateTerrainBrushSettings({ radius: 999, strength: -1, tintOpacity: 2 });
-    s.updateWaterSettings({ width: 999, flowSpeed: 999 });
+    s.updateWaterSettings({ width: 999 });
 
     const { terrainBrush, water } = useStore.getState().tools.settings;
     expect(terrainBrush.radius).toBe(TERRAIN_BRUSH_RANGES.radius.max);
     expect(terrainBrush.strength).toBe(TERRAIN_BRUSH_RANGES.strength.min);
     expect(terrainBrush.tintOpacity).toBe(TERRAIN_BRUSH_RANGES.tintOpacity.max);
     expect(water.width).toBe(WATER_RANGES.width.max);
-    expect(water.flowSpeed).toBe(WATER_RANGES.flowSpeed.max);
+    expect(water).not.toHaveProperty('flowSpeed');
+  });
+});
+
+describe('brush tint colour', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+  const brush = () => useStore.getState().tools.settings.terrainBrush;
+
+  it('lifts a zero tint opacity to full when a colour is picked', () => {
+    expect(brush().tintOpacity).toBe(0);
+    useStore.getState().updateTerrainBrushSettings({ tintColor: '#f88b8b' });
+    expect(brush().tintColor).toBe('#f88b8b');
+    expect(brush().tintOpacity).toBe(1);
+  });
+
+  it('leaves an opacity the user already set alone', () => {
+    const s = useStore.getState();
+    s.updateTerrainBrushSettings({ tintOpacity: 0.4 });
+    s.updateTerrainBrushSettings({ tintColor: '#3366ff' });
+    expect(brush().tintOpacity).toBe(0.4);
+  });
+
+  it('keeps white untinted and honours an opacity sent with the colour', () => {
+    const s = useStore.getState();
+    s.updateTerrainBrushSettings({ tintColor: '#FFFFFF' });
+    expect(brush().tintOpacity).toBe(0);
+    s.updateTerrainBrushSettings({ tintColor: '#ff0000', tintOpacity: 0 });
+    expect(brush().tintOpacity).toBe(0);
   });
 });
 
@@ -123,7 +167,7 @@ describe('water children in the store', () => {
     };
   }
 
-  it('water child round-trips through serialization', () => {
+  it('water child round-trips through serialization, legacy flow fields included', () => {
     const layer = activeDungeonLayer();
     useStore.getState().addChild(layer.id, makeWater());
 
@@ -138,6 +182,7 @@ describe('water children in the store', () => {
     expect(water).toBeDefined();
     expect(water.waterType).toBe('river');
     expect(water.contours[0].length).toBe(4);
+    // Older maps carry flow fields; they load untouched even though nothing reads them.
     expect(water.flowSpeed).toBeCloseTo(0.15);
   });
 

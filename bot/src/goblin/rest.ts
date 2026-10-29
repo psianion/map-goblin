@@ -104,7 +104,10 @@ export function createGoblinRest(options: GoblinRestOptions): GoblinRest {
       await call(token, 'POST', `/api/sessions/${enc(sessionId)}/end`)
     },
 
-    getMap: (token, sceneId) => json<unknown>(token, 'GET', `/api/maps/${enc(sceneId)}`),
+    // `rooms=derived`: the document as the referee reads it (rooms migrated, named and
+    // numbered on the room itself, faces derived). A player's copy always is; a DM token
+    // would otherwise get the raw file, whose older rooms keep their names elsewhere.
+    getMap: (token, sceneId) => json<unknown>(token, 'GET', `/api/maps/${enc(sceneId)}?rooms=derived`),
 
     getAsset: async (token, assetId) => {
       const response = await call(token, 'GET', `/api/assets/${enc(assetId)}`)

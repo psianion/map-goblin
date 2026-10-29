@@ -20,7 +20,7 @@ import {
 } from './shapeNodeEdit';
 import { useStore } from '../store/store';
 import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { RoomChild } from '../shared/types';
+
 import type { Polygon } from '../types/geometry';
 import {
   edgeControls,
@@ -224,10 +224,7 @@ function editedShape(): ShapeChild {
   return sh;
 }
 
-// A drawn room owns its ring outright: it never unions into mergedFloor, so
-// there is no merged outline to resolve and nothing to collapse. The same edit
-// and commit machinery still has to run on it — vertex editing is generic.
-describe('drawn rooms edit through the same outline machinery', () => {
+describe('picking a floor for node editing', () => {
   beforeEach(() => {
     useStore.getState().resetToDefault();
     useStore.setState((s) => {
@@ -235,34 +232,18 @@ describe('drawn rooms edit through the same outline machinery', () => {
     });
   });
 
-  function seedRoom(): RoomChild {
-    const room = {
-      id: 'room-child-1',
-      name: 'Great Hall',
-      childType: 'room',
-      visible: true,
-      contours: [SQUARE.map(([x, y]) => [x, y])],
-    } as unknown as RoomChild;
-    useStore.getState().addChild(dungeon().id, room);
-    useStore.getState().setShapeNodeEdit(room.id);
-    return room;
-  }
-
-  it('drags a vertex and writes it back to the room child', () => {
-    seedRoom();
-    expect(beginOutlineDrag('vertex', 1)).toBe(true);
-    updateOutlineDrag({ x: 14, y: -3 }, { x: 4, y: -3 }, {});
-    endOutlineDrag();
-
-    const after = dungeon().children.find((c): c is RoomChild => c.childType === 'room');
-    expect(after?.contours[0]).toEqual([[0, 0], [14, -3], [10, 10], [0, 10]]);
-  });
-
-  it('picks a room up for node editing the way it picks a shape up', () => {
-    seedRoom();
+  it('picks a floor whose edge passes within `near` of a point outside it', () => {
+    // A cave kit's rock straddles the edge and reaches into the void, so a
+    // double-click on the rock lands just outside the floor it belongs to.
+    const shape = seedShape();
     useStore.getState().setShapeNodeEdit(null);
-    expect(toggleShapeNodeEditAt({ x: 5, y: 5 })).toBe(true);
-    expect(useStore.getState().tools.shapeNodeEditId).toBe('room-child-1');
+    expect(toggleShapeNodeEditAt({ x: 10.6, y: 5 })).toBe(false);
+    expect(useStore.getState().tools.shapeNodeEditId).toBeNull();
+    expect(toggleShapeNodeEditAt({ x: 10.6, y: 5 }, 1)).toBe(true);
+    expect(useStore.getState().tools.shapeNodeEditId).toBe(shape.id);
+    // Further than `near` is still a miss.
+    useStore.getState().setShapeNodeEdit(null);
+    expect(toggleShapeNodeEditAt({ x: 12, y: 5 }, 1)).toBe(false);
   });
 });
 

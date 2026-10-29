@@ -126,8 +126,9 @@ function nextGroupName(layer: DungeonLayer, base: 'Group' | 'Merged'): string {
   return `${base} ${highest + 1}`
 }
 
-export function groupSelection(): void {
-  group('Group', false)
+/** Group the selection; `merged` makes it click as one (the v2 props default, Group board). */
+export function groupSelection(merged = false): void {
+  group('Group', merged)
 }
 
 export function mergeSelection(): void {

@@ -230,10 +230,10 @@ test.describe('Spline Paths', () => {
 
   // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
   // the old `SplinePathRecord` with `controlPoints` / `closed`: that record type
-  // and `DungeonLayer.paths` went away with the v2.0 store (see splineRenderer's
-  // stubs). This drew nothing before, because it called an `addPath` action that
-  // no longer exists through an optional-call that swallowed its absence — so it
-  // asserted a schema on a layer that never got a path. It now draws one with the
+  // and `DungeonLayer.paths` went away with the v2.0 store. This drew nothing
+  // before, because it called an `addPath` action that no longer exists through
+  // an optional-call that swallowed its absence — so it asserted a schema on a
+  // layer that never got a path. It now draws one with the
   // real path tool and checks the shape that actually reaches a save file.
   test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
     await gotoApp(page)

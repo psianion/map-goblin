@@ -7,6 +7,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../s
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
+import { conditionZoneId } from '../../shared/prep';
 import { getChildBounds } from '../hitTest';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
 import { isLayerEffectivelyVisible } from '../../store/selectors';
@@ -305,7 +306,7 @@ export class ZoneTool implements DrawingTool {
     // Triggers keyed to this zone become unreachable from every screen while
     // still riding along in saves/publishes — say so, since prep edits sit
     // outside the undo stack even though the zone itself comes back on undo.
-    const orphaned = store.prep?.triggers.filter((t) => t.when.zoneId === selected).length ?? 0;
+    const orphaned = store.prep?.triggers.filter((t) => conditionZoneId(t.when) === selected).length ?? 0;
     if (orphaned > 0) {
       notify.warning(
         `Zone deleted — ${orphaned} trigger${orphaned === 1 ? ' now references' : 's now reference'} nothing (undo restores the zone)`,

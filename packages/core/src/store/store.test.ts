@@ -145,6 +145,38 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().mapSettings.name).toBe('Round-Trip Map');
   });
 
+  it('loadFromFile drops a retired gridType from a 3.1 file, and the next save leaves it out', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    expect(data.version).toBe('3.1');
+    (data.mapSettings as unknown as Record<string, unknown>).gridType = 'hex';
+    data.mapSettings.name = 'Old Save';
+    useStore.getState().loadFromFile(data);
+    expect(useStore.getState().mapSettings.name).toBe('Old Save');
+    expect('gridType' in useStore.getState().mapSettings).toBe(false);
+    expect('gridType' in useStore.getState().getSerializableState().mapSettings).toBe(false);
+  });
+
+  it('keeps snap on/off as set across a load and a reset (a view preference, not map data)', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    useStore.getState().setSnapEnabled(false);
+    useStore.getState().loadFromFile(data);
+    expect(useStore.getState().grid.snapEnabled).toBe(false);
+    useStore.getState().resetToDefault();
+    expect(useStore.getState().grid.snapEnabled).toBe(false);
+    useStore.getState().setSnapEnabled(true);
+  });
+
+  it('keeps "see under overhead" across a reset (a view preference, not map data)', () => {
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = true;
+    });
+    useStore.getState().resetToDefault();
+    expect(useStore.getState().ui.seeUnderOverhead).toBe(true);
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = false;
+    });
+  });
+
   it('keeps a door its authored name through a save/load round-trip', () => {
     const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
     if (!layer) throw new Error('No dungeon layer');
@@ -212,9 +244,10 @@ describe('getSerializableState / loadFromFile — prep', () => {
     });
     const data = useStore.getState().getSerializableState();
     expect(data.prep).toEqual({
-      version: 2,
+      version: 3,
       triggers: [expect.objectContaining({ id: 't1' })],
       notes: [],
+      rooms: [],
     });
   });
 
@@ -229,7 +262,7 @@ describe('getSerializableState / loadFromFile — prep', () => {
     });
     useStore.getState().removeTrigger('t1');
     const data = useStore.getState().getSerializableState();
-    expect(data.prep).toEqual({ version: 2, triggers: [], notes: [] });
+    expect(data.prep).toEqual({ version: 3, triggers: [], notes: [], rooms: [] });
   });
 
   it('accepts a 3.1 doc with prep and a zone child, and sets store prep', () => {
@@ -244,13 +277,13 @@ describe('getSerializableState / loadFromFile — prep', () => {
       shape: { kind: 'point', position: { x: 1, y: 1 } },
     });
     data.version = '3.1';
-    // A 3.1-era file carries prep v1 — the load boundary upgrades it to v2 in place.
+    // A 3.1-era file carries prep v1 — the load boundary upgrades it to v3 in place.
     const v1Trigger = { id: 't1', name: 'Trap', when: { kind: 'enter-region', zoneId: 'zone-1' }, actions: [], once: true, enabled: true } as const;
     (data as { prep?: unknown }).prep = { version: 1, triggers: [v1Trigger] };
 
     useStore.getState().loadFromFile(data);
 
-    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [v1Trigger], notes: [] });
+    expect(useStore.getState().prep).toEqual({ version: 3, triggers: [v1Trigger], notes: [], rooms: [] });
     const loadedLayer = useStore.getState().layers.find((l) => l.type === 'dungeon');
     if (!loadedLayer || loadedLayer.type !== 'dungeon') throw new Error('Dungeon layer gone');
     expect(loadedLayer.children.some((c) => c.id === 'zone-1')).toBe(true);

@@ -6,11 +6,6 @@ const BASE_STYLE: DungeonStyle = {
   floorColor: '#c8b89a',
   wallColor: '#222222',
   wallWidth: 0.5,
-  shadowEnabled: true,
-  shadowColor: '#6b6060',
-  shadowOffset: { x: 0.4, y: 0.3 },
-  shadowIntensity: 0.5,
-  roughnessAmplitude: 0,
   lineWidth: 1,
   edgeTransitionWidth: 0.5,
   showEdgeTransitions: true,
@@ -37,11 +32,11 @@ describe('resolveStyle', () => {
     const result = resolveStyle(BASE_STYLE, {
       floorColor: '#ff0000',
       wallColor: '#00ff00',
-      shadowEnabled: false,
+      showEdgeTransitions: false,
     });
     expect(result.floorColor).toBe('#ff0000');
     expect(result.wallColor).toBe('#00ff00');
-    expect(result.shadowEnabled).toBe(false);
+    expect(result.showEdgeTransitions).toBe(false);
     expect(result.wallWidth).toBe(0.5); // inherited
   });
 

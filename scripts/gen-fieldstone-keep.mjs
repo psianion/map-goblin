@@ -224,7 +224,6 @@ const map = {
   version: '3.1',
   mapSettings: {
     name: 'Fieldstone Keep',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     // The Day preset. The mood is "this world in neutral daylight" now, not a baked night —
     // the dark comes from the time keys (and the braziers keep their own pools), so a mood of

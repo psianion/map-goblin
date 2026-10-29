@@ -7,7 +7,7 @@
 import { Text, TextStyle, type Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
-import type { WallEdits } from '../shared/types';
+import type { WallEdits, WallSegment } from '../shared/types';
 import type { Point } from '../types/geometry';
 import {
   layoutWall,
@@ -18,12 +18,15 @@ import {
   type WallPieceSpec,
 } from './wallLayout';
 import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
+import { isBandSet } from '../assets/packCatalog';
 import { blockedLayerReason } from './tools/layerGuard';
 import { notify } from '../shared/notify';
 import { strokeRopeDash, drawNodeHandle, drawEditDim } from './overlayDraw';
 import { bandJointPoint } from './bandSolver';
 import { detectBands, type CaveBand } from './caveBand';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
+import { ringLook, standaloneWallLook } from '../shared/wallLook';
+import { layerDrawStyle, layerLevelLook } from './levelLook';
 
 /**
  * Pick radius in SCREEN pixels, converted to world units per pick.
@@ -93,6 +96,24 @@ function suffixIndex(id: string, prefix: string): number | null {
   return Number(suffix);
 }
 
+/**
+ * Ids of the form `spine:<wallId>` address a DRAWN wall laid with a cave band
+ * kit. Its rock is walked live along the wall's own polyline (see
+ * caveBandRenderer.ts) and has no stones and no placed pieces, so the thing to
+ * edit is that polyline: the handles are its corners, and moving one re-lays
+ * the band. Prefixed rather than the bare wall id so everything that reads the
+ * mode (the status bars, the key table) can tell it from stone editing on the
+ * same wall without resolving the layer.
+ */
+export const SPINE_WALL_PREFIX = 'spine:';
+
+/** The drawn wall a `spine:` id names, or null for any other id. */
+export function spineWallId(wallId: string): string | null {
+  return wallId.startsWith(SPINE_WALL_PREFIX) && wallId.length > SPINE_WALL_PREFIX.length
+    ? wallId.slice(SPINE_WALL_PREFIX.length)
+    : null;
+}
+
 export function floorRingIndex(wallId: string): number | null {
   return suffixIndex(wallId, FLOOR_WALL_PREFIX);
 }
@@ -109,6 +130,11 @@ interface RunBase {
   /** Closed rings never get end caps; a drawn chain does. */
   closed: boolean;
   width: number;
+  /**
+   * The texture set the run's stones are composed from: its own pin, or the floor's
+   * pin for a ring, else the layer's. The same one `renderNodeWalls` lays it with.
+   */
+  setId?: string;
 }
 
 /**
@@ -121,10 +147,14 @@ interface RunBase {
  * - `band` — a cave wall: a run of placed asset children with no texture set
  *   behind it (see caveBand.ts). Handles ride the joints between pieces, and
  *   there is no patch to write — the pieces themselves are what moves.
+ * - `spine` — a drawn wall on a cave band kit (see SPINE_WALL_PREFIX). Handles
+ *   are the polyline's own corners; moving one moves the wall, and the live
+ *   band re-lays along it.
  */
 export type EditableRun =
   | (RunBase & { kind: 'stones'; edits: WallEdits | undefined })
-  | (RunBase & { kind: 'band'; band: CaveBand; edits?: undefined });
+  | (RunBase & { kind: 'band'; band: CaveBand; edits?: undefined })
+  | (RunBase & { kind: 'spine'; wall: WallSegment; edits?: undefined });
 
 function activeWall(): EditableRun | null {
   const state = useStore.getState();
@@ -149,8 +179,25 @@ function activeWall(): EditableRun | null {
       id: wallId,
       points: band.joints.map(([x, y]): [number, number] => [x, y]),
       closed: band.closed,
-      width: layer.style.wallWidth,
+      width: layerDrawStyle(layer).wallWidth,
       band,
+    };
+  }
+
+  const spineOf = spineWallId(wallId);
+  if (spineOf !== null) {
+    const wall = layer.standaloneWalls.find((w) => w.id === spineOf);
+    if (!wall || wall.points.length < 2) return null;
+    const look = standaloneWallLook(wall, layerDrawStyle(layer));
+    return {
+      kind: 'spine',
+      layer,
+      id: wallId,
+      points: wall.points,
+      closed: isClosedSpine(wall.points),
+      width: look.width,
+      setId: look.setId,
+      wall,
     };
   }
 
@@ -158,13 +205,15 @@ function activeWall(): EditableRun | null {
   if (ring !== null) {
     const poly = layer.mergedFloor?.[ring];
     if (!poly || poly.length < 3) return null;
+    const look = ringLook(layer, ring, layerLevelLook(layer));
     return {
       kind: 'stones',
       layer,
       id: wallId,
       points: poly.map(([x, y]): [number, number] => [x, y]),
       closed: true,
-      width: layer.style.wallWidth,
+      width: look.width,
+      setId: look.setId,
       // Same view the renderer takes: a ring stone's position comes from the
       // outline, so any offset stored against one is dead weight from before
       // that was true, and the handles must not honour it either.
@@ -174,6 +223,7 @@ function activeWall(): EditableRun | null {
 
   const wall = layer.standaloneWalls.find((w) => w.id === wallId);
   if (!wall) return null;
+  const look = standaloneWallLook(wall, layerDrawStyle(layer));
   return {
     kind: 'stones',
     layer,
@@ -183,14 +233,34 @@ function activeWall(): EditableRun | null {
     // renderer reads its closedness the same way, so the handles keep sitting
     // on the stones that are actually drawn.
     closed: isClosedSpine(wall.points),
-    width: wall.width || layer.style.wallWidth,
+    width: look.width,
+    setId: look.setId,
     edits: wall,
   };
 }
 
-/** Pieces the layer's wall set offers; empty when it has no set at all. */
-function wallSetSpecs(layer: DungeonLayer): WallPieceSpec[] {
-  const setId = layer.style.wallTextureSetId;
+/** Pieces a wall set offers; empty when there is no set at all. */
+function wallSetSpecs(setId: string | undefined): WallPieceSpec[] {
+  return setId ? buildPieceSpecs(setId) : [];
+}
+
+/**
+ * The texture set the run `wallId` is drawn with — a drawn wall's own pin, the
+ * floor's pin for a ring, else the layer's — the same resolution `activeWall`
+ * and `renderNodeWalls` use. Undefined for no set.
+ */
+export function wallRunSetId(layer: DungeonLayer, wallId: string): string | undefined {
+  const ring = floorRingIndex(wallId);
+  if (ring !== null) return ringLook(layer, ring, layerLevelLook(layer)).setId;
+  const style = layerDrawStyle(layer);
+  const wall = layer.standaloneWalls.find((w) => w.id === wallId);
+  if (wall) return standaloneWallLook(wall, style).setId;
+  return style.wallTextureSetId || undefined;
+}
+
+/** Pieces a run's stones come from: its own set, see `RunBase.setId`. */
+export function runSetSpecs(run: EditableRun): WallPieceSpec[] {
+  const setId = run.kind === 'band' ? layerDrawStyle(run.layer).wallTextureSetId : run.setId;
   return setId ? buildPieceSpecs(setId) : [];
 }
 
@@ -204,12 +274,23 @@ function wallSetSpecs(layer: DungeonLayer): WallPieceSpec[] {
  * Entry points ask this before entering. It reads the same two facts
  * `currentWallNodes` does, through the same `wallSetSpecs`, so a refusal and
  * an empty run can never disagree.
+ *
+ * `setId` is the set the wall in question resolves to (see `wallRunSetId`);
+ * the layer's own set when left out.
  */
-export function noWallStonesReason(layer: DungeonLayer): string | null {
-  if (!layer.style.wallTextureSetId) {
+export function noWallStonesReason(
+  layer: DungeonLayer,
+  setId: string | undefined = layerDrawStyle(layer).wallTextureSetId,
+): string | null {
+  if (!setId) {
     return 'Layer has no wall texture set — pick one to edit its stones';
   }
-  if (wallSetSpecs(layer).length === 0) {
+  // A cave kit's rock is laid by the walk on every redraw, straight from the
+  // ring: move the outline and the band follows. There are no stones to nudge.
+  if (isBandSet(setId)) {
+    return 'Cave rock follows the floor edge — move the outline to move the wall';
+  }
+  if (wallSetSpecs(setId).length === 0) {
     return 'Wall texture set is still loading — try again in a moment';
   }
   return null;
@@ -364,6 +445,37 @@ function bandNodes(band: CaveBand, selectedT: number | null): WallNode[] {
 }
 
 /**
+ * The corners of a drawn wall, one handle each, keyed `t = index / count` the
+ * way band joints are (see bandJointT). A loop repeats its first point as its
+ * last; that copy is the same corner and gets no handle of its own.
+ */
+export function spineNodes(points: [number, number][]): WallNode[] {
+  const closed = isClosedSpine(points);
+  const corners = closed ? points.slice(0, -1) : points;
+  const n = corners.length;
+  return corners.map(([x, y], i): WallNode => {
+    const a = corners[i - 1] ?? (closed ? corners[n - 1] : [x, y]);
+    const b = corners[i + 1] ?? (closed ? corners[0] : [x, y]);
+    return {
+      t: bandJointT(i, n),
+      x,
+      y,
+      angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
+      pieceId: '',
+      scale: 1,
+      sizeScale: 1,
+      kind: 'corner',
+    };
+  });
+}
+
+/** The corner index a spine handle's `t` names (see {@link spineNodes}). */
+export function spineCornerIndex(t: number, points: [number, number][]): number {
+  const n = isClosedSpine(points) ? points.length - 1 : points.length;
+  return Math.min(Math.max(Math.round(t * n), 0), Math.max(n - 1, 0));
+}
+
+/**
  * The run currently in edit mode, guarded for writing: null (with a warning)
  * once the layer has gone locked or hidden, even if that happened after node
  * edit mode was entered. Every edit — drag begin/nudge/commit, keyboard
@@ -388,7 +500,8 @@ export function currentWallNodes(): WallNode[] {
   const run = activeWall();
   if (!run) return [];
   if (run.kind === 'band') return bandNodes(run.band, useStore.getState().tools.selectedNodeT);
-  const specs = wallSetSpecs(run.layer);
+  if (run.kind === 'spine') return spineNodes(run.points);
+  const specs = runSetSpecs(run);
   if (specs.length === 0) return [];
   const auto = layoutWall(run.points, run.closed, specs, {
     wallWidth: run.width,
@@ -430,7 +543,7 @@ export function renderWallNodeHandles(
         // a width change redrew the wall but not the handles, and picking —
         // which relays from scratch — stopped agreeing with what was drawn.
         found.width,
-        found.layer.style.wallTextureSetId ?? '',
+        found.setId ?? layerDrawStyle(found.layer).wallTextureSetId ?? '',
         // Zoom is part of the signature because handle size depends on it.
         zoom.toFixed(3),
         // The dim quad covers the camera rect, so panning must redraw it.
@@ -444,7 +557,12 @@ export function renderWallNodeHandles(
   lastSignature = signature;
 
   overlay.clear();
-  if (!found) return;
+  if (!found) {
+    // The chip lives beside the overlay, not in it, so clear() leaves it up:
+    // leaving the mode with a stone picked stranded it over the map.
+    if (chip) chip.visible = false;
+    return;
+  }
 
   const nodes = currentWallNodes();
   const selectedT = state.tools.selectedNodeT;
@@ -480,7 +598,9 @@ export function renderWallNodeHandles(
     const keys =
       found.kind === 'band'
         ? 'drag joint · { } insert · Del straighten · Tab re-lay wall'
-        : '[ ] rotate · - + size · , . gap';
+        : found.kind === 'spine'
+          ? 'drag corner · Del remove'
+          : '[ ] rotate · - + size · , . gap';
     if (hint.text !== keys) hint.text = keys;
     const on = primaryNode;
     hint.visible = on !== null;

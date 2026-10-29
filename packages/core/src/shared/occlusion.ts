@@ -23,7 +23,8 @@ export const WALL_TYPE_OCCLUSION: Record<WallType, OcclusionProps> = {
   terrain:   { blocksVision: false, blocksLight: false, blocksMovement: true,  blocksSound: false },
   invisible: { blocksVision: false, blocksLight: false, blocksMovement: true,  blocksSound: false },
   ethereal:  { blocksVision: true,  blocksLight: true,  blocksMovement: false, blocksSound: false },
-  window:    { blocksVision: true,  blocksLight: false, blocksMovement: true,  blocksSound: false },
+  // Sight and light both pass a window (the Lighting pass made the table match the editor).
+  window:    { blocksVision: false, blocksLight: false, blocksMovement: true,  blocksSound: false },
 };
 
 const DOOR_OPEN: OcclusionProps = {

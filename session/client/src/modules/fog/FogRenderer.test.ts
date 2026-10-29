@@ -12,11 +12,13 @@ import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
-import type { DoorChild, Room } from '@dnd/core/src/shared/types';
+import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
+import { setTableWorld } from '@dnd/core/src/engine/worldOverride';
+import { skyFrame } from '@dnd/core/src/shared/sky';
 import { useStore } from '@dnd/core/src/store/store';
 import type { PlayerInfo, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import { regionOf, setCells, type RoomFog, type SceneFog } from '@dnd/mechanics/fog';
@@ -34,9 +36,12 @@ import {
   type FogRing,
   type NightSight,
   ringsWithHoles,
+  type TableRoom,
 } from './fog';
+
 import {
   SCENE_DARKNESS,
+  washDarkness,
   GRADE_STRENGTH,
   memoryAlpha,
   EXPLORED_TINT,
@@ -62,6 +67,10 @@ import {
 } from './FogRenderer';
 import { DEFAULT_FOG_LOOK, MASK_MEMORY } from './livingFog';
 import { tokenLightId } from '../triggers/lightSync';
+
+/** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
+ *  rows that aim at the middle of a room. */
+type Room = TableRoom & { centroid: [number, number] };
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
 const VOID: VoidStyle = {
@@ -103,6 +112,7 @@ const room = (id: string, x: number): Room => ({
     [x + 4, 4],
     [x, 4],
   ],
+  anchor: [x + 2, 2],
   centroid: [x + 2, 2],
   area: 16,
   isPathway: false,
@@ -305,6 +315,7 @@ describe('roomViews — what each room is doing', () => {
       isPlayer: true,
       darkness: 1,
       grade: '#ffffff',
+      cloudTint: '#ffffff',
       timeBucket: 0,
       void: VOID,
       look: DEFAULT_FOG_LOOK,
@@ -329,6 +340,7 @@ describe('roomViews — what each room is doing', () => {
       isPlayer: true,
       darkness: 1,
       grade: '#ffffff',
+      cloudTint: '#ffffff',
       timeBucket: 0,
       void: VOID,
       look: DEFAULT_FOG_LOOK,
@@ -580,6 +592,7 @@ const hall = (id: string, x0: number, x1: number): Room => ({
     [x1, 6],
     [x0, 6],
   ],
+  anchor: [(x0 + x1) / 2, 3],
   centroid: [(x0 + x1) / 2, 3],
   area: (x1 - x0) * 6,
   isPathway: false,
@@ -727,6 +740,7 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     isPlayer: true,
     darkness: 1,
       grade: '#ffffff',
+      cloudTint: '#ffffff',
       timeBucket: 0,
     void: VOID,
     look: DEFAULT_FOG_LOOK,
@@ -989,6 +1003,7 @@ describe('drawFog in vision mode', () => {
     isPlayer: true,
     darkness: 1,
       grade: '#ffffff',
+      cloudTint: '#ffffff',
       timeBucket: 0,
     void: VOID,
     mode: 'vision',
@@ -1743,16 +1758,15 @@ describe('fogScene', () => {
     expect(fogScene().night?.lit).toHaveLength(2);
   });
 
-  it('reads the scene’s darkness per level, and an untouched scene as full dark', () => {
-    // Untouched is the map as authored, which is what the renderer has always drawn, so
-    // nothing moves on a table nobody has turned the dial at.
-    expect(nightTable(undefined).darkness).toBe(1);
-    expect(nightTable('darkness').darkness).toBe(SCENE_DARKNESS.darkness);
-    expect(nightTable('dusk').darkness).toBe(SCENE_DARKNESS.dusk);
+  it('reads the wash off the sky’s one darkness number, the DM’s slider included', () => {
+    // The Lighting pass: one darkness scalar. An untouched scene at noon is daylight; the old
+    // dial's three levels land on the slider (0, 0.5, 1) and read as they always did.
+    expect(nightTable(undefined).darkness).toBe(SCENE_DARKNESS.daylight);
     expect(nightTable('daylight').darkness).toBe(SCENE_DARKNESS.daylight);
-    // Monotone, and the untouched scene is the darkest.
-    expect(SCENE_DARKNESS.daylight).toBeLessThan(SCENE_DARKNESS.dusk);
-    expect(SCENE_DARKNESS.dusk).toBeLessThan(SCENE_DARKNESS.darkness);
+    expect(nightTable('dusk').darkness).toBeCloseTo(washDarkness(0.5));
+    expect(nightTable('darkness').darkness).toBe(SCENE_DARKNESS.darkness);
+    expect(washDarkness(0.5)).toBeGreaterThan(SCENE_DARKNESS.daylight);
+    expect(washDarkness(0.5)).toBeLessThan(SCENE_DARKNESS.darkness);
   });
 
   // P2 — the same rule the referee runs (`worldLightOf`), read through this seat's mask.
@@ -1771,8 +1785,9 @@ describe('fogScene', () => {
     it('gates an outdoor map on the clock and the sky, with nobody touching a dial', () => {
       outdoor();
       expect(nightTable(undefined, {}, { ...night, nightSky: 'moonless' }).night).toBeDefined();
-      // A full moon is a world you can still see: dusk, and no light gate at all.
-      expect(nightTable(undefined, {}, { ...night, nightSky: 'full-moon' }).night).toBeUndefined();
+      // The Lighting pass's region rule (`isDarkRegion`): a night grade under a full moon is
+      // still below DARK_LUMA, so the moonlit midnight needs light too.
+      expect(nightTable(undefined, {}, { ...night, nightSky: 'full-moon' }).night).toBeDefined();
       // …and midday is midday.
       expect(nightTable(undefined, {}, { clock: 720, nightSky: 'moonless', timeSpeed: 'paused' }).night).toBeUndefined();
     });
@@ -1782,7 +1797,7 @@ describe('fogScene', () => {
       const crescent = nightTable(undefined, {}, { ...night, nightSky: 'crescent' });
       const moonless = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
       expect(crescent.light?.biteLevel).toBe('darkness-soft');
-      expect(crescent.darkness).toBe(SCENE_DARKNESS['darkness-soft']);
+      expect(crescent.darkness).toBeGreaterThan(SCENE_DARKNESS.dusk);
       expect(crescent.darkness).toBeLessThan(moonless.darkness);
       // Both still clip vision to the torches — the softening is presentation only.
       expect(crescent.night).toBeDefined();
@@ -1795,14 +1810,16 @@ describe('fogScene', () => {
       expect(scene.light).toMatchObject({ source: 'override', wouldBe: 'darkness' });
     });
 
-    it('leaves an indoor map to the DM at every hour, and composites it unchanged', () => {
+    it('lets 40 % of the night into an indoor map: dark at a moonless midnight, lit at noon', () => {
       useStore.setState({
         mapSettings: { ...useStore.getState().mapSettings, environment: undefined },
       });
       const scene = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
-      expect(scene.night).toBeUndefined();
+      expect(scene.night).toBeDefined();
+      // The badge's manual gate is unchanged (`worldLightOf`); the sweep reads the region rule.
       expect(scene.light?.biteLevel).toBeNull();
       expect(scene.darkness).toBe(1);
+      expect(nightTable(undefined, {}, { clock: 720, nightSky: 'moonless', timeSpeed: 'paused' }).night).toBeUndefined();
     });
 
     it('composes a grade that follows the clock, and buckets it for the pass', () => {
@@ -1822,14 +1839,52 @@ describe('fogScene', () => {
     // The fogged sheet is drawn *above* the same composite the real void renders through, and
     // that composite is the grade alone — the colour the world clock composes (P2). The dial
     // changes what the *tiers* do, not what the void under them looks like.
+    let previous = 0;
     for (const level of ['daylight', 'dusk', 'darkness'] as const) {
       const scene = nightTable(level);
       expect(scene.void).toEqual(voidStyle(true, scene.grade));
-      expect(scene.darkness).toBe(SCENE_DARKNESS[level]);
+      expect(scene.darkness).toBeGreaterThan(previous);
+      previous = scene.darkness;
     }
     const untouched = nightTable(undefined);
     expect(untouched.void).toEqual(voidStyle(true, untouched.grade));
-    expect(untouched.darkness).toBe(1);
+    expect(untouched.darkness).toBe(nightTable('daylight').darkness);
+  });
+
+  // §4.4 — the fog composes no grade of its own: it takes the one the lighting pass lands on
+  // for the same sky, never the pass's eased frame (a rebuild runs as an ease starts).
+  it('takes the grade the lighting pass lands on, not the eased one, and the DM-lit view lifts it', () => {
+    setEngineSingleton({} as RenderEngine, {
+      lightingRenderer: { currentGrade: () => '#123456' },
+    } as unknown as SceneGraph);
+    try {
+      const dark = nightTable('darkness');
+      expect(dark.grade).not.toBe('#123456');
+      expect(dark.void).toEqual(voidStyle(true, dark.grade));
+      setTableWorld(skyFrame({ minutes: 0, environment: 'underground', override: 1 }), { allLit: true });
+      const lit = nightTable('darkness');
+      expect(parseInt(lit.grade.slice(1, 3), 16)).toBeGreaterThan(parseInt(dark.grade.slice(1, 3), 16));
+    } finally {
+      setTableWorld(null);
+      clearEngineSingleton();
+    }
+  });
+
+  it('gives the cloud the level tint without the darkness, so its hue survives the dark', () => {
+    const lit = nightTable('daylight');
+    const dark = nightTable('darkness');
+    expect(dark.cloudTint).toBe(lit.cloudTint);
+    expect(dark.grade).not.toBe(dark.cloudTint);
+  });
+
+  it('with no renderer yet, computes the same level grade the renderer would', () => {
+    clearEngineSingleton();
+    const lit = nightTable('daylight').grade;
+    const dark = nightTable('darkness').grade;
+    expect(dark).not.toBe(lit);
+    // The slider at 1 takes the grade most of the way to black, the tint still in it.
+    const [r] = [parseInt(dark.slice(1, 3), 16)];
+    expect(r).toBeLessThan(parseInt(lit.slice(1, 3), 16));
   });
 });
 
@@ -2198,6 +2253,7 @@ describe('drawFog in the dark', () => {
     isPlayer: true,
     darkness: 1,
     grade: '#ffffff',
+    cloudTint: '#ffffff',
     timeBucket: 0,
     void: VOID,
     mode: 'vision',

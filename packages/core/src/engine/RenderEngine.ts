@@ -8,7 +8,8 @@ export interface CameraState {
 }
 
 export interface RenderEngine {
-  init(container: HTMLDivElement): Promise<void>;
+  /** `useBackBuffer`: draw through a back buffer so advanced blend modes (the table's greyscale darkvision) work on WebGL. */
+  init(container: HTMLDivElement, options?: { useBackBuffer?: boolean }): Promise<void>;
   destroy(): void;
   stage(): Container;
   overlay(): Container;
@@ -22,7 +23,12 @@ export interface RenderEngine {
   setCamera(state: CameraState): void;
   screenToWorld(sx: number, sy: number): Point;
   worldToScreen(wx: number, wy: number): Point;
-  createRenderTexture(width: number, height: number): RenderTexture;
+  /**
+   * An offscreen target of `width`x`height` logical pixels. `resolution` defaults to the
+   * screen's DPR, which suits the passes that stand in for the canvas. A file (the export,
+   * map thumbnails) passes 1, so the texture holds exactly the pixels it will write.
+   */
+  createRenderTexture(width: number, height: number, resolution?: number): RenderTexture;
   renderToTexture(container: Container, texture: RenderTexture, clear?: boolean): void;
   addTickerCallback(fn: () => void): void;
   ticker(): Ticker;

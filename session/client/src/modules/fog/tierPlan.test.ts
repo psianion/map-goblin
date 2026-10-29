@@ -895,3 +895,51 @@ describe('tierPlan — rooms the DM drew (O1/O5)', () => {
     expect(opsOn(plan, 'live').some((op) => op.blend === 'erase')).toBe(true);
   });
 });
+
+describe('tierPlan — the Lighting pass: dark regions, darkness sources and the greyscale tier', () => {
+  const square = (x: number): Polygon => [
+    [x, 0],
+    [x + 2, 0],
+    [x + 2, 2],
+    [x, 2],
+  ];
+
+  it('gates only the dark rooms when the level’s own ground is lit', () => {
+    const plan = tierPlan(scene({ sight: [LOOKING], night: { lit: [], darkvision: [], pools: [], dark: [square(12)] } }));
+    const ops = opsOn(plan, 'inverseSeeable');
+    expect(ops.some((op) => op.kind === 'rect')).toBe(false);
+    expect(polysOn(plan, 'inverseSeeable')[0]?.polys).toEqual([square(12)]);
+  });
+
+  it('gates the whole cover when the level itself is dark', () => {
+    const plan = tierPlan(scene({ sight: [LOOKING], night: { lit: [], darkvision: [], pools: [] } }));
+    expect(opsOn(plan, 'inverseSeeable')[0]?.kind).toBe('rect');
+  });
+
+  it('lays darkness sources over the gate after the light is erased: darkness beats light', () => {
+    const plan = tierPlan(
+      scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [], pools: [], blind: [square(6)] } }),
+    );
+    const ops = opsOn(plan, 'inverseSeeable');
+    const last = ops.at(-1) as PolyOp;
+    expect(last.blend).toBe('normal');
+    expect(last.polys).toEqual([square(6)]);
+    expect(ops.findIndex((op) => op.blend === 'erase')).toBeLessThan(ops.length - 1);
+  });
+
+  it('builds the greyscale tier where darkvision sees and nothing lights, inside live sight', () => {
+    const plan = tierPlan(
+      scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [square(12)], pools: [] } }),
+    );
+    const grey = opsOn(plan, 'grey');
+    expect(grey[0]?.kind).toBe('rect');
+    expect(grey.some((op) => op.kind === 'polys' && op.blend === 'erase')).toBe(true);
+    expect(grey.at(-1)).toMatchObject({ kind: 'sprite', source: 'inverseLive', blend: 'erase' });
+    expect(opsOn(plan, 'inverseLive').length).toBe(2);
+  });
+
+  it('draws no greyscale tier without a darkvision eye, or in daylight', () => {
+    expect(opsOn(tierPlan(scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [], pools: [] } })), 'grey')).toEqual([]);
+    expect(opsOn(tierPlan(scene({ sight: [LOOKING] })), 'grey')).toEqual([]);
+  });
+});

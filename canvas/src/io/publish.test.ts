@@ -25,7 +25,6 @@ const BASE_DATA: SerializedMapData = {
   version: '2.0',
   mapSettings: {
     name: 'Test Dungeon',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#1a1a2e',
   },
@@ -39,7 +38,7 @@ describe('hashMapBytes', () => {
     const withoutPrep = { ...BASE_DATA };
     const withPrep: SerializedMapData = {
       ...BASE_DATA,
-      prep: { version: 2, triggers: [], notes: [] },
+      prep: { version: 3, triggers: [], notes: [], rooms: [] },
     };
     const hashA = await hashMapBytes(withoutPrep);
     const hashB = await hashMapBytes(withPrep);
@@ -70,7 +69,7 @@ describe('hashMapBytes', () => {
     const splat = new Uint8Array([5, 6, 7]);
     const hashA = await hashMapBytes(BASE_DATA, [splat, null]);
     const hashB = await hashMapBytes(
-      { ...BASE_DATA, prep: { version: 2, triggers: [], notes: [] } },
+      { ...BASE_DATA, prep: { version: 3, triggers: [], notes: [], rooms: [] } },
       [splat, null],
     );
     expect(hashA).toBe(hashB);
@@ -80,7 +79,13 @@ describe('hashMapBytes', () => {
   // into this function to run off the main thread — the move must not change the
   // digest for an unchanged map, or every table thinks every map changed.
   it('matches the pre-move hash for a fixed document', async () => {
-    const hash = await hashMapBytes(BASE_DATA);
+    // The pinned document predates the retired mapSettings.gridType and still carries it,
+    // byte for byte, so the digest stays comparable.
+    const pinned = {
+      ...BASE_DATA,
+      mapSettings: { name: 'Test Dungeon', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#1a1a2e' },
+    } as SerializedMapData;
+    const hash = await hashMapBytes(pinned);
     expect(hash).toBe('ce5e81eacc13c177ccf6dafe5eb45ba8fa75d51f43d2cf6d7c5832cffe5c038c');
   });
 });
@@ -121,9 +126,10 @@ describe('hashPrep', () => {
   });
 
   it('changes when a trigger is added', async () => {
-    const before = await hashPrep({ version: 2, triggers: [], notes: [] });
+    const before = await hashPrep({ version: 3, triggers: [], notes: [], rooms: [] });
     const after = await hashPrep({
-      version: 2,
+      version: 3,
+      rooms: [],
       notes: [],
       triggers: [
         {

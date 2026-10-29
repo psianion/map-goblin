@@ -6,7 +6,15 @@ export interface ExportDimensions {
   clampedToLimit: boolean;
 }
 
+/** Longest side of an export, in real pixels of the render texture the GPU allocates. */
 export const MAX_EXPORT_PX = 8192;
+
+/**
+ * The export renders at one texture pixel per file pixel, whatever the screen's DPR. A
+ * DPR-scaled texture held DPR times the pixels the file was sized for, and the pipeline
+ * then kept only its top-left corner, drawn at DPR times the scale.
+ */
+export const EXPORT_RESOLUTION = 1;
 
 /**
  * Compute pixel dimensions for export given grid cell counts and px-per-cell.
@@ -15,17 +23,20 @@ export const MAX_EXPORT_PX = 8192;
  * one factor shrinks both axes so the whole map still fits the texture, and the returned
  * `pxPerCell` is the scale the pipeline must render at. (Clamping the texture alone kept
  * the requested zoom and silently cut the right and bottom off large maps.)
+ *
+ * The cap is on real pixels: `resolution` is texture pixels per file pixel.
  */
 export function computeExportDimensions(
   cellWidth: number,
   cellHeight: number,
   pxPerCell: number,
+  resolution: number = EXPORT_RESOLUTION,
 ): ExportDimensions {
   // Ceil fractional cells first, then multiply by pixels per cell
   const cols = Math.ceil(cellWidth);
   const rows = Math.ceil(cellHeight);
-  const rawW = cols * pxPerCell;
-  const rawH = rows * pxPerCell;
+  const rawW = cols * pxPerCell * resolution;
+  const rawH = rows * pxPerCell * resolution;
   const scale = Math.min(1, MAX_EXPORT_PX / rawW, MAX_EXPORT_PX / rawH);
   const effective = pxPerCell * scale;
   return {
@@ -65,4 +76,21 @@ export function worldBoundsToCells(worldBounds: {
     cellWidth: Math.max(1, Math.ceil(worldBounds.maxX - worldBounds.minX)),
     cellHeight: Math.max(1, Math.ceil(worldBounds.maxY - worldBounds.minY)),
   };
+}
+
+/**
+ * The world container's translation for an export of `widthPx`x`heightPx` at `pxPerCell`,
+ * with `bounds` centred in the file. The file is whole cells, so it runs up to a cell wider
+ * and taller than the bounds; that slack is split evenly on both sides instead of all
+ * landing on the right and bottom, which left the room off-centre.
+ */
+export function exportWorldOffset(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+  widthPx: number,
+  heightPx: number,
+  pxPerCell: number,
+): { x: number; y: number } {
+  const padX = Math.max(0, widthPx / pxPerCell - (bounds.maxX - bounds.minX)) / 2;
+  const padY = Math.max(0, heightPx / pxPerCell - (bounds.maxY - bounds.minY)) / 2;
+  return { x: -(bounds.minX - padX) * pxPerCell, y: -(bounds.minY - padY) * pxPerCell };
 }

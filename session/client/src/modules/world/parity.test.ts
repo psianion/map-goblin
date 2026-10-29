@@ -89,8 +89,8 @@ describe('the Table and the Editor resolve the same clock and sun off resolveWor
 });
 
 describe('the one half of WorldLight the Editor never previews', () => {
-  it('worldFrame returns only {minutes, sun} — no effectiveLevel to compare against the Table', () => {
+  it('worldFrame returns the sky frame — no effectiveLevel to compare against the Table', () => {
     const frame = worldFrame({ environment: 'outdoor' }, 720);
-    expect(Object.keys(frame).sort()).toEqual(['minutes', 'sun']);
+    expect(Object.keys(frame).sort()).toEqual(['darkness', 'minutes', 'nightSky', 'penumbraScale', 'skyColor', 'sun', 'weather']);
   });
 });

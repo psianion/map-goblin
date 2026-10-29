@@ -10,7 +10,6 @@ import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/e
 import { listenDprChanges } from '@dnd/core/src/engine/camera';
 import { LightManager } from '@dnd/core/src/engine/lighting';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
-import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { ensureBundledPack } from '@dnd/core/src/engine/firstBootInstall';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
@@ -83,7 +82,8 @@ export function GameRenderer() {
       if (destroyed) return;
 
       try {
-        await Promise.all([pixiEngine.init(container), initClipper()]);
+        // The back buffer is what lets the fog's greyscale darkvision tier ('saturation' blend) draw.
+        await Promise.all([pixiEngine.init(container, { useBackBuffer: true }), initClipper()]);
       } catch (err) {
         console.error('[GameRenderer] engine/Clipper2 init failed:', err);
         if (!destroyed) setInitFailed(true);
@@ -129,11 +129,10 @@ export function GameRenderer() {
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();
-        // Same three as CanvasHost's teardown: the terrain renderer keeps two live store
-        // subscriptions and the water filter its own ticker, both outliving the engine.
+        // Same as CanvasHost's teardown: the terrain renderer keeps two live store
+        // subscriptions that outlive the engine.
         sceneGraph.terrainRenderer.destroy();
         setTerrainRenderer(null);
-        destroyWaterAnimation();
         unsubStore();
         unsubAssets();
         unregFogResize();

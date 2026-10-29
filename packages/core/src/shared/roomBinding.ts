@@ -1,6 +1,6 @@
 import type { DoorChild, Room, WallSegment } from './types';
 import { projectPointOntoLineSegment } from './wallSnap';
-import { pointInPolygon } from '../engine/hitTest';
+import { roomIndexOf } from './roomIndex';
 
 /**
  * Direction of the wall polyline at the door, as a unit vector.
@@ -24,11 +24,8 @@ function wallDirectionAt(door: DoorChild, wall: WallSegment | undefined): [numbe
   return best ?? [Math.cos(door.angle), Math.sin(door.angle)];
 }
 
-function roomAt(point: [number, number], rooms: Room[]): string | null {
-  for (const room of rooms) {
-    if (pointInPolygon(point, room.boundary)) return room.id;
-  }
-  return null;
+function roomAt(point: [number, number], rooms: readonly Room[]): string | null {
+  return roomIndexOf(rooms).roomAt(point[0], point[1])?.id ?? null;
 }
 
 /**
@@ -42,7 +39,7 @@ function roomAt(point: [number, number], rooms: Room[]): string | null {
 export function bindDoorToRooms(
   door: DoorChild,
   walls: WallSegment[],
-  rooms: Room[],
+  rooms: readonly Room[],
   offset = 0.5,
 ): { roomA: string | null; roomB: string | null } {
   const [dx, dy] = wallDirectionAt(door, walls.find((w) => w.id === door.wallId));

@@ -8,6 +8,7 @@ import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
+import type { ShapeCommit } from './RectangleTool';
 
 const CLOSE_THRESHOLD = 0.2;
 
@@ -19,6 +20,13 @@ function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
 
 export class PolygonTool implements DrawingTool {
   readonly type = 'polygon' as const;
+  /** See RectangleTool: the room tool's commit, which also ignores erase mode. */
+  private readonly onShape: ShapeCommit | null;
+
+  constructor(onShape?: ShapeCommit) {
+    this.onShape = onShape ?? null;
+  }
+
   readonly cursor = 'crosshair';
   readonly editsActiveLayer = true;
   private vertices: Point[] = [];
@@ -98,7 +106,7 @@ export class PolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
-    const isErase = store.tools.eraseMode;
+    const isErase = store.tools.eraseMode && !this.onShape;
 
     if (isErase) {
       const commands = eraseShapeCommands(activeLayer, activeLayerId, [polyPoints]);
@@ -116,17 +124,16 @@ export class PolygonTool implements DrawingTool {
         visible: true,
         shapeType: 'polygon',
         contours: [polyPoints],
-        roughnessEnabled: store.tools.roughMode,
-        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
         textureOffsetY: 0,
         textureFillRotation: 0,
-        textureTint: lastTextured?.textureTint ?? '#ffffff',
+        textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, child));
+      if (this.onShape) this.onShape(activeLayer, child);
+      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, child));
     }
   }
 }

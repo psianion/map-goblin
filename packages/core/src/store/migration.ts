@@ -52,7 +52,141 @@ export function migrateToLatest(data: V2Data | SerializedMapData): SerializedMap
     )
   }
 
-  return result as SerializedMapData
+  return neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData))
+}
+
+/** The mood tint that changes nothing: the world in neutral daylight (`shared/world`). */
+export const NEUTRAL_TINT = '#ffffff'
+
+/**
+ * Whether a map's mood tint is a legacy one: darker than Rec. 709 luma 0.75. Before the tint
+ * meant "this world in neutral daylight" it was the darkness itself (the v1 presets Dungeon
+ * `#2d2d44`, Night `#1a1a2e`, Moonless `#0a0a0f`, Dusk `#6b5a7a`, Overcast `#9a9a9a`), so a
+ * noon preview read the art at a third. The hour, the sky and the environment carry the dark
+ * now. Day (`#e8e4d8`) and lighter tints are tints and stay. Unparseable reads as legacy.
+ */
+export function isLegacyTint(hex: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return true
+  const v = parseInt(m[1]!, 16)
+  const luma = (0.2126 * ((v >> 16) & 0xff) + 0.7152 * ((v >> 8) & 0xff) + 0.0722 * (v & 0xff)) / 255
+  return luma < 0.75
+}
+
+/** Every load (saved maps, imports, the table) replaces a legacy mood tint with white. */
+function neutralizeLegacyTint(data: SerializedMapData): SerializedMapData {
+  const settings = data.mapSettings
+  if (!settings || typeof settings.ambientLight !== 'string' || !isLegacyTint(settings.ambientLight)) return data
+  return { ...data, mapSettings: { ...settings, ambientLight: NEUTRAL_TINT } }
+}
+
+/** Layer style keys nothing ever drew: the drop shadow under floors and the rough-edge amplitude. */
+const RETIRED_STYLE_KEYS = [
+  'shadowEnabled',
+  'shadowColor',
+  'shadowOffset',
+  'shadowIntensity',
+  'roughnessAmplitude',
+] as const
+
+/**
+ * Fields the format no longer carries, stripped from every version on load (no version
+ * bump: dropping them changes nothing a reader acts on). `mapSettings.gridType` was a
+ * square/hex/isometric switch nothing ever drew; every save up to 3.1 still writes it.
+ * The dungeon layer style's shadow and roughness keys (`RETIRED_STYLE_KEYS`) are the
+ * same story. So is a standalone wall's draw-time width copy (see `hasDrawTimeWidth`).
+ */
+function dropRetiredFields(data: SerializedMapData): SerializedMapData {
+  let result = data
+  const settings = data.mapSettings as (SerializedMapData['mapSettings'] & { gridType?: unknown }) | undefined
+  if (settings && 'gridType' in settings) {
+    const mapSettings = { ...settings }
+    delete mapSettings.gridType
+    result = { ...result, mapSettings }
+  }
+  const layers = result.layers
+  if (Array.isArray(layers) && layers.some(hasRetiredStyleKey)) {
+    result = {
+      ...result,
+      layers: layers.map((layer) => {
+        if (!hasRetiredStyleKey(layer)) return layer
+        const style: Record<string, unknown> = { ...(layer as unknown as { style: Record<string, unknown> }).style }
+        for (const key of RETIRED_STYLE_KEYS) delete style[key]
+        return { ...layer, style } as unknown as typeof layer
+      }),
+    }
+  }
+  if (Array.isArray(result.layers) && result.layers.some(hasDrawTimeWidths)) {
+    result = {
+      ...result,
+      layers: result.layers.map((layer) => {
+        if (!hasDrawTimeWidths(layer)) return layer
+        const walls = (layer as unknown as { standaloneWalls: Record<string, unknown>[] }).standaloneWalls
+        return {
+          ...layer,
+          standaloneWalls: walls.map((wall) => {
+            if (!hasDrawTimeWidth(wall)) return wall
+            const rest = { ...wall }
+            delete rest.width
+            return rest
+          }),
+        } as unknown as typeof layer
+      }),
+    }
+  }
+  // A light's pack mask texture: read by the old renderer, written by nothing, retired with
+  // the Lighting pass.
+  if (Array.isArray(result.layers) && result.layers.some(hasMaskedLight)) {
+    result = {
+      ...result,
+      layers: result.layers.map((layer) => {
+        if (!hasMaskedLight(layer)) return layer
+        const children = (layer as unknown as { children: Record<string, unknown>[] }).children
+        return {
+          ...layer,
+          children: children.map((child) => {
+            if (!isMaskedLight(child)) return child
+            const rest = { ...child }
+            delete rest.maskTextureId
+            return rest
+          }),
+        } as unknown as typeof layer
+      }),
+    }
+  }
+  return result
+}
+
+function isMaskedLight(child: unknown): boolean {
+  return !!child && typeof child === 'object' && (child as { childType?: unknown }).childType === 'light' && 'maskTextureId' in child
+}
+
+function hasMaskedLight(layer: unknown): boolean {
+  const children = (layer as { children?: unknown } | null)?.children
+  return Array.isArray(children) && children.some(isMaskedLight)
+}
+
+/**
+ * Walls used to copy the layer's `style.wallWidth` when drawn or imported, so the Width
+ * control never reached them. A width is now only ever written as a preset pin, and a
+ * preset pins the tint beside it, so a width with no look pin next to it is one of those
+ * copies: dropped, the wall follows its layer again.
+ */
+function hasDrawTimeWidth(wall: unknown): boolean {
+  if (!wall || typeof wall !== 'object') return false
+  const w = wall as { width?: unknown; textureSetId?: unknown; textureTint?: unknown }
+  return w.width !== undefined && w.textureSetId === undefined && w.textureTint === undefined
+}
+
+function hasDrawTimeWidths(layer: unknown): boolean {
+  const walls = (layer as { standaloneWalls?: unknown } | null)?.standaloneWalls
+  return Array.isArray(walls) && walls.some(hasDrawTimeWidth)
+}
+
+function hasRetiredStyleKey(layer: unknown): boolean {
+  const style = (layer as { style?: unknown } | null)?.style
+  if (!style || typeof style !== 'object') return false
+  return RETIRED_STYLE_KEYS.some((key) => key in style)
 }
 
 function migrateV2ToV3(data: V2Data): SerializedMapData {

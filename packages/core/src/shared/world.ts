@@ -12,7 +12,7 @@
 // Nothing here reads state. The map's authored half arrives as `MapEnvironment`, the
 // campaign's live half as clock/sky/override arguments, and the answer is a value.
 
-import type { AmbientLevel, TimeOfDay } from './prep';
+import type { AmbientLevel, TimeOfDay, Weather } from './prep';
 
 // ─── Vocabulary ───────────────────────────────────────────
 
@@ -127,7 +127,7 @@ export const TIME_PALETTES: Record<string, Record<TimeKey, string>> = {
 export const DEFAULT_PALETTE = 'temperate';
 
 /** Multiplying by this changes nothing (see `TIME_PALETTES`). */
-const NEUTRAL = '#808080';
+export const NEUTRAL = '#808080';
 
 /** The palette's five colours, preset plus recolours, with an unknown preset falling back. */
 export function paletteOf(palette?: TimePalette): Record<TimeKey, string> {
@@ -151,8 +151,12 @@ export interface MapEnvironment {
   orientation?: number;
   /** Absent ⇒ `'clock'`: the map follows the world clock. */
   timeMode?: TimeMode;
-  /** Minutes 0-1439, used only in `'fixed'` mode — the DM placed the sun once. */
+  /** Minutes 0-1439, used only in `'fixed'` mode — the DM placed the sun once. Absent ⇒ NOON. */
   fixedTime?: number;
+  /** The table's starting weather. A default: the campaign's live `world.weather` wins. Absent ⇒ 'clear'. */
+  weather?: Weather;
+  /** The table's starting night sky. A default: the campaign's live `world.nightSky` wins. Absent ⇒ 'full-moon'. */
+  nightSky?: NightSky;
 }
 
 /** The one reading of the optional field — see `MapEnvironment.environment`. */
@@ -357,7 +361,7 @@ const ARC_MINUTES = SUN_SET - SUN_RISE;
  */
 const MAX_ALTITUDE = 75;
 /** How hard each sky's moon casts, against the sun's 1. */
-const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, crescent: 0.15, moonless: 0 };
+export const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, crescent: 0.15, moonless: 0 };
 
 /**
  * The whole coupling table, as one function (plan § "Coupling table").
@@ -369,7 +373,8 @@ const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, crescent: 
  */
 export function resolveWorldLight(input: WorldLightInput): WorldLight {
   const fixed = input.timeMode === 'fixed';
-  const minutes = wrap(fixed ? (input.fixedTime ?? 0) : input.clockMinutes);
+  // One fixed-time default everywhere: noon, as `mapClock` and `skyFrame` read it.
+  const minutes = wrap(fixed ? (input.fixedTime ?? NOON) : input.clockMinutes);
   const environment = environmentOf(input);
   const timeOfDay = timeOfDayAt(minutes);
   const { key, frac } = timeKeyAt(minutes);
@@ -421,7 +426,7 @@ function levelAt(timeOfDay: TimeOfDay, sky: NightSky): AmbientLevel {
  * Continuous through both horizons: `kind` only ever flips where the altitude and the
  * intensity are already 0, so nothing on screen can pop at a band edge.
  */
-function sunAt(
+export function sunAt(
   minutes: number,
   map: MapEnvironment,
   environment: Environment,
@@ -449,18 +454,18 @@ const wrapDegrees = (d: number): number => ((d % 360) + 360) % 360;
 const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
 
 /** '#rrggbb' → [r, g, b]. Anything unparseable reads as mid-grey rather than as black. */
-function rgb(color: string): [number, number, number] {
+export function rgb(color: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
   if (!m) return [128, 128, 128];
   const n = parseInt(m[1]!, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-const hex = (c: [number, number, number]): string =>
+export const hex = (c: [number, number, number]): string =>
   '#' + c.map((v) => clamp255(v).toString(16).padStart(2, '0')).join('');
 
 /** Plain channel blend — used only where the endpoints are the same hue family (damping). */
-function mixSrgb(a: string, b: string, t: number): string {
+export function mixSrgb(a: string, b: string, t: number): string {
   const [ar, ag, ab] = rgb(a);
   const [br, bg, bb] = rgb(b);
   return hex([ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]);

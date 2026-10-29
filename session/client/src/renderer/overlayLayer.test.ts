@@ -97,6 +97,26 @@ describe('addScreenOverlay', () => {
     }
   });
 
+  it('lifts no overhead layer above the lighting any more: overhead art is graded with the world', () => {
+    // Since the Lighting pass a canopy takes the night like the floor under it, so it stays in
+    // the world container; the screen stack keeps the tokens, the turn ring and the door marks.
+    expect((OVERLAY_STACK as readonly string[]).includes('overheadProps')).toBe(false);
+    for (const order of [
+      ['doorOverlay', 'tokenLayer', 'playerFog'],
+      ['playerFog', 'tokenLayer', 'doorOverlay'],
+    ] as OverlayLabel[][]) {
+      const sceneGraph = fakeSceneGraph();
+      for (const label of order) addScreenOverlay(sceneGraph, new Container(), label);
+      expect(labels(sceneGraph.overlayContainer)).toEqual([
+        'lightingComposite',
+        'playerFog',
+        'tokenLayer',
+        'doorOverlay',
+        'fogTransition',
+      ]);
+    }
+  });
+
   it('still ranks when there is no lighting engine to sit above', () => {
     const overlayContainer = new Container();
     const sceneGraph = { overlayContainer } as unknown as SceneGraph;

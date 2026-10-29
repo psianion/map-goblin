@@ -7,6 +7,7 @@ import { buildCommand } from './commands/build.js';
 import { composeCommand } from './commands/compose.js';
 import { indexCommand } from './commands/index-cmd.js';
 import { integrateCommand } from './commands/integrate.js';
+import { familiesCommand } from './commands/families.js';
 
 function makeProgram(): Command {
   const program = new Command();
@@ -21,6 +22,7 @@ function makeProgram(): Command {
   program.addCommand(composeCommand());
   program.addCommand(indexCommand());
   program.addCommand(integrateCommand());
+  program.addCommand(familiesCommand());
 
   return program;
 }
@@ -66,6 +68,14 @@ describe('CLI', () => {
     const program = makeProgram();
     const cmd = program.commands.find((c) => c.name() === 'integrate');
     expect(cmd).toBeDefined();
+  });
+
+  it('registers families command with --pack-version and a required pack dir', () => {
+    const program = makeProgram();
+    const cmd = program.commands.find((c) => c.name() === 'families')!;
+    expect(cmd).toBeDefined();
+    expect(cmd.options.find((o) => o.long === '--pack-version')?.mandatory).toBe(true);
+    expect(cmd.options.find((o) => o.long === '--pack')?.short).toBe('-p');
   });
 
   it('integrate uses --pack-version, not --version, so it never resolves to the root flag', () => {

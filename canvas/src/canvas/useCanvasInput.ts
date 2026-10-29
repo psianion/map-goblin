@@ -10,10 +10,12 @@ import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '../store/store';
 import { TERRAIN_PANEL_ID } from '@/store/types';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
+import { MIN_ZOOM, MAX_ZOOM } from '@/components/toolbar/zoomControl';
 import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
-import { hitTestChildren } from '@dnd/core/src/engine/hitTest';
+import { hitTestChildren, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
+import { notify } from '@/lib/toast';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import type { DungeonLayer } from '@/store/types';
 import {
@@ -26,6 +28,7 @@ import {
   exitNodeEdit,
   handleNodeKey,
 } from './wallNodeEdit';
+import { editSessionOwnsKey } from './editSessionKeys';
 import { outlineHitAt } from '@/engine/shapeNodeOverlay';
 import { toggleFixtureAt } from './doubleClickToggle';
 import {
@@ -53,6 +56,21 @@ export function registerInputMiddleware(fn: InputMiddleware): () => void {
   };
 }
 
+/**
+ * A canvas press offered to an overlay before any tool sees it, in canvas px. True
+ * takes the press (the tools never hear of it): the room overlay's suggestion ✓ / ✕.
+ */
+type PressHandler = (sx: number, sy: number) => boolean;
+const pressHandlers: PressHandler[] = [];
+
+export function registerCanvasPressHandler(fn: PressHandler): () => void {
+  pressHandlers.push(fn);
+  return () => {
+    const idx = pressHandlers.indexOf(fn);
+    if (idx >= 0) pressHandlers.splice(idx, 1);
+  };
+}
+
 export function setToolManager(manager: ToolManager | null): void {
   _toolManager = manager;
 }
@@ -73,6 +91,32 @@ function applyMiddleware(point: Point): Point {
     p = fn(p);
   }
   return p;
+}
+
+/**
+ * The point a tool is handed. The Props tool snaps by the footprint it is placing
+ * (and reads Ctrl to invert that snap), so it takes the raw cursor: a cursor
+ * already rounded to the grid would put a 1×1 on a cell corner.
+ */
+function toolPoint(world: Point): Point {
+  return useStore.getState().tools.activeTool === 'scatterBrush' ? world : applyMiddleware(world);
+}
+
+/**
+ * The room a double-click lands on, where rooms pick: the topmost visible, unlocked
+ * layer's pick, when that pick is a room (a prop or a wall standing in it wins).
+ */
+export function roomUnder(world: Point, zoom: number): { layerId: string; anchor: [number, number] } | null {
+  if (!roomPickingEnabled()) return null;
+  const state = useStore.getState();
+  for (let i = state.layers.length - 1; i >= 0; i--) {
+    const l = state.layers[i];
+    if (l.type !== 'dungeon' || l.locked || !isLayerEffectivelyVisible(state, l)) continue;
+    const hit = pickInLayer(l as DungeonLayer, [world.x, world.y], { zoom });
+    if (!hit) continue;
+    return hit.kind === 'room' ? { layerId: l.id, anchor: hit.room.anchor } : null;
+  }
+  return null;
 }
 
 function isTextInput(el: Element | null): boolean {
@@ -150,6 +194,7 @@ export function useCanvasInput(
         return;
       }
       const rect0 = canvasEl.getBoundingClientRect();
+      if (e.button === 0 && pressHandlers.some((h) => h(e.clientX - rect0.left, e.clientY - rect0.top))) return;
       const rawWorld = engine.screenToWorld(e.clientX - rect0.left, e.clientY - rect0.top);
 
       if (e.button === 0 && useStore.getState().tools.nodeEditWallId) {
@@ -217,7 +262,7 @@ export function useCanvasInput(
         return;
       }
 
-      const snapped = applyMiddleware(rawWorld);
+      const snapped = toolPoint(rawWorld);
       cursorWorldPosition.current = snapped;
       _toolManager?.onPointerDown(snapped, e);
       syncHud();
@@ -268,12 +313,12 @@ export function useCanvasInput(
       const coalescedEvents = coalesced?.length ? coalesced : [e];
       for (const ce of coalescedEvents) {
         const world = engine.screenToWorld(ce.clientX - rect.left, ce.clientY - rect.top);
-        const snapped = applyMiddleware(world);
+        const snapped = toolPoint(world);
         _toolManager?.onPointerMove(snapped, ce);
       }
       // Snap indicator + cursor use the final event only
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-      const snapped = applyMiddleware(world);
+      const snapped = toolPoint(world);
       cursorWorldPosition.current = snapped;
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
 
@@ -308,7 +353,7 @@ export function useCanvasInput(
       }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-      const snapped = applyMiddleware(world);
+      const snapped = toolPoint(world);
       cursorWorldPosition.current = snapped;
       _toolManager?.onPointerUp(snapped, e);
       syncHud();
@@ -332,6 +377,7 @@ export function useCanvasInput(
       // an active drawing tool (chain, drag, freehand stroke) is left mid-flight,
       // and an unguarded onPointerUp downstream could commit it.
       _toolManager?.cancelActive();
+      syncHud();
     };
 
     // Double-click with the select tool to expose nodes: a wall's sprite nodes
@@ -357,7 +403,24 @@ export function useCanvasInput(
         e.preventDefault();
         return;
       }
-      if (toggleNodeEditAt(world) || toggleShapeNodeEditAt(world)) e.preventDefault();
+      if (toggleNodeEditAt(world)) {
+        e.preventDefault();
+        return;
+      }
+      // A room is a place on a floor: double-clicking it edits the floor under its
+      // anchor (the first edit merges touching floors; the room survives, being an anchor).
+      if (!useStore.getState().tools.shapeNodeEditId) {
+        const room = roomUnder(world, engine.stage().scale.x);
+        if (room) {
+          if (useStore.getState().ui.activeLayerId !== room.layerId) useStore.getState().setActiveLayerId(room.layerId);
+          if (toggleShapeNodeEditAt({ x: room.anchor[0], y: room.anchor[1] })) {
+            notify.subtle('Editing the floor under this room');
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+      if (toggleShapeNodeEditAt(world)) e.preventDefault();
     };
 
     // Enter commits a chain, Escape cancels it, and a tool shortcut switches
@@ -437,6 +500,21 @@ export function useCanvasInput(
           e.preventDefault();
           return;
         }
+        // With nothing picked the session has nothing to apply its keys to, but
+        // they are still its keys: let past here, Tab folds the v2 dock (which
+        // re-fits the zoom) and Delete reaches the shape binding.
+        if (editSessionOwnsKey(tools, e)) {
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // A key the active tool answers itself (the Light tool's R) goes to it, not to the
+      // shortcut bound to the same key.
+      if (_toolManager?.ownsKey?.(e)) {
+        e.preventDefault();
+        _toolManager.onKeyDown(e);
+        return;
       }
 
       const combo = [
@@ -507,15 +585,21 @@ export function useCanvasInput(
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      cancelZoomAnimationRef.current?.();
-      const stage = engine.stage();
       const rect = canvasEl.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
+      // The tool gets the wheel first (the Props tool turns its stamp with it).
+      // Ctrl+wheel always zooms, and a trackpad pinch arrives as one.
+      if (!e.ctrlKey && _toolManager?.onWheel(e, engine.screenToWorld(mx, my))) return;
+      // Shift+wheel arrives as deltaX on Windows.
+      const delta = e.deltaY || e.deltaX;
+      if (delta === 0) return;
+      cancelZoomAnimationRef.current?.();
+      const stage = engine.stage();
 
-      const zoomFactor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      const zoomFactor = delta < 0 ? 1.1 : 1 / 1.1;
       const oldZoom = stage.scale.x;
-      const newZoom = Math.max(10, Math.min(100, oldZoom * zoomFactor));
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * zoomFactor));
 
       stage.position.x = mx - (mx - stage.position.x) * (newZoom / oldZoom);
       stage.position.y = my - (my - stage.position.y) * (newZoom / oldZoom);
@@ -550,8 +634,10 @@ export function useCanvasInput(
     // Immediately switch tool (and destroy gizmo) when activeTool changes in store,
     // then apply the new tool's base cursor. Gizmo-hover overrides happen in onPointerMove.
     // Without the switch, the SelectTool gizmo persists visually until the next pointer event.
+    // The switch cancels the outgoing tool's chain, so the readout measuring it goes too.
     const applyActiveTool = (type: string): void => {
       _toolManager?.switchTool(type);
+      syncHud();
       canvasEl.style.cursor = type === 'pan' ? 'grab' : (_toolManager?.getCursor() ?? 'default');
     };
     applyActiveTool(useStore.getState().tools.activeTool);
@@ -566,45 +652,62 @@ export function useCanvasInput(
       _dimensionHud?.hide();
     };
 
-    // Right-click, captured ahead of every tool: hit-test → adjust selection
+    // Right-click: offered to the active tool, then hit-test → adjust selection
     // → open our menu instead of the browser's. Runs on contextmenu (the last
     // event of the click) so nothing from the same click can close it.
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      // The tool may take the right-click (the Props tool turns its stamp 90°).
+      if (_toolManager?.onContextMenu(world, e)) return;
       const store = useStore.getState();
       // Locked layers stay right-clickable — their menus render disabled,
       // mirroring the layer panel — so only visibility filters here.
       const layers = store.layers.filter(
         (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l),
       );
-      let hit: { child: { id: string }; layer: DungeonLayer } | null = null;
-      for (let i = layers.length - 1; i >= 0; i--) {
-        const h = hitTestChildren(layers[i].children, [world.x, world.y], layers[i], {
-          zoom: engine.stage().scale.x,
-        });
-        if (h) {
-          hit = { child: h, layer: layers[i] };
-          break;
+      // Drawn walls answer in the same order the Select tool picks them.
+      let hit: PickHit | null = null;
+      // A locked prop still answers here: its menu is where Unlock lives.
+      const opts = { zoom: engine.stage().scale.x, includeLocked: true };
+      // Overhead props draw above every layer, so they answer first, as `pickAllLayers`
+      // has them, unless the DM is looking under them, when they do not answer at all.
+      if (!store.ui.seeUnderOverhead) {
+        for (let i = layers.length - 1; i >= 0 && !hit; i--) {
+          const overhead = layers[i].children.filter((c) => c.childType === 'asset' && c.overhead);
+          const child = overhead.length > 0 ? hitTestChildren(overhead, [world.x, world.y], layers[i], opts) : null;
+          if (child) hit = { kind: 'child', id: child.id, layerId: layers[i].id, child };
         }
+      }
+      for (let i = layers.length - 1; i >= 0 && !hit; i--) {
+        hit = pickInLayer(layers[i], [world.x, world.y], { ...opts, skipOverhead: true });
       }
       if (hit) {
         // Select, then menu — clicking into a multi-selection keeps it, so
         // the menu can act on the group.
-        if (!store.selection.selectedIds.includes(hit.child.id)) {
-          store.setSelectedIds([hit.child.id]);
-          store.setActiveLayerId(hit.layer.id);
+        if (!store.selection.selectedIds.includes(hit.id)) {
+          store.setSelectedIds([hit.id]);
+          store.setActiveLayerId(hit.layerId);
         }
         const selected = useStore.getState().selection.selectedIds;
+        // A room keeps its own menu over a selection of rooms: Merge with… is one of
+        // its verbs, and needs exactly the two rooms selected.
+        const allRooms =
+          hit.kind === 'room' &&
+          selected.every((id) => layers.some((l) => (l.rooms ?? []).some((r) => r.id === id)));
         openCanvasMenuRef.current?.({
           x: e.clientX,
           y: e.clientY,
           world,
           target:
-            selected.length > 1
-              ? { kind: 'multi', count: selected.length }
-              : { kind: 'child', childId: hit.child.id },
+            hit.kind === 'room' && allRooms
+              ? { kind: 'room', roomId: hit.id, layerId: hit.layerId }
+              : selected.length > 1
+                ? { kind: 'multi', count: selected.length }
+                : hit.kind === 'wall'
+                  ? { kind: 'wall', wallId: hit.id }
+                  : { kind: 'child', childId: hit.id },
         });
       } else {
         openCanvasMenuRef.current?.({ x: e.clientX, y: e.clientY, world, target: { kind: 'canvas' } });

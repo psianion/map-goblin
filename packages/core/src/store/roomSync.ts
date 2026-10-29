@@ -1,118 +1,170 @@
-import type { ConnectorChild, DoorChild } from '../shared/types';
-import { detectRooms } from '../engine/roomDetection';
-import {
-  authoredRoomChildren,
-  bindConnectorToRooms,
-  connectorChildren,
-  roomChildToRoom,
-} from '../shared/authoredRooms';
+import type { DungeonLayer, Room } from './types';
+import type { Polygon } from '../geometry/GeometryEngine';
+import { roomFaces } from '../engine/roomDetection';
+import { computeMergedFloor } from '../engine/mergedFloor';
 import { bindDoorToRooms } from '../shared/roomBinding';
+import { faceMetrics, pointInRing } from '../shared/roomUtils';
+import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
-import { useStore } from './store';
+
+/*
+ * Geometry refresh for rooms. Pure: no store, so the session server runs the same
+ * function on a scene it loads and the table and the editor agree on every face.
+ * The editor applies the result through `store/roomRefresh.ts`.
+ */
 
 /**
- * World units are grid cells — 1 unit = 1 cell everywhere in the editor, so
- * room detection's grid parameter is a constant rather than a store read.
+ * World units are grid cells — 1 unit = 1 cell everywhere in the editor, so the
+ * grid parameter is a constant rather than a store read.
  */
-const GRID_SIZE = 1;
+export const ROOM_GRID_SIZE = 1;
 
-/** How long wall/floor edits must settle before rooms are recomputed. */
-const DEBOUNCE_MS = 250;
-
-/**
- * Recompute rooms for every dungeon layer from its merged floor and walls.
- *
- * This is also the format backfill: `rooms` is optional on disk, so a file
- * saved before rooms existed simply arrives with none and gets them here — no
- * version bump, no migration step. `roomNameOverrides` is fed back in so a
- * renamed room keeps its name across re-detection.
- */
-export function syncRooms(): void {
-  // A command that commits geometry runs this directly, and the store change it
-  // made has already armed the debounce. Drop that pending pass: this one is
-  // reading the same state, and anything later re-arms the timer anyway.
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
-  for (const layer of useStore.getState().layers) {
-    if (layer.type !== 'dungeon') continue;
-    const detected = detectRooms(
-      layer.mergedFloor ?? [],
-      layer.standaloneWalls,
-      GRID_SIZE,
-      layer.roomNameOverrides ?? {},
-    );
-    // Draw one room and the layer is authored: detection stops being the source
-    // of `rooms` and only stays running to fill the seed command. Two sources
-    // half-merged would be the worst of both — a drawn room whose id changes
-    // when a wall moves is exactly the churn drawing one is meant to end.
-    const authored = authoredRoomChildren(layer.children);
-    const rooms =
-      authored.length > 0 ? authored.map((c) => roomChildToRoom(c, GRID_SIZE)) : detected;
-
-    // Bind against resolved geometry, not the authored fields: a door on a
-    // floor-ring edge has no `wallId` to look up, and both position and angle
-    // on the child go stale the moment the wall under it is edited. A detached
-    // door is absent from this list and keeps whatever it was bound to last.
-    //
-    // ponytail: every door rebinds, not just the ones whose wall moved. A room
-    // boundary can move anywhere the geometry changed, so `detectRooms` above
-    // has to run wholesale regardless — and it is the expensive half (~8ms vs
-    // ~6ms for 40 doors across 100 rooms). Narrow to a touched set only if the
-    // probes, which are O(doors x rooms), start showing up on a real map.
-    const walls = resolveWalls(layer);
-    const bindable = toOcclusionDoors(resolveDoors(layer, walls));
-    const bound = new Map(
-      bindable.map((d) => [d.id, bindDoorToRooms(d, walls, rooms)] as const),
-    );
-    // Connectors bind the same way and for the same reason — derived from
-    // geometry, so off the undo stack — but by blob-to-room overlap rather than
-    // a perpendicular probe, since a connector sits on no wall.
-    const boundConnectors = new Map(
-      connectorChildren(layer.children).map(
-        (c) => [c.id, bindConnectorToRooms(c, rooms)] as const,
-      ),
-    );
-
-    // Rooms and the bindings derived from them are one write: they are the same
-    // recomputation, and two setStates means every subscriber runs twice — once
-    // on a layer whose doors still point at the rooms that no longer exist.
-    // Door→room binding is derived from geometry, not user intent, so it is
-    // written straight to the store and never lands on the undo stack.
-    useStore.setState((s) => {
-      const target = s.layers.find((l) => l.id === layer.id);
-      if (!target || target.type !== 'dungeon') return;
-      target.rooms = rooms;
-      for (const child of target.children) {
-        if (child.childType === 'connector') {
-          const next = boundConnectors.get(child.id);
-          if (!next) continue;
-          (child as ConnectorChild).roomA = next.roomA;
-          (child as ConnectorChild).roomB = next.roomB;
-          continue;
-        }
-        if (child.childType !== 'door') continue;
-        const door = child as DoorChild;
-        const next = bound.get(door.id);
-        if (!next) continue;
-        door.roomA = next.roomA;
-        door.roomB = next.roomB;
-      }
-    });
-  }
+/** What a door's two sides are bound to: a room id, or null for no room there. */
+export interface DoorRooms {
+  roomA: string | null;
+  roomB: string | null;
 }
 
-let timer: ReturnType<typeof setTimeout> | null = null;
+export interface RoomSyncResult {
+  /**
+   * `layer.rooms` with the derived fields refreshed. A room whose derived fields did
+   * not move is the same object as before, and when none moved this is the layer's
+   * own array — so a no-op sync hands the store nothing new to react to.
+   */
+  rooms: Room[];
+  /** The binding every resolved door should carry. A detached door is absent. */
+  doorRooms: Map<string, DoorRooms>;
+  /** Whether `rooms` differs from `layer.rooms`. */
+  changed: boolean;
+  /** Cell → room index over `rooms`. */
+  index: RoomIndex;
+}
+
+function bboxOf(ring: readonly [number, number][]): [number, number, number, number] {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const [x, y] of ring) {
+    if (x < x0) x0 = x;
+    if (y < y0) y0 = y;
+    if (x > x1) x1 = x;
+    if (y > y1) y1 = y;
+  }
+  return [x0, y0, x1, y1];
+}
+
+function sameRing(a: readonly [number, number][] | undefined, b: readonly [number, number][] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+  return true;
+}
+
+function sameIds(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((id, i) => id === b[i]);
+}
 
 /**
- * Debounced {@link syncRooms} — geometry edits arrive in bursts (every node of
- * a wall drag), and Clipper2 subdivision is the expensive part.
+ * The faces a layer's rooms can sit in: merged floor minus standalone walls minus
+ * thresholds. Exposed for Suggest, which proposes rooms on the faces nobody holds.
  */
-export function scheduleRoomSync(delayMs = DEBOUNCE_MS): void {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    timer = null;
-    syncRooms();
-  }, delayMs);
+export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Polygon[] {
+  // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
+  // the server never has one. Union it here rather than reading "no floor".
+  const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
+  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
+}
+
+/**
+ * Refresh one dungeon layer's rooms from its geometry:
+ *
+ * 1. Cutters: the standalone walls and the thresholds (0.1 of a cell wide).
+ * 2. Faces: the merged floor minus the cutters. A layer with no floor has no faces
+ *    — Suggest is what covers a walls-only import.
+ * 3. Each room's face is the one holding its anchor. None does: the room is
+ *    `orphaned` and keeps the face it last had. Two anchors in one face both get
+ *    it; the overlay flags that, and the DM merges by hand.
+ * 4. A room with a hand-traced `boundary` (image-only maps) takes that as its face.
+ * 5. Doors bind to the rooms on either side, and each room lists its doors.
+ *
+ * Never creates or removes a room: rooms are authored, this only places them.
+ */
+export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): RoomSyncResult {
+  const before = layer.rooms ?? [];
+  const needFaces = before.some((r) => !(r.boundary && r.boundary.length >= 3));
+  const faces = needFaces ? layerFaces(layer, gridSize) : [];
+  const boxes = faces.map(bboxOf);
+
+  const faceAt = (x: number, y: number): Polygon | null => {
+    for (let i = 0; i < faces.length; i++) {
+      const [x0, y0, x1, y1] = boxes[i];
+      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+      if (pointInRing(x, y, faces[i])) return faces[i];
+    }
+    return null;
+  };
+
+  // Faces first, doors second: binding reads the faces just placed.
+  const placed = before.map((room) => {
+    const own = room.boundary && room.boundary.length >= 3 ? room.boundary : null;
+    const hit = own ?? faceAt(room.anchor[0], room.anchor[1]);
+    return { room, face: hit ?? room.face, orphaned: !hit };
+  });
+  const provisional: Room[] = placed.map(({ room, face }) => ({ ...room, face }));
+
+  // Bind against resolved geometry, not the authored fields: a door on a floor-ring
+  // edge has no `wallId` to look up, and both position and angle on the child go
+  // stale the moment the wall under it is edited. A detached door is absent from
+  // this list and keeps whatever it was bound to last.
+  const walls = resolveWalls(layer);
+  const bindable = toOcclusionDoors(resolveDoors(layer, walls));
+  const doorRooms = new Map<string, DoorRooms>();
+  const doorsOf = new Map<string, string[]>();
+  for (const door of bindable) {
+    const bound = bindDoorToRooms(door, walls, provisional);
+    doorRooms.set(door.id, bound);
+    for (const id of new Set([bound.roomA, bound.roomB])) {
+      if (!id) continue;
+      let list = doorsOf.get(id);
+      if (!list) doorsOf.set(id, (list = []));
+      list.push(door.id);
+    }
+  }
+
+  let changed = before.length !== placed.length;
+  const rooms = placed.map(({ room, face, orphaned }) => {
+    const metrics = face && face.length >= 3 ? faceMetrics(face, gridSize) : null;
+    const doors = doorsOf.get(room.id) ?? [];
+    const same =
+      sameRing(room.face, face) &&
+      (room.orphaned === true) === orphaned &&
+      sameIds(room.doors ?? [], doors) &&
+      room.doors !== undefined &&
+      (metrics
+        ? room.area === metrics.area &&
+          room.isPathway === metrics.isPathway &&
+          room.centroid?.[0] === metrics.centroid[0] &&
+          room.centroid?.[1] === metrics.centroid[1]
+        : room.area === undefined);
+    if (same) return room;
+    changed = true;
+    const next: Room = { ...room, doors };
+    if (face) next.face = face;
+    else delete next.face;
+    if (metrics) Object.assign(next, metrics);
+    else {
+      delete next.centroid;
+      delete next.area;
+      delete next.isPathway;
+    }
+    if (orphaned) next.orphaned = true;
+    else delete next.orphaned;
+    return next;
+  });
+
+  const out = changed ? rooms : before;
+  return { rooms: out, doorRooms, changed, index: buildRoomIndex(out, gridSize) };
 }

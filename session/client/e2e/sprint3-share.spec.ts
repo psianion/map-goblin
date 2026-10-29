@@ -293,6 +293,12 @@ test.describe.serial('@sprint3-share', () => {
     await assertMapRendered(dm, VISION)
 
     aldaContext = await browser.newContext({ viewport: VIEWPORT })
+    // Freeze mode (core's shared/freeze.ts) on both player seats: the living-fog cloud stands
+    // still at noon, so a pixel reading measures the hall and not the weather over it.
+    const freeze = () => {
+      ;(window as unknown as { __GG_FREEZE__?: { minutes: number } }).__GG_FREEZE__ = { minutes: 720 }
+    }
+    await aldaContext.addInitScript(freeze)
     alda = await aldaContext.newPage()
     alda.on('pageerror', (e) => pageErrors.push(`[alda] ${e.message}`))
     aldaWire = tapWire(alda)
@@ -300,6 +306,7 @@ test.describe.serial('@sprint3-share', () => {
     await assertMapLoaded(alda, VISION)
 
     branContext = await browser.newContext({ viewport: VIEWPORT })
+    await branContext.addInitScript(freeze)
     bran = await branContext.newPage()
     bran.on('pageerror', (e) => pageErrors.push(`[bran] ${e.message}`))
     branWire = tapWire(bran)
@@ -424,12 +431,19 @@ test.describe.serial('@sprint3-share', () => {
       'the linked seat sees the far hall; the other sees void where it stands',
     )
 
-    // Bran can see a hall Alda cannot, so there is measurably less fog on his canvas: measured
-    // 11.1% clear against her 2.3%, which is the far hall and nothing else.
-    expect(
-      branLook.clear,
-      `Bran ${show(branLook)} against Alda ${show(aldaLook)}`,
-    ).toBeGreaterThan(aldaLook.clear + 0.005)
+    // Bran can see a hall Alda cannot. Read on the seat's own live tier at the hawk's feet
+    // (`__fogProbe.liveAt`) rather than as a luminance band: the repainted cloud is paler than
+    // the unlit far hall, so the band reading inverted, and the deterministic probe is the
+    // reading the deploy plan asked these pixel rows for.
+    const liveAt = (page: Page, p: { x: number; y: number }) =>
+      page.evaluate(
+        ({ x, y }) =>
+          (window as unknown as { __fogProbe?: { liveAt(x: number, y: number): boolean | null } }).__fogProbe?.liveAt(x, y) ===
+          true,
+        p,
+      )
+    await expect.poll(() => liveAt(bran, HAWK), { message: `Bran ${show(branLook)}` }).toBe(true)
+    expect(await liveAt(alda, HAWK), `Alda ${show(aldaLook)}`).toBe(false)
     // …and the cultist the hawk is looking at is Bran's alone, on the canvas and on the wire.
     expect(await tokenIds(bran)).toEqual([ids.bran, ids.spider, ids.hawk, ids.cultist].sort())
     expect(await tokenIds(alda)).toEqual([ids.alda, ids.rat].sort())

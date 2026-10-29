@@ -3,7 +3,10 @@
   "compilerOptions": {
     // D2: no pixi, no react, no DOM. Dropping DOM from `lib` is what keeps this package
     // importable from the Node server.
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    // fog/module.ts names fogLook with its `.ts`: Playwright's loader (session/client's
+    // doors e2e imports @dnd/mechanics/fog) cannot resolve an extensionless package path.
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }

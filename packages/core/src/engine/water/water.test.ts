@@ -69,9 +69,7 @@ function makeWater(id: string, contour: [number, number][], extra?: Partial<Wate
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
-    bankWidth: 0.5,
-    flowSpeed: 0,
-    flowAngle: 0,
+    bankWidth: 0.5,
     ...extra,
   };
 }
@@ -112,13 +110,14 @@ describe('WaterTool — river mode', () => {
     expect(waters[0].contours[0]).toHaveLength(4);
   });
 
-  it('flow angle follows the stroke direction', () => {
+  it('a new river is still: no flow fields are written', () => {
     const tool = new WaterTool(makeEngine());
     useStore.getState().updateWaterSettings({ mode: 'river' });
 
-    dragRiver(tool, [[0, 0], [0, 5], [0, 10]]); // straight down = +Y
+    dragRiver(tool, [[0, 0], [0, 5], [0, 10]]);
 
-    expect(waterChildren()[0].flowAngle).toBeCloseTo(Math.PI / 2);
+    expect(waterChildren()[0]).not.toHaveProperty('flowAngle');
+    expect(waterChildren()[0]).not.toHaveProperty('flowSpeed');
   });
 
   it('a stroke that never moved adds nothing', () => {
@@ -183,14 +182,13 @@ describe('WaterTool — lake mode', () => {
     expect(waters[0].contours[0]).toHaveLength(3);
   });
 
-  it('lakes are still — flow speed is zeroed even when the brush has one', () => {
+  it('a new lake writes no flow fields', () => {
     const tool = new WaterTool(makeEngine());
-    useStore.getState().updateWaterSettings({ flowSpeed: 0.9 });
 
     clickLake(tool, [[0, 0], [4, 0], [4, 4]]);
     keyDown(tool, 'Enter');
 
-    expect(waterChildren()[0].flowSpeed).toBe(0);
+    expect(waterChildren()[0]).not.toHaveProperty('flowSpeed');
   });
 
   it('winding is normalized through clipper so bank normals face outward', () => {

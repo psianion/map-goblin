@@ -25,6 +25,8 @@ import {
 import { currentWallNodes } from './wallNodeOverlay';
 import { buildPieceSpecs } from './wallNodeRenderer';
 import { pieceWorldLength } from './wallLayout';
+import { ringLook } from '../shared/wallLook';
+import { layerLevelLook } from './levelLook';
 
 let dragging = false;
 let dx = 0;
@@ -43,10 +45,10 @@ export function beginRingStoneDrag(layer: DungeonLayer, ring: number, ts: number
   const target = resolveRingOutline(layer, ring);
   if (!target) return false;
 
-  const setId = layer.style.wallTextureSetId;
+  // The ring's own look: a floor a preset pinned keeps its set and width.
+  const { setId, width: wallWidth } = ringLook(layer, ring, layerLevelLook(layer));
   if (!setId) return false;
   const specs = new Map(buildPieceSpecs(setId).map((s) => [s.id, s]));
-  const wallWidth = layer.style.wallWidth;
 
   const stones: DraggedStone[] = [];
   for (const node of currentWallNodes()) {

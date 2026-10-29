@@ -8,6 +8,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { setTableWorld, worldFrame, worldGrade } from './worldOverride';
 import { composeGrade, resolveWorldLight, type MapEnvironment } from '../shared/world';
+import { skyFrame } from '../shared/sky';
 
 const MAP: MapEnvironment & { ambientLight: string } = {
   environment: 'outdoor',
@@ -18,10 +19,8 @@ const MAP: MapEnvironment & { ambientLight: string } = {
 const MIDNIGHT = 0;
 const NOON = 720;
 
-const campaign = (minutes: number): Parameters<typeof setTableWorld>[0] => ({
-  minutes,
-  sun: resolveWorldLight({ ...MAP, clockMinutes: minutes, nightSky: 'full-moon' }).sun,
-});
+const campaign = (minutes: number): Parameters<typeof setTableWorld>[0] =>
+  skyFrame({ ...MAP, minutes, nightSky: 'full-moon' });
 
 afterEach(() => setTableWorld(null));
 
@@ -73,5 +72,18 @@ describe('worldOverride', () => {
     expect(frame.minutes).toBe(MIDNIGHT);
     setTableWorld(null);
     expect(worldFrame(MAP, NOON).sun.kind).toBe('sun');
+  });
+
+  // Agreed gap: an unset fixed map composed a noon grade but a midnight (moon) sun.
+  it('an unset fixed map stands its sun at noon too, not at midnight', () => {
+    const fixed = { ...MAP, timeMode: 'fixed' as const };
+    expect(worldFrame(fixed, null).minutes).toBe(NOON);
+    expect(worldFrame(fixed, null).sun.kind).toBe('sun');
+  });
+
+  it('a previewed weather and the map defaults reach the editor frame', () => {
+    expect(worldFrame(MAP, NOON, null, 'storm').weather).toBe('storm');
+    expect(worldFrame({ ...MAP, weather: 'fog', nightSky: 'crescent' }, NOON).weather).toBe('fog');
+    expect(worldFrame({ ...MAP, nightSky: 'crescent' }, NOON).nightSky).toBe('crescent');
   });
 });

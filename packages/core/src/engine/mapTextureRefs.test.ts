@@ -42,11 +42,10 @@ function water(id: string, textureId: string, bankTextureId: string): WaterChild
     opacity: 1,
     bankTextureId,
     bankWidth: 0.5,
-    flowSpeed: 0,
-    flowAngle: 0,
   }
 }
 
+/** A light carrying the retired `maskTextureId` an old save may still hold. */
 function light(id: string, maskTextureId: string | undefined): LightChild {
   return {
     id,
@@ -60,7 +59,7 @@ function light(id: string, maskTextureId: string | undefined): LightChild {
     falloff: 'linear',
     position: { x: 0, y: 0 },
     maskTextureId,
-  }
+  } as LightChild
 }
 
 function door(id: string, portalTextureId: string | undefined): DoorChild {
@@ -95,7 +94,7 @@ function wall(id: string, textureSetId?: string): WallSegment {
 
 function emptyMap(): MapTextureSource {
   return {
-    mapSettings: { name: 'x', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+    mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
     layers: [],
   }
 }
@@ -136,7 +135,7 @@ describe('collectMapTextureIds', () => {
     expect(collectMapTextureIds(map)).toEqual([])
   })
 
-  it('collects shape, water (+bank), light mask and door portal ids from children', () => {
+  it('collects shape, water (+bank) and door portal ids from children, never a retired light mask', () => {
     const layer = createDungeonLayer('L')
     layer.style.defaultTextureId = undefined
     layer.style.wallTextureSetId = undefined
@@ -155,7 +154,6 @@ describe('collectMapTextureIds', () => {
         'large-flagstone-a-01',
         'water-still-a-01',
         'bank-grassy-01-a1',
-        'some-mask-id',
         'some-portal-id',
       ].sort(),
     )
@@ -199,6 +197,20 @@ describe('collectMapTextureIds', () => {
     layer.standaloneWalls = [wall('w1')]
     const map: MapTextureSource = { ...emptyMap(), layers: [layer] }
     expect(collectMapTextureIds(map)).toEqual([])
+  })
+
+  it('collects floor textures pinned on a level, an area and a room', () => {
+    const layer = createDungeonLayer('L')
+    layer.style.defaultTextureId = undefined
+    layer.style.wallTextureSetId = undefined
+    layer.rooms = [{ id: 'r', name: 'R', anchor: [0, 0], look: { floorTextureId: 'room-floor' } }]
+    layer.areas = [{ id: 'a', name: 'A', look: { floorTextureId: 'area-floor' } }]
+    const map: MapTextureSource = {
+      ...emptyMap(),
+      layers: [layer],
+      levels: [{ id: 'lvl', name: 'Ground', look: { floorTextureId: 'level-floor' } }],
+    }
+    expect(collectMapTextureIds(map).sort()).toEqual(['area-floor', 'level-floor', 'room-floor'])
   })
 
   it('dedupes ids referenced more than once', () => {
@@ -266,6 +278,12 @@ describe('resolveAssetSets', () => {
     const manifest = makeManifest({})
     const result = resolveAssetSets(['not-a-pack-id'], [{ packId: 'gg-forge', manifest }])
     expect(result.size).toBe(0)
+  })
+
+  it('finds the owning pack for a bare id saved before it had a prefix', () => {
+    const manifest = makeManifest({ 'water-still-a-01': { type: 'water', set: 'water' } })
+    const result = resolveAssetSets(['water-still-a-01'], [{ packId: 'gg-forge', manifest }])
+    expect(result.get('gg-forge')).toEqual(new Set(['water']))
   })
 
   it('ignores ids resolving to a pack with no cached manifest', () => {

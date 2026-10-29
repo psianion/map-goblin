@@ -158,11 +158,11 @@ describe('buildOcclusionSegments — edge cases', () => {
     expect(doorSeg).toBeDefined();
     expect(doorSeg!.blocksVision).toBe(true);
     expect(doorSeg!.blocksLight).toBe(true);
-    // The wall segments on either side should carry window properties (no light block)
+    // The wall segments on either side carry window properties: sight and light both pass.
     const wallSegs = result.filter(s => s.sourceType === 'wall');
     wallSegs.forEach(s => {
       expect(s.blocksLight).toBe(false); // window
-      expect(s.blocksVision).toBe(true);
+      expect(s.blocksVision).toBe(false);
     });
   });
 

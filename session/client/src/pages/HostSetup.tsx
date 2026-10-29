@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import type { Room } from '@dnd/core/src/shared/types';
 import { endpoints } from '../endpoints';
-import { serverRooms } from '../modules/fog/fog';
+import { startingRoomsOf, type StartingRoomOption } from './startingRoom';
 import { navigate } from '../router';
 import {
   createCampaignAsDm,
@@ -78,8 +77,9 @@ export default function HostSetup() {
   /** A library scene picked instead of uploading — mutually exclusive with `map`. */
   const [selectedSceneId, setSelectedSceneId] = useState('');
   /** The uploaded map's own rooms — the same list the fog panel will show at the table. */
-  const [rooms, setRooms] = useState<Room[]>([]);
-  /** '' = none, which is the table starting dark exactly as it did before this picker. */
+  const [rooms, setRooms] = useState<StartingRoomOption[]>([]);
+  /** '' = none, which is the table starting dark exactly as it did before this picker. Preset
+   *  to the map's own starting room (`mapSettings.startingRoomId`) when it names one. */
   const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   /** True when step 4's invite code came from resuming a live session (issue #94),
@@ -185,7 +185,9 @@ export default function HostSetup() {
       setRooms([]);
       setStartRoomId('');
       if (!dm) return;
-      setRooms(serverRooms(await fetchMapDoc(sceneId, dm.token)));
+      const picker = startingRoomsOf(await fetchMapDoc(sceneId, dm.token));
+      setRooms(picker.rooms);
+      setStartRoomId(picker.defaultRoomId);
     });
 
   const uploadMap = (file: File) =>
@@ -196,8 +198,9 @@ export default function HostSetup() {
       setMap(await uploadMapFile(dm.campaignId, dm.token, text));
       setSelectedSceneId('');
       // Only reached once the server has accepted the same bytes, so it parses here too.
-      setRooms(serverRooms(JSON.parse(text)));
-      setStartRoomId('');
+      const picker = startingRoomsOf(JSON.parse(text));
+      setRooms(picker.rooms);
+      setStartRoomId(picker.defaultRoomId);
     });
 
   const openTable = () =>
@@ -471,9 +474,9 @@ export default function HostSetup() {
                   onChange={(e) => setStartRoomId(e.target.value)}
                 >
                   <option value="">None — the map starts dark</option>
-                  {rooms.map((room, i) => (
+                  {rooms.map((room) => (
                     <option key={room.id} value={room.id}>
-                      {room.name || `Room ${i + 1}`}
+                      {room.label}
                     </option>
                   ))}
                 </select>

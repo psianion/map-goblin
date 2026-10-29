@@ -14,8 +14,21 @@ function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
   ).length;
 }
 
+/**
+ * Hands a finished floor to something other than the plain "add a shape" commit — the
+ * room tools use it to land the floor and its room as one undo step. When given, the
+ * erase mode is ignored: a room tool always draws.
+ */
+export type ShapeCommit = (layer: DungeonLayer, child: ShapeChild) => void;
+
 export class RectangleTool implements DrawingTool {
   readonly type = 'rectangle' as const;
+  private readonly onShape: ShapeCommit | null;
+
+  constructor(onShape?: ShapeCommit) {
+    this.onShape = onShape ?? null;
+  }
+
   readonly cursor = 'crosshair';
   readonly editsActiveLayer = true;
   private startPoint: Point | null = null;
@@ -80,7 +93,7 @@ export class RectangleTool implements DrawingTool {
       [start.x, end.y],
     ];
 
-    const isErase = store.tools.eraseMode;
+    const isErase = store.tools.eraseMode && !this.onShape;
 
     if (isErase) {
       // Erase: boolean-difference the erase rect from each intersecting shape.
@@ -104,17 +117,16 @@ export class RectangleTool implements DrawingTool {
         visible: true,
         shapeType: 'rectangle',
         contours: [rectPoly],
-        roughnessEnabled: store.tools.roughMode,
-        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
         textureOffsetY: 0,
         textureFillRotation: 0,
-        textureTint: lastTextured?.textureTint ?? '#ffffff',
+        textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, child));
+      if (this.onShape) this.onShape(activeLayer, child);
+      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, child));
     }
   }
 

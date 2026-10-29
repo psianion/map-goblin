@@ -4,11 +4,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import { useStore } from '@/store/store';
-import type { ConnectorChild, DungeonLayer, RoomChild } from '@/store/types';
+import type { AnyChild, ConnectorChild, DungeonLayer, RoomChild } from '@/store/types';
 
 vi.mock('@/engine/engineSingleton', () => ({ getEngineSingleton: vi.fn() }));
 const { getEngineSingleton } = await import('@/engine/engineSingleton');
 const { mountRoomConnectorOverlay } = await import('./roomConnectorOverlay');
+
+/** Drawn rooms and connectors are legacy children, outside `AnyChild`; an unmigrated store can still hold them. */
+function addLegacy(layerId: string, child: RoomChild | ConnectorChild): void {
+  useStore.getState().addChild(layerId, child as unknown as AnyChild);
+}
 
 function fakeEngineAtZoom(zoom: number) {
   return { engine: { stage: () => ({ scale: { x: zoom } }) } } as unknown as ReturnType<typeof getEngineSingleton>;
@@ -93,8 +98,8 @@ function whiteStrokeWidth(strokeSpy: ReturnType<typeof vi.spyOn>): number {
 
 describe('room/connector overlay palette', () => {
   it('draws rooms and connectors in white and ink only — never the theme accent', () => {
-    useStore.getState().addChild(dungeonLayer().id, ROOM);
-    useStore.getState().addChild(dungeonLayer().id, DOOR);
+    addLegacy(dungeonLayer().id, ROOM);
+    addLegacy(dungeonLayer().id, DOOR);
     const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
     const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
 
@@ -110,14 +115,14 @@ describe('room/connector overlay palette', () => {
   it('reads an arch and a door apart by their interior fill weight', () => {
     const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
 
-    useStore.getState().addChild(dungeonLayer().id, ARCH);
+    addLegacy(dungeonLayer().id, ARCH);
     let unmount = mountRoomConnectorOverlay(new Container());
     const archWhite = paints(fillSpy).find((p) => p.color === WHITE)!.alpha;
     unmount();
 
     useStore.getState().resetToDefault();
     fillSpy.mockClear();
-    useStore.getState().addChild(dungeonLayer().id, DOOR);
+    addLegacy(dungeonLayer().id, DOOR);
     unmount = mountRoomConnectorOverlay(new Container());
     const doorWhite = paints(fillSpy).find((p) => p.color === WHITE)!.alpha;
     unmount();
@@ -126,7 +131,7 @@ describe('room/connector overlay palette', () => {
   });
 
   it('holds the on-screen stroke weight constant as the camera zooms', () => {
-    useStore.getState().addChild(dungeonLayer().id, ROOM);
+    addLegacy(dungeonLayer().id, ROOM);
     const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
 
     const unmount = mountRoomConnectorOverlay(new Container());
@@ -145,7 +150,7 @@ describe('room/connector overlay palette', () => {
 
 describe('room/connector overlay visibility', () => {
   it('draws nothing for a hidden child', () => {
-    useStore.getState().addChild(dungeonLayer().id, { ...ROOM, visible: false });
+    addLegacy(dungeonLayer().id, { ...ROOM, visible: false });
     const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
 
     const unmount = mountRoomConnectorOverlay(new Container());
@@ -156,7 +161,7 @@ describe('room/connector overlay visibility', () => {
 
   it('draws nothing for a child on a hidden layer', () => {
     const id = dungeonLayer().id;
-    useStore.getState().addChild(id, ROOM);
+    addLegacy(id, ROOM);
     useStore.getState().updateLayer(id, { visible: false } as never);
     const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
 
@@ -179,7 +184,7 @@ describe('room/connector overlay visibility', () => {
     };
 
     beforeEach(() => {
-      useStore.getState().addChild(dungeonLayer().id, ROOM);
+      addLegacy(dungeonLayer().id, ROOM);
     });
 
     it('stops drawing outside the authoring tools', () => {
@@ -188,10 +193,8 @@ describe('room/connector overlay visibility', () => {
       expect(inkDrawn()).toBe(false);
     });
 
-    it('draws anyway while the room or door tool is held', () => {
+    it('draws anyway while the door tool is held', () => {
       useStore.getState().setRoomOverlayVisible(false);
-      useStore.getState().setActiveTool('room');
-      expect(inkDrawn()).toBe(true);
       useStore.getState().setActiveTool('door');
       expect(inkDrawn()).toBe(true);
       // ...and goes again the moment the DM puts the tool down.
@@ -202,7 +205,7 @@ describe('room/connector overlay visibility', () => {
     // The switch means "not all of it", never "none of it": selecting a room from the
     // layers panel with the ink off would otherwise light up nothing at all.
     it('keeps drawing whatever is selected, and only that', () => {
-      useStore.getState().addChild(dungeonLayer().id, DOOR);
+      addLegacy(dungeonLayer().id, DOOR);
       useStore.getState().setRoomOverlayVisible(false);
       useStore.getState().setActiveTool('select');
       expect(inkDrawn()).toBe(false);
@@ -244,7 +247,7 @@ describe('room/connector overlay visibility', () => {
     /** Mounts a fresh overlay over `child` and reports the label text it drew. */
     function labelsFor(child: ConnectorChild): string[] {
       useStore.getState().resetToDefault();
-      useStore.getState().addChild(dungeonLayer().id, child);
+      addLegacy(dungeonLayer().id, child);
       const world = new Container();
       const unmount = mountRoomConnectorOverlay(world);
       const labels = (world.children[0] as Container).children[1] as Container;
@@ -264,7 +267,7 @@ describe('room/connector overlay visibility', () => {
       // itself, so only the two fills reach `poly`.
       const polyCalls = (child: ConnectorChild): number => {
         useStore.getState().resetToDefault();
-        useStore.getState().addChild(dungeonLayer().id, child);
+        addLegacy(dungeonLayer().id, child);
         const spy = vi.spyOn(Graphics.prototype, 'poly');
         const unmount = mountRoomConnectorOverlay(new Container());
         const n = spy.mock.calls.length;
@@ -278,7 +281,7 @@ describe('room/connector overlay visibility', () => {
   });
 
   it('labels each room with its name', () => {
-    useStore.getState().addChild(dungeonLayer().id, ROOM);
+    addLegacy(dungeonLayer().id, ROOM);
     const world = new Container();
 
     const unmount = mountRoomConnectorOverlay(world);

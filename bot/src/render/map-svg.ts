@@ -126,19 +126,18 @@ function readRings(value: unknown): Ring[] {
     .filter((ring) => ring.length >= 3)
 }
 
-/** Room label text: the DM's override wins over the detected name, same as the editor. */
+/**
+ * Room labels: the room's own name, written at its anchor (where the editor badges it), or at
+ * the centroid the server derived when a room arrives without one. Corridors and slivers stay
+ * unlabelled. The sheet names a room only — its number is the editor's list order, not art.
+ */
 function readRooms(layer: Rec): RoomLabel[] {
-  const overrides = isRec(layer.roomNameOverrides) ? layer.roomNameOverrides : {}
   return list(layer.rooms)
     .filter(isRec)
-    .filter((room) => room.isPathway !== true && num(room.area) >= 4)
+    .filter((room) => room.isPathway !== true && !(typeof room.area === 'number' && room.area < 4))
     .map((room) => {
-      const centroid = list(room.centroid)
-      return {
-        text: str(overrides[str(room.id)], str(room.name)),
-        x: num(centroid[0]),
-        y: num(centroid[1]),
-      }
+      const at = list(room.anchor).length >= 2 ? list(room.anchor) : list(room.centroid)
+      return { text: str(room.name).trim(), x: num(at[0]), y: num(at[1]) }
     })
     .filter((room) => room.text.length > 0)
 }
@@ -177,6 +176,8 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
   for (const layer of list(root.layers).filter(isRec)) {
     if (layer.type !== 'dungeon' || layer.visible === false) continue
     scene.rooms.push(...readRooms(layer))
+    // A wall without its own width takes the layer's, as the editor draws it.
+    const layerWallWidth = num(isRec(layer.style) ? layer.style.wallWidth : undefined, 0.3)
 
     for (const wall of list(layer.standaloneWalls).filter(isRec)) {
       // Invisible and ethereal walls are sight/movement rules, not masonry — drawing them
@@ -186,7 +187,7 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
       const points = list(wall.points)
         .filter((p): p is unknown[] => Array.isArray(p) && p.length >= 2)
         .map((p): [number, number] => [num(p[0]), num(p[1])])
-      if (points.length >= 2) scene.walls.push({ points, width: clamp(num(wall.width, 0.3), 0.12, 0.6) })
+      if (points.length >= 2) scene.walls.push({ points, width: clamp(num(wall.width, layerWallWidth), 0.12, 0.6) })
     }
 
     for (const child of list(layer.children).filter(isRec)) {

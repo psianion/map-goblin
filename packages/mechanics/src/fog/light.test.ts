@@ -2,7 +2,7 @@
 // and the player's mask have to answer identically, which is why the rule is one function.
 
 import { describe, expect, it } from 'vitest'
-import { lightSources, type LightCarrier, type PlacedLight } from './light'
+import { carriedCone, lightSources, type LightCarrier, type PlacedLight } from './light'
 
 const BRAZIER: PlacedLight = { id: 'brazier', x: 2, y: 3, radius: 6 }
 const DOUSED: PlacedLight = { id: 'doused', x: 8, y: 3, radius: 6, visible: false }
@@ -47,5 +47,37 @@ describe('what is burning in a scene', () => {
     expect(
       lightSources([{ id: 'spark', x: 0, y: 0, radius: 0 }], [carrier({ light: { dim: 0, bright: 0 } })], {}),
     ).toEqual([])
+  })
+})
+
+describe('the Lighting pass light list', () => {
+  it('keeps a night-only light inside its darkness window only', () => {
+    const lamp: PlacedLight = { id: 'lamp', x: 0, y: 0, radius: 4, nightOnly: { min: 0.5, max: 1 } }
+    expect(lightSources([lamp], [], {}, 0)).toEqual([])
+    expect(lightSources([lamp], [], {}, 0.8)).toEqual([{ x: 0, y: 0, radius: 4 }])
+  })
+
+  it('carries a cone, through-walls and a darkness source through, flagged', () => {
+    const out = lightSources(
+      [
+        { id: 'beam', x: 1, y: 1, radius: 6, cone: { angle: 90, direction: 0 }, throughWalls: true },
+        { id: 'void', x: 2, y: 2, radius: 3, darkness: true, darkvisionSees: true },
+      ],
+      [],
+      {},
+    )
+    expect(out).toEqual([
+      { x: 1, y: 1, radius: 6, cone: { angle: 90, direction: 0 }, throughWalls: true },
+      { x: 2, y: 2, radius: 3, darkness: true, darkvisionSees: true },
+    ])
+  })
+
+  it('reads a carried light angle as a cone, 360 and 0 as a full circle', () => {
+    expect(lightSources([], [carrier({ light: { dim: 4, bright: 2, angle: 60 } })], {})[0]!.cone).toEqual({
+      angle: 60,
+      direction: 0,
+    })
+    expect(lightSources([], [carrier({ light: { dim: 4, bright: 2, angle: 360 } })], {})[0]!.cone).toBeUndefined()
+    expect(carriedCone(0)).toBeUndefined()
   })
 })

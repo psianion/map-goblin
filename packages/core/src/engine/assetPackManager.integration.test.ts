@@ -5,7 +5,6 @@
 
 import { describe, it, expect } from 'vitest'
 import type { PackManifest, ManifestEntry, FileRef } from './assetPackManager'
-import type { CatalogMeta, CatalogEntry, InvertedIndex } from './catalogBrowser'
 
 // ─── Sample canonical data (mirrors vault-engine build output) ───────
 
@@ -48,36 +47,6 @@ const SAMPLE_PACK_MANIFEST: PackManifest = {
     'preview.webp': { checksum: 'sha256:aaa111', size: 50_000 },
   },
   theme: ['dungeon'],
-}
-
-const SAMPLE_CATALOG_META: CatalogMeta = {
-  version: 1,
-  totalEntries: 150,
-  chunkCount: 3,
-  chunks: [
-    { index: 0, url: 'chunk-0.json', entryCount: 50 },
-    { index: 1, url: 'chunk-1.json', entryCount: 50 },
-    { index: 2, url: 'chunk-2.json', entryCount: 50 },
-  ],
-  invertedIndex: {
-    type: { floor: [0, 1], wall: [2], object: [1] },
-    theme: { dungeon: [0, 1, 2], cave: [0] },
-    material: { stone: [0, 2], wood: [1], dirt: [0] },
-  },
-}
-
-const SAMPLE_CATALOG_ENTRY: CatalogEntry = {
-  entryId: 'dungeon-classic:stone_1x1_floor_A',
-  packId: 'dungeon-classic',
-  localId: 'stone_1x1_floor_A',
-  type: 'floor',
-  theme: 'dungeon',
-  material: 'stone',
-  gridSize: '1x1',
-  tags: ['indoor', 'dungeon'],
-  tint: '#ffffff',
-  thumbnailUrl: '/thumb/stone_floor.webp',
-  pHash: 'a0b1c2d3e4f56789',
 }
 
 // ─── Type compatibility tests ────────────────────────────────────────
@@ -131,67 +100,6 @@ describe('map-assets schema compatibility', () => {
     })
   })
 
-  describe('CatalogMeta', () => {
-    it('has required top-level fields', () => {
-      expect(typeof SAMPLE_CATALOG_META.version).toBe('number')
-      expect(typeof SAMPLE_CATALOG_META.totalEntries).toBe('number')
-      expect(typeof SAMPLE_CATALOG_META.chunkCount).toBe('number')
-      expect(Array.isArray(SAMPLE_CATALOG_META.chunks)).toBe(true)
-      expect(typeof SAMPLE_CATALOG_META.invertedIndex).toBe('object')
-    })
-
-    it('chunks have required structure', () => {
-      for (const chunk of SAMPLE_CATALOG_META.chunks) {
-        expect(typeof chunk.index).toBe('number')
-        expect(typeof chunk.url).toBe('string')
-        expect(typeof chunk.entryCount).toBe('number')
-      }
-    })
-
-    it('invertedIndex is structured with type/theme/material sub-objects', () => {
-      const idx = SAMPLE_CATALOG_META.invertedIndex
-      expect(typeof idx.type).toBe('object')
-      expect(typeof idx.theme).toBe('object')
-      expect(typeof idx.material).toBe('object')
-
-      // Each sub-object maps string keys to number arrays (chunk indices)
-      for (const [, chunks] of Object.entries(idx.type)) {
-        expect(Array.isArray(chunks)).toBe(true)
-        for (const c of chunks) {
-          expect(typeof c).toBe('number')
-        }
-      }
-    })
-  })
-
-  describe('CatalogEntry', () => {
-    it('has all canonical fields', () => {
-      expect(typeof SAMPLE_CATALOG_ENTRY.entryId).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.packId).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.localId).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.type).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.theme).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.material).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.gridSize).toBe('string')
-      expect(Array.isArray(SAMPLE_CATALOG_ENTRY.tags)).toBe(true)
-      expect(typeof SAMPLE_CATALOG_ENTRY.tint).toBe('string')
-      expect(typeof SAMPLE_CATALOG_ENTRY.thumbnailUrl).toBe('string')
-    })
-
-    it('entryId follows packId:localId format', () => {
-      const [packId, localId] = SAMPLE_CATALOG_ENTRY.entryId.split(':')
-      expect(packId).toBe(SAMPLE_CATALOG_ENTRY.packId)
-      expect(localId).toBe(SAMPLE_CATALOG_ENTRY.localId)
-    })
-
-    it('pHash is optional 16-char hex string', () => {
-      if (SAMPLE_CATALOG_ENTRY.pHash !== undefined) {
-        expect(typeof SAMPLE_CATALOG_ENTRY.pHash).toBe('string')
-        expect(SAMPLE_CATALOG_ENTRY.pHash).toMatch(/^[0-9a-f]{16}$/)
-      }
-    })
-  })
-
   describe('structural compatibility', () => {
     it('PackManifest satisfies builder interface at compile time', () => {
       // This test validates TypeScript structural typing — if it compiles, the types align
@@ -200,21 +108,6 @@ describe('map-assets schema compatibility', () => {
       const fileRef: FileRef = manifest.atlases['floors.json']!
       expect(entry).toBeDefined()
       expect(fileRef).toBeDefined()
-    })
-
-    it('CatalogMeta satisfies builder interface at compile time', () => {
-      const meta: CatalogMeta = SAMPLE_CATALOG_META
-      const idx: InvertedIndex = meta.invertedIndex
-      expect(idx.type).toBeDefined()
-      expect(idx.theme).toBeDefined()
-      expect(idx.material).toBeDefined()
-    })
-
-    it('CatalogEntry satisfies builder interface at compile time', () => {
-      const entry: CatalogEntry = SAMPLE_CATALOG_ENTRY
-      expect(entry.entryId).toBeDefined()
-      expect(entry.gridSize).toBeDefined()
-      expect(entry.tint).toBeDefined()
     })
   })
 })

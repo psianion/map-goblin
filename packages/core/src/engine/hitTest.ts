@@ -1,9 +1,14 @@
 import type { AnyChild, LightChild, DungeonLayer } from '../store/types';
-import type { RingGeometry } from '../shared/types';
+import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
+import { standaloneWallLook } from '../shared/wallLook';
+import { projectPointOntoLineSegment } from '../shared/wallSnap';
+import { isBandSet } from '../assets/packCatalog';
 import { useStore } from '../store/store';
-import { isLayerEffectivelyVisible } from '../store/selectors';
+import { isLayerShown } from '../store/selectors';
+import { roomIndexOf } from '../shared/roomIndex';
+import { roomBadgePoints } from '../shared/roomUtils';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -116,11 +121,23 @@ function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
   return [...lights, ...labels, ...assets, ...doors, ...rest];
 }
 
+/**
+ * How a pick treats props. A locked prop is unclickable on the map, so a pick passes
+ * through it unless `includeLocked` (the right-click menu, which offers Unlock).
+ * `skipOverhead` leaves overhead props out: the DM is looking under them, or the
+ * caller already tried them first.
+ */
+export interface PickOptions {
+  zoom?: number;
+  includeLocked?: boolean;
+  skipOverhead?: boolean;
+}
+
 export function hitTestChildren(
   children: AnyChild[],
   point: [number, number],
   layer?: DungeonLayer,
-  opts?: { zoom?: number },
+  opts?: PickOptions,
 ): AnyChild | null {
   // Doors hit-test at their *resolved* position (a floor-ring door draws where
   // the resolver projects it, not where it was authored), which needs the whole
@@ -133,14 +150,14 @@ export function hitTestChildren(
     // the bulb sat there on screen with nothing behind it to click.
     if (!child.visible && child.childType !== 'light') continue;
     switch (child.childType) {
-      // A drawn room picks exactly like a shape — same rings, same Select tool,
-      // same gizmo. Blob doors deliberately have no case: DoorTool owns their
-      // hit-testing, the way ZoneTool owns zones'.
       case 'shape':
-      case 'room':
         if (pointInShape(child, point)) return child;
         break;
       case 'asset':
+        if (child.locked && !opts?.includeLocked) break;
+        if (child.overhead && opts?.skipOverhead) break;
+        if (pointInAsset(child, point)) return child;
+        break;
       case 'text':
         if (pointInAsset(child, point)) return child;
         break;
@@ -169,14 +186,272 @@ export function hitTestChildren(
 export function hitTestAllLayers(
   layers: DungeonLayer[],
   point: [number, number],
-  opts?: { zoom?: number },
+  opts?: PickOptions,
 ): { child: AnyChild; layerId: string } | null {
   const state = useStore.getState();
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i];
-    if (!isLayerEffectivelyVisible(state, layer) || layer.locked) continue;
+    if (!isLayerShown(state, layer) || layer.locked) continue;
     const hit = hitTestChildren(layer.children, point, layer, opts);
     if (hit) return { child: hit, layerId: layer.id };
+  }
+  return null;
+}
+
+/* ── Drawn walls ─────────────────────────────────────────
+ *
+ * A drawn wall is not a child: it lives in `standaloneWalls`, so `hitTestChildren` never
+ * sees it. The pick below slots walls in between the two halves of the child order: a
+ * door, prop, label or light standing on a wall still wins, and the wall wins over the
+ * floor it stands on (a floor is a map-sized ring, it would otherwise swallow every
+ * click on the stones).
+ */
+
+/**
+ * How far a drawn cave wall reaches from its line: the rock rides a little more than half
+ * a cell either side of it. Narrower than the double-click pick (a whole cell), which only
+ * has to land somewhere on the rock, where a plain click also has the floor to answer for.
+ */
+export const BAND_WALL_REACH = 0.75;
+
+/** Thin walls stay clickable: a 0.1-cell line is a misclick trap at table zoom. */
+export const WALL_MIN_HIT_RADIUS = 0.3;
+
+/** Screen pixels a click may miss a wall's drawn edge by and still take it. */
+const WALL_HIT_SLOP_PX = 4;
+
+/**
+ * Half the drawn thickness of a wall, in world units: its stones' band, or for a cave kit
+ * the rock either side of the line. This is the outline the hover and selection trace.
+ */
+export function wallReach(wall: WallSegment, layer: Pick<DungeonLayer, 'style'>): number {
+  const look = standaloneWallLook(wall, layer.style);
+  if (isBandSet(look.setId)) return BAND_WALL_REACH;
+  return Math.max(look.width / 2, WALL_MIN_HIT_RADIUS);
+}
+
+/** Distance from `point` to a wall's polyline. A loop repeats its first point, so it is walked closed. */
+export function distanceToWall(wall: Pick<WallSegment, 'points'>, point: [number, number]): number {
+  const pts = wall.points;
+  if (pts.length === 0) return Infinity;
+  if (pts.length === 1) return Math.hypot(pts[0][0] - point[0], pts[0][1] - point[1]);
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = projectPointOntoLineSegment(point, pts[i], pts[i + 1]).distance;
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * The drawn wall under `point` on one layer, or null. A layer with its walls switched off
+ * has none to give.
+ */
+export function hitTestWalls(
+  layer: DungeonLayer,
+  point: [number, number],
+  opts?: { zoom?: number },
+): WallSegment | null {
+  if (layer.sublayerVisibility?.walls === false) return null;
+  const slop = opts?.zoom ? WALL_HIT_SLOP_PX / opts.zoom : 0;
+  let best: WallSegment | null = null;
+  let bestDist = Infinity;
+  const walls = layer.standaloneWalls ?? [];
+  for (let i = walls.length - 1; i >= 0; i--) {
+    const wall = walls[i];
+    if (wall.points.length < 2) continue;
+    const d = distanceToWall(wall, point);
+    // The nearest line wins where two reaches overlap; on a tie the later wall, drawn on top.
+    if (d <= wallReach(wall, layer) + slop && d < bestDist) {
+      best = wall;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/** World-space box around a drawn wall's line, grown by `reach` on every side. */
+export function getWallBounds(
+  wall: Pick<WallSegment, 'points'>,
+  reach = 0,
+): { x: number; y: number; width: number; height: number } {
+  if (wall.points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+  let [minX, minY] = wall.points[0];
+  let [maxX, maxY] = wall.points[0];
+  for (const [x, y] of wall.points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return { x: minX - reach, y: minY - reach, width: maxX - minX + reach * 2, height: maxY - minY + reach * 2 };
+}
+
+/** Whether segment a-b crosses or lies inside the box (Liang-Barsky clip). */
+function segmentTouchesBox(
+  a: [number, number],
+  b: [number, number],
+  box: { x: number; y: number; width: number; height: number },
+): boolean {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  let t0 = 0;
+  let t1 = 1;
+  const edges: [number, number][] = [
+    [-dx, a[0] - box.x],
+    [dx, box.x + box.width - a[0]],
+    [-dy, a[1] - box.y],
+    [dy, box.y + box.height - a[1]],
+  ];
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether a drawn wall's band touches a box: some piece of its line comes within `reach`
+ * of it. The box is grown by the reach, which is exact along its sides and generous by
+ * at most `reach` at its corners.
+ */
+export function wallTouchesRect(
+  wall: Pick<WallSegment, 'points'>,
+  rect: { x: number; y: number; width: number; height: number },
+  reach = 0,
+): boolean {
+  const box = { x: rect.x - reach, y: rect.y - reach, width: rect.width + reach * 2, height: rect.height + reach * 2 };
+  const pts = wall.points;
+  if (pts.length === 1) return segmentTouchesBox(pts[0], pts[0], box);
+  for (let i = 0; i < pts.length - 1; i++) if (segmentTouchesBox(pts[i], pts[i + 1], box)) return true;
+  return false;
+}
+
+/**
+ * What a click lands on: a child, a drawn wall, or a room (its permanent id; rooms
+ * select like anything else). `id` is the one the selection holds.
+ */
+export type PickHit =
+  | { kind: 'child'; id: string; layerId: string; child: AnyChild }
+  | { kind: 'wall'; id: string; layerId: string; wall: WallSegment }
+  | { kind: 'room'; id: string; layerId: string; room: Room };
+
+/* ── Rooms ───────────────────────────────────────────────
+ *
+ * A room is a place, not a thing on the map: it has no art, only the editor's overlay
+ * (canvas/src/v2/canvas/roomOverlay.ts). Clicks pick it only where that overlay is
+ * mounted, so the v1 editor and the table, which draw no rooms, never select one.
+ */
+
+/** Screen radius of a room's number badge, px. The badge picks its room even off any face. */
+export const ROOM_BADGE_RADIUS_PX = 11;
+
+let roomPicking: () => boolean = () => false;
+
+/**
+ * Whether clicks pick rooms. The host that mounts the room overlay turns it on, with a
+ * predicate so it can follow the overlay's own switch.
+ */
+export function setRoomPicking(on: boolean | (() => boolean)): void {
+  roomPicking = typeof on === 'function' ? on : () => on;
+}
+
+export function roomPickingEnabled(): boolean {
+  return roomPicking();
+}
+
+/** The room whose badge sits under `point` at `zoom` (screen px per world unit), or null. */
+export function roomBadgeAt(layer: DungeonLayer, point: [number, number], zoom: number): Room | null {
+  const rooms = layer.rooms;
+  if (!rooms?.length || !(zoom > 0)) return null;
+  const r = ROOM_BADGE_RADIUS_PX / zoom;
+  // Where the overlay draws each badge (inside the face, not at the anchor).
+  const at = roomBadgePoints(rooms);
+  let best: Room | null = null;
+  let bestD = r;
+  for (const room of rooms) {
+    const [bx, by] = at.get(room.id) ?? room.anchor;
+    const d = Math.hypot(bx - point[0], by - point[1]);
+    if (d <= bestD) {
+      best = room;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/** The room under `point`: a badge first (an orphan has no face to click), else the face. */
+export function hitTestRoom(layer: DungeonLayer, point: [number, number], opts?: { zoom?: number }): Room | null {
+  if (!layer.rooms?.length) return null;
+  if (opts?.zoom) {
+    const badge = roomBadgeAt(layer, point, opts.zoom);
+    if (badge) return badge;
+  }
+  return roomIndexOf(layer.rooms).roomAt(point[0], point[1]);
+}
+
+/** Children drawn above the walls: lights, labels, props and doors. */
+const ABOVE_WALLS = new Set<AnyChild['childType']>(['light', 'text', 'asset', 'door']);
+
+/**
+ * The pick on one layer, in draw order: whatever stands on the walls (lights, labels,
+ * props, doors), then a drawn wall, then the room the point is in (where rooms pick,
+ * see `setRoomPicking`; `opts.rooms` overrides), then the floors and water under it.
+ * Callers decide which layers may answer (hidden, locked).
+ */
+export function pickInLayer(
+  layer: DungeonLayer,
+  point: [number, number],
+  opts?: PickOptions & { rooms?: boolean },
+): PickHit | null {
+  const above = layer.children.filter((c) => ABOVE_WALLS.has(c.childType));
+  const top = hitTestChildren(above, point, layer, opts);
+  if (top) return { kind: 'child', id: top.id, layerId: layer.id, child: top };
+  const wall = hitTestWalls(layer, point, opts);
+  if (wall) return { kind: 'wall', id: wall.id, layerId: layer.id, wall };
+  if (opts?.rooms ?? roomPicking()) {
+    const room = hitTestRoom(layer, point, opts);
+    if (room) return { kind: 'room', id: room.id, layerId: layer.id, room };
+  }
+  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType));
+  const rest = hitTestChildren(below, point, layer, opts);
+  return rest ? { kind: 'child', id: rest.id, layerId: layer.id, child: rest } : null;
+}
+
+/**
+ * `hitTestAllLayers` with drawn walls: topmost visible, unlocked layer first, and within
+ * a layer the order `pickInLayer` gives. Overhead props draw above every layer, so they
+ * answer first, from every layer, unless the DM is looking under them
+ * (`ui.seeUnderOverhead`), when they do not answer at all.
+ */
+export function pickAllLayers(
+  layers: DungeonLayer[],
+  point: [number, number],
+  opts?: PickOptions & { rooms?: boolean },
+): PickHit | null {
+  const state = useStore.getState();
+  const open = layers.filter((l) => isLayerShown(state, l) && !l.locked);
+  if (!state.ui.seeUnderOverhead && !opts?.skipOverhead) {
+    for (let i = open.length - 1; i >= 0; i--) {
+      const layer = open[i];
+      const overhead = layer.children.filter((c) => c.childType === 'asset' && c.overhead);
+      const hit = overhead.length > 0 ? hitTestChildren(overhead, point, layer, opts) : null;
+      if (hit) return { kind: 'child', id: hit.id, layerId: layer.id, child: hit };
+    }
+  }
+  for (let i = open.length - 1; i >= 0; i--) {
+    const hit = pickInLayer(open[i], point, { ...opts, skipOverhead: true });
+    if (hit) return hit;
   }
   return null;
 }
@@ -191,10 +466,7 @@ export function getChildBounds(child: AnyChild): {
   height: number;
 } {
   switch (child.childType) {
-    // Rooms and connectors carry the same rings a shape does, transform and all.
-    case 'shape':
-    case 'room':
-    case 'connector': {
+    case 'shape': {
       // Flattened: a curve can bow past its anchors, and the gizmo/selection
       // box must wrap what is actually drawn.
       let points = flattenRing(child.contours[0], child.tangents?.[0]);

@@ -1,11 +1,6 @@
-export interface MapMeta {
-  id: string;
-  name: string;
-  createdAt: number;
-  updatedAt: number;
-  gridSize: { width: number; height: number };
-  layerCount: number;
-}
+import type { MapMeta } from '@/store/types';
+
+export type { MapMeta };
 
 /** Where this map last landed in one campaign's library, and what was published. */
 export interface PublishState {
@@ -148,13 +143,20 @@ export class MapIndexDB {
     await this.put(record);
   }
 
+  /**
+   * A new map with the source's document, name prefixed "Copy of". The publish record stays
+   * behind: it holds the source's scene ids, and a copy carrying them would publish over the
+   * original's scene in every campaign it had reached. The copy publishes as a new scene.
+   */
   async duplicateMap(id: string): Promise<string> {
     const entry = await this.get(id);
     if (!entry) throw new Error(`Map ${id} not found`);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { publish: _publish, ...rest } = entry;
     const newId = crypto.randomUUID();
     const now = Date.now();
     await this.put({
-      ...entry,
+      ...rest,
       id: newId,
       name: `Copy of ${entry.name}`,
       createdAt: now,
@@ -187,6 +189,28 @@ export class MapIndexDB {
           ? undefined
           : (entry.publish as PublishRecord | undefined);
         entry.publish = { ...existing, [campaignId]: publish };
+        const putReq = store.put(entry);
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  /** Same one-transaction read-modify-write as setPublishState, for the same reason. */
+  async saveThumbnail(id: string, thumbnail: Blob | null): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const entry = getReq.result as MapEntry | undefined;
+        if (!entry) {
+          resolve();
+          return;
+        }
+        if (thumbnail) entry.thumbnail = thumbnail;
+        else delete entry.thumbnail;
         const putReq = store.put(entry);
         putReq.onsuccess = () => resolve();
         putReq.onerror = () => reject(putReq.error);

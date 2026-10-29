@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   foundryImagePath,
   foundryPadding,
+  foundryUnit,
   isFoundryComposite,
   parseFoundryDb,
   readFoundryScene,
@@ -88,6 +89,27 @@ describe('readFoundryScene', () => {
     expect(readFoundryScene({ ...AXEHOLM, darkness: 0.5 }, null).ambientLight).toBe('#9696a2');
   });
 
+  it('pulls walls out in the scene padding onto the image edge, leaving lights where they are', () => {
+    const m = readFoundryScene(
+      {
+        width: 200,
+        height: 200,
+        padding: 0,
+        grid: 100,
+        walls: [
+          { c: [50, 50, 230, 50] },
+          // Wholly past a corner: pulls down to a point and is dropped.
+          { c: [-40, -40, -10, -20] },
+        ],
+        lights: [{ x: -50, y: 100, dim: 10 }],
+      },
+      null,
+    );
+    expect(m.walls.map((w) => w.points)).toEqual([[[0.5, 0.5], [2, 0.5]]]);
+    expect(m.lights[0]).toMatchObject({ x: -0.5, y: 1 });
+    expect(m.warnings).toContain('3 wall points outside the map were pulled to its edge');
+  });
+
   it('maps restriction codes to wall types and drops inert walls on a single floor', () => {
     const scene: FoundryScene = {
       name: ' ',
@@ -112,6 +134,39 @@ describe('readFoundryScene', () => {
     expect(m.warnings.some((w) => w.includes('other floors'))).toBe(false);
     expect(m.doors[0]).toMatchObject({ archway: true, state: 'open' });
     expect(m.lights[0]).toMatchObject({ x: 1, y: 1, radius: 2, featherRadius: 2, color: '#123456' });
+  });
+
+  it('carries the grid scale from a v10+ grid object', () => {
+    const scene: FoundryScene = { width: 200, height: 200, walls: [], grid: { size: 100, distance: 10, units: 'ft' } };
+    expect(readFoundryScene(scene, null).cellScale).toEqual({ value: 10, unit: 'ft' });
+    expect(readFoundryScene({ ...scene, grid: { size: 100, distance: 1.5, units: 'Metres' } }, null).cellScale).toEqual({
+      value: 1.5,
+      unit: 'm',
+    });
+  });
+
+  it('carries the grid scale from legacy gridDistance and gridUnits', () => {
+    expect(map.cellScale).toEqual({ value: 5, unit: 'ft' });
+    const legacy: FoundryScene = { width: 200, height: 200, walls: [], grid: 100, gridDistance: 10, gridUnits: 'feet' };
+    expect(readFoundryScene(legacy, null).cellScale).toEqual({ value: 10, unit: 'ft' });
+    expect(readFoundryScene({ ...legacy, gridUnits: ' Mi ' }, null).cellScale).toEqual({ value: 10, unit: 'mi' });
+  });
+
+  it('leaves the scale unset when the scene names no usable distance', () => {
+    const scene: FoundryScene = { width: 200, height: 200, walls: [], grid: 100 };
+    expect(readFoundryScene(scene, null).cellScale).toBeUndefined();
+    expect(readFoundryScene({ ...scene, gridDistance: 0, gridUnits: 'ft' }, null).cellScale).toBeUndefined();
+    expect(readFoundryScene({ ...scene, grid: { size: 100, distance: 0, units: 'm' } }, null).cellScale).toBeUndefined();
+    expect(readFoundryScene({ ...scene, gridDistance: Number.NaN }, null).cellScale).toBeUndefined();
+  });
+});
+
+describe('foundryUnit', () => {
+  it('folds the common spellings and lower-cases the rest', () => {
+    expect(['ft', 'feet', "'", 'FT', '', undefined].map(foundryUnit)).toEqual(['ft', 'ft', 'ft', 'ft', 'ft', 'ft']);
+    expect(['m', 'meters', 'metres', 'M'].map(foundryUnit)).toEqual(['m', 'm', 'm', 'm']);
+    expect(foundryUnit('Mi')).toBe('mi');
+    expect(foundryUnit('hex')).toBe('hex');
   });
 });
 

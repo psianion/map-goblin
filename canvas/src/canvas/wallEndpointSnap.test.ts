@@ -93,3 +93,28 @@ describe('wallEndpointSnap', () => {
     expect(wallEndpointSnap({ x: 5, y: 0.5 })).toEqual({ x: 5, y: 0.5 });
   });
 });
+
+describe('wallEndpointSnap — Divide', () => {
+  it('snaps a divider to the floor edge, and to a drawn wall along its length', () => {
+    const l = seed();
+    useStore.getState().setActiveTool('divide');
+    expect(wallEndpointSnap({ x: 5, y: 0.5 })).toEqual({ x: 5, y: 0 });
+    useStore.getState().updateLayer(l.id, {
+      standaloneWalls: [
+        {
+          id: 'w1',
+          points: [
+            [2, 5],
+            [8, 5],
+          ],
+          wallType: 'normal',
+          direction: 'both',
+          color: '#333333',
+          roughness: 0,
+        },
+      ],
+    } as Partial<DungeonLayer>);
+    // Mid-run of the drawn wall: inside its cut, so the threshold closes the face there.
+    expect(wallEndpointSnap({ x: 4, y: 5.5 })).toEqual({ x: 4, y: 5 });
+  });
+});

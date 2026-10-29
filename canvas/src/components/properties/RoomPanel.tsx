@@ -5,9 +5,7 @@ import { useStore } from '@/store/store'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { RenameRoomCommand } from '@/store/commands'
-import { seedRoomsFromDetection } from '@dnd/core/src/store/seedRooms'
 import { undoManager } from '@/store/undoManager'
-import { notify } from '@/lib/toast'
 import type { DungeonLayer, Room } from '@/store/types'
 
 interface RoomPanelProps {
@@ -16,7 +14,7 @@ interface RoomPanelProps {
   onToggleSection?: (id: string) => void
 }
 
-/** Rooms detected from the layer's floor + walls. Read-only apart from names. */
+/** The layer's rooms. Read-only apart from names: v1 draws no rooms, the v2 editor does. */
 export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelProps) {
   const rooms = useStore(useShallow((s) => {
     const l = s.layers.find((x) => x.id === layer.id)
@@ -25,13 +23,6 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
   const setHighlightedRoomId = useStore((s) => s.setHighlightedRoomId)
   const overlayVisible = useStore((s) => s.ui.roomOverlayVisible)
   const setOverlayVisible = useStore((s) => s.setRoomOverlayVisible)
-  // Once the layer holds drawn rooms it IS the room source, so seeding from
-  // detection would only clone what is already there — seedRoomsFromDetection
-  // no-ops, and the affordance goes with it.
-  const hasAuthoredRooms = useStore((s) => {
-    const l = s.layers.find((x) => x.id === layer.id)
-    return l?.type === 'dungeon' ? l.children.some((c) => c.childType === 'room') : false
-  })
 
   // Pinned = clicked; the canvas highlight falls back to it when hover ends.
   const [pinnedId, setPinnedId] = useState<string | null>(null)
@@ -71,8 +62,8 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
     >
       {rooms.length === 0 ? (
         <p className="py-1 text-panel-body text-text-muted">
-          No rooms yet — draw one with the Room tool (O), or draw walls that enclose part of
-          the floor.
+          No rooms yet — add them in the new editor: draw a room, or draw walls that enclose
+          part of the floor and use Suggest rooms.
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5 pt-1">
@@ -117,25 +108,11 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
                 </span>
               )}
               <span className="shrink-0 font-mono text-panel-label text-text-muted">
-                {Math.round(room.area)}
+                {Math.round(room.area ?? 0)}
               </span>
             </li>
           ))}
         </ul>
-      )}
-      {!hasAuthoredRooms && rooms.length > 0 && (
-        <button
-          type="button"
-          // The list reads the same before and after — same names, same count — so the
-          // button vanishing was the only sign anything happened. Say what happened.
-          onClick={() => {
-            const count = seedRoomsFromDetection(layer.id)
-            if (count > 0) notify.success(`Made ${count} room${count === 1 ? '' : 's'} editable`)
-          }}
-          className="mt-2 w-full rounded border border-border-default bg-surface-1 px-2 py-1 text-panel-body text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
-        >
-          Make rooms editable
-        </button>
       )}
     </CollapsibleSection>
   )

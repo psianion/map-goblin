@@ -10,7 +10,6 @@ vi.mock('@/store/store', () => ({
   useStore: {
     getState: vi.fn(() => ({
       getSerializableState: vi.fn(),
-      assets: { customUploads: [] },
       terrainSplats: { pngs: [null, null], rev: 0 },
     })),
   },
@@ -29,7 +28,6 @@ const SAMPLE_DATA: SerializedMapData = {
   version: '2.0',
   mapSettings: {
     name: 'Test Dungeon',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#1a1a2e',
   },

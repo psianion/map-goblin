@@ -1,0 +1,1050 @@
+/*
+ * V2 chrome: a neutral surface under a dot grid, in a light and a dark mode.
+ *
+ * No accent yet. Emphasis comes from ink alone: the one primary action is inverted (ink on
+ * paper, paper on ink), a selected option is raised, everything else is hairlines and type.
+ * Every rule is prefixed `v2-` and the variables carry a `--v2-` prefix, so nothing here
+ * can leak into the v1 route that shares the same bundle. Modes key off the same `dark`
+ * class on <html> the v1 tokens use, so the editor under the home page follows along.
+ *
+ * Scales, so new rules stay on them:
+ *   radius  4 (badges, thumbs) / 6 (controls) / 8 (cards, fields) / 12 (dialog)
+ *   space   4 8 12 16 20 24 32 48 64
+ *   motion  120ms colour, 160ms movement, one ease-out curve, nothing springs
+ */
+:root {
+  --v2-bg: #f2f2f2;
+  --v2-dot: #c6c6c6;
+  --v2-sheet: #fbfbfb;
+  --v2-panel: #ffffff;
+  --v2-panel-2: #f7f7f7;
+  --v2-panel-3: #ebebeb;
+  --v2-line: #e0e0e0;
+  --v2-line-strong: #c2c2c2;
+  --v2-text: #1b1b1b;
+  --v2-text-2: #4d4d4d;
+  --v2-text-3: #6b6b6b;
+  --v2-ink: #1b1b1b;
+  --v2-on-ink: #ffffff;
+  --v2-ink-hover: #383838;
+  --v2-focus: rgb(27 27 27 / 0.14);
+  --v2-danger: #b3261e;
+  --v2-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --v2-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 24px -14px rgb(0 0 0 / 0.22);
+  --v2-shadow-lg: 0 1px 3px rgb(0 0 0 / 0.06), 0 24px 56px -20px rgb(0 0 0 / 0.3);
+  --v2-backdrop: rgb(24 24 24 / 0.32);
+  --v2-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+.dark {
+  --v2-bg: #2b2b2b;
+  --v2-dot: #4f4f4f;
+  --v2-sheet: #353535;
+  --v2-panel: #333333;
+  --v2-panel-2: #383838;
+  --v2-panel-3: #444444;
+  --v2-line: #474747;
+  --v2-line-strong: #5c5c5c;
+  --v2-text: #ececec;
+  --v2-text-2: #bdbdbd;
+  --v2-text-3: #9c9c9c;
+  --v2-ink: #ececec;
+  --v2-on-ink: #1b1b1b;
+  --v2-ink-hover: #ffffff;
+  --v2-focus: rgb(236 236 236 / 0.18);
+  --v2-danger: #f08a7e;
+  --v2-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --v2-shadow: 0 1px 2px rgb(0 0 0 / 0.25), 0 12px 28px -14px rgb(0 0 0 / 0.7);
+  --v2-shadow-lg: 0 1px 3px rgb(0 0 0 / 0.3), 0 28px 64px -20px rgb(0 0 0 / 0.8);
+  --v2-backdrop: rgb(0 0 0 / 0.5);
+}
+
+.v2-dots {
+  background-color: var(--v2-bg);
+  background-image: radial-gradient(circle, var(--v2-dot) 1px, transparent 1.6px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+}
+
+/* One focus ring for everything focusable in v2: the ink colour, so it reads in both modes. */
+.v2-home :focus-visible,
+.v2-modal :focus-visible {
+  outline: 2px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+
+/* Home */
+.v2-home {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.v2-home__inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 72px 32px 112px;
+}
+.v2-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.v2-title {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: clamp(44px, 4.4vw + 16px, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  font-weight: 400;
+  margin: 0;
+  color: var(--v2-text);
+  text-wrap: balance;
+}
+.v2-title em {
+  font-style: italic;
+  letter-spacing: -0.015em;
+}
+.v2-sub {
+  margin: 16px 0 0;
+  max-width: 44ch;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--v2-text-2);
+  text-wrap: pretty;
+}
+.v2-section {
+  margin-top: 56px;
+  padding-top: 16px;
+  border-top: 1px solid var(--v2-line);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.v2-section h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-text);
+}
+.v2-count {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--v2-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.v2-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 16px;
+}
+
+/* Icon button: the theme toggle */
+.v2-icon-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--v2-text-2);
+  cursor: pointer;
+  transition: color 120ms var(--v2-ease), background-color 120ms var(--v2-ease),
+    border-color 120ms var(--v2-ease);
+}
+.v2-icon-btn:hover {
+  color: var(--v2-text);
+  background: var(--v2-panel);
+  border-color: var(--v2-line);
+}
+.v2-icon-btn:active {
+  transform: scale(0.96);
+}
+
+/* Cards: 3:4 portrait, the preview on top, name and last save under it */
+.v2-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: var(--v2-panel);
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--v2-shadow-sm);
+  transition: border-color 120ms var(--v2-ease), transform 160ms var(--v2-ease),
+    box-shadow 160ms var(--v2-ease);
+}
+.v2-card:hover {
+  border-color: var(--v2-line-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--v2-shadow);
+}
+.v2-card:active {
+  transform: translateY(0) scale(0.99);
+  box-shadow: var(--v2-shadow-sm);
+}
+.v2-card[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.7;
+}
+.v2-card--active,
+.v2-card--active:hover {
+  border-color: var(--v2-ink);
+}
+.v2-card__preview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  border-bottom: 1px solid var(--v2-line);
+  overflow: hidden;
+}
+/* The whole map on its plate, not a crop of it: maps run landscape, the card does not. */
+.v2-card__preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--v2-line), var(--v2-shadow-sm);
+  user-select: none;
+}
+.v2-card__empty {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-3);
+  background: var(--v2-bg);
+  padding: 2px 6px;
+}
+.v2-card__body {
+  padding: 9px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.v2-card__name {
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 22px;
+}
+.v2-card__meta {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--v2-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.v2-card__badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v2-text-2);
+  background: var(--v2-panel);
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  padding: 3px 5px;
+}
+.v2-card__delete {
+  position: absolute;
+  right: 6px;
+  bottom: 9px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms var(--v2-ease), color 120ms var(--v2-ease),
+    background-color 120ms var(--v2-ease);
+}
+.v2-card:hover .v2-card__delete,
+.v2-card:focus-visible .v2-card__delete,
+.v2-card__delete:focus-visible {
+  opacity: 1;
+}
+.v2-card__delete:hover {
+  color: var(--v2-text);
+  background: var(--v2-panel-3);
+}
+.v2-card__delete:focus-visible {
+  outline-offset: 0;
+}
+/* "…" on the preview's top-right: a small raised chip, so it reads over any thumbnail. */
+.v2-card__more {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--v2-line);
+  background: var(--v2-panel);
+  color: var(--v2-text-2);
+  box-shadow: var(--v2-shadow-sm);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms var(--v2-ease), color 120ms var(--v2-ease),
+    border-color 120ms var(--v2-ease);
+}
+.v2-card:hover .v2-card__more,
+.v2-card:focus-visible .v2-card__more,
+.v2-card--menu .v2-card__more,
+.v2-card__more:focus-visible {
+  opacity: 1;
+}
+.v2-card__more:hover,
+.v2-card--menu .v2-card__more {
+  color: var(--v2-text);
+  border-color: var(--v2-line-strong);
+}
+.v2-card__more:focus-visible {
+  outline-offset: 0;
+}
+/* Rename in place: the field takes the name's exact box and type, so nothing shifts. */
+.v2-card__name--editing {
+  overflow: visible;
+}
+.v2-card__rename {
+  display: block;
+  width: 100%;
+  height: calc(13px * 1.35);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 500;
+  cursor: text;
+}
+.v2-card__rename.v2-card__rename,
+.v2-card__rename.v2-card__rename:focus-visible {
+  outline: 1px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+.v2-card__rename::selection {
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+
+.v2-card--new {
+  border-style: dashed;
+  border-color: var(--v2-line-strong);
+  background: transparent;
+  box-shadow: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--v2-text-2);
+}
+.v2-card--new:hover {
+  background: var(--v2-panel);
+  border-color: var(--v2-ink);
+  border-style: solid;
+  color: var(--v2-text);
+}
+.v2-card--new .v2-plus {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--v2-panel);
+  border: 1px solid var(--v2-line-strong);
+  color: var(--v2-text);
+  transition: background-color 120ms var(--v2-ease), border-color 120ms var(--v2-ease),
+    color 120ms var(--v2-ease);
+}
+.v2-card--new:hover .v2-plus {
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-card--new strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v2-text);
+}
+.v2-card--new span:last-child {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+
+/* Modal. Doubled selectors outrank the dialog primitive's utility classes. */
+.v2-backdrop.v2-backdrop {
+  background: var(--v2-backdrop);
+  backdrop-filter: blur(2px);
+}
+.v2-modal.v2-modal {
+  color: var(--v2-text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--v2-panel);
+  border: 1px solid var(--v2-line);
+  border-radius: 12px;
+  box-shadow: var(--v2-shadow-lg);
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.v2-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 0 24px;
+}
+.v2-modal__title {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  font-weight: 400;
+  margin: 0;
+  color: var(--v2-text);
+}
+.v2-modal__body {
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.v2-modal__foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 14px 20px 16px;
+  border-top: 1px solid var(--v2-line);
+}
+.v2-x {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-3);
+  cursor: pointer;
+  transition: color 120ms var(--v2-ease), background-color 120ms var(--v2-ease);
+}
+.v2-x:hover {
+  color: var(--v2-text);
+  background: var(--v2-panel-3);
+}
+.v2-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--v2-text-2);
+  margin-bottom: 8px;
+}
+.v2-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--v2-text-3);
+}
+.v2-error {
+  margin: 8px 0 0;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--v2-danger);
+}
+.v2-progress {
+  margin: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--v2-line-strong);
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 120ms var(--v2-ease), box-shadow 120ms var(--v2-ease);
+}
+.v2-input:hover {
+  border-color: var(--v2-text-3);
+}
+.v2-input::placeholder {
+  color: var(--v2-text-3);
+}
+.v2-modal .v2-input:focus-visible,
+.v2-input:focus {
+  outline: none;
+  border-color: var(--v2-ink);
+  box-shadow: 0 0 0 3px var(--v2-focus);
+}
+.v2-input--num {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Segmented control: one sunken track, the chosen option raised out of it. Ink inversion
+   stays reserved for the primary button, so the form has one loud thing, not three. */
+.v2-segs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--v2-panel-3);
+}
+.v2-seg {
+  flex: 1;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--v2-text-2);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease), color 120ms var(--v2-ease),
+    border-color 120ms var(--v2-ease), box-shadow 120ms var(--v2-ease);
+}
+.v2-seg:hover {
+  color: var(--v2-text);
+}
+.v2-seg--on,
+.v2-seg--on:hover {
+  background: var(--v2-panel);
+  border-color: var(--v2-line);
+  color: var(--v2-text);
+  box-shadow: var(--v2-shadow-sm);
+}
+.dark .v2-seg--on,
+.dark .v2-seg--on:hover {
+  background: var(--v2-line-strong);
+  border-color: transparent;
+}
+.v2-modal .v2-seg:focus-visible {
+  outline-offset: 0;
+}
+.v2-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.v2-size-row .v2-input {
+  width: 72px;
+}
+.v2-size-row span {
+  color: var(--v2-text-3);
+  font-size: 12px;
+}
+.v2-size-row--flush {
+  margin-top: 0;
+}
+.v2-segs--unit {
+  flex: none;
+}
+.v2-segs--unit .v2-seg {
+  width: 40px;
+  flex: none;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+/* The dock's own `.v2-seg` (a boxed group, v2-editor.css) loads after this sheet and
+   boxed every option of a modal's segmented row too; inside a track, only the chosen
+   one is raised. */
+.v2-segs > .v2-seg {
+  height: 30px;
+  padding: 0 8px;
+}
+.v2-segs > .v2-seg:not(.v2-seg--on) {
+  background: transparent;
+  border-color: transparent;
+}
+.v2-seg--mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* On/off lines in a modal (Export): name left, switch right, a hint under the pair. */
+.v2-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.v2-toggle__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+  font-size: 13px;
+  color: var(--v2-text);
+  cursor: pointer;
+}
+.v2-toggle__hint {
+  margin-top: 2px;
+}
+.v2-export-size {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--v2-panel-2);
+}
+/* The export preview: one box, the same size rendering or rendered, the picture fitted in it. */
+.v2-export-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  overflow: hidden;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: var(--v2-panel-2);
+}
+.v2-export-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.v2-export-size__px {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--v2-text-2);
+}
+.v2-drop {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 16px;
+  border-radius: 8px;
+  border: 1px dashed var(--v2-line-strong);
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms var(--v2-ease), background-color 120ms var(--v2-ease);
+}
+.v2-drop:hover,
+.v2-drop--over {
+  border-color: var(--v2-ink);
+  background: var(--v2-panel);
+}
+.v2-drop:disabled {
+  cursor: progress;
+}
+.v2-drop__icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--v2-line);
+  background: var(--v2-panel);
+  color: var(--v2-text-2);
+}
+.v2-drop small {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--v2-text-3);
+}
+.v2-picked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-line);
+  background: var(--v2-panel-2);
+}
+.v2-picked img,
+.v2-picked__ph {
+  width: 56px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--v2-panel-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-text-3);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.v2-picked__ph img {
+  width: 100%;
+  height: 100%;
+}
+.v2-picked__name {
+  font-size: 13px;
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-picked__sub {
+  font-size: 11px;
+  color: var(--v2-text-3);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-link {
+  border: 0;
+  background: transparent;
+  color: var(--v2-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--v2-line-strong);
+  text-underline-offset: 3px;
+  transition: color 120ms var(--v2-ease), text-decoration-color 120ms var(--v2-ease);
+}
+.v2-link:hover {
+  color: var(--v2-text);
+  text-decoration-color: currentColor;
+}
+.v2-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--v2-line);
+  border-radius: 8px;
+  background: var(--v2-panel-2);
+}
+.v2-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-list label + label {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-list label:hover {
+  background: var(--v2-panel);
+}
+.v2-list input {
+  accent-color: var(--v2-ink);
+}
+/* VTT import: the two pickers under the drop zone, flags on a scanned row, and the
+   per-map report once an import has run. */
+.v2-pick-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.v2-pick-row .v2-btn {
+  flex: 1;
+  justify-content: center;
+}
+.v2-list-head__links {
+  display: flex;
+  gap: 12px;
+}
+.v2-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.v2-row-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 5px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--v2-text-3);
+}
+.v2-summary {
+  margin: 0;
+  font-size: 13px;
+}
+.v2-report {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.v2-report-row + .v2-report-row {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-report-row__line {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+button.v2-report-row__line {
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+button.v2-report-row__line:hover {
+  background: var(--v2-panel);
+}
+.v2-report-row__icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--v2-text-3);
+}
+.v2-report-row__name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-report-row__status {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-report-row--failed .v2-report-row__icon,
+.v2-report-row--failed .v2-report-row__status {
+  color: var(--v2-danger);
+}
+.v2-report-row__chev {
+  display: flex;
+  flex-shrink: 0;
+  width: 14px;
+  color: var(--v2-text-3);
+  transition: transform 120ms var(--v2-ease);
+}
+[aria-expanded='true'] > .v2-report-row__chev {
+  transform: rotate(90deg);
+}
+.v2-report-notes {
+  margin: 0;
+  padding: 0 10px 10px 32px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--v2-text-3);
+}
+.v2-report-notes__error {
+  color: var(--v2-danger);
+}
+.v2-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--v2-panel-3);
+  overflow: hidden;
+}
+.v2-bar > div {
+  height: 100%;
+  background: var(--v2-ink);
+  transition: width 200ms var(--v2-ease);
+}
+.v2-btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--v2-line-strong);
+  background: transparent;
+  color: var(--v2-text);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 120ms var(--v2-ease), border-color 120ms var(--v2-ease),
+    opacity 120ms var(--v2-ease), transform 120ms var(--v2-ease);
+}
+.v2-btn:hover:not(:disabled) {
+  background: var(--v2-panel-3);
+}
+.v2-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.v2-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.v2-btn--ghost {
+  border-color: transparent;
+  color: var(--v2-text-2);
+}
+.v2-btn--ghost:hover:not(:disabled) {
+  color: var(--v2-text);
+}
+.v2-btn--primary {
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-btn--primary:hover:not(:disabled) {
+  background: var(--v2-ink-hover);
+  border-color: var(--v2-ink-hover);
+}
+
+/* Card menu: the shared context-menu primitive in v2 dress. It is portaled to <body>, out
+   of the home page, so it sets its own type. Doubled selectors outrank the primitive's
+   utility classes on the rows. */
+.v2-ctx.v2-ctx {
+  min-width: 176px;
+  max-width: 240px;
+  padding: 4px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  box-shadow: var(--v2-shadow);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  animation: v2-ctx-in 120ms var(--v2-ease);
+}
+.v2-ctx.v2-ctx [data-menu-focusable] {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--v2-text);
+  background-image: none;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-ctx.v2-ctx [data-menu-focusable]:hover,
+.v2-ctx.v2-ctx [data-menu-focusable]:focus-visible {
+  background-color: var(--v2-panel-3);
+  background-image: none;
+  box-shadow: none;
+  outline: none;
+}
+.v2-ctx.v2-ctx [data-menu-focusable]:active {
+  background-color: var(--v2-line);
+}
+.v2-ctx.v2-ctx .text-danger {
+  color: var(--v2-danger);
+}
+.v2-ctx.v2-ctx [role='separator'] {
+  margin: 4px 6px;
+  background: var(--v2-line);
+}
+@keyframes v2-ctx-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@media (max-width: 640px) {
+  .v2-home__inner {
+    padding: 40px 16px 64px;
+  }
+  .v2-section {
+    margin-top: 40px;
+  }
+  .v2-grid {
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-card,
+  .v2-card:hover,
+  .v2-card:active,
+  .v2-btn:active:not(:disabled),
+  .v2-icon-btn:active {
+    transform: none;
+  }
+  .v2-report-row__chev {
+    transition: none;
+  }
+  .v2-ctx.v2-ctx {
+    animation: none;
+  }
+}

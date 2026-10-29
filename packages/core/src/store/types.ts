@@ -2,8 +2,22 @@ export * from '../shared/types';
 export * from '../shared/prep';
 export * from '../shared/world';
 export * from '../shared/fogLook';
-import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
-import type { RoomNote, ScenePrep, TriggerDef } from '../shared/prep';
+import type {
+  AnyChild,
+  WallSegment,
+  WallEdits,
+  WallType,
+  WallDirection,
+  DoorStyle,
+  Level,
+  LightChild,
+  Room,
+  RoomArea,
+  RoomLook,
+  ThresholdSegment,
+} from '../shared/types';
+import type { RoomKey, RoomNote, ScenePrep, TriggerDef, Weather } from '../shared/prep';
+import type { LightPresetId } from './lightPresets';
 import type { MapEnvironment, NightSky } from '../shared/world';
 import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
@@ -33,7 +47,6 @@ export const TERRAIN_PANEL_ID = '__terrain__';
  */
 export interface MapSettings extends MapEnvironment {
   name: string;
-  gridType: 'square' | 'hex' | 'isometric';
   cellScale: { value: number; unit: string };
   /** The map's mood tint — the base of the grade, "this world in neutral daylight". */
   ambientLight: string;
@@ -44,12 +57,19 @@ export interface MapSettings extends MapEnvironment {
   /** Optional — absent on maps that never painted terrain (and on pre-terrain saves). */
   terrain?: TerrainData;
   /**
-   * A map frame the DM pinned instead of letting it grow with the drawing, in cells,
-   * anchored at the origin. null/absent — the normal state — measures the frame from
-   * content (`shared/mapBounds.computeMapFrame`). Nothing clamps to it: drawing past a
-   * fixed frame just puts that geometry outside the map.
+   * A minimum map frame the DM pinned, in cells, anchored at the origin. null/absent — the
+   * normal state — measures the frame from content alone (`shared/mapBounds.computeMapFrame`).
+   * Nothing clamps to it: drawing past a pinned edge grows the frame out on that side, so
+   * the frame always encloses everything drawn.
    */
   fixedSize?: { width: number; height: number } | null;
+  /**
+   * 2 once `store/roomMigration.ts` has turned the map's rooms into anchored places
+   * (and given it levels). Absent on every older file, which is what runs the migration.
+   */
+  roomsVersion?: 2;
+  /** The room the table starts in by default; the publish dialog preselects it. */
+  startingRoomId?: string;
 }
 
 // ─── Grid ─────────────────────────────────────────────────
@@ -71,7 +91,12 @@ interface BaseLayer {
   visible: boolean;
   locked: boolean;
   opacity: number;
-  mask?: MaskData;
+  /**
+   * The `Level` this layer belongs to. Every layer has one: a map opened without
+   * levels gets a single level holding them all (roomMigration), and a layer added
+   * with an id that names no level lands in the active one (`addLayer`).
+   */
+  levelId: string;
 }
 
 // WallSegment — re-exported from @/shared/types (wallType + direction replace blocksLight)
@@ -86,13 +111,13 @@ export interface DungeonStyle {
   floorColor: string;
   wallColor: string;
   wallWidth: number;
-  shadowEnabled: boolean;
-  shadowColor: string;
-  shadowOffset: { x: number; y: number };
-  shadowIntensity: number;
-  roughnessAmplitude: number;
   lineWidth: number;
   defaultTextureId?: string;
+  /**
+   * The tint new textured floors start with: the Floor colour last picked in the dock.
+   * Absent, a new floor takes the tint of the last textured floor drawn (else white).
+   */
+  defaultTextureTint?: string;
   edgeTransitionWidth: number;
   showEdgeTransitions: boolean;
   wallTextureSetId?: string;
@@ -135,10 +160,15 @@ export interface DungeonLayer extends BaseLayer {
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
   sublayerVisibility: SublayerVisibility;
-  /** Detected rooms — serialized into the map file. Absent = not yet detected. */
+  /**
+   * The layer's rooms: authored places (id, name, number, anchor, look). Their faces
+   * are derived from the geometry by `syncRooms` and stripped on save.
+   */
   rooms?: Room[];
-  /** User-assigned room names, keyed by stable room ID; survive re-detection. */
-  roomNameOverrides?: Record<string, string>;
+  /** Divider lines that cut room faces apart and block nothing. */
+  thresholds?: ThresholdSegment[];
+  /** Named groups of this layer's rooms; membership lives on `Room.areaId`. */
+  areas?: RoomArea[];
   /**
    * Hand adjustments to the stones of floor-derived walls, keyed by ring index
    * within `mergedFloor`.
@@ -170,11 +200,19 @@ export interface LightDefaults {
   featherRadius: number;
   intensity: number;
   falloff: 'linear' | 'quadratic';
+  /** The preset tile last picked in the Lights dock (store/lightPresets.ts). Absent = none. */
+  presetId?: LightPresetId;
+  // The optional light fields the next light is placed with (see LightChild).
+  cone?: LightChild['cone'];
+  animation?: LightChild['animation'];
+  throughWalls?: boolean;
+  nightOnly?: LightChild['nightOnly'];
+  darkness?: boolean;
+  darkvisionSees?: boolean;
 }
 
 export type ToolType =
   | 'select'
-  | 'object'
   | 'pan'
   | 'rectangle'
   | 'polygon'
@@ -184,13 +222,17 @@ export type ToolType =
   | 'door'
   | 'light'
   | 'ruler'
-  | 'assetPlacement'
   | 'scatterBrush'
   | 'terrain'
   | 'water'
   | 'text'
   | 'zone'
-  | 'room';
+  /** Draws a rectangle floor and the room on it in one gesture. */
+  | 'roomRect'
+  /** Draws a polygon floor and the room on it in one gesture. */
+  | 'roomPolygon'
+  /** Draws a threshold (or a wall) across a floor to split a room. */
+  | 'divide';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -214,21 +256,50 @@ export interface WaterToolSettings {
   width: number;
   textureId: string;
   bankTextureId: string;
-  flowSpeed: number;
 }
 
 export interface ZoneToolSettings {
   mode: 'point' | 'circle' | 'rect';
 }
 
+/** What the next label placed by the label tool looks like. */
+export interface LabelToolSettings {
+  /** World units (grid cells). */
+  fontSize: number;
+  /** Null takes the active layer's wall colour, so a label matches the ink it sits beside. */
+  color: string | null;
+}
+
+/** The Props tool: Stamp and Scatter share the library and these settings. */
 export interface ScatterBrushSettings {
+  /** Stamp: [the prop]. Scatter: the pool. */
   assetIds: string[];
-  brushRadius: number;
-  count: number;
-  minSpacing: number;
   stampMode: boolean;
+  /** Radians, [0, 2π). Wheel ±15°, right-click +90°, reset on a new pick. */
+  stampRotation: number;
+  /** 0.25..4. Alt+wheel ×/÷1.1; the dock Scale slider writes it. */
+  stampScale: number;
+  /** Mirror (F). */
+  stampFlipX: boolean;
+  /** Each stamp re-rolls the next ghost's variant within its family. */
+  stampVary: boolean;
+  /** 0.5..10. */
+  brushRadius: number;
+  /** Props per square cell inside the brush, 0.05..1.5. */
+  density: number;
+  minSpacing: number;
+  /** Radians. */
   rotationRange: [number, number];
   scaleRange: [number, number];
+  /** Up to 4; empty = untinted. */
+  tints: string[];
+  randomVariant: boolean;
+  avoidOverlap: boolean;
+  stayOnFloor: boolean;
+  /** Re-roll writes a new one; the same seed replays a stroke exactly. */
+  seed: number;
+  /** New props go under the layer's existing props. */
+  placeUnder: boolean;
 }
 
 export interface ToolSettings {
@@ -246,16 +317,15 @@ export interface ToolSettings {
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   zone: ZoneToolSettings;
+  label: LabelToolSettings;
 }
 
 export interface ToolsSlice {
   activeTool: ToolType;
   eraseMode: boolean;
-  roughMode: boolean;
   /** Wall/path chains commit as Catmull-Rom curves through the clicked anchors. */
   curveMode: boolean;
   settings: ToolSettings;
-  recentAssets: string[];
   /**
    * Wall whose composed sprite nodes are exposed for hand-editing (GitHub #19).
    * Null means nodes are hidden, which is the default — they are a finishing
@@ -305,35 +375,29 @@ export interface ChildClipboard {
   children: AnyChild[];
 }
 
-export interface RegionClipboard {
-  region: [number, number][][];
-  style: DungeonStyle;
-}
-
 export interface SelectionSlice {
   selectedIds: string[];
   hoveredId: string | null;
-  selectionTransform: {
-    translate: [number, number];
-    rotate: number;
-    scale: [number, number];
-  } | null;
   clipboard: ChildClipboard | null;
-  regionClipboard: RegionClipboard | null;
   selectedRegion: [number, number][][] | null;
 }
 
 // ─── UI ───────────────────────────────────────────────────
 
+/** Suggest's proposals for one layer. */
+export interface RoomSuggestions {
+  layerId: string;
+  rooms: Room[];
+}
+
 export interface ModalState {
-  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'newMap' | 'importMaps';
+  type: 'shortcutReference' | 'newMap' | 'importMaps';
   props: Record<string, unknown>;
 }
 
 export interface UISlice {
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
-  activePanel: 'tools' | 'assets' | 'export';
   activeLayerId: string;
   expandedLayerIds: string[];
   canUndo: boolean;
@@ -373,6 +437,8 @@ export interface UISlice {
    * the default full moon, same as an untouched campaign does at the Table.
    */
   previewSky: NightSky | null;
+  /** The Editor's preview of the table's weather — same tier as `previewSky`. Null = the map's default. */
+  previewWeather: Weather | null;
   /**
    * Whether the authored room/connector ink is drawn while neither authoring tool is
    * held (canvas/src/canvas/roomConnectorOverlay.ts). Same tier as `grid.visible`: a
@@ -384,16 +450,51 @@ export interface UISlice {
    * anyone asked for.
    */
   roomOverlayVisible: boolean;
+  /**
+   * The level the editor is showing. `activeLayerId` always belongs to it: switching
+   * level selects its first layer, selecting a layer switches to its level.
+   */
+  activeLevelId: string;
+  /** What the room overlay writes on each room. Persisted as a view preference. */
+  roomLabels: 'off' | 'numbers' | 'both';
+  /**
+   * Suggest's proposals, shown as ghosts until accepted or dismissed, with the layer
+   * they were made on: accepting adds them there, whatever layer is active by then.
+   * Never saved.
+   */
+  roomSuggestions: RoomSuggestions | null;
+  /** Whether the rooms list sheet is open. Persisted as a view preference. */
+  roomsSheetOpen: boolean;
+  /** The room whose key the sheet is showing; null shows the list. */
+  roomsSheetRoomId: string | null;
+  /** What the Divide tool writes: a threshold, or a real wall. Persisted as a view preference. */
+  dividerMode: 'threshold' | 'wall';
+  /** Whether a drawn room gets stones round its floor. Persisted as a view preference. */
+  roomWalls: 'with' | 'none';
+  /**
+   * A Divide stroke that cut one room's face in two, waiting for the split dialog to
+   * say which half keeps the id. Set by the Divide tool, cleared by the dialog
+   * (commit or cancel). View state: never saved, never undoable.
+   */
+  pendingSplit: PendingSplit | null;
+  /**
+   * Fade every overhead prop and let clicks reach what is under it. Persisted as a
+   * view preference; never saved with the map.
+   */
+  seeUnderOverhead: boolean;
+  /** The props browser is replacing these props; null when it is not. View state. */
+  propReplaceIds: string[] | null;
+}
+
+/** A Divide cut across one room's face: the threshold and the two faces it makes, larger first. */
+export interface PendingSplit {
+  layerId: string;
+  roomId: string;
+  threshold: ThresholdSegment;
+  halves: [[number, number][], [number, number][]];
 }
 
 // ─── Assets ───────────────────────────────────────────────
-export interface AssetRef {
-  id: string;
-  name: string;
-  thumbnailUrl: string;
-  addedAt: number;
-}
-
 export interface AssetEntry {
   id: string;
   name: string;
@@ -417,8 +518,8 @@ export interface AssetsSlice {
   manifest: AssetManifest | null;
   loadedCategories: string[];
   recentlyUsed: string[];
-  favorites: string[];
-  customUploads: AssetRef[];
+  /** Starred props, the DM's not the map's (persisted per browser like the recents). */
+  favourites: string[];
   customImages: Record<string, string>;
 }
 
@@ -473,7 +574,6 @@ export interface PacksSlice {
   installedPacks: PackSummary[];
   availableUpdates: PackUpdateInfo[];
   isChecking: boolean;
-  installProgress: { packId: string; percent: number } | null;
   activeUpdate: PackUpdateState | null;
 }
 
@@ -485,6 +585,8 @@ export interface MapMeta {
   updatedAt: number;
   gridSize: { width: number; height: number };
   layerCount: number;
+  /** A small JPEG of the map as of its last save, for its card. Absent until one is taken. */
+  thumbnail?: Blob;
 }
 
 export interface MapsSlice {
@@ -529,6 +631,11 @@ export interface SerializedMapData {
    */
   prep?: ScenePrep;
   /**
+   * The map's levels. Absent on files from before levels existed; the room migration
+   * gives those one level holding every layer.
+   */
+  levels?: Level[];
+  /**
    * The map's confining rectangle (shared/mapBounds.computeMapFrame), stamped on by the
    * session server when it redacts a document for a player: the fog has to cover the
    * *full* map's frame, and a player's layers no longer measure it. Absent on authored
@@ -558,6 +665,8 @@ export interface MapBuilderStore {
   mapSettings: MapSettings;
   grid: GridConfig;
   layers: Layer[];
+  /** Named groups of layers, each with its own look. Never empty. */
+  levels: Level[];
   tools: ToolsSlice;
   ui: UISlice;
   assets: AssetsSlice;
@@ -584,7 +693,7 @@ export interface MapBuilderStore {
   // mapSettings actions
   setMapName: (name: string) => void;
   setFixedSize: (size: MapSettings['fixedSize']) => void;
-  setGridType: (type: MapSettings['gridType']) => void;
+  setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
   setFogLook: (look: FogLook | undefined) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
@@ -603,31 +712,46 @@ export interface MapBuilderStore {
   updateLayer: (id: string, patch: Partial<Layer>) => void;
 
   // child CRUD actions
-  addChild: (layerId: string, child: AnyChild) => void;
+  /** Appends the child, or inserts it at `index` (placing under, an undone delete). */
+  addChild: (layerId: string, child: AnyChild, index?: number) => void;
   bumpFloorTextureEpoch: (layerId: string) => void;
   removeChild: (layerId: string, childId: string) => void;
   reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
+  /**
+   * Reorders `children` to `ids`: unknown ids are ignored, and a child missing from
+   * `ids` keeps its index. Z-order edits go through `ChildOrderCommand`.
+   */
+  setChildOrder: (layerId: string, ids: string[]) => void;
   updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
   recomputeMergedFloor: (layerId: string) => void;
 
   // wall actions (sublayer detail)
-  addWall: (layerId: string, wall: WallSegment) => void;
+  /** Appends the wall, or inserts it at `index` (an undone delete going back where it was). */
+  addWall: (layerId: string, wall: WallSegment, index?: number) => void;
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
   closeAllDoors: (layerId: string) => void;
 
-  // room actions
+  // room actions — raw writes; edits go through the room commands (store/commands.ts)
   setRooms: (layerId: string, rooms: Room[]) => void;
-  renameRoom: (layerId: string, roomId: string, name: string) => void;
+  /** Merges `patch` into one room; a key set to `undefined` is removed. */
+  updateRoom: (layerId: string, roomId: string, patch: Partial<Room>) => void;
+  setThresholds: (layerId: string, thresholds: ThresholdSegment[]) => void;
+  setAreas: (layerId: string, areas: RoomArea[]) => void;
+
+  // level actions — raw writes; edits go through the level commands
+  /** Appends the level, or inserts it at `index`. */
+  addLevel: (level: Level, index?: number) => void;
+  removeLevel: (levelId: string) => void;
+  updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook }) => void;
+  setLayerLevel: (layerId: string, levelId: string) => void;
 
   // tool actions
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
-  setRoughMode: (enabled: boolean) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
-  addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
@@ -641,7 +765,6 @@ export interface MapBuilderStore {
 
   // ui actions
   setActiveLayerId: (id: string) => void;
-  setActivePanel: (panel: UISlice['activePanel']) => void;
   togglePanel: (panel: 'left' | 'right') => void;
   toggleExpandedLayerId: (layerId: string) => void;
   showModal: (modal: ModalState | null) => void;
@@ -656,13 +779,24 @@ export interface MapBuilderStore {
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
   setPreviewSky: (sky: NightSky | null) => void;
+  setPreviewWeather: (weather: Weather | null) => void;
   setRoomOverlayVisible: (visible: boolean) => void;
+  /** Shows a level; selects its first layer when the active one is elsewhere. */
+  setActiveLevelId: (levelId: string) => void;
+  setRoomLabels: (labels: UISlice['roomLabels']) => void;
+  setRoomSuggestions: (suggestions: RoomSuggestions | null) => void;
+  setRoomsSheetOpen: (open: boolean) => void;
+  setRoomsSheetRoomId: (roomId: string | null) => void;
+  setDividerMode: (mode: UISlice['dividerMode']) => void;
+  setRoomWalls: (walls: UISlice['roomWalls']) => void;
+  setPendingSplit: (split: PendingSplit | null) => void;
+  setSeeUnderOverhead: (on: boolean) => void;
+  setPropReplaceIds: (ids: string[] | null) => void;
 
   // asset actions
-  toggleFavorite: (assetId: string) => void;
   trackRecentUse: (assetId: string) => void;
-  addCustomUpload: (ref: AssetRef) => void;
-  removeCustomUpload: (id: string) => void;
+  /** Stars a prop, or unstars it. */
+  toggleFavourite: (assetId: string) => void;
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
@@ -680,15 +814,11 @@ export interface MapBuilderStore {
   setHoveredId: (id: string | null) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: ChildClipboard | null) => void;
-  setRegionClipboard: (clipboard: RegionClipboard | null) => void;
-  setSelectionTransform: (transform: SelectionSlice['selectionTransform']) => void;
-  bakeSelectionTransform: () => void;
 
   // packs actions
   setInstalledPacks: (packs: PackSummary[]) => void;
   setAvailableUpdates: (updates: PackUpdateInfo[]) => void;
   setIsChecking: (checking: boolean) => void;
-  setInstallProgress: (progress: PacksSlice['installProgress']) => void;
   checkForPackUpdates: () => Promise<void>;
   installPack: (packId: string) => Promise<void>;
   updatePack: (packId: string) => Promise<void>;
@@ -709,6 +839,7 @@ export interface MapBuilderStore {
   removeTrigger: (triggerId: string) => void;
   upsertNote: (note: RoomNote) => void;
   removeNote: (noteId: string) => void;
+  setRoomKey: (roomId: string, key: RoomKey | null) => void;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;

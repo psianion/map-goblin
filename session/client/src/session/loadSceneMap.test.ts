@@ -86,7 +86,7 @@ describe('swapSceneMap', () => {
     await swapSceneMap('scene 1', 'm1', 'tok-abc');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${endpoints.httpBase}/api/maps/scene%201?images=external`,
+      `${endpoints.httpBase}/api/maps/scene%201?images=external&rooms=derived`,
       { headers: { Authorization: 'Bearer tok-abc' } },
     );
     expect(useSessionStore.getState().mapData).toEqual(doc);
@@ -205,60 +205,6 @@ describe('swapSceneMap', () => {
     await swapSceneMap('s1', 'm1', 'tok');
 
     expect(childIds()).toEqual(['d1', 'd2', 'o1']);
-  });
-
-  /**
-   * C3 — a player's connector arrives already redacted into a door child, so the table draws
-   * its mark and the panel lists it with no client rule at all. The DM's document is the map
-   * whole, blob and all, so the one seat that may open the joint would be the one seat unable
-   * to: the twin is appended here, beside the blob rather than instead of it.
-   */
-  it('gives the DM a door twin for every connector, keeping the blob', async () => {
-    stubFetch({
-      version: '3.0',
-      layers: [
-        {
-          id: 'l1',
-          type: 'dungeon',
-          children: [
-            { id: 'r1', childType: 'room', name: 'Hall', visible: true, contours: [[[0, 0]]] },
-            {
-              id: 'c1',
-              childType: 'connector',
-              name: 'the neck',
-              visible: true,
-              kind: 'door',
-              state: 'closed',
-              isSecret: false,
-              contours: [
-                [
-                  [9, 4],
-                  [13, 4],
-                  [13, 6],
-                  [9, 6],
-                ],
-              ],
-            },
-          ],
-        },
-      ],
-    });
-    useSessionStore.setState({
-      you: { identityId: 'dm1', name: 'Ann', role: 'dm', connected: true },
-    });
-
-    await swapSceneMap('s1', 'm1', 'tok');
-
-    expect(childIds()).toEqual(['r1', 'c1', 'c1']);
-    const data = useSessionStore.getState().mapData as {
-      layers: { children: { id: string; childType: string; width?: number }[] }[];
-    };
-    expect(data.layers[0].children[2]).toMatchObject({
-      id: 'c1',
-      childType: 'door',
-      width: 4,
-      state: 'closed',
-    });
   });
 
   /**
@@ -428,80 +374,6 @@ describe('mergeMapDelta', () => {
     useSessionStore.setState({ session: null });
   });
 
-  /**
-   * A joint and the door twin it plays as share the connector's own id on purpose (C1: the
-   * live door state is keyed by it), so a delta that carries a joint carries two children
-   * under one id. Keyed on the id alone the blob won both slots: the seat's twin was
-   * rewritten into a second blob, its glyph went, and its aperture froze at the `closed` the
-   * tool authors — the DM could open the door and the player would never see through it
-   * until a full refetch.
-   */
-  it('keeps a joint and its door twin apart though they share one id', () => {
-    const held = loaded();
-    (held.layers[0] as unknown as { children: unknown[] }).children.push(
-      { id: 'j1', childType: 'door', isSecret: false, state: 'closed', roomA: 'r-vestibule', roomB: null },
-      { id: 'j1', childType: 'connector', kind: 'door', state: 'closed', roomA: 'r-vestibule', roomB: null },
-    );
-    const patch = delta();
-    (patch.layers[0].children as unknown[]).push(
-      { id: 'j1', childType: 'door', isSecret: false, state: 'closed', roomA: 'r-vestibule', roomB: 'r-gallery' },
-      { id: 'j1', childType: 'connector', kind: 'door', state: 'open', roomA: 'r-vestibule', roomB: 'r-gallery' },
-    );
-
-    const kids = layerOf(mergeMapDelta(held, patch, 'player', 'scene-1')).children as unknown as {
-      id: string;
-      childType: string;
-      state: string;
-      roomB: string | null;
-    }[];
-    const joint = kids.filter((c) => c.id === 'j1');
-    expect(joint.map((c) => c.childType)).toEqual(['door', 'connector']);
-    // Each merged into its own slot: the twin took the delta's new binding without becoming
-    // a blob, and the blob took the delta's state without becoming a door.
-    expect(joint[0].roomB).toBe('r-gallery');
-    expect(joint[1].state).toBe('open');
-  });
-
-  /**
-   * `swapSceneMap` re-runs `forViewer` over the held document on every scene re-entry, and
-   * every delta runs it again, so `withConnectorDoors` appending unconditionally grew one
-   * duplicate twin per joint per round trip on the DM's copy — the glyph drawn twice and the
-   * aperture cut twice.
-   */
-  it('gives the DM one door twin per joint however often forViewer runs', () => {
-    const held = loaded();
-    (held.layers[0] as unknown as { children: unknown[] }).children.push({
-      id: 'j1',
-      childType: 'connector',
-      name: 'the neck',
-      visible: true,
-      kind: 'door',
-      state: 'closed',
-      isSecret: false,
-      contours: [[[0, 0], [2, 0], [2, 2], [0, 2]]],
-    });
-
-    const once = mergeMapDelta(held, delta(), 'dm', 'scene-1')!;
-    const twice = mergeMapDelta(once, delta(), 'dm', 'scene-1')!;
-    const twins = (children: { id: string; childType: string }[]) =>
-      children.filter((c) => c.id === 'j1' && c.childType === 'door');
-
-    expect(twins(layerOf(once).children as unknown as { id: string; childType: string }[])).toHaveLength(1);
-    expect(twins(layerOf(twice).children as unknown as { id: string; childType: string }[])).toHaveLength(1);
-  });
-
-  it('never lets a secret joint in either, blob and all', () => {
-    const sneaky = delta();
-    sneaky.layers[0].children.push({
-      id: 'j-secret',
-      childType: 'connector',
-      isSecret: true,
-    } as unknown as MapDelta['layers'][number]['children'][number]);
-
-    const asPlayer = mergeMapDelta(loaded(), sneaky, 'player', 'scene-1');
-    expect(layerOf(asPlayer).children.map((c) => c.id)).not.toContain('j-secret');
-  });
-
   it('drops a delta for a scene this client is no longer looking at', () => {
     const current = loaded();
     expect(mergeMapDelta(current, delta({ sceneId: 'scene-2' }), 'player', 'scene-1')).toBe(current);
@@ -646,7 +518,7 @@ describe('state-update flipping the fog mode', () => {
 
     expect(fetchMock.mock.calls.length).toBe(before + 1);
     expect(fetchMock).toHaveBeenLastCalledWith(
-      `${endpoints.httpBase}/api/maps/scene-1?images=external`,
+      `${endpoints.httpBase}/api/maps/scene-1?images=external&rooms=derived`,
       { headers: { Authorization: 'Bearer tok' } },
     );
     await vi.waitFor(() => expect(useSessionStore.getState().mapData).toEqual(recut));
@@ -697,5 +569,71 @@ describe('state-update flipping the fog mode', () => {
     update(fogState('vision'));
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// §10 seam: the table asks for `?rooms=derived`, and the server sends each room with its face
+// in `boundary` and no `face`, `doors` or `orphaned` (sceneMap.ts strips them). The document
+// lands in core through the same `loadFromFile` GameRenderer calls, and core's room sync is
+// what fills `face` back in — from `boundary`, without a floor union to cut.
+describe('a derived scene document in core', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ mapData: null, loadedScene: null, you: null, session: null });
+    invalidateSceneDocs('s-derived');
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('loads with no `face` on any room, and core’s sync fills it from the boundary', async () => {
+    const { useStore } = await import('@dnd/core/src/store/store');
+    const { refreshRooms } = await import('@dnd/core/src/store/roomRefresh');
+    const hall: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const vault: [number, number][] = [[10, 0], [20, 0], [20, 10], [10, 10]];
+    const doc = {
+      version: '3.0',
+      mapSettings: { name: 'Two Rooms', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000000', roomsVersion: 2 },
+      grid: { visible: true, snapDivision: 1, style: 'clean' },
+      customImages: {},
+      levels: [{ id: 'level-1', name: 'Two Rooms' }],
+      layers: [
+        {
+          id: 'layer-1',
+          name: 'Dungeon',
+          type: 'dungeon',
+          levelId: 'level-1',
+          visible: true,
+          locked: false,
+          opacity: 1,
+          children: [],
+          standaloneWalls: [],
+          mergedFloor: null,
+          style: { floorColor: '#888888', wallColor: '#000000', wallWidth: 0.5, lineWidth: 0.04, wallTextureTint: '#ffffff' },
+          sublayerVisibility: { floor: true, grid: true, walls: true },
+          rooms: [
+            { id: 'room-hall', name: 'Hall', number: 1, anchor: [5, 5], boundary: hall },
+            { id: 'room-vault', name: 'Vault', number: 2, anchor: [15, 5], boundary: vault },
+          ],
+        },
+      ],
+    };
+    stubFetch(doc);
+    await swapSceneMap('s-derived', 'm1', 'tok');
+
+    const held = useSessionStore.getState().mapData as SerializedMapData;
+    const wire = (held.layers[0] as unknown as { rooms: Record<string, unknown>[] }).rooms;
+    for (const room of wire) {
+      expect(room).not.toHaveProperty('face');
+      expect(room).not.toHaveProperty('doors');
+      expect(room).not.toHaveProperty('orphaned');
+    }
+
+    // GameRenderer's bridge, then the room refresh its store subscription schedules.
+    useStore.getState().loadFromFile(held);
+    refreshRooms();
+    const rooms = (useStore.getState().layers[0] as unknown as { rooms: { id: string; face?: unknown; orphaned?: boolean }[] }).rooms;
+    expect(rooms.map((r) => r.id)).toEqual(['room-hall', 'room-vault']);
+    expect(rooms[0]!.face).toEqual(hall);
+    expect(rooms[1]!.face).toEqual(vault);
+    expect(rooms.some((r) => r.orphaned)).toBe(false);
+    expect(useStore.getState().levels.map((l) => l.id)).toEqual(['level-1']);
   });
 });

@@ -9,7 +9,8 @@ const ROOMS: Room[] = [
   {
     id: 'r1',
     name: 'Cave Mouth',
-    boundary: [[0, 0], [10, 0], [10, 10], [0, 10]],
+    anchor: [5, 5],
+    face: [[0, 0], [10, 0], [10, 10], [0, 10]],
     centroid: [5, 5],
     area: 100,
     isPathway: false,
@@ -17,7 +18,8 @@ const ROOMS: Room[] = [
   {
     id: 'r2',
     name: 'Corridor 2',
-    boundary: [[0, 0], [10, 0], [10, 1], [0, 1]],
+    anchor: [5, 0.5],
+    face: [[0, 0], [10, 0], [10, 1], [0, 1]],
     centroid: [5, 0.5],
     area: 10,
     isPathway: true,
@@ -61,7 +63,7 @@ describe('RoomPanel', () => {
     expect(shown.getAttribute('aria-checked')).toBe('false')
   })
 
-  it('prompts to draw walls when nothing is detected', () => {
+  it('prompts to draw walls when there are no rooms', () => {
     useStore.getState().setRooms(dungeon().id, [])
     renderPanel()
     expect(screen.getByText(/draw walls/i)).toBeDefined()
@@ -83,7 +85,7 @@ describe('RoomPanel', () => {
     expect(useStore.getState().ui.highlightedRoomId).toBe('r1')
   })
 
-  it('renames inline, records the override, and undoes', () => {
+  it('renames inline on the room itself, and undoes', () => {
     renderPanel()
     fireEvent.doubleClick(screen.getByText('Cave Mouth'))
 
@@ -92,45 +94,8 @@ describe('RoomPanel', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(dungeon().rooms?.[0].name).toBe("Klarg's Cave")
-    expect(dungeon().roomNameOverrides?.r1).toBe("Klarg's Cave")
 
     act(() => undoManager.undo())
     expect(dungeon().rooms?.[0].name).toBe('Cave Mouth')
-  })
-
-  it('seeds one authored room per detected room, as one undo entry', () => {
-    renderPanel()
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /make rooms editable/i }))
-    })
-
-    const seeded = dungeon().children.filter((c) => c.childType === 'room')
-    expect(seeded).toHaveLength(2)
-    expect(seeded.map((c) => c.name)).toEqual(['Cave Mouth', 'Corridor 2'])
-    // Fresh uuids, deliberately not the detected position-hash ids.
-    expect(seeded.map((c) => c.id)).not.toContain('r1')
-
-    act(() => undoManager.undo())
-    expect(dungeon().children.filter((c) => c.childType === 'room')).toHaveLength(0)
-  })
-
-  it('hides the seed affordance once the layer owns its rooms', () => {
-    act(() => {
-      useStore.getState().addChild(dungeon().id, {
-        id: 'authored-1',
-        name: 'Drawn Room',
-        childType: 'room',
-        visible: true,
-        contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
-      })
-    })
-    renderPanel()
-    expect(screen.queryByRole('button', { name: /make rooms editable/i })).toBeNull()
-  })
-
-  it('offers nothing to seed when detection found nothing', () => {
-    useStore.getState().setRooms(dungeon().id, [])
-    renderPanel()
-    expect(screen.queryByRole('button', { name: /make rooms editable/i })).toBeNull()
   })
 })

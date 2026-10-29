@@ -18,11 +18,12 @@
 
 import { clockwiseSweep } from '@dnd/core/src/engine/lighting/ClockwiseSweep';
 import { SegmentQuadtree } from '@dnd/core/src/engine/lighting/SegmentQuadtree';
-import { extractWallSegments } from '@dnd/core/src/engine/lighting/raycaster';
+import { extractWallSegments, type Segment } from '@dnd/core/src/engine/lighting/raycaster';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
-import { SIGHT_REACH, eyeReach, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
+import { polygonEdges } from '@dnd/core/src/shared/visionGate';
+import { SIGHT_REACH, carriedCone, eyeReach, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
 import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
@@ -55,8 +56,18 @@ export const sighted = (tokens: readonly Token[], isSeed?: (token: Token) => boo
 const SWEEP_CAP = 256;
 
 interface Built {
+  /** What stops light — the lights' sweeps. */
   quadtree: SegmentQuadtree;
+  /** What stops sight — the eyes' sweeps (windows pass both; props block both). */
+  sightTree: SegmentQuadtree;
   polygons: Map<string, Polygon>;
+}
+
+/** A darkness source's swept area, and whether darkvision sees through its edge. */
+export interface DarkArea {
+  polygon: Polygon;
+  darkvisionSees: boolean;
+  key: string;
 }
 
 /**
@@ -88,6 +99,11 @@ export const placedLights = (layers: readonly Layer[]): PlacedLight[] =>
           y: light.position.y,
           radius: light.radius,
           visible: light.visible,
+          ...(light.cone ? { cone: light.cone } : {}),
+          ...(light.throughWalls ? { throughWalls: true } : {}),
+          ...(light.nightOnly ? { nightOnly: light.nightOnly } : {}),
+          ...(light.darkness ? { darkness: true } : {}),
+          ...(light.darkvisionSees ? { darkvisionSees: true } : {}),
         })),
     );
 
@@ -102,8 +118,16 @@ export interface SightCache {
     layers: readonly Layer[],
     tokens: readonly Token[],
     rangeLimited?: boolean,
+    /**
+     * Darkness sources on the level: their edges stop every eye but a darkvision one the
+     * source lets through — the referee's own rule (`sweep.ts`).
+     */
+    darkness?: readonly DarkArea[],
   ): Polygon[];
-  /** One polygon per light source given, in that order. Feed it `lightSources`. */
+  /**
+   * One polygon per light source given, in that order. Feed it `lightSources`. A source's cone
+   * and through-walls flag shape its sweep as they shape the referee's.
+   */
   litArea(layers: readonly Layer[], sources: readonly LightSource[]): Polygon[];
   /** How many sweeps have actually been taken — the memo's own instrument. */
   sweeps(): number;
@@ -126,6 +150,7 @@ export function createSightCache(): SightCache {
     const hit = cache.get(layers);
     if (hit) return hit;
     const quadtree = new SegmentQuadtree();
+    const sightTree = new SegmentQuadtree();
     // The occluders the party's own sweep is taken against — core's dungeon layers, as they
     // stand, `mergedFloor` included.
     //
@@ -147,8 +172,10 @@ export function createSightCache(): SightCache {
     // residual gaps err the identical direction, dark rather than a leak, so neither is worth
     // closing until a table actually measures one. The day it matters, the fix is the server
     // sending the mask, not more or fewer walls.
-    quadtree.build(extractWallSegments(layers.filter((l): l is DungeonLayer => l.type === 'dungeon')));
-    const next: Built = { quadtree, polygons: new Map() };
+    const dungeon = layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+    quadtree.build(extractWallSegments(dungeon, 'light'));
+    sightTree.build(extractWallSegments(dungeon, 'sight'));
+    const next: Built = { quadtree, sightTree, polygons: new Map() };
     cache.set(layers, next);
     return next;
   };
@@ -159,26 +186,33 @@ export function createSightCache(): SightCache {
    * answer. `visionMode: 'darkvision'` sweeps the same geometry as a normal eye (P3 changes
    * the light test, not the shadowcast) and `sight.angle` is ignored (a v1 non-goal).
    */
-  const sweepAt = (built: Built, x: number, y: number, radius: number): Polygon => {
-    const key = `${x},${y},${radius}`;
+  const sweepAt = (
+    built: Built,
+    kind: 'light' | 'sight',
+    o: LightSource,
+    extra: readonly Segment[] = [],
+    extraKey = '',
+  ): Polygon => {
+    const { x, y, radius } = o;
+    const cone = o.cone && o.cone.angle < 360 ? o.cone : undefined;
+    const key = `${kind}|${x},${y},${radius}|${cone ? `${cone.angle}/${cone.direction}` : ''}|${o.throughWalls ? 't' : ''}|${extraKey}`;
     let polygon = built.polygons.get(key);
     if (!polygon) {
       sweeps += 1;
-      polygon = clockwiseSweep(
-        [x, y],
-        radius,
-        built.quadtree.query(x - radius, y - radius, x + radius, y + radius),
-      ).map((v) => v.point);
+      const tree = kind === 'light' ? built.quadtree : built.sightTree;
+      const near = o.throughWalls ? [] : tree.query(x - radius, y - radius, x + radius, y + radius);
+      polygon = clockwiseSweep([x, y], radius, extra.length > 0 ? [...near, ...extra] : near, cone).map(
+        (v) => v.point,
+      );
       built.polygons.set(key, polygon);
     }
     return polygon;
   };
 
-  const sweepAll = (layers: readonly Layer[], origins: readonly LightSource[]): Polygon[] => {
-    if (origins.length === 0) return [];
+  const builtWithRoom = (layers: readonly Layer[]): Built => {
     const built = builtFor(layers);
     if (built.polygons.size > SWEEP_CAP) built.polygons.clear();
-    return origins.map((o) => sweepAt(built, o.x, o.y, o.radius));
+    return built;
   };
 
   return {
@@ -191,17 +225,33 @@ export function createSightCache(): SightCache {
     // …unless the DM has turned `sightRangeLimit` on, which is the switch for a map with no
     // walls to bound a sweep. Then the reach is the eye's own — its range or the torch it
     // carries, whichever goes further (`eyeReach`) — here exactly as on the referee.
-    partySight: (layers, tokens, rangeLimited) =>
-      sweepAll(
-        layers,
-        tokens.map((token) => ({
-          x: token.x,
-          y: token.y,
-          radius: rangeLimited ? eyeReach(token) : SIGHT_REACH,
-        })),
-      ),
+    partySight: (layers, tokens, rangeLimited, darkness = []) => {
+      if (tokens.length === 0) return [];
+      const built = builtWithRoom(layers);
+      return tokens.map((token) => {
+        const darkvision = token.sight?.visionMode === 'darkvision';
+        const blocking = darkness.filter((d) => !(darkvision && d.darkvisionSees));
+        const cone = carriedCone(token.sight?.angle);
+        return sweepAt(
+          built,
+          'sight',
+          {
+            x: token.x,
+            y: token.y,
+            radius: rangeLimited ? eyeReach(token) : SIGHT_REACH,
+            ...(cone ? { cone } : {}),
+          },
+          blocking.flatMap((d) => polygonEdges(d.polygon)),
+          blocking.map((d) => d.key).join(';'),
+        );
+      });
+    },
 
-    litArea: (layers, sources) => sweepAll(layers, sources),
+    litArea: (layers, sources) => {
+      if (sources.length === 0) return [];
+      const built = builtWithRoom(layers);
+      return sources.map((o) => sweepAt(built, 'light', o));
+    },
   };
 }
 

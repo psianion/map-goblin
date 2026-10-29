@@ -1,32 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { useStore } from '@/store/store';
 import { bandRunIndex } from '@/engine/wallNodeOverlay';
-import type { BandDragStatus } from '@/store/types';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
+import { editHint } from './statusHints';
 
 interface StatusBarProps {
   leftPanelOpen?: boolean;
   rightPanelOpen: boolean;
   faded: boolean;
-}
-
-/**
- * What the cave-band solver just answered, in one line.
- *
- * The pieces are named because the kit is the whole vocabulary — a DM who can
- * see which stones the wall is being built from can tell a good fit from a
- * lucky one. `kitPull` is how far the kit dragged the handle off the cursor,
- * which is the number that says whether the constraint is helping or fighting.
- */
-function bandStatusText(status: BandDragStatus | null): string {
-  if (!status) return '';
-  if ('refusal' in status) return status.refusal;
-  const names = [...new Set(status.pieces)].join(', ').replace(/_/g, ' ');
-  return `${names} · kit pull ${status.kitPull.toFixed(2)} cells`;
 }
 
 /** Color class for FPS value based on threshold (achromatic brightness). */
@@ -44,13 +30,19 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [fpsColor, setFpsColor] = useState<string>('text-text-muted');
   const [rulerStr, setRulerStr] = useState<string>('');
   const cellScale = useStore((s) => s.mapSettings.cellScale);
-  const nodeEditWallId = useStore((s) => s.tools.nodeEditWallId);
-  const shapeNodeEditId = useStore((s) => s.tools.shapeNodeEditId);
-  const wallNodeSelected = useStore((s) => s.tools.selectedNodeT !== null || s.tools.selectedNodeTs.length > 0);
-  // A cave band is a run of placed rock, not composed stones, so its mode has a
-  // different key map and a live read-out of what the kit just decided.
-  const bandEdit = useStore((s) => bandRunIndex(s.tools.nodeEditWallId ?? '') !== null);
-  const bandStatus = useStore((s) => bandStatusText(s.tools.bandDragStatus));
+  // Node-edit mode and its key map. A cave band is a run of placed rock, not
+  // composed stones, so its mode has a different key map and a live read-out of
+  // what the kit just decided. The words live in statusHints, shared with v2.
+  const hintTools = useStore(
+    useShallow((s) => ({
+      nodeEditWallId: s.tools.nodeEditWallId,
+      shapeNodeEditId: s.tools.shapeNodeEditId,
+      selectedNodeT: s.tools.selectedNodeT,
+      selectedNodeTs: s.tools.selectedNodeTs,
+      bandDragStatus: s.tools.bandDragStatus,
+    })),
+  );
+  const hint = useMemo(() => editHint(hintTools, bandRunIndex), [hintTools]);
   const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
   // Falls back to a placeholder rather than the raw (possibly empty) name:
   // an empty-named soloed layer must still render the chip, or solo has no
@@ -146,32 +138,10 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
       <div className="flex-1 flex justify-center">
         {rulerStr ? (
           <span className="text-text-primary tabular-nums">{rulerStr}</span>
-        ) : bandEdit ? (
+        ) : hint ? (
           <span className="truncate">
-            <span className="text-text-primary">Editing cave wall</span>
-            <span className="text-text-muted">
-              {bandStatus
-                ? ` · ${bandStatus}`
-                : wallNodeSelected
-                  ? ' · drag to move · { } insert · Del straighten · Tab re-lay wall · Esc done'
-                  : ' · click a joint · Shift+click groups · double-click elsewhere exits'}
-            </span>
-          </span>
-        ) : nodeEditWallId ? (
-          <span className="truncate">
-            <span className="text-text-primary">Editing wall</span>
-            <span className="text-text-muted">
-              {wallNodeSelected
-                ? ' · [ ] rotate · - + size · , . gap · Tab piece · { } insert · Del remove · Esc done'
-                : ' · click a stone · Shift+click groups · double-click elsewhere exits'}
-            </span>
-          </span>
-        ) : shapeNodeEditId ? (
-          <span className="truncate">
-            <span className="text-text-primary">Editing outline</span>
-            <span className="text-text-muted">
-              {' · drag a corner to move it · click a midpoint to add one · Delete removes · Alt curves · Esc done'}
-            </span>
+            <span className="text-text-primary">{hint.label}</span>
+            <span className="text-text-muted">{` · ${hint.text}`}</span>
           </span>
         ) : soloLayerId && soloLayerName ? (
           <button

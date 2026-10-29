@@ -13,7 +13,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import { PROTOCOL_VERSION } from './config'
-import type { ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
+// The fixtures below are v2 prep rows, as a scene published before room keys stores them:
+// the server reads them through `normalizePrep`, so they stay v2 on purpose.
+import type { StoredScenePrep as ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
 import type { AnyChild, DungeonLayer, Room, SerializedMapData } from '@dnd/core/src/store/types'
 import type { TriggersState } from '@dnd/mechanics/triggers'
 import type { TokensState } from '@dnd/mechanics/tokens'
@@ -45,6 +47,7 @@ const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][
 const ROOM: Room = {
   id: 'room1',
   name: 'Room 1',
+  anchor: [10, 10],
   boundary: rect(0, 0, 20, 20),
   centroid: [10, 10],
   area: 400,
@@ -90,6 +93,7 @@ function mapFile(customImages: Record<string, string> = {}): SerializedMapData {
     id: 'layer-1',
     name: 'Dungeon',
     type: 'dungeon',
+    levelId: 'level-1',
     visible: true,
     locked: false,
     opacity: 1,
@@ -99,7 +103,6 @@ function mapFile(customImages: Record<string, string> = {}): SerializedMapData {
     style: {} as DungeonLayer['style'],
     sublayerVisibility: { floor: true, grid: true, walls: true },
     rooms: [ROOM],
-    roomNameOverrides: { room1: ROOM.name },
   }
   return {
     version: '3.0',

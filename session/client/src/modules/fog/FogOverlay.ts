@@ -15,7 +15,6 @@
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
-import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
@@ -56,6 +55,7 @@ import {
   roomFog,
   sceneFog,
   serverRooms,
+  type TableRoom,
 } from './fog';
 
 /** Near-black, matching the art guide's dungeon negative space rather than a grey wash. */
@@ -137,7 +137,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   cursor.eventMode = 'none';
   addScreenOverlay(sceneGraph, cursor, 'fogOverlay');
 
-  let rooms: Room[] = [];
+  let rooms: TableRoom[] = [];
   let hoverRoomId: string | null = null;
   /** The cell under the cursor while the brush is armed — the room hover's counterpart. */
   let hoverCell: Cell | null = null;
@@ -636,7 +636,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       (action === 'hide' && status !== 'revealed');
     if (!noop) send(action, { roomId: room.id });
     // Shift frames the room on the DM's own view — the Fog popover's hint promises it.
-    if (e.shiftKey) frameWorldPoint(room.centroid[0], room.centroid[1]);
+    if (e.shiftKey) frameWorldPoint(room.anchor[0], room.anchor[1]);
   };
 
   // Anywhere, not only on the canvas: a stroke that ends off-screen still has to land, or the

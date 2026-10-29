@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import type { TriggerLogEntry, TriggersState } from '@dnd/mechanics/triggers';
-import { pickToastable, useTriggerToasts } from './useTriggerToasts';
+import { ROOM_KEY_TOAST_MS, pickToastable, toastFor, useTriggerToasts } from './useTriggerToasts';
 import { useSessionStore } from './store';
 import { useToasts } from './toasts';
 
@@ -108,5 +108,59 @@ describe('useTriggerToasts (F2)', () => {
     });
 
     expect(useToasts.getState().toast?.message).toBe('Dusk settles\nRain begins to fall');
+  });
+});
+
+describe('room key reveal toast (prep v3)', () => {
+  const keyed = (over: Partial<TriggerLogEntry> = {}): TriggerLogEntry =>
+    entry({
+      id: 'k1',
+      kind: 'room-key',
+      text: '1 · Hall — Smoke hangs under a low ceiling.',
+      toPlayers: false,
+      detail: { roomId: 'room-hall' },
+      ...over,
+    });
+
+  beforeEach(() => {
+    useToasts.setState({ toast: null });
+    useSessionStore.setState({ session: session([]), you: dm });
+  });
+
+  it('surfaces a room key popping, though it is DM-only', () => {
+    const e = keyed();
+    expect(pickToastable([e], new Set(), 'dm1')).toEqual([e]);
+  });
+
+  it('offers Share, which sends the read-aloud for that room to the Journal', () => {
+    const sent: [string, unknown][] = [];
+    const spec = toastFor([keyed()], 'scene-1', (action, payload) => sent.push([action, payload]));
+    expect(spec.message).toBe('1 · Hall — Smoke hangs under a low ceiling.');
+    expect(spec.durationMs).toBe(ROOM_KEY_TOAST_MS);
+    expect(spec.action?.label).toBe('Share');
+    spec.action!.onAction();
+    expect(sent).toEqual([['share-card', { sceneId: 'scene-1', roomId: 'room-hall' }]]);
+  });
+
+  it('answers the last keyed room when one batch pops several, and plain lines carry no action', () => {
+    const sent: [string, unknown][] = [];
+    const spec = toastFor(
+      [keyed(), entry({ id: 'e9', text: 'Dusk settles' }), keyed({ id: 'k2', detail: { roomId: 'room-vault' } })],
+      'scene-1',
+      (action, payload) => sent.push([action, payload]),
+    );
+    spec.action!.onAction();
+    expect(sent).toEqual([['share-card', { sceneId: 'scene-1', roomId: 'room-vault' }]]);
+    expect(toastFor([entry()], 'scene-1', () => {}).action).toBeUndefined();
+  });
+
+  it('raises the toast with its Share when the reveal lands at the table', () => {
+    renderHook(() => useTriggerToasts());
+    act(() => {
+      useSessionStore.setState({ session: session([keyed()]) });
+    });
+    const toast = useToasts.getState().toast;
+    expect(toast?.message).toContain('Smoke hangs');
+    expect(toast?.action?.label).toBe('Share');
   });
 });

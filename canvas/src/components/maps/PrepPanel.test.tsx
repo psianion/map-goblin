@@ -55,7 +55,8 @@ describe('PrepPanel', () => {
     seedLayers()
     useStore.setState({
       prep: {
-        version: 2,
+        version: 3,
+        rooms: [],
         triggers: [
           trigger({
             id: 't-trap',
@@ -118,7 +119,8 @@ describe('PrepPanel', () => {
     seedLayers()
     useStore.setState({
       prep: {
-        version: 2,
+        version: 3,
+        rooms: [],
         triggers: [
           trigger({ id: 't1', name: 'Bear trap', when: { kind: 'enter-region', zoneId: 'z-guard' } }),
         ],

@@ -143,13 +143,23 @@ const FRAGMENT_SRC = `
  * What the meshes actually draw every frame: the baked cache, one sample per
  * pixel. Shared by the base/floor meshes (32 texel/cell bake) and the crisp
  * window mesh (viewport-density bake) — only which RT is bound differs.
+ *
+ * A custom mesh shader gets no automatic alpha. Pixi's mesh pipe fills
+ * `uColor` (the mesh's premultiplied tint and alpha within its render group)
+ * and the global `uWorldColorAlpha` (the render group's own) for every mesh,
+ * but only its built-in shader multiplies them in. Doing the same here is what
+ * lets the terrain opacity (container and floor-quad alpha) and a dungeon
+ * layer's opacity (the floor quads sit inside the layer container) reach the
+ * picture. Bake output is premultiplied, so the whole vec4 is scaled.
  */
-const DISPLAY_FRAGMENT_SRC = `
+export const DISPLAY_FRAGMENT_SRC = `
   in vec2 vUV;
   out vec4 finalColor;
   uniform sampler2D uBake;
+  uniform vec4 uColor;
+  uniform vec4 uWorldColorAlpha;
   void main() {
-    finalColor = texture(uBake, vUV);
+    finalColor = texture(uBake, vUV) * uColor * uWorldColorAlpha;
   }
 `;
 
@@ -255,6 +265,8 @@ export class TerrainRenderer {
   private failed = false;
   /** Current global terrain alpha — applied to floor-clipped quads too, see setAppearance. */
   private terrainOpacity = 1;
+  /** Bumped whenever the painted ground changes on screen; see `revision`. */
+  private drawRev = 0;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
@@ -415,7 +427,17 @@ export class TerrainRenderer {
    * texel rect. Brush stamps pass their own small rect, so a stroke costs
    * brush-area pixels — not the screen, not the extent.
    */
+  /**
+   * Changes whenever the painted ground changes on screen: a stamp, a restore, a decoded map
+   * load landing frames after the store change that asked for it. The lighting's content mask
+   * re-reads the scene on it (`LightingRenderer.setContent`).
+   */
+  revision(): number {
+    return this.drawRev;
+  }
+
   private bakeRegion(minX: number, minY: number, maxX: number, maxY: number): void {
+    this.drawRev++;
     const x = Math.max(0, Math.floor(minX));
     const y = Math.max(0, Math.floor(minY));
     const x2 = Math.min(SPLAT_SIZE, Math.ceil(maxX));
@@ -430,6 +452,7 @@ export class TerrainRenderer {
 
   /** Bake the painted bounds (world units) — or clear the cache when there are none. */
   private bakeBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number } | null): void {
+    this.drawRev++;
     if (!bounds) {
       if (!this.bakeRT) return;
       const empty = new Container();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import type { TriggersState } from '@dnd/mechanics/triggers';
-import { sceneTriggersOf, worldLightOf, worldOf } from '@dnd/mechanics/triggers';
+import { worldLightOf, worldOf } from '@dnd/mechanics/triggers';
 import { useStore } from '@dnd/core/src/store/store';
 import { vocabLabel } from '@dnd/core/src/shared/prep';
 import { worldBadge } from '../modules/world/world';
@@ -172,7 +172,8 @@ export function TableStatusBar() {
   const toolDetail = useActiveTool((s) => s.toolDetail);
   const triggersState = useModuleState<TriggersState>('triggers');
   const map = useStore((s) => s.mapSettings);
-  const env = sceneId && triggersState ? sceneTriggersOf(triggersState, sceneId).env : {};
+  // The live weather is the campaign's now (set from the World panel), beside the clock.
+  const weather = sceneId && triggersState ? worldOf(triggersState).weather : undefined;
   // P2 — the world half of the badge is the same resolver answer the referee gates sight with
   // and the World block shows in full (`worldBadge`), read down to one line. The hour is the
   // clock's now, not a second dial: `env.time` stopped being a source of truth for it.
@@ -185,7 +186,7 @@ export function TableStatusBar() {
       ? worldBadge(worldLightOf(map, triggersState, sceneId), map, worldOf(triggersState).nightSky)
           .mirror
       : null;
-  const envLabel = [mirror ?? undefined, env.weather !== undefined ? vocabLabel(env.weather) : undefined]
+  const envLabel = [mirror ?? undefined, weather !== undefined ? vocabLabel(weather) : undefined]
     .filter((v): v is string => v !== undefined)
     .join(' · ');
   const rafRef = useRef(0);

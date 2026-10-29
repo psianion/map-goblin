@@ -25,9 +25,11 @@
 // real reload landed" apart, and light ids are generated per-document, so a same-session id
 // collision is not a real-world case. Revisit with a real per-load generation id if that changes.
 
-import type { LightChild } from '@dnd/core/src/shared/types';
+import type { Level, LightChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
+import { levelIdOf } from '@dnd/core/src/shared/visionGate';
+import { carriedCone } from '@dnd/mechanics/fog';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { effectiveLight, sceneTriggersOf, type LightEdit, type TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
@@ -37,8 +39,24 @@ import { tokensOf } from '../tokens/TokenRenderer';
  *  authored snapshot is exactly this much of one. */
 export type EditableLight = Pick<
   LightChild,
-  'visible' | 'radius' | 'featherRadius' | 'intensity' | 'color' | 'falloff' | 'position'
+  | 'visible'
+  | 'radius'
+  | 'featherRadius'
+  | 'intensity'
+  | 'color'
+  | 'falloff'
+  | 'position'
+  | 'cone'
+  | 'animation'
+  | 'throughWalls'
+  | 'nightOnly'
+  | 'darkness'
+  | 'darkvisionSees'
+  | 'tableOn'
 >;
+
+/** The optional light fields a live edit can touch beyond the original seven. */
+const EXTRA_KEYS = ['cone', 'animation', 'throughWalls', 'nightOnly', 'darkness', 'darkvisionSees'] as const;
 
 const snapshotOf = (child: LightChild): EditableLight => ({
   visible: child.visible,
@@ -48,7 +66,18 @@ const snapshotOf = (child: LightChild): EditableLight => ({
   color: child.color,
   falloff: child.falloff,
   position: { ...child.position },
+  cone: child.cone ? { ...child.cone } : undefined,
+  animation: child.animation ? { ...child.animation } : undefined,
+  throughWalls: child.throughWalls,
+  nightOnly: child.nightOnly ? { ...child.nightOnly } : undefined,
+  darkness: child.darkness,
+  darkvisionSees: child.darkvisionSees,
+  tableOn: child.tableOn,
 });
+
+/** Deep enough for the small option objects (cone, animation, night window). */
+const sameValue = (a: unknown, b: unknown): boolean =>
+  a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
 
 /** Every light this seat has edited, as it looked *before* its first edit — the map's own
  *  authored values, which nothing else can recover once an edit has been written onto the
@@ -86,7 +115,8 @@ const sameFields = (child: LightChild, want: EditableLight): boolean =>
   child.color === want.color &&
   child.falloff === want.falloff &&
   child.position.x === want.position.x &&
-  child.position.y === want.position.y;
+  child.position.y === want.position.y &&
+  EXTRA_KEYS.every((k) => sameValue(child[k], want[k]));
 
 /** This scene's live light edits, or none while there is no scene/triggers state yet. Already
  *  folds a pre-M2 `lightOverrides` row (`sceneTriggersOf`), so a saved scene reads the same
@@ -123,7 +153,13 @@ export function lightingDrift(
       if (child.childType !== 'light') continue;
       const edit = edits[child.id];
       let base = authored.get(child.id);
-      if (!edit && !base) continue; // never edited — the map keeps its own values.
+      // Never edited — the map keeps its own values. Unless the map says it starts off at the
+      // table (`tableOn: false`): that light is played as off until someone turns it on.
+      if (!edit && !base && child.tableOn !== false) continue;
+      if (!edit && !base) {
+        base = snapshotOf(child);
+        authored.set(child.id, base);
+      }
       if (edit && !base) {
         // First time this light is touched: the child is still holding authored values.
         base = snapshotOf(child);
@@ -169,26 +205,29 @@ export const isTokenLight = (id: string): boolean => id.startsWith('token-light:
  * Hidden tokens light nothing — same redaction rule the referee's own light list runs
  * (`lightSources`), because a pool of light around a token nobody may see is a position leak.
  *
- * ponytail: every torch here is one more light against `MAX_RENDERED_LIGHTS` (24, nearest the
- * camera), and the mask sweeps them all — so a big party on a lamp-lit map can push an authored
- * lamp out of the *render* while the fog still clears its pool. Errs open, and the eviction
- * follows the camera. Revisit if the P6 gate map plus a full party crosses 24 (D3).
+ * The light's `angle` is its cone (facing east: tokens carry no facing yet), the same reading
+ * the referee's light list takes (`carriedCone`). No cap: the renderer and the mask draw the
+ * same light set.
  */
 export function tokenLights(tokens: readonly Token[]): LightChild[] {
   return tokens
     .filter((token) => token.light !== null && !token.hidden)
-    .map((token) => ({
-      id: tokenLightId(token.id),
-      name: token.name,
-      childType: 'light',
-      visible: true,
-      color: token.light!.color,
-      radius: Math.max(token.light!.dim, token.light!.bright),
-      featherRadius: Math.min(token.light!.dim, token.light!.bright),
-      intensity: 1,
-      falloff: 'quadratic',
-      position: { x: token.x, y: token.y },
-    }));
+    .map((token) => {
+      const cone = carriedCone(token.light!.angle);
+      return {
+        id: tokenLightId(token.id),
+        name: token.name,
+        childType: 'light',
+        visible: true,
+        color: token.light!.color,
+        radius: Math.max(token.light!.dim, token.light!.bright),
+        featherRadius: Math.min(token.light!.dim, token.light!.bright),
+        intensity: 1,
+        falloff: 'quadratic',
+        position: { x: token.x, y: token.y },
+        ...(cone ? { cone } : {}),
+      };
+    });
 }
 
 /** Where a pseudo-light disagrees with the token carrying it — every field the renderer reads. */
@@ -198,26 +237,35 @@ const sameLight = (a: LightChild, b: LightChild): boolean =>
   a.radius === b.radius &&
   a.featherRadius === b.featherRadius &&
   a.color === b.color &&
-  a.visible === b.visible;
+  a.visible === b.visible &&
+  sameValue(a.cone, b.cone);
 
 /** The pseudo-lights to write, and the ones to take off the map — a token put away, hidden,
  *  or handed its torch back is a light that has to stop existing, not one left burning. */
 export function tokenLightDrift(
   tokens: readonly Token[],
   layers: readonly Layer[],
+  levels: readonly Level[] = [],
 ): { write: LightChild[]; remove: string[] } {
   const want = new Map(tokenLights(tokens).map((light) => [light.id, light]));
+  const levelOfToken = new Map(tokens.map((t) => [tokenLightId(t.id), t.levelId]));
   const have = new Map<string, LightChild>();
+  const haveLevel = new Map<string, string>();
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     for (const child of layer.children) {
-      if (child.childType === 'light' && isTokenLight(child.id)) have.set(child.id, child);
+      if (child.childType === 'light' && isTokenLight(child.id)) {
+        have.set(child.id, child);
+        haveLevel.set(child.id, levelIdOf({ levels }, layer));
+      }
     }
   }
   return {
     write: [...want.values()].filter((light) => {
       const current = have.get(light.id);
-      return !current || !sameLight(current, light);
+      // A token moved to another level takes its torch with it: rewritten onto that level.
+      const level = levelIdOf({ levels }, { levelId: levelOfToken.get(light.id) ?? '' });
+      return !current || !sameLight(current, light) || (levels.length > 1 && haveLevel.get(light.id) !== level);
     }),
     remove: [...have.keys()].filter((id) => !want.has(id)),
   };
@@ -263,9 +311,15 @@ function subscribeLiveLights(onChange: () => void): () => void {
  */
 export function syncLightsToScene(): () => void {
   return subscribeLiveLights(() => {
-    const layers = useStore.getState().layers;
+    const { layers, levels } = useStore.getState();
+    const tokens = activeTokens();
     const drift = lightingDrift(activeLightEdits(), layers, authoredLights, previewedLights);
-    const carried = tokenLightDrift(activeTokens(), layers);
+    const carried = tokenLightDrift(tokens, layers, levels ?? []);
+    // Each carried light goes onto a layer of its token's level (levels: a torch lights only
+    // the floor it is carried on). A one-level map puts them all on its first dungeon layer.
+    const tokenLevel = new Map(tokens.map((t) => [tokenLightId(t.id), t.levelId]));
+    const levelOfLight = (id: string): string =>
+      levelIdOf({ levels: levels ?? [] }, { levelId: tokenLevel.get(id) ?? '' });
     // The recursion guard, and the reason both drifts are answered in one write: this callback
     // re-enters on the store write it makes, and the second pass has to find nothing left.
     if (drift.size === 0 && carried.write.length === 0 && carried.remove.length === 0) return;
@@ -273,7 +327,7 @@ export function syncLightsToScene(): () => void {
     // on one, so an update can never leave a second copy of a torch behind on the layer it
     // happened to be written to last.
     const rewriting = new Set([...carried.remove, ...carried.write.map((light) => light.id)]);
-    let placed = carried.write.length === 0;
+    const unplaced = new Set(carried.write.map((light) => light.id));
     useStore.setState((state) => {
       for (const layer of state.layers) {
         if (layer.type !== 'dungeon') continue;
@@ -292,16 +346,24 @@ export function syncLightsToScene(): () => void {
           c.color = next.color;
           c.falloff = next.falloff;
           c.position = { ...next.position };
+          for (const k of EXTRA_KEYS) {
+            const v = next[k];
+            if (v === undefined) delete (c as unknown as Record<string, unknown>)[k];
+            else (c as unknown as Record<string, unknown>)[k] = typeof v === 'object' ? { ...v } : v;
+          }
         }
         // A token that stopped carrying light, was hidden, or left the scene.
         if (rewriting.size > 0) {
           layer.children = layer.children.filter((child) => !rewriting.has(child.id));
         }
-        // Every carried light lives on one dungeon layer — which one is immaterial (the
-        // renderer flattens them all), and keeping them together is what makes them findable.
-        if (!placed) {
-          placed = true;
-          layer.children.push(...carried.write);
+        // Every carried light lives on the first dungeon layer of its token's level.
+        if (unplaced.size > 0) {
+          const here = levelIdOf({ levels: state.levels ?? [] }, layer);
+          const mine = carried.write.filter(
+            (light) => unplaced.has(light.id) && ((state.levels?.length ?? 0) <= 1 || levelOfLight(light.id) === here),
+          );
+          for (const light of mine) unplaced.delete(light.id);
+          layer.children.push(...mine);
         }
       }
     });

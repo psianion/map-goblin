@@ -106,7 +106,8 @@ const ZONE_ID = 'zone-trigger-1'
 /** A `room-revealed` trigger on {@link ZONE_ID} — the shape M3's prep endpoints store. */
 export function triggerPrep(text: string): ScenePrep {
   return {
-    version: 2,
+    version: 3,
+    rooms: [],
     notes: [],
     triggers: [
       {
@@ -137,7 +138,7 @@ export function mapDoc(name: string, opts: { prep?: ScenePrep } = {}): Record<st
   }
   const doc: Record<string, unknown> = {
     version: '3.1',
-    mapSettings: { name, gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
+    mapSettings: { name, cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
     grid: { visible: true, snapDivision: 1, style: 'clean' },
     layers: [
       { id: 'layer-1', name: 'Dungeon', type: 'dungeon', visible: true, locked: false, opacity: 1, children: [zone] },
@@ -240,7 +241,7 @@ export function triggersFlagshipPrep(): ScenePrep {
       enabled: false,
     },
   ]
-  return { version: 2, triggers, notes: [] }
+  return { version: 3, triggers, notes: [], rooms: [] }
 }
 
 /**
@@ -280,7 +281,7 @@ export function triggersFlagshipDoc(name: string): Record<string, unknown> {
   }
   return {
     version: '3.1',
-    mapSettings: { name, gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
+    mapSettings: { name, cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
     grid: { visible: true, snapDivision: 1, style: 'clean' },
     layers: [
       {
@@ -333,7 +334,7 @@ export function timeWeatherPrep(): ScenePrep {
       enabled: true,
     },
   ]
-  return { version: 2, triggers, notes: [] }
+  return { version: 3, triggers, notes: [], rooms: [] }
 }
 
 /**
@@ -364,7 +365,7 @@ export function timeWeatherDoc(name: string): Record<string, unknown> {
   }
   return {
     version: '3.1',
-    mapSettings: { name, gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
+    mapSettings: { name, cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
     grid: { visible: true, snapDivision: 1, style: 'clean' },
     layers: [
       {

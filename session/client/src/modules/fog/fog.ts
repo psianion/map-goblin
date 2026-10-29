@@ -2,10 +2,11 @@
 // checked without a GPU or a DOM. Rooms come off the loaded map (they are authored data,
 // D1); their fog status comes off the session's `fog` module slice.
 
-import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
+import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
+import { buildRoomIndex, type RoomIndex } from '@dnd/core/src/shared/roomIndex';
 import type { Room, ZoneChild } from '@dnd/core/src/shared/types';
 import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -73,30 +74,40 @@ export const DM_FOG_LOOK: Record<RoomFogStatus, FogLook> = {
   re_hidden: { tintAlpha: 0.32, hoverColor: 0xd8cfc0, hoverAlpha: 0.14 },
 };
 
+/**
+ * A room as the table holds it: `boundary` is the room's face. Both seats' documents come from
+ * the server with every face already derived by core's `syncRooms` (the player's copy always;
+ * the DM's through `?rooms=derived`), so the ring here is the one the referee fogs by.
+ */
+export type TableRoom = Room & { boundary: [number, number][] };
+
+/** A room's face, whichever field holds it: the document's `boundary`, else a synced `face`. */
+export const roomRing = (room: Room): [number, number][] => room.boundary ?? room.face ?? [];
+
 /** Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. */
-export function roomsOfLayers(layers: readonly Layer[]): Room[] {
-  return layers.flatMap((layer) => (layer.type === 'dungeon' ? (layer.rooms ?? []) : []));
+export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
+  return layers.flatMap((layer) =>
+    layer.type === 'dungeon'
+      ? (layer.rooms ?? []).map((room): TableRoom =>
+          room.boundary ? (room as TableRoom) : { ...room, boundary: roomRing(room) },
+        )
+      : [],
+  );
 }
 
 /**
- * The rooms the *server* is fogging by — off the document it sent, not off core's store.
+ * The rooms the table fogs by, off the document the server sent rather than core's store.
  *
- * Core re-detects rooms from wall and floor geometry after any load (`roomSync`, the
- * backfill for files saved before rooms existed) and overwrites `layer.rooms` with the
- * result. On a map nobody zoned that invents rooms the referee does not have: the server
- * reads `layer.rooms` off the file, finds none and fogs nothing, while anything built on
- * core's store tints or masks rooms no fog command can even name. Measured on
- * `demo-dungeon.mapbuilder`: 0 rooms on disk, 4 in the store.
- *
- * The redacted document is the honest source for both seats. A player's copy carries exactly
- * the rooms they are allowed to know about, which is the set their mask is a statement about;
- * the DM's is the file.
+ * Rooms are authored now — core's sync places them and never invents one — so the store and
+ * the document name the same rooms. The document stays the source because it is the one the
+ * fog lane is keyed on (every memo here keys on `mapData`), it is already redacted to exactly
+ * the rooms a player may know about, and its faces are the referee's own.
  */
 export function serverLayers(mapData: unknown): Layer[] {
   return (mapData as { layers?: Layer[] } | null)?.layers ?? [];
 }
 
-export function serverRooms(mapData: unknown): Room[] {
+export function serverRooms(mapData: unknown): TableRoom[] {
   return roomsOfLayers(serverLayers(mapData));
 }
 
@@ -105,12 +116,11 @@ export function serverRooms(mapData: unknown): Room[] {
  * graph half of the same rule as {@link serverRooms}.
  *
  * `roomA`/`roomB` are what the concealment BFS walks (D3), and they are exactly the field
- * core does not preserve: `roomSync` re-detects rooms after every load and rewrites both on
- * every door from whatever geometry *this tab* holds. A player's copy is a partial map with
- * no merged floor at all (the server ships `mergedFloor: null`, `redactMapForViewer`), so the
- * ids it derives are its own — and a BFS run over them can reach a room the referee sealed,
- * or seal one the referee opened. Room ids only happen to line up when the whole map is
- * present, which is the DM's case and no player's.
+ * core does not preserve: `roomSync` rebinds both on every door from whatever geometry *this
+ * tab* holds after every load. A player's copy is a partial map with no merged floor at all
+ * (the server ships `mergedFloor: null`, `redactMapForViewer`), so the bindings it derives are
+ * its own — and a BFS run over them can reach a room the referee sealed, or seal one the
+ * referee opened.
  *
  * The document's own door records carry the ids the server redacted and reachability-tested
  * with, so both seats answer "what does this door join" the same way. Live state still comes
@@ -335,11 +345,21 @@ export function regionCells(region: RegionMask | undefined): number {
 }
 
 /**
- * S3 P3 §3 — the light half of the clear tier, present only when the scene's ambient is
- * `darkness`. Absent is the daylight/dusk answer: the whole sweep counts as lit, which is
- * exactly the P2 mask.
+ * S3 P3 §3 — the light half of the clear tier, present only when something on the shown
+ * level is dark (a dark region, by mood and sky, or a darkness source). Absent is the daylight
+ * answer: the whole sweep counts as lit, which is exactly the P2 mask.
  */
 export interface NightSight {
+  /**
+   * The Lighting pass's per-region gate: when the level's own ground is lit, only these room
+   * faces are dark and everything else counts as lit. Absent: the whole level is dark.
+   */
+  dark?: readonly Polygon[];
+  /**
+   * Darkness sources: hidden whatever lights them (darkness beats light). A source that lets
+   * darkvision through is left out when the party has a darkvision eye.
+   */
+  blind?: readonly Polygon[];
   /** Every light source's own sweep — what a normal eye can see by in the dark. */
   lit: readonly Polygon[];
   /** The sweeps of the party's darkvision eyes — unlit ground they alone reach. */
@@ -355,9 +375,19 @@ export interface NightSight {
   pools: readonly FogPool[];
 }
 
-/** The room polygon under a world point, or undefined for unzoned map (D6). */
-export function roomAt(rooms: readonly Room[], x: number, y: number): Room | undefined {
-  return rooms.find((room) => room.boundary.length >= 3 && pointInPolygon([x, y], room.boundary));
+/** One cell index per room list — the table asks `roomAt` per pointer move. */
+const roomIndexes = new WeakMap<readonly Room[], RoomIndex>();
+
+/** The room polygon under a world point, or undefined for unzoned map (D6). Answered off core's
+ *  cell-bucketed room index, the same lookup the server's `roomAt` uses. */
+export function roomAt<R extends Room>(rooms: readonly R[], x: number, y: number): R | undefined {
+  let index = roomIndexes.get(rooms);
+  if (!index) {
+    index = buildRoomIndex(rooms.map((room) => (room.boundary || room.face ? room : { ...room, boundary: [] })));
+    roomIndexes.set(rooms, index);
+  }
+  const hit = index.roomAt(x, y);
+  return hit ? rooms.find((room) => room.id === hit.id) : undefined;
 }
 
 /** D9 Reveal All: every room in the scene, latch set. */
@@ -481,8 +511,9 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
     maxY: region.minY + region.rows,
   };
   for (const room of rooms) {
-    if (room.boundary.length < 3) continue;
-    for (const [col, row] of cellsCoveredByPolygon(room.boundary, frame)) {
+    const ring = roomRing(room);
+    if (ring.length < 3) continue;
+    for (const [col, row] of cellsCoveredByPolygon(ring, frame)) {
       const bit = row * region.cols + col;
       if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) {
         seen.add(room.id);
@@ -549,9 +580,10 @@ export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): S
   const locked = new Set<string>();
   if (locks.length === 0) return locked;
   for (const room of rooms) {
-    if (room.boundary.length < 3) continue;
-    const xs = room.boundary.map((p) => p[0]);
-    const ys = room.boundary.map((p) => p[1]);
+    const ring = roomRing(room);
+    if (ring.length < 3) continue;
+    const xs = ring.map((p) => p[0]);
+    const ys = ring.map((p) => p[1]);
     const [rx0, rx1, ry0, ry1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     if (locks.some(([x0, y0, x1, y1]) => x0 < rx1 && x1 > rx0 && y0 < ry1 && y1 > ry0)) {
       locked.add(room.id);

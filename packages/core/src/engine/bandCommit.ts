@@ -98,15 +98,20 @@ export function bandFloorRefusal(floor: BandFloor | null): string | null {
  * The pack entry a kit piece's art lives in.
  *
  * Joined through `material` + `gridSize`, never by parsing the id — that is how
- * the gg-demo squash bug happened. Sorted-first among the variants, which is the
- * same rule `pick` follows in scripts/gen-goblin-warren.mjs, so an edited stretch
- * carries the same art as the stretch the generator laid beside it.
+ * the gg-demo squash bug happened. A piece from an installed cave kit (tagged
+ * `cave`, the forge's rock) wins over gg-demo's structures of the same name,
+ * because the kit measurements in caveWallKit.json are the forge kit's: laying
+ * gg-demo's art on them would put every joint off. Among kit pieces the
+ * sorted-first id wins, the same rule `pick` follows in
+ * scripts/gen-goblin-warren.mjs, so an edited stretch carries the same art as
+ * the stretch the generator laid beside it.
  */
 export function bandPieceArt(key: string): CatalogEntry | undefined {
   let best: CatalogEntry | undefined;
+  const rank = (e: CatalogEntry): number => (e.tags.includes('cave') ? 0 : 1);
   for (const e of getEntriesByType('object')) {
     if (`${e.material}_${e.gridSize}` !== key) continue;
-    if (!best || e.id < best.id) best = e;
+    if (!best || rank(e) < rank(best) || (rank(e) === rank(best) && e.id < best.id)) best = e;
   }
   return best;
 }

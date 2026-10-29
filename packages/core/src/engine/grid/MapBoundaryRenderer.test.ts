@@ -8,10 +8,6 @@ import { useStore } from '../../store/store';
 
 // buildSceneGraph's heavier neighbours need a GPU/2d canvas; the scene-graph
 // wiring under test here is just which container the boundary hangs off.
-vi.mock('../water/waterAnimation', () => ({
-  initWaterAnimation: () => {},
-  getWaterFilter: () => null,
-}));
 vi.mock('../terrain/TerrainRenderer', () => ({
   TerrainRenderer: class {
     container = new Container();
@@ -37,6 +33,9 @@ function setFixedSize(fixedSize: { width: number; height: number } | null) {
   useStore.setState((s) => ({ mapSettings: { ...s.mapSettings, fixedSize } }));
 }
 
+/** The frame `computeMapFrame` gives a 30×20 pin with nothing drawn past it. */
+const PINNED = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
+
 function strokeSpy(renderer: MapBoundaryRenderer) {
   return (renderer as unknown as { graphics: { geometry?: unknown } }).graphics;
 }
@@ -47,7 +46,8 @@ describe('MapBoundaryRenderer', () => {
   it('draws nothing for an expanding map (fixedSize null)', () => {
     setFixedSize(null);
     const renderer = new MapBoundaryRenderer();
-    renderer.update(makeEngine());
+    // An expanding map still has a measured frame; the hairline is for pinned maps only.
+    renderer.update(makeEngine(), { minX: -1, minY: -1, maxX: 9, maxY: 7 });
 
     expect(renderer.container.visible).toBe(false);
     expect(strokeSpy(renderer)).toBeDefined();
@@ -58,7 +58,7 @@ describe('MapBoundaryRenderer', () => {
   it('draws the frame rectangle at the fixed size, in screen space', () => {
     setFixedSize({ width: 30, height: 20 });
     const renderer = new MapBoundaryRenderer();
-    renderer.update(makeEngine(20, 100, 50));
+    renderer.update(makeEngine(20, 100, 50), PINNED);
 
     expect(renderer.container.visible).toBe(true);
     const b = renderer.container.getLocalBounds();
@@ -70,13 +70,28 @@ describe('MapBoundaryRenderer', () => {
     expect(Math.round(b.height)).toBe(401);
   });
 
+  it('follows the frame out past the pin when the drawing runs over it', () => {
+    // A 30×20 pin with rooms built down to y=26: the frame grows at the bottom only.
+    setFixedSize({ width: 30, height: 20 });
+    const renderer = new MapBoundaryRenderer();
+    renderer.update(makeEngine(20, 100, 50), { minX: 0, minY: 0, maxX: 30, maxY: 28 });
+
+    expect(renderer.container.visible).toBe(true);
+    const b = renderer.container.getLocalBounds();
+    expect(Math.round(b.x)).toBe(100);
+    expect(Math.round(b.y)).toBe(50);
+    expect(Math.round(b.width)).toBe(601);
+    // 28 cells at zoom 20, not the pinned 20.
+    expect(Math.round(b.height)).toBe(561);
+  });
+
   it('stays a 1px hairline when zoomed in (stroke is screen-space)', () => {
     setFixedSize({ width: 30, height: 20 });
     const renderer = new MapBoundaryRenderer();
 
-    renderer.update(makeEngine(20));
+    renderer.update(makeEngine(20), PINNED);
     const thin = renderer.container.getLocalBounds().width;
-    renderer.update(makeEngine(200));
+    renderer.update(makeEngine(200), PINNED);
     const zoomed = renderer.container.getLocalBounds().width;
 
     // Bounds grow with zoom by the frame size only — the stroke's contribution
@@ -96,12 +111,14 @@ describe('MapBoundaryRenderer', () => {
       return realClear();
     };
 
-    renderer.update(makeEngine(20));
+    renderer.update(makeEngine(20), PINNED);
     expect(clears).toBe(1);
-    renderer.update(makeEngine(20));
+    renderer.update(makeEngine(20), PINNED);
     expect(clears).toBe(1);
-    renderer.update(makeEngine(20, 40)); // camera panned
+    renderer.update(makeEngine(20, 40), PINNED); // camera panned
     expect(clears).toBe(2);
+    renderer.update(makeEngine(20, 40), { ...PINNED, maxY: 24 }); // frame grew
+    expect(clears).toBe(3);
   });
 
   it('export renders the world container and nothing else', async () => {

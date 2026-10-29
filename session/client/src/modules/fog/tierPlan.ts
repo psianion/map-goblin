@@ -100,7 +100,9 @@ export type TierTarget =
   | 'inverseSeeable'
   | 'live'
   | 'mask'
-  | 'scrim';
+  | 'scrim'
+  | 'inverseLive'
+  | 'grey';
 
 export const TARGET_ORDER: readonly TierTarget[] = [
   'inverseHeld',
@@ -111,6 +113,8 @@ export const TARGET_ORDER: readonly TierTarget[] = [
   'live',
   'mask',
   'scrim',
+  'inverseLive',
+  'grey',
 ];
 
 /**
@@ -443,13 +447,22 @@ export function tierPlan(scene: TierScene): DrawPlan {
   // Present only when the scene handed one over: daylight and dusk count the whole sweep as
   // lit, which is the mask this had before the dial existed.
   if (night && sight.length > 0) {
-    ops.push({
-      kind: 'rect',
-      target: 'inverseSeeable',
-      rect: cover,
-      color: MASK_LIVE,
-      blend: 'normal',
-    });
+    // Dark ground: the whole cover, or — when the level's own ground is lit — only the dark
+    // rooms (the Lighting pass's per-region gate).
+    if (night.dark) {
+      const dark = usable(night.dark);
+      if (dark.length > 0) {
+        ops.push({ kind: 'polys', target: 'inverseSeeable', polys: dark, grow: 0, color: MASK_LIVE, blend: 'normal' });
+      }
+    } else {
+      ops.push({
+        kind: 'rect',
+        target: 'inverseSeeable',
+        rect: cover,
+        color: MASK_LIVE,
+        blend: 'normal',
+      });
+    }
     if (seeable.length > 0) {
       ops.push({
         kind: 'polys',
@@ -459,6 +472,11 @@ export function tierPlan(scene: TierScene): DrawPlan {
         color: MASK_LIVE,
         blend: 'erase',
       });
+    }
+    // Darkness sources last: darkness beats light where they overlap.
+    const blind = usable(night.blind ?? []);
+    if (blind.length > 0) {
+      ops.push({ kind: 'polys', target: 'inverseSeeable', polys: blind, grow: 0, color: MASK_LIVE, blend: 'normal' });
     }
   }
 
@@ -540,6 +558,25 @@ export function tierPlan(scene: TierScene): DrawPlan {
   // fail-dark argument, unchanged in shape: any pass that does not run leaves it opaque.
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
+
+  // ── The greyscale tier ────────────────────────────────────────────────────
+  // Ground seen by darkvision and nothing else (decision 7: a darkvision eye sees unlit ground
+  // in greyscale). Live sight is already inside `lit ∪ ¬dark ∪ darkvision`, so the dark ground
+  // minus everything lit, inside live sight, is exactly the darkvision-only ground. The
+  // renderer desaturates under it.
+  if (night && usable(night.darkvision).length > 0 && sight.length > 0) {
+    ops.push({ kind: 'rect', target: 'inverseLive', rect: cover, color: MASK_LIVE, blend: 'normal' });
+    ops.push({ kind: 'sprite', target: 'inverseLive', source: 'live', blend: 'erase' });
+    if (night.dark) {
+      const dark = usable(night.dark);
+      if (dark.length > 0) ops.push({ kind: 'polys', target: 'grey', polys: dark, grow: 0, color: MASK_LIVE, blend: 'normal' });
+    } else {
+      ops.push({ kind: 'rect', target: 'grey', rect: cover, color: MASK_LIVE, blend: 'normal' });
+    }
+    const lit = usable(night.lit);
+    if (lit.length > 0) ops.push({ kind: 'polys', target: 'grey', polys: lit, grow: 0, color: MASK_LIVE, blend: 'erase' });
+    ops.push({ kind: 'sprite', target: 'grey', source: 'inverseLive', blend: 'erase' });
+  }
 
   return { cover, ops, cells };
 }

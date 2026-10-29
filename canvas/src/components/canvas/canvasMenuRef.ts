@@ -10,6 +10,11 @@ export interface CanvasMenuPayload {
   world: { x: number; y: number }
   target:
     | { kind: 'child'; childId: string }
+    | { kind: 'wall'; wallId: string }
+    /** A room (canvas right-click); the menu acts on the room, or on two selected rooms. */
+    | { kind: 'room'; roomId: string; layerId: string }
+    /** An area (the rooms sheet's group header opens this one). */
+    | { kind: 'area'; areaId: string; layerId: string }
     | { kind: 'multi'; count: number }
     | { kind: 'canvas' }
 }

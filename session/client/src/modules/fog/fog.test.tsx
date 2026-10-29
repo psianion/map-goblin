@@ -1,9 +1,9 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
+import { refreshRooms } from '@dnd/core/src/store/roomRefresh';
 import { regionOf, setCells, type FogState, type RoomFog, type SceneFog } from '@dnd/mechanics/fog';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../../session/WebSocketClient';
@@ -25,10 +25,16 @@ import {
   roomAt,
   roomsOfLayers,
   sceneFog,
+  type TableRoom,
 } from './fog';
+
 import { useFogBrush } from './brush';
 import { FogFooter, FogHeaderActions, FogTool } from './FogTool';
 import { useHotkeys } from '../../shell/hotkeys';
+
+/** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
+ *  rows that aim at the middle of a room. */
+type Room = TableRoom & { centroid: [number, number] };
 
 // Escape-exits-the-tool lives in `shell/hotkeys.ts`'s single listener, not in `tools.ts`
 // itself (M1) — mount it alongside the panel wherever a test presses Escape or a fog hotkey.
@@ -46,6 +52,7 @@ const room = (id: string, x: number, name = id): Room => ({
     [x + 4, 4],
     [x, 4],
   ],
+  anchor: [x + 2, 2],
   centroid: [x + 2, 2],
   area: 16,
   isPathway: false,
@@ -833,5 +840,58 @@ describe('FogFooter', () => {
     render(<FogFooter />);
     expect((screen.getByTestId('fog-reveal-all') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('fog-hide-all') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+// ── rooms are authored: the document and the store name the same rooms ─────────
+// The table used to read rooms off the server's document *instead of* core's store because
+// core re-detected rooms from geometry on load and invented ones the referee did not have
+// (demo-dungeon: 0 rooms on disk, 4 in the store). Core's sync now only places the rooms a
+// map already has, so the two agree by construction; the document stays the fog lane's source
+// because its faces are the referee's own.
+
+describe('rooms on the table are the map’s own', () => {
+  it('lets core’s room sync add nothing to a map nobody zoned', () => {
+    const floor = {
+      id: 'floor-1',
+      name: 'Floor',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+      ],
+    };
+    useStore.setState({
+      layers: [{ id: 'l1', type: 'dungeon', children: [floor], standaloneWalls: [], rooms: [] } as unknown as Layer],
+    });
+    refreshRooms();
+    expect(roomsOfLayers(useStore.getState().layers)).toEqual([]);
+  });
+
+  it('reads a face from whichever field holds it, and finds the room under a point by its face', () => {
+    const synced = {
+      id: 'r-synced',
+      name: 'Synced',
+      anchor: [25, 2],
+      face: [
+        [23, 0],
+        [27, 0],
+        [27, 4],
+        [23, 4],
+      ],
+    };
+    const layers = [dungeonLayer([CRYPT]), { ...dungeonLayer([]), rooms: [synced] } as unknown as Layer];
+    const rooms = roomsOfLayers(layers);
+    expect(rooms.map((r) => r.id)).toEqual(['r-crypt', 'r-synced']);
+    expect(rooms[1]!.boundary).toEqual(synced.face);
+    expect(roomAt(rooms, 25, 2)?.id).toBe('r-synced');
+    expect(roomAt(rooms, 2, 2)?.id).toBe('r-crypt');
+    expect(roomAt(rooms, 50, 50)).toBeUndefined();
   });
 });

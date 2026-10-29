@@ -26,7 +26,6 @@ const MAP = {
   version: '3.0',
   mapSettings: {
     name: 'Cragmaw Hideout',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#101018',
   },
@@ -274,7 +273,15 @@ describe('the full join flow', () => {
       // The snapshot only names the scene; the payload comes back over HTTP (D7).
       const fetched = await api(base, 'GET', `/api/maps/${mapId}`, { token: playerToken })
       expect(fetched.status).toBe(200)
-      expect(JSON.parse(fetched.text)).toEqual(MAP)
+      // The player's copy is the document as the editor opens it: rooms model stamped, one
+      // level holding every layer (the file predates both).
+      const got = JSON.parse(fetched.text) as { levels: { id: string; name: string }[] }
+      expect(got).toEqual({
+        ...MAP,
+        mapSettings: { ...MAP.mapSettings, roomsVersion: 2 },
+        levels: [{ id: expect.any(String), name: 'Cragmaw Hideout' }],
+        layers: MAP.layers.map((layer) => ({ ...layer, levelId: got.levels[0]!.id, children: [] })),
+      })
 
       const ended = nextMessage(socket, 'session-ended')
       const close = await api(base, 'POST', `/api/sessions/${started.body.sessionId as string}/end`, {
@@ -884,9 +891,9 @@ describe('scene prep (M3)', () => {
   }
   const EMPTY_PREP = { version: 1, triggers: [] }
   // Key order matters where a test compares the stored column byte-for-byte: putScenePrep
-  // writes {version, triggers, notes}.
-  const PREP_V2 = { version: 2, triggers: PREP.triggers, notes: [] }
-  const EMPTY_PREP_V2 = { version: 2, triggers: [], notes: [] }
+  // writes {version, triggers, notes, rooms}.
+  const PREP_V3 = { version: 3, triggers: PREP.triggers, notes: [], rooms: [] }
+  const EMPTY_PREP_V3 = { version: 3, triggers: [], notes: [], rooms: [] }
 
   it('extracts prep on upload, and leaves it null when the file carries none', async () => {
     await withServer(async ({ base, adminPass }) => {
@@ -903,8 +910,8 @@ describe('scene prep (M3)', () => {
         (await api(base, 'GET', `/api/scenes/${sceneWithPrep}/prep`, { token: dmToken })).body,
         // F3/M4 — the fixture MAP has no zones at all, so PREP's trigger (zoneId 'z1') is
         // exactly the inert case: a reference to a zone that was never (or no longer) there.
-        // Uploaded v1, read back v2 — GET normalizes stored blobs on the way out.
-      ).toEqual({ prep: PREP_V2, resolved: [{ id: 't1', inert: 'zone was deleted' }], resolvedNotes: [] })
+        // Uploaded v1, read back v3 — prep is normalised on the way in and on the way out.
+      ).toEqual({ prep: PREP_V3, resolved: [{ id: 't1', inert: 'zone was deleted' }], resolvedNotes: [], resolvedRooms: [] })
 
       const withoutPrep = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
         token: dmToken,
@@ -913,7 +920,7 @@ describe('scene prep (M3)', () => {
       const sceneWithoutPrep = withoutPrep.body.sceneId as string
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneWithoutPrep}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: null, resolved: [], resolvedNotes: [] })
+      ).toEqual({ prep: null, resolved: [], resolvedNotes: [], resolvedRooms: [] })
     })
   })
 
@@ -933,9 +940,10 @@ describe('scene prep (M3)', () => {
       // No `prep` key at all — the DM never opened prep in this save, so it survives.
       await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(MAP) })
       expect(await getPrep()).toEqual({
-        prep: PREP_V2,
+        prep: PREP_V3,
         resolved: [{ id: 't1', inert: 'zone was deleted' }],
         resolvedNotes: [],
+        resolvedRooms: [],
       })
 
       // An explicit prep overwrites whatever was there.
@@ -945,9 +953,10 @@ describe('scene prep (M3)', () => {
         raw: JSON.stringify({ ...MAP, prep: OTHER_PREP }),
       })
       expect(await getPrep()).toEqual({
-        prep: { version: 2, triggers: OTHER_PREP.triggers, notes: [] },
+        prep: { version: 3, triggers: OTHER_PREP.triggers, notes: [], rooms: [] },
         resolved: [{ id: 't2', inert: 'zone was deleted' }],
         resolvedNotes: [],
+        resolvedRooms: [],
       })
 
       // An explicit *empty* prep still overwrites — distinct from "never touched".
@@ -955,7 +964,7 @@ describe('scene prep (M3)', () => {
         token: dmToken,
         raw: JSON.stringify({ ...MAP, prep: EMPTY_PREP }),
       })
-      expect(await getPrep()).toEqual({ prep: EMPTY_PREP_V2, resolved: [], resolvedNotes: [] })
+      expect(await getPrep()).toEqual({ prep: EMPTY_PREP_V3, resolved: [], resolvedNotes: [], resolvedRooms: [] })
     })
   })
 
@@ -971,13 +980,13 @@ describe('scene prep (M3)', () => {
       const sceneId = uploaded.body.sceneId as string
       const originalMapId = uploaded.body.mapId as string
 
-      // A v1 body (older client) still lands — upgraded on write, answered as v2.
+      // A v1 body (older client) still lands — upgraded on write, answered as v3.
       const put = await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: PREP })
       expect(put.status).toBe(200)
-      expect(put.body).toEqual({ prep: PREP_V2 })
+      expect(put.body).toEqual({ prep: PREP_V3 })
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: PREP_V2, resolved: [{ id: 't1', inert: 'zone was deleted' }], resolvedNotes: [] })
+      ).toEqual({ prep: PREP_V3, resolved: [{ id: 't1', inert: 'zone was deleted' }], resolvedNotes: [], resolvedRooms: [] })
 
       // …and a native v2 body with a note round-trips, note and all.
       const NOTE = {
@@ -989,15 +998,38 @@ describe('scene prep (M3)', () => {
         showOnReveal: true,
       }
       const V2_WITH_NOTE = { version: 2, triggers: PREP.triggers, notes: [NOTE] }
+      const V3_WITH_NOTE = { ...V2_WITH_NOTE, version: 3, rooms: [] }
       const putV2 = await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: V2_WITH_NOTE })
       expect(putV2.status).toBe(200)
-      expect(putV2.body).toEqual({ prep: V2_WITH_NOTE })
+      expect(putV2.body).toEqual({ prep: V3_WITH_NOTE })
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
       ).toEqual({
-        prep: V2_WITH_NOTE,
+        prep: V3_WITH_NOTE,
         resolved: [{ id: 't1', inert: 'zone was deleted' }],
         resolvedNotes: [{ id: 'n1', inert: 'zone was deleted' }],
+        resolvedRooms: [],
+      })
+
+      // …and a native v3 body with a room key round-trips as written; a key naming a room
+      // the map does not have is inert, never dropped.
+      const KEY = {
+        roomId: 'room-gone',
+        readAloud: 'Dust.',
+        notes: '',
+        treasure: '',
+        traps: [],
+        checks: [],
+      }
+      const V3_WITH_KEY = { version: 3, triggers: [], notes: [], rooms: [KEY] }
+      const putV3 = await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: V3_WITH_KEY })
+      expect(putV3.status).toBe(200)
+      expect(putV3.body).toEqual({ prep: V3_WITH_KEY })
+      expect((await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body).toEqual({
+        prep: V3_WITH_KEY,
+        resolved: [],
+        resolvedNotes: [],
+        resolvedRooms: [{ roomId: 'room-gone', inert: 'room was deleted' }],
       })
 
       // A prep edit never touches the scene's map — it is not a republish in disguise.
@@ -1020,7 +1052,9 @@ describe('scene prep (M3)', () => {
       // Shapes the trigger runtime could not read are refused rather than stored.
       const putBody = (body: unknown) => api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body })
       expect((await putBody({ version: 2, triggers: [] })).status).toBe(400) // v2 without notes
-      expect((await putBody({ version: 3, triggers: [], notes: [] })).status).toBe(400)
+      expect((await putBody({ version: 3, triggers: [], notes: [] })).status).toBe(400) // v3 without rooms
+      expect((await putBody({ version: 3, triggers: [], notes: [], rooms: [{ roomId: 'r' }] })).status).toBe(400)
+      expect((await putBody({ version: 4, triggers: [], notes: [], rooms: [] })).status).toBe(400)
       expect((await putBody({ version: 1, triggers: 'nope' })).status).toBe(400)
       expect((await putBody('not an object')).status).toBe(400)
     })
@@ -1042,9 +1076,9 @@ describe('scene prep (M3)', () => {
         body: { ...EMPTY_PREP, evil: 'payload' },
       })
       expect(put.status).toBe(200)
-      expect(put.body).toEqual({ prep: EMPTY_PREP_V2 })
+      expect(put.body).toEqual({ prep: EMPTY_PREP_V3 })
       // Not just the response — the column itself carries only the declared shape.
-      expect(server.stores.scenes.get(sceneId)?.prep).toBe(JSON.stringify(EMPTY_PREP_V2))
+      expect(server.stores.scenes.get(sceneId)?.prep).toBe(JSON.stringify(EMPTY_PREP_V3))
     })
   })
 
@@ -1062,7 +1096,7 @@ describe('scene prep (M3)', () => {
       const sceneId = uploaded.body.sceneId as string
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: null, resolved: [], resolvedNotes: [] })
+      ).toEqual({ prep: null, resolved: [], resolvedNotes: [], resolvedRooms: [] })
       expect(server.stores.scenes.get(sceneId)?.prep).toBeNull()
 
       // publishScene's explicit-clear path: give it prep, then explicitly null it back out.

@@ -254,12 +254,37 @@ export interface WalkResult {
  * BAND_OUT)` — and the placements come back with BAND_OUT re-applied, so the
  * rock straddles the floor edge instead of sitting on it.
  */
+export interface WalkOptions {
+  /** Close the last piece onto the span's end (default). False leaves a free end. */
+  close?: boolean;
+  /** The span is a whole ring: the last piece meets the first. */
+  ring?: boolean;
+  /**
+   * Ring only: run the closing piece BAND_OVERLAP past the first piece's start,
+   * the overlap every other joint already has. Without it the closer butts the
+   * first piece end to end and a turn there opens a sliver of floor.
+   */
+  lap?: boolean;
+  /**
+   * Where a two-piece close may split the last stretch: at the midpoint only (1,
+   * the default) or at the best of this many evenly spaced points. A midpoint
+   * that lands on a corner leaves one half a bend laid across a straight.
+   */
+  splits?: number;
+  /**
+   * When neither half of a split close passes the shape gate, lay the closest
+   * fit anyway instead of leaving the stretch bare. A misfit stone reads as
+   * rough rock; a missing one shows floor straight through to the void.
+   */
+  fill?: boolean;
+}
+
 export function walkSpan(
   curve: Curve,
   set: CaveKitPiece[],
   i0: number,
   i1: number,
-  opts: { close?: boolean; ring?: boolean } = {},
+  opts: WalkOptions = {},
 ): WalkResult {
   const n = curve.length;
   // A free end has nothing to close onto (an open band's tip simply moves), so
@@ -269,7 +294,10 @@ export function walkSpan(
   const straights = set.filter((p) => p.turnDeg === 0);
   const spacing = dist(curve[0], curve[1]) || 0.1;
   const maxChord = Math.max(...set.map((p) => p.chordCells));
-  const home = curve[Math.round(i1) % n];
+  // A lapped ring closes onto a point a little way INTO its first piece.
+  const lapBy = opts.lap && opts.ring ? Math.max(1, Math.round(BAND_OVERLAP / spacing)) : 0;
+  const iHome = i1 + lapBy;
+  const home = curve[Math.round(iHome) % n];
   const laid: Omit<WalkPlacement, 'at'>[] = [];
   const used = new Map<string, number>();
   let lastId: string | null = null,
@@ -299,26 +327,67 @@ export function walkSpan(
         iA: number,
         B: Vec,
         iB: number,
+        loose = false,
       ): { piece: CaveKitPiece; sc: number; s: number; nudge: number } | null => {
         const d = dist(A, B);
+        // An open run filled live also holds its closer to the walk's family
+        // rule (a bend for a real corner, a straight for a run that barely
+        // turns), softly, as a cost: a short drawn run otherwise closed on two
+        // bends laid along a straight line. Not on a ring, where a cramped
+        // closer needs every piece it can get; not without fill, which is how
+        // the solver's fixture expects the shape gate alone to decide.
+        const family = !!opts.fill && !opts.ring;
+        const turn = family ? turnDeg(tangentAt(curve, iA), tangentAt(curve, iB)) : 0;
+        const wrongFamily = (p: CaveKitPiece): boolean =>
+          p.turnDeg === 0
+            ? Math.abs(turn) > 35
+            : Math.abs(turn) < 45 || Math.sign(turn) !== Math.sign(p.turnDeg);
         let bestC: { piece: CaveKitPiece; sc: number; s: number; nudge: number } | null = null;
         for (const piece of set) {
           const f = fitArc(curve, iA, iB, A, B, piece);
           // the closing piece answers to the same shape gate as every other one:
           // without it a 90° bend lands on a dead straight run and reads as a hinge
-          if (f.miss > BAND_FIT) continue;
-          const sc = Math.abs(Math.log(d / piece.chordCells)) * 9 + f.miss * 4;
+          if (f.miss > BAND_FIT && !loose) continue;
+          const sc =
+            Math.abs(Math.log(d / piece.chordCells)) * 9 +
+            f.miss * 4 +
+            (family && wrongFamily(piece) ? 6 : 0);
           if (!bestC || sc < bestC.sc)
             bestC = { piece, sc, s: d / piece.chordCells, nudge: f.nudge };
         }
         return bestC;
       };
-      const one = fit(P, i, home, i1);
+      const one = fit(P, i, home, iHome);
       if (!one || one.s > 1.12 || one.s < 0.88) {
-        const midI = (i + i1) / 2;
-        const M = curve[Math.round(midI) % n];
-        const a = fit(P, i, M, midI),
-          b = fit(M, midI, home, i1);
+        let midI = (i + iHome) / 2;
+        let M = curve[Math.round(midI) % n];
+        let a = fit(P, i, M, midI),
+          b = fit(M, midI, home, iHome);
+        const splits = opts.splits ?? 1;
+        if (splits > 1) {
+          // A missing half costs more than any fit, then the shape and stretch of
+          // the two halves decide.
+          const cost = (h: typeof a): number => (h ? h.sc + Math.abs(Math.log(h.s)) * 30 : 99);
+          let bestCost = cost(a) + cost(b);
+          for (let k = 1; k < splits; k++) {
+            const mI = i + ((iHome - i) * k) / splits;
+            const mP = curve[Math.round(mI) % n];
+            const ka = fit(P, i, mP, mI),
+              kb = fit(mP, mI, home, iHome);
+            const c = cost(ka) + cost(kb);
+            if (c < bestCost) {
+              bestCost = c;
+              a = ka;
+              b = kb;
+              midI = mI;
+              M = mP;
+            }
+          }
+        }
+        if (opts.fill && (a || b || !one)) {
+          a ??= fit(P, i, M, midI, true);
+          b ??= fit(M, midI, home, iHome, true);
+        }
         if (a) laid.push({ piece: a.piece, P, Q: M, i, stretch: a.s, nudge: a.nudge, branch: 'close-a' });
         if (b)
           laid.push({ piece: b.piece, P: M, Q: home, i: midI, stretch: b.s, nudge: b.nudge, branch: 'close-b' });
@@ -410,12 +479,67 @@ export function walkSpan(
   };
 }
 
+/** How many starting points a ring is walked from before the best closure is kept. */
+const RING_STARTS = 12;
+/** A closing piece within this of scale 1 is even enough to stop looking. */
+const RING_EVEN = Math.log(1.04);
+
 /**
  * One pass all the way round a closed curve. The whole-ring case of
- * {@link walkSpan}, and what the generator lays a cave with.
+ * {@link walkSpan}, and what the generator and the live band renderer lay a
+ * cave with.
+ *
+ * Where the walk starts decides which chords it meets on the way round, and
+ * so what is left for the closing piece: from one start a ring comes out even,
+ * from another the last stone has to stretch a quarter past its size. The
+ * forge kit has no short inside bend, which made the shipped Warren close at
+ * 1.24 from index 0 where gg-demo's kit closed at 1.04 — luck, not geometry.
+ * So the ring is walked from a few evenly spaced starts and the one that
+ * closes best is kept: no holes first, then the smallest stretch anywhere in
+ * the run. Deterministic for a given curve, since each start is.
  */
-export function walkClosed(curve: Curve, set: CaveKitPiece[]): WalkResult {
-  return walkSpan(curve, set, 0, curve.length, { ring: true });
+export function walkClosed(
+  curve: Curve,
+  set: CaveKitPiece[],
+  opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill'> = {},
+): WalkResult {
+  const n = curve.length;
+  const cost = (r: WalkResult): number =>
+    r.holes.length * 100 + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
+  let best: WalkResult | null = null;
+  let bestStart = 0;
+  let bestCost = Infinity;
+  // The start is chosen on the plain walk whatever the options: they only
+  // change the closing move, so every piece the walk lays before it (every
+  // straight run and ordinary bend) comes out exactly as it always has.
+  for (let k = 0; k < RING_STARTS; k++) {
+    const i0 = Math.round((k * n) / RING_STARTS);
+    let r: WalkResult;
+    try {
+      r = walkSpan(curve, set, i0, i0 + n, { ring: true });
+    } catch {
+      continue;
+    }
+    const c = cost(r);
+    if (c < bestCost) {
+      best = r;
+      bestStart = i0;
+      bestCost = c;
+    }
+    if (r.holes.length === 0 && c <= RING_EVEN) break;
+  }
+  if (!best) throw new Error('band walk did not close');
+  if (!opts.lap && !opts.splits && !opts.fill) return best;
+  // Then that start's close is laid again with the options. Kept only when it
+  // lays the same number of pieces (a plain ring keeps its count and look, the
+  // close just overlaps its neighbours) or the plain close tore a hole.
+  try {
+    const closed = walkSpan(curve, set, bestStart, bestStart + n, { ...opts, ring: true });
+    if (closed.holes.length > best.holes.length) return best;
+    return closed.placed.length === best.placed.length || best.holes.length > 0 ? closed : best;
+  } catch {
+    return best;
+  }
 }
 
 /**

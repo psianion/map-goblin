@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveWalls, resolveDoors, toOcclusionDoors, FLOOR_ANCHORED } from './wallResolve';
+import { resolveWalls, resolveDoors, toOcclusionDoors, FLOOR_ANCHORED, doorOpeningCuts, doorOpeningLimit, doorOpeningLimitOn } from './wallResolve';
 import { buildOcclusionSegments } from './occlusion';
 import type { DoorChild, WallSegment } from './types';
 import type { DungeonLayer } from '../store/types';
@@ -282,5 +282,88 @@ describe('toOcclusionDoors — the aperture is the door span, not the whole wall
       jambed('closed', { mergedFloor: [[[0, 1], [10, 1], [10, 11], [0, 11]]] }),
     );
     expect(segments.every((s) => s.blocksLight)).toBe(true);
+  });
+});
+
+describe('door opening room and cuts', () => {
+  // fieldstone-keep's doorways: a 2-cell piece between two longer walls on one line.
+  const run = () => [
+    wall({ id: 'left', points: [[0, 0], [8, 0]] }),
+    wall({ id: 'gap', points: [[8, 0], [10, 0]] }),
+    wall({ id: 'right', points: [[10, 0], [14, 0]] }),
+  ];
+  const keep = (width: number, walls = run(), extra: Partial<DungeonLayer> = {}) =>
+    layer({
+      standaloneWalls: walls,
+      children: [door({ wallId: 'gap', position: [9, 0], width, style: 'double' })],
+      ...extra,
+    });
+
+  it('lets a door on a short doorway piece grow along the walls on its line', () => {
+    const l = keep(2);
+    const [r] = resolve(l);
+    // 1 cell back to the gap's middle, then 4 more to the right end: the nearer end caps it.
+    expect(doorOpeningLimit(r, resolveWalls(l))).toBeCloseTo(10);
+    expect(doorOpeningLimitOn(l, 'd1')).toBeCloseTo(10);
+  });
+
+  it('stops the run at a break, a turn or a parallel wall off the line', () => {
+    const walls = [
+      wall({ id: 'left', points: [[0, 0], [7.5, 0]] }), // half a cell short of the doorway
+      wall({ id: 'gap', points: [[8, 0], [10, 0]] }),
+      wall({ id: 'up', points: [[10, 0], [10, -6]] }), // turns away
+      wall({ id: 'beside', points: [[10, 0.5], [20, 0.5]] }), // parallel, half a cell off
+    ];
+    const l = keep(2, walls);
+    expect(doorOpeningLimit(resolve(l)[0], resolveWalls(l))).toBeCloseTo(2);
+  });
+
+  it('keeps a long or bent wall at its own length, and a detached door unbounded', () => {
+    const long = layer({ standaloneWalls: [wall()], children: [door()] });
+    expect(doorOpeningLimit(resolve(long)[0], resolveWalls(long))).toBeCloseTo(10);
+    const bent = layer({
+      standaloneWalls: [wall({ points: [[0, 0], [3, 0], [3, 3]] })],
+      children: [door({ position: [1.5, 0] })],
+    });
+    expect(doorOpeningLimit(resolve(bent)[0], resolveWalls(bent))).toBeCloseTo(6);
+    expect(doorOpeningLimitOn(layer({ children: [door({ wallId: 'gone', position: [50, 50] })] }), 'd1')).toBe(Infinity);
+  });
+
+  it('runs on along a floor edge lying under the walls', () => {
+    const l = keep(2, [wall({ id: 'gap', points: [[8, 0], [10, 0]] })], { mergedFloor: [ring(0, 0, 14)] });
+    // The ring's top edge runs 0..14 on the same line.
+    expect(doorOpeningLimit(resolve(l)[0], resolveWalls(l))).toBeCloseTo(10);
+  });
+
+  it('cuts its own wall across the full width and the neighbours only where it reaches them', () => {
+    const l = keep(3);
+    const cuts = doorOpeningCuts(resolve(l)[0], resolveWalls(l));
+    const by = Object.fromEntries(cuts.map((c) => [c.wallId, c]));
+    expect(Object.keys(by).sort()).toEqual(['gap', 'left', 'right']);
+    expect(by.gap.width).toBeCloseTo(3);
+    expect(by.gap.position[0]).toBeCloseTo(9);
+    expect(by.left.width).toBeCloseTo(0.5);
+    expect(by.left.position[0]).toBeCloseTo(7.75);
+    expect(by.right.width).toBeCloseTo(0.5);
+    expect(by.right.position[0]).toBeCloseTo(10.25);
+  });
+
+  it('cuts nothing but its own wall while it fits it', () => {
+    const l = keep(2);
+    expect(doorOpeningCuts(resolve(l)[0], resolveWalls(l)).map((c) => c.wallId)).toEqual(['gap']);
+  });
+
+  it('opens a floor edge lying under its wall, by ring', () => {
+    const l = keep(2, run(), { mergedFloor: [ring(0, 0, 14)] });
+    const ringCut = doorOpeningCuts(resolve(l)[0], resolveWalls(l)).find((c) => c.ring === 0);
+    expect(ringCut).toMatchObject({ wallId: 'floor:0:0', width: 2 });
+    expect(ringCut!.position[0]).toBeCloseTo(9);
+  });
+
+  it('leaves a parallel wall off its line alone, and gaps nothing when detached', () => {
+    const l = keep(3, [...run(), wall({ id: 'beside', points: [[0, 0.5], [20, 0.5]] })]);
+    expect(doorOpeningCuts(resolve(l)[0], resolveWalls(l)).some((c) => c.wallId === 'beside')).toBe(false);
+    const lost = layer({ children: [door({ wallId: 'gone', position: [50, 50] })] });
+    expect(doorOpeningCuts(resolve(lost)[0], resolveWalls(lost))).toEqual([]);
   });
 });

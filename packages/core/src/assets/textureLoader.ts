@@ -1,5 +1,5 @@
 import { Assets, Rectangle, Texture } from 'pixi.js';
-import { getCatalogEntry, GRID_CELL_PX } from './packCatalog';
+import { getCatalogEntry, GRID_CELL_PX, qualifyTextureId } from './packCatalog';
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 
@@ -38,7 +38,8 @@ function applyContentRect(id: string, packTex: Texture): Texture {
  * Returns Texture.EMPTY (uncached, so a later rebuild can retry) when the pack
  * never delivers — install failed or the entry doesn't exist.
  */
-export async function load(textureId: string): Promise<Texture> {
+export async function load(rawId: string): Promise<Texture> {
+  const textureId = qualifyTextureId(rawId);
   const cached = cache.get(textureId);
   if (cached) return cached;
 
@@ -84,7 +85,9 @@ export function reset(): void {
  * 2. Imported image: Pixi Assets cache (registered by restoreCustomImages)
  * 3. Fallback: magenta 1x1 (visible missing-texture indicator)
  */
-export function resolveTexture(id: string): Texture {
+export function resolveTexture(rawId: string): Texture {
+  // A bare id saved before its art moved into a pack resolves through that pack.
+  const id = qualifyTextureId(rawId);
   if (id.includes(':') && !id.startsWith('data:') && !id.startsWith('blob:')) {
     const packManager = getAssetPackManager();
     return applyContentRect(id, packManager.getTexture(id));
@@ -96,7 +99,9 @@ export function resolveTexture(id: string): Texture {
   // An imported image. `importImageFile` registers the picture with Pixi under
   // the asset id as its alias, so without this an image the user just dropped
   // on the map came back magenta.
-  const imported = Assets.get<Texture>(id);
+  // Ask the cache first: Assets.get logs a warning on every miss, and the
+  // renderer asks for a missing id on every rebuild.
+  const imported = Assets.cache.has(id) ? Assets.get<Texture>(id) : undefined;
   if (imported) return imported;
 
   if (!warnedIds.has(id)) {
@@ -140,7 +145,8 @@ const unitCache = new Map<string, { unit: UnitTexture; src: Texture }>();
  * Not cached until the texture actually resolves (width > 1) — an id that
  * hasn't loaded yet must not lock in the 1×1 fallback's bogus cell size.
  */
-export function unitTexture(id: string): UnitTexture {
+export function unitTexture(rawId: string): UnitTexture {
+  const id = qualifyTextureId(rawId);
   const tex = resolveTexture(id);
   const cached = unitCache.get(id);
   if (cached && cached.src === tex) return cached.unit;

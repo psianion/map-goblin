@@ -1,12 +1,12 @@
 // #47 / M3 §Scene — the DM's scene library popover: activate, visibility, rename, reorder,
 // replace, delete (behind the row's own `⋯` menu, with an in-popover confirm instead of
-// `window.confirm`), weather, and import. Body and footer are rendered together in most of
+// `window.confirm`), and import. Body and footer are rendered together in most of
 // these tests because `busy`/`error` now live in `useSceneLibrary` (a store, not component
 // state) precisely so the two siblings under `Popover` can share them.
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { usePanels } from '../../session/panels';
@@ -312,82 +312,17 @@ describe('ScenePanel scene library (#47)', () => {
     await waitFor(() => expect(uploadMapFile).toHaveBeenCalled());
   });
 
-  // P2 — the hour and the light level moved to the World block (one world clock, one gate).
-  // Weather is the narration dial that stays, and the echo machinery stays with it.
-  it('shows the placeholder, disabled, once the scene has weather set', async () => {
+  // The hour and the light level moved to the World block (one world clock, one gate), and
+  // weather followed them there: one place sets the ambient.
+  it('carries no environment controls: time, light and weather all live in the World panel', async () => {
     useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, { weather: 'rain' }) }) });
     renderPopover();
     await screen.findByText('Great Hall');
 
-    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'rain');
-    const placeholder = screen.getByLabelText('Weather').querySelector('option[value=""]');
-    expect(placeholder).toHaveProperty('disabled', true);
-    expect(placeholder).toHaveProperty('textContent', 'Not set');
-  });
-
-  it('no longer carries the time or light dials — the World block owns both', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
-    renderPopover();
-    await screen.findByText('Great Hall');
-
+    expect(screen.queryByLabelText('Weather')).toBeNull();
     expect(screen.queryByLabelText('Time of day')).toBeNull();
     expect(screen.queryByLabelText('Ambient light')).toBeNull();
-  });
-
-  it('labels the wire enum options for reading, not the wire values themselves', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
-    renderPopover();
-    await screen.findByText('Great Hall');
-
-    const weatherOption = screen.getByLabelText('Weather').querySelector('option[value="storm"]');
-    expect(weatherOption).toHaveProperty('textContent', 'Storm');
-  });
-
-  it('sends set-environment with only the field that changed', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
-    renderPopover();
-    await screen.findByText('Great Hall');
-
-    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
-    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { weather: 'storm' });
-    expect(sendCommand).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows the pick immediately, before the server echoes it back in env', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
-    renderPopover();
-    await screen.findByText('Great Hall');
-
-    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
-    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm');
-
-    useSessionStore.setState({
-      session: session(HALL.id, { triggers: triggersState(HALL.id, { weather: 'storm' }) }),
-    });
-    await waitFor(() => expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm'));
-  });
-
-  it('falls an unconfirmed pending pick back to the env echo after it times out', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
-    renderPopover();
-    await screen.findByText('Great Hall');
-
-    vi.useFakeTimers();
-    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
-    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm');
-
-    act(() => vi.advanceTimersByTime(4000));
-    expect(screen.getByLabelText('Weather')).toHaveProperty('value', '');
-    vi.useRealTimers();
-  });
-
-  it('replaces the environment controls with a prompt when no scene is active', async () => {
-    useSessionStore.setState({ session: session(null) });
-    renderPopover();
-
-    expect(await screen.findByText('Activate a scene to set its environment.')).not.toBeNull();
-    expect(screen.queryByLabelText('Weather')).toBeNull();
+    expect(screen.queryByText('Activate a scene to set its environment.')).toBeNull();
   });
 
   it('is registered DM-only, so a player never gets the panel at all', () => {

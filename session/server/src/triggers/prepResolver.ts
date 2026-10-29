@@ -12,15 +12,23 @@ import { sceneFogOf, type FogState } from '@dnd/mechanics/fog'
 import type { TokensState } from '@dnd/mechanics/tokens'
 import {
   normalizePrep,
+  roomLabel,
   type ResolvedNote,
+  type ResolvedRoomKey,
   type ResolvedTrigger,
   type TriggerDeps,
   type TriggerToken,
 } from '@dnd/mechanics/triggers'
-import type { RoomNote, ScenePrep, ScenePrepV1, TriggerDef } from '@dnd/core/src/shared/prep'
+import type {
+  MonsterEntry,
+  RoomKey,
+  RoomNote,
+  StoredScenePrep,
+  TriggerDef,
+} from '@dnd/core/src/shared/prep'
 import type { Stores } from '../db/stores'
 import { exploredRooms } from '../fog/redactMap'
-import type { SceneMap, SceneMapOf } from '../fog/sceneMap'
+import { roomAnchor, roomRing, type SceneMap, type SceneMapOf } from '../fog/sceneMap'
 
 const NO_FOG: FogState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
@@ -46,7 +54,13 @@ export function createTriggerDeps(
   // result is safe to reuse across calls in between.
   const cache = new Map<
     string,
-    { rawPrep: string; map: SceneMap | null; triggers: ResolvedTrigger[]; notes: ResolvedNote[] }
+    {
+      rawPrep: string
+      map: SceneMap | null
+      triggers: ResolvedTrigger[]
+      notes: ResolvedNote[]
+      rooms: ResolvedRoomKey[]
+    }
   >()
 
   return {
@@ -57,18 +71,19 @@ export function createTriggerDeps(
 
       const cached = cache.get(sceneId)
       if (cached && cached.rawPrep === scene.prep && cached.map === map) {
-        return { triggers: cached.triggers, notes: cached.notes }
+        return { triggers: cached.triggers, notes: cached.notes, rooms: cached.rooms }
       }
 
-      // Stored rows can still be v1 — normalize is the read-boundary shim (prep.ts).
-      const prep = normalizePrep(JSON.parse(scene.prep) as ScenePrep | ScenePrepV1)
+      // Stored rows can still be v1/v2 — normalize is the read-boundary shim (prep.ts).
+      const prep = normalizePrep(JSON.parse(scene.prep) as StoredScenePrep)
       const triggers = prep.triggers.map((def) => resolveTrigger(def, map))
       const notes = prep.notes.map((note) => resolveNote(note, map))
+      const rooms = prep.rooms.map((key) => resolveRoomKey(key, map))
       if (!cache.has(sceneId) && cache.size >= PREP_CACHE_MAX) {
         cache.delete(cache.keys().next().value as string)
       }
-      cache.set(sceneId, { rawPrep: scene.prep, map, triggers, notes })
-      return { triggers, notes }
+      cache.set(sceneId, { rawPrep: scene.prep, map, triggers, notes, rooms })
+      return { triggers, notes, rooms }
     },
 
     tokensOf(campaignId, sceneId) {
@@ -129,13 +144,20 @@ export interface EncounterRegistry {
 }
 
 /**
- * One authored trigger, resolved against the map doc its zone lives on. `inert` is set (and
+ * One authored trigger, resolved against the map doc its zone (or room) lives on. `inert` is set (and
  * `roomId`/`shape` left absent) the moment anything it names no longer checks out — a
  * deleted zone, a point zone with no containing room, an area condition anchored to a point
  * zone, or a `light` action whose light was removed from the map.
  */
 function resolveTrigger(def: TriggerDef, map: SceneMap | null): ResolvedTrigger {
-  const zone = map?.zones.find((z) => z.id === def.when.zoneId)
+  // Room-anchored (prep v3): the id is permanent, so it resolves directly — no zone probe.
+  const when = def.when
+  if ('roomId' in when) {
+    const room = map?.rooms.find((r) => r.id === when.roomId)
+    if (!room) return { def, inert: 'room was deleted' }
+    return resolveActions(def, map!, { def, roomId: room.id }, roomAnchor(room))
+  }
+  const zone = map?.zones.find((z) => z.id === when.zoneId)
   if (!zone) return { def, inert: 'zone was deleted' }
 
   let resolved: ResolvedTrigger
@@ -158,41 +180,77 @@ function resolveTrigger(def: TriggerDef, map: SceneMap | null): ResolvedTrigger 
     }
   }
 
+  // Any-shape anchor: the point itself, a circle's centre, a rect's centre — where spawned
+  // tokens fan out from (SPAWN_OFFSETS in the module).
+  return resolveActions(def, map!, resolved, zoneAnchor(zone.shape))
+}
+
+/** The action half of a trigger's resolution, shared by zone- and room-anchored triggers:
+ *  light names, formula checks, and where an encounter spawns. */
+function resolveActions(
+  def: TriggerDef,
+  map: SceneMap,
+  resolved: ResolvedTrigger,
+  anchor: { x: number; y: number } | null,
+): ResolvedTrigger {
   const lightNames: Record<string, string> = {}
   let hasEncounter = false
   for (const action of def.actions) {
     if (action.kind === 'light') {
-      if (!map!.lightNames.has(action.lightId)) return { ...resolved, inert: 'light no longer exists' }
-      lightNames[action.lightId] = map!.lightNames.get(action.lightId) ?? ''
+      if (!map.lightNames.has(action.lightId)) return { ...resolved, inert: 'light no longer exists' }
+      lightNames[action.lightId] = map.lightNames.get(action.lightId) ?? ''
     }
     if (action.kind === 'trap' && action.damage !== undefined && !isValidFormula(action.damage)) {
       return { ...resolved, inert: 'malformed damage formula' }
     }
     if (action.kind === 'encounter') {
       hasEncounter = true
-      if (action.monsters.length === 0) return { ...resolved, inert: 'encounter has no monsters' }
-      let total = 0
-      for (const m of action.monsters) {
-        if (!Number.isInteger(m.count) || m.count < 1) {
-          return { ...resolved, inert: 'a monster count must be a whole number of at least 1' }
-        }
-        total += m.count
-        if (m.hp !== undefined && !isValidFormula(m.hp)) {
-          return { ...resolved, inert: 'malformed monster HP formula' }
-        }
-      }
-      if (total > ENCOUNTER_ROSTER_MAX) {
-        return { ...resolved, inert: `an encounter spawns at most ${ENCOUNTER_ROSTER_MAX} monsters` }
-      }
+      const why = rosterProblem(action.monsters)
+      if (why) return { ...resolved, inert: why }
     }
   }
-  // Any-shape anchor: the point itself, a circle's centre, a rect's centre — where spawned
-  // tokens fan out from (SPAWN_OFFSETS in the module).
-  if (hasEncounter) return { ...resolved, lightNames, spawnAt: zoneAnchor(zone.shape) }
+  if (hasEncounter && anchor) return { ...resolved, lightNames, spawnAt: anchor }
   return { ...resolved, lightNames }
 }
 
 const ENCOUNTER_ROSTER_MAX = 20
+
+/** Why a roster cannot spawn, or null when it can — one rule for trigger encounters and
+ *  room-key encounters alike. */
+function rosterProblem(monsters: readonly MonsterEntry[]): string | null {
+  if (monsters.length === 0) return 'encounter has no monsters'
+  let total = 0
+  for (const m of monsters) {
+    if (!Number.isInteger(m.count) || m.count < 1) {
+      return 'a monster count must be a whole number of at least 1'
+    }
+    total += m.count
+    if (m.hp !== undefined && !isValidFormula(m.hp)) return 'malformed monster HP formula'
+  }
+  if (total > ENCOUNTER_ROSTER_MAX) return `an encounter spawns at most ${ENCOUNTER_ROSTER_MAX} monsters`
+  return null
+}
+
+/**
+ * A room key (prep v3), resolved against the map it keys: the room's label, its anchor and
+ * face for Spawn, and `inert` when the room is gone. Keys are prep, so none of this — the
+ * key's own text included — ever leaves the server except through the DM's own prep GET and
+ * the triggers module's DM-only log and deliberate shares.
+ */
+function resolveRoomKey(key: RoomKey, map: SceneMap | null): ResolvedRoomKey {
+  const room = map?.rooms.find((r) => r.id === key.roomId)
+  if (!room) return { key, inert: 'room was deleted' }
+  const anchor = roomAnchor(room)
+  const ring = roomRing(room)
+  const encounterInert = key.encounter ? rosterProblem(key.encounter.monsters) : null
+  return {
+    key,
+    label: roomLabel(room) || 'A room',
+    ...(anchor ? { spawnAt: anchor } : {}),
+    ...(ring.length >= 3 ? { region: ring } : {}),
+    ...(encounterInert ? { encounterInert } : {}),
+  }
+}
 
 type ZoneShape = SceneMap['zones'][number]['shape']
 
@@ -207,6 +265,11 @@ function zoneAnchor(shape: ZoneShape): { x: number; y: number } {
  * regardless. `roomId` is set only for a `showOnReveal` note whose anchor sits in a room.
  */
 function resolveNote(note: RoomNote, map: SceneMap | null): ResolvedNote {
+  if (note.roomId !== undefined) {
+    // Room-anchored (prep v3): the anchor is the room itself, no zone probe.
+    if (!map?.rooms.some((r) => r.id === note.roomId)) return { note, inert: 'room was deleted' }
+    return note.showOnReveal ? { note, roomId: note.roomId } : { note }
+  }
   const zone = map?.zones.find((z) => z.id === note.zoneId)
   if (!zone) return { note, inert: 'zone was deleted' }
   if (!note.showOnReveal) return { note }

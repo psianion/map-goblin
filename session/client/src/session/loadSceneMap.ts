@@ -1,11 +1,4 @@
-import type {
-  AnyChild,
-  ConnectorChild,
-  DoorChild,
-  Room,
-  WallSegment,
-} from '@dnd/core/src/shared/types';
-import { authoredBoundaries, connectorToDoor } from '@dnd/core/src/shared/authoredRooms';
+import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -67,15 +60,7 @@ export function withoutSecretDoors(
             ...layer,
             children: layer.children.filter(
               (child) =>
-                !(
-                  // A joint is a door with a blob for a body: same secret rule, or the
-                  // passage the DM has not given away is drawn as a hole in the wall.
-                  (
-                    (child.childType === 'door' || child.childType === 'connector') &&
-                    (child as DoorChild | ConnectorChild).isSecret &&
-                    !revealed.has(child.id)
-                  )
-                ),
+                !(child.childType === 'door' && (child as DoorChild).isSecret && !revealed.has(child.id)),
             ),
           }
         : layer,
@@ -92,47 +77,13 @@ function revealedDoors(sceneId: string | null | undefined): Set<string> {
   return ids;
 }
 
-/**
- * C3 — the DM's own copy of a connector, given the door twin the table plays with.
- *
- * A player never gets here: `redactMap` already turned every connector it was owed into a
- * door before the wire, and the blob itself is not on the DM's document to strip. But the
- * DM's document *is* the map whole, so their table would draw no mark on a joint and their
- * Doors panel would not list it — the one seat that may open it, unable to. The twin is
- * appended rather than swapped: the blob is still the geometry P2 occludes against.
- *
- * Appended *once*: `swapSceneMap` re-runs `forViewer` over the held document every time the
- * DM re-enters a scene, and every reveal delta runs it again, so an unconditional append grew
- * one duplicate twin per joint per round trip — two door children on one id, which is the
- * aperture cut twice and the glyph drawn twice.
- */
-function withConnectorDoors(data: SerializedMapData): SerializedMapData {
-  return {
-    ...data,
-    layers: data.layers.map((layer) => {
-      if (!('children' in layer)) return layer;
-      const held = new Set(
-        layer.children.filter((child) => child.childType === 'door').map((child) => child.id),
-      );
-      const boundaries = authoredBoundaries(layer.children);
-      const twins = layer.children
-        .filter((child): child is ConnectorChild => child.childType === 'connector')
-        .filter((child) => !held.has(child.id))
-        .map((child) => connectorToDoor(child, boundaries));
-      return twins.length ? { ...layer, children: [...layer.children, ...twins] } : layer;
-    }),
-  };
-}
-
 /** The map as this seat is allowed to hold it. Unknown role is treated as a player. */
 const forViewer = (
   data: SerializedMapData,
   role: Role | undefined,
   sceneId: string | null | undefined,
 ): SerializedMapData =>
-  role === 'dm'
-    ? withConnectorDoors(data)
-    : withoutSecretDoors(data, revealedDoors(sceneId));
+  role === 'dm' ? data : withoutSecretDoors(data, revealedDoors(sceneId));
 
 /**
  * Merge by id, keeping the order the map already had. Upsert rather than append: a door or
@@ -157,17 +108,6 @@ function upsertById<T extends { id: string }>(
   }
   return merged;
 }
-
-/**
- * …but a child's id is not unique among children. A connector and the door twin it ships as
- * share the connector's own id on purpose (C1: the live door state is keyed by it), so a
- * delta carrying a joint carries two children under one id — and an id-keyed upsert let the
- * blob win both slots: the seat's door twin was rewritten into a second blob, its glyph
- * vanished, its aperture froze at whatever the map was authored with (DoorTool commits
- * a door-kind joint `closed`, so the DM could open it and the player would never see
- * through until a full refetch), and the compositor cut the doorway twice.
- */
-const childKey = (child: AnyChild): string => `${child.childType}:${child.id}`;
 
 /**
  * A door that was open stays open across a reveal.
@@ -220,7 +160,7 @@ export function mergeMapDelta(
       return {
         ...layer,
         rooms: upsertById(layer.rooms ?? [], patch.rooms ?? []),
-        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState, childKey),
+        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
       };
     }),
@@ -241,8 +181,10 @@ async function fetchSceneDoc(sceneId: string, token: string): Promise<SceneDoc> 
   const headers = { Authorization: `Bearer ${token}` };
   // `images=external` asks the server to leave the images out of the JSON and
   // list their keys instead — megabytes of base64 stop riding the document.
+  // `rooms=derived` asks for the document as the referee reads it: rooms migrated and every
+  // face derived (a player's copy always is), so the fog draws the faces the server fogs by.
   const res = await fetch(
-    `${endpoints.httpBase}/api/maps/${encodeURIComponent(sceneId)}?images=external`,
+    `${endpoints.httpBase}/api/maps/${encodeURIComponent(sceneId)}?images=external&rooms=derived`,
     { headers },
   );
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);

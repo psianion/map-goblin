@@ -2,7 +2,6 @@ import type { Point } from '../../types/geometry';
 
 export type ToolType =
   | 'select'
-  | 'object'
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'
@@ -11,13 +10,14 @@ export type ToolType =
   | 'door'
   | 'light'
   | 'ruler'
-  | 'assetPlacement'
   | 'scatterBrush'
   | 'terrain'
   | 'water'
   | 'text'
   | 'zone'
-  | 'room';
+  | 'roomRect'
+  | 'roomPolygon'
+  | 'divide';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';
@@ -66,4 +66,10 @@ export interface DrawingTool {
   getHoverCursor?(sx: number, sy: number): string | null;
   /** Called every frame to sync screen-space gizmo position. */
   updateGizmo?(): void;
+  /** A wheel turn over the canvas, before it zooms. True takes it (no zoom). Ctrl+wheel never reaches here. */
+  onWheel?(e: WheelEvent, world: Point): boolean;
+  /** A right-click on the canvas, before the context menu. True takes it (no menu). */
+  onContextMenu?(world: Point, e: MouseEvent): boolean;
+  /** A key this tool answers itself, ahead of the global shortcut bound to it (the Light tool's R). */
+  ownsKey?(e: KeyboardEvent): boolean;
 }

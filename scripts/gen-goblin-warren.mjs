@@ -152,17 +152,6 @@ const stableRoomId = (c) => {
   }
   return `room-${(h >>> 0).toString(36)}`;
 };
-// Detection insets faces by the wall band, drifting the centroid a little — a
-// .5-straddling coordinate then rounds to a different id and the name override
-// misses. Chambers sit far apart, so claiming the whole ±1 rounding
-// neighbourhood is safe and keeps the names layout-proof.
-const idNeighborhood = (c) => {
-  const ids = new Set();
-  for (let dx = -1; dx <= 1; dx++)
-    for (let dy = -1; dy <= 1; dy++)
-      ids.add(stableRoomId([Math.round(c[0]) + dx, Math.round(c[1]) + dy]));
-  return [...ids];
-};
 
 // ─── the layout, in cells on a 60×48 grid. Chambers are lobed blobs (an
 // ellipse with a few radial harmonics), tunnels are capsules along a polyline.
@@ -917,7 +906,6 @@ const map = {
   version: '3.1',
   mapSettings: {
     name: 'Goblin Warren',
-    gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     // Underground: no sky keys, the fires carry the map. Dim, not black — the
     // dark rooms still owe their black to fog/vision, not to a crushed grade.
@@ -972,13 +960,13 @@ const map = {
       },
       sublayerVisibility: { floor: true, grid: true, walls: true },
       standaloneWalls: walls,
+      // The names live on the rooms themselves. Opening the map freezes each hash
+      // id as the room's permanent id and anchors it inside this face
+      // (store/roomMigration.ts), so no override table is needed to keep a name.
       rooms: ROOMS.map((r) => ({
         id: r.id, name: r.name, boundary: r.boundary,
         centroid: r.centroid, area: r.area, isPathway: false,
       })),
-      roomNameOverrides: Object.fromEntries(
-        ROOMS.flatMap((r) => idNeighborhood(r.centroid).map((id) => [id, r.name])),
-      ),
       // cracks under the band (they vanish beneath the wall), rubble and props on top
       children: [...floors, ...cracks, ...band, ...rubble, ...props, ...lights, ...doors, ...zones],
     },

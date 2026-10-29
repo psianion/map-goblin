@@ -193,12 +193,13 @@ export function mapNames(doc: unknown): Map<string, string> {
   for (const raw of arr(rec(doc).layers)) {
     const layer = rec(raw)
     if (layer.type !== 'dungeon') continue
-    // The DM's room-name override wins over the detected name, same as the editor and the
-    // table client's own lookup.
-    const overrides = rec(layer.roomNameOverrides)
+    // Rooms read the way the table's own log names them: "N · name", or the bare name when
+    // the room has no number (core's `roomLabel`, restated: the bot reads the wire, not core).
     for (const raw2 of arr(layer.rooms)) {
       const room = rec(raw2)
-      put(room.id, overrides[String(room.id)] ?? room.name)
+      const name = typeof room.name === 'string' ? room.name.trim() : ''
+      const label = typeof room.number === 'number' && name ? `${room.number} · ${name}` : name
+      put(room.id, label)
     }
     for (const raw2 of arr(layer.children)) {
       const child = rec(raw2)

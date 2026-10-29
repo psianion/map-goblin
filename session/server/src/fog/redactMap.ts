@@ -18,18 +18,15 @@ import {
 } from '@dnd/mechanics/fog'
 import type {
   AnyChild,
-  ConnectorChild,
   DoorChild,
   Room,
   ShapeChild,
   WallSegment,
 } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver sceneMap.ts takes (see its header)
-import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
 import {
   centreOf,
-  shippableChildren,
+  childrenOf,
   distanceToPoly,
   isDungeon,
   pointInPoly,
@@ -110,7 +107,7 @@ export function redactMapForViewer(
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
       // its geometry goes over whole, less what `childShips` withholds on that branch.
       if (!layer.rooms?.length) {
-        const kids = shippableChildren(layer)
+        const kids = childrenOf(layer)
         const shipped = kids.filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
@@ -123,7 +120,6 @@ export function redactMapForViewer(
         // room — and handing it over would outline every room in the dungeon. The client
         // rebuilds it from the children it has; the editor already ships it null.
         mergedFloor: null,
-        roomNameOverrides: pick(layer.roomNameOverrides ?? {}, kept),
       }
     }),
   }
@@ -147,8 +143,8 @@ export function redactMapForViewer(
  * a player is entitled to and hands whatever is new to this.
  *
  * `kept` is the *explored* room set, not the newly-revealed one: a door here joins rooms the
- * party has already earned, so it keeps both bindings. Doors and joints are faced — a blob
- * carries the same bindings its twin does and would otherwise name the room behind it.
+ * party has already earned, so it keeps both bindings. Doors are faced — a door carries both
+ * bindings and would otherwise name the room behind it.
  */
 export function childDeltaFor(
   scene: SceneMap,
@@ -163,13 +159,9 @@ export function childDeltaFor(
       .map((layer) => ({
         id: layer.id,
         rooms: [] as Room[],
-        children: shippableChildren(layer)
+        children: childrenOf(layer)
           .filter((child) => childIds.has(child.id))
-          .map((child) =>
-            child.childType === 'door' || child.childType === 'connector'
-              ? facing(child, kept)
-              : child,
-          ) as AnyChild[],
+          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -237,16 +229,10 @@ function slice(
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
-    children: shippableChildren(layer)
+    children: childrenOf(layer)
       .filter((child) => childShips(child, layer, scene, kept, doors, cut))
-      // A joint on the edge of the known world keeps only the side the party has been,
-      // exactly as the door twin it also ships as does — the blob carries the same
-      // bindings and would otherwise name the room behind it.
-      .map((child) =>
-        child.childType === 'door' || child.childType === 'connector'
-          ? facing(child, facingSet)
-          : child,
-      ),
+      // A door on the edge of the known world keeps only the side the party has been.
+      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>
@@ -259,11 +245,9 @@ function slice(
  * Whether this child travels to a player at all — the one rule, called by the document cut
  * (`slice`, and the unzoned branch above it) and by the delta lane (`keptChildIds`) alike.
  *
- * It is one function rather than two agreeing copies because the copies did not agree. W2's
- * room and connector rules landed in `slice` only, so the comment over `keptChildIds`
- * promising the two "cannot drift" was a promise with no mechanism behind it: every reveal
- * delta shipped the contour of every drawn room on the layer, earned or not, and every blob
- * on the map, while a fresh fetch of the same scene stripped exactly those.
+ * It is one function rather than two agreeing copies because the copies once did not agree:
+ * a rule that landed in `slice` alone shipped geometry on every reveal delta that a fresh
+ * fetch of the same scene stripped.
  */
 function childShips(
   child: AnyChild,
@@ -282,22 +266,8 @@ function childShips(
   // drawn *above* the fog mask on the strength of a player only ever holding doors they
   // earned. Handing them over anyway put three marks at full brightness on a canvas that was
   // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
-  // principle 2 says must never carry it. Rooms and joints go with them: their outlines
-  // would be pure disclosure.
-  if (!layer.rooms?.length) {
-    return (
-      child.childType !== 'door' && child.childType !== 'room' && child.childType !== 'connector'
-    )
-  }
-  // A drawn room's contour and the blob that opens it are occluders (O1/O2), and the table
-  // sweeps its own copy — so they travel, fenced by exactly the credit that already fences
-  // the `Room` this contour is a duplicate of. An unearned room's outline never leaves the DM.
-  if (child.childType === 'room') return kept.has(child.id)
-  // A joint ships on its twin's rule and no second one. Testing the bindings alone read the
-  // same on an ordinary joint and wrongly on a secret one: the blob of a secret passage went
-  // over the wire while the door child that names it was withheld, leaving a state-frozen
-  // hole in the player's compositor that no drift entry would ever close.
-  if (child.childType === 'connector') return doorKept(connectorToDoor(child), kept, doors)
+  // principle 2 says must never carry it.
+  if (!layer.rooms?.length) return child.childType !== 'door'
   return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, cut)
 }
 
@@ -526,7 +496,7 @@ export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
-    for (const child of shippableChildren(layer)) {
+    for (const child of childrenOf(layer)) {
       if (childShips(child, layer, scene, kept, doors, cut)) ids.add(child.id)
     }
   }
@@ -596,9 +566,9 @@ export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Door
 }
 
 /**
- * A door on the edge of the known world keeps only the side the player has been. Room ids
- * are a hash of the room's centroid, so the far side's id is a coordinate nobody has
- * earned yet; `null` is the shape the map already uses for "leads outside".
+ * A door on the edge of the known world keeps only the side the player has been. The far
+ * side's id names a room nobody has earned yet, which is itself a disclosure; `null` is the
+ * shape the map already uses for "leads outside".
  *
  * The authored name goes with the binding, and for the same reason: "Reliquary Door" in the
  * wall of the one room a party has entered names what is behind it as plainly as the id
@@ -606,7 +576,7 @@ export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Door
  * them. Blank, not renamed — the client's own `doorLabel` already falls back to "Door N",
  * which is exactly what a player standing in front of it knows.
  */
-function facing<T extends DoorChild | ConnectorChild>(door: T, kept: ReadonlySet<string>): T {
+function facing<T extends DoorChild>(door: T, kept: ReadonlySet<string>): T {
   const unearned = (room: string | null | undefined) => !!room && !kept.has(room)
   return {
     ...door,
@@ -616,8 +586,3 @@ function facing<T extends DoorChild | ConnectorChild>(door: T, kept: ReadonlySet
   }
 }
 
-function pick(names: Record<string, string>, kept: ReadonlySet<string>): Record<string, string> {
-  const seen: Record<string, string> = {}
-  for (const [roomId, name] of Object.entries(names)) if (kept.has(roomId)) seen[roomId] = name
-  return seen
-}

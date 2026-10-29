@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types';
+import type { DungeonLayer, Layer, MapBuilderStore, Room, SerializedMapData } from './types';
+import { ROOM_RUNTIME_KEYS } from '../shared/types';
+import { migrateRooms } from './roomMigration';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
 import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
@@ -12,6 +14,7 @@ import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
 import { createLayersSlice } from './slices/layers';
+import { createLevelsSlice } from './slices/levels';
 import { createToolsSlice } from './slices/tools';
 import { createUISlice } from './slices/ui';
 import { createAssetsSlice } from './slices/assets';
@@ -20,6 +23,23 @@ import { createMapsSlice } from './slices/maps';
 import { createPacksSlice } from './slices/packs';
 import { createPrepSlice } from './slices/prep';
 import { undoManager } from './undoManager';
+
+/** A room as a file holds it: the authored fields only (see `ROOM_RUNTIME_KEYS`). */
+export function serializableRoom(room: Room): Room {
+  const out = { ...room };
+  for (const key of ROOM_RUNTIME_KEYS) delete out[key];
+  return out;
+}
+
+/** A layer as a file holds it: no union cache, no derived room fields. */
+function serializableLayer(layer: Layer): Layer {
+  if (layer.type !== 'dungeon') return layer;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { mergedFloor, ...rest } = layer as DungeonLayer;
+  const out: DungeonLayer = { ...rest, mergedFloor: null };
+  if (layer.rooms) out.rooms = layer.rooms.map(serializableRoom);
+  return out;
+}
 
 export const useStore = create<MapBuilderStore>()(
   subscribeWithSelector(
@@ -31,6 +51,7 @@ export const useStore = create<MapBuilderStore>()(
       ...createMapSettingsSlice(set, get, api),
       ...createGridSlice(set, get, api),
       ...createLayersSlice(set, get, api),
+      ...createLevelsSlice(set, get, api),
       ...createToolsSlice(set, get, api),
       ...createUISlice(set, get, api),
       ...createAssetsSlice(set, get, api),
@@ -52,11 +73,14 @@ export const useStore = create<MapBuilderStore>()(
           return;
         }
 
-        // Migrate older formats to current
-        if (data.version === '2.0') {
-          data = migrateToLatest(data);
-        }
-
+        // Every supported version goes through the migration: 2.0 is upgraded, and all of
+        // them lose the fields the format no longer carries (retired fields have no bump).
+        data = migrateToLatest(data);
+        // Rooms became anchored places and maps gained levels: every path that opens
+        // a map (v1 sidebar, v2 home page, file import, the table) comes through here,
+        // so this is the one place the room migration runs.
+        data = migrateRooms(data);
+        const levels = data.levels ?? [];
 
         // Splat bitmaps ride inside customImages in the file format; hold them
         // as binary Blobs in terrainSplats so no splat base64 lives in the
@@ -79,9 +103,11 @@ export const useStore = create<MapBuilderStore>()(
             ...state.grid,
             visible: data.grid.visible,
             snapDivision: data.grid.snapDivision,
-            snapEnabled: true,
+            // Snap on/off is the DM's view preference, not the map's: it stays as set.
+            snapEnabled: state.grid.snapEnabled,
           };
           state.layers = data.layers;
+          state.levels = levels;
           // Older files stored prep v1 — upgrade here so the rest of the app
           // only ever sees v2 (normalizePrep is the one read-boundary shim).
           state.prep = data.prep ? normalizePrep(data.prep) : null;
@@ -91,8 +117,13 @@ export const useStore = create<MapBuilderStore>()(
           state.terrainSplats.pngs = pngs;
           state.terrainSplats.rev++;
 
-          state.ui.activeLayerId =
-            data.layers.find((l) => l.type === 'dungeon')?.id ?? '';
+          const firstDungeon = data.layers.find((l) => l.type === 'dungeon');
+          state.ui.activeLayerId = firstDungeon?.id ?? '';
+          state.ui.activeLevelId = firstDungeon?.levelId ?? levels[0]?.id ?? '';
+          state.ui.roomSuggestions = null;
+          state.ui.pendingSplit = null;
+          state.ui.roomsSheetRoomId = null;
+          state.ui.highlightedRoomId = null;
           state.ui.expandedLayerIds = [];
           state.ui.canUndo = false;
           state.ui.canRedo = false;
@@ -100,7 +131,6 @@ export const useStore = create<MapBuilderStore>()(
           state.ui.solo = null;
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
-          state.tools.roughMode = false;
           state.tools.curveMode = false;
           // Node-edit targets are ids into the map that was open. A floor ring
           // id in particular is just `floor:<n>`, so left alone it rebinds to
@@ -114,8 +144,6 @@ export const useStore = create<MapBuilderStore>()(
           state.selection.hoveredId = null;
           state.selection.selectedRegion = null;
           state.selection.clipboard = null;
-          state.selection.regionClipboard = null;
-          state.selection.selectionTransform = null;
         });
         // Resolve pre-naming-era "Asset" names now that the doc is in. If
         // the catalog isn't rehydrated yet (boot race), CanvasHost calls the
@@ -168,20 +196,20 @@ export const useStore = create<MapBuilderStore>()(
         const s = get();
         return {
           version: CURRENT_VERSION,
-          mapSettings: s.mapSettings,
+          // Whatever the store holds is in the anchored-rooms format: every load ran the
+          // migration, and a new map was born in it. Stamped on the way out so a map that
+          // never went through a loader (a new one) is not migrated again when reopened,
+          // which would rebuild its rooms from id, name and anchor alone and drop their
+          // looks, areas and split lineage.
+          mapSettings: { ...s.mapSettings, roomsVersion: 2 },
           grid: {
             visible: s.grid.visible,
             snapDivision: s.grid.snapDivision,
           },
-          // Strip mergedFloor from dungeon layers (derived cache, recomputed on load)
-          layers: s.layers.map((layer) => {
-            if (layer.type === 'dungeon') {
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const { mergedFloor, ...rest } = layer as DungeonLayer;
-              return { ...rest, mergedFloor: null };
-            }
-            return layer;
-          }),
+          // Strip the derived caches: mergedFloor (recomputed on load) and each room's
+          // face, centroid, doors… (refreshed by syncRooms on load).
+          layers: s.layers.map(serializableLayer),
+          levels: s.levels,
           customImages: s.assets.customImages,
           // undefined (not null) when unauthored: JSON.stringify drops the key,
           // and an absent prep leaves the server's stored prep alone on republish.
@@ -193,14 +221,23 @@ export const useStore = create<MapBuilderStore>()(
         set((state) => {
           const defaults = createDefaultState();
           const manifest = state.assets.manifest;
+          // Recents belong to the DM, not the map: a new or opened map keeps them.
+          const { recentlyUsed, favourites } = state.assets;
           state.mapSettings = defaults.mapSettings;
-          state.grid = defaults.grid;
+          // Snap on/off is a view preference too (canvas/src/io/snapPref.ts), so it carries over.
+          state.grid = { ...defaults.grid, snapEnabled: state.grid.snapEnabled };
           state.layers = defaults.layers;
+          state.levels = defaults.levels;
           state.prep = defaults.prep;
           state.tools = defaults.tools;
-          state.ui = defaults.ui;
+          // The room view preferences are the DM's, not the map's (persisted per
+          // browser in the v2 view prefs), so a new or opened map keeps them.
+          const { roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead } = state.ui;
+          state.ui = { ...defaults.ui, roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead };
           state.assets = defaults.assets;
           state.assets.manifest = manifest;
+          state.assets.recentlyUsed = recentlyUsed;
+          state.assets.favourites = favourites;
           state.selection = defaults.selection;
           // packs is session state populated once at boot; nothing repopulates
           // it after a reset, so leave it alone here.

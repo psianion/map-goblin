@@ -2,6 +2,9 @@ import { Application, Container, RenderTexture, type Renderer, type Ticker } fro
 import type { RenderEngine, CameraState } from './RenderEngine';
 import type { Point, Viewport } from '../types/geometry';
 
+/** Screen px per grid cell the camera opens at. */
+export const INITIAL_ZOOM = 20;
+
 /** True when the page was opened with ?e2e=1 — opts into the perf costs E2E pixel-sampling needs. */
 function isE2E(): boolean {
   return typeof location !== 'undefined' && new URLSearchParams(location.search).get('e2e') === '1';
@@ -14,12 +17,15 @@ export class PixiRenderEngine implements RenderEngine {
   private _viewport: Viewport = { width: 0, height: 0, dpr: 1 };
   private resizeCallbacks: Array<(width: number, height: number) => void> = [];
 
-  async init(container: HTMLDivElement): Promise<void> {
+  async init(container: HTMLDivElement, options: { useBackBuffer?: boolean } = {}): Promise<void> {
     const dpr = window.devicePixelRatio;
     this._viewport.dpr = dpr;
 
     this.app = new Application();
     await this.app.init({
+      // WebGL skips an advanced blend mode (a 'saturation' sprite draws as a flat fill, with a
+      // warning every frame) unless the frame is drawn through a back buffer.
+      useBackBuffer: options.useBackBuffer === true,
       resizeTo: undefined,
       resolution: dpr,
       autoDensity: true,
@@ -57,8 +63,7 @@ export class PixiRenderEngine implements RenderEngine {
     this.resize(rect.width, rect.height);
 
     // Set initial camera: zoom=20 (1 world unit = 20px), centered on origin
-    const initialZoom = 20;
-    this.worldContainer.scale.set(initialZoom);
+    this.worldContainer.scale.set(INITIAL_ZOOM);
     this.worldContainer.position.set(rect.width / 2, rect.height / 2);
 
     this.app.ticker.maxFPS = 60;
@@ -157,12 +162,12 @@ export class PixiRenderEngine implements RenderEngine {
     };
   }
 
-  createRenderTexture(width: number, height: number): RenderTexture {
+  createRenderTexture(width: number, height: number, resolution = this._viewport.dpr): RenderTexture {
     if (!this.app) throw new Error('Engine not initialized');
     return RenderTexture.create({
       width,
       height,
-      resolution: this._viewport.dpr,
+      resolution,
     });
   }
 

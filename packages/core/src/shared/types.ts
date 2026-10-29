@@ -13,11 +13,13 @@ export type Polygon = [number, number][];
 export type WallType = 'normal' | 'terrain' | 'invisible' | 'ethereal' | 'window';
 
 /**
- * Texture scale a freshly drawn shape starts at. The floor sources are large
- * (600px = 3 cells at scale 1) and read as noise until zoomed — 4 is the
- * smallest value where they render as recognisable floor at the default view.
+ * Texture scale a freshly drawn shape starts at: 1, the art's own size (200px
+ * per cell, so gg-demo's 1600px floor_small spans its authored 8x8 cells). It
+ * was 4 while the retired dungeon-classic floors were in use; on the current
+ * packs 4 blew every floor up past its authored size and parked the Scale
+ * slider at its maximum.
  */
-export const DEFAULT_TEXTURE_SCALE = 4;
+export const DEFAULT_TEXTURE_SCALE = 1;
 export type WallDirection = 'both' | 'left' | 'right';
 
 /**
@@ -86,7 +88,12 @@ export interface WallSegment extends WallEdits {
   wallType: WallType;
   direction: WallDirection;
   color: string;
-  width: number;
+  /**
+   * Stroke width in cells. Absent, the normal state, means the layer's
+   * `style.wallWidth`, so the Width control moves every wall on the layer at
+   * once. Resolve with `wallWidthOf`. Set only when a preset pins drawn work.
+   */
+  width?: number;
   roughness: number;
   /**
    * Per-wall pins of the layer style the stone renderer reads. Absent — the
@@ -105,12 +112,6 @@ export interface WallSegment extends WallEdits {
 export type DoorStyle = 'single' | 'double' | 'portcullis' | 'archway' | 'portal';
 export type DoorState = 'closed' | 'open' | 'locked';
 
-// ---- Mask (placeholder) ----
-export interface MaskData {
-  id: string;
-  // placeholder — do not read/write until masking ships
-}
-
 // ---- Child Types ----
 export type ChildType =
   | 'shape'
@@ -119,16 +120,13 @@ export type ChildType =
   | 'door'
   | 'water'
   | 'text'
-  | 'zone'
-  | 'room'
-  | 'connector';
+  | 'zone';
 
 export interface LayerChild {
   id: string;
   name: string;
   childType: ChildType;
   visible: boolean;
-  mask?: MaskData;
   /**
    * Membership in a `DungeonLayer.groups` entry. Grouping is metadata plus
    * selection fan-out — there is no group child — so every consumer that walks
@@ -154,7 +152,8 @@ export interface ShapeChild extends LayerChild {
    * this field; only authoring UI touches it.
    */
   tangents?: import('./bezier').RingTangents[];
-  roughnessEnabled: boolean;
+  /** Retired: nothing ever drew rough edges. Kept optional so older saves still type-check. */
+  roughnessEnabled?: boolean;
   roughnessAmplitude?: number;
   transform?: {
     translate: [number, number];
@@ -185,20 +184,60 @@ export interface AssetChild extends LayerChild {
   tint: string;
   flipX: boolean;
   flipY: boolean;
+  // Every key below is optional and absent means its default (shared/propFields.ts
+  // PROP_DEFAULTS), so maps saved before props had them load unchanged on 3.1.
+  /** 0..1. Absent = 1. */
+  opacity?: number;
+  /** Drawn above tokens (editor and table), faded for a token standing under it. Absent = false. */
+  overhead?: boolean;
+  /** Unclickable on the map; the layer panel and the Unlock menu still reach it. Absent = false. */
+  locked?: boolean;
+  /** Drops a sun/moon shadow. Absent = true. */
+  castsShadow?: boolean;
+  /** Blocks light and sight along the four edges of its footprint. Absent = false. */
+  blocksLight?: boolean;
+  /** Stored for table movement, not read yet. Absent = false. */
+  blocksMovement?: boolean;
+  /** Its own sprite reads lit in the dark, never the cells around it. Absent = false. */
+  glows?: boolean;
+  /** How the glow burns while `glows` is on. Absent = strength 0.9, steady (`GLOW_DEFAULT`). */
+  glow?: { strength: number; animation?: LightAnimation };
+}
+
+/** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */
+export interface LightAnimation {
+  kind: 'flicker' | 'pulse';
+  speed: number;
 }
 
 export interface LightChild extends LayerChild {
   childType: 'light';
   color: string;
+  /** The dim edge, in cells: where the light ends. */
   radius: number;
+  /** The bright edge, in cells: the full-strength core. Always `<= radius`. */
   featherRadius: number;
   intensity: number;
   falloff: 'linear' | 'quadratic';
   position: { x: number; y: number };
-  /** Pack light-mask texture ID — replaces default circular shape with custom mask */
-  maskTextureId?: string;
   /** Asset child id this light is glued to — moves with it, deleted with it. Authoring convenience only; absent on lights placed free-standing or on old saves. */
   attachedTo?: string;
+  // Every key below is optional and absent means its default, so maps saved before them
+  // load unchanged on 3.1.
+  /** Degrees. Absent, or `angle >= 360`, is a full circle. `direction` 0 = east, clockwise. */
+  cone?: { angle: number; direction: number };
+  /** Absent = steady. */
+  animation?: LightAnimation;
+  /** Lights through walls instead of being cut by them. Absent = false. */
+  throughWalls?: boolean;
+  /** Burns only while `min <= darkness <= max` (the sky's 0..1 darkness). Absent = always. */
+  nightOnly?: { min: number; max: number };
+  /** A darkness source: subtracts light, blocks sight at its edge. `color` is ignored. Absent = false. */
+  darkness?: boolean;
+  /** Darkness sources only: darkvision sees through it. Absent = false. */
+  darkvisionSees?: boolean;
+  /** Whether the light starts on at the table. Absent = true. `visible` stays the editor's switch. */
+  tableOn?: boolean;
 }
 
 export interface DoorChild extends LayerChild {
@@ -218,9 +257,23 @@ export interface DoorChild extends LayerChild {
   style: DoorStyle;
   state: DoorState;
   isSecret: boolean;
-  openSound?: string;
-  closeSound?: string;
-  lockedSound?: string;
+  /**
+   * How far the door stands open when its state is open, degrees: 0 to 180,
+   * 180 being folded flat against the wall. Absent = 90.
+   */
+  openAngle?: number;
+  /** Which edge of the opening a single door hangs on, along the wall. Absent = start. */
+  hinge?: 'start' | 'end';
+  /** Which side of the wall the door swings to: 1 or -1 (see `leafPoses`). Absent = 1. */
+  swing?: 1 | -1;
+  /** False hangs a kit door with no visible hinge hardware. Absent = shown. */
+  hinges?: boolean;
+  /**
+   * The door kit a single or double door is built from, whatever its wall is:
+   * 'stone' (Fieldstone), 'wood' (Palisade) or 'cave' (Cave Ink). Absent = the
+   * kit of the wall's own set, or no kit when that set has none.
+   */
+  kit?: 'stone' | 'wood' | 'cave';
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */
@@ -243,10 +296,13 @@ export interface WaterChild extends LayerChild {
   bankTextureId: string;
   /** Bank strip width in world units (grid cells). */
   bankWidth: number;
-  /** Tile-scroll speed in world units/second for the flow animation. 0 = still. */
-  flowSpeed: number;
-  /** Flow direction in radians. */
-  flowAngle: number;
+  /**
+   * Legacy: water used to scroll along a flow direction. Water is static now;
+   * these stay optional so older maps still load. New bodies do not write them.
+   */
+  flowSpeed?: number;
+  /** Legacy flow direction in radians. Read by nothing. */
+  flowAngle?: number;
 }
 
 /**
@@ -322,28 +378,22 @@ export interface RingGeometry {
 }
 
 /**
- * A room the DM drew, rather than one detected from wall geometry.
- *
- * Its `id` is a real uuid minted once and serialized, so it survives republish —
- * unlike a detected room's id, which is a hash of its centroid and re-mints the
- * moment the geometry moves (see `roomUtils.computeStableRoomId`). `name` comes
- * from `LayerChild`. A layer holding one of these stops taking its `rooms` from
- * detection entirely (`store/roomSync.ts`).
+ * Legacy: a room the DM drew as a ring child, before rooms became anchored
+ * places. Nothing authors these any more and they are not part of `AnyChild`;
+ * `store/roomMigration.ts` reads the ones an older file still carries and turns
+ * each into a `Room` (anchor = a point inside its ring, same id) on open.
  */
-export interface RoomChild extends LayerChild, RingGeometry {
+export interface RoomChild extends Omit<LayerChild, 'childType'>, RingGeometry {
   childType: 'room';
 }
 
 /**
- * The joint between two authored rooms — an archway or a door — drawn as a blob
- * straddling both boundaries rather than placed on a wall.
- *
- * Structurally a superset of what the door graph consumes (`AuthoredDoor` in
- * packages/mechanics): `id`, `state`, `isSecret`, optional `style`, and the
- * `roomA`/`roomB` pair derived from blob-to-room overlap on every room sync.
- * `kind:'arch'` is the always-open case the archway machinery already handles.
+ * Legacy: the joint between two drawn rooms, a blob straddling both rings.
+ * Connections between rooms were dropped with the drawn rooms; the migration
+ * removes these on open, and only legacy readers that still meet an unmigrated
+ * document (the session server's stored maps) look at them.
  */
-export interface ConnectorChild extends LayerChild, RingGeometry {
+export interface ConnectorChild extends Omit<LayerChild, 'childType'>, RingGeometry {
   childType: 'connector';
   kind: 'arch' | 'door';
   state: DoorState;
@@ -363,20 +413,95 @@ export type AnyChild =
   | DoorChild
   | WaterChild
   | TextChild
-  | ZoneChild
-  | RoomChild
-  | ConnectorChild;
+  | ZoneChild;
 
 // ---- Room Types ----
+
 /**
- * An enclosed area detected from wall geometry. Rooms are computed in the
- * editor and serialized into the map file; absent means "not yet detected".
+ * How a room, an area, a level (or later anything else in the look chain) wants
+ * to look. Every key is optional and absent means "inherit from the scope
+ * below": room → area → layer style → level → map defaults
+ * (`shared/lookScope.ts` is the one resolver).
+ *
+ * `mood` is how much sky light reaches the scope (Lit 100 %, Dim 40 %, Dark 0 %),
+ * `moodTint` its ambient colour, and `moodVision` whether a scope that resolves
+ * dark counts as darkness for player sight. `shared/regionGrade.ts` reads all three.
+ */
+export interface RoomLook {
+  floorTextureId?: string;
+  floorTint?: string;
+  wallTextureSetId?: string;
+  wallTextureTint?: string;
+  wallWidth?: number;
+  mood?: Mood;
+  moodTint?: string;
+  /** Absent = 'darkness': a region that resolves dark hides from sight unless lit. */
+  moodVision?: 'darkness' | 'visible';
+}
+
+/** How much sky light reaches a region. */
+export type Mood = 'lit' | 'dim' | 'dark';
+
+/**
+ * A place on the map. Rooms are authored, not detected: the DM owns the id, the
+ * name, the number and a single `anchor` point, and the room's extent is the
+ * face of (merged floor − walls − thresholds) that contains the anchor. That is
+ * what lets the id survive any edit of the floor or the walls around it.
+ *
+ * The fields below the line are derived by `store/roomSync.ts` every time the
+ * geometry settles and stripped on save, so a file only ever holds intent.
  */
 export interface Room {
+  /** Permanent: a uuid, or the `room-xxxx` hash a detected room had when its map was migrated. */
   id: string;
   name: string;
-  boundary: [number, number][];
-  centroid: [number, number];
-  area: number;
-  isPathway: boolean;
+  /** Display number and list order. */
+  number?: number;
+  /** World units, inside the face. */
+  anchor: [number, number];
+  /** A hand-traced face, for rooms on image-only maps that have no floor to cut. */
+  boundary?: [number, number][];
+  areaId?: string;
+  look?: RoomLook;
+  /** Split lineage: the room this one was cut from. The server copies its fog at publish, then strips it. */
+  derivedFrom?: string;
+  /** Merge lineage: rooms folded into this one. The server ORs their fog at publish, then strips it. */
+  mergedFrom?: string[];
+
+  // ---- derived at runtime, stripped on save ----
+  /** The face the anchor sits in (or `boundary`). Read through `roomFace`. */
+  face?: [number, number][];
+  centroid?: [number, number];
+  area?: number;
+  isPathway?: boolean;
+  /** The anchor lies on no face; `face` keeps the last one it had. */
+  orphaned?: boolean;
+  /** Door ids bound to this room. */
+  doors?: string[];
+}
+
+/** The runtime-only keys of a `Room`, the ones a save strips. */
+export const ROOM_RUNTIME_KEYS = ['face', 'centroid', 'area', 'isPathway', 'orphaned', 'doors'] as const;
+
+/** A named group of rooms inside one layer, with its own look. */
+export interface RoomArea {
+  id: string;
+  name: string;
+  look?: RoomLook;
+}
+
+/** A named group of one or more layers, with its own look. Every layer belongs to exactly one. */
+export interface Level {
+  id: string;
+  name: string;
+  look?: RoomLook;
+}
+
+/**
+ * A divider line that cuts room faces apart and blocks nothing: no sight, no
+ * movement, no stones. The cheap way to split one open floor into two rooms.
+ */
+export interface ThresholdSegment {
+  id: string;
+  points: [number, number][];
 }

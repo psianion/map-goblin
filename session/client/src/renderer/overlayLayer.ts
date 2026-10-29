@@ -49,6 +49,9 @@ export const OVERLAY_STACK = [
   // that chip is theirs to see; a foreign token there never reaches the wire at all
   // (`tokens.redact`). `drawFog` is where both halves of that are written down.
   'tokenLayer',
+  // (Overhead props used to be lifted here, above the tokens and the lighting multiply. Since
+  // the Lighting pass they stay in the world, under the multiply, so night darkens a canopy
+  // like everything else; `OverheadLayer` only fades them for a token standing under them.)
   // Above the tokens it marks, so whose turn it is reads at the same strength as the token.
   'turnRing',
   // Screen space too, and wearing `shownMask` rather than `sightMask`: a door is map

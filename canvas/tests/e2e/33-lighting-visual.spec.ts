@@ -8,7 +8,7 @@
  * regardless of light radius) would move a distant pixel just as much as the lit one.
  */
 import { test, expect } from '@playwright/test'
-import { gotoApp, firePointer, waitFrame, getPixelColor } from './helpers'
+import { gotoApp, drawRect, firePointer, waitFrame, getPixelColor } from './helpers'
 
 async function getCanvasCenter(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
@@ -26,8 +26,17 @@ test.describe('33 - Lighting Visual', () => {
     const box = await canvas.boundingBox()
     const dpr = await page.evaluate(() => window.devicePixelRatio)
 
-    // Canvas-pixel coordinates (dpr-scaled), matching getPixelColor's expectations.
-    const centerPx = { x: Math.round((box!.width / 2) * dpr), y: Math.round((box!.height / 2) * dpr) }
+    // A floor under the light: the bare background is the map's empty ground, which no
+    // light touches, so a light placed over nothing changes nothing by design.
+    await page.keyboard.press('r')
+    const mid = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }
+    await drawRect(page, mid.x - 120, mid.y - 90, mid.x + 120, mid.y + 90)
+    await page.waitForTimeout(500)
+    await waitFrame(page, 5)
+
+    // Canvas-pixel coordinates (dpr-scaled), matching getPixelColor's expectations. A few
+    // pixels off the centre, which is a grid crossing and draws grid ink over the floor.
+    const centerPx = { x: Math.round((box!.width / 2 + 7) * dpr), y: Math.round((box!.height / 2 + 7) * dpr) }
     // Top-left corner: hundreds of world-space pixels from center at any sane zoom — far
     // outside a torch-sized light's radius, which is the whole point of sampling it.
     const cornerPx = { x: Math.round(10 * dpr), y: Math.round(10 * dpr) }

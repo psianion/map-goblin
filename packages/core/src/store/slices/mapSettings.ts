@@ -5,7 +5,7 @@ import type { MapBuilderStore, MapEnvironment, MapSettings, TerrainData } from '
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
   setFixedSize: (size: MapSettings['fixedSize']) => void;
-  setGridType: (type: MapSettings['gridType']) => void;
+  setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
@@ -40,6 +40,24 @@ export function normalizeFixedSize(
     : null;
 }
 
+/** The units a cell can be measured in. Everything that prints a distance prints this unit. */
+export const CELL_SCALE_UNITS = ['ft', 'm'] as const;
+export type CellScaleUnit = (typeof CELL_SCALE_UNITS)[number];
+
+/**
+ * How much ground one cell covers, or null when it is not a scale. Light radii, rulers and
+ * the status bar all multiply by `value`, so zero, negatives, NaN and Infinity are refused
+ * here rather than spread through every readout; the unit must be one the editor knows.
+ */
+export function normalizeCellScale(
+  scale: { value: number; unit: string } | null | undefined,
+): { value: number; unit: CellScaleUnit } | null {
+  if (!scale) return null;
+  if (!Number.isFinite(scale.value) || scale.value <= 0) return null;
+  if (!(CELL_SCALE_UNITS as readonly string[]).includes(scale.unit)) return null;
+  return { value: scale.value, unit: scale.unit as CellScaleUnit };
+}
+
 export const createMapSettingsSlice: StateCreator<
   MapBuilderStore,
   [['zustand/immer', never]],
@@ -54,9 +72,12 @@ export const createMapSettingsSlice: StateCreator<
     set((state) => {
       state.mapSettings.fixedSize = normalizeFixedSize(size);
     }),
-  setGridType: (type) =>
+  // Same door as setFixedSize: an invalid scale is refused outright and the map keeps the
+  // one it has, since unlike a size there is no "no scale" to fall back to.
+  setCellScale: (scale) =>
     set((state) => {
-      state.mapSettings.gridType = type;
+      const next = normalizeCellScale(scale);
+      if (next) state.mapSettings.cellScale = next;
     }),
   setAmbientLight: (color) =>
     set((state) => {

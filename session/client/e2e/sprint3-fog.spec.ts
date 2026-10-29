@@ -936,6 +936,10 @@ test.describe.serial('@sprint3-fog', () => {
     // geometry at all). Measured on the Chamber's patch 2026-09-09: live delta 2.5, explored
     // 26.8, an untouched room 147.8 — margins are under half of both gaps (24.3 and 121.0),
     // well clear of the ~1-2 level PNG round-trip noise `develop` documents for this instrument.
+    // Since the neutral mood tint the daylight ground under the opaque tier reads as drawn
+    // (130.8, against ~50 under the old dark tint), so the opaque cloud stands less far off
+    // it: untouched 67.9 against explored 28.4 (2026-10-26). The untouched margin is half
+    // that 39.5 gap.
     expect(
       meanOf(memory.delta),
       `explored delta ${meanOf(memory.delta).toFixed(1)} against live's ${meanOf(live.delta).toFixed(1)}`,
@@ -943,7 +947,7 @@ test.describe.serial('@sprint3-fog', () => {
     expect(
       meanOf(hidden.delta),
       `untouched delta ${meanOf(hidden.delta).toFixed(1)} against explored's ${meanOf(memory.delta).toFixed(1)}`,
-    ).toBeGreaterThan(meanOf(memory.delta) + 50)
+    ).toBeGreaterThan(meanOf(memory.delta) + 20)
     // "The same floor": live and explored are one patch read twice, fog subtracted — the
     // ground underneath has to agree regardless of what the fog painted over it. Measured
     // identical to a tenth (123.3 both ways); the tolerance is `develop`'s own 10-level

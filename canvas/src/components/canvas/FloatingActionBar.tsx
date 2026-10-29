@@ -6,7 +6,19 @@ import { unionChildBounds } from '@dnd/core/src/engine/hitTest'
 import type { SelectTool } from '@dnd/core/src/engine/tools/SelectTool'
 import type { AnyChild, DungeonLayer } from '@/store/types'
 import { handleShortcut, rotateSelection90 } from '@/shortcuts/defaultShortcuts'
-import { FlipHorizontal2, FlipVertical2, RotateCw, Copy, Trash2 } from 'lucide-react'
+import { undoManager } from '@/store/undoManager'
+import { createSetPropFieldsCommand, createZOrderCommand } from '@dnd/core/src/store/propEdits'
+import {
+  FlipHorizontal2,
+  FlipVertical2,
+  RotateCw,
+  Copy,
+  Trash2,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  Lock,
+  LockOpen,
+} from 'lucide-react'
 
 const BAR_GAP = 12
 
@@ -17,7 +29,14 @@ const BAR_GAP = 12
  * without a store update, so this can't be plain reactive state), and the bar
  * gets out of the way while a gizmo drag is in flight.
  */
-export function FloatingActionBar() {
+export function FloatingActionBar({ belowChrome = false }: {
+  /**
+   * Stack under a custom chrome layer (the v2 editor sits at z-index 20) instead of
+   * over it, so an open sheet, card or dock always covers the bar rather than the
+   * other way round. The chrome layer passes pointers through, so the bar still works.
+   */
+  belowChrome?: boolean
+} = {}) {
   const activeTool = useStore((s) => s.tools.activeTool)
   const selectedIds = useStore(useShallow((s) => s.selection.selectedIds))
   // Child kinds in the selection, as a stable string — the verb list derives
@@ -30,6 +49,20 @@ export function FloatingActionBar() {
       for (const c of l.children) if (ids.has(c.id)) found.add(c.childType)
     }
     return [...found].sort().join(',')
+  })
+  // Every selected child a locked prop: nothing on the bar would act on it but Unlock.
+  const allLocked = useStore((s) => {
+    const ids = new Set(s.selection.selectedIds)
+    let any = false
+    for (const l of s.layers) {
+      if (l.type !== 'dungeon') continue
+      for (const c of l.children) {
+        if (!ids.has(c.id)) continue
+        if (c.childType !== 'asset' || !c.locked) return false
+        any = true
+      }
+    }
+    return any
   })
   const ref = useRef<HTMLDivElement>(null)
 
@@ -82,6 +115,33 @@ export function FloatingActionBar() {
 
   if (!visible) return null
 
+  // v2: a locked selection gets the way back and nothing else, as its right-click menu does.
+  if (belowChrome && allLocked) {
+    return (
+      <div
+        ref={ref}
+        role="toolbar"
+        aria-label="Selection actions"
+        style={{ visibility: 'hidden' }}
+        className="gg-grain fixed left-0 top-0 z-[19] flex items-center gap-0.5 rounded-md border border-border-structure bg-surface-1 px-1 py-0.5 shadow-panel"
+      >
+        <button
+          type="button"
+          title="Unlock"
+          aria-label="Unlock"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            const cmd = createSetPropFieldsCommand(useStore.getState().selection.selectedIds, { locked: false })
+            if (cmd) undoManager.execute(cmd)
+          }}
+          className="gg-row rounded-sm p-1.5 text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50"
+        >
+          <LockOpen size={14} />
+        </button>
+      </div>
+    )
+  }
+
   // Verbs that would silently no-op for the selection are omitted, matching
   // how the gizmo already drops the rotate stem for lights: flips apply to
   // props/shapes/water, rotation to everything except lights.
@@ -99,6 +159,20 @@ export function FloatingActionBar() {
       : []),
     { label: 'Duplicate', icon: Copy, run: () => handleShortcut('ctrl+d') },
   ]
+  // Props only, v2 only: restack and lock. The selection is read when the button is
+  // pressed, not when the bar rendered.
+  const ids = () => useStore.getState().selection.selectedIds
+  const exec = (cmd: ReturnType<typeof createZOrderCommand>) => {
+    if (cmd) undoManager.execute(cmd)
+  }
+  const propActions: typeof actions =
+    belowChrome && kinds === 'asset'
+      ? [
+          { label: 'Bring to front', icon: ArrowUpToLine, run: () => exec(createZOrderCommand(ids(), 'front')) },
+          { label: 'Send to back', icon: ArrowDownToLine, run: () => exec(createZOrderCommand(ids(), 'back')) },
+          { label: 'Lock', icon: Lock, run: () => exec(createSetPropFieldsCommand(ids(), { locked: true })) },
+        ]
+      : []
 
   return (
     <div
@@ -106,7 +180,7 @@ export function FloatingActionBar() {
       role="toolbar"
       aria-label="Selection actions"
       style={{ visibility: 'hidden' }}
-      className="gg-grain fixed left-0 top-0 z-30 flex items-center gap-0.5 rounded-md border border-border-structure bg-surface-1 px-1 py-0.5 shadow-panel"
+      className={`gg-grain fixed left-0 top-0 ${belowChrome ? 'z-[19]' : 'z-30'} flex items-center gap-0.5 rounded-md border border-border-structure bg-surface-1 px-1 py-0.5 shadow-panel`}
     >
       {actions.map(({ label, icon: Icon, run }) => (
         <button
@@ -116,6 +190,20 @@ export function FloatingActionBar() {
           aria-label={label}
           // Keep focus where it is — stealing it from the canvas would drop
           // keyboard shortcuts mid-flow.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={run}
+          className="gg-row rounded-sm p-1.5 text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50"
+        >
+          <Icon size={14} />
+        </button>
+      ))}
+      {propActions.length > 0 && <div aria-hidden className="mx-0.5 h-4 w-px bg-border-default" />}
+      {propActions.map(({ label, icon: Icon, run }) => (
+        <button
+          key={label}
+          type="button"
+          title={label}
+          aria-label={label}
           onMouseDown={(e) => e.preventDefault()}
           onClick={run}
           className="gg-row rounded-sm p-1.5 text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50"

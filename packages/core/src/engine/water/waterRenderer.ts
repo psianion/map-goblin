@@ -4,10 +4,15 @@ import type { WaterChild } from '../../shared/types';
 import type { Polygon } from '../../types/geometry';
 import { unitTexture } from '../../assets/textureLoader';
 import { flattenRing } from '../../shared/bezier';
-import { registerFlowSprite, unregisterFlowSpritesIn } from './waterAnimation';
 
 const PX_PER_GRID_CELL = 200;
-const MIN_BANK_EDGE = 0.05;
+/**
+ * Flat fill used when a body's water texture is not installed (no shipped pack
+ * carries a water surface today). An untinted body still needs a colour.
+ */
+export const WATER_FALLBACK_COLOR = '#9fc8e8';
+/** Shortest bank strip, in cells: shorter runs of a curved shore are chorded together. */
+const MIN_BANK_EDGE = 0.15;
 /** cos(~2.5°) — edges straighter than this join into one bank strip. */
 const COLINEAR_DOT = 0.999;
 
@@ -54,14 +59,23 @@ function mergedEdges(poly: Polygon): [number, number, number, number][] {
     const ax = px - sx, ay = py - sy;
     const bx = cx - px, by = cy - py;
     const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
-    // Break the run where the direction turns by more than ~2.5°
-    if (la > 0 && lb > 0 && (ax * bx + ay * by) / (la * lb) < COLINEAR_DOT) {
+    // Break the run where the direction turns by more than ~2.5°, but only once
+    // the run is long enough to carry a strip: a round join's tiny edges become
+    // short chords instead of being dropped, which left gaps in the bank.
+    if (la >= MIN_BANK_EDGE && lb > 0 && (ax * bx + ay * by) / (la * lb) < COLINEAR_DOT) {
       out.push([sx, sy, px, py]);
       sx = px; sy = py;
     }
     px = cx; py = cy;
   }
-  out.push([sx, sy, px, py]);
+  // A short closing run joins the previous strip rather than leaving a gap.
+  const last = out[out.length - 1];
+  if (last && Math.hypot(px - sx, py - sy) < MIN_BANK_EDGE) {
+    last[2] = px;
+    last[3] = py;
+  } else {
+    out.push([sx, sy, px, py]);
+  }
   return out;
 }
 
@@ -73,7 +87,7 @@ function tracePolygon(g: Graphics, poly: Polygon): void {
 }
 
 /**
- * Render one water body: animated TilingSprite masked to the polygon,
+ * Render one water body: a still TilingSprite masked to the polygon,
  * plus bank edge strips tiled along the outer shoreline.
  */
 function renderWaterChild(parent: Container, water: WaterChild): void {
@@ -86,8 +100,8 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   // just its one unit, matching the palette/brush/floor-fill scale.
   const texture = unitTexture(water.textureId).texture;
   // A 1x1 magenta placeholder means the id can't be resolved — tiling that
-  // would paint the whole body solid magenta.
-  if (texture.width <= 1) return;
+  // would paint the whole body solid magenta, so draw a flat tinted fill instead.
+  const textured = texture.width > 1;
 
   // Clipper can return several same-winding rings for one self-crossing stroke;
   // only the opposite-winding ones are holes to cut out of the body.
@@ -103,6 +117,22 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
 
   const body = new Container();
   body.label = `water-${water.id}`;
+
+  if (!textured) {
+    const flat = new Graphics();
+    flat.label = 'water-flat';
+    for (const ring of fills) tracePolygon(flat, ring);
+    flat.fill({ color: flatWaterColor(water.tint) });
+    if (holes.length > 0) {
+      for (const hole of holes) tracePolygon(flat, hole);
+      flat.cut();
+    }
+    flat.alpha = water.opacity ?? 1;
+    body.addChild(flat);
+    parent.addChild(body);
+    renderBanks(parent, water, fills);
+    return;
+  }
 
   const tileScale = 1 / PX_PER_GRID_CELL;
   const ts = new TilingSprite({
@@ -134,9 +164,21 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   body.mask = mask;
   parent.addChild(body);
 
-  registerFlowSprite(ts, water.flowSpeed ?? 0, water.flowAngle ?? 0);
+  renderBanks(parent, water, fills);
+}
 
-  // ── Bank strips along the outer shoreline ──
+/** The flat-fill colour: the body's tint, or the default water blue when untinted. */
+export function flatWaterColor(tint: string | undefined): number {
+  const hex = tint && tint.toLowerCase() !== '#ffffff' ? tint : WATER_FALLBACK_COLOR;
+  const c = parseColor(hex);
+  return isNaN(c) ? parseColor(WATER_FALLBACK_COLOR) : c;
+}
+
+/**
+ * Bank strips along the outer shoreline. Skipped when the bank texture is not
+ * installed: there is no sensible flat stand-in for a bank.
+ */
+function renderBanks(parent: Container, water: WaterChild, fills: Polygon[]): void {
   if (water.bankTextureId) {
     const bankTex = unitTexture(water.bankTextureId).texture;
     if (bankTex.width > 1) {
@@ -177,7 +219,6 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
  * Rebuild a layer's water sublayer. Called from rebuildDungeonLayer.
  */
 export function rebuildWaterSublayer(waterContainer: Container, layer: DungeonLayer): void {
-  unregisterFlowSpritesIn(waterContainer);
   waterContainer.mask = null;
   for (const child of waterContainer.removeChildren()) child.destroy({ children: true });
 

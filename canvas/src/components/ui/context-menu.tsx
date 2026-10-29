@@ -40,6 +40,8 @@ export interface MenuToggleRow {
   label: string
   checked: boolean
   onToggle: (next: boolean) => void
+  /** Drawn as a switch (the default) or as a checkbox, empty until checked. */
+  look?: 'switch' | 'check'
   separatorBefore?: boolean
   disabled?: boolean
 }
@@ -77,6 +79,8 @@ export interface MenuThumbStripRow {
   label: string
   items: { id: string; src: string; title: string; active?: boolean }[]
   onPick: (id: string) => void
+  /** Close the menu after a pick: the pick is a verb (a swap), not a setting. */
+  closeOnPick?: boolean
   /** Optional trailing verb, e.g. "More…" into the full browser. */
   trailing?: { label: string; onSelect: () => void }
   separatorBefore?: boolean
@@ -273,20 +277,30 @@ function Row({ row, onClose, returnFocus }: {
           )}
         >
           <span>{r.label}</span>
-          <span
-            aria-hidden
-            className={cn(
-              'h-3.5 w-6 rounded-full border transition-colors relative',
-              r.checked ? 'bg-accent-dim border-accent-active' : 'bg-surface-2 border-border-default',
-            )}
-          >
+          {r.look === 'check' ? (
             <span
+              aria-hidden
+              data-look="check"
+              className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-structure"
+            >
+              {r.checked && <Check size={10} strokeWidth={3} className="text-text-primary" />}
+            </span>
+          ) : (
+            <span
+              aria-hidden
               className={cn(
-                'absolute top-0.5 h-2 w-2 rounded-full bg-text-primary transition-transform',
-                r.checked ? 'translate-x-3' : 'translate-x-0.5',
+                'h-3.5 w-6 rounded-full border transition-colors relative',
+                r.checked ? 'bg-accent-dim border-accent-active' : 'bg-surface-2 border-border-default',
               )}
-            />
-          </span>
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 h-2 w-2 rounded-full bg-text-primary transition-transform',
+                  r.checked ? 'translate-x-3' : 'translate-x-0.5',
+                )}
+              />
+            </span>
+          )}
         </button>
       )
     }
@@ -368,6 +382,10 @@ function Row({ row, onClose, returnFocus }: {
                 disabled={r.disabled}
                 onClick={(e) => {
                   e.stopPropagation()
+                  if (r.closeOnPick) {
+                    onClose()
+                    returnFocus()
+                  }
                   r.onPick(it.id)
                 }}
                 className={cn(
@@ -445,15 +463,25 @@ function Row({ row, onClose, returnFocus }: {
  *
  * Accepts either the legacy `label + onSelect` items or the full typed row
  * union — the renderer switches on row type and never on what the menu is for.
+ *
+ * `className` replaces the panel's skin (surface, border, radius, shadow,
+ * width) for a chrome with its own look; position and stacking stay.
+ * `captureKeys` listens for its keys in the capture phase, for a page that
+ * shields the canvas by stopping key events at the document before they
+ * reach their target — the menu still hears them, nothing past it does.
  */
 export function ContextMenu({
   pos,
   onClose,
   items,
+  className,
+  captureKeys = false,
 }: {
   pos: { x: number; y: number } | null
   onClose: () => void
   items: MenuRow[]
+  className?: string
+  captureKeys?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   // Element focused before the menu opened — Escape returns focus here
@@ -520,12 +548,12 @@ export function ContextMenu({
       }
     }
     document.addEventListener('mousedown', onClickOutside)
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keydown', onKeyDown, captureKeys)
     return () => {
       document.removeEventListener('mousedown', onClickOutside)
-      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('keydown', onKeyDown, captureKeys)
     }
-  }, [pos, onClose])
+  }, [pos, onClose, captureKeys])
 
   if (!pos) return null
 
@@ -536,7 +564,11 @@ export function ContextMenu({
       ref={ref}
       role="menu"
       aria-orientation="vertical"
-      className="gg-grain fixed z-50 min-w-[180px] max-w-[260px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1"
+      className={cn(
+        'fixed z-50',
+        className ??
+          'gg-grain min-w-[180px] max-w-[260px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1',
+      )}
       style={{ left: pos.x, top: pos.y }}
     >
       {items.map((row, i) => (

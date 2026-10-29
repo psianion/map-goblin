@@ -34,7 +34,9 @@ vi.mock('pixi.js', () => {
     }
   }
   class MockGraphics extends MockContainer {
+    clears = 0;
     clear(): this {
+      this.clears++;
       this.paths = 0;
       this.fills = 0;
       return this;
@@ -74,7 +76,8 @@ vi.mock('../geometry/Clipper2Engine', () => ({
 import { Container } from 'pixi.js';
 import { updateShadows } from './shadowPass';
 import { setTableWorld } from './worldOverride';
-import { resolveWorldLight, type MapEnvironment } from '../shared/world';
+import { type MapEnvironment } from '../shared/world';
+import { skyFrame, type SkyFrame } from '../shared/sky';
 import { SHADOW_STEPS } from '../shared/shadows';
 import { useStore } from '../store/store';
 import { getLayerEntry } from './sceneGraph';
@@ -83,10 +86,8 @@ import type { DungeonLayer, Polygon } from '../store/types';
 const MAP: MapEnvironment = { environment: 'outdoor', naturalLight: true, orientation: 90 };
 /** 17:00 — a low sun, well clear of the sunset zero. */
 const EVENING = 1020;
-const frameAt = (minutes: number): { minutes: number; sun: ReturnType<typeof resolveWorldLight>['sun'] } => ({
-  minutes,
-  sun: resolveWorldLight({ ...MAP, clockMinutes: minutes, nightSky: 'full-moon' }).sun,
-});
+const frameAt = (minutes: number, over: Partial<Parameters<typeof skyFrame>[0]> = {}): SkyFrame =>
+  skyFrame({ ...MAP, minutes, nightSky: 'full-moon', ...over });
 
 const COURTYARD: Polygon[] = [[[2, 43], [26, 43], [26, 58], [2, 58]]];
 
@@ -112,6 +113,7 @@ interface Recorder {
   fills: number;
   mask: unknown;
   children: Recorder[];
+  clears: number;
 }
 
 const childLabelled = (parent: unknown, label: string): Recorder =>
@@ -179,6 +181,29 @@ describe('the shadow clip', () => {
     updateShadows([layer], 1, frameAt(EVENING));
     expect(drawnOf().paths).toBe(first);
     expect(drawnOf().fills).toBe(SHADOW_STEPS);
+  });
+
+  // Agreed gap: the redraw key ignored the sky, so a full moon going to a crescent (or a
+  // storm rolling in) under a paused clock left the old shadows on the ground.
+  it('redraws when the moon changes under the same clock bucket', () => {
+    const layer = freshLayer();
+    layer.mergedFloor = COURTYARD;
+    const midnight = 30;
+    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'full-moon' }));
+    const full = drawnOf().clears;
+    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'full-moon' }));
+    expect(drawnOf().clears).toBe(full);
+    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'crescent' }));
+    expect(drawnOf().clears).toBeGreaterThan(full);
+  });
+
+  it('redraws when the weather softens the shadows under the same clock bucket', () => {
+    const layer = freshLayer();
+    layer.mergedFloor = COURTYARD;
+    updateShadows([layer], 1, frameAt(EVENING));
+    const clear = drawnOf().clears;
+    updateShadows([layer], 1, frameAt(EVENING, { weather: 'storm' }));
+    expect(drawnOf().clears).toBeGreaterThan(clear);
   });
 
   it('hangs no PixiJS mask on the sublayer — the clip is in the geometry', () => {

@@ -86,7 +86,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
     panelSelectionOrigin.current = true
     setActiveLayerId(layer.id)
     // Ctrl+click: select/deselect all children in this layer
-    if (isDungeon && dungeonLayer && (activeTool === 'select' || activeTool === 'object') && e.ctrlKey) {
+    if (isDungeon && dungeonLayer && activeTool === 'select' && e.ctrlKey) {
       e.stopPropagation()
       const childIds = dungeonLayer.children.map((c) => c.id)
       const allSelected = childIds.every((id) => selectedIds.includes(id))

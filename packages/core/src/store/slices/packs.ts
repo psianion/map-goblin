@@ -1,12 +1,11 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, PackSummary, PackUpdateInfo, PacksSlice } from '../types';
+import type { MapBuilderStore, PackSummary, PackUpdateInfo } from '../types';
 import { getPackManager } from '../packIO';
 
 export interface PackActions {
   setInstalledPacks: (packs: PackSummary[]) => void;
   setAvailableUpdates: (updates: PackUpdateInfo[]) => void;
   setIsChecking: (checking: boolean) => void;
-  setInstallProgress: (progress: PacksSlice['installProgress']) => void;
   checkForPackUpdates: () => Promise<void>;
   installPack: (packId: string) => Promise<void>;
   updatePack: (packId: string) => Promise<void>;
@@ -32,10 +31,6 @@ export const createPacksSlice: StateCreator<
     set((state) => {
       state.packs.isChecking = checking;
     }),
-  setInstallProgress: (progress) =>
-    set((state) => {
-      state.packs.installProgress = progress;
-    }),
 
   checkForPackUpdates: async () => {
     const store = get();
@@ -52,30 +47,21 @@ export const createPacksSlice: StateCreator<
   },
 
   installPack: async (packId: string) => {
-    set((state) => {
-      state.packs.installProgress = { packId, percent: 0 };
-    });
-    try {
-      const packManager = getPackManager();
-      await packManager.installPack(packId);
+    const packManager = getPackManager();
+    await packManager.installPack(packId);
 
-      // Read installed summary from pack manager
-      const installed = packManager.getInstalledPacks().find((p) => p.packId === packId);
-      if (installed) {
-        set((state) => {
-          state.packs.installedPacks.push({
-            packId: installed.packId,
-            name: installed.packId,
-            version: installed.version,
-            sizeBytes: installed.bundleSize,
-            bundled: false,
-            installedAt: Date.now(),
-          });
-        });
-      }
-    } finally {
+    // Read installed summary from pack manager
+    const installed = packManager.getInstalledPacks().find((p) => p.packId === packId);
+    if (installed) {
       set((state) => {
-        state.packs.installProgress = null;
+        state.packs.installedPacks.push({
+          packId: installed.packId,
+          name: installed.packId,
+          version: installed.version,
+          sizeBytes: installed.bundleSize,
+          bundled: false,
+          installedAt: Date.now(),
+        });
       });
     }
   },

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { importedMapToDocument } from './toDocument';
+import { readUvtt } from './uvtt';
 import type { ImportedMap } from './types';
 import type { DungeonLayer } from '../../store/types';
 import type { AssetChild, DoorChild, LightChild } from '../types';
@@ -29,6 +30,17 @@ describe('importedMapToDocument', () => {
     expect(doc.layers.map((l) => l.name)).toEqual(['Background', 'Battlemap', 'Walls']);
   });
 
+  it('writes the imported cell scale, and 5 ft when the source has none', () => {
+    expect(doc.mapSettings.cellScale).toEqual({ value: 5, unit: 'ft' });
+    expect(importedMapToDocument({ ...MAP, cellScale: { value: 10, unit: 'ft' } }).mapSettings.cellScale).toEqual({
+      value: 10,
+      unit: 'ft',
+    });
+    const uvtt = readUvtt({ resolution: { map_origin: { x: 0, y: 0 }, map_size: { x: 2, y: 2 }, pixels_per_grid: 50 } }, 'u');
+    expect(uvtt.cellScale).toBeUndefined();
+    expect(importedMapToDocument(uvtt).mapSettings.cellScale).toEqual({ value: 5, unit: 'ft' });
+  });
+
   it('locks the image layer with the picture filling the map from the corner', () => {
     expect(base.locked).toBe(true);
     const image = base.children[0] as AssetChild;
@@ -41,6 +53,8 @@ describe('importedMapToDocument', () => {
     expect(walls.locked).toBe(false);
     expect(walls.standaloneWalls).toHaveLength(3);
     expect(walls.standaloneWalls[0]).toMatchObject({ points: [[0, 0], [10, 0]], wallType: 'ethereal', direction: 'left' });
+    // Imported walls follow the layer's Width like drawn ones: nothing pins them.
+    for (const w of walls.standaloneWalls) expect(w).not.toHaveProperty('width');
 
     const doors = walls.children.filter((c): c is DoorChild => c.childType === 'door');
     expect(doors).toHaveLength(2);

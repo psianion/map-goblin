@@ -12,15 +12,16 @@ import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
 import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
 import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
-import {
-  authoredBoundaries,
-  authoredRing,
-  connectorToDoor,
-} from '@dnd/core/src/shared/authoredRooms'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the editor's own room migration, pure data
+import { migrateRooms } from '@dnd/core/src/store/roomMigration'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: geometry only, the same function the editor and the table run
+import { syncRooms } from '@dnd/core/src/store/roomSync'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: a cell-bucketed point-in-face lookup
+import { buildRoomIndex } from '@dnd/core/src/shared/roomIndex'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: polygon arithmetic
+import { faceMetrics } from '@dnd/core/src/shared/roomUtils'
 import type {
   AnyChild,
-  ConnectorChild,
   DoorChild,
   LightChild,
   Room,
@@ -43,11 +44,13 @@ const WALL_PROBE = 0.5
 /** ponytail: two maps is a DM switching scenes; a third is rare and a fourth is a leak. */
 export const CACHE_MAX = 3
 
-/** A connector's blob ring and the door twin that stands for it in the graph. */
-export interface ConnectorBlob {
-  door: DoorChild
-  ring: readonly [number, number][]
-}
+/**
+ * A room as the runner holds it: `boundary` is always the room's face. On an anchored map
+ * the face is derived at scene load (`deriveRoomFaces`) and written into `boundary`, which is
+ * also what the player's copy carries on the wire; a manual `boundary` (image-only maps) is
+ * the face as authored.
+ */
+export type RunnerRoom = Room & { boundary: [number, number][] }
 
 export interface SceneMap {
   /** The campaign the map belongs to — module state is keyed by it. */
@@ -61,15 +64,9 @@ export interface SceneMap {
    */
   frame: WorldBounds | null
   /** Every dungeon layer's rooms, corridors included: they are rooms like any other (D6). */
-  rooms: readonly Room[]
-  /** Wall doors and connector door twins alike — one graph, one live state (C1). */
+  rooms: readonly RunnerRoom[]
+  /** Every door on the map — one graph, one live state. */
   doors: readonly DoorChild[]
-  /**
-   * The authored joints, blob ring baked, beside the twin they contribute to `doors`.
-   * The ring is here and nowhere else: only S3's standability fallback asks where a
-   * connector's *interior* is, and nothing ships it (W2).
-   */
-  connectors: readonly ConnectorBlob[]
   /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
   zones: readonly ZoneChild[]
   /** Every authored light, whole (S3 P3 §2): the runner needs where they are and how far they
@@ -80,7 +77,8 @@ export interface SceneMap {
    *  for staleness, and how M5's narration gets a light's name without a server import into
    *  the (pure) triggers module. */
   lightNames: ReadonlyMap<string, string>
-  /** The room whose polygon contains the point, or null if it is on unzoned map (D6). */
+  /** The room whose face contains the point, or null if it is on unzoned map (D6). Answered
+   *  off the core room index, so a query tests only the rooms whose bounds touch its cell. */
   roomAt(x: number, y: number): string | null
   /** The rooms a wall segment borders — both sides of a shared wall. */
   roomsAlong(wall: WallSegment): readonly string[]
@@ -127,30 +125,6 @@ export function isDungeon(layer: Layer): layer is DungeonLayer {
 // and not every array inside it. These two are read on every scene, so they read defensively.
 export const childrenOf = (layer: DungeonLayer): readonly AnyChild[] => layer.children ?? []
 
-/**
- * The same children, as every lane that plays or ships a map reads them: a connector is
- * its door twin (C1/C3 — `connectorToDoor`), and a drawn room is nothing at all.
- *
- * One rewrite, at the one place both the door index and the player cut draw their children
- * from, is what keeps the whole door lane — live state, held set, glyph, facing — unaware
- * that a connector exists. The raw children stay raw for `sweep.ts`, which reads
- * `data.layers` itself.
- *
- * The room and the blob travel *beside* the twin rather than being erased by it (P2's
- * refinement of W2), because a drawn room's boundary is now the wall that stops sight and
- * its blob is the doorway through it — and the table takes its own sweep off the layers it
- * holds. A player without them would see straight through the walls of the rooms they had
- * earned. Credit still fences them: `slice` ships a room child only for a room the party
- * has earned, and a blob only where it joins one, so the contour a player receives is the
- * `Room.boundary` they were already owed and nothing more.
- */
-export const shippableChildren = (layer: DungeonLayer): readonly AnyChild[] => {
-  const kids = childrenOf(layer)
-  const boundaries = authoredBoundaries(kids)
-  return kids.flatMap((child): AnyChild[] =>
-    child.childType === 'connector' ? [connectorToDoor(child, boundaries), child] : [child],
-  )
-}
 export const wallsOf = (layer: DungeonLayer): readonly WallSegment[] => layer.standaloneWalls ?? []
 
 /**
@@ -186,19 +160,20 @@ function healMergedFloor(data: SerializedMapData): void {
   }
 }
 
-function index(campaignId: string, data: SerializedMapData): SceneMap {
+function index(campaignId: string, stored: SerializedMapData): SceneMap {
+  // A map stored before rooms were anchored is read the way the editor now opens it: drawn
+  // rooms become anchored rooms (same ids, so fog keyed on them survives), joints and
+  // name overrides fold away. Its saved faces are kept aside as the fallback for a room
+  // whose face cannot be derived here.
+  const legacy = legacyFaces(stored)
+  const data = migrateRooms(stored)
   healMergedFloor(data)
+  deriveRoomFaces(data, legacy)
   const layers = data.layers.filter(isDungeon)
-  const rooms = layers.flatMap((layer) => layer.rooms ?? [])
-  // Connectors ride in here as their door twins, which is the whole of C1: `doorsOfScene`
-  // seeds them, `visibleRooms`/`blockedEdge` walk them as edges, the held set ships them.
+  const rooms = layers.flatMap((layer) => (layer.rooms ?? []) as RunnerRoom[])
+  const roomIndex = buildRoomIndex(rooms)
   const doors = layers.flatMap((layer) =>
-    shippableChildren(layer).filter((child): child is DoorChild => child.childType === 'door'),
-  )
-  const connectors = layers.flatMap((layer) =>
-    childrenOf(layer)
-      .filter((child): child is ConnectorChild => child.childType === 'connector')
-      .map((child) => ({ door: connectorToDoor(child), ring: authoredRing(child) })),
+    childrenOf(layer).filter((child): child is DoorChild => child.childType === 'door'),
   )
   const zones = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
@@ -217,11 +192,10 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     ),
     rooms,
     doors,
-    connectors,
     zones,
     lights,
     lightNames,
-    roomAt: (x, y) => rooms.find((room) => contains(room, x, y))?.id ?? null,
+    roomAt: (x, y) => roomIndex.roomAt(x, y)?.id ?? null,
     // Probed once per cell along the wall, not at its midpoint alone, and at two depths: a
     // wall belongs to every room it runs along, a long one can run past several — or, on a
     // wall that outlasts the rooms it divides, have its midpoint beside none of them — and a
@@ -248,6 +222,88 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
       }
       return [...along]
     },
+  }
+}
+
+/** The room's face as the runner holds it (`RunnerRoom.boundary`), else whatever it carries. */
+export function roomRing(room: Room): [number, number][] {
+  return room.face ?? room.boundary ?? []
+}
+
+/** A point inside the room: its anchor. */
+export function roomAnchor(room: Room): { x: number; y: number } {
+  return { x: room.anchor[0], y: room.anchor[1] }
+}
+
+/**
+ * The face each room held in a document saved before rooms were anchored: a detected room's
+ * saved `boundary`, or a drawn room child's ring. Keyed by id, which the migration keeps.
+ */
+function legacyFaces(data: SerializedMapData): Map<string, [number, number][]> {
+  const faces = new Map<string, [number, number][]>()
+  if (data.mapSettings?.roomsVersion === 2) return faces
+  for (const layer of data.layers) {
+    if (!isDungeon(layer)) continue
+    for (const room of layer.rooms ?? []) {
+      if (room.boundary && room.boundary.length >= 3) faces.set(room.id, room.boundary)
+    }
+    for (const child of (layer.children ?? []) as readonly LegacyRoomChild[]) {
+      if (child.childType === 'room') faces.set(child.id, legacyRing(child))
+    }
+  }
+  return faces
+}
+
+/** A drawn room child as files before the anchored rooms wrote it. */
+interface LegacyRoomChild {
+  id: string
+  childType: string
+  contours?: [number, number][][]
+  transform?: { translate: [number, number]; rotate: number; scale: [number, number] }
+}
+
+/** A drawn room's outer ring with its transform baked in (the editor baked it the same way). */
+function legacyRing(child: LegacyRoomChild): [number, number][] {
+  const ring = child.contours?.[0] ?? []
+  const t = child.transform
+  if (!t) return ring
+  const [cos, sin] = [Math.cos(t.rotate), Math.sin(t.rotate)]
+  return ring.map(([x, y]): [number, number] => {
+    const [sx, sy] = [x * t.scale[0], y * t.scale[1]]
+    return [sx * cos - sy * sin + t.translate[0], sx * sin + sy * cos + t.translate[1]]
+  })
+}
+
+/**
+ * §10 — every room's face, derived once at scene load with core's `syncRooms` (the same
+ * function the editor and the table run, so all three agree on every face) and written into
+ * `boundary`: the ring the sweep, the room tests below and the player's copy all read.
+ * `face` itself is dropped once copied (with `doors`, see below), so the wire carries one
+ * ring per room, and a client reading the player's copy takes that `boundary` as the room's
+ * face without re-deriving it from a floor it was never sent.
+ *
+ * Mutates `data.layers` for the reason `healMergedFloor` does (this is the index's own copy).
+ * Gated on Clipper the same way: without the real engine a face would be cut wrong, and a
+ * room that cannot be placed falls back to the face its file saved (`legacy`), else none.
+ * Door bindings stay as the editor saved them — it ran this same sync before it saved.
+ */
+function deriveRoomFaces(data: SerializedMapData, legacy: ReadonlyMap<string, [number, number][]>): void {
+  for (const layer of data.layers) {
+    if (!isDungeon(layer) || !layer.rooms?.length) continue
+    const synced = isClipperReady()
+      ? syncRooms({ ...layer, children: layer.children ?? [], standaloneWalls: wallsOf(layer) as WallSegment[] }).rooms
+      : layer.rooms
+    layer.rooms = synced.map((room) => {
+      // `doors` lists every door bound to the room, secret ones included, and a player's copy
+      // ships the room itself: it must never ride along. `orphaned` is editor chrome.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
+      const { face, doors: _doors, orphaned: _orphaned, ...rest } = room
+      const ring = (face && face.length >= 3 ? face : null) ?? legacy.get(room.id) ?? rest.boundary ?? []
+      // A face the sync did not place (a saved one, or no Clipper) comes without the metrics
+      // a placed one carries; the wire promises them either way (labels, pathway filters).
+      const metrics = rest.area === undefined && ring.length >= 3 ? faceMetrics(ring, 1) : null
+      return { ...rest, ...metrics, boundary: ring }
+    })
   }
 }
 
@@ -303,7 +359,7 @@ export function pointInPoly(poly: readonly [number, number][], x: number, y: num
   return inside
 }
 
-function contains(room: Room, x: number, y: number): boolean {
+function contains(room: RunnerRoom, x: number, y: number): boolean {
   return pointInPoly(room.boundary, x, y)
 }
 

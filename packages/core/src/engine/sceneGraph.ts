@@ -12,13 +12,19 @@ import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { initBandGhostPreview } from './bandGhostPreview';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
-import { initWaterAnimation, getWaterFilter } from './water/waterAnimation';
 
 export interface SceneGraph {
   worldContainer: Container;
   overlayContainer: Container;
   backgroundLayer: Container;
   layerContainer: Container;
+  /**
+   * Overhead props (canopies, webs, beams) of every layer, above all of them: they hang
+   * over the map, not on a layer of it. Sorted by `zIndex` (layer order, then each
+   * layer's own order); `subscribeToAssets` fills it. The table lifts it into its
+   * token screen layer, so it also draws over tokens.
+   */
+  overheadContainer: Container;
   previewContainer: Container;
   gridRenderer: GridRenderer;
   /** Null unless the scene graph was built with `editorGuides` — see SceneGraphOptions. */
@@ -52,6 +58,11 @@ export interface DungeonSublayers {
   grid: Container;
   walls: Container;
   /**
+   * The editor's look for walls that let light through (lighter stones, a dashed spine),
+   * above the stones. Only filled while an editor desk is installed; see `renderNodeWalls`.
+   */
+  wallMarks: Container;
+  /**
    * Doors draw here, not into `walls`. A door state flip (open/closed,
    * locked, secret, style) redraws only this container — no wall-stone
    * re-layout. Door GEOMETRY changes still need the full rebuild because
@@ -78,6 +89,13 @@ export interface LayerEntry {
 
 const layerEntries = new Map<string, LayerEntry>();
 
+let overheadContainerRef: Container | null = null;
+
+/** The scene graph's overhead container, once one is built; the sprite sync reaches it here. */
+export function getOverheadContainer(): Container | null {
+  return overheadContainerRef;
+}
+
 export function getLayerEntries(): Map<string, LayerEntry> {
   return layerEntries;
 }
@@ -96,6 +114,7 @@ export function getLayerEntry(id: string): LayerEntry | undefined {
  *     │     ├── backgroundLayer
  *     │     ├── layerContainer
  *     │     │     └── (per-layer containers added dynamically)
+ *     │     ├── overheadContainer (overhead props of every layer)
  *     └── overlayContainer (screen-space, not camera-transformed)
  *           └── lightingComposite (LightingRenderer FBO sprite)
  */
@@ -118,9 +137,6 @@ export function buildSceneGraph(
   setTerrainRenderer(terrainRenderer);
   worldContainer.addChild(terrainRenderer.container);
 
-  // Water animation (shared displacement filter + flow ticker)
-  initWaterAnimation(engine, worldContainer);
-
   // Grid renderer — persistent background grid behind all layers
   const gridRenderer = new GridRenderer();
   worldContainer.addChild(gridRenderer.container);
@@ -129,13 +145,19 @@ export function buildSceneGraph(
   layerContainer.label = 'layerContainer';
   worldContainer.addChild(layerContainer);
 
+  const overheadContainer = new Container();
+  overheadContainer.label = 'overheadContainer';
+  overheadContainer.sortableChildren = true;
+  worldContainer.addChild(overheadContainer);
+  overheadContainerRef = overheadContainer;
+
   // Preview container — stamp/scatter tool preview sprites rendered here
   const previewContainer = new Container();
   previewContainer.label = 'previewContainer';
   worldContainer.addChild(previewContainer);
 
   // Tool manager — handles drawing tools and preview rendering
-  const toolManager = new ToolManager(worldContainer);
+  const toolManager = new ToolManager(worldContainer, overlayContainer);
 
   // Tool settings preview — ghost shape shown while editing tool popover
   const settingsPreview = new Graphics();
@@ -189,6 +211,7 @@ export function buildSceneGraph(
     overlayContainer,
     backgroundLayer,
     layerContainer,
+    overheadContainer,
     previewContainer,
     gridRenderer,
     mapBoundaryRenderer,
@@ -220,6 +243,7 @@ export function addLayerToScene(
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
+    const wallMarks = new Container(); wallMarks.label = 'sublayer-wall-marks';
     const doors = new Container(); doors.label = 'sublayer-doors';
     const objects = new Container(); objects.label = 'sublayer-objects';
     const labels = new Container(); labels.label = 'sublayer-labels';
@@ -227,11 +251,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(water, floor, shadows, grid, walls, doors, objects, labels);
-    // Shared ripple displacement over all water in this layer
-    const waterFilter = getWaterFilter();
-    if (waterFilter) water.filters = [waterFilter];
-    sublayers = { water, floor, shadows, grid, walls, doors, objects, labels };
+    container.addChild(water, floor, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { water, floor, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

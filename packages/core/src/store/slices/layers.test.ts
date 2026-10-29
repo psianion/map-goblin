@@ -11,10 +11,8 @@ function dungeonLayer(): DungeonLayer {
 const ROOM: Room = {
   id: 'room-abc',
   name: 'Room 1',
-  boundary: [[0, 0], [10, 0], [10, 10], [0, 10]],
-  centroid: [5, 5],
-  area: 100,
-  isPathway: false,
+  number: 1,
+  anchor: [5, 5],
 };
 
 describe('room store actions', () => {
@@ -22,7 +20,7 @@ describe('room store actions', () => {
     useStore.getState().resetToDefault();
   });
 
-  it('starts with no rooms detected', () => {
+  it('starts with no rooms', () => {
     expect(dungeonLayer().rooms).toBeUndefined();
   });
 
@@ -37,18 +35,25 @@ describe('room store actions', () => {
     expect(dungeonLayer().rooms).toBeUndefined();
   });
 
-  it('renameRoom updates the room and records an override', () => {
+  it('updateRoom merges a patch and removes keys set to undefined', () => {
     const id = dungeonLayer().id;
-    useStore.getState().setRooms(id, [ROOM]);
-    useStore.getState().renameRoom(id, ROOM.id, "Klarg's Cave");
+    useStore.getState().setRooms(id, [{ ...ROOM, areaId: 'a1' }]);
+    useStore.getState().updateRoom(id, ROOM.id, { name: "Klarg's Cave", areaId: undefined });
     expect(dungeonLayer().rooms?.[0].name).toBe("Klarg's Cave");
-    expect(dungeonLayer().roomNameOverrides?.[ROOM.id]).toBe("Klarg's Cave");
+    expect(dungeonLayer().rooms?.[0]).not.toHaveProperty('areaId');
+    expect(dungeonLayer().rooms?.[0].number).toBe(1);
   });
 
-  it('renameRoom records an override even before the room is detected', () => {
-    // The override is the durable record — re-detection reads it back.
-    useStore.getState().renameRoom(dungeonLayer().id, 'room-xyz', 'Goblin Den');
-    expect(dungeonLayer().roomNameOverrides?.['room-xyz']).toBe('Goblin Den');
+  it('setThresholds and setAreas drop the key when emptied', () => {
+    const id = dungeonLayer().id;
+    useStore.getState().setThresholds(id, [{ id: 't1', points: [[0, 0], [1, 0]] }]);
+    useStore.getState().setAreas(id, [{ id: 'a1', name: 'Crypt' }]);
+    expect(dungeonLayer().thresholds).toHaveLength(1);
+    expect(dungeonLayer().areas).toHaveLength(1);
+    useStore.getState().setThresholds(id, []);
+    useStore.getState().setAreas(id, []);
+    expect(dungeonLayer()).not.toHaveProperty('thresholds');
+    expect(dungeonLayer()).not.toHaveProperty('areas');
   });
 });
 
@@ -90,5 +95,32 @@ describe('reorderChild bounds guard', () => {
     useStore.getState().reorderChild(layer.id, fromIndex, toIndex);
 
     expect(dungeonLayer().children.map((c) => c.id)).toEqual(before);
+  });
+});
+
+describe('setChildOrder', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  const light = (id: string): AnyChild => ({
+    id, name: id, childType: 'light', visible: true, color: '#fff', radius: 1, featherRadius: 0,
+    intensity: 1, falloff: 'linear', position: { x: 0, y: 0 },
+  });
+  const order = () => dungeonLayer().children.map((c) => c.id);
+
+  it('reorders the listed ids among their own slots and leaves the rest in place', () => {
+    for (const id of ['a', 'b', 'c', 'd']) useStore.getState().addChild(dungeonLayer().id, light(id));
+    useStore.getState().setChildOrder(dungeonLayer().id, ['d', 'ghost', 'b']);
+    expect(order()).toEqual(['a', 'd', 'c', 'b']);
+    useStore.getState().setChildOrder(dungeonLayer().id, ['b', 'c', 'd', 'a']);
+    expect(order()).toEqual(['b', 'c', 'd', 'a']);
+  });
+
+  it('addChild inserts at an index and appends past the end', () => {
+    for (const id of ['a', 'b']) useStore.getState().addChild(dungeonLayer().id, light(id));
+    useStore.getState().addChild(dungeonLayer().id, light('x'), 0);
+    useStore.getState().addChild(dungeonLayer().id, light('y'), 99);
+    expect(order()).toEqual(['x', 'a', 'b', 'y']);
   });
 });

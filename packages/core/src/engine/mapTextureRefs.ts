@@ -4,16 +4,16 @@
 // the bridge between "here's a map" and "here's what to fetch" — see
 // AssetPackManager.ensureTexturesForMap, the entry point both apps call.
 
-import { getWallSet } from '../assets/packCatalog';
+import { getBandSet, getWallSet } from '../assets/packCatalog';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
-import type { SerializedMapData } from '../store/types';
+import type { Level, RoomLook, SerializedMapData } from '../store/types';
 
 /**
  * Everything `collectMapTextureIds` needs from a map. A `Pick` of
  * `SerializedMapData` rather than the type itself so the live store (same
  * shape, different interface) can be passed straight in too.
  */
-export type MapTextureSource = Pick<SerializedMapData, 'mapSettings' | 'layers'>;
+export type MapTextureSource = Pick<SerializedMapData, 'mapSettings' | 'layers'> & { levels?: readonly Level[] };
 
 /**
  * Every raw texture id a map references: floor/shape fills, water + water
@@ -41,27 +41,41 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
   const addWallFamily = (setId: string | undefined): void => {
     if (!setId) return;
     for (const piece of getWallSet(setId)) ids.add(piece.id);
+    // A cave band kit is a wall family too: the renderer lays its rock along
+    // every ring of a layer that names it.
+    for (const piece of getBandSet(setId)) ids.add(piece.id);
+  };
+
+  // A level, area or room look may pin a floor texture and a wall set of its own.
+  const addLook = (look: RoomLook | undefined): void => {
+    add(look?.floorTextureId);
+    addWallFamily(look?.wallTextureSetId);
   };
 
   for (const id of mapData.mapSettings.terrain?.palette ?? []) add(id);
+  for (const level of mapData.levels ?? []) addLook(level.look);
 
   for (const layer of mapData.layers) {
     if (layer.type === 'dungeon') {
       add(layer.style.defaultTextureId);
       addWallFamily(layer.style.wallTextureSetId);
       for (const wall of layer.standaloneWalls) addWallFamily(wall.textureSetId);
+      for (const room of layer.rooms ?? []) addLook(room.look);
+      for (const area of layer.areas ?? []) addLook(area.look);
 
       for (const child of layer.children) {
         switch (child.childType) {
-          case 'shape':
+          case 'shape': {
             add(child.textureId);
+            // A floor a preset pinned keeps its outline's wall set (wallLook.ts
+            // ringStyles), which may not be the layer's.
+            const pinned = child.styleOverrides?.wallTextureSetId;
+            if (typeof pinned === 'string') addWallFamily(pinned);
             break;
+          }
           case 'water':
             add(child.textureId);
             add(child.bankTextureId);
-            break;
-          case 'light':
-            add(child.maskTextureId);
             break;
           case 'door':
             add(child.portalTextureId);
@@ -95,9 +109,19 @@ export function resolveAssetSets(
 
   for (const rawId of ids) {
     const sep = rawId.indexOf(':');
-    if (sep === -1) continue;
-    const packId = rawId.slice(0, sep);
-    const entryId = rawId.slice(sep + 1);
+    let packId: string;
+    let entryId: string;
+    if (sep === -1) {
+      // A bare id saved before it carried a pack prefix (the water textures):
+      // the first pack that has an entry by that name owns it.
+      const owner = manifests.find((m) => m.manifest.entries[rawId]);
+      if (!owner) continue;
+      packId = owner.packId;
+      entryId = rawId;
+    } else {
+      packId = rawId.slice(0, sep);
+      entryId = rawId.slice(sep + 1);
+    }
     const entry: ManifestEntry | undefined = manifestByPack.get(packId)?.entries[entryId];
     if (!entry?.set) continue;
 

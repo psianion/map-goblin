@@ -13,8 +13,8 @@
 
 import type { Point, Polygon } from '../types/geometry';
 import type { DungeonLayer, ShapeChild, AnyChild } from '../store/types';
-import type { RingGeometry, RoomChild } from '../shared/types';
-import { effectiveContours } from './tools/childTransform';
+import type { RingGeometry } from '../shared/types';
+
 import { useStore } from '../store/store';
 import { isLayerEffectivelyVisible } from '../store/selectors';
 import { undoManager } from '../store/undoManager';
@@ -142,7 +142,7 @@ export interface OutlineTarget {
    * read `outline`. Eagerly computed, that was dozens of WASM ops at 60 Hz for
    * a static overlay. Only the write paths call it.
    */
-  contributors: () => (ShapeChild | RoomChild)[];
+  contributors: () => ShapeChild[];
   /**
    * Index into `holes` when the ring being edited is one of them rather than
    * the outer boundary. A hole's stones are wall the DM can see and grab just
@@ -187,22 +187,6 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
   );
   if (!layer) return null;
 
-  // A drawn room owns its ring outright — it never unions into `mergedFloor`,
-  // so there is no merged outline to resolve and nothing to collapse. Hand back
-  // its own contours and let the same edit/commit machinery run on them.
-  const room = layer.children.find(
-    (c): c is RoomChild => c.id === shapeId && c.childType === 'room',
-  );
-  if (room) {
-    const rings = effectiveContours(room);
-    return {
-      layer,
-      outline: rings[0] ?? [],
-      holes: rings.slice(1),
-      contributors: () => [room],
-      tangents: ringTangentsOf(room) ?? [],
-    };
-  }
 
   const shape = layer.children.find(
     (c): c is ShapeChild => c.id === shapeId && c.childType === 'shape',
@@ -567,11 +551,31 @@ export function commitOutline(
   return merged.id;
 }
 
+/** Distance from a point to a closed ring's edge, in world units. */
+function distToRing(p: [number, number], ring: Polygon): number {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const vx = b[0] - a[0];
+    const vy = b[1] - a[1];
+    const len2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / len2));
+    best = Math.min(best, Math.hypot(p[0] - (a[0] + vx * t), p[1] - (a[1] + vy * t)));
+  }
+  return best;
+}
+
 /**
  * Toggle vertex editing for whatever floor is under `world`.
  * Returns true when it took the click.
+ *
+ * `near` widens the pick to a floor whose edge passes within that many world
+ * units of the point: a cave layer's rock straddles the edge and reaches into
+ * the void, so a double-click on the rock is the outline's to take even when it
+ * lands just outside the floor.
  */
-export function toggleShapeNodeEditAt(world: Point): boolean {
+export function toggleShapeNodeEditAt(world: Point, near = 0): boolean {
   const state = useStore.getState();
   if (state.tools.shapeNodeEditId) {
     state.setShapeNodeEdit(null);
@@ -585,9 +589,21 @@ export function toggleShapeNodeEditAt(world: Point): boolean {
   // Topmost first, matching how selection picks.
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const c = layer.children[i];
-    if ((c.childType !== 'shape' && c.childType !== 'room') || !c.visible) continue;
+    if (c.childType !== 'shape' || !c.visible) continue;
     if (pointInPolygon([world.x, world.y], ringOf(c))) {
       state.setShapeNodeEdit(c.id);
+      return true;
+    }
+  }
+  if (near > 0) {
+    let best: { id: string; d: number } | null = null;
+    for (const c of layer.children) {
+      if (c.childType !== 'shape' || !c.visible) continue;
+      const d = distToRing([world.x, world.y], ringOf(c));
+      if (d <= near && (!best || d < best.d)) best = { id: c.id, d };
+    }
+    if (best) {
+      state.setShapeNodeEdit(best.id);
       return true;
     }
   }

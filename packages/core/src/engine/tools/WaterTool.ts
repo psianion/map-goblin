@@ -160,8 +160,6 @@ export class WaterTool implements DrawingTool {
       opacity: 0.9,
       bankTextureId: s.bankTextureId,
       bankWidth: 0.5,
-      flowSpeed: s.flowSpeed,
-      flowAngle: 0,
     };
   }
 
@@ -181,13 +179,7 @@ export class WaterTool implements DrawingTool {
     const inflated = clipper2Engine.inflateOpen([path], s.width / 2);
     if (inflated.length === 0) return;
 
-    // River flows roughly from stroke start to stroke end
-    const flowAngle = Math.atan2(
-      pts[pts.length - 1].y - pts[0].y,
-      pts[pts.length - 1].x - pts[0].x,
-    );
     const child = this.makeChild(inflated as [number, number][][], 'river', layer);
-    child.flowAngle = flowAngle;
     undoManager.execute(new AddChildCommand('Draw river', layer.id, child));
   }
 
@@ -208,7 +200,6 @@ export class WaterTool implements DrawingTool {
     const normalized = clipper2Engine.union([contour], []);
     const contours = (normalized.length > 0 ? normalized : [contour]) as [number, number][][];
     const child = this.makeChild(contours, 'lake', layer);
-    child.flowSpeed = 0; // lakes are still by default
     undoManager.execute(new AddChildCommand('Draw lake', layer.id, child));
   }
 

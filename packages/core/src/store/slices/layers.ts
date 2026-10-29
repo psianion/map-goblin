@@ -1,27 +1,33 @@
 import type { StateCreator } from 'zustand';
 import type { AnyChild, Layer, MapBuilderStore, Room, SublayerVisibility, WallSegment } from '../types';
-import type { WallEdits } from '../../shared/types';
+import type { RoomArea, ThresholdSegment, WallEdits } from '../../shared/types';
 
 export interface LayerActions {
   addLayer: (layer: Layer) => void;
   removeLayer: (id: string) => void;
   reorderLayers: (fromIndex: number, toIndex: number) => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
-  addChild: (layerId: string, child: AnyChild) => void;
+  /** Appends the child, or inserts it at `index` (placing under, an undone delete). */
+  addChild: (layerId: string, child: AnyChild, index?: number) => void;
   removeChild: (layerId: string, childId: string) => void;
   reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
+  /** Reorders children to `ids`; unknown ids are ignored, a child missing from `ids` keeps its index. */
+  setChildOrder: (layerId: string, ids: string[]) => void;
   updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
   recomputeMergedFloor: (layerId: string) => void;
   /** A pack texture a floor bake needed has landed — re-key the bake. */
   bumpFloorTextureEpoch: (layerId: string) => void;
-  addWall: (layerId: string, wall: WallSegment) => void;
+  /** Appends the wall, or inserts it at `index` (an undone delete going back where it was). */
+  addWall: (layerId: string, wall: WallSegment, index?: number) => void;
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   /** Replace the hand edits for one floor ring; undefined clears them. */
   setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
   closeAllDoors: (layerId: string) => void;
   setRooms: (layerId: string, rooms: Room[]) => void;
-  renameRoom: (layerId: string, roomId: string, name: string) => void;
+  updateRoom: (layerId: string, roomId: string, patch: Partial<Room>) => void;
+  setThresholds: (layerId: string, thresholds: ThresholdSegment[]) => void;
+  setAreas: (layerId: string, areas: RoomArea[]) => void;
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
   setBackgroundTexture: (layerId: string, url: string | null) => void;
   setBackgroundLocked: (layerId: string, locked: boolean) => void;
@@ -35,6 +41,11 @@ export const createLayersSlice: StateCreator<
 > = (set, _get) => ({
   addLayer: (layer) =>
     set((state) => {
+      // Every layer belongs to a level. One added without a level the map knows
+      // (a fresh layer, a paste from another map) lands in the level on show.
+      if (!state.levels.some((l) => l.id === layer.levelId)) {
+        layer = { ...layer, levelId: state.ui.activeLevelId || state.levels[0]?.id || '' };
+      }
       state.layers.push(layer);
     }),
   removeLayer: (id) =>
@@ -48,10 +59,17 @@ export const createLayersSlice: StateCreator<
       if (state.ui.solo?.layerId === id) {
         state.ui.solo = null;
       }
-      state.layers.splice(idx, 1);
+      const [gone] = state.layers.splice(idx, 1);
       if (state.ui.activeLayerId === id) {
-        const nextIdx = Math.min(idx, state.layers.length - 1);
-        state.ui.activeLayerId = state.layers[nextIdx]?.id ?? '';
+        // Stay on the level being shown: the next layer of the same level, else
+        // the nearest one, else whatever is left.
+        const sameLevel = state.layers.filter((l) => l.levelId === gone.levelId);
+        const next =
+          sameLevel.find((l) => state.layers.indexOf(l) >= idx) ??
+          sameLevel.at(-1) ??
+          state.layers[Math.min(idx, state.layers.length - 1)];
+        state.ui.activeLayerId = next?.id ?? '';
+        if (next) state.ui.activeLevelId = next.levelId;
       }
     }),
   reorderLayers: (fromIndex, toIndex) =>
@@ -68,13 +86,17 @@ export const createLayersSlice: StateCreator<
     }),
 
   // ─── Child CRUD ─────────────────────────────────────────
-  addChild: (layerId, child) =>
+  addChild: (layerId, child, index) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
         // L2: Guard against duplicate IDs — silently ignore if already present
         if (layer.children.some((c) => c.id === child.id)) return;
-        layer.children.push(child);
+        if (index !== undefined && index >= 0 && index < layer.children.length) {
+          layer.children.splice(index, 0, child);
+        } else {
+          layer.children.push(child);
+        }
       }
     }),
   removeChild: (layerId, childId) =>
@@ -98,6 +120,18 @@ export const createLayersSlice: StateCreator<
       }
       const [child] = layer.children.splice(fromIndex, 1);
       if (child) layer.children.splice(toIndex, 0, child);
+    }),
+  setChildOrder: (layerId, ids) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      const byId = new Map(layer.children.map((c) => [c.id, c]));
+      const order = [...new Set(ids)].filter((id) => byId.has(id));
+      const listed = new Set(order);
+      // The listed children trade places among the slots they already hold, so
+      // everything left out of `ids` stays exactly where it was.
+      let next = 0;
+      layer.children = layer.children.map((c) => (listed.has(c.id) ? byId.get(order[next++])! : c));
     }),
   updateChild: (layerId, childId, patch) =>
     set((state) => {
@@ -135,11 +169,15 @@ export const createLayersSlice: StateCreator<
     }),
 
   // ─── Wall actions (sublayer detail) ─────────────────────
-  addWall: (layerId, wall) =>
+  addWall: (layerId, wall, index) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
-        layer.standaloneWalls.push(wall);
+        if (index !== undefined && index >= 0 && index < layer.standaloneWalls.length) {
+          layer.standaloneWalls.splice(index, 0, wall);
+        } else {
+          layer.standaloneWalls.push(wall);
+        }
       }
     }),
   removeWall: (layerId, wallId) =>
@@ -192,21 +230,32 @@ export const createLayersSlice: StateCreator<
         layer.rooms = rooms;
       }
     }),
-  // The override is the durable record — re-detection reads it back, so a
-  // renamed room keeps its name even after its boundary is recomputed.
-  renameRoom: (layerId, roomId, name) =>
+  // The room is the durable record now — its id, name and anchor are authored, so
+  // a rename is a plain field write that no refresh ever puts back.
+  updateRoom: (layerId, roomId, patch) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (!layer || layer.type !== 'dungeon') return;
-      layer.roomNameOverrides ??= {};
-      layer.roomNameOverrides[roomId] = name;
       const room = layer.rooms?.find((r) => r.id === roomId);
-      if (room) room.name = name;
-      // A drawn room takes its name straight off its child, and overrides are
-      // never consulted on that path — so without this write the next resync
-      // would put the old name back and the rename would look like it failed.
-      const child = layer.children.find((c) => c.id === roomId);
-      if (child?.childType === 'room') child.name = name;
+      if (!room) return;
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) delete (room as unknown as Record<string, unknown>)[k];
+        else (room as unknown as Record<string, unknown>)[k] = v;
+      }
+    }),
+  setThresholds: (layerId, thresholds) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      if (thresholds.length > 0) layer.thresholds = thresholds;
+      else delete layer.thresholds;
+    }),
+  setAreas: (layerId, areas) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      if (areas.length > 0) layer.areas = areas;
+      else delete layer.areas;
     }),
 
   // ─── Sublayer / background ─────────────────────────────

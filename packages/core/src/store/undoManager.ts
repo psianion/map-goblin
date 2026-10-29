@@ -1,14 +1,16 @@
 import type { Command } from './types';
-import { syncRooms } from './roomSync';
+import { refreshRooms } from './roomRefresh';
 
 /**
- * Rooms and door→room bindings are derived from geometry, so a command that
- * moved geometry re-derives them here — in the same undo entry, which is what
- * keeps the table's vision from reading a stale roomA/B (DD7). Undo needs no
- * saved binding: it is a pure function of the geometry undo just restored.
+ * Room faces and door→room bindings are derived from geometry (and from the
+ * anchors and thresholds rooms are placed by), so a command that moved any of
+ * those re-derives them here — in the same undo entry, which is what keeps the
+ * table's vision from reading a stale roomA/B (DD7). Undo needs no saved
+ * binding: it is a pure function of the state undo just restored. Commands
+ * without `affectsRooms` (a rename, a look pin) skip the refresh entirely.
  */
 function rederiveRooms(cmd: Command): void {
-  if (cmd.affectsRooms) syncRooms();
+  if (cmd.affectsRooms) refreshRooms();
 }
 
 class UndoManager {

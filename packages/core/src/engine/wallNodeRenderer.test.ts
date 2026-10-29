@@ -9,10 +9,12 @@ vi.mock('pixi.js', () => {
   class MockContainer {
     label = '';
     destroyed = false;
+    alpha = 1;
+    visible = true;
     children: MockContainer[] = [];
-    addChild(c: MockContainer): MockContainer {
-      this.children.push(c);
-      return c;
+    addChild(...cs: MockContainer[]): MockContainer {
+      this.children.push(...cs);
+      return cs[0];
     }
     removeChildAt(i: number): MockContainer {
       return this.children.splice(i, 1)[0];
@@ -38,7 +40,26 @@ vi.mock('pixi.js', () => {
       this.texture = texture;
     }
   }
-  return { Container: MockContainer, Sprite: MockSprite };
+  class MockGraphics extends MockContainer {
+    ops: string[] = [];
+    moveTo(): this {
+      this.ops.push('move');
+      return this;
+    }
+    lineTo(): this {
+      this.ops.push('line');
+      return this;
+    }
+    clear(): this {
+      this.ops = [];
+      return this;
+    }
+    stroke(): this {
+      this.ops.push('stroke');
+      return this;
+    }
+  }
+  return { Container: MockContainer, Sprite: MockSprite, Graphics: MockGraphics };
 });
 
 vi.mock('../assets/textureLoader', () => ({
@@ -47,6 +68,10 @@ vi.mock('../assets/textureLoader', () => ({
 }));
 
 vi.mock('../assets/packCatalog', () => ({
+  isBandSet: () => false,
+  getBandSet: () => [],
+  bandSetArt: () => new Map(),
+  GRID_CELL_PX: 200,
   getWallPieces: (_set: string, piece: string) =>
     piece === 'straight'
       ? [{ id: 'straight-a', naturalWidth: 200, naturalHeight: 200, contentRect: { x: 0, y: 0, w: 200, h: 60 }, tags: [] }]
@@ -54,7 +79,7 @@ vi.mock('../assets/packCatalog', () => ({
 }));
 
 import { Container } from 'pixi.js';
-import { renderNodeWalls, withoutDoorGaps, type DoorGap } from './wallNodeRenderer';
+import { authoredWallMarks, renderNodeWalls, withoutDoorGaps, WALL_MARK_ALPHA, type DoorGap } from './wallNodeRenderer';
 import { layoutWall, pieceWorldLength } from './wallLayout';
 import type { WallNode, WallPieceSpec } from './wallLayout';
 import type { DungeonStyle, WallSegment } from '../store/types';
@@ -102,6 +127,158 @@ describe('renderNodeWalls — stone sprite pool', () => {
     const container = render([wall('w1', 10)]);
     renderNodeWalls(container, [], [wall('w1', 10)], { ...style, wallTextureSetId: '' } as DungeonStyle);
     expect(container.children).toHaveLength(0);
+  });
+});
+
+type Spr = { tint: number; scale: { x: number; y: number }; position: { x: number; y: number } };
+const sprites = (c: Container) => c.children as unknown as Spr[];
+const typed = (id: string, wallType: WallSegment['wallType'], y = 0): WallSegment =>
+  ({ id, points: [[0, y], [10, y]], wallType }) as WallSegment;
+
+describe('renderNodeWalls — look pins', () => {
+  it('a wall without a width takes the layer width, so it moves with it', () => {
+    const own = render([wall('w1', 10)]);
+    const bare = render([{ id: 'w1', points: [[0, 0], [10, 0]] } as WallSegment]);
+    expect(sprites(bare).map((s) => s.scale.y)).toEqual(sprites(own).map((s) => s.scale.y));
+    const thick = new Container();
+    renderNodeWalls(thick, [], [{ id: 'w1', points: [[0, 0], [10, 0]] } as WallSegment], { ...style, wallWidth: 0.8 });
+    expect(sprites(thick)[0].scale.y).toBeCloseTo(sprites(bare)[0].scale.y * 2);
+  });
+
+  it('an empty set pin keeps a wall bare on a layer with stones', () => {
+    const c = render([{ ...wall('w1', 10), textureSetId: '' }]);
+    expect(c.children).toHaveLength(0);
+  });
+
+  it('each floor ring draws with its own style: a pinned floor keeps its tint and width', () => {
+    const ring = (x: number): Polygon => [[x, 0], [x + 6, 0], [x + 6, 6], [x, 6]];
+    const c = new Container();
+    const pinned = { ...style, wallTextureTint: '#b09878', wallWidth: 0.8 } as DungeonStyle;
+    renderNodeWalls(c, [ring(0), ring(20)], [], { ...style, wallTextureTint: '#ffffff' }, [], {}, {
+      ringStyles: [pinned, { ...style, wallTextureTint: '#ffffff' }],
+    });
+    const left = sprites(c).filter((s) => s.position.x < 10);
+    const right = sprites(c).filter((s) => s.position.x > 10);
+    expect(new Set(left.map((s) => s.tint))).toEqual(new Set([0xb09878]));
+    expect(new Set(right.map((s) => s.tint))).toEqual(new Set([0xffffff]));
+    expect(Math.max(...left.map((s) => s.scale.y))).toBeGreaterThan(Math.max(...right.map((s) => s.scale.y)));
+  });
+});
+
+describe('renderNodeWalls — per-edge styles (a room pins its walls)', () => {
+  // A 12×6 ring: edges 0 top, 1 right, 2 bottom, 3 left.
+  const ring: Polygon = [[0, 0], [12, 0], [12, 6], [0, 6]];
+  const base = { ...style, wallTextureTint: '#ffffff' } as DungeonStyle;
+  type Pos = { tint: number; position: { x: number; y: number }; scale: { y: number } };
+  const laid = (c: Container) => (c.children as unknown as Pos[]).map((s) => ({ x: s.position.x, y: s.position.y, tint: s.tint, sy: s.scale.y }));
+
+  it('a ring with null edges lays out exactly as without the option', () => {
+    const plain = new Container();
+    renderNodeWalls(plain, [ring], [], base, [], {}, { ringStyles: [base] });
+    const nulled = new Container();
+    renderNodeWalls(nulled, [ring], [], base, [], {}, { ringStyles: [base], edgeStyles: [null] });
+    expect(laid(nulled)).toEqual(laid(plain));
+  });
+
+  it('a tint pinned on some edges keeps the ring layout and tints only their stones', () => {
+    const plain = new Container();
+    renderNodeWalls(plain, [ring], [], base, [], {}, { ringStyles: [base] });
+    const green = { ...base, wallTextureTint: '#00ff00' } as DungeonStyle;
+    const c = new Container();
+    renderNodeWalls(c, [ring], [], base, [], {}, { ringStyles: [base], edgeStyles: [[green, base, base, base]] });
+    const pos = (l: ReturnType<typeof laid>) => l.map(({ x, y }) => `${x.toFixed(3)},${y.toFixed(3)}`).sort();
+    // Same stones, same places.
+    expect(pos(laid(c))).toEqual(pos(laid(plain)));
+    const top = laid(c).filter((s) => s.y < 0.5 && s.x > 1 && s.x < 11);
+    const bottom = laid(c).filter((s) => s.y > 5.5 && s.x > 1 && s.x < 11);
+    expect(top.length).toBeGreaterThan(0);
+    expect(new Set(top.map((s) => s.tint))).toEqual(new Set([0x00ff00]));
+    expect(new Set(bottom.map((s) => s.tint))).toEqual(new Set([0xffffff]));
+  });
+
+  it('a width pinned on some edges lays those edges as their own run at that width', () => {
+    const wide = { ...base, wallWidth: 0.8 } as DungeonStyle;
+    const c = new Container();
+    renderNodeWalls(c, [ring], [], base, [], {}, { ringStyles: [base], edgeStyles: [[wide, base, base, base]] });
+    const top = laid(c).filter((s) => s.y < 0.5 && s.x > 1 && s.x < 11);
+    const bottom = laid(c).filter((s) => s.y > 5.5 && s.x > 1 && s.x < 11);
+    expect(top.length).toBeGreaterThan(0);
+    expect(bottom.length).toBeGreaterThan(0);
+    expect(Math.max(...top.map((s) => s.sy))).toBeGreaterThan(Math.max(...bottom.map((s) => s.sy)));
+  });
+
+  it('an edge pinned to no set draws no stones there', () => {
+    const bare = { ...base, wallTextureSetId: '' } as DungeonStyle;
+    const c = new Container();
+    renderNodeWalls(c, [ring], [], base, [], {}, { ringStyles: [base], edgeStyles: [[bare, base, base, base]] });
+    expect(laid(c).filter((s) => s.y < 0.5 && s.x > 2 && s.x < 10)).toHaveLength(0);
+    expect(laid(c).filter((s) => s.y > 5.5 && s.x > 2 && s.x < 10).length).toBeGreaterThan(0);
+  });
+});
+
+describe('renderNodeWalls — editor marks for walls that let light through', () => {
+  const lines = (marks: Container) => marks.children[2] as unknown as { ops: string[]; visible: boolean };
+
+  it('without a marks container every wall draws in the walls container as authored', () => {
+    const c = new Container();
+    renderNodeWalls(c, [], [typed('a', 'normal'), typed('b', 'window', 2), typed('c', 'invisible', 4)], style);
+    const one = new Container();
+    renderNodeWalls(one, [], [typed('a', 'normal')], style);
+    expect(c.children.length).toBe(one.children.length * 3);
+  });
+
+  it('a window draws lighter, an open wall lighter still and dashed, a solid one as before', () => {
+    const c = new Container();
+    const marks = new Container();
+    renderNodeWalls(c, [], [typed('a', 'normal'), typed('b', 'window', 2), typed('c', 'terrain', 4)], style, [], {}, {
+      marks,
+    });
+    const [win, open] = marks.children as Container[];
+    expect(c.children.length).toBeGreaterThan(0);
+    expect(win.children.length).toBe(c.children.length);
+    expect(open.children.length).toBe(c.children.length);
+    expect(win.alpha).toBe(WALL_MARK_ALPHA.window);
+    expect(open.alpha).toBe(WALL_MARK_ALPHA.open);
+    expect(WALL_MARK_ALPHA.open).toBeLessThan(WALL_MARK_ALPHA.window);
+    // Ten cells at 0.3 on, 0.2 off is twenty dashes along the open wall only.
+    expect(lines(marks).ops.filter((o) => o === 'move')).toHaveLength(20);
+  });
+
+  it('ethereal reads as solid and invisible as open, the way light treats them', () => {
+    const c = new Container();
+    const marks = new Container();
+    renderNodeWalls(c, [], [typed('a', 'ethereal'), typed('b', 'invisible', 2)], style, [], {}, { marks });
+    const [win, open] = marks.children as Container[];
+    expect(win.children).toHaveLength(0);
+    expect(open.children.length).toBe(c.children.length);
+  });
+
+  it('dashes an open wall even with no stones to lighten', () => {
+    const marks = new Container();
+    renderNodeWalls(new Container(), [], [typed('b', 'invisible')], { ...style, wallTextureSetId: '' }, [], {}, {
+      marks,
+    });
+    expect(lines(marks).ops).toContain('line');
+  });
+
+  it('holds the authored look for an export and puts the marks back after', () => {
+    const marks = new Container();
+    renderNodeWalls(new Container(), [], [typed('b', 'window'), typed('c', 'invisible', 2)], style, [], {}, { marks });
+    const [win, open] = marks.children as Container[];
+    const release = authoredWallMarks(marks);
+    expect([win.alpha, open.alpha, lines(marks).visible]).toEqual([1, 1, false]);
+    release();
+    expect([win.alpha, open.alpha, lines(marks).visible]).toEqual([WALL_MARK_ALPHA.window, WALL_MARK_ALPHA.open, true]);
+  });
+
+  it('turning a window back to solid moves its stones out of the marks', () => {
+    const c = new Container();
+    const marks = new Container();
+    renderNodeWalls(c, [], [typed('b', 'window')], style, [], {}, { marks });
+    const n = (marks.children[0] as Container).children.length;
+    renderNodeWalls(c, [], [typed('b', 'normal')], style, [], {}, { marks });
+    expect((marks.children[0] as Container).children).toHaveLength(0);
+    expect(c.children).toHaveLength(n);
   });
 });
 

@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store';
 import { TerrainAppearanceCommand } from '../commands';
 import { undoManager } from '../undoManager';
-import { DEFAULT_TERRAIN_PALETTE, MAX_FIXED_CELLS, normalizeFixedSize } from './mapSettings';
+import {
+  CELL_SCALE_UNITS,
+  DEFAULT_TERRAIN_PALETTE,
+  MAX_FIXED_CELLS,
+  normalizeCellScale,
+  normalizeFixedSize,
+} from './mapSettings';
 
 describe('setTerrainData (appearance fields)', () => {
   beforeEach(() => {
@@ -116,5 +122,36 @@ describe('setFixedSize', () => {
       height: 1,
     });
     expect(normalizeFixedSize(undefined)).toBeNull();
+  });
+});
+
+describe('setCellScale', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('starts at the default 5 ft and takes a new scale', () => {
+    expect(useStore.getState().mapSettings.cellScale).toEqual({ value: 5, unit: 'ft' });
+    useStore.getState().setCellScale({ value: 1.5, unit: 'm' });
+    expect(useStore.getState().mapSettings.cellScale).toEqual({ value: 1.5, unit: 'm' });
+  });
+
+  it.each([
+    ['zero', { value: 0, unit: 'ft' }],
+    ['negative', { value: -5, unit: 'ft' }],
+    ['NaN', { value: Number.NaN, unit: 'ft' }],
+    ['Infinity', { value: Number.POSITIVE_INFINITY, unit: 'm' }],
+    ['an unknown unit', { value: 5, unit: 'yd' }],
+  ])('refuses %s and keeps the scale the map has', (_label, scale) => {
+    useStore.getState().setCellScale({ value: 10, unit: 'ft' });
+    useStore.getState().setCellScale(scale);
+    expect(useStore.getState().mapSettings.cellScale).toEqual({ value: 10, unit: 'ft' });
+  });
+
+  it('normalizeCellScale agrees with the setter', () => {
+    expect(normalizeCellScale({ value: 2, unit: 'm' })).toEqual({ value: 2, unit: 'm' });
+    expect(normalizeCellScale({ value: 0, unit: 'm' })).toBeNull();
+    expect(normalizeCellScale(null)).toBeNull();
+    expect(CELL_SCALE_UNITS).toEqual(['ft', 'm']);
   });
 });

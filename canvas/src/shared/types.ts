@@ -10,7 +10,6 @@ export type {
   WallNodeInsert,
   DoorStyle,
   DoorState,
-  MaskData,
   ChildType,
   LayerChild,
   ShapeChild,

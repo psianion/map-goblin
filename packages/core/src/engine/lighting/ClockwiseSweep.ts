@@ -1,4 +1,11 @@
 import type { Segment } from './raycaster'
+import { blocksFrom } from './raycaster'
+
+/** A wedge, degrees: `direction` 0 = east, clockwise on screen (y down). `angle >= 360` is no wedge. */
+export interface Cone {
+  angle: number
+  direction: number
+}
 
 export interface VisibilityVertex {
   point: [number, number]
@@ -45,15 +52,23 @@ function ccwCompare(
   return (ax * ax + ay * ay) - (bx * bx + by * by)
 }
 
+/**
+ * The visibility polygon from `origin` out to `radius` against `segments`. A one-way segment
+ * seen from its open side is skipped (`blocksFrom`). With a `cone` narrower than 360 degrees
+ * the polygon is the wedge: the origin, then the swept rim from one edge of the cone to the
+ * other.
+ */
 export function clockwiseSweep(
   origin: [number, number],
   radius: number,
   segments: Segment[],
+  cone?: Cone,
 ): VisibilityVertex[] {
   const [ox, oy] = origin
   const r2 = radius * radius
 
   const nearSegments = segments.filter((s) => {
+    if (!blocksFrom(s, ox, oy)) return false
     const sMinX = Math.min(s.x1, s.x2)
     const sMaxX = Math.max(s.x1, s.x2)
     const sMinY = Math.min(s.y1, s.y2)
@@ -91,17 +106,36 @@ export function clockwiseSweep(
     rayAngles.push((i / BOUNDARY_STEPS) * Math.PI * 2 - Math.PI)
   }
 
-  rayAngles.sort((a, b) => a - b)
+  const wedge = cone && cone.angle < 360 ? cone : null
+  let half = 0
+  let start = 0
+  if (wedge) {
+    half = (Math.max(0, wedge.angle) * Math.PI) / 360
+    start = (wedge.direction * Math.PI) / 180 - half
+    // Only the rays inside the wedge, plus its two edges and a rim fine enough for its arc.
+    const inside = rayAngles.filter((a) => relAngle(a, start) <= 2 * half)
+    rayAngles.length = 0
+    rayAngles.push(...inside, start, start + 2 * half)
+    const steps = Math.max(2, Math.ceil((2 * half * BOUNDARY_STEPS) / (Math.PI * 2)))
+    for (let i = 1; i < steps; i++) rayAngles.push(start + (2 * half * i) / steps)
+    // In wedge order, from one edge to the other — relative to the start edge, so the wedge
+    // may straddle the -PI/PI seam.
+    rayAngles.sort((a, b) => relAngle(a, start) - relAngle(b, start))
+  } else {
+    rayAngles.sort((a, b) => a - b)
+  }
 
   const ANGLE_MERGE = 0.000005
   const finalAngles: number[] = []
   for (const a of rayAngles) {
-    if (finalAngles.length === 0 || Math.abs(a - finalAngles[finalAngles.length - 1]) > ANGLE_MERGE) {
-      finalAngles.push(a)
-    }
+    const prev = finalAngles[finalAngles.length - 1]
+    const gap = prev === undefined ? Infinity : wedge ? relAngle(a, start) - relAngle(prev, start) : a - prev
+    if (Math.abs(gap) > ANGLE_MERGE) finalAngles.push(a)
   }
 
   const rawVerts: VisibilityVertex[] = []
+  // A wedge starts at its own apex: the origin, never on the rim.
+  if (wedge) rawVerts.push({ point: [ox, oy], isRadiusClamped: false })
   for (const angle of finalAngles) {
     const dx = Math.cos(angle)
     const dy = Math.sin(angle)
@@ -115,6 +149,12 @@ export function clockwiseSweep(
   if (rawVerts.length < 3) return rawVerts
 
   return dropCollinear(tessellateArcs(rawVerts, origin, radius))
+}
+
+/** How far `a` lies clockwise past `from`, radians in [0, 2PI). */
+function relAngle(a: number, from: number): number {
+  const d = (a - from) % (Math.PI * 2)
+  return d < 0 ? d + Math.PI * 2 : d
 }
 
 /**

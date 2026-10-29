@@ -1,4 +1,4 @@
-import type { MapBuilderStore, ChildGroupInfo, DungeonLayer, AnyChild, LightChild, Layer, AssetCategory } from './types';
+import type { MapBuilderStore, ChildGroupInfo, DungeonLayer, AnyChild, LightChild, Layer, AssetCategory, WallSegment } from './types';
 
 export const selectLayers = (s: MapBuilderStore): Layer[] => s.layers;
 export const selectActiveLayerId = (s: MapBuilderStore): string => s.ui.activeLayerId;
@@ -71,6 +71,27 @@ export function selectLayerForChild(s: MapBuilderStore, childId: string): Dungeo
   return undefined;
 }
 
+/**
+ * A drawn wall the selection may hold by id, with its layer. Walls live in
+ * `standaloneWalls`, not `children`, so the child lookups above never find them.
+ */
+export function selectWallById(
+  s: MapBuilderStore,
+  wallId: string,
+): { wall: WallSegment; layer: DungeonLayer } | undefined {
+  for (const layer of s.layers) {
+    if (layer.type !== 'dungeon') continue;
+    const wall = (layer.standaloneWalls ?? []).find((w) => w.id === wallId);
+    if (wall) return { wall, layer };
+  }
+  return undefined;
+}
+
+/** The layer owning a selected id, child or drawn wall. */
+export function selectLayerForSelected(s: MapBuilderStore, id: string): DungeonLayer | undefined {
+  return selectLayerForChild(s, id) ?? selectWallById(s, id)?.layer;
+}
+
 // ─── Child groups ─────────────────────────────────────────
 
 /** Members of `groupId`, in children-array order (which is z-order). */
@@ -116,4 +137,31 @@ export function expandIdsForGroups(
 
 export function selectMergedCategories(s: MapBuilderStore): AssetCategory[] {
   return s.assets.manifest?.categories ?? [];
+}
+
+/**
+ * The level the map is showing: `ui.activeLevelId` when it names a level, else the first. The
+ * editor's level picker sets it; the table sets it to the seat's viewed level. '' on a map
+ * with no levels.
+ */
+export function shownLevelId(state: Pick<MapBuilderStore, 'levels' | 'ui'>): string {
+  const levels = state.levels ?? [];
+  return levels.some((l) => l.id === state.ui.activeLevelId) ? state.ui.activeLevelId : (levels[0]?.id ?? '');
+}
+
+/** Whether `layer` belongs to the shown level. A layer naming no known level is on the first; background is on all. */
+export function isOnShownLevel(state: Pick<MapBuilderStore, 'levels' | 'ui'>, layer: Layer): boolean {
+  const levels = state.levels ?? [];
+  if (levels.length <= 1 || layer.type === 'background') return true;
+  const own = levels.some((l) => l.id === layer.levelId) ? layer.levelId : levels[0]!.id;
+  return own === shownLevelId(state);
+}
+
+/**
+ * Whether `layer` is drawn right now: effectively visible (its flag, narrowed by solo) and on
+ * the shown level. Layers of other levels are hidden from the scene graph, their lights,
+ * walls, props and shadows from the lighting pass.
+ */
+export function isLayerShown(state: MapBuilderStore, layer: Layer): boolean {
+  return isLayerEffectivelyVisible(state, layer) && isOnShownLevel(state, layer);
 }

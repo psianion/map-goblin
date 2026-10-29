@@ -28,6 +28,7 @@ import {
   type Sight,
 } from './sight';
 import { TokenLibraryPanel } from './TokenLibraryPanel';
+import { mountOverheadLayerWhenReady } from './OverheadLayer';
 import { mountTokenLayerWhenReady, tokensOf } from './TokenRenderer';
 import {
   DOT_CLASS,
@@ -611,6 +612,10 @@ registerPanel({
   railRoles: ['dm'],
   order: 40,
   component: TokenPanel,
-  mount: mountTokenLayerWhenReady,
+  // Overhead props draw over the tokens and fade for them, so they mount with the tokens.
+  mount: () => {
+    const unmount = [mountTokenLayerWhenReady(), mountOverheadLayerWhenReady()];
+    return () => unmount.forEach((off) => off());
+  },
   footer: TokenPanelFooter,
 });

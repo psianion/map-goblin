@@ -36,6 +36,20 @@ describe('WallTool — chain-finalize layer validation (F1)', () => {
     expect(warning).not.toHaveBeenCalled();
   });
 
+  it('writes no width, so the wall follows the layer Width afterwards', () => {
+    const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.getState().setActiveLayerId(a.id);
+    useStore.getState().updateToolSettings({ wallType: 'window' });
+
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerDown({ x: 5, y: 0 });
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+    const [wall] = layerById(a.id).standaloneWalls;
+    expect(wall).not.toHaveProperty('width');
+    expect(wall.wallType).toBe('window');
+  });
+
   it('refuses to commit and warns when the drawing layer is locked before Enter', () => {
     const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
     useStore.getState().setActiveLayerId(a.id);
@@ -106,5 +120,36 @@ describe('WallTool — chain-finalize layer validation (F1)', () => {
 
     expect(layerById(a.id).standaloneWalls).toHaveLength(0);
     expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+});
+
+// The dimension readout measures `getPreview()` and goes away when it returns null,
+// so a cancelled chain has to leave no preview behind, not even its first click.
+describe('WallTool — Escape leaves nothing to measure', () => {
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    setNotify({ warning: vi.fn(), error: vi.fn(), success: vi.fn(), info: vi.fn() });
+  });
+
+  it('drops the preview a single click started', () => {
+    const tool = new WallTool();
+    tool.onPointerDown({ x: 2, y: 3 });
+    expect(tool.getPreview()?.points).toHaveLength(2);
+
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(tool.getPreview()).toBeNull();
+    expect(tool.isActive()).toBe(false);
+  });
+
+  it('drops it on cancel() too, the path a tool switch takes', () => {
+    const tool = new WallTool();
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerMove({ x: 4, y: 0 });
+
+    tool.cancel();
+
+    expect(tool.getPreview()).toBeNull();
   });
 });

@@ -76,6 +76,8 @@ export interface ShadowLook {
   alpha: number;
   /** '#rrggbb' — multiplied into the ground, never drawn opaque. */
   color: string;
+  /** How far each band tapers off its sides per step; weather (penumbraScale) widens it. Absent = TAPER. */
+  taper?: number;
 }
 
 const rad = (deg: number): number => (deg * Math.PI) / 180;
@@ -87,7 +89,7 @@ const rad = (deg: number): number => (deg * Math.PI) / 180;
  * map, a map with the toggle off, and a moonless night, so this file never re-asks the
  * question — it just declines to draw when there is no answer.
  */
-export function shadowLook(sun: SunVector): ShadowLook | null {
+export function shadowLook(sun: SunVector, penumbraScale = 1): ShadowLook | null {
   if (sun.kind === null || sun.intensity <= 0) return null;
   // Away from the light, not toward it.
   const theta = rad(sun.azimuth + 180);
@@ -111,6 +113,8 @@ export function shadowLook(sun: SunVector): ShadowLook | null {
         ? MOON_SHADOW
         : // A warm tint shift, at low chroma — the amber is in the hue, never in the saturation.
           mixOklch(NEUTRAL_SHADOW, LOW_SUN_SHADOW, low),
+    // A clouded sky softens the edge: the bands taper harder, so the tip fades sooner.
+    ...(penumbraScale !== 1 ? { taper: TAPER * penumbraScale } : {}),
   };
 }
 
@@ -139,7 +143,7 @@ export function shadowBand(
   // narrower it is, which is the lateral half of the feather.
   const segLen = Math.hypot(x2 - x1, y2 - y1);
   // Never past the midpoint: a wall shorter than the taper would otherwise cross itself.
-  const inset = segLen > 0 ? Math.min(look.length * TAPER * t, segLen * 0.4) : 0;
+  const inset = segLen > 0 ? Math.min(look.length * (look.taper ?? TAPER) * t, segLen * 0.4) : 0;
   const ux = segLen > 0 ? ((x2 - x1) / segLen) * inset : 0;
   const uy = segLen > 0 ? ((y2 - y1) / segLen) * inset : 0;
   return [x1, y1, x2, y2, x2 - ux + vx, y2 - uy + vy, x1 + ux + vx, y1 + uy + vy];
@@ -202,6 +206,10 @@ export function propShadow(look: ShadowLook, textureHeight: number): PropShadow 
  * inside its own bucket is a key that redraws every frame of a scrub, which is the cost this
  * exists to avoid. The sun the geometry is *drawn* from is still the continuous one — the
  * bucket only says how often the picture is allowed to be re-asked for.
+ *
+ * `sky` adds what can change the picture inside one clock bucket: which light casts and how
+ * hard (coarsened to 1/20), the night sky, the weather and the edge softness — so a sky or
+ * weather change under a paused clock redraws.
  */
 export const shadowSignature = (
   layerId: string,
@@ -209,5 +217,9 @@ export const shadowSignature = (
   sunStep: number,
   orientation: number,
   casting: boolean,
-): string =>
-  casting ? `${layerId}|${wallEpoch}|${sunStep}|${orientation}` : `${layerId}|${wallEpoch}|off`;
+  sky?: { sun: SunVector; nightSky: string; weather: string; penumbraScale: number },
+): string => {
+  const base = casting ? `${layerId}|${wallEpoch}|${sunStep}|${orientation}` : `${layerId}|${wallEpoch}|off`;
+  if (!casting || !sky) return base;
+  return `${base}|${sky.sun.kind}|${Math.round(sky.sun.intensity * 20)}|${sky.nightSky}|${sky.weather}|${sky.penumbraScale}`;
+};

@@ -290,7 +290,8 @@ describe('campaign persistence (Sprint 1 metric)', () => {
 
 const gate = JSON.parse(readFileSync(GATE_FIXTURE, 'utf8')) as SerializedMapData
 const gateLayer = gate.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
-const gateRooms: Room[] = [...(gateLayer.rooms ?? [])].sort((a, b) => b.area - a.area)
+// The fixture predates anchored rooms: its saved rooms still carry the area they were detected with.
+const gateRooms: Room[] = [...(gateLayer.rooms ?? [])].sort((a, b) => (b.area ?? 0) - (a.area ?? 0))
 const gateDoors = gateLayer.children.filter((c): c is DoorChild => c.childType === 'door')
 /** An ordinary door with a leaf to swing — an archway rejects `toggle` (it is a hole). */
 const SWINGS = gateDoors.find((d) => !d.isSecret && d.style !== 'archway')!

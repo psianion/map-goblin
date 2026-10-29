@@ -54,6 +54,12 @@ export interface ImportedMap {
    * editor's night default, which is what the whole upper floor of Axeholm looked like.
    */
   ambientLight: string;
+  /**
+   * What one cell measures in the source, as our `mapSettings.cellScale`. Absent when the
+   * format has no scale (UVTT knows only pixels per grid); the document builder then
+   * falls back to 5 ft.
+   */
+  cellScale?: { value: number; unit: string };
   /** Every dropped or approximated thing, named, for the DM to read once. */
   warnings: string[];
 }
@@ -71,4 +77,31 @@ export function ambientForDarkness(darkness: number): string {
 
 export function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+/**
+ * Pins points to the map rectangle `[0, width] × [0, height]` in cells and counts the ones
+ * it had to move. Exporters hug the outer walls a fraction of a cell outside the image —
+ * Dungeondraft routinely writes x = -0.3 — and a point off the image means nothing, but a
+ * pinned map's frame grows to take in any wall drawn past its edge, so left alone those
+ * slivers made a 65×33 map frame at 67×35.
+ */
+export function edgeClamp(width: number, height: number) {
+  let pulled = 0;
+  return {
+    point(x: number, y: number): [number, number] {
+      const cx = Math.min(width, Math.max(0, x));
+      const cy = Math.min(height, Math.max(0, y));
+      if (cx !== x || cy !== y) pulled++;
+      return [cx, cy];
+    },
+    get pulled() {
+      return pulled;
+    },
+  };
+}
+
+/** The one warning for points `edgeClamp` moved, or nothing when none were. */
+export function pulledWarning(n: number, what: string): string[] {
+  return n ? [`${n} ${what} outside the map were pulled to its edge`] : [];
 }

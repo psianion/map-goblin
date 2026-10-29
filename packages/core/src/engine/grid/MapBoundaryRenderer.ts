@@ -1,12 +1,16 @@
 import { Container, Graphics } from 'pixi.js';
 import type { RenderEngine } from '../RenderEngine';
 import { useStore } from '../../store/store';
+import type { WorldBounds } from '../../shared/mapBounds';
 
 /**
  * The edge of a fixed-size map, drawn as a single hairline rectangle.
  *
  * Nothing is drawn for an expanding map (`fixedSize == null`) — it has no edge
- * to show. Drawing outside the frame stays legal; this is a guide, not a fence.
+ * to show. What is drawn is the map's frame as `computeMapFrame` measures it,
+ * handed in by the render loop, not the pinned size: the pin is a minimum, and
+ * anything drawn past it takes the frame (and this line) out with it. Drawing
+ * outside the pin stays legal; this is a guide, not a fence.
  *
  * Lives in the OVERLAY container (screen space, a sibling of worldContainer
  * under app.stage), not in the world, for two reasons:
@@ -47,15 +51,15 @@ export class MapBoundaryRenderer {
     this.container.addChild(this.graphics);
   }
 
-  update(engine: RenderEngine): void {
+  update(engine: RenderEngine, frame: WorldBounds | null): void {
     const fixedSize = useStore.getState().mapSettings.fixedSize ?? null;
-    this.container.visible = fixedSize != null;
-    if (!fixedSize) return;
+    this.container.visible = fixedSize != null && frame != null;
+    if (!fixedSize || !frame) return;
 
-    // The frame of a pinned map is (0,0)–(width,height) in cells; 1 world unit
-    // is 1 cell, so the corners convert straight through the camera.
-    const tl = engine.worldToScreen(0, 0);
-    const br = engine.worldToScreen(fixedSize.width, fixedSize.height);
+    // The frame is in cells; 1 world unit is 1 cell, so the corners convert
+    // straight through the camera.
+    const tl = engine.worldToScreen(frame.minX, frame.minY);
+    const br = engine.worldToScreen(frame.maxX, frame.maxY);
     // Round to whole device-independent pixels so the 1px stroke stays crisp
     // (and so sub-pixel camera drift doesn't churn the redraw).
     const x = Math.round(tl.x);

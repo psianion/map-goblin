@@ -5,6 +5,8 @@ import {
   pointInAsset,
   hitTestChildren,
   hitTestAllLayers,
+  pickAllLayers,
+  pickInLayer,
   getChildBounds,
   boundsIntersect,
 } from './hitTest';
@@ -12,10 +14,7 @@ import { useStore } from '../store/store';
 import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
 import type {
-  ConnectorChild,
-  DoorChild,
-  RoomChild,
-  TextChild,
+  DoorChild,  TextChild,
   WaterChild,
   ZoneChild,
   ZoneShape,
@@ -124,9 +123,7 @@ function makeWater(outer: [number, number][]): WaterChild {
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
-    bankWidth: 0.5,
-    flowSpeed: 0,
-    flowAngle: 0,
+    bankWidth: 0.5,
   };
 }
 
@@ -368,35 +365,6 @@ describe('hitTestChildren', () => {
     const shape = makeShape(square, { id: 'floor' });
     expect(hitTestChildren([zone, shape], [5, 5])?.id).toBe('floor');
   });
-
-  it('picks a drawn room like a shape', () => {
-    const room: RoomChild = {
-      id: 'room-child-1',
-      name: 'Great Hall',
-      childType: 'room',
-      visible: true,
-      contours: [square],
-    };
-    expect(hitTestChildren([room], [5, 5])?.id).toBe('room-child-1');
-    expect(hitTestChildren([room], [50, 50])).toBeNull();
-  });
-
-  it('never hits a connector — DoorTool owns that interaction', () => {
-    // Same deliberate omission as zones above: no case here, on purpose.
-    const connector: ConnectorChild = {
-      id: 'connector-1',
-      name: 'Arch',
-      childType: 'connector',
-      visible: true,
-      contours: [square],
-      kind: 'arch',
-      state: 'open',
-      isSecret: false,
-    };
-    expect(hitTestChildren([connector], [5, 5])).toBeNull();
-    const shape = makeShape(square, { id: 'floor' });
-    expect(hitTestChildren([connector, shape], [5, 5])?.id).toBe('floor');
-  });
 });
 
 // ─── hitTestAllLayers — solo (render-only override) ───────
@@ -441,21 +409,6 @@ describe('getChildBounds', () => {
     const shape = makeShape([[0, 0], [10, 0], [10, 5], [0, 5]]);
     const b = getChildBounds(shape);
     expect(b).toEqual({ x: 0, y: 0, width: 10, height: 5 });
-  });
-
-  it('computes AABB for a drawn room and a connector from their rings', () => {
-    const ring: [number, number][] = [[0, 0], [10, 0], [10, 5], [0, 5]];
-    expect(
-      getChildBounds({
-        id: 'r', name: 'r', childType: 'room', visible: true, contours: [ring],
-      } satisfies RoomChild),
-    ).toEqual({ x: 0, y: 0, width: 10, height: 5 });
-    expect(
-      getChildBounds({
-        id: 'c', name: 'c', childType: 'connector', visible: true, contours: [ring],
-        kind: 'arch', state: 'open', isSecret: false,
-      } satisfies ConnectorChild),
-    ).toEqual({ x: 0, y: 0, width: 10, height: 5 });
   });
 
   it('computes AABB for an asset', () => {
@@ -528,5 +481,70 @@ describe('boundsIntersect', () => {
       { x: 0, y: 0, width: 5, height: 5 },
       { x: 5, y: 0, width: 5, height: 5 },
     )).toBe(false);
+  });
+});
+
+// ─── Locked and overhead props ────────────────────────────
+
+describe('locked and overhead props', () => {
+  const floor = (): ShapeChild => makeShape([[0, 0], [10, 0], [10, 10], [0, 10]], { id: 'floor' });
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = false;
+    });
+  });
+
+  it('passes a click through a locked prop unless the caller includes locked ones', () => {
+    const rug = makeAsset({ x: 5, y: 5 }, 2, 2, 1, 0, { id: 'rug', locked: true });
+    const children = [floor(), rug];
+    expect(hitTestChildren(children, [5, 5])?.id).toBe('floor');
+    expect(hitTestChildren(children, [5, 5], undefined, { includeLocked: false })?.id).toBe('floor');
+    expect(hitTestChildren(children, [5, 5], undefined, { includeLocked: true })?.id).toBe('rug');
+  });
+
+  it('skips overhead props when asked to', () => {
+    const web = makeAsset({ x: 5, y: 5 }, 2, 2, 1, 0, { id: 'web', overhead: true });
+    const crate = makeAsset({ x: 5, y: 5 }, 1, 1, 1, 0, { id: 'crate' });
+    // The web is later in the array, so it is on top within its layer.
+    expect(hitTestChildren([crate, web], [5, 5])?.id).toBe('web');
+    expect(hitTestChildren([crate, web], [5, 5], undefined, { skipOverhead: true })?.id).toBe('crate');
+  });
+
+  it('picks an overhead prop of a lower layer above everything on the layers over it', () => {
+    const lower = createDungeonLayer('Lower');
+    lower.children = [makeAsset({ x: 5, y: 5 }, 3, 3, 1, 0, { id: 'canopy', overhead: true })];
+    const upper = createDungeonLayer('Upper');
+    upper.children = [makeAsset({ x: 5, y: 5 }, 1, 1, 1, 0, { id: 'crate' })];
+
+    const hit = pickAllLayers([lower, upper], [5, 5]);
+    expect(hit?.id).toBe('canopy');
+    expect(hit?.layerId).toBe(lower.id);
+    // Within one layer it is still just a prop, in array order.
+    expect(pickInLayer(upper, [5, 5])?.id).toBe('crate');
+  });
+
+  it('lets clicks reach under overhead props while the DM looks under them', () => {
+    const layer = createDungeonLayer('Hall');
+    layer.children = [
+      makeAsset({ x: 5, y: 5 }, 1, 1, 1, 0, { id: 'crate' }),
+      makeAsset({ x: 5, y: 5 }, 3, 3, 1, 0, { id: 'canopy', overhead: true }),
+    ];
+    expect(pickAllLayers([layer], [5, 5])?.id).toBe('canopy');
+    useStore.setState((s) => {
+      s.ui.seeUnderOverhead = true;
+    });
+    expect(pickAllLayers([layer], [5, 5])?.id).toBe('crate');
+  });
+
+  it('keeps a locked overhead prop out of a plain pick', () => {
+    const layer = createDungeonLayer('Hall');
+    layer.children = [
+      floor(),
+      makeAsset({ x: 5, y: 5 }, 3, 3, 1, 0, { id: 'canopy', overhead: true, locked: true }),
+    ];
+    expect(pickAllLayers([layer], [5, 5], { includeLocked: false })?.id).toBe('floor');
+    expect(pickAllLayers([layer], [5, 5], { includeLocked: true })?.id).toBe('canopy');
   });
 });
