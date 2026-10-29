@@ -1185,13 +1185,14 @@ describe('rejections', () => {
       // A body that lies (or declares nothing) is cut off by the running byte count. The
       // server answers and closes instead of reading the rest of an upload it has already
       // refused, so a sender still pushing megabytes loses the socket mid-write — which is
-      // the point: the bytes stop either way.
-      expect([413, 'ECONNRESET']).toContain(await refusedUpload(server.port, path, token))
+      // the point: the bytes stop either way. The sender sees EPIPE or ECONNRESET depending on
+      // whether its next write or the server's reset lands first; both are a dead socket.
+      expect([413, 'ECONNRESET', 'EPIPE']).toContain(await refusedUpload(server.port, path, token))
 
       // The asset route takes the same mid-stream refusal without crossing the process.
       const assets = `/api/campaigns/${body.campaignId as string}/assets`
       expect(await refusedUpload(server.port, assets, token, MAX_ASSET_BYTES + 1)).toBe(413)
-      expect([413, 'ECONNRESET']).toContain(await refusedUpload(server.port, assets, token))
+      expect([413, 'ECONNRESET', 'EPIPE']).toContain(await refusedUpload(server.port, assets, token))
 
       // Nothing that big made it in.
       expect(server.stores.maps.listByCampaign(body.campaignId as string)).toEqual([])
