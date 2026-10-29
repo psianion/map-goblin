@@ -14,11 +14,6 @@ import {
   currentWallNodes,
   activeEditableRun,
   floorRingIndex,
-  bandJointIndex,
-  bandJointT,
-  bandRunAt,
-  bandRunIndex,
-  setBandTransientT,
   noWallStonesReason,
   runSetSpecs,
   wallRunSetId,
@@ -28,7 +23,6 @@ import {
   SPINE_WALL_PREFIX,
   type EditableRun,
 } from '@/engine/wallNodeOverlay';
-import { bandJointDrag, rewalkWholeBand, straightenBandJoints } from '@/engine/bandJointDrag';
 import {
   beginRingStoneDrag,
   updateRingStoneDrag,
@@ -121,20 +115,10 @@ export function toggleNodeEditAt(world: Point): boolean {
     id = bandWallHit.wallId;
   }
 
-  // A cave layer's walls are placed rock, not wall-set stones, so nothing above
-  // can claim them: `snapToNearestWall` finds the sight geometry or the floor
-  // ring under the band, and both would be refused for want of a texture set.
-  // Asked only when the stone path has nothing to offer, so a layer that does
-  // carry a wall set behaves exactly as it did.
-  const bandId = noWallStonesReason(layer)
-    ? bandRunAt(layer, world, Math.max(PICK_RADIUS, drawStyle.wallWidth))
-    : null;
-  if (bandId) id = bandId;
-
   // A drawn wall on a cave kit has no stones: its rock is walked along the
   // wall's own line on every redraw. Its editor is that line's corners (see
   // SPINE_WALL_PREFIX) — not the floor outline, which is a different wall.
-  if (id && !bandId && floorRingIndex(id) === null && isBandSet(wallRunSetId(layer, id))) {
+  if (id && floorRingIndex(id) === null && isBandSet(wallRunSetId(layer, id))) {
     id = `${SPINE_WALL_PREFIX}${id}`;
   }
 
@@ -146,7 +130,7 @@ export function toggleNodeEditAt(world: Point): boolean {
   // disagree. Claiming the double-click
   // (true) rather than falling through keeps the answer to "edit this wall"
   // from being an outline editor the DM did not ask for.
-  if (next && !bandId && spineWallId(next) === null) {
+  if (next && spineWallId(next) === null) {
     // The set the hit wall is actually drawn with: a preset may have pinned a
     // floor or a drawn wall to a set other than the layer's.
     const setId = wallRunSetId(layer, next);
@@ -185,9 +169,9 @@ export function exitNodeEdit(): void {
  */
 function writeEdits(patch: Partial<WallEdits>): void {
   const run = activeEditableRun();
-  // A band has no WallEdits to patch — its pieces are real children, and moving
-  // one is the solver's job; a drawn cave wall's only edit is its line. One
-  // guard here covers the whole keyboard table, which all routes through this.
+  // A drawn cave wall has no WallEdits to patch — its only edit is its line.
+  // One guard here covers the whole keyboard table, which all routes through
+  // this.
   if (!run || run.kind !== 'stones') return;
   const before: WallEdits = {
     nodeEdits: run.edits?.nodeEdits,
@@ -390,79 +374,6 @@ function cyclePiece(t: number, direction: number): void {
 }
 
 /**
- * Drop a transient handle in the span on one side of the selected joint.
- *
- * The band's answer to {@link insertStone}, on the same keys. A joint cannot
- * simply be added the way a stone can: what a cave wall can be is whatever the
- * kit can build, so the handle is nothing but a selection — no store write, no
- * command, no change to the band — and dragging it runs the ordinary solver with
- * the deformation peaked there. The walk decides whether a seam really lands at
- * that point, which is what keeps the outline the source of truth. Deselect it,
- * or leave the mode, and it is gone.
- */
-function insertBandJoint(t: number, direction: -1 | 1): void {
-  const run = activeEditableRun();
-  if (run?.kind !== 'band') return;
-  const n = run.band.joints.length;
-  const from = bandJointIndex(t, n);
-  // Already a transient handle: there is no span between it and a joint to put
-  // another one in, and one at a time is the whole feature.
-  if (!Number.isInteger(from)) return;
-  // Halfway to the neighbour on that side, so it lands in the middle of a span
-  // rather than on top of a joint — the same rule insertStone follows.
-  const at = from + direction * 0.5;
-  // An open run has no span past its free ends.
-  if (!run.band.closed && (at <= 0 || at >= n - 1)) return;
-  const handle = bandJointT(run.band.closed ? ((at % n) + n) % n : at, n);
-  // The gesture is what makes a handle transient, not the fraction it happens to
-  // land on: a `t` keyed to a joint count that has since moved is fractional
-  // too, and reading that as a handle is what broke Delete after an undo.
-  setBandTransientT(handle);
-  useStore.getState().selectNode(handle);
-}
-
-/**
- * The band's own keyboard table.
- *
- * Three entries, because a band has three things a DM can ask of it that the
- * drag cannot: drop a handle mid-span to drag from ({@link insertBandJoint}),
- * take a joint out (the outline between its neighbours becomes a straight chord
- * and that stretch is re-walked), and re-lay the whole wall over the outline as
- * it stands — the recovery tool for a band that has drifted from a floor moved
- * by other means.
- *
- * Tab is the re-lay for the same reason it cycles a stone's piece in the other
- * table: in both, Tab means "let the set choose again". All of them claim their
- * key even when the run has gone unresolvable, so Delete can never fall through
- * to the global binding and take the shape selection with it.
- */
-function handleBandKey(key: string, t: number): boolean {
-  if (key === '{' || key === '}') {
-    insertBandJoint(t, key === '{' ? -1 : 1);
-    return true;
-  }
-  if (key !== 'Tab' && key !== 'Delete' && key !== 'Backspace') return false;
-  const run = activeEditableRun();
-  if (run?.kind !== 'band') return true;
-  // Delete on a transient handle just takes the handle away again: nothing was
-  // written for it, and there is no joint there to straighten between.
-  if (key !== 'Tab' && !Number.isInteger(bandJointIndex(t, run.band.joints.length))) {
-    setBandTransientT(null);
-    useStore.getState().selectNode(null);
-    return true;
-  }
-  const ts = useStore.getState().tools.selectedNodeTs;
-  // Either gesture re-derives the joints, so a synthetic `t` from before it no
-  // longer names the handle it did. Landing one re-keys the selection itself —
-  // a straighten onto the joint that survived nearest the one taken out, a
-  // whole-wall re-lay onto nothing — and a refusal leaves it alone, so the DM is
-  // still pointing at the joint the refusal is about.
-  if (key === 'Tab') rewalkWholeBand(run);
-  else straightenBandJoints(run, ts.length ? ts : [t]);
-  return true;
-}
-
-/**
  * Keyboard adjustments for the selected node.
  *
  * Returns true when the key was consumed, so the caller can stop it reaching
@@ -498,12 +409,6 @@ function handleSpineKey(key: string, t: number): boolean {
 export function handleNodeKey(key: string, t: number): boolean {
   if (spineWallId(useStore.getState().tools.nodeEditWallId ?? '') !== null) {
     return handleSpineKey(key, t);
-  }
-  // A band has its own, much shorter table: the kit does the fitting, so there
-  // is nothing to rotate, resize or swap. Routed off the wall id rather than by
-  // resolving the run, so a stone keypress costs exactly what it did before.
-  if (bandRunIndex(useStore.getState().tools.nodeEditWallId ?? '') !== null) {
-    return handleBandKey(key, t);
   }
   switch (key) {
     case '[':
@@ -576,10 +481,6 @@ export function beginNodeDrag(ts: number[] = []): void {
   if (!run) return;
   dragWallId = run.id;
   dragLayerId = run.layer.id;
-  if (run.kind === 'band') {
-    bandJointDrag({ phase: 'begin', run, ts });
-    return;
-  }
   if (run.kind === 'spine') {
     spineBefore = run.wall.points.map(([x, y]): [number, number] => [x, y]);
     spineCorners = [...new Set(ts.map((t) => spineCornerIndex(t, run.wall.points)))];
@@ -610,10 +511,6 @@ export function nudgeWallNode(ts: number[], dx: number, dy: number): void {
   if (ts.length === 0) return;
   const run = activeEditableRun();
   if (!run || floorRingIndex(run.id) !== null) return;
-  if (run.kind === 'band') {
-    bandJointDrag({ phase: 'move', run, ts, dx, dy });
-    return;
-  }
   if (run.kind === 'spine') {
     useStore.getState().updateWall(run.layer.id, run.wall.id, {
       points: movedCorners(run.wall.points, spineCorners, dx, dy),
@@ -686,12 +583,6 @@ export function cancelNodeDrag(): void {
   const spinePoints = spineBefore;
   spineBefore = null;
   spineCorners = [];
-  if (wallId && bandRunIndex(wallId) !== null) {
-    // Read off the id rather than a flag of its own: the seam wrote nothing, so
-    // there is nothing to rewind and no state to keep in step with.
-    bandJointDrag({ phase: 'cancel' });
-    return;
-  }
   const spineOf = wallId ? spineWallId(wallId) : null;
   if (spineOf !== null) {
     // Same rule as rewindDrag: put the line back on the layer the drag began
@@ -736,14 +627,6 @@ export function endNodeDrag(): void {
     undoManager.execute(
       new UpdateWallCommand(layerId, spineOf, { points: spinePoints }, { points: after }),
     );
-    return;
-  }
-  if (wallId && bandRunIndex(wallId) !== null) {
-    // No re-resolve here: the session captured the layer, the floor child and
-    // the band at press, and it re-resolves all three against the live store
-    // itself before committing — see bandJointDrag. Reading the run again would
-    // only cost another detectBands and warn about a layer that locked mid-drag.
-    bandJointDrag({ phase: 'end' });
     return;
   }
   if (isDraggingRingStone()) {

@@ -1,12 +1,10 @@
 // The node editors' status-bar line, shared by both status bars.
 //
-// A band's node mode has a different key map from a stone wall's, and while a
-// joint drag is live it carries the solver's answer instead: which stones the
-// kit chose, and how far it pulled the handle off the cursor. That last number
-// is the one that tells a DM whether the constraint is helping or fighting.
+// A drawn cave wall's node mode has a different key map from a stone wall's:
+// the kit lays the rock, so its line's corners are all a DM can move.
 
 import { describe, it, expect } from 'vitest';
-import { bandRunIndex, SPINE_WALL_PREFIX } from '@/engine/wallNodeOverlay';
+import { SPINE_WALL_PREFIX } from '@/engine/wallNodeOverlay';
 import { editHint, type EditHintTools } from './statusHints';
 
 const tools = (over: Partial<EditHintTools> = {}): EditHintTools => ({
@@ -14,46 +12,14 @@ const tools = (over: Partial<EditHintTools> = {}): EditHintTools => ({
   shapeNodeEditId: null,
   selectedNodeT: null,
   selectedNodeTs: [],
-  bandDragStatus: null,
   ...over,
 });
-const hintFor = (over: Partial<EditHintTools>) => editHint(tools(over), bandRunIndex);
+const hintFor = (over: Partial<EditHintTools>) => editHint(tools(over));
 const selected = { selectedNodeT: 0.25, selectedNodeTs: [0.25] };
 
 describe('editHint', () => {
   it('says nothing when no node editor is open', () => {
     expect(hintFor({})).toBeNull();
-  });
-
-  describe('cave band', () => {
-    it('shows the band key map, not the stone one', () => {
-      const h = hintFor({ nodeEditWallId: 'band:0', ...selected });
-      expect(h?.kind).toBe('band');
-      expect(h?.label).toBe('Editing cave wall');
-      expect(h?.text).toBe('drag to move · { } insert · Del straighten · Tab re-lay wall · Esc done');
-      expect(h?.text).not.toMatch(/rotate/);
-    });
-
-    it('names the chosen pieces and the kit pull while a drag is live', () => {
-      const h = hintFor({
-        nodeEditWallId: 'band:0',
-        ...selected,
-        bandDragStatus: { pieces: ['wall_short_2x4', 'inside_bend_2x2', 'wall_short_2x4'], kitPull: 0.4213 },
-      });
-      expect(h?.text).toBe('wall short 2x4, inside bend 2x2 · kit pull 0.42 cells');
-      expect(h?.segments.some((s) => s.key)).toBe(false);
-    });
-
-    it('carries the refusal instead, in the words the solver used', () => {
-      const h = hintFor({ nodeEditWallId: 'band:0', bandDragStatus: { refusal: 'the wall would have a hole in it' } });
-      expect(h?.text).toBe('the wall would have a hole in it');
-    });
-
-    it('asks for a joint when none is picked', () => {
-      expect(hintFor({ nodeEditWallId: 'band:0' })?.text).toBe(
-        'click a joint · Shift+click groups · double-click elsewhere exits',
-      );
-    });
   });
 
   describe('wall', () => {

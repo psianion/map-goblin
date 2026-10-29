@@ -9,7 +9,8 @@ import { createDefaultState } from './factories';
 import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
 import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
-import { getCatalogEntry, nextAssetName } from '../assets/packCatalog';
+import { getCatalogEntry, isBandSet, nextAssetName } from '../assets/packCatalog';
+import { isCaveBandAsset } from '../assets/caveWallKit';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
@@ -74,8 +75,9 @@ export const useStore = create<MapBuilderStore>()(
         }
 
         // Every supported version goes through the migration: 2.0 is upgraded, and all of
-        // them lose the fields the format no longer carries (retired fields have no bump).
-        data = migrateToLatest(data);
+        // them lose the fields the format no longer carries (retired fields have no bump),
+        // and a band-kit layer loses its placed cave band (see dropPlacedCaveBand).
+        data = migrateToLatest(data, { isBandSet, isCaveBandAsset });
         // Rooms became anchored places and maps gained levels: every path that opens
         // a map (v1 sidebar, v2 home page, file import, the table) comes through here,
         // so this is the one place the room migration runs.

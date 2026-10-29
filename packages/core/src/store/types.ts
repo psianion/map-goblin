@@ -352,23 +352,7 @@ export interface ToolsSlice {
   shapeNodeEditId: string | null;
   /** Vertex index within that outline currently selected. */
   selectedVertex: number | null;
-  /**
-   * What the cave-band solver just answered, for the status bar. Ephemeral and
-   * never saved: it lives for one gesture, so nothing that reads a map ever
-   * sees it.
-   */
-  bandDragStatus: BandDragStatus | null;
 }
-
-/**
- * Either the stretch the kit would lay, or why it will not.
- *
- * `kitPull` is how far the kit dragged the handle off the cursor — the number
- * that tells a DM whether the constraint is helping or fighting.
- */
-export type BandDragStatus =
-  | { pieces: string[]; kitPull: number }
-  | { refusal: string };
 
 // ─── Selection ───────────────────────────────────────────
 export interface ChildClipboard {
@@ -761,7 +745,6 @@ export interface MapBuilderStore {
   toggleNodeSelection: (t: number) => void;
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
-  setBandDragStatus: (status: BandDragStatus | null) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

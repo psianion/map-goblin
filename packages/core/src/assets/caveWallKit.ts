@@ -2,12 +2,11 @@
 // gg-forge) actually measure.
 //
 // These walls are not composed stones. A cave band is a run of rock pieces, each
-// mapped so its two butt joints land on a chord of the floor outline: laid live
+// mapped so its two butt joints land on a chord of the floor outline, laid live
 // by the wall renderer when a layer names the kit as its wall texture
-// (caveBandRenderer.ts), or placed as ordinary asset children by
-// scripts/gen-goblin-warren.mjs so their joints can be dragged. Editing that
-// band means knowing where a piece's joints are and which chords the kit can
-// span, so the measurements have to live where the engine can read them.
+// (caveBandRenderer.ts). Laying that band means knowing where a piece's joints
+// are and which chords the kit can span, so the measurements have to live where
+// the engine can read them.
 //
 // `caveWallKit.json` is measured from the drawn art by forge/cave-measure.mjs,
 // not authored. It carries the family handedness fix already applied: an inside
@@ -18,7 +17,7 @@
 // The manifest would be the natural home for this, but the measurements ride
 // alongside instead, joined to pack entries by `material` + `gridSize` — which
 // is also why gg-demo's structures of the same names, measured differently, are
-// never laid on these numbers (see bandPieceArt in bandCommit.ts).
+// never laid on these numbers (see bandSetArt in packCatalog.ts).
 
 import kit from './caveWallKit.json';
 import { getCatalogEntry } from './packCatalog';
@@ -99,10 +98,10 @@ function isBandKey(key: string): boolean {
 }
 
 /**
- * Every piece the band solver may place, mirrors included.
+ * Every piece the cave walk may place, mirrors included.
  *
- * Built once: the measurements never change at runtime, and the solver runs per
- * pointermove during a drag.
+ * Built once: the measurements never change at runtime, and the walk runs on
+ * every redraw of a band.
  */
 let bandPool: CaveKitPiece[] | null = null;
 export function caveBandPieces(): CaveKitPiece[] {
@@ -133,29 +132,12 @@ export function isCaveBandAsset(assetId: string): boolean {
   return piece !== null && isBandKey(piece.key);
 }
 
-/**
- * The piece a placed asset is really showing, mirror included.
- *
- * A mirrored straight is a piece in its own right here — {@link mirrorPiece}
- * bakes the swapped, negated joints into `jointsCells` — so the mirror is
- * carried by the PIECE and never by the placement. That is the one rule that
- * keeps {@link jointsOf} and {@link placeOnChord} exact inverses: applying the
- * flip in both places would mirror twice and put every joint on the wrong side
- * of the run. Always come through here rather than pairing a base piece with a
- * child's `flipY` by hand.
- */
-export function pieceForAsset(assetId: string, flipY = false): CaveKitPiece | null {
-  const base = caveKitPieceFor(assetId);
-  if (!base) return null;
-  return flipY ? mirrorPiece(base) : base;
-}
-
 /** Where a placed asset sits. The subset of AssetChild this module needs. */
 export interface KitPlacement {
   position: { x: number; y: number };
   rotation: number;
   scale: number;
-  /** Rendering flag only — the joints already account for it (see pieceForAsset). */
+  /** Rendering flag only — the joints already account for it (see jointsOf). */
   flipY?: boolean;
 }
 
@@ -170,8 +152,9 @@ const rot2 = (p: Vec, t: number): Vec => [
  * A placed piece's two joints, in world units.
  *
  * The placement's `flipY` is deliberately not consulted: a mirrored piece already
- * carries mirrored joints (see {@link pieceForAsset}), so honouring the flag here
- * as well would mirror twice.
+ * carries mirrored joints (see {@link mirrorPiece}), so honouring the flag here
+ * as well would mirror twice. That is the one rule that keeps this and
+ * {@link placeOnChord} exact inverses.
  */
 export function jointsOf(piece: CaveKitPiece, at: KitPlacement): [Vec, Vec] {
   return piece.jointsCells.map((q): Vec => {
@@ -183,7 +166,7 @@ export function jointsOf(piece: CaveKitPiece, at: KitPlacement): [Vec, Vec] {
 /**
  * Map a piece so its first joint lands on `p` and its second on `q`.
  *
- * The inverse of {@link jointsOf}, and the same mapping the generator's
+ * The inverse of {@link jointsOf}, and the same mapping the cave walk's
  * `placePiece` performs. Scale comes out uniform because the engine scales
  * sprites uniformly: a piece stretched to span a longer chord is also a THICKER
  * piece, which is why the solver treats chord length as something to match

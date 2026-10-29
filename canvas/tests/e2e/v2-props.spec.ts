@@ -422,18 +422,23 @@ test('a scatter stroke across Warren Hall into its wall stays on the floor, over
 test('an erase stroke takes rubble but spares cave rock and an imported image, and undoes in one step', async ({ page }) => {
   await openWarren(page)
   const rubble = await propOf(page, RUBBLE_S)
-  const rock = (await props(page)).find((p) => p.assetId.startsWith('gg-forge:wall_short'))!
-  // An imported image right beside the rubble.
+  // An imported image right beside the rubble, and a piece of the cave kit's rock placed as a
+  // prop a little further on (the Warren's own walls are drawn live, so it has none placed).
+  const rock = { id: 'e2e-rock', x: rubble.x + 1.5, y: rubble.y }
   await page.evaluate(
-    ({ x, y }) => {
+    ({ x, y, rock }) => {
       const st = (window as Any).__store.getState()
       const layer = st.layers.find((l: Any) => l.type === 'dungeon')
       st.addChild(layer.id, {
         id: 'e2e-image', name: 'map scrap', childType: 'asset', visible: true, objectType: 'image', assetId: 'e2e-missing-image',
         position: { x, y }, rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
       })
+      st.addChild(layer.id, {
+        id: rock.id, name: 'cave rock', childType: 'asset', visible: true, objectType: 'asset', assetId: 'gg-forge:wall_short_2x2_object_A',
+        position: { x: rock.x, y: rock.y }, rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
+      })
     },
-    { x: rubble.x + 0.6, y: rubble.y },
+    { x: rubble.x + 0.6, y: rubble.y, rock },
   )
   await page.keyboard.press('b')
   await setBrush(page, { stampMode: false, brushRadius: 1 })

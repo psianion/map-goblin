@@ -33,19 +33,16 @@ const CAVE_BAND_PACK = 'gg-demo';
 
 /**
  * Seed a pack whose entries answer the cave kit's `material` + `gridSize` join,
- * one per band piece, so `isCaveBandAsset` and `detectBands` have art to resolve
- * a placed child against.
- *
- * A stand-in for gg-demo, not gg-demo: caveBand.test.ts covers that join against
- * the shipped manifest on disk, which is the only place it is worth proving.
- * Everything else only needs a band to exist.
+ * one per band piece, so `isCaveBandAsset` has art to resolve a placed child
+ * against. A stand-in for the real kit: everything here only needs a band to
+ * exist.
  */
 export function seedCaveBandPack(
   packId = CAVE_BAND_PACK,
   /**
    * `set` and `tags` as the forge ships them (`GG_Cave_Ink`, tagged `cave`)
    * make the kit a band set the catalogue offers as a wall texture; the
-   * defaults seed plain placed-rock art, which is all the band editor needs.
+   * defaults seed plain placed-rock art.
    */
   opts: { set?: string; tags?: string[] } = {},
 ): void {
@@ -79,9 +76,7 @@ export interface CaveBandFixture {
 /**
  * `count` kit straights laid nose to tail along `y`, as layer children.
  *
- * Small on purpose: `detectBands` is already held to the shipped Warren in
- * caveBand.test.ts, and everything above it only needs a band that walks. Pair
- * with {@link seedCaveBandPack} so the children's art resolves.
+ * Pair with {@link seedCaveBandPack} so the children's art resolves.
  */
 export function caveBandChildren(count = 3, y = 20): CaveBandFixture {
   const pieces = caveBandPieces()

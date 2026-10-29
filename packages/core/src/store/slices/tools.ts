@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { BandDragStatus, MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, WaterToolSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, WaterToolSettings } from '../types';
 
 /** Single source of truth for the clamps below — UI sliders read these too. */
 export const TERRAIN_BRUSH_RANGES = {
@@ -43,12 +43,6 @@ export interface ToolActions {
   /** Expose a floor outline's vertices for editing, or null to hide them. */
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
-  /**
-   * What the cave-band solver just answered, for the status bar. Written per
-   * pointermove during a joint drag and cleared on release — nothing else in
-   * the store moves while a band drag is in flight (see bandJointDrag).
-   */
-  setBandDragStatus: (status: BandDragStatus | null) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -67,14 +61,12 @@ export const createToolsSlice: StateCreator<
       state.tools.selectedNodeTs = [];
       state.tools.shapeNodeEditId = null;
       state.tools.selectedVertex = null;
-      state.tools.bandDragStatus = null;
     }),
   setNodeEditWall: (wallId) =>
     set((state) => {
       state.tools.nodeEditWallId = wallId;
       state.tools.selectedNodeT = null;
       state.tools.selectedNodeTs = [];
-      state.tools.bandDragStatus = null;
       // Node editing replaces the selection UI. The gizmo adopts any live
       // selection, so leaving one behind stacks it over the node overlay.
       if (wallId) state.selection.selectedIds = [];
@@ -117,10 +109,6 @@ export const createToolsSlice: StateCreator<
   selectVertex: (index) =>
     set((state) => {
       state.tools.selectedVertex = index;
-    }),
-  setBandDragStatus: (status) =>
-    set((state) => {
-      state.tools.bandDragStatus = status;
     }),
   setEraseMode: (enabled) =>
     set((state) => {

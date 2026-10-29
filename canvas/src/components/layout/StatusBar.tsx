@@ -5,7 +5,6 @@ import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { useStore } from '@/store/store';
-import { bandRunIndex } from '@/engine/wallNodeOverlay';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 import { editHint } from './statusHints';
 
@@ -30,19 +29,18 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [fpsColor, setFpsColor] = useState<string>('text-text-muted');
   const [rulerStr, setRulerStr] = useState<string>('');
   const cellScale = useStore((s) => s.mapSettings.cellScale);
-  // Node-edit mode and its key map. A cave band is a run of placed rock, not
-  // composed stones, so its mode has a different key map and a live read-out of
-  // what the kit just decided. The words live in statusHints, shared with v2.
+  // Node-edit mode and its key map. A drawn cave wall's rock is laid by the kit,
+  // not composed stones, so its mode has a different key map. The words live in
+  // statusHints, shared with v2.
   const hintTools = useStore(
     useShallow((s) => ({
       nodeEditWallId: s.tools.nodeEditWallId,
       shapeNodeEditId: s.tools.shapeNodeEditId,
       selectedNodeT: s.tools.selectedNodeT,
       selectedNodeTs: s.tools.selectedNodeTs,
-      bandDragStatus: s.tools.bandDragStatus,
     })),
   );
-  const hint = useMemo(() => editHint(hintTools, bandRunIndex), [hintTools]);
+  const hint = useMemo(() => editHint(hintTools), [hintTools]);
   const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
   // Falls back to a placeholder rather than the raw (possibly empty) name:
   // an empty-named soloed layer must still render the chip, or solo has no
