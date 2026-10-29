@@ -7,7 +7,10 @@ services:
         # the editor works with no external origin. Set PACK_CDN_URL to the pack bucket
         # to pick up published art without rebuilding (docs/2026-08-09-pack-cdn-plan.md).
         VITE_CDN_BASE_URL: "${PACK_CDN_URL:-}"
-    image: map-goblin:dev
+    # Every image here is published by .github/workflows/ci.yml on each push to main, as
+    # :latest and :sha-<short>. `docker compose pull` fetches them; `up --build` builds this
+    # tree under the same name instead. MAP_GOBLIN_TAG pins or rolls back to one commit.
+    image: ghcr.io/psianion/map-goblin:${MAP_GOBLIN_TAG:-latest}
     # Host ports live on the docker lane of the 56xx scheme (562x — see
     # docs/2026-08-15-dev-runner-ports-plan.md); container-internal ports are unchanged.
     ports:
@@ -23,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: session/server/Dockerfile
-    image: map-goblin-game-server:dev
+    image: ghcr.io/psianion/map-goblin-game-server:${MAP_GOBLIN_TAG:-latest}
     ports:
       - "${DOCKER_SERVER_PORT:-5620}:8787"
     volumes:
@@ -47,7 +50,7 @@ services:
         # Same story as the editor: empty uses the bundled pack, set it to publish art
         # to the table without rebuilding.
         VITE_CDN_BASE_URL: "${PACK_CDN_URL:-}"
-    image: map-goblin-session-client:dev
+    image: ghcr.io/psianion/map-goblin-session-client:${MAP_GOBLIN_TAG:-latest}
     ports:
       - "${DOCKER_TABLE_PORT:-5622}:80"
     depends_on:
@@ -61,7 +64,7 @@ services:
     build:
       context: .
       dockerfile: bot/Dockerfile
-    image: map-goblin-bot:dev
+    image: ghcr.io/psianion/map-goblin-bot:${MAP_GOBLIN_TAG:-latest}
     profiles: [bot]
     env_file:
       - bot/.env
