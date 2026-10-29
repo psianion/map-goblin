@@ -13,6 +13,7 @@ services:
     image: ghcr.io/psianion/map-goblin:${MAP_GOBLIN_TAG:-latest}
     # Host ports live on the docker lane of the 56xx scheme (562x — see
     # docs/2026-08-15-dev-runner-ports-plan.md); container-internal ports are unchanged.
+    # :80 is the LAN entrance. :8080 stays inside Docker for the tunnel (see nginx.conf).
     ports:
       - "${DOCKER_EDITOR_PORT:-5621}:80"
     # The editor's /api proxy targets game-server; resolution is per-request
@@ -27,8 +28,14 @@ services:
       context: .
       dockerfile: session/server/Dockerfile
     image: ghcr.io/psianion/map-goblin-game-server:${MAP_GOBLIN_TAG:-latest}
+    # Loopback only: both web containers reach the server over the Docker network and the
+    # bot over the shared namespace below, so nothing on the LAN needs this port.
     ports:
-      - "${DOCKER_SERVER_PORT:-5620}:8787"
+      - "127.0.0.1:${DOCKER_SERVER_PORT:-5620}:8787"
+    environment:
+      # The listener that believes X-Real-IP (session/server/src/http.ts). Never published:
+      # only the two nginx proxies in this file dial it, and they write the header.
+      TRUSTED_PORT: 8788
     volumes:
       # Named, not a bind mount: the admin pass is printed once and only its hash is kept
       # here, alongside the HMAC secret that signs every session token. Losing this volume
@@ -92,9 +99,11 @@ services:
   # Public HTTPS for a self-hosted box: a Cloudflare Tunnel dials out, so no router port
   # opens and no cert lives here. Opt-in (`docker compose --profile public up -d`) because
   # a dev box has no token and the container would crash-loop on an empty one. Hostname →
-  # service routes are set in the Cloudflare dashboard (docs/2026-09-09-laptop-production-runbook.md).
+  # service routes are set in the Cloudflare dashboard: point them at port 8080 of
+  # `session-client` and `map-goblin`, the entrance that reads the visitor's address
+  # from Cloudflare (see nginx.conf). Pinned, so an update is a deliberate edit here.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.6
     profiles: [public]
     command: tunnel --no-autoupdate run
     environment:

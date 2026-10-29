@@ -17,7 +17,7 @@ docker compose up -d
 | --- | --- |
 | Editor | http://localhost:5621 (the redesigned editor is at `/v2`) |
 | Table (players) | http://localhost:5622 |
-| Game server | http://localhost:5620 |
+| Game server | http://localhost:5620 (this machine only; the editor and table reach it inside Docker) |
 
 The game server prints a one-time admin pass to its log the first time it starts. Read it with `docker compose logs game-server` and keep it: only its hash is stored, in the `game-server-data` volume.
 
@@ -36,6 +36,8 @@ MAP_GOBLIN_TAG=sha-1a2b3c4 docker compose up -d
 ```
 
 Host ports can be moved with `DOCKER_EDITOR_PORT`, `DOCKER_TABLE_PORT` and `DOCKER_SERVER_PORT`. The Discord bot (`--profile bot`, needs `bot/.env`) and the Cloudflare Tunnel (`--profile public`, needs `TUNNEL_TOKEN`) are opt-in.
+
+The server limits wrong guesses (invite codes, the admin pass) per visitor address. Each web container has two entrances for that: port `80`, published to your LAN, counts the connecting address and ignores any address headers; port `8080`, reachable only inside Docker, is for the tunnel and counts the address Cloudflare reports. If you run the tunnel, point its routes at `session-client:8080` and `map-goblin:8080` — routes at port `80` keep working, but every player through the tunnel then shares one address.
 
 ## Develop
 

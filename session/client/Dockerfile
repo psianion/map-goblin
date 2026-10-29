@@ -45,4 +45,4 @@ RUN pnpm --filter @dnd/session-client exec vite build
 FROM nginx:alpine AS runtime
 COPY --from=build /app/session/client/dist /usr/share/nginx/html
 COPY session/client/nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 80 8080
