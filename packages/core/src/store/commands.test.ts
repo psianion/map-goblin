@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, ChildOrderCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, SetGroupMergedCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { AddChildCommand, ChildOrderCommand, LayerWallLookCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, SetGroupMergedCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
 import { createDungeonLayer } from './factories';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
@@ -644,6 +644,98 @@ describe('PresetApplyCommand: drawn work keeps its look', () => {
     expect(back.width).toBeUndefined();
     expect(back.textureTint).toBeUndefined();
     expect(standaloneWallLook(back, dungeonLayer().style).width).toBe(0.8);
+  });
+});
+
+describe('LayerWallLookCommand', () => {
+  const dungeonLayer = (): DungeonLayer => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!layer || layer.type !== 'dungeon') throw new Error('No dungeon layer');
+    return layer;
+  };
+  const shape = (id: string, styleOverrides?: Record<string, unknown>): ShapeChild => ({
+    id,
+    name: id,
+    childType: 'shape',
+    visible: true,
+    shapeType: 'rectangle',
+    contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+    ...(styleOverrides ? { styleOverrides } : {}),
+  });
+  const wall = (id: string, pins?: Partial<WallSegment>): WallSegment => ({
+    id,
+    points: [[0, 0], [6, 0]],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000000',
+    roughness: 0,
+    ...pins,
+  });
+  const child = (id: string) => dungeonLayer().children.find((c) => c.id === id) as ShapeChild;
+  const wallById = (id: string) => dungeonLayer().standaloneWalls.find((w) => w.id === id) as WallSegment;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    const layerId = dungeonLayer().id;
+    useStore.getState().updateLayer(layerId, {
+      style: { ...dungeonLayer().style, wallTextureSetId: 'GG_Cave_Ink', wallTextureTint: '#ffffff' },
+    } as Partial<DungeonLayer>);
+    // The pins a preset leaves behind: the old wall look frozen on what was drawn.
+    useStore.getState().addChild(
+      layerId,
+      shape('pinned-floor', { floorColor: '#d6fff9', wallTextureSetId: 'GG_Cave_Ink', wallTextureTint: '#ffffff', wallWidth: 0.5 }),
+    );
+    useStore.getState().addChild(layerId, shape('plain-floor'));
+    useStore.getState().addWall(layerId, wall('pinned-wall', { textureSetId: 'GG_Cave_Ink', textureTint: '#ffffff', width: 0.5 }));
+  });
+
+  it('moves the walls already drawn with the layer, keeping every pin that is not a wall look', () => {
+    new LayerWallLookCommand('test', dungeonLayer().id, { wallTextureSetId: 'GG_Fieldstone' }).execute();
+
+    expect(dungeonLayer().style.wallTextureSetId).toBe('GG_Fieldstone');
+    expect(child('pinned-floor').styleOverrides).toEqual({ floorColor: '#d6fff9' });
+    expect(child('plain-floor').styleOverrides).toBeUndefined();
+    const w = wallById('pinned-wall');
+    expect([w.textureSetId, w.textureTint, w.width]).toEqual([undefined, undefined, undefined]);
+    // What the renderer draws the floor's outline and the wall with is the layer's set now.
+    const layer = dungeonLayer();
+    expect(resolveStyle(layer.style, child('pinned-floor').styleOverrides as Partial<DungeonStyle>).wallTextureSetId).toBe(
+      'GG_Fieldstone',
+    );
+    expect(standaloneWallLook(w, layer.style).setId).toBe('GG_Fieldstone');
+  });
+
+  it('drops a floor pin bag that held only wall keys', () => {
+    const layerId = dungeonLayer().id;
+    useStore.getState().addChild(layerId, shape('walls-only', { wallTextureTint: '#ff0000' }));
+    new LayerWallLookCommand('test', layerId, { wallTextureTint: '#00ff00' }).execute();
+    expect(child('walls-only').styleOverrides).toBeUndefined();
+  });
+
+  it('undo puts back the pins and the style the change began from, not a live preview', () => {
+    const layerId = dungeonLayer().id;
+    // A tint drag previews on the layer before it commits.
+    useStore.getState().updateLayer(layerId, {
+      style: { ...dungeonLayer().style, wallTextureTint: '#ff8800' },
+    } as Partial<DungeonLayer>);
+    const cmd = new LayerWallLookCommand('test', layerId, { wallTextureTint: '#ff8800' }, { wallTextureTint: '#ffffff' });
+    cmd.execute();
+    cmd.undo();
+
+    expect(dungeonLayer().style.wallTextureTint).toBe('#ffffff');
+    expect(child('pinned-floor').styleOverrides).toEqual({
+      floorColor: '#d6fff9',
+      wallTextureSetId: 'GG_Cave_Ink',
+      wallTextureTint: '#ffffff',
+      wallWidth: 0.5,
+    });
+    const w = wallById('pinned-wall');
+    expect([w.textureSetId, w.textureTint, w.width]).toEqual(['GG_Cave_Ink', '#ffffff', 0.5]);
   });
 });
 

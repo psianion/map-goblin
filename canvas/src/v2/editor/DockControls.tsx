@@ -7,7 +7,7 @@ import type { DungeonLayer, DungeonStyle, RoomLook, ToolType } from '@/store/typ
 import { GROUP_WALL_TYPE, STYLE_TO_LOOK_KEY, wallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { MIXED_SWATCH, WALL_TYPE_CHOICES } from './selectionModel';
 import { DUNGEON_STYLE_PRESETS, matchPresetId, type MapStylePreset } from '@/store/presetRegistry';
-import { LayerStyleChangeCommand, PresetApplyCommand } from '@/store/commands';
+import { LayerWallLookCommand, PresetApplyCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
@@ -60,9 +60,12 @@ function patchStyle(layer: DungeonLayer, partial: Partial<DungeonStyle>) {
   useStore.getState().updateLayer(layer.id, { style: { ...layer.style, ...partial } } as Partial<DungeonLayer>);
 }
 
-function commitStyle(layer: DungeonLayer, field: keyof DungeonStyle, next: unknown, start: unknown) {
+/** A layer wall change, which reaches the walls already drawn (see LayerWallLookCommand). */
+function commitWallLook(layer: DungeonLayer, field: 'wallWidth' | 'wallTextureTint', next: unknown, start: unknown) {
   if (next === start) return;
-  undoManager.execute(new LayerStyleChangeCommand(`Change ${field}`, layer.id, field, start, next));
+  undoManager.execute(
+    new LayerWallLookCommand(`Change ${field}`, layer.id, { [field]: next }, { [field]: start }),
+  );
 }
 
 /**
@@ -553,7 +556,7 @@ function LayerWallWidth({ layer, label }: { layer: DungeonLayer; label: string }
       step={0.05}
       format={fixed(2)}
       onChange={(v) => patchStyle(layer, { wallWidth: v })}
-      onCommit={(v, start) => commitStyle(layer, 'wallWidth', v, start)}
+      onCommit={(v, start) => commitWallLook(layer, 'wallWidth', v, start)}
     />
   );
 }
@@ -649,7 +652,7 @@ function WallSettings() {
           label="Wall tint"
           value={layer.style.wallTextureTint}
           onChange={(c) => patchStyle(layer, { wallTextureTint: c })}
-          onCommit={(c, start) => commitStyle(layer, 'wallTextureTint', c, start)}
+          onCommit={(c, start) => commitWallLook(layer, 'wallTextureTint', c, start)}
         />
       )}
     </>

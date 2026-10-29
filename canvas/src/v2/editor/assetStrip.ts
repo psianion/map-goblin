@@ -1,5 +1,5 @@
 import { useStore } from '@/store/store';
-import { CompositeCommand, LayerStyleChangeCommand, PropertyCommand, UpdateChildCommand } from '@/store/commands';
+import { CompositeCommand, LayerStyleChangeCommand, LayerWallLookCommand, UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { selectActiveLayer } from '@/store/selectors';
 import type { Command, DungeonLayer, DungeonStyle, Layer, MapBuilderStore, ShapeChild } from '@/store/types';
@@ -421,15 +421,20 @@ export function wallSetCandidates(recent: readonly string[], current: string | u
   return orderStripCandidates(recent.map(wallSetForAsset).filter(usable), [current, ...installed].filter(usable));
 }
 
-/** Same edit as the layer panel's wall texture: the set and the width it reads right at. */
+/**
+ * The layer's wall set and the width it reads right at, for every wall already on the
+ * layer too: their own wall pins go (see LayerWallLookCommand).
+ */
 export function pickWallSet(picked: DungeonLayer, setId: string): void {
   const layer = liveLayer(picked);
   const thumb = wallSetThumb(setId);
   if (thumb) useStore.getState().trackRecentUse(thumb);
   if (layer.style.wallTextureSetId === setId) return;
-  const style: DungeonStyle = { ...layer.style, wallTextureSetId: setId, wallWidth: getWallSetDefaults(setId).defaultWidth };
   undoManager.execute(
-    new PropertyCommand('Layer wall texture', { type: 'layer', layerId: layer.id }, { style: layer.style }, { style }),
+    new LayerWallLookCommand('Layer wall texture', layer.id, {
+      wallTextureSetId: setId,
+      wallWidth: getWallSetDefaults(setId).defaultWidth,
+    }),
   );
 }
 

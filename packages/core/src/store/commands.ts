@@ -905,6 +905,90 @@ export class LayerStyleChangeCommand implements Command {
   }
 }
 
+/** The wall keys a floor shape can pin in its `styleOverrides`. */
+const SHAPE_WALL_KEYS = ['wallTextureSetId', 'wallTextureTint', 'wallWidth'] as const;
+
+/**
+ * Command for a layer-wide wall change from the Walls tab: set, tint or width.
+ *
+ * Unlike a preset, which keeps what is already drawn looking as it was, this one
+ * is aimed at the walls already on the layer. A floor or drawn wall still carrying
+ * a pinned wall look (a preset applied earlier pins the old one on everything)
+ * would otherwise keep it, and the DM changes the wall settings and watches only
+ * the walls without pins move. So every wall pin on the layer is cleared with the
+ * change, and the layer's walls follow the layer again. Room, area and level looks
+ * are a scope of their own and are left alone.
+ */
+export class LayerWallLookCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly patch: Partial<DungeonStyle>;
+  private readonly start: Partial<DungeonStyle>;
+  private previousStyle: DungeonStyle | null = null;
+  private readonly previousOverrides = new Map<string, Record<string, unknown>>();
+  private readonly previousWallPins = new Map<string, WallPins>();
+
+  /**
+   * `start` is the style the change began from, for a control that previewed the
+   * new value live before committing: undo puts those fields back, not the preview.
+   */
+  constructor(label: string, layerId: string, patch: Partial<DungeonStyle>, start: Partial<DungeonStyle> = {}) {
+    this.label = label;
+    this.layerId = layerId;
+    this.patch = structuredClone(patch);
+    this.start = structuredClone(start);
+  }
+
+  execute(): void {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === this.layerId);
+    if (!layer || layer.type !== 'dungeon') return;
+    this.previousStyle = { ...structuredClone(layer.style), ...this.start };
+
+    this.previousOverrides.clear();
+    for (const child of layer.children) {
+      if (child.childType !== 'shape' || !child.styleOverrides) continue;
+      const own = child.styleOverrides as Record<string, unknown>;
+      if (!SHAPE_WALL_KEYS.some((k) => own[k] !== undefined)) continue;
+      this.previousOverrides.set(child.id, structuredClone(own));
+      const kept = Object.fromEntries(
+        Object.entries(own).filter(([k]) => !(SHAPE_WALL_KEYS as readonly string[]).includes(k)),
+      );
+      state.updateChild(this.layerId, child.id, {
+        styleOverrides: Object.keys(kept).length > 0 ? kept : undefined,
+      });
+    }
+
+    this.previousWallPins.clear();
+    for (const wall of layer.standaloneWalls) {
+      if (wall.textureSetId === undefined && wall.textureTint === undefined && wall.width === undefined) continue;
+      this.previousWallPins.set(wall.id, {
+        textureSetId: wall.textureSetId,
+        textureTint: wall.textureTint,
+        width: wall.width,
+      });
+      state.updateWall(this.layerId, wall.id, { textureSetId: undefined, textureTint: undefined, width: undefined });
+    }
+
+    state.updateLayer(this.layerId, {
+      style: { ...layer.style, ...structuredClone(this.patch) },
+    } as Partial<DungeonLayer>);
+  }
+
+  undo(): void {
+    const state = useStore.getState();
+    for (const [childId, overrides] of this.previousOverrides) {
+      state.updateChild(this.layerId, childId, { styleOverrides: structuredClone(overrides) });
+    }
+    for (const [wallId, pins] of this.previousWallPins) {
+      state.updateWall(this.layerId, wallId, { ...pins });
+    }
+    if (this.previousStyle) {
+      state.updateLayer(this.layerId, { style: structuredClone(this.previousStyle) } as Partial<DungeonLayer>);
+    }
+  }
+}
+
 /**
  * Command for the map's global terrain visible/opacity. PropertyCommand can't
  * address `mapSettings` (it only targets layers/children), so this is the
