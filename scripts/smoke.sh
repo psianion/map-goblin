@@ -55,8 +55,10 @@ case "$(docker compose port game-server 8787)" in
   127.0.0.1:*) pass "game-server host port is loopback only" ;;
   *) fail "game-server host port is not bound to 127.0.0.1" ;;
 esac
-if docker compose port session-client 8080 >/dev/null 2>&1; then fail "session-client :8080 is published"; fi
-if docker compose port map-goblin 8080 >/dev/null 2>&1; then fail "map-goblin :8080 is published"; fi
+# Output, not exit status: Compose versions disagree on the status for an unpublished
+# port, and all of them print nothing.
+[ -z "$(docker compose port session-client 8080 2>/dev/null)" ] || fail "session-client :8080 is published"
+[ -z "$(docker compose port map-goblin 8080 2>/dev/null)" ] || fail "map-goblin :8080 is published"
 pass "the tunnel entrances are not published"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DOCKER_TABLE_PORT/")" = 200 ] || fail "table :$DOCKER_TABLE_PORT"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DOCKER_EDITOR_PORT/")" = 200 ] || fail "editor :$DOCKER_EDITOR_PORT"
