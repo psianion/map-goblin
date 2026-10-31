@@ -410,6 +410,58 @@ describe('SelectionCard', () => {
       expect(d1().width).toBe(1);
     });
 
+    describe('Angle', () => {
+      const w1 = () => (useStore.getState().layers[0] as DungeonLayer).standaloneWalls.find((w) => w.id === 'w1')!;
+      function seedFree() {
+        seed([door({ position: [2.5, 0] })], ['d1']);
+        useStore.setState((s) => {
+          (s.layers[0] as DungeonLayer).standaloneWalls = [{ ...structuredClone(wall), points: [[2, 0], [3, 0]] }];
+        });
+      }
+
+      it('a door on a long wall reads its wall’s angle and says to turn the wall', () => {
+        seedDoor(door());
+        render(<SelectionCard />);
+        const row = screen.getByTestId('v2-door-angle');
+        expect(row.textContent).toContain('0°');
+        expect(row.textContent).toContain('Turn the wall to turn this door');
+        expect(screen.queryByRole('spinbutton', { name: 'Door angle' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Turn 90°' })).toBeNull();
+      });
+
+      it('Turn 90° on a free-standing door turns its piece about the door and writes both, one undo step', () => {
+        seedFree();
+        render(<SelectionCard />);
+        expect((screen.getByRole('spinbutton', { name: 'Door angle' }) as HTMLInputElement).value).toBe('0');
+        fireEvent.click(screen.getByRole('button', { name: 'Turn 90°' }));
+        const [a, b] = w1().points;
+        expect(a[0]).toBeCloseTo(2.5);
+        expect(b[0]).toBeCloseTo(2.5);
+        expect(Math.abs(b[1] - a[1])).toBeCloseTo(1);
+        expect(d1().angle).toBeCloseTo(Math.PI / 2);
+        expect((screen.getByRole('spinbutton', { name: 'Door angle' }) as HTMLInputElement).value).toBe('90');
+        expect(undoOnce()).toBe(false);
+        expect(w1().points).toEqual([[2, 0], [3, 0]]);
+        expect(d1().angle).toBe(0);
+      });
+
+      it('a typed angle turns the piece live and lands as one step on Enter', () => {
+        seedFree();
+        render(<SelectionCard />);
+        const field = screen.getByRole('spinbutton', { name: 'Door angle' }) as HTMLInputElement;
+        expect(field.step).toBe('15');
+        fireEvent.focus(field);
+        fireEvent.change(field, { target: { value: '45' } });
+        expect(d1().angle).toBeCloseTo(Math.PI / 4);
+        expect(w1().points[1][1]).toBeGreaterThan(0);
+        fireEvent.keyDown(field, { key: 'Enter' });
+        fireEvent.blur(field);
+        expect(d1().angle).toBeCloseTo(Math.PI / 4);
+        expect(undoOnce()).toBe(false);
+        expect(w1().points).toEqual([[2, 0], [3, 0]]);
+      });
+    });
+
     describe('on a doorway piece between longer walls (fieldstone-keep)', () => {
       const piece = (id: string, a: number, b: number): WallSegment => ({ ...wall, id, points: [[a, 0], [b, 0]] });
       function seedRun(d: DoorChild, setId?: string) {

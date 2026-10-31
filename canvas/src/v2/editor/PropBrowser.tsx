@@ -31,17 +31,24 @@ function useProps(): CatalogEntry[] {
   return useMemo(() => propEntries(), [packs]);
 }
 
-/** The sheet's header: "Props 825" and the close button. */
-export function PropBrowserHead({ onClose }: { onClose: () => void }) {
+/** The sheet's header: "Props 825", the way to the Packs sheet, and the close button. */
+export function PropBrowserHead({ onClose, onOpenPacks }: { onClose: () => void; onOpenPacks?: () => void }) {
   const count = useProps().length;
   return (
     <header className="v2-sheet__head">
       <h2>
         Props <span className="v2-pbrowse__total v2-num">{count}</span>
       </h2>
-      <button type="button" className="v2-ib" aria-label="Close Props" onClick={onClose}>
-        <X size={15} strokeWidth={1.75} />
-      </button>
+      <span className="v2-lsheets__headacts">
+        {onOpenPacks && (
+          <button type="button" className="v2-link v2-packs__link" data-testid="v2-props-packs" onClick={onOpenPacks}>
+            Packs
+          </button>
+        )}
+        <button type="button" className="v2-ib" aria-label="Close Props" onClick={onClose}>
+          <X size={15} strokeWidth={1.75} />
+        </button>
+      </span>
     </header>
   );
 }

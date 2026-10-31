@@ -1,9 +1,44 @@
 import type { StateCreator } from 'zustand';
 import type { MapBuilderStore, PackSummary, PackUpdateInfo } from '../types';
-import { getPackManager } from '../packIO';
+import { getPackManager, type PackFile, type PackFileInstall, type PackManager } from '../packIO';
+
+/** What an update check says when the pack index cannot be reached or answers an error. */
+export const UPDATE_SOURCE_UNREACHABLE = 'Could not reach the update source';
+
+/** The store's rows for what the manager has installed, flags and dates as stored. */
+function summariesOf(packManager: PackManager): PackSummary[] {
+  return packManager.getInstalledPacks().map((p) => ({
+    packId: p.packId,
+    name: p.packId,
+    version: p.version,
+    sizeBytes: p.bundleSize,
+    bundled: p.bundled,
+    installedAt: p.installedAt,
+  }));
+}
+
+function sameSummaries(a: PackSummary[], b: PackSummary[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((p, i) => {
+      const q = b[i];
+      return (
+        p.packId === q.packId &&
+        p.version === q.version &&
+        p.sizeBytes === q.sizeBytes &&
+        p.bundled === q.bundled &&
+        p.installedAt === q.installedAt
+      );
+    })
+  );
+}
 
 export interface PackActions {
   setInstalledPacks: (packs: PackSummary[]) => void;
+  /** Re-read the installed list from the manager (a no-op when it already matches). */
+  refreshInstalledPacks: () => void;
+  /** Install a validated pack file: refused on a bundled id or the same version, else (re)installed. */
+  installPackFromFile: (file: PackFile) => Promise<PackFileInstall>;
   setAvailableUpdates: (updates: PackUpdateInfo[]) => void;
   setIsChecking: (checking: boolean) => void;
   checkForPackUpdates: () => Promise<void>;
@@ -23,6 +58,34 @@ export const createPacksSlice: StateCreator<
     set((state) => {
       state.packs.installedPacks = packs;
     }),
+  refreshInstalledPacks: () => {
+    const next = summariesOf(getPackManager());
+    if (sameSummaries(next, get().packs.installedPacks)) return;
+    get().setInstalledPacks(next);
+  },
+
+  installPackFromFile: async ({ packId, manifest, blobs }) => {
+    const packManager = getPackManager();
+    const installed = packManager.getInstalledPacks().find((p) => p.packId === packId);
+    if (installed?.bundled) {
+      return {
+        status: 'refused',
+        reason: `${manifest.name} is bundled with the app; rename the pack to install it beside it`,
+      };
+    }
+    if (installed && installed.version === manifest.version) {
+      return { status: 'refused', reason: `Already installed: ${manifest.name} ${manifest.version}` };
+    }
+    // A pack file never comes from the CDN, so a newer copy of one only ever replaces it.
+    if (installed) await packManager.uninstallPack(packId);
+    await packManager.registerPack(packId, manifest, blobs, false);
+    get().refreshInstalledPacks();
+    set((state) => {
+      state.packs.availableUpdates = state.packs.availableUpdates.filter((u) => u.packId !== packId);
+    });
+    return installed ? { status: 'replaced', previousVersion: installed.version } : { status: 'installed' };
+  },
+
   setAvailableUpdates: (updates) =>
     set((state) => {
       state.packs.availableUpdates = updates;
@@ -37,10 +100,22 @@ export const createPacksSlice: StateCreator<
     store.setIsChecking(true);
     try {
       const packManager = getPackManager();
-      const updates = await packManager.checkForUpdates();
-      get().setAvailableUpdates(updates);
+      const report = await packManager.checkForUpdatesReport();
+      // Unreachable is not "up to date": say so, and keep the updates already known.
+      if (report.status === 'unreachable') {
+        set((state) => {
+          state.packs.updateCheckError = UPDATE_SOURCE_UNREACHABLE;
+        });
+      } else {
+        get().setAvailableUpdates(report.updates);
+        set((state) => {
+          state.packs.updateCheckError = null;
+        });
+      }
     } catch {
-      // CDN unreachable — silently ignore, don't block UI
+      set((state) => {
+        state.packs.updateCheckError = UPDATE_SOURCE_UNREACHABLE;
+      });
     } finally {
       get().setIsChecking(false);
     }
@@ -117,13 +192,16 @@ export const createPacksSlice: StateCreator<
     }),
 
   uninstallPack: async (packId: string) => {
-    // Don't allow uninstalling bundled packs
-    const pack = get().packs.installedPacks.find((p) => p.packId === packId);
+    // Don't allow uninstalling bundled packs. The manager holds the stored flag; the
+    // store's row can be a boot-time guess.
+    const packManager = getPackManager();
+    const pack =
+      packManager.getInstalledPacks().find((p) => p.packId === packId) ??
+      get().packs.installedPacks.find((p) => p.packId === packId);
     if (pack?.bundled) {
       throw new Error('Cannot uninstall bundled packs');
     }
 
-    const packManager = getPackManager();
     await packManager.uninstallPack(packId);
 
     set((state) => {

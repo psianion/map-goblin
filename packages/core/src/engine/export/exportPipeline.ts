@@ -29,7 +29,19 @@ export interface ExportOptions {
    * is the map as the unlit editing view shows it. Defaults to on (`true`).
    */
   lighting?: boolean | { minutes: number; nightSky: NightSky; weather: Weather };
+  /**
+   * Which labels the file carries: none, only those marked visible to players, or all of
+   * them (the default).
+   */
+  labels?: 'none' | 'players' | 'all';
 }
+
+/**
+ * Editor-only containers that sit in the world container but never belong in a file: the
+ * zone markers (canvas/zoneOverlay.ts labels its Graphics this) and the tool previews (a
+ * label or door ghost left under the cursor).
+ */
+const EDITOR_ONLY = ['zoneOverlay', 'previewContainer'];
 
 /**
  * Compute the axis-aligned bounding box of all dungeon layer floor geometry,
@@ -117,8 +129,38 @@ export async function runExportPipeline(
     const origY = sceneGraph.worldContainer.position.y;
     const origScale = sceneGraph.worldContainer.scale.x;
     let releaseLook: (() => void) | null = null;
+    // Everything hidden for the file, with the visibility it had, handed back in the finally.
+    const hidden: { visible: boolean }[] = [];
+    const hide = (node: { visible: boolean } | null | undefined) => {
+      if (!node || !node.visible) return;
+      hidden.push(node);
+      node.visible = false;
+    };
 
     try {
+      for (const node of sceneGraph.worldContainer.children ?? []) {
+        if (EDITOR_ONLY.includes(node.label)) hide(node);
+      }
+      const labels = opts.labels ?? 'all';
+      if (labels !== 'all') {
+        for (const layer of layers) {
+          if (layer.type !== 'dungeon') continue;
+          const sub = getLayerEntry(layer.id)?.sublayers?.labels;
+          if (!sub) continue;
+          if (labels === 'none') {
+            hide(sub);
+            continue;
+          }
+          // A DM-only label's text and its pill plate (`subscribeToTextLabels` names both).
+          for (const child of layer.children) {
+            if (child.childType !== 'text' || child.players) continue;
+            for (const node of sub.children) {
+              if (node.label === `label-${child.id}` || node.label === `label-pill-${child.id}`) hide(node);
+            }
+          }
+        }
+      }
+
       // Temporarily hide grids if requested — both the global grid renderer
       // AND per-layer grid sublayers inside each dungeon layer
       if (!opts.includeGrid) {
@@ -173,6 +215,7 @@ export async function runExportPipeline(
       }
     } finally {
       releaseLook?.();
+      for (const node of hidden) node.visible = true;
 
       // Restore original transform and grid visibility
       sceneGraph.worldContainer.position.set(origX, origY);

@@ -55,8 +55,8 @@ test.describe('Asset Pack Integration', () => {
       // Check getFrame returns null for unknown
       const unknownFrame = manager.getFrame('nonexistent')
 
-      // Verify cache usage defaults
-      const usage = manager.getCacheUsage()
+      // Verify cache usage defaults (read from the pack DB, so it answers async)
+      const usage = await manager.getCacheUsage()
 
       return {
         packsBeforeInstall: before.length,

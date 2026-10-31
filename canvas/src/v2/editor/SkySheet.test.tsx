@@ -3,7 +3,8 @@ import { render, screen, cleanup, fireEvent, within, act } from '@testing-librar
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { SkySheet, SkySheetFoot } from './SkySheet';
-import { getLitPreview, resetViewPrefsForTests, SKY_PREVIEW_KEY } from '../viewPrefs';
+import { getLitPreview, LIT_ON_TOAST, resetViewPrefsForTests, setLitPreview, SKY_PREVIEW_KEY } from '../viewPrefs';
+import { notify } from '@/lib/toast';
 
 vi.mock('@/lib/toast', () => ({ notify: { subtle: vi.fn(), success: vi.fn(), error: vi.fn(), action: vi.fn() } }));
 
@@ -17,6 +18,7 @@ const pressed = (g: string) =>
 const undo = () => act(() => undoManager.undo());
 
 beforeEach(() => {
+  vi.clearAllMocks();
   undoManager.clear();
   localStorage.clear();
   resetViewPrefsForTests();
@@ -159,6 +161,40 @@ describe('Sky & mood sheet', () => {
     fireEvent.click(within(preview).getByRole('switch', { name: 'Lit preview' }));
     expect(getLitPreview()).toBe(true);
     expect(within(preview).getByText('I').tagName).toBe('KBD');
+  });
+
+  it('says so above Place while unlit, with a Turn on button; the line goes once lit', () => {
+    render(<SkySheet />);
+    const line = screen.getByTestId('v2-sky-unlit');
+    expect(line.textContent).toContain('Shown unlit. Turn on Lit preview to see these changes.');
+    expect(line.compareDocumentPosition(screen.getByTestId('v2-sky-place')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(line).getByRole('button', { name: 'Turn on' }));
+    expect(getLitPreview()).toBe(true);
+    expect(screen.queryByTestId('v2-sky-unlit')).toBeNull();
+    expect(notify.subtle).not.toHaveBeenCalled();
+  });
+
+  it('an Environment or Time commit while unlit turns the lit preview on with one toast; never off', () => {
+    render(<SkySheet />);
+    pick('Environment', 'Underground');
+    expect(getLitPreview()).toBe(true);
+    expect(notify.subtle).toHaveBeenCalledTimes(1);
+    expect(notify.subtle).toHaveBeenCalledWith(LIT_ON_TOAST, { icon: 'eye' });
+    pick('Time', 'Fixed hour');
+    expect(getLitPreview()).toBe(true);
+    expect(notify.subtle).toHaveBeenCalledTimes(1);
+    act(() => setLitPreview(false));
+    pick('Time', 'Follow clock');
+    expect(getLitPreview()).toBe(true);
+    expect(notify.subtle).toHaveBeenCalledTimes(2);
+  });
+
+  it('other sheet rows leave the lit preview alone', () => {
+    render(<SkySheet />);
+    pick('Night sky', 'Crescent');
+    fireEvent.click(screen.getByRole('switch', { name: 'Natural shadows' }));
+    expect(getLitPreview()).toBe(false);
+    expect(notify.subtle).not.toHaveBeenCalled();
   });
 
   it('closes with a line on what the table does with these', () => {

@@ -4,6 +4,7 @@ import pLimit from 'p-limit'
 import type { AssetPackDB, StoredPack } from './assetPackDB'
 import { bumpAssetSetLRU } from './assetPackDB'
 import { collectMapTextureIds, resolveAssetSets, type MapTextureSource } from './mapTextureRefs'
+import type { ManifestEntry, PackManifest } from './packManifest'
 
 export interface PackSummary {
   packId: string
@@ -11,6 +12,10 @@ export interface PackSummary {
   entryCount: number
   themes: string[]
   bundleSize: number
+  /** Shipped with the app (first-boot install), as opposed to a CDN install or a pack file. */
+  bundled: boolean
+  /** When this copy was written (the stored record's `lastUsed`, which nothing bumps later). */
+  installedAt: number
 }
 
 export interface FrameData {
@@ -27,45 +32,7 @@ export interface PackManagerConfig {
   packDB?: AssetPackDB
 }
 
-// SYNC: mirrors vault-engine's PackManifestSchema (packages/vault-engine/src/schemas/pack-manifest.ts)
-export interface FileRef {
-  checksum: string
-  size: number
-}
-
-export interface EntryRect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-export interface ManifestEntry {
-  type: string
-  material: string
-  gridSize: string
-  pieceType: string
-  variant: string
-  atlas?: string
-  frame?: EntryRect
-  /** Opaque-content bounds within the entry's cell — renderer trims to this. */
-  contentRect?: EntryRect
-  set?: string
-  /** Variant family within `set` ('storage_barrel_dark'); absent = a family of one. */
-  family?: string
-  tags: string[]
-}
-
-export interface PackManifest {
-  name: string
-  description: string
-  version: string
-  bundleSize: number
-  entries: Record<string, ManifestEntry>
-  atlases: Record<string, FileRef>
-  files: Record<string, FileRef>
-  theme?: string[]
-}
+export type { FileRef, EntryRect, ManifestEntry, PackManifest } from './packManifest'
 
 export interface IndexEntry {
   version: string
@@ -272,9 +239,23 @@ export class AssetPackManager {
     return ids
   }
 
+  /** The updates the index offers; see `checkForUpdatesReport` for whether it answered. */
   async checkForUpdates(): Promise<PackUpdateInfo[]> {
+    return (await this.checkForUpdatesReport()).updates
+  }
+
+  /**
+   * Ask the pack index for updates, and say whether it answered. When it cannot be reached
+   * or answers an error, the updates are the last ones known (as for a 304), so a pending
+   * update is not wiped and "unreachable" is not mistaken for "up to date".
+   */
+  async checkForUpdatesReport(): Promise<{ status: 'ok' | 'unreachable'; updates: PackUpdateInfo[] }> {
+    const lastKnown = () => ({ status: 'unreachable' as const, updates: this.cachedIndex ? this.updatesFrom(this.cachedIndex) : [] })
     try {
-      const etag = localStorage.getItem('index-etag')
+      // A 304 only says "the index you have is current", so it is only worth asking for
+      // with that index in hand. The ETag outlives the page (localStorage) and the index
+      // does not: the first check after a reload asks for the whole index.
+      const etag = this.cachedIndex ? localStorage.getItem('index-etag') : null
       const headers: Record<string, string> = {}
       if (etag) headers['If-None-Match'] = etag
 
@@ -283,7 +264,9 @@ export class AssetPackManager {
         headers,
       })
 
-      if (res.status === 304) return []
+      // Not modified: the updates are what the index already held. Answering [] here
+      // wiped a pending update off the list on every check after the first.
+      if (res.status === 304) return { status: 'ok', updates: this.cachedIndex ? this.updatesFrom(this.cachedIndex) : [] }
       if (!res.ok) {
         // Swallowing this cost a gate walk: a bad status on the pack index was
         // indistinguishable from "you are up to date", so a broken index could
@@ -291,37 +274,41 @@ export class AssetPackManager {
         console.warn(
           `[AssetPackManager] Pack index ${this.config.cdnBaseUrl}/index.json returned ${res.status} — skipping the update check.`,
         )
-        return []
+        return lastKnown()
       }
 
       const newEtag = res.headers.get('etag')
       if (newEtag) localStorage.setItem('index-etag', newEtag)
 
       const index = (await res.json()) as PackIndex
-      if (!index?.packs || typeof index.packs !== 'object') return []
-      const updates: PackUpdateInfo[] = []
-
-      for (const [packId, remote] of Object.entries(index.packs)) {
-        const installed = this.installedPacks.get(packId)
-        if (!installed) continue
-        if (compareSemver(remote.version, installed.version) > 0) {
-          updates.push({
-            packId,
-            currentVersion: installed.version,
-            availableVersion: remote.version,
-          })
-        }
-      }
-
-      return updates
+      if (!index?.packs || typeof index.packs !== 'object') return lastKnown()
+      this.cachedIndex = index
+      return { status: 'ok', updates: this.updatesFrom(index) }
     } catch (err) {
       // CDN unreachable — still never blocks the app, but no longer in silence.
       console.warn(
         `[AssetPackManager] Pack index ${this.config.cdnBaseUrl}/index.json unreachable — skipping the update check.`,
         err,
       )
-      return []
+      return lastKnown()
     }
+  }
+
+  /** Installed packs the index has a newer version of, against what is installed now. */
+  private updatesFrom(index: PackIndex): PackUpdateInfo[] {
+    const updates: PackUpdateInfo[] = []
+    for (const [packId, remote] of Object.entries(index.packs)) {
+      const installed = this.installedPacks.get(packId)
+      if (!installed) continue
+      if (compareSemver(remote.version, installed.version) > 0) {
+        updates.push({
+          packId,
+          currentVersion: installed.version,
+          availableVersion: remote.version,
+        })
+      }
+    }
+    return updates
   }
 
   async installPack(packId: string, onProgress?: (percent: number) => void): Promise<void> {
@@ -379,7 +366,7 @@ export class AssetPackManager {
     // 4. Check cache capacity, evict if needed
     const packSize = [...blobs.values()].reduce((s, b) => s + b.length, 0)
     if (this.packDB) {
-      const usage = await this.packDB.getCacheUsage()
+      const usage = await this.getCacheUsage()
       if (usage.used + packSize > usage.limit) {
         const evicted = await this.packDB.evictLRU(packSize - (usage.limit - usage.used))
         // Amendment B3: also clear in-memory textures for evicted packs/asset sets
@@ -410,6 +397,8 @@ export class AssetPackManager {
       entryCount,
       themes: manifest.theme ?? [],
       bundleSize: packSize,
+      bundled: false,
+      installedAt: Date.now(),
     })
 
     // 7. Load textures with GPU upload yielding (Amendment B2)
@@ -419,8 +408,9 @@ export class AssetPackManager {
   }
 
   /**
-   * Register a pre-downloaded pack directly (used by firstBootInstall for bundled packs).
-   * Skips fetch + checksum verification — caller is responsible for trusted data.
+   * Register a pre-downloaded pack directly: firstBootInstall's bundled packs, and a pack
+   * file the DM installs (not bundled). Skips fetch + checksum verification — caller is
+   * responsible for trusted data.
    */
   async registerPack(
     packId: string,
@@ -452,6 +442,8 @@ export class AssetPackManager {
       entryCount,
       themes: manifest.theme ?? [],
       bundleSize: packSize,
+      bundled,
+      installedAt: Date.now(),
     })
 
     await this.loadPackTextures(packId, manifest, blobs)
@@ -688,7 +680,10 @@ export class AssetPackManager {
         manifest: new TextEncoder().encode(JSON.stringify(newManifest)).buffer as ArrayBuffer,
         blobs,
         lastUsed: Date.now(),
-        bundled: false,
+        // An updated bundled pack is still the bundled pack: writing false here made the
+        // cache count all of it, eviction free to drop it whole, and the retired-pack
+        // sweep blind to it.
+        bundled: stored?.bundled ?? false,
         installedAssetSets: keptSets.length ? keptSets : undefined,
         dynamicAssetSets: keptDynamic.length ? keptDynamic : undefined,
         assetSetBytes: Object.keys(assetSetBytes).length ? assetSetBytes : undefined,
@@ -703,6 +698,8 @@ export class AssetPackManager {
       entryCount,
       themes: newManifest.theme ?? [],
       bundleSize: packSize,
+      bundled: stored?.bundled ?? this.installedPacks.get(packId)?.bundled ?? false,
+      installedAt: Date.now(),
     })
     // The cache backs getPackManifests(), which firstBootInstall reads to decide whether
     // the installed copy still matches the bundle. Leaving the pre-update manifest here
@@ -779,7 +776,7 @@ export class AssetPackManager {
 
     // Cap check + evict BEFORE writing — never evict what we're about to need.
     const addedBytes = [...blobs.values()].reduce((s, b) => s + b.length, 0)
-    const usage = await this.packDB.getCacheUsage()
+    const usage = await this.getCacheUsage()
     if (usage.used + addedBytes > usage.limit) {
       const evicted = await this.packDB.evictLRU(addedBytes - (usage.limit - usage.used))
       this.clearEvicted(evicted)
@@ -856,8 +853,14 @@ export class AssetPackManager {
     this.catalogVersion++
   }
 
-  getCacheUsage(): { used: number; limit: number } {
-    return { used: 0, limit: this.config.cacheLimit ?? 200 * 1024 * 1024 }
+  /**
+   * What the pack cache holds against its cap: the one reading eviction and the Packs
+   * sheet both use. Bundled packs count only the asset sets fetched after the bundle
+   * (see AssetPackDB.getCacheUsage); without a DB nothing is cached.
+   */
+  async getCacheUsage(): Promise<{ used: number; limit: number }> {
+    if (!this.packDB) return { used: 0, limit: this.config.cacheLimit ?? 200 * 1024 * 1024 }
+    return this.packDB.getCacheUsage()
   }
 
   clearCache(): void {
@@ -893,6 +896,8 @@ export class AssetPackManager {
           entryCount,
           themes: manifest.theme ?? [],
           bundleSize: stored.bundleSize,
+          bundled: stored.bundled,
+          installedAt: stored.lastUsed,
         })
         this.manifestCache.set(stored.packId, manifest)
 

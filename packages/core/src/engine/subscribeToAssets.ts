@@ -93,6 +93,17 @@ function ensureRegistered(assetId: string): void {
  */
 const texturedAs = new WeakMap<Sprite, string>();
 
+/**
+ * Have every placed sprite resolve its texture again on the next sync: after a pack is
+ * installed or uninstalled, so a prop whose pack went shows the missing-texture
+ * placeholder rather than art that is no longer there, and one whose pack came in shows it.
+ */
+export function refreshAssetTextures(): void {
+  for (const spriteMap of spriteMaps.values()) {
+    for (const sprite of spriteMap.values()) texturedAs.delete(sprite);
+  }
+}
+
 /** Resolve and assign the child's texture; async-loads uncached custom images. */
 function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sprite>): void {
   texturedAs.set(sprite, obj.assetId);

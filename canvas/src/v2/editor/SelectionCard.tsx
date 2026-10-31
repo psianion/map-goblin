@@ -26,15 +26,13 @@ import type {
   WaterChild,
 } from '@/store/types';
 import type { AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
-import { TextProperties } from '@/components/properties/TextProperties';
-import { ZoneProperties } from '@/components/properties/ZoneProperties';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
 import { doorOpeningLimit, polylineLength, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
-import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal';
+import { doorwayRoom, isOwnPiece, turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '@dnd/core/src/store/doorwayCommands';
 import type { DoorChild } from '@dnd/core/src/shared/types';
-import { doorStyleLabel } from '@dnd/core/src/engine/tools/DoorTool';
+import { DOOR_ANGLE_STEP, doorAngleValue, doorStyleLabel, turnDoorAngle } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorWallLook } from '@dnd/core/src/engine/doorRenderer';
 import { MAX_OPEN_ANGLE } from '@dnd/core/src/assets/doorKits';
 import { edgeStyles, ringStyles } from '@dnd/core/src/shared/wallLook';
@@ -48,9 +46,11 @@ import { MixedCard } from './MixedCard';
 import { RoomTargetCard } from './RoomCards';
 import { PropTargetCard } from './PropCards';
 import { LightTargetCard } from './LightCards';
+import { LabelGroupFields, LabelTargetCard } from './LabelCard';
 import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { wallSetLabel } from './assetStrip';
 import { SlideOver } from './SlideOver';
+import { ZoneSheet } from './ZoneSheet';
 import {
   BANK_TEXTURE_ID,
   MIXED_SWATCH,
@@ -179,6 +179,10 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
   if (total === 1 && roomCount === 0 && first?.childType === 'light' && layerIds[0]) {
     return <LightTargetCard light={first as LightChild} layerId={layerIds[0]} />;
   }
+  // One label on its own has the v2 label card (the v1 panel stays for `/`).
+  if (total === 1 && roomCount === 0 && first?.childType === 'text' && layerIds[0]) {
+    return <LabelTargetCard key={first.id} label={first as TextChild} layerId={layerIds[0]} />;
+  }
   if (total === 0 && roomTarget.kind !== 'none') {
     return <RoomTargetCard target={roomTarget as RoomTarget} onOpenAssets={onOpenAssets} />;
   }
@@ -228,6 +232,8 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
           <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
         ) : group?.kind === 'water' ? (
           <WaterFields layerId={group.layerId} ids={group.ids} />
+        ) : walls.length === 0 && roomCount === 0 && children.every((c) => c.childType === 'text') ? (
+          <LabelGroupFields entries={children.map((c, i) => ({ id: c.id, layerId: layerIds[i] ?? '' }))} />
         ) : null}
       </MixedCard>
     );
@@ -268,8 +274,9 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
         open={zoneMore && first?.childType === 'zone' && !!layerId}
         onClose={() => setZoneMore(false)}
         testId="v2-zone-sheet"
+        legacy={false}
       >
-        {layerId && first?.childType === 'zone' && <ZoneProperties layerId={layerId} childId={first.id} />}
+        {layerId && first?.childType === 'zone' && <ZoneSheet layerId={layerId} zoneId={first.id} />}
       </SlideOver>
     </>
   );
@@ -293,16 +300,10 @@ function Fields({
   if (child.childType === 'door' && layerId) {
     return <DoorFields layerId={layerId} doorId={child.id} />;
   }
-  if (child.childType === 'text') {
-    return (
-      <div className="v2-sel__fields v2-legacy">
-        <TextProperties label={child as TextChild} />
-      </div>
-    );
-  }
   if (child.childType === 'zone') {
     return (
       <div className="v2-sel__rows">
+        {layerId && <ZoneName layerId={layerId} zone={child} />}
         {layerId && <ZoneFields layerId={layerId} zone={child} />}
         <div className="v2-sel__row">
           <span>Shape</span>
@@ -326,6 +327,41 @@ function Fields({
     );
   }
   return <p className="v2-sel__note">Nothing else to set on this one yet.</p>;
+}
+
+/** A zone's name, typed in place: one undo step on Enter or blur, Esc puts it back. */
+function ZoneName({ layerId, zone }: { layerId: string; zone: ZoneChild }) {
+  const [text, setText] = useState<string | null>(null);
+  const cancelled = useRef(false);
+  const commit = () => {
+    const next = text?.trim();
+    setText(null);
+    if (cancelled.current || !next || next === zone.name) return;
+    undoManager.execute(new UpdateChildCommand('Rename zone', layerId, zone.id, { name: zone.name }, { name: next }));
+  };
+  return (
+    <label className="v2-field v2-selc__text">
+      <span>Name</span>
+      <input
+        value={text ?? zone.name}
+        aria-label="Zone name"
+        spellCheck={false}
+        onFocus={() => {
+          cancelled.current = false;
+        }}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            cancelled.current = true;
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
 }
 
 /**
@@ -772,6 +808,7 @@ function NumField({
   onLive,
   onCommit,
   onRevert,
+  step = 0.1,
 }: {
   label: string;
   title: string;
@@ -780,6 +817,7 @@ function NumField({
   onLive: (v: number) => void;
   onCommit: () => void;
   onRevert: () => void;
+  step?: number;
 }) {
   // null while not editing: the field then shows the store's value.
   const [text, setText] = useState<string | null>(null);
@@ -790,7 +828,7 @@ function NumField({
       <input
         type="number"
         className="v2-num"
-        step={0.1}
+        step={step}
         value={shown}
         placeholder={mixed ? 'Mixed' : undefined}
         aria-label={title}
@@ -972,6 +1010,93 @@ function DoorDims({ layerId, doorId }: { layerId: string; doorId: string }) {
   );
 }
 
+/** Radians to the 0–180° a door reads as (a door is the same turned a half turn). */
+const doorDeg = (rad: number) => ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
+
+/**
+ * A door's angle. A door on its own piece of wall (a free-standing door) turns here: its
+ * piece turns about the door's centre, live while typed and one undo step when the edit
+ * ends. Any other door reads its wall's angle, which only turning the wall changes.
+ */
+function DoorAngleRow({ layerId, doorId }: { layerId: string; doorId: string }) {
+  const { own, deg } = useStore(
+    useShallow((s) => {
+      const layer = s.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return { own: false, deg: 0 };
+      const dungeon = layer as DungeonLayer;
+      const r = resolveDoors(dungeon, resolveWalls(dungeon)).find((x) => x.door.id === doorId);
+      return { own: isOwnPiece(dungeon, doorId) !== null, deg: doorDeg(r?.angle ?? 0) };
+    }),
+  );
+  // The layer as the edit found it: every tick turns from it, so nothing drifts.
+  const from = useRef<DungeonLayer | null>(null);
+  const write = (turn: NonNullable<ReturnType<typeof turnOwnPiece>>, side: 'before' | 'after', door: Partial<DoorChild>) => {
+    const s = useStore.getState();
+    s.updateWall(layerId, turn.wallId, { points: turn[side] });
+    s.updateChild(layerId, doorId, door as Partial<AnyChild>);
+  };
+  const live = (v: number) => {
+    from.current ??= liveLayer(layerId) ?? null;
+    const turn = from.current && turnOwnPiece(from.current, doorId, (doorAngleValue(v) * Math.PI) / 180);
+    if (turn) write(turn, 'after', turn.door);
+  };
+  const land = (start: DungeonLayer, rad: number) => {
+    const turn = turnOwnPiece(start, doorId, rad);
+    const door = start.children.find((c): c is DoorChild => c.id === doorId && c.childType === 'door');
+    if (!turn || !door) return;
+    const before = { angle: door.angle, position: door.position };
+    // Rewind any live preview, then land the turn as one command.
+    write(turn, 'before', before);
+    if (doorDeg(door.angle) === doorDeg(rad) && turn.after.every((p, i) => p[0] === turn.before[i][0] && p[1] === turn.before[i][1])) return;
+    undoManager.execute(
+      new CompositeCommand('Turn door', [
+        new UpdateWallCommand(layerId, turn.wallId, { points: turn.before }, { points: turn.after }),
+        new UpdateChildCommand('Turn door', layerId, doorId, before as Partial<AnyChild>, turn.door as Partial<AnyChild>),
+      ]),
+    );
+  };
+  const commit = () => {
+    const start = from.current;
+    from.current = null;
+    const now = liveLayer(layerId)?.children.find((c): c is DoorChild => c.id === doorId && c.childType === 'door');
+    if (start && now) land(start, now.angle);
+  };
+  const revert = () => {
+    const start = from.current;
+    from.current = null;
+    const door = start?.children.find((c): c is DoorChild => c.id === doorId && c.childType === 'door');
+    const piece = start && isOwnPiece(start, doorId);
+    if (!piece || !door) return;
+    useStore.getState().updateWall(layerId, piece.id, { points: piece.points });
+    useStore.getState().updateChild(layerId, doorId, { angle: door.angle, position: door.position } as Partial<AnyChild>);
+  };
+
+  if (!own) {
+    return (
+      <div className="v2-sel__row" data-testid="v2-door-angle">
+        <span className="v2-rrow__lbl">Angle</span>
+        <span className="v2-selc__value v2-num">{deg}°</span>
+        <span className="v2-rquiet">Turn the wall to turn this door</span>
+      </div>
+    );
+  }
+  return (
+    <div className="v2-sel__row" data-testid="v2-door-angle">
+      <NumField label="Angle" title="Door angle" value={deg} mixed={false} step={DOOR_ANGLE_STEP} onLive={live} onCommit={commit} onRevert={revert} />
+      <button
+        type="button"
+        className="v2-rbtn"
+        onClick={() => {
+          const layer = liveLayer(layerId);
+          if (layer) land(layer, (turnDoorAngle(deg) * Math.PI) / 180);
+        }}
+      >
+        Turn 90°
+      </button>
+    </div>
+  );
+}
+
 /**
  * A door's fields: name, style, state, secret and, for a door on a wall, its width.
  * A joint between two rooms wears the same fields less the width, which it was drawn at.
@@ -1099,6 +1224,7 @@ function DoorFields({ layerId, doorId }: { layerId: string; doorId: string }) {
           />
         </div>
       )}
+      {door.childType === 'door' && <DoorAngleRow layerId={layerId} doorId={doorId} />}
       {material && (
         <div className="v2-sel__row">
           <Select

@@ -146,8 +146,8 @@ describe('AssetPackManager', () => {
     vi.unstubAllGlobals()
   })
 
-  it('getCacheUsage returns defaults', () => {
-    const usage = manager.getCacheUsage()
+  it('getCacheUsage returns defaults', async () => {
+    const usage = await manager.getCacheUsage()
     expect(usage.used).toBe(0)
     expect(usage.limit).toBe(200 * 1024 * 1024)
   })
@@ -159,6 +159,8 @@ describe('AssetPackManager', () => {
       entryCount: 1,
       themes: [],
       bundleSize: 100,
+      bundled: false,
+      installedAt: 0,
     })
     manager.clearCache()
     expect(manager.getInstalledPacks()).toEqual([])
@@ -294,13 +296,34 @@ describe('AssetPackManager.checkForUpdates', () => {
     expect(updates).toEqual([])
   })
 
+  it('reports unreachable (a throw or an error status), keeping the updates from the last index read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const index = { packs: { 'test-pack': { version: '2.0.0', bundleSize: 200, entryCount: 5, themes: [], preview: '', manifest: '' } } }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => null }, json: async () => index })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100, bundled: false, installedAt: 0 })
+    const pending = { packId: 'test-pack', currentVersion: '1.0.0', availableVersion: '2.0.0' }
+    expect(await mgr.checkForUpdatesReport()).toEqual({ status: 'ok', updates: [pending] })
+
+    fetchMock.mockRejectedValueOnce(new Error('Network error'))
+    expect(await mgr.checkForUpdatesReport()).toEqual({ status: 'unreachable', updates: [pending] })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, headers: { get: () => null } })
+    expect(await mgr.checkForUpdatesReport()).toEqual({ status: 'unreachable', updates: [pending] })
+    // With no index ever read there is nothing known to keep.
+    fetchMock.mockRejectedValueOnce(new Error('Network error'))
+    expect(await new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' }).checkForUpdatesReport()).toEqual({ status: 'unreachable', updates: [] })
+    warn.mockRestore()
+  })
+
   it('detects newer version available', async () => {
     const index = { packs: { 'test-pack': { version: '2.0.0', bundleSize: 200, entryCount: 5, themes: [], preview: '', manifest: '' } } }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => null }, json: async () => index }))
     vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
 
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
-    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100 })
+    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100, bundled: false, installedAt: 0 })
     const updates = await mgr.checkForUpdates()
     expect(updates).toHaveLength(1)
     expect(updates[0]).toEqual({ packId: 'test-pack', currentVersion: '1.0.0', availableVersion: '2.0.0' })
@@ -312,7 +335,7 @@ describe('AssetPackManager.checkForUpdates', () => {
     vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
 
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
-    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100 })
+    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100, bundled: false, installedAt: 0 })
     const updates = await mgr.checkForUpdates()
     expect(updates).toEqual([])
   })
@@ -351,6 +374,128 @@ describe('AssetPackManager.checkForUpdates', () => {
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
     const updates = await mgr.checkForUpdates()
     expect(updates).toEqual([])
+  })
+
+  it('keeps a pending update through a 304, and asks for one only with the index in hand', async () => {
+    // A not-modified check used to answer [], so the slice wiped the pending update and
+    // the Update button vanished on the second check of a session.
+    const index = { packs: { 'test-pack': { version: '2.0.0', bundleSize: 200, entryCount: 5, themes: [], preview: '', manifest: '' } } }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: { get: () => '"etag-1"' }, json: async () => index })
+      .mockResolvedValueOnce({ ok: true, status: 304, headers: { get: () => null } })
+    vi.stubGlobal('fetch', fetchMock)
+    const stored: Record<string, string> = { 'index-etag': '"etag-0"' }
+    vi.stubGlobal('localStorage', { getItem: (k: string) => stored[k] ?? null, setItem: (k: string, v: string) => (stored[k] = v) })
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100, bundled: false, installedAt: 0 })
+    const first = await mgr.checkForUpdates()
+    const second = await mgr.checkForUpdates()
+
+    expect(first).toEqual([{ packId: 'test-pack', currentVersion: '1.0.0', availableVersion: '2.0.0' }])
+    expect(second).toEqual(first)
+    // The first check of a page sends no stale ETag; the second sends the one it got.
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({})
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ 'If-None-Match': '"etag-1"' })
+  })
+
+  it('a 304 after the pack was updated offers nothing', async () => {
+    const index = { packs: { 'test-pack': { version: '2.0.0', bundleSize: 200, entryCount: 5, themes: [], preview: '', manifest: '' } } }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, headers: { get: () => null }, json: async () => index })
+        .mockResolvedValueOnce({ ok: true, status: 304, headers: { get: () => null } }),
+    )
+    vi.stubGlobal('localStorage', { getItem: () => '"etag-1"', setItem: () => {} })
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    mgr['installedPacks'].set('test-pack', { packId: 'test-pack', version: '1.0.0', entryCount: 3, themes: [], bundleSize: 100, bundled: false, installedAt: 0 })
+    expect(await mgr.checkForUpdates()).toHaveLength(1)
+    mgr['installedPacks'].get('test-pack')!.version = '2.0.0'
+    expect(await mgr.checkForUpdates()).toEqual([])
+  })
+})
+
+// ─── Bundled flag and cache usage (inventory 13.17) ──────────────────
+
+describe('AssetPackManager — bundled flag and cache usage', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  function stubUpdateFetch(manifest: unknown): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('pack.json')
+          ? ({ ok: true, json: async () => manifest } as Response)
+          : ({ ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer } as Response),
+      ),
+    )
+  }
+
+  it.each([true, false])('updatePack keeps the stored bundled flag (%s)', async (bundled) => {
+    // Re-registering every update as bundled: false made an updated bundled pack count in
+    // full against the cache, and LRU eviction free to drop it whole.
+    const db = createMockDB([])
+    db.getPack = vi.fn().mockResolvedValue({ ...makeStoredPack('gg-demo', '1.0.0'), bundled })
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubZeroDigest()
+    stubUpdateFetch({ name: 'gg-demo', description: '', version: '1.1.0', bundleSize: 0, entries: {}, atlases: {}, files: {} })
+
+    await mgr.updatePack('gg-demo')
+
+    const written = (db.installPack as ReturnType<typeof vi.fn>).mock.calls[0][0] as StoredPack
+    expect(written.bundled).toBe(bundled)
+    expect(mgr.getInstalledPacks()[0]).toMatchObject({ packId: 'gg-demo', version: '1.1.0', bundled })
+  })
+
+  it('rehydrate and registerPack report the stored flag and date', async () => {
+    const bundledPack = { ...makeStoredPack('gg-demo', '1.0.0'), bundled: true, lastUsed: 111 }
+    const filePack = { ...makeStoredPack('my-pack', '1.0.0'), bundled: false, lastUsed: 222 }
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: createMockDB([bundledPack, filePack]) })
+    await mgr.rehydrate()
+    await mgr.registerPack('other', { name: 'other', description: '', version: '1.0.0', bundleSize: 0, entries: {}, atlases: {}, files: {} }, new Map())
+
+    const byId = new Map(mgr.getInstalledPacks().map((p) => [p.packId, p]))
+    expect(byId.get('gg-demo')).toMatchObject({ bundled: true, installedAt: 111 })
+    expect(byId.get('my-pack')).toMatchObject({ bundled: false, installedAt: 222 })
+    expect(byId.get('other')?.bundled).toBe(false)
+  })
+
+  it('eviction and the sheet read one cache usage', async () => {
+    // Three readings used to disagree: installPack and ensureAssetSets asked the DB while
+    // getCacheUsage answered 0 used, so the footer never moved.
+    const db = createMockDB([])
+    db.getCacheUsage = vi.fn().mockResolvedValue({ used: 150 * 1024 * 1024, limit: 200 * 1024 * 1024 })
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
+    const usage = vi.spyOn(mgr, 'getCacheUsage')
+
+    // Every caller asks getCacheUsage, which reads the DB once per call.
+    expect(await mgr.getCacheUsage()).toEqual({ used: 150 * 1024 * 1024, limit: 200 * 1024 * 1024 })
+
+    // ensureAssetSets reaches the cap check through the same method.
+    const manifest = makeSetManifest()
+    mgr['manifestCache'].set('dungeon-classic', manifest)
+    stubZeroDigest()
+    stubFetchOk()
+    await mgr.ensureAssetSets('dungeon-classic', ['GG_Palisade'])
+
+    // installPack too.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.endsWith('index.json')
+        ? ({ ok: false, status: 404 } as Response)
+        : url.includes('pack.json')
+          ? ({ ok: true, json: async () => ({ name: 'p', description: '', version: '1.0.0', bundleSize: 0, entries: {}, atlases: {}, files: {} }) } as Response)
+          : ({ ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer } as Response),
+    ))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await mgr.installPack('p')
+
+    expect(usage).toHaveBeenCalledTimes(3)
+    expect(db.getCacheUsage).toHaveBeenCalledTimes(3)
   })
 })
 

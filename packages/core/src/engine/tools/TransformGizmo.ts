@@ -39,6 +39,14 @@ interface HandleZone {
 
 const MIN_EDGE_PX = 40; // only show mid-edge handles if dimension > this
 
+/**
+ * A box under this on screen in either axis has its handles pushed out, `HANDLE_OUTSET`
+ * clear of its sides, so a press inside it moves rather than resizes (a 0.8 sq label pin
+ * is mostly handle otherwise).
+ */
+export const SMALL_BOX_PX = 28;
+export const HANDLE_OUTSET = 10;
+
 type ResizeDir = Exclude<HandleType, 'rotate' | 'move'>;
 
 /** What the gizmo offers for the current selection. */
@@ -122,33 +130,37 @@ export class TransformGizmo {
     g.rect(x, y, width, height);
     g.stroke();
 
+    // A small box keeps its inside for moving: the handles stand off its sides.
+    const o = width < SMALL_BOX_PX || height < SMALL_BOX_PX ? HANDLE_OUTSET : 0;
+
     // Corner handles
-    this.drawSquare(g, x, y, 'nw');
-    this.drawSquare(g, x + width, y, 'ne');
-    this.drawSquare(g, x, y + height, 'sw');
-    this.drawSquare(g, x + width, y + height, 'se');
+    this.drawSquare(g, x - o, y - o, 'nw');
+    this.drawSquare(g, x + width + o, y - o, 'ne');
+    this.drawSquare(g, x - o, y + height + o, 'sw');
+    this.drawSquare(g, x + width + o, y + height + o, 'se');
 
     // Mid-edge pills (only if the edge is long enough to leave room)
     const cy = y + height / 2;
     if (width > MIN_EDGE_PX) {
-      this.drawPill(g, cx, y, true, 'n');
-      this.drawPill(g, cx, y + height, true, 's');
+      this.drawPill(g, cx, y - o, true, 'n');
+      this.drawPill(g, cx, y + height + o, true, 's');
     }
     if (height > MIN_EDGE_PX) {
-      this.drawPill(g, x, cy, false, 'w');
-      this.drawPill(g, x + width, cy, false, 'e');
+      this.drawPill(g, x - o, cy, false, 'w');
+      this.drawPill(g, x + width + o, cy, false, 'e');
     }
 
     // Rotation handle stem + circle
     if (this.config.showRotate) {
-      const rotY = y - ROTATE_STEM - ROTATE_DIAMETER / 2;
+      const top = y - o;
+      const rotY = top - ROTATE_STEM - ROTATE_DIAMETER / 2;
       g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_INK, alpha: OVERLAY_INK_ALPHA });
-      g.moveTo(cx, y);
-      g.lineTo(cx, y - ROTATE_STEM);
+      g.moveTo(cx, top);
+      g.lineTo(cx, top - ROTATE_STEM);
       g.stroke();
       g.setStrokeStyle({ color: OVERLAY_WHITE, width: LINE_WHITE });
-      g.moveTo(cx, y);
-      g.lineTo(cx, y - ROTATE_STEM);
+      g.moveTo(cx, top);
+      g.lineTo(cx, top - ROTATE_STEM);
       g.stroke();
       g.circle(cx, rotY, ROTATE_DIAMETER / 2);
       g.fill(OVERLAY_WHITE);

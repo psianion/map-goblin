@@ -1,0 +1,167 @@
+/* Packs sheet: header actions, one row per installed pack, the cache line. */
+.v2-packs .v2-sheet__body {
+  padding: 0;
+}
+.v2-packs__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 6px 10px;
+  border-radius: 6px;
+}
+/* A file dragged over the sheet: the body reads as the drop target. */
+.v2-packs--drop .v2-packs__body {
+  box-shadow: inset 0 0 0 1px var(--v2-line-strong);
+  background: var(--v2-panel-2);
+}
+.v2-packs__bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 6px 8px;
+}
+.v2-packs__status {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-packs__btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--v2-line-strong);
+  background: transparent;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms var(--v2-ease);
+}
+.v2-packs__btn:hover:not(:disabled) {
+  background: var(--v2-panel-3);
+}
+.v2-packs__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.v2-packs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.v2-packs__item + .v2-packs__item {
+  border-top: 1px solid var(--v2-line);
+}
+.v2-packs__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 4px 4px 4px 6px;
+  border-radius: 4px;
+}
+.v2-packs__row:hover {
+  background: var(--v2-panel-2);
+}
+.v2-packs__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.v2-packs__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.v2-packs__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.v2-packs__meta {
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-packs__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 6px 8px;
+  font-size: 11px;
+  color: var(--v2-text-2);
+}
+.v2-packs__line--err {
+  color: var(--v2-danger);
+}
+.v2-packs__line .v2-link {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.v2-packs__acts {
+  display: inline-flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.v2-packs__details {
+  margin: 0 6px 8px;
+  padding: 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--v2-text-2);
+}
+.v2-packs__details p {
+  margin: 0 0 6px;
+}
+.v2-packs__details dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 6px;
+}
+.v2-packs__details dt {
+  color: var(--v2-text-3);
+}
+.v2-packs__details dd {
+  margin: 0;
+}
+.v2-packs__details .v2-packs__note {
+  margin: 0;
+  color: var(--v2-text-3);
+}
+.v2-packs__empty {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+.v2-packs__hint {
+  margin: auto 0 0;
+  padding: 12px 6px 0;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+/* The Props browser header's way here. */
+.v2-packs__link {
+  margin-right: 6px;
+}
+.v2-packs__foot {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--v2-line);
+  font-size: 12px;
+  color: var(--v2-text-3);
+}

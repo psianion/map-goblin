@@ -8,7 +8,7 @@ import { NOON, TIME_PALETTES, DEFAULT_PALETTE, type Environment, type MapEnviron
 import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
 import { cn } from '@/lib/utils';
 import { ColorCtl, Slider } from './controls';
-import { getSkyPreviewOpen, setLitPreview, setSkyPreviewOpen, useLitPreview } from '../viewPrefs';
+import { getSkyPreviewOpen, litOnForEdit, setLitPreview, setSkyPreviewOpen, useLitPreview } from '../viewPrefs';
 import { hhmm } from './lightModel';
 import './rooms.css';
 import './selection-card.css';
@@ -284,8 +284,24 @@ export function SkySheet() {
 
   return (
     <>
+      {!lit && (
+        <div className="v2-rrow" data-testid="v2-sky-unlit">
+          <span className="v2-rquiet">Shown unlit. Turn on Lit preview to see these changes.</span>
+          <button type="button" className="v2-link v2-rend" onClick={() => setLitPreview(true)}>
+            Turn on
+          </button>
+        </div>
+      )}
       <SheetSection title="Place" open={open('Place')} onFold={() => fold('Place')} testId="v2-sky-place">
-        <SegRow label="Environment" value={map.environment} options={ENVIRONMENT_CHOICES} onChange={(v) => commitEnv({ environment: v })} />
+        <SegRow
+          label="Environment"
+          value={map.environment}
+          options={ENVIRONMENT_CHOICES}
+          onChange={(v) => {
+            commitEnv({ environment: v });
+            litOnForEdit();
+          }}
+        />
         <SelectRow
           label="Climate"
           value={map.preset}
@@ -306,7 +322,15 @@ export function SkySheet() {
       </SheetSection>
 
       <SheetSection title="Time" open={open('Time')} onFold={() => fold('Time')} testId="v2-sky-time">
-        <SegRow label="Time" value={map.timeMode} options={TIME_CHOICES} onChange={(v) => commitEnv({ timeMode: v })} />
+        <SegRow
+          label="Time"
+          value={map.timeMode}
+          options={TIME_CHOICES}
+          onChange={(v) => {
+            commitEnv({ timeMode: v });
+            litOnForEdit();
+          }}
+        />
         <div className={cn('v2-rrow v2-selc', !fixed && 'v2-prow--off')}>
           <Slider
             label="Fixed hour"
@@ -316,7 +340,10 @@ export function SkySheet() {
             step={15}
             format={hhmm}
             onChange={(v) => liveEnv({ fixedTime: v })}
-            onCommit={(v) => commitDrag({ fixedTime: v })}
+            onCommit={(v) => {
+              commitDrag({ fixedTime: v });
+              litOnForEdit();
+            }}
           />
         </div>
       </SheetSection>

@@ -25,6 +25,7 @@ import { RoomsSheet } from './RoomsSheet';
 import { PropBrowser, PropBrowserHead } from './PropBrowser';
 import { SplitDialog } from './SplitDialog';
 import { SkySheet, SkySheetFoot } from './SkySheet';
+import { PacksSheet } from './PacksSheet';
 import { MapSettingsModal } from '../MapSettingsModal';
 import { usePanelFade } from './usePanelFade';
 import { assetBrowserHint, floorBrowserHint } from './assetStrip';
@@ -51,10 +52,10 @@ const FIT_PAD = 32;
 
 /**
  * The one right sheet that is open, if any: the layer list, the asset browser (floors and
- * walls), the props browser, prep, one layer's settings, or the terrain's. Opening a sheet
- * replaces the one that was open.
+ * walls), the props browser, prep, one layer's settings, the terrain's, or the packs. Opening
+ * a sheet replaces the one that was open.
  */
-type Sheet = 'layers' | 'assets' | 'props' | 'prep' | 'terrain' | 'sky' | { kind: 'layer'; layerId: string } | null;
+type Sheet = 'layers' | 'assets' | 'props' | 'prep' | 'terrain' | 'sky' | 'packs' | { kind: 'layer'; layerId: string } | null;
 
 /** What the layer sheet shows for `sheet`: a layer id, the terrain pseudo-layer, or nothing. */
 function layerSheetTarget(sheet: Sheet): string | null {
@@ -340,7 +341,7 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
       {settings}
       <Rail prepOpen={sheet === 'prep'} onTogglePrep={() => setSheet((s) => (s === 'prep' ? null : 'prep'))} />
       <TitleCard onHome={onHome} />
-      <TopActions actions={actions} onOpenSettings={() => setSettingsOpen(true)} />
+      <TopActions actions={actions} onOpenSettings={() => setSettingsOpen(true)} onOpenPacks={() => setSheet('packs')} />
       <SelectionCard onOpenPrep={() => setSheet('prep')} onOpenAssets={openAssets} onOpenLayers={() => setSheet('layers')} />
       <Dock
         ref={dockRef}
@@ -379,10 +380,11 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
         onClose={closeSheet}
         testId="v2-props-sheet"
         legacy={false}
-        header={<PropBrowserHead onClose={closeSheet} />}
+        header={<PropBrowserHead onClose={closeSheet} onOpenPacks={() => setSheet('packs')} />}
       >
         <PropBrowser />
       </SlideOver>
+      <PacksSheet open={sheet === 'packs'} onClose={closeSheet} />
       <SlideOver title="Prep" open={sheet === 'prep'} onClose={closeSheet} testId="v2-prep-sheet">
         <PrepOverview />
       </SlideOver>

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Minus, MoreHorizontal, Plus, Star, Type, X } from 'lucide-react';
+import { Minus, MoreHorizontal, Plus, Star, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { selectActiveLayer, selectSelectedIds } from '@/store/selectors';
@@ -12,8 +12,16 @@ import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
 import { familyKeyOf, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { minDoorWidth, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
+import {
+  minDoorWidth,
+  doorAngleValue,
+  doorStyleLabel,
+  turnDoorAngle,
+  PLACEABLE_DOOR_STYLES,
+} from '@dnd/core/src/engine/tools/DoorTool';
+import { NumBox } from './PropCards';
 import { LABEL_SIZE_RANGE } from '@dnd/core/src/engine/tools/TextTool';
+import { LABEL_STYLES } from '@dnd/core/src/shared/labelStyles';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -45,6 +53,7 @@ import { RoomSettings } from './RoomsDock';
 import { PropSettings } from './PropsDock';
 import { LightPresets, LightSettings } from './LightsDock';
 import './dock-settings.css';
+import './labels.css';
 
 // The popover moved to the shared controls; kept here so older imports still resolve.
 export { DockPopover };
@@ -427,20 +436,58 @@ function PropStrip({ onMore }: { onMore: () => void }) {
   );
 }
 
-/** Dashed slots for presets that have no model behind them yet. */
-function SoonSwatches({ names, icon }: { names: string[]; icon: ReactNode }) {
+/** What each style tile shows: a sample of the style, drawn in CSS (labels.css). */
+const STYLE_GLYPH: Record<string, ReactNode> = {
+  'room-name': <span className="v2-lglyph v2-lglyph--room">Aa</span>,
+  'door-tag': <span className="v2-lglyph v2-lglyph--pill">Door</span>,
+  'gm-note': <span className="v2-lglyph v2-lglyph--note">Note</span>,
+  'number-pin': <span className="v2-lglyph v2-lglyph--pin">3</span>,
+  callout: <span className="v2-lglyph v2-lglyph--callout">Aa</span>,
+  custom: <span className="v2-lglyph">Aa</span>,
+};
+
+/**
+ * The Label tool's styles (board T1): one pick, inverted ink. A pick puts the dock's Size and
+ * Colour back to the style's; they then set the labels placed after it.
+ */
+function LabelStyleTiles() {
+  const label = useStore(useShallow((s) => s.tools.settings.label));
   return (
-    <div className="v2-swatches" data-testid="v2-swatches">
-      {names.map((n) => (
-        <span key={n} className="v2-swatch v2-swatch--soon" data-tip={`${n} · soon`} aria-label={`${n}, coming soon`} role="img">
-          {icon}
-        </span>
-      ))}
+    <div className="v2-swatches v2-lstyles" role="radiogroup" aria-label="Label styles" data-testid="v2-swatches">
+      {LABEL_STYLES.map((s) => {
+        const on = s.id === label.style;
+        const key = s.id ?? 'custom';
+        const look = [`${fixed(1)(s.fontSize)} sq`, s.weight === 'bold' ? 'bold' : null, s.backdrop ?? null, s.binds ? `follows a ${s.binds}` : null]
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={s.name}
+            className={cn('v2-lstyle', on && 'v2-lstyle--on')}
+            data-tip={s.name}
+            data-tip-key={look}
+            data-testid={`v2-label-style-${key}`}
+            onClick={() => {
+              const st = useStore.getState();
+              st.updateToolSettings({
+                label: { ...label, style: s.id, fontSize: s.fontSize, color: s.color === 'ink' ? null : s.color },
+              });
+              // A pick takes up the Label tool, as a prop pick takes up the brush.
+              if (st.tools.activeTool !== 'text') st.setActiveTool('text');
+            }}
+          >
+            <span className="v2-lstyle__box">{STYLE_GLYPH[key]}</span>
+            <span className="v2-lstyle__nm">{s.name}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
-
-const LABEL_PRESETS = ['Room name', 'Door tag', 'GM note', 'Number pin', 'Callout'];
 
 /** The row of presets for the tool in hand, and for floors, walls and props the assets to draw with. */
 export function ToolSwatches({
@@ -464,7 +511,7 @@ export function ToolSwatches({
     );
   }
   if (tab === 'lights') return <LightPresets />;
-  if (tab === 'labels') return <SoonSwatches names={LABEL_PRESETS} icon={<Type size={12} strokeWidth={1.5} />} />;
+  if (tool === 'text') return <LabelStyleTiles />;
   // "Library" opens the props browser (the shell maps the Object type to it).
   if (tool === 'scatterBrush') return <PropStrip onMore={() => onOpenAssets('object')} />;
   return null;
@@ -663,6 +710,7 @@ function DoorSettings() {
   const style = useStore((s) => s.tools.settings.doorStyle) ?? 'single';
   const width = useStore((s) => s.tools.settings.doorWidth) ?? 1;
   const secret = useStore((s) => s.tools.settings.doorSecret) ?? false;
+  const angle = useStore((s) => s.tools.settings.doorAngle) ?? 0;
   const set = useStore.getState().updateToolSettings;
   return (
     <>
@@ -684,6 +732,25 @@ function DoorSettings() {
         format={fixed(2)}
         onChange={(v) => set({ doorWidth: v })}
       />
+      {/* The angle of a door placed on open floor; one on a wall takes the wall's. */}
+      <Ctl label="Angle" width={56}>
+        <NumBox
+          label=""
+          title="Door angle"
+          value={angle}
+          format={(v) => String(Math.round(v))}
+          unit="°"
+          onCommit={(v) => set({ doorAngle: doorAngleValue(v) })}
+        />
+      </Ctl>
+      <button
+        type="button"
+        className="v2-rbtn"
+        data-tip="Turn the next free-standing door a quarter"
+        onClick={() => set({ doorAngle: turnDoorAngle(angle) })}
+      >
+        Turn 90°
+      </button>
     </>
   );
 }

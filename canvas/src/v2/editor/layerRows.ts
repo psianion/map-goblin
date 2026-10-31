@@ -91,6 +91,21 @@ export function roomTitle(room: Pick<Room, 'name' | 'number'>): string {
   return [room.number, room.name || 'Room'].filter((p) => p !== undefined && p !== '').join(' ');
 }
 
+/** The longest a label's text runs in its row, ellipsis included. */
+const LABEL_ROW_CHARS = 24;
+
+/**
+ * A row's name: a label reads as its text (first line, trimmed, cut to fit with an
+ * ellipsis), its name only while the text is empty; anything else by its name.
+ */
+export function objectRowName(child: AnyChild): string {
+  if (child.childType === 'text') {
+    const line = child.text.split('\n')[0].trim();
+    if (line) return line.length > LABEL_ROW_CHARS ? `${line.slice(0, LABEL_ROW_CHARS - 1).trimEnd()}…` : line;
+  }
+  return child.name || KIND_NOUN[kindOfChild(child)];
+}
+
 /** Every object of a layer as (kind, name, record), in the sheet's order, top of each kind first. */
 export function layerObjects(layer: DungeonLayer): { type: RowKind; id: string; name: string; child?: AnyChild; wall?: WallSegment; room?: Room }[] {
   const out: { type: RowKind; id: string; name: string; child?: AnyChild; wall?: WallSegment; room?: Room }[] = [];
@@ -99,7 +114,7 @@ export function layerObjects(layer: DungeonLayer): { type: RowKind; id: string; 
   // Children draw bottom first; the sheet lists the top first, as the layers above it.
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const child = layer.children[i];
-    out.push({ type: kindOfChild(child), id: child.id, name: child.name || KIND_NOUN[kindOfChild(child)], child });
+    out.push({ type: kindOfChild(child), id: child.id, name: objectRowName(child), child });
   }
   return out;
 }

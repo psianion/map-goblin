@@ -1,0 +1,135 @@
+/* ── Labels tab: the style tiles (board T1) ─────────────── */
+/* A tile is a sample of the style over its name. The picked one inverts to ink. Neutral
+   greys only; every colour comes from the v2 tokens. */
+.v2-lstyles {
+  align-items: flex-start;
+  gap: 6px;
+}
+.v2-lstyle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--v2-text-2);
+  cursor: pointer;
+}
+.v2-lstyle__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 36px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  transition: border-color 120ms var(--v2-ease), background-color 120ms var(--v2-ease);
+}
+.v2-lstyle:hover .v2-lstyle__box {
+  border-color: var(--v2-line-strong);
+}
+.v2-lstyle:focus-visible {
+  outline: none;
+}
+.v2-lstyle:focus-visible .v2-lstyle__box {
+  outline: 1.5px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+.v2-lstyle--on .v2-lstyle__box,
+.v2-lstyle--on:hover .v2-lstyle__box {
+  border-color: var(--v2-ink);
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-lstyle__nm {
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+.v2-lstyle--on .v2-lstyle__nm {
+  color: var(--v2-text);
+  font-weight: 500;
+}
+
+/* The samples, about 32 px wide, all in the one label face. */
+.v2-lglyph {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 400;
+}
+.v2-lglyph--room {
+  font-size: 15px;
+  font-weight: 700;
+}
+.v2-lglyph--pill,
+.v2-lglyph--note {
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 11px;
+}
+.v2-lglyph--note {
+  border-style: dashed;
+  border-radius: 3px;
+}
+.v2-lglyph--pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.v2-lglyph--callout::before {
+  content: '[';
+  margin-right: 1px;
+  opacity: 0.6;
+}
+.v2-lglyph--callout::after {
+  content: ']';
+  margin-left: 1px;
+  opacity: 0.6;
+}
+
+/* ── The label card (board T3) ───────────────────────────── */
+.v2-ltext {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 6px 8px;
+  resize: none;
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  outline: none;
+}
+.v2-ltext:focus {
+  border-color: var(--v2-ink);
+}
+.v2-ltext[readonly] {
+  color: var(--v2-text-2);
+  cursor: default;
+}
+.v2-lbound {
+  min-height: 24px;
+}
+.v2-lbound b {
+  font-weight: 500;
+  color: var(--v2-text);
+}
+.v2-labelcard .v2-seg {
+  flex: 1 1 auto;
+}
+.v2-labelgroup {
+  margin: 0 -12px;
+}

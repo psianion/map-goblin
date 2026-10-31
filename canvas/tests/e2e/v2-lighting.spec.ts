@@ -258,6 +258,60 @@ test('a floor cell at noon outdoors reads as drawn: within 3 luma of the unlit a
   expect(Math.abs(lit - art)).toBeLessThan(3)
 })
 
+test('underground at a fixed 12:00 the lit preview darkens the floor; outdoor at 12:00 it does not', async ({ page }) => {
+  await openWarren(page, NOON, false)
+  const setEnv = (environment: string) =>
+    page.evaluate(
+      (environment) => (window as Any).__store.getState().setEnvironmentSettings({ environment, timeMode: 'fixed', fixedTime: 720 }),
+      environment,
+    )
+  await setEnv('underground')
+  await waitFrame(page, 4)
+  const floor = floorNear(await roomAnchor(page, 'Warren Hall'))
+  const unlit = await lum(page, floor, 6)
+  await toggleLit(page)
+  expect(await lum(page, floor, 6)).toBeLessThan(unlit - 10)
+  await setEnv('outdoor')
+  await waitFrame(page, 4)
+  expect(await lum(page, floor, 6)).toBeGreaterThan(unlit - 3)
+})
+
+test('placing a light with the lit preview off turns it on: the chip reads on, the canvas darkens, I turns it back off', async ({ page }) => {
+  await openWarren(page, NOON, false)
+  await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'underground' }))
+  await waitFrame(page, 4)
+  const chip = page.getByTestId('v2-lit-chip')
+  await expect(chip).toHaveText('Lit· off')
+  const floor = floorNear(await roomAnchor(page, 'Warren Hall'))
+  const unlit = await lum(page, floor, 6)
+  await page.keyboard.press('l')
+  await expect(page.getByTestId('v2-lights-unlit')).toBeVisible()
+  await page.getByRole('button', { name: 'Torch' }).click()
+  // The torch goes in another room, so its pool stays off the sample.
+  const nook = await inPage<{ x: number; y: number }>(page, `(s, layer, w2s) => { const r = layer().rooms.find((x) => x.name === 'Plunder Nook'); return w2s(r.anchor[0], r.anchor[1]) }`)
+  await firePointer(page, 'pointerdown', nook.x, nook.y, 0.5, 1)
+  await firePointer(page, 'pointerup', nook.x, nook.y)
+  await waitFrame(page, 3)
+  await expect(chip).toHaveText('Lit· on')
+  await expect(page.getByText('Lit preview on · press I to toggle')).toBeVisible()
+  await expect(page.getByTestId('v2-lights-unlit')).toHaveCount(0)
+  expect(await lum(page, floor, 6)).toBeLessThan(unlit - 10)
+  await toggleLit(page)
+  await expect(chip).toHaveText('Lit· off')
+  expect(Math.abs((await lum(page, floor, 6)) - unlit)).toBeLessThan(1)
+})
+
+test('the Sky sheet says the map is shown unlit, and an Environment pick turns the lit preview on', async ({ page }) => {
+  await openWarren(page, NOON, false)
+  await page.keyboard.press('l')
+  await page.getByTestId('v2-sky-toggle').click()
+  const sheet = page.getByTestId('v2-sky-sheet')
+  await expect(sheet.getByTestId('v2-sky-unlit')).toContainText('Shown unlit. Turn on Lit preview to see these changes.')
+  await sheet.getByRole('group', { name: 'Environment' }).getByRole('button', { name: 'Underground' }).click()
+  await expect(page.getByTestId('v2-lit-chip')).toHaveText('Lit· on')
+  await expect(sheet.getByTestId('v2-sky-unlit')).toHaveCount(0)
+})
+
 test('a torch from its preset tile lands where clicked as 20/40 ft, its card reads the same, and one undo removes it', async ({ page }) => {
   await openWarren(page)
   await page.keyboard.press('l')

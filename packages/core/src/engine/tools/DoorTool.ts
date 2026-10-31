@@ -1,7 +1,7 @@
 import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
-import type { AnyChild, DoorChild, DungeonLayer } from '../../store/types';
+import type { AnyChild, DoorChild, DungeonLayer, WallSegment } from '../../store/types';
 import type { DoorState, DoorStyle } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
@@ -15,7 +15,13 @@ import {
 import { renderResolvedDoor } from '../doorRenderer';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
-import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
+import {
+  AddChildCommand,
+  AddWallCommand,
+  CompositeCommand,
+  UpdateChildCommand,
+  createChildRemovalCommand,
+} from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
 import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
@@ -42,6 +48,26 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
  * and drag re-anchoring share it — a door lands where it would be dragged to.
  */
 const SNAP_THRESHOLD = 1.5;
+
+/**
+ * How near a floor or room edge a placement click has to be to hang the door on it. Far
+ * less than `SNAP_THRESHOLD`: in a cave every corridor cell lies within 1.5 cells of an
+ * edge, so at that reach a door could only ever run along a corridor, never across it.
+ * Past this reach, with no drawn wall in range, the click places a free-standing door.
+ */
+const FLOOR_EDGE_REACH = 0.5;
+
+/**
+ * Where a placement click hangs its door: the nearest drawn wall within `SNAP_THRESHOLD`
+ * or floor edge within `FLOOR_EDGE_REACH`, or null for open floor.
+ */
+function placementSnap(point: Point, walls: ResolvedWall[]): WallSnapResult | null {
+  const at: [number, number] = [point.x, point.y];
+  const drawn = snapToNearestWall(at, walls.filter((w) => w.kind !== 'floor'), SNAP_THRESHOLD);
+  const edge = snapToNearestWall(at, walls.filter((w) => w.kind === 'floor'), FLOOR_EDGE_REACH);
+  if (drawn && edge) return drawn.distance <= edge.distance ? drawn : edge;
+  return drawn ?? edge;
+}
 
 /**
  * How far the pointer must travel before a press counts as a drag rather than a
@@ -94,6 +120,20 @@ export const PLACEABLE_DOOR_STYLES: readonly DoorStyle[] = [
   'portcullis',
   'archway',
 ];
+
+/** A free-standing door's angle, degrees, as the dock and the card take it: 0 to 180 in 15° steps. */
+export const DOOR_ANGLE_STEP = 15;
+
+/** A typed angle held to 0–180 and its step. 180 is 0 the other way round, so it reads 0. */
+export function doorAngleValue(deg: number): number {
+  const v = Math.round(Math.min(180, Math.max(0, deg)) / DOOR_ANGLE_STEP) * DOOR_ANGLE_STEP;
+  return v === 180 ? 0 : v;
+}
+
+/** "Turn 90°": a quarter turn on, wrapping inside a half turn (a door reads the same both ways). */
+export function turnDoorAngle(deg: number): number {
+  return (((Math.round(deg) + 90) % 180) + 180) % 180;
+}
 
 /** Title-cased style — the picker label, and the stem of a new door's name. */
 export function doorStyleLabel(style: DoorStyle): string {
@@ -152,6 +192,8 @@ interface DoorPlan {
   door: DoorChild;
   wall: ResolvedWall;
   valid: boolean;
+  /** A free-standing door's own piece of wall, placed with it (its id filled in on commit). */
+  piece?: WallSegment;
 }
 
 /**
@@ -322,10 +364,10 @@ export class DoorTool implements DrawingTool {
     // sees. With nothing to plan from, that press placed nothing and said
     // nothing: two identical clicks were needed for one door. Touch never
     // hovers at all, so it could not place a door by any number of taps.
-    this.snapResult = snapToNearestWall([point.x, point.y], allWalls, SNAP_THRESHOLD);
+    this.snapResult = placementSnap(point, allWalls);
     // A wall in snap range means the leaf the ghost has been promising; it lands
-    // on release. No wall in range places nothing.
-    this.pendingLeaf = this.snapResult ? this.plan(activeLayer, allWalls) : null;
+    // on release. Open floor means a free-standing door on a piece of its own.
+    this.pendingLeaf = this.snapResult ? this.plan(activeLayer, allWalls) : this.freePlan(activeLayer, point);
     if (!this.pendingLeaf) {
       this.clearGhost();
       return;
@@ -344,12 +386,24 @@ export class DoorTool implements DrawingTool {
       // L6: auto-named by style — "Portcullis 1", "Archway 2".
       name: nextAuthoredName(layer.children, doorStyleLabel(plan.door.style)),
     };
+    const piece = plan.piece ? { ...plan.piece, id: crypto.randomUUID() } : null;
+    if (piece) door.wallId = piece.id;
+    const walls = doorSnapWalls(layer);
+    if (piece) walls.push({ ...piece, kind: 'standalone' });
 
     // Bind to the rooms either side of the wall now, so lighting/fog see the
     // topology immediately instead of waiting for the next room re-detection.
-    Object.assign(door, bindDoorToRooms(door, doorSnapWalls(layer), layer.rooms ?? []));
+    Object.assign(door, bindDoorToRooms(door, walls, layer.rooms ?? []));
 
-    undoManager.execute(new AddChildCommand('Place door', layer.id, door));
+    // A free-standing door and its piece are one step: one undo takes both.
+    undoManager.execute(
+      piece
+        ? new CompositeCommand('Place door', [
+            new AddWallCommand('Place door', layer.id, piece),
+            new AddChildCommand('Place door', layer.id, door),
+          ])
+        : new AddChildCommand('Place door', layer.id, door),
+    );
     // The real door draws now, so the ghost of it would only double the ink.
     this.clearGhost();
     // Width is a panel field, not a canvas handle (DD6), so a fresh door has to
@@ -401,6 +455,45 @@ export class DoorTool implements DrawingTool {
     return { door: draft, wall, valid: this.isPlaceable(draft, wall, wallLength, layer, walls) };
   }
 
+  /**
+   * A free-standing door at `point`: a piece of wall exactly the door's width, centred on
+   * the point at the tool's angle (`doorAngle`, degrees), drawn as the Wall tool draws (the
+   * layer's colour and width), with the door on it. The point is already grid-snapped when
+   * snap is on, as every tool's is.
+   */
+  private freePlan(layer: DungeonLayer, point: Point): DoorPlan {
+    const settings = useStore.getState().tools.settings;
+    const style = settings.doorStyle ?? 'single';
+    const width = Math.max(settings.doorWidth || 1, minDoorWidth(style));
+    const angle = ((settings.doorAngle ?? 0) * Math.PI) / 180;
+    const [hx, hy] = [(Math.cos(angle) * width) / 2, (Math.sin(angle) * width) / 2];
+    const piece: WallSegment = {
+      id: '',
+      points: [
+        [point.x - hx, point.y - hy],
+        [point.x + hx, point.y + hy],
+      ],
+      wallType: settings.wallType,
+      direction: settings.wallDirection,
+      color: layer.style.wallColor,
+      roughness: 0,
+    };
+    const door: DoorChild = {
+      id: '',
+      name: '',
+      childType: 'door',
+      visible: true,
+      wallId: '',
+      position: [point.x, point.y],
+      angle,
+      width,
+      style,
+      state: 'closed',
+      isSecret: settings.doorSecret ?? false,
+    };
+    return { door, wall: { ...piece, kind: 'standalone' }, valid: true, piece };
+  }
+
   /** M8 (too wide for its wall) and overlap, the two rules a click is silent about. */
   private isPlaceable(
     door: DoorChild,
@@ -438,14 +531,16 @@ export class DoorTool implements DrawingTool {
    * shows on the next pointer move. Add one if the panel ever needs to redraw
    * the ghost with the cursor parked.
    */
-  private updateGhost(layer: DungeonLayer): void {
+  private updateGhost(layer: DungeonLayer, point: Point): void {
     // Over a placed door the click selects rather than places, and during a
     // slide the door itself is tracking the cursor: either way a placement
-    // ghost would be a lie.
+    // ghost would be a lie. Open floor shows the free-standing door.
     const plan =
       this.hoveredDoorId || this.dragFrom || layer.locked
         ? null
-        : this.plan(layer, doorSnapWalls(layer));
+        : this.snapResult
+          ? this.plan(layer, doorSnapWalls(layer))
+          : this.freePlan(layer, point);
     if (!plan) {
       this.clearGhost();
       return;
@@ -506,13 +601,9 @@ export class DoorTool implements DrawingTool {
 
     this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
 
-    this.snapResult = snapToNearestWall(
-      [point.x, point.y],
-      doorSnapWalls(activeLayer),
-      SNAP_THRESHOLD,
-    );
+    this.snapResult = placementSnap(point, doorSnapWalls(activeLayer));
 
-    this.updateGhost(activeLayer);
+    this.updateGhost(activeLayer, point);
   }
 
   /**
@@ -634,7 +725,8 @@ export class DoorTool implements DrawingTool {
       notify.warning(reason);
       return;
     }
-    undoManager.execute(new RemoveChildCommand('Delete door', layer.id, target));
+    // A door on its own piece takes the piece with it (createChildRemovalCommand).
+    undoManager.execute(createChildRemovalCommand(layer.id, target, 'Delete door'));
     if (selected) store.setSelectedIds([]);
     this.hoveredDoorId = null;
   }

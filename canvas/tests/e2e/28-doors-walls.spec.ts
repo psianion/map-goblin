@@ -358,8 +358,15 @@ async function selectDoorTool(page: Page): Promise<void> {
   await waitFrame(page, 2)
 }
 
-/** On the canvas, in range of no wall: a click here only clears the selection. */
-const NOWHERE: [number, number] = [11, 7]
+/**
+ * Clear the selection. A Door tool click on open floor used to do this; it now places a
+ * free-standing door there (a door on a piece of its own), so the rows below drop the
+ * selection directly instead.
+ */
+async function deselect(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as { __store: { getState: () => { setSelectedIds: (ids: string[]) => void } } }).__store.getState().setSelectedIds([]))
+  await waitFrame(page, 2)
+}
 
 const WALL: [number, number][] = [
   [-8, -6],
@@ -385,7 +392,7 @@ test.describe('Doors — pointer editing', () => {
 
     // Placement leaves the door selected — drop that, or the row below proves
     // nothing.
-    await clickAt(page, NOWHERE)
+    await deselect(page)
     expect(await selection(page)).toEqual([])
 
     await clickAt(page, [placed.position[0], placed.position[1]])
@@ -501,7 +508,7 @@ test.describe('Doors — pointer editing', () => {
 
     // …and again with nothing selected: the door under the cursor is the target.
     await placeOnWall(page, [-2, -6])
-    await clickAt(page, NOWHERE)
+    await deselect(page)
     expect(await selection(page)).toEqual([])
     await moveTo(page, [-2, -6])
     await waitFrame(page, 2)
@@ -626,7 +633,7 @@ test.describe('Doors — floor-ring edges', () => {
     expect((await onlyDoor(page)).id).toBe(door.id)
     expect((await drawnAt(page, [1, 0], 0.8)).graphics).toBeGreaterThan(0)
 
-    await clickAt(page, NOWHERE)
+    await deselect(page)
     await clickAt(page, [1, 0])
     expect(await selection(page)).toEqual([door.id])
 

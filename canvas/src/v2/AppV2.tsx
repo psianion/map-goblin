@@ -8,7 +8,7 @@ import { NewMapModal } from './NewMapModal';
 import { EditorShell } from './editor/EditorShell';
 import { initTheme, useTheme } from './theme';
 import { readDesk } from './desk';
-import { initLightBrush, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from './viewPrefs';
+import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from './viewPrefs';
 import './v2.css';
 import './editor/v2-editor.css';
 
@@ -22,6 +22,8 @@ initPropPrefs();
 initMarqueePrefs();
 // The Lights dock's brush (the next light) as the DM last set it; the Torch preset at first.
 initLightBrush();
+// A light placed while the desk is unlit turns the lit preview on, so the light shows.
+initLitOnLight();
 
 /** The theme's desk tokens, read off <html> so the canvas and the chrome agree. */
 function deskFromTokens(): EditorDesk {
