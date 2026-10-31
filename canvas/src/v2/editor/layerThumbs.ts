@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from '@/store/store';
 import { TERRAIN_PANEL_ID, type Layer, type TerrainData } from '@/store/types';
+import { layerContentBounds } from '@dnd/core/src/store/layerCommands';
 
 /**
  * Filmstrip thumbnails: which tile wants a picture, when to paint it, and where the
@@ -30,16 +31,38 @@ export interface WorldRect {
   maxY: number;
 }
 
-/** World to thumbnail: the frame fitted into a `px` square, aspect kept, centred. */
-export function fitFrame(frame: WorldRect, px: number): { scale: number; tx: number; ty: number } {
+/** A tile's picture is this much wider than it is tall (board L1: 56 × 40 tiles). */
+export const THUMB_ASPECT = 1.5;
+
+/** World to thumbnail: the frame fitted into a `px` × `pxH` box (square by default), aspect kept, centred. */
+export function fitFrame(frame: WorldRect, px: number, pxH = px): { scale: number; tx: number; ty: number } {
   const w = Math.max(frame.maxX - frame.minX, 1e-6);
   const h = Math.max(frame.maxY - frame.minY, 1e-6);
-  const scale = Math.min(px / w, px / h);
+  const scale = Math.min(px / w, pxH / h);
   return {
     scale,
     tx: (px - w * scale) / 2 - frame.minX * scale,
-    ty: (px - h * scale) / 2 - frame.minY * scale,
+    ty: (pxH - h * scale) / 2 - frame.minY * scale,
   };
+}
+
+/** Air around a layer's own content in its tile, as a share of the content's size. */
+export const THUMB_PAD = 0.08;
+
+/**
+ * What a tile shows: a map layer framed to its own content (padded), so a small layer
+ * still reads; an empty layer, the Background and Terrain framed to the whole map.
+ */
+export function thumbFrame(layer: Layer | undefined, map: WorldRect): WorldRect {
+  const own = layer && layer.type === 'dungeon' ? layerContentBounds(layer) : null;
+  if (!own) return map;
+  const w = Math.max(own.maxX - own.minX, 1);
+  const h = Math.max(own.maxY - own.minY, 1);
+  const cx = (own.minX + own.maxX) / 2;
+  const cy = (own.minY + own.maxY) / 2;
+  const hw = (w * (1 + 2 * THUMB_PAD)) / 2;
+  const hh = (h * (1 + 2 * THUMB_PAD)) / 2;
+  return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh };
 }
 
 /** What the thumbnails depend on, read off the store. */

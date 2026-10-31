@@ -213,6 +213,48 @@ export function initPropPrefs(): void {
   });
 }
 
+// ── Marquee filter ────────────────────────────────────────
+
+export const MARQUEE_FILTER_KEY = 'mapbuilder-marquee-filter';
+
+type MarqueeFilter = UISlice['marqueeFilter'];
+
+/** What the marquee picks, as saved: Everything unless "This tab's kind" was saved. */
+export function loadMarqueeFilter(): MarqueeFilter {
+  try {
+    return localStorage.getItem(MARQUEE_FILTER_KEY) === 'tab' ? 'tab' : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+let stopMarqueePrefs: (() => void) | null = null;
+
+/**
+ * Put the remembered marquee filter in the store and keep remembering it, as the prop view
+ * is: a store reset (a new map) keeps the DM's choice rather than the default.
+ */
+export function initMarqueePrefs(): void {
+  if (stopMarqueePrefs) return;
+  let remembered = loadMarqueeFilter();
+  if (useStore.getState().ui.marqueeFilter !== remembered) useStore.getState().setMarqueeFilter(remembered);
+  stopMarqueePrefs = useStore.subscribe((s, prev) => {
+    const next = s.ui.marqueeFilter;
+    if (next === remembered) return;
+    const reset = s.layers !== prev.layers && s.tools !== prev.tools;
+    if (reset) {
+      useStore.getState().setMarqueeFilter(remembered);
+      return;
+    }
+    remembered = next;
+    try {
+      localStorage.setItem(MARQUEE_FILTER_KEY, next);
+    } catch {
+      /* private mode: the choice lasts the session */
+    }
+  });
+}
+
 // ── Light brush ───────────────────────────────────────────
 
 export const LIGHT_BRUSH_KEY = 'mapbuilder-light-brush';
@@ -352,6 +394,26 @@ export function setSkyPreviewOpen(open: boolean): void {
   }
 }
 
+export const LAYERS_SHEET_FILTER_KEY = 'mapbuilder-layers-sheet-filter';
+
+/** The Layers sheet's last filter text; empty when none was kept. */
+export function loadLayersSheetFilter(): string {
+  try {
+    return localStorage.getItem(LAYERS_SHEET_FILTER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveLayersSheetFilter(text: string): void {
+  try {
+    if (text) localStorage.setItem(LAYERS_SHEET_FILTER_KEY, text);
+    else localStorage.removeItem(LAYERS_SHEET_FILTER_KEY);
+  } catch {
+    /* private mode: the filter lasts the session */
+  }
+}
+
 /** Tests only: forget the cached values so the next read goes back to storage. */
 export function resetViewPrefsForTests(): void {
   lit = null;
@@ -361,6 +423,8 @@ export function resetViewPrefsForTests(): void {
   stopRoomPrefs = null;
   stopPropPrefs?.();
   stopPropPrefs = null;
+  stopMarqueePrefs?.();
+  stopMarqueePrefs = null;
   stopLightBrush?.();
   stopLightBrush = null;
 }

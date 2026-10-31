@@ -1,9 +1,7 @@
-import { hitTestAllLayers } from '@dnd/core/src/engine/hitTest';
+import { pickAt } from '@dnd/core/src/engine/hitTest';
 import { UpdateChildCommand } from '@dnd/core/src/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { useStore } from '@/store/store';
 import type { Point } from '../types/geometry';
-import type { DungeonLayer } from '@/store/types';
 
 /**
  * Double-click over a fixture flips it: a light on or off, a door open or shut. Returns true
@@ -13,16 +11,18 @@ import type { DungeonLayer } from '@/store/types';
  * editors, so double-clicking a light dropped the user into shape node editing — which dims the
  * rest of the view and suspends the very lighting preview they were double-clicking to check.
  *
- * The lock is already honoured upstream: `hitTestAllLayers` skips locked (and hidden) layers
+ * The layer lock is already honoured upstream: `pickAt` skips locked (and hidden) layers
  * outright, so a fixture on one never reaches this and the click falls through unchanged.
  */
 export function toggleFixtureAt(world: Point, zoom: number): boolean {
-  const state = useStore.getState();
-  const layers = state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-
-  const hit = hitTestAllLayers(layers, [world.x, world.y], { zoom });
-  if (!hit) return false;
+  // The one pick every pointer entry point makes (hitTest.ts `pickAt`), so a double-click
+  // lands on what a click, a hover and a right-click at the same point land on.
+  const hit = pickAt([world.x, world.y], { zoom });
+  if (!hit || hit.kind !== 'child') return false;
   const { child, layerId } = hit;
+  if (child.childType !== 'light' && child.childType !== 'door') return false;
+  // Locked on its own: claimed, so nothing underneath goes into node editing, but not flipped.
+  if (child.locked) return true;
 
   if (child.childType === 'light') {
     // The authored `visible` flag is the switch: `LightManager` skips a hidden light, and the

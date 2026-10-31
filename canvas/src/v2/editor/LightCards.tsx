@@ -24,6 +24,7 @@ import {
 } from './lightModel';
 import { LIGHT_RADIUS_FT, commitLightFields, toggleLightDarkness } from './lightWrites';
 import './props.css';
+import { CardActions, LockFields, LockedNote } from './CardActions';
 import './rooms.css';
 import './selection-card.css';
 import './lighting.css';
@@ -219,150 +220,155 @@ export function LightTargetCard({ light, layerId }: { light: LightChild; layerId
     <section
       className="v2-sel v2-float v2-pcard v2-lcard"
       data-testid="v2-selection-card"
+      data-keys="canvas"
       data-light-kind={dark ? 'darkness' : 'light'}
       data-chrome
       aria-label="Selection"
     >
       <header className="v2-sel__head v2-pcard__head">
         <span className="v2-sel__name">{light.name || 'Light'}</span>
-        <span className="v2-sel__kind v2-rend">Light</span>
+        <span className="v2-sel__kind v2-rend">{light.locked ? 'Light · locked' : 'Light'}</span>
       </header>
-      {attached ? (
-        <div className="v2-lcard__attach" data-testid="v2-light-attach">
-          <span className="v2-rquiet">
-            Attached to <b>{attached.name || 'a prop'}</b>
-          </span>
-          <button type="button" className="v2-link v2-rend" onClick={() => set('Detach light', { attachedTo: undefined })}>
-            Detach
-          </button>
-        </div>
-      ) : (
-        near && (
+      <CardActions />
+      {light.locked && <LockedNote />}
+      <LockFields locked={!!light.locked}>
+        {attached ? (
           <div className="v2-lcard__attach" data-testid="v2-light-attach">
             <span className="v2-rquiet">
-              Near <b>{near.name || 'a prop'}</b>
+              Attached to <b>{attached.name || 'a prop'}</b>
             </span>
-            <button type="button" className="v2-link v2-rend" onClick={() => set('Attach light', { attachedTo: near.id })}>
-              Attach to nearest
+            <button type="button" className="v2-link v2-rend" onClick={() => set('Detach light', { attachedTo: undefined })}>
+              Detach
             </button>
           </div>
-        )
-      )}
+        ) : (
+          near && (
+            <div className="v2-lcard__attach" data-testid="v2-light-attach">
+              <span className="v2-rquiet">
+                Near <b>{near.name || 'a prop'}</b>
+              </span>
+              <button type="button" className="v2-link v2-rend" onClick={() => set('Attach light', { attachedTo: near.id })}>
+                Attach to nearest
+              </button>
+            </div>
+          )
+        )}
 
-      <Section title="Light" testId="v2-light-light">
-        <DistRow
-          label="Bright"
-          value={bright}
-          range={LIGHT_RADIUS_FT}
-          unit="ft"
-          onPreview={(v) => preview(brightPatch(v))}
-          onCommit={() => commit('Light bright')}
-          onType={(v) => set('Light bright', brightPatch(v))}
-        />
-        <DistRow
-          label="Dim"
-          value={dim}
-          range={LIGHT_RADIUS_FT}
-          unit="ft"
-          onPreview={(v) => preview(dimPatch(v))}
-          onCommit={() => commit('Light dim')}
-          onType={(v) => set('Light dim', dimPatch(v))}
-        />
-        {!dark && (
+        <Section title="Light" testId="v2-light-light">
+          <DistRow
+            label="Bright"
+            value={bright}
+            range={LIGHT_RADIUS_FT}
+            unit="ft"
+            onPreview={(v) => preview(brightPatch(v))}
+            onCommit={() => commit('Light bright')}
+            onType={(v) => set('Light bright', brightPatch(v))}
+          />
+          <DistRow
+            label="Dim"
+            value={dim}
+            range={LIGHT_RADIUS_FT}
+            unit="ft"
+            onPreview={(v) => preview(dimPatch(v))}
+            onCommit={() => commit('Light dim')}
+            onType={(v) => set('Light dim', dimPatch(v))}
+          />
+          {!dark && (
+            <div className="v2-rrow v2-selc">
+              <ColorCtl
+                label="Colour"
+                placement="beside"
+                value={light.color}
+                onChange={(c) => preview({ color: c })}
+                onCommit={() => commit('Light colour')}
+              />
+              <span className="v2-selc__value v2-num">{light.color.toUpperCase()}</span>
+            </div>
+          )}
           <div className="v2-rrow v2-selc">
-            <ColorCtl
-              label="Colour"
-              placement="beside"
-              value={light.color}
-              onChange={(c) => preview({ color: c })}
-              onCommit={() => commit('Light colour')}
+            <Slider
+              label="Intensity"
+              value={light.intensity}
+              min={0}
+              max={1}
+              step={0.01}
+              format={percent}
+              onChange={(v) => preview({ intensity: v })}
+              onCommit={() => commit('Light intensity')}
             />
-            <span className="v2-selc__value v2-num">{light.color.toUpperCase()}</span>
           </div>
-        )}
-        <div className="v2-rrow v2-selc">
-          <Slider
-            label="Intensity"
-            value={light.intensity}
-            min={0}
-            max={1}
-            step={0.01}
-            format={percent}
-            onChange={(v) => preview({ intensity: v })}
-            onCommit={() => commit('Light intensity')}
+          <SegRow label="Falloff" value={light.falloff} options={FALLOFFS} onChange={(v) => set('Light falloff', { falloff: v })} />
+        </Section>
+
+        <Section title="Shape" quiet={full ? 'Full circle' : 'Cone'} testId="v2-light-shape">
+          <DistRow
+            label="Cone"
+            value={cone.angle}
+            range={CONE_RANGE}
+            unit="°"
+            onPreview={(v) => preview(conePatch(v))}
+            onCommit={() => commit('Light cone')}
+            onType={(v) => set('Light cone', conePatch(v))}
           />
-        </div>
-        <SegRow label="Falloff" value={light.falloff} options={FALLOFFS} onChange={(v) => set('Light falloff', { falloff: v })} />
-      </Section>
+          <DistRow
+            label="Direction"
+            value={cone.direction}
+            range={DIRECTION_RANGE}
+            unit="°"
+            off={full}
+            onPreview={(v) => preview(dirPatch(v))}
+            onCommit={() => commit('Light direction')}
+            onType={(v) => set('Light direction', dirPatch(v))}
+          />
+        </Section>
 
-      <Section title="Shape" quiet={full ? 'Full circle' : 'Cone'} testId="v2-light-shape">
-        <DistRow
-          label="Cone"
-          value={cone.angle}
-          range={CONE_RANGE}
-          unit="°"
-          onPreview={(v) => preview(conePatch(v))}
-          onCommit={() => commit('Light cone')}
-          onType={(v) => set('Light cone', conePatch(v))}
-        />
-        <DistRow
-          label="Direction"
-          value={cone.direction}
-          range={DIRECTION_RANGE}
-          unit="°"
-          off={full}
-          onPreview={(v) => preview(dirPatch(v))}
-          onCommit={() => commit('Light direction')}
-          onType={(v) => set('Light direction', dirPatch(v))}
-        />
-      </Section>
+        <Section title="Animation" testId="v2-light-animation">
+          <SegRow<Effect>
+            label="Effect"
+            value={effect}
+            options={EFFECTS}
+            onChange={(v) => set('Light effect', { animation: animationFor(v, speed) })}
+          />
+          <DistRow
+            label="Speed"
+            value={speed}
+            range={SPEED_RANGE}
+            unit="×"
+            format={(v) => v.toFixed(1)}
+            off={effect === 'none'}
+            onPreview={(v) => preview(speedPatch(v))}
+            onCommit={() => commit('Light speed')}
+            onType={(v) => set('Light speed', speedPatch(v))}
+          />
+        </Section>
 
-      <Section title="Animation" testId="v2-light-animation">
-        <SegRow<Effect>
-          label="Effect"
-          value={effect}
-          options={EFFECTS}
-          onChange={(v) => set('Light effect', { animation: animationFor(v, speed) })}
-        />
-        <DistRow
-          label="Speed"
-          value={speed}
-          range={SPEED_RANGE}
-          unit="×"
-          format={(v) => v.toFixed(1)}
-          off={effect === 'none'}
-          onPreview={(v) => preview(speedPatch(v))}
-          onCommit={() => commit('Light speed')}
-          onType={(v) => set('Light speed', speedPatch(v))}
-        />
-      </Section>
-
-      <Section title="Behaviour" tight testId="v2-light-behaviour">
-        <SwitchRow label="Through walls" checked={!!light.throughWalls} onChange={(v) => set('Through walls', { throughWalls: v || undefined })} />
-        <SwitchRow
-          label="Night only"
-          checked={!!light.nightOnly}
-          onChange={(v) => set('Night only', { nightOnly: v ? { ...NIGHT_ONLY } : undefined })}
-        />
-        <SwitchRow label="Darkness source" checked={dark} onChange={() => toggleLightDarkness(light.id)} />
-        {dark && (
+        <Section title="Behaviour" tight testId="v2-light-behaviour">
+          <SwitchRow label="Through walls" checked={!!light.throughWalls} onChange={(v) => set('Through walls', { throughWalls: v || undefined })} />
           <SwitchRow
-            label="Darkvision sees through"
-            sub
-            checked={!!light.darkvisionSees}
-            onChange={(v) => set('Darkvision sees through', { darkvisionSees: v || undefined })}
+            label="Night only"
+            checked={!!light.nightOnly}
+            onChange={(v) => set('Night only', { nightOnly: v ? { ...NIGHT_ONLY } : undefined })}
           />
-        )}
-      </Section>
+          <SwitchRow label="Darkness source" checked={dark} onChange={() => toggleLightDarkness(light.id)} />
+          {dark && (
+            <SwitchRow
+              label="Darkvision sees through"
+              sub
+              checked={!!light.darkvisionSees}
+              onChange={(v) => set('Darkvision sees through', { darkvisionSees: v || undefined })}
+            />
+          )}
+        </Section>
 
-      <Section title="Table" testId="v2-light-table">
-        <SwitchRow
-          label="On at the table"
-          tight={false}
-          checked={light.tableOn !== false}
-          onChange={(v) => set('On at the table', { tableOn: v ? undefined : false })}
-        />
-      </Section>
+        <Section title="Table" testId="v2-light-table">
+          <SwitchRow
+            label="On at the table"
+            tight={false}
+            checked={light.tableOn !== false}
+            onChange={(v) => set('On at the table', { tableOn: v ? undefined : false })}
+          />
+        </Section>
+      </LockFields>
     </section>
   );
 }

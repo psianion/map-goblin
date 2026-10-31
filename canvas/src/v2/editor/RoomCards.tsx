@@ -34,6 +34,7 @@ import {
   type LookScope,
 } from './roomModel';
 import { addLayerToLevel, nextAreaName, openRoomKey } from './roomActions';
+import { CardActions } from './CardActions';
 import './rooms.css';
 
 /*
@@ -74,6 +75,7 @@ export function RoomTargetCard({
     <section
       className="v2-sel v2-float"
       data-testid="v2-selection-card"
+      data-keys="canvas"
       data-room-kind={target.kind}
       data-beside-sheet={besideSheet ? 'true' : undefined}
       data-chrome
@@ -83,6 +85,7 @@ export function RoomTargetCard({
         <span className="v2-sel__name">{nameOf(target) || KIND[target.kind]}</span>
         <span className="v2-sel__kind">{KIND[target.kind]}</span>
       </header>
+      {target.kind === 'room' && <CardActions />}
       {target.kind === 'room' ? (
         <RoomOwnFields room={target.room} layer={target.layer} />
       ) : target.kind === 'area' ? (

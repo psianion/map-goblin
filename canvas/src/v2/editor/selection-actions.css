@@ -1,0 +1,110 @@
+/* The selection card's action row and the mixed card (boards S3, S5 B). Greys only: a
+   pressed or active control inverts to ink, nothing takes a hue. */
+.v2-sel__acts {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--v2-line);
+}
+.v2-sel__actgroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Delete and More, pinned right on every card. */
+.v2-sel__actgroup--right {
+  margin-left: auto;
+}
+
+/* A locked object's card: one quiet line, and its fields greyed and read-only. */
+.v2-sel__lockednote {
+  margin: 0;
+  padding: 6px 12px 0;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+/* No box of its own: the card lays its sections out as if the fieldset were not there. */
+.v2-sel__lockset {
+  display: contents;
+}
+.v2-sel__lockset:disabled > * {
+  opacity: 0.5;
+}
+
+/* A per-object lock in a card title: a small outlined tag, ink on paper. */
+.v2-sel__lock {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--v2-line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--v2-text-2);
+}
+
+/* Mixed card */
+.v2-mix__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.v2-mix__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.v2-mix__lbl {
+  flex: 0 0 64px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-mix__btns {
+  display: inline-flex;
+  gap: 2px;
+}
+.v2-mix__btns + .v2-mix__btns {
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--v2-line);
+}
+.v2-mix__kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 12px;
+  color: var(--v2-text-2);
+}
+.v2-mix__kind .v2-num {
+  margin-left: auto;
+  color: var(--v2-text);
+}
+.v2-mix__select {
+  max-width: 150px;
+}
+
+/* Zone position fields */
+.v2-zone__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* The status bar's marquee chip opens its choices above it, from its left edge. */
+.v2-pop.v2-pop--marquee {
+  left: -4px;
+  right: auto;
+  width: 280px;
+}
+.v2-marquee__menu {
+  display: flex;
+  flex-direction: column;
+}

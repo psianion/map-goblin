@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { DungeonLayer } from '@/store/types';
+import type { AnyChild, DungeonLayer } from '@/store/types';
 import { StatusBar } from './StatusBar';
 
 const grid = () => useStore.getState().grid;
@@ -134,7 +134,7 @@ describe('v2 StatusBar edit hints', () => {
     expect(keys).toContain('Esc');
   });
 
-  it('gives the slot back to the solo chip once editing ends', () => {
+  it('keeps the solo chip beside the edit hint, and after editing ends', () => {
     const layerId = useStore.getState().layers.find((l) => l.type === 'dungeon')!.id;
     useStore.getState().setShapeNodeEdit('shape-1');
     useStore.setState((s) => {
@@ -142,10 +142,41 @@ describe('v2 StatusBar edit hints', () => {
     });
     render(<StatusBar />);
     expect(screen.getByTestId('v2-status-hint').textContent).toMatch(/^Editing outline · drag a corner/);
-    expect(screen.queryByText(/Soloing/)).toBeNull();
+    expect(screen.getByTestId('v2-solo-chip').textContent).toMatch(/^Soloing/);
     act(() => useStore.getState().setShapeNodeEdit(null));
     expect(screen.queryByTestId('v2-status-hint')).toBeNull();
-    expect(screen.getByText(/Soloing/)).toBeTruthy();
+    expect(screen.getByTestId('v2-solo-chip').textContent).toMatch(/^Soloing/);
+  });
+});
+
+describe('v2 StatusBar solo chip', () => {
+  const soloFirstLayer = () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.setState((s) => {
+      s.ui.solo = { layerId: layer.id };
+    });
+    return layer;
+  };
+
+  it('stays in the chip row while something is selected and the hint line speaks for it', () => {
+    const layer = soloFirstLayer();
+    useStore.getState().addChild(layer.id, {
+      id: 'c1', name: 'c1', childType: 'asset', visible: true, assetId: 't:c', position: { x: 1, y: 1 }, rotation: 0, scale: 1, width: 1, height: 1,
+    } as AnyChild);
+    useStore.getState().setSelectedIds(['c1']);
+    render(<StatusBar />);
+    expect(screen.getByTestId('v2-status-selection')).toBeTruthy();
+    const chip = screen.getByTestId('v2-solo-chip');
+    expect(chip.textContent).toBe(`Soloing ${layer.name}`);
+    expect(chip.closest('.v2-status__mid')).toBeNull();
+  });
+
+  it('its x clears the solo', () => {
+    soloFirstLayer();
+    render(<StatusBar />);
+    fireEvent.click(screen.getByTestId('v2-solo-chip'));
+    expect(useStore.getState().ui.solo).toBeNull();
+    expect(screen.queryByTestId('v2-solo-chip')).toBeNull();
   });
 });
 

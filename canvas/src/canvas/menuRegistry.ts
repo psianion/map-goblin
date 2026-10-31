@@ -12,6 +12,7 @@ import { undoManager } from '@/store/undoManager'
 import {
   CompositeCommand,
   UpdateChildCommand,
+  UpdateWallCommand,
   createRemoveFromGroupCommand,
   createDeleteGroupCommand,
   createDuplicateGroupCommand,
@@ -25,7 +26,6 @@ import {
 } from '@/store/commands'
 import type {
   AnyChild,
-  AssetChild,
   DoorChild,
   DoorStyle,
   DungeonLayer,
@@ -52,8 +52,6 @@ import {
   type CatalogEntry,
 } from '@dnd/core/src/assets/packCatalog'
 import {
-  createAlignCommand,
-  createDistributeCommand,
   createDuplicateCommand,
   createMoveToLayerCommand,
   createSetPropFieldsCommand,
@@ -68,9 +66,32 @@ import { clampDoorWidth } from '@dnd/core/src/engine/tools/DoorTool'
 import { doorOpeningLimitOn } from '@dnd/core/src/shared/wallResolve'
 import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal'
 import { doorwayEditCommand } from '@dnd/core/src/store/doorwayCommands'
-import { handleShortcut, isV2Route, rotateSelection90 } from '@/shortcuts/defaultShortcuts'
+import {
+  alignSelection,
+  distributeSelection,
+  handleShortcut,
+  isV2Route,
+  rotateSelection90,
+  runSelectionVerb,
+} from '@/shortcuts/defaultShortcuts'
+import { resolveSelection } from '@dnd/core/src/store/selectionResolve'
+import { wallCopyCommands } from '@dnd/core/src/store/duplicateSelection'
+import { getChildBounds, getWallBounds, pickStackAtPoint } from '@dnd/core/src/engine/hitTest'
+import { pickKind, pickName } from '@dnd/core/src/engine/tools/SelectTool'
+import { currentZoom } from '@/components/toolbar/zoomControl'
+import type { Command, Layer } from '@/store/types'
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef'
 import { notify } from '@/lib/toast'
+import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands'
+import {
+  deleteLayer,
+  duplicateLayer,
+  moveLayerToLevel,
+  toggleLayerLocked,
+  toggleLayerVisible,
+  toggleSolo,
+  zoomToLayer,
+} from '@/v2/editor/layerActions'
 
 export interface ChildMenuContext {
   layer: DungeonLayer
@@ -217,15 +238,55 @@ function swapChoices(entry: CatalogEntry): { items: CatalogEntry[]; family: bool
   return { items, family: false }
 }
 
-/** A locked prop's whole menu: what it is, and the way back. */
-function lockedPropRows(child: AssetChild): MenuRow[] {
+/** A locked object's whole menu: what it is, the way back, and what lies under it. */
+function lockedChildRows(ctx: ChildMenuContext): MenuRow[] {
+  const { child } = ctx
+  const kind = KIND_LABEL[child.childType] ?? child.childType
+  const unlock = (): void => {
+    if (child.childType === 'asset') run(createSetPropFieldsCommand([child.id], { locked: false }))
+    else run(new UpdateChildCommand('Unlock', ctx.layer.id, child.id, { locked: true }, { locked: false }))
+  }
+  const behind = isV2Route() ? selectBehindRow(ctx.world) : null
   return [
-    { type: 'header', label: child.name || 'Prop', sublabel: 'Prop · locked' },
-    {
-      label: 'Unlock',
-      onSelect: () => run(createSetPropFieldsCommand([child.id], { locked: false })),
-    },
+    { type: 'header', label: child.name || kind, sublabel: `${kind} · locked` },
+    { label: 'Unlock', kbd: isV2Route() ? 'Ctrl+Shift+L' : undefined, onSelect: unlock },
+    ...(behind ? [behind] : []),
   ]
+}
+
+/** Rows a v2 menu offers for any object: lock it, hide it. */
+function lockHideRows(): MenuRow[] {
+  return [
+    { label: 'Lock', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('lock') },
+    { label: 'Hide', kbd: 'Ctrl+Shift+H', onSelect: () => runSelectionVerb('hide') },
+  ]
+}
+
+/** How many rows "Select behind" lists at most. */
+const SELECT_BEHIND_MAX = 8
+
+/**
+ * Select behind ▸: everything under the right-click, top first, each with its kind, so a
+ * floor under a rug under a torch can be reached without switching tabs. Null when at most
+ * one object is there (nothing is behind anything).
+ */
+export function selectBehindRow(world: { x: number; y: number }): MenuRow | null {
+  const stack = pickStackAtPoint([world.x, world.y], { zoom: currentZoom() ?? 20 })
+  if (stack.length < 2) return null
+  return {
+    type: 'submenu',
+    label: 'Select behind',
+    separatorBefore: true,
+    rows: stack.slice(0, SELECT_BEHIND_MAX).map((hit) => ({
+      label: pickName(hit),
+      kbd: pickKind(hit),
+      onSelect: () => {
+        const s = useStore.getState()
+        s.setSelectedIds([hit.id])
+        s.setActiveLayerId(hit.layerId)
+      },
+    })),
+  }
 }
 
 /**
@@ -238,9 +299,11 @@ function sharedVerbs(ctx: ChildMenuContext): MenuRow[] {
       separatorBefore: true,
       label: 'Duplicate',
       kbd: 'Ctrl+D',
-      onSelect: () => handleShortcut('ctrl+d'),
+      onSelect: () => runSelectionVerb('duplicate'),
     },
   ]
+  // v2: every kind locks and hides on its own (a prop's own Lock sits in its toggles).
+  if (isV2Route()) rows.push(...lockHideRows().filter((r) => !(ctx.child.childType === 'asset' && 'label' in r && r.label === 'Lock')))
   rows.push(moveToLayerRow(ctx.layer.id))
   rows.push({
     separatorBefore: true,
@@ -734,11 +797,11 @@ export function buildAreaMenu({ layer, area }: AreaMenuContext): MenuRow[] {
 /** Menu for a right-clicked child (single selection). */
 export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   const builder = builders.get(ctx.child.childType)
-  // A locked prop offers only its way back: every other verb would pass over it.
-  const locked = ctx.child.childType === 'asset' && ctx.child.locked
+  // A locked object offers only its way back: every other verb would pass over it.
+  const locked = !!ctx.child.locked
   const rows = locked
-    ? lockedPropRows(ctx.child as AssetChild)
-    : withGroupRows(builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)], ctx)
+    ? lockedChildRows(ctx)
+    : withSelectBehind(withGroupRows(builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)], ctx), ctx.world)
   const reason = ctx.layer.locked
     ? 'Layer is locked'
     : !ctx.layer.visible
@@ -747,18 +810,48 @@ export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   return reason ? lockRows(rows, reason) : rows
 }
 
+/** Puts "Select behind ▸" above the menu's last row (Delete), on v2, when anything is behind. */
+function withSelectBehind(rows: MenuRow[], world: { x: number; y: number } | undefined): MenuRow[] {
+  if (!world || !isV2Route()) return rows
+  const behind = selectBehindRow(world)
+  if (!behind) return rows
+  const last = rows.length - 1
+  return last > 0 ? [...rows.slice(0, last), behind, rows[last]] : [...rows, behind]
+}
+
 export interface WallMenuContext {
   layer: DungeonLayer
   wall: WallSegment
+  /** Where the right-click landed, in world squares (for "Select behind"). */
+  world?: { x: number; y: number }
 }
 
 /**
- * Menu for a right-clicked drawn wall: what it is, then the shared verbs a wall can
- * take. No Duplicate: copies are children-only, and a wall is not a child.
+ * Menu for a right-clicked drawn wall: what it is, then the verbs a wall takes like any
+ * other object (it moves, turns, flips and copies whole, its doors with it).
  */
-export function buildWallMenu({ layer, wall }: WallMenuContext): MenuRow[] {
+export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[] {
   const setId = standaloneWallLook(wall, layer.style).setId
-  const rows: MenuRow[] = [{ type: 'header', label: 'Wall', sublabel: setId ? wallSetLabel(setId) : 'Wall' }]
+  const sublabel = setId ? wallSetLabel(setId) : 'Wall'
+  if (wall.locked) {
+    const behind = world && isV2Route() ? selectBehindRow(world) : null
+    const unlock = (): void => run(new UpdateWallCommand(layer.id, wall.id, { locked: true }, { locked: false }))
+    const rows: MenuRow[] = [
+      { type: 'header', label: 'Wall', sublabel: `${sublabel} · locked` },
+      { label: 'Unlock', kbd: 'Ctrl+Shift+L', onSelect: unlock },
+      ...(behind ? [behind] : []),
+    ]
+    const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
+    return reason ? lockRows(rows, reason) : rows
+  }
+  const rows: MenuRow[] = [{ type: 'header', label: 'Wall', sublabel }]
+  rows.push(
+    { separatorBefore: true, label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => runSelectionVerb('duplicate') },
+    { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => runSelectionVerb('flipH') },
+    { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => runSelectionVerb('flipV') },
+    { label: 'Rotate 90°', kbd: 'Shift+R', onSelect: () => runSelectionVerb('rotate') },
+    ...(isV2Route() ? lockHideRows() : []),
+  )
   rows.push(moveToLayerRow(layer.id, { separatorBefore: true }))
   rows.push({
     separatorBefore: true,
@@ -767,8 +860,9 @@ export function buildWallMenu({ layer, wall }: WallMenuContext): MenuRow[] {
     kbd: 'Del',
     onSelect: () => handleShortcut('delete'),
   })
+  const withBehind = withSelectBehind(rows, world)
   const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
-  return reason ? lockRows(rows, reason) : rows
+  return reason ? lockRows(withBehind, reason) : withBehind
 }
 
 /**
@@ -808,77 +902,89 @@ function lockRows(rows: MenuRow[], reason: string): MenuRow[] {
 }
 
 /** Menu for a mixed multi-selection: the shared-verb intersection only. */
-export function buildMultiMenu(count: number): MenuRow[] {
-  // Flips silently skip lights and labels, so a selection with nothing
-  // flippable must not offer them — dead verbs read as broken ones.
+export function buildMultiMenu(count: number, world?: { x: number; y: number }): MenuRow[] {
+  // Verbs that would skip every member are left out — dead verbs read as broken ones.
   const store = useStore.getState()
-  const ids = new Set(store.selection.selectedIds)
-  const kinds = new Set<string>()
-  for (const l of store.layers) {
-    if (l.type !== 'dungeon') continue
-    for (const c of l.children) if (ids.has(c.id)) kinds.add(c.childType)
-  }
-  const flippable = ['asset', 'shape', 'water'].some((k) => kinds.has(k))
+  const sel = resolveSelection(store, store.selection.selectedIds)
+  const kinds = new Set<string>([
+    ...sel.children.filter(({ child }) => !child.locked).map(({ child }) => child.childType as string),
+    ...(sel.walls.some(({ wall }) => !wall.locked) ? ['wall'] : []),
+  ])
+  const flippable = ['asset', 'shape', 'water', 'wall'].some((k) => kinds.has(k))
+  const rotatable = ['asset', 'text', 'shape', 'water', 'wall', 'zone'].some((k) => kinds.has(k))
+  const onlyDoors = sel.walls.length === 0 && sel.rooms.length === 0 && sel.children.every(({ child }) => child.childType === 'door')
   // Move-to-layer is most wanted exactly here — herding a mixed selection
   // onto one layer — so the multi menu offers it like every single menu does.
-  const owners = new Set(
-    store.layers.filter((l) => l.type === 'dungeon' && l.children.some((c) => ids.has(c.id))).map((l) => l.id),
-  )
+  const owners = new Set([...sel.children.map((c) => c.layer.id), ...sel.walls.map((w) => w.layer.id)])
   const currentLayerId = owners.size === 1 ? [...owners][0] : null
-  const selected = [...ids]
-  // The props verbs, on v2: line the props up, space them, restack, lock them all.
-  const propCount = store.layers.reduce(
-    (n, l) => n + (l.type === 'dungeon' ? l.children.filter((c) => c.childType === 'asset' && ids.has(c.id)).length : 0),
-    0,
-  )
-  const propRows: MenuRow[] =
-    isV2Route() && propCount > 0
+  const selected = store.selection.selectedIds
+  const v2 = isV2Route()
+  // Align and distribute anything with a box: children but doors, and walls; never locked.
+  const arrangeable =
+    sel.children.filter(({ child }) => child.childType !== 'door' && !child.locked).length +
+    sel.walls.filter(({ wall }) => !wall.locked).length
+  const propCount = sel.children.filter(({ child }) => child.childType === 'asset').length
+  const members = sel.children.length + sel.walls.length
+  const allLocked = members > 0 && sel.locked.length === members
+  const arrangeRows: MenuRow[] =
+    v2 && arrangeable >= 2
       ? [
-          ...(propCount >= 2
-            ? [
-                {
-                  type: 'submenu' as const,
-                  label: 'Align',
-                  separatorBefore: true,
-                  rows: ALIGN_ROWS.map(({ edge, label }) => ({
-                    label,
-                    onSelect: () => run(createAlignCommand(selected, edge)),
-                  })),
-                },
-                {
-                  type: 'submenu' as const,
-                  label: 'Distribute',
-                  disabled: propCount < 3,
-                  rows: [
-                    { label: 'Horizontally', onSelect: () => run(createDistributeCommand(selected, 'h')) },
-                    { label: 'Vertically', onSelect: () => run(createDistributeCommand(selected, 'v')) },
-                  ],
-                },
-              ]
-            : []),
-          orderRow(selected),
-          { label: 'Lock all', onSelect: () => run(createSetPropFieldsCommand(selected, { locked: true })) },
+          {
+            type: 'submenu' as const,
+            label: 'Align',
+            separatorBefore: true,
+            rows: ALIGN_ROWS.map(({ edge, label }) => ({ label, onSelect: () => alignSelection(edge) })),
+          },
+          {
+            type: 'submenu' as const,
+            label: 'Distribute',
+            disabled: arrangeable < 3,
+            rows: [
+              { label: 'Horizontally', onSelect: () => distributeSelection('h') },
+              { label: 'Vertically', onSelect: () => distributeSelection('v') },
+            ],
+          },
         ]
       : []
-  return withGroupRows([
-    { type: 'header', label: `${count} selected` },
-    { label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => handleShortcut('ctrl+d') },
-    ...(flippable
+  const propRows: MenuRow[] =
+    v2 && propCount > 0
       ? [
-          { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
-          { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+          orderRow(selected.filter((id) => sel.children.some(({ child }) => child.id === id && child.childType === 'asset'))),
         ]
-      : []),
-    ...propRows,
-    moveToLayerRow(currentLayerId),
-    {
-      separatorBefore: true,
-      label: 'Delete',
-      danger: true,
-      kbd: 'Del',
-      onSelect: () => handleShortcut('delete'),
-    },
-  ])
+      : []
+  const lockRow: MenuRow[] = v2
+    ? [
+        allLocked
+          ? { label: 'Unlock all', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('unlock') }
+          : { label: 'Lock all', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('lock') },
+        { label: 'Hide', kbd: 'Ctrl+Shift+H', onSelect: () => runSelectionVerb('hide') },
+      ]
+    : []
+  return withSelectBehind(
+    withGroupRows([
+      { type: 'header', label: `${count} selected` },
+      ...(onlyDoors ? [] : [{ label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => runSelectionVerb('duplicate') }]),
+      ...(flippable
+        ? [
+            { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => runSelectionVerb('flipH') },
+            { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => runSelectionVerb('flipV') },
+          ]
+        : []),
+      ...(rotatable ? [{ label: 'Rotate 90°', kbd: 'Shift+R', onSelect: () => runSelectionVerb('rotate') }] : []),
+      ...arrangeRows,
+      ...propRows,
+      ...lockRow,
+      moveToLayerRow(currentLayerId),
+      {
+        separatorBefore: true,
+        label: 'Delete',
+        danger: true,
+        kbd: 'Del',
+        onSelect: () => handleShortcut('delete'),
+      },
+    ]),
+    world,
+  )
 }
 
 /** Menu for empty ground: paste, select, view. */
@@ -888,22 +994,28 @@ export function buildCanvasMenu(world: { x: number; y: number }): MenuRow[] {
   const activeLayer = store.layers.find(
     (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
   )
+  const empty = !clipboard || (clipboard.children.length === 0 && (clipboard.walls?.length ?? 0) === 0)
   return [
     {
       label: 'Paste here',
       kbd: 'Ctrl+V',
-      disabled: !clipboard || clipboard.children.length === 0 || !activeLayer,
+      disabled: empty || !activeLayer,
       onSelect: () => pasteAt(world),
     },
     {
       label: 'Select all in layer',
-      disabled: !activeLayer || activeLayer.children.length === 0,
+      kbd: 'Ctrl+A',
+      disabled: !activeLayer || (activeLayer.children.length === 0 && activeLayer.standaloneWalls.length === 0),
       onSelect: () => {
         if (!activeLayer) return
-        // Locked props stay out, as they stay out of a marquee.
+        // What Ctrl+A takes: every shown child and drawn wall, locked ones too.
+        const walls = activeLayer.sublayerVisibility?.walls === false ? [] : activeLayer.standaloneWalls
         useStore
           .getState()
-          .setSelectedIds(activeLayer.children.filter((c) => !(c.childType === 'asset' && c.locked)).map((c) => c.id))
+          .setSelectedIds([
+            ...activeLayer.children.filter((c) => c.visible).map((c) => c.id),
+            ...walls.filter((w) => w.visible !== false).map((w) => w.id),
+          ])
       },
     },
     {
@@ -915,6 +1027,53 @@ export function buildCanvasMenu(world: { x: number; y: number }): MenuRow[] {
   ]
 }
 
+export interface LayerMenuOptions {
+  /** Opens the inline name field where the menu was opened from (a tile, a sheet row). */
+  onRename: () => void
+  /** Opens the layer's gear sheet, when the surface has one to open. */
+  onSettings?: () => void
+}
+
+/**
+ * The layer verbs (board L2): the filmstrip tile's right-click and the Layers sheet's row
+ * menu. Delete is greyed while the layer is locked or the last one of its level; Move to
+ * level while the map has one level.
+ */
+export function buildLayerTileMenu(layer: Layer, { onRename, onSettings }: LayerMenuOptions): MenuRow[] {
+  const store = useStore.getState()
+  const soloed = store.ui.solo?.layerId === layer.id
+  const dungeon = layer.type === 'dungeon'
+  const others = store.levels.filter((l) => l.id !== layer.levelId)
+  const deleteBlock = layerDeleteBlock(store, layer.id)
+  const rows: MenuRow[] = [
+    { label: 'Rename', kbd: 'F2', onSelect: onRename },
+    ...(dungeon ? [{ label: 'Duplicate', onSelect: () => duplicateLayer(layer.id) }] : []),
+    { label: layer.locked ? 'Unlock' : 'Lock', onSelect: () => toggleLayerLocked(layer) },
+    { label: layer.visible ? 'Hide' : 'Show', onSelect: () => toggleLayerVisible(layer) },
+    ...(dungeon ? [{ label: soloed ? 'Unsolo' : 'Solo', kbd: 'Alt+click eye', onSelect: () => toggleSolo(layer.id) }] : []),
+    { label: 'Zoom to layer', onSelect: () => zoomToLayer(layer) },
+  ]
+  if (dungeon) {
+    rows.push({
+      type: 'submenu',
+      label: 'Move to level',
+      disabled: store.levels.length < 2,
+      rows: others.map((l) => ({ label: l.name || 'Unnamed level', onSelect: () => moveLayerToLevel(layer.id, l.id) })),
+    })
+  }
+  if (onSettings) rows.push({ label: 'Layer settings', onSelect: onSettings })
+  if (dungeon) {
+    rows.push({
+      label: 'Delete layer',
+      danger: true,
+      separatorBefore: true,
+      disabled: deleteBlock !== null,
+      onSelect: () => deleteLayer(layer.id),
+    })
+  }
+  return rows
+}
+
 /** Paste the clipboard centred on a world point instead of the +1,+1 offset. */
 function pasteAt(world: { x: number; y: number }): void {
   const store = useStore.getState()
@@ -922,18 +1081,45 @@ function pasteAt(world: { x: number; y: number }): void {
   const activeLayer = store.layers.find(
     (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
   )
-  if (!clipboard || clipboard.children.length === 0 || !activeLayer) return
+  if (!clipboard || !activeLayer) return
+  const walls = clipboard.walls ?? []
+  if (clipboard.children.length === 0 && walls.length === 0) return
   if (activeLayer.locked || !activeLayer.visible) {
     notify.warning(activeLayer.locked ? 'Layer is locked' : 'Layer is hidden')
     return
   }
 
-  // The one duplicate path, centred on the click so a group pastes around it.
-  const { command } = createDuplicateCommand(store.layers, [], {
-    children: clipboard.children,
-    targetLayerId: activeLayer.id,
-    centreAt: world,
-    label: 'Paste',
-  })
-  if (command) undoManager.execute(command)
+  if (walls.length === 0) {
+    // The one duplicate path, centred on the click so a group pastes around it.
+    const { command } = createDuplicateCommand(store.layers, [], {
+      children: clipboard.children,
+      targetLayerId: activeLayer.id,
+      centreAt: world,
+      label: 'Paste',
+    })
+    if (command) undoManager.execute(command)
+    return
+  }
+  // Centred on the click, children and walls together: one offset for every copy.
+  const boxes = [
+    ...clipboard.children.map((c) => getChildBounds(c)),
+    ...walls.map(({ wall }) => getWallBounds(wall)),
+  ]
+  const cx = boxes.reduce((s, b) => s + b.x + b.width / 2, 0) / boxes.length
+  const cy = boxes.reduce((s, b) => s + b.y + b.height / 2, 0) / boxes.length
+  const dx = world.x - cx
+  const dy = world.y - cy
+  const cmds: Command[] = []
+  if (clipboard.children.length > 0) {
+    // The one duplicate path, so a group pastes around the click.
+    const { command } = createDuplicateCommand(store.layers, [], {
+      children: clipboard.children,
+      targetLayerId: activeLayer.id,
+      offset: { x: dx, y: dy },
+      label: 'Paste',
+    })
+    if (command) cmds.push(command)
+  }
+  if (walls.length > 0) cmds.push(...wallCopyCommands('Paste', walls, activeLayer.id, dx, dy).commands)
+  if (cmds.length > 0) undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Paste', cmds))
 }

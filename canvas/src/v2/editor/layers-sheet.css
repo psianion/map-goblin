@@ -1,0 +1,242 @@
+/* Layers sheet (board L3): one tree, levels then layers then kind groups then objects. */
+.v2-lsheets .v2-sheet__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+.v2-lsheets__headacts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.v2-lsheets__wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.v2-lsheets__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 8px;
+}
+.v2-lsheets__tree {
+  display: flex;
+  flex-direction: column;
+}
+.v2-lsheets__empty {
+  margin: 0;
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--v2-text-3);
+}
+.v2-lrow {
+  position: relative;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--v2-text);
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+.v2-lrow:hover {
+  background: var(--v2-panel-2);
+}
+.v2-lrow:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--v2-line-strong);
+}
+.v2-lrow--level {
+  margin-top: 4px;
+  gap: 6px;
+  color: var(--v2-text-2);
+  font-weight: 500;
+}
+.v2-lrow--layer {
+  height: 34px;
+}
+.v2-lrow--layer .v2-lrow__name {
+  font-weight: 500;
+}
+/* The active layer reads inverted, ink on the row. */
+.v2-lrow--on,
+.v2-lrow--on:hover {
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-lrow--on .v2-lrow__count,
+.v2-lrow--on .v2-lrow__meta,
+.v2-lrow--on .v2-ib {
+  color: var(--v2-on-ink);
+}
+.v2-lrow--sel,
+.v2-lrow--sel:hover {
+  background: var(--v2-panel-3);
+}
+.v2-lrow--dim > :not(.v2-lrow__icons) {
+  opacity: 0.45;
+}
+.v2-lrow--drop {
+  box-shadow: inset 0 0 0 1.5px var(--v2-ink);
+}
+.v2-lrow--lifted {
+  z-index: 2;
+  background: var(--v2-panel);
+  box-shadow: var(--v2-e-shadow);
+}
+.v2-lrow--group {
+  height: 26px;
+  color: var(--v2-text-2);
+}
+.v2-lrow--group svg {
+  flex-shrink: 0;
+}
+.v2-lrow--object {
+  height: 28px;
+}
+.v2-lrow__fold {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v2-text-3);
+}
+.v2-lrow__grip {
+  flex-shrink: 0;
+  width: 12px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--v2-text-3);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 120ms var(--v2-ease);
+}
+.v2-lrow:hover .v2-lrow__grip,
+.v2-lrow:focus-within .v2-lrow__grip {
+  opacity: 1;
+}
+.v2-lrow__grip--none {
+  cursor: default;
+}
+.v2-lrow__thumb {
+  flex-shrink: 0;
+  width: 30px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  background: var(--v2-panel-2);
+}
+.v2-lrow__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.v2-lrow__swatch {
+  width: 18px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-radius: 2px;
+}
+.v2-lrow__kind {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--v2-text-2);
+}
+.v2-lrow__name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v2-lrow__why {
+  margin-left: 6px;
+  padding: 1px 4px;
+  border: 1px solid var(--v2-line);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--v2-text-3);
+}
+.v2-lrow__count {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--v2-text-3);
+}
+.v2-lrow__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--v2-text-3);
+}
+.v2-lrow__icons {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.v2-lrow__ic--quiet {
+  opacity: 0;
+}
+.v2-lrow:hover .v2-lrow__ic--quiet,
+.v2-lrow:focus-within .v2-lrow__ic--quiet {
+  opacity: 1;
+}
+.v2-lrow__ic--off {
+  color: var(--v2-text-3);
+}
+.v2-lrow__ic--solo,
+.v2-lrow__ic--solo:hover {
+  background: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+.v2-lrow__rename {
+  min-width: 0;
+  flex: 1;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--v2-ink);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+/* Delete level dialog (board L4). */
+.v2-ldel__opt {
+  flex-wrap: wrap;
+}
+.v2-ldel__select {
+  height: 28px;
+  margin-left: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 12px;
+}
+.v2-lsheets__pinned {
+  flex-shrink: 0;
+  padding: 6px;
+  border-top: 1px solid var(--v2-line);
+}

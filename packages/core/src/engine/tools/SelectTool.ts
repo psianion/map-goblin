@@ -3,12 +3,20 @@ import type { Point, Polygon } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { PropertyCommand, SetRoomAnchorCommand } from '../../store/commands';
+import { CompositeCommand, PropertyCommand, SetRoomAnchorCommand } from '../../store/commands';
 import { createPropPatchCommand, type PropPatch } from '../../store/propEdits';
 import { followAsset, lightsOn } from '../../store/attachedLights';
 import { clipper2Engine, isClipperReady } from '../../geometry/Clipper2Engine';
-import type { AnyChild, AssetChild, DungeonLayer, Room, WallSegment } from '../../store/types';
-import { expandIdsForGroups, isLayerEffectivelyVisible } from '../../store/selectors';
+import type { AnyChild, AssetChild, Command, DungeonLayer, Room, WallSegment } from '../../store/types';
+import { expandIdsForGroups, isLayerEffectivelyVisible, isLayerShown } from '../../store/selectors';
+import { isLockedObject, resolveSelection } from '../../store/selectionResolve';
+import { createDuplicateSelectionCommand, DOOR_COPY_MESSAGE } from '../../store/duplicateSelection';
+import { buildTargets, roomCarryCommands, wallMoveCommands, type TransformTarget } from '../transformTargets';
+import { getEditorDesk } from '../editorDesk';
+import { marqueeTabKinds } from '../marqueeFilter';
+import { roomFace } from '../../shared/roomUtils';
+import type { Pt } from '../../shared/wallTransform';
+import { polylineLength } from '../../shared/wallResolve';
 import type { RenderEngine } from '../RenderEngine';
 import { TransformGizmo, type HandleType } from './TransformGizmo';
 import { OVERLAY_INK, OVERLAY_WHITE } from '../overlayPalette';
@@ -16,6 +24,7 @@ import { computeBoundingBox, resizeBox, type OrientedBox, type ResizeHandle } fr
 import {
   anchorForHandle,
   isIdentity,
+  mapPoint,
   snapshotChild,
   transformChild,
   type ChildSnapshot,
@@ -24,7 +33,9 @@ import {
 } from './childTransform';
 import {
   pickAllLayers,
-  getChildBounds,
+  pickStackAt,
+  getChildFootprint,
+  boxesByFootprint,
   getWallBounds,
   boundsIntersect,
   unionChildBounds,
@@ -35,6 +46,7 @@ import {
   wallTouchesRect,
   roomBadgeAt,
   roomPickingEnabled,
+  type PickHit,
 } from '../hitTest';
 import { setAnchorPreview } from '../roomAnchorDrag';
 import { flattenRing } from '../../shared/bezier';
@@ -43,13 +55,46 @@ import { notify } from '../../shared/notify';
 
 // ─── State machine ────────────────────────────────────────
 
-type SelectState = 'IDLE' | 'SELECTING' | 'SELECTED' | 'MOVING' | 'TRANSFORMING' | 'ANCHOR';
+/**
+ * CYCLING is an Alt press on an object, resolved on release (no travel: the next object
+ * down the stack). DUP_DRAG is the same press once it travels: the selection duplicated
+ * once, then moved like MOVING, one undo entry for both.
+ */
+type SelectState = 'IDLE' | 'SELECTING' | 'SELECTED' | 'MOVING' | 'TRANSFORMING' | 'ANCHOR' | 'CYCLING' | 'DUP_DRAG';
 
 /** Pointer travel (world units) under which a badge press is a click, not a move. */
 const ANCHOR_MIN_MOVE = 0.05;
 
-/** A prop the DM locked: the map lets clicks, marquees and drags pass through it. */
-const isLockedProp = (c: AnyChild): boolean => c.childType === 'asset' && !!c.locked;
+/** Pointer travel (screen px) an Alt press must make before it duplicates. */
+const DUP_DRAG_THRESHOLD_PX = 4;
+
+/** Locked on its own (any kind): selectable, never moved, turned or resized. */
+const isLockedChild = (c: AnyChild): boolean => isLockedObject(c);
+
+/** What a marquee does with what it covers. */
+type MarqueeMode = 'replace' | 'add' | 'subtract';
+
+const KIND_NAME: Record<AnyChild['childType'], string> = {
+  shape: 'Floor',
+  water: 'Water',
+  asset: 'Prop',
+  text: 'Label',
+  light: 'Light',
+  door: 'Door',
+  zone: 'Zone',
+};
+
+/** What a pick is called: its name, or its kind. */
+export function pickName(hit: PickHit): string {
+  if (hit.kind === 'child') return hit.child.name || KIND_NAME[hit.child.childType];
+  if (hit.kind === 'room') return hit.room.name || 'Room';
+  return 'Wall';
+}
+
+/** A pick's kind, as a word. */
+export function pickKind(hit: PickHit): string {
+  return hit.kind === 'child' ? KIND_NAME[hit.child.childType] : hit.kind === 'room' ? 'Room' : 'Wall';
+}
 
 const isResizeHandle = (h: HandleType): h is ResizeHandle => h !== 'move' && h !== 'rotate';
 
@@ -229,9 +274,45 @@ export class SelectTool implements DrawingTool {
        */
       attachedTo?: string;
     }[];
+    /** Selected drawn walls, through the same transform as the children (transformTargets.ts). */
+    walls: TransformTarget[];
+    /** Selected floors' outer rings as they were: the rooms anchored inside them follow. */
+    floors: { layerId: string; ring: Pt[] }[];
   } | null = null;
   /** Patches of the last frame, one per session entry — what gets committed on pointer up. */
   private lastPatches: Partial<AnyChild>[] | null = null;
+  /** The world transform of the last frame, when the drag is one (not a single box's own resize). */
+  private lastT: WorldTransform | null = null;
+  /** The marquee in flight: what it does with what it covers, and the selection it started from. */
+  private marqueeMode: MarqueeMode = 'replace';
+  private marqueeBase: string[] = [];
+  /** An Alt press on an object, waiting to become a click (the next object down) or a drag (a copy). */
+  private altPress: { sx: number; sy: number; raw: Point; hit: PickHit } | null = null;
+  /**
+   * An Alt press on a gizmo handle (v2), waiting the same way: travel makes it the handle's
+   * resize about the centre, a release without travel a cycle click at that point.
+   */
+  private altHandle: { handle: HandleType; sx: number; sy: number; raw: Point } | null = null;
+  /** The copies an Alt+drag made, and the selection it took them from. */
+  private dupDrag: { command: Command; originalIds: string[] } | null = null;
+  /**
+   * A press on a room: a click selects it, but a room never moves, so a press that travels
+   * becomes a marquee from the press instead (rooms cover most floors; a marquee must be
+   * able to start on one).
+   */
+  private roomPress: { point: Point; sx: number; sy: number; mode: MarqueeMode; base: string[] } | null = null;
+  /**
+   * Offered every move release, with the pointer in canvas px and the moved ids. True takes
+   * the drop (a filmstrip tile, in the Layers pass): the live move is put back and nothing
+   * is committed.
+   */
+  onMoveRelease?: (screen: { x: number; y: number }, ids: string[]) => boolean;
+  /**
+   * Told the pointer (canvas px) on every move of a move or Alt-drag, and null when the
+   * gesture ends either way: a filmstrip tile shows its drop ring from it. True from a move
+   * says the pointer is over a drop target: the live move holds until it leaves.
+   */
+  onMoveHover?: (screen: { x: number; y: number } | null, ids: string[]) => boolean | void;
   /**
    * A selected room's badge being dragged: its anchor follows the pointer on the
    * overlay only (`setAnchorPreview`), and one SetRoomAnchorCommand lands on release.
@@ -273,6 +354,12 @@ export class SelectTool implements DrawingTool {
       const sy = event.clientY - canvasRect.top;
       const handle = this.gizmo.hitTest(sx, sy, { bboxIsMove: this.altDragMode });
       if (handle) {
+        // On v2 an Alt press on a resize handle waits: at low zoom a small object is mostly
+        // handle, and Alt+click there means "the next object down", not a resize.
+        if (event.altKey && !this.altDragMode && isResizeHandle(handle) && getEditorDesk()) {
+          this.altHandle = { handle, sx, sy, raw: this.rawWorld(event) ?? point };
+          return;
+        }
         if (!this.altDragMode) {
           this.gizmo.startDrag(handle, sx, sy);
           this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
@@ -305,8 +392,9 @@ export class SelectTool implements DrawingTool {
       }
     }
 
-    // Alt+drag → legacy region-cut mode
-    if (event?.altKey) {
+    // Alt+drag → legacy region-cut mode, on the v1 editor only (no editor desk). On v2 Alt
+    // cycles, duplicates and subtracts instead, below.
+    if (event?.altKey && !getEditorDesk()) {
       this.altDragMode = true;
       this.state = 'SELECTING';
       this.startPoint = point;
@@ -319,16 +407,35 @@ export class SelectTool implements DrawingTool {
     }
     this.altDragMode = false;
 
-    // Hit-test children across all visible, unlocked dungeon layers
-    const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
-    );
-    const worldPt: [number, number] = [point.x, point.y];
-    // Drawn walls answer too: above the floors they stand on, under the doors in them.
-    // A locked prop does not: the click passes through to whatever is under it.
-    const hit = pickAllLayers(dungeonLayers, worldPt, { zoom: this.engine.stage().scale.x, includeLocked: false });
+    // One pick for every entry point, at the raw pointer: the snapped point the tool is
+    // handed is for moving, and picking by it took the object a cell away near an edge.
+    // Objects locked on their own answer (they select with a badge, never move); hidden
+    // ones and locked layers do not.
+    const raw = (event && this.rawWorld(event)) ?? point;
+    const hit = this.pickAt(raw);
+
+    if (event?.altKey) {
+      if (hit) {
+        const { sx, sy } = this.screenOf(event);
+        this.altPress = { sx, sy, raw, hit };
+        this.state = 'CYCLING';
+        return;
+      }
+      // Alt on empty ground: a marquee that takes away.
+      this.beginMarquee(point, 'subtract');
+      return;
+    }
 
     if (hit) {
+      // (Not on its badge: a press there is the badge's, it selects and never draws a box.)
+      const onBadge = (): boolean => {
+        const layer = store.layers.find((l): l is DungeonLayer => l.id === hit.layerId && l.type === 'dungeon');
+        return !!layer && roomBadgeAt(layer, [raw.x, raw.y], this.engine.stage().scale.x)?.id === hit.id;
+      };
+      if (hit.kind === 'room' && event && !event.ctrlKey && !event.metaKey && !onBadge()) {
+        const { sx, sy } = this.screenOf(event);
+        this.roomPress = { point, sx, sy, mode: event.shiftKey ? 'add' : 'replace', base: [...store.selection.selectedIds] };
+      }
       // A click on a grouped child takes the whole group. Ctrl+Shift is the
       // member-only bypass — Alt is the region-cut drag and Ctrl the
       // whole-layer toggle, so neither was free. Merged groups ignore it.
@@ -351,11 +458,13 @@ export class SelectTool implements DrawingTool {
         );
       } else if (event?.ctrlKey || event?.metaKey) {
         // Ctrl/Meta+click: toggle entire layer's children, its drawn walls with them
-        const layer = dungeonLayers.find((l) => l.id === hit.layerId);
+        const layer = store.layers.find((l): l is DungeonLayer => l.id === hit.layerId && l.type === 'dungeon');
         if (layer) {
           const layerIds = [
             ...layer.children.map((c) => c.id),
-            ...(layer.sublayerVisibility?.walls === false ? [] : (layer.standaloneWalls ?? []).map((w) => w.id)),
+            ...(layer.sublayerVisibility?.walls === false
+              ? []
+              : (layer.standaloneWalls ?? []).filter((w) => w.visible !== false).map((w) => w.id)),
           ];
           const current = store.selection.selectedIds;
           const allSelected = layerIds.every((id) => current.includes(id));
@@ -381,15 +490,20 @@ export class SelectTool implements DrawingTool {
       if (useStore.getState().selection.selectedIds.length > 0) {
         this.state = 'SELECTED';
         this.createGizmo();
-        // Select-and-drag in one gesture: a plain press on a child arms a move
-        // immediately. If the pointer never travels, the commit sees an
-        // identity transform and writes no undo entry. A drawn wall does not move with
-        // the gizmo, so a press on one never drags the rest of the selection away from it;
-        // nor does a room, which is a place and moves only by its badge.
-        if (this.gizmo && event && hit.kind === 'child' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
-          const canvasRect = this.engine.canvas().getBoundingClientRect();
-          const sx = event.clientX - canvasRect.left;
-          const sy = event.clientY - canvasRect.top;
+        // Select-and-drag in one gesture: a plain press on a child or a drawn wall arms a
+        // move immediately. If the pointer never travels, the commit sees an identity
+        // transform and writes no undo entry. A room never moves this way (it is a place
+        // and moves only by its badge), nor does anything locked on its own.
+        if (
+          this.gizmo &&
+          event &&
+          (hit.kind === 'child' || hit.kind === 'wall') &&
+          !hit.locked &&
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.metaKey
+        ) {
+          const { sx, sy } = this.screenOf(event);
           this.gizmo.startDrag('move', sx, sy);
           this.state = 'MOVING';
           this.beginTransformSession('move', { x: sx, y: sy });
@@ -398,14 +512,35 @@ export class SelectTool implements DrawingTool {
       return;
     }
 
-    // Clicked empty space → start box-drag selection
+    // Clicked empty space → start box-drag selection. Shift keeps what is selected and
+    // adds what the box covers on release.
+    this.beginMarquee(point, event?.shiftKey ? 'add' : 'replace');
+  }
+
+  /** Starts a marquee at `point`. A plain one clears the selection; Shift adds, Alt takes away. */
+  private beginMarquee(point: Point, mode: MarqueeMode): void {
+    const store = useStore.getState();
     this.state = 'SELECTING';
     this.startPoint = point;
     this.currentPoint = point;
-    store.setSelectedIds([]);
+    this.marqueeMode = mode;
+    this.marqueeBase = mode === 'replace' ? [] : [...store.selection.selectedIds];
+    if (mode === 'replace') store.setSelectedIds([]);
     store.setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();
+  }
+
+  /** The one pick, at a raw world point (see `pickAt` in hitTest.ts). */
+  private pickAt(raw: Point): PickHit | null {
+    const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+    return pickAllLayers(layers, [raw.x, raw.y], { zoom: this.engine.stage().scale.x, includeLockedObjects: true });
+  }
+
+  /** A pointer event's position on the canvas, px. */
+  private screenOf(event: PointerEvent): { sx: number; sy: number } {
+    const canvasRect = this.engine.canvas().getBoundingClientRect();
+    return { sx: event.clientX - canvasRect.left, sy: event.clientY - canvasRect.top };
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
@@ -418,9 +553,40 @@ export class SelectTool implements DrawingTool {
       return;
     }
 
-    // Update hover highlight every move (regardless of drag state)
-    if (this.state !== 'MOVING' && this.state !== 'TRANSFORMING') {
-      this.updateHover(point);
+    // A press on a room that travels becomes a marquee from the press.
+    if (this.roomPress && event) {
+      const { sx, sy } = this.screenOf(event);
+      if (Math.hypot(sx - this.roomPress.sx, sy - this.roomPress.sy) >= DUP_DRAG_THRESHOLD_PX) {
+        const press = this.roomPress;
+        this.roomPress = null;
+        useStore.getState().setSelectedIds(press.base);
+        this.beginMarquee(press.point, press.mode);
+        this.currentPoint = point;
+        return;
+      }
+    }
+
+    // An Alt press on a handle that travels far enough is the handle's resize about the centre.
+    if (this.altHandle && event) {
+      const { sx, sy } = this.screenOf(event);
+      const press = this.altHandle;
+      if (Math.hypot(sx - press.sx, sy - press.sy) < DUP_DRAG_THRESHOLD_PX || !this.gizmo) return;
+      this.altHandle = null;
+      this.gizmo.startDrag(press.handle, press.sx, press.sy);
+      this.state = 'TRANSFORMING';
+      this.beginTransformSession(press.handle, { x: press.sx, y: press.sy });
+    }
+
+    // An Alt press that travels far enough becomes a copy, dragged.
+    if (this.state === 'CYCLING' && this.altPress && event) {
+      const { sx, sy } = this.screenOf(event);
+      if (Math.hypot(sx - this.altPress.sx, sy - this.altPress.sy) >= DUP_DRAG_THRESHOLD_PX) this.startDupDrag();
+      if (this.state === 'CYCLING') return;
+    }
+
+    // Update hover highlight every move (regardless of drag state), at the raw pointer.
+    if (this.state !== 'MOVING' && this.state !== 'TRANSFORMING' && this.state !== 'DUP_DRAG') {
+      this.updateHover((event && this.rawWorld(event)) ?? point);
     }
 
     // Gizmo drag (object transform / move)
@@ -438,7 +604,11 @@ export class SelectTool implements DrawingTool {
         alt: event.altKey,
       };
       const delta = this.gizmo.updateDrag(sx, sy, input, gridState.snapEnabled, gridSizeScreen);
-      if (delta) this.applyTransformSession(delta, input);
+      // Over a tile that would take the drop, the live move holds where it last was on the
+      // canvas instead of running off the map edge (and growing the map) under the strip.
+      const overDrop =
+        this.state !== 'TRANSFORMING' && this.onMoveHover?.({ x: sx, y: sy }, useStore.getState().selection.selectedIds) === true;
+      if (delta && !overDrop) this.applyTransformSession(delta, input);
       return;
     }
 
@@ -468,6 +638,23 @@ export class SelectTool implements DrawingTool {
   onPointerUp(point: Point, event?: PointerEvent): void {
     if (this.state === 'ANCHOR') {
       this.finishAnchorDrag([point.x, point.y]);
+      return;
+    }
+
+    this.roomPress = null;
+    // An Alt press on a handle released where it went down: a cycle click at that point.
+    if (this.altHandle) {
+      const press = this.altHandle;
+      this.altHandle = null;
+      const hit = this.pickAt(press.raw);
+      if (hit) {
+        this.altPress = { sx: press.sx, sy: press.sy, raw: press.raw, hit };
+        this.finishCycle();
+      }
+      return;
+    }
+    if (this.state === 'CYCLING') {
+      this.finishCycle();
       return;
     }
 
@@ -509,12 +696,37 @@ export class SelectTool implements DrawingTool {
     // Object gizmo drag end
     if (
       !this.altDragMode &&
-      (this.state === 'MOVING' || this.state === 'TRANSFORMING') &&
+      (this.state === 'MOVING' || this.state === 'TRANSFORMING' || this.state === 'DUP_DRAG') &&
       this.gizmo?.isDragging()
     ) {
       this.gizmo.endDrag();
-      this.commitTransformSession();
+      const wasTransform = this.state === 'TRANSFORMING';
       this.state = 'SELECTED';
+      // A move dropped somewhere that takes it (a filmstrip tile) is not a move.
+      const ids = [...useStore.getState().selection.selectedIds];
+      if (!wasTransform) this.onMoveHover?.(null, ids);
+      if (!wasTransform && event && this.onMoveRelease) {
+        const { sx, sy } = this.screenOf(event);
+        if (this.onMoveRelease({ x: sx, y: sy }, ids)) {
+          this.revertTransformSession();
+          this.dropDupDrag();
+          return;
+        }
+      }
+      const cmd = this.buildSessionCommand();
+      const dup = this.dupDrag;
+      this.dupDrag = null;
+      if (dup) {
+        // The copies were made live; build the move on them, take them out again, and
+        // land copy and move as one step whose undo hands back what was selected before.
+        dup.command.undo();
+        undoManager.execute(new CompositeCommand('Duplicate and move', cmd ? [dup.command, cmd] : [dup.command]), {
+          selectionBefore: dup.originalIds,
+        });
+        useStore.getState().setSelectedIds(ids);
+      } else if (cmd) {
+        undoManager.execute(cmd);
+      }
       return;
     }
 
@@ -530,6 +742,11 @@ export class SelectTool implements DrawingTool {
 
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
+      if (this.altHandle) {
+        // An Alt press on a handle not yet resolved: forget it, keep the selection.
+        this.altHandle = null;
+        return;
+      }
       if (this.state === 'ANCHOR') {
         // Abandon the badge drag: the anchor never moved in the store.
         this.anchorDrag = null;
@@ -537,25 +754,40 @@ export class SelectTool implements DrawingTool {
         this.state = 'SELECTED';
         return;
       }
+      if (this.state === 'CYCLING') {
+        // An Alt press not yet resolved: forget it, keep the selection.
+        this.altPress = null;
+        this.state = useStore.getState().selection.selectedIds.length > 0 ? 'SELECTED' : 'IDLE';
+        return;
+      }
       if (this.gizmo?.isDragging()) {
         this.gizmo.cancelDrag();
         // Escape abandons the gesture, so roll the live preview back rather
-        // than leaving the half-dragged state committed.
-        for (const e of this.transformSession?.entries ?? []) {
-          useStore.getState().updateChild(e.layerId, e.childId, e.before);
-        }
-        this.transformSession = null;
-        this.lastPatches = null;
+        // than leaving the half-dragged state committed. An Alt+drag's copies go too.
+        this.revertTransformSession();
+        this.dropDupDrag();
+        this.onMoveHover?.(null, useStore.getState().selection.selectedIds);
         if (this.transformBaseRegion) {
           this.overlay.drawSelection(this.transformBaseRegion);
         }
-        this.state = 'SELECTED';
+        this.state = useStore.getState().selection.selectedIds.length > 0 || this.altDragMode ? 'SELECTED' : 'IDLE';
         this.transformBaseRegion = null;
+        return;
+      }
+      if (this.state === 'SELECTING' && !this.altDragMode) {
+        // A marquee in flight: drop it, and give back the selection it started from.
+        this.startPoint = null;
+        this.currentPoint = null;
+        useStore.getState().setSelectedIds(this.marqueeBase);
+        this.state = this.marqueeBase.length > 0 ? 'SELECTED' : 'IDLE';
+        if (this.state === 'SELECTED') this.createGizmo();
         return;
       }
       this.cancel();
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
-      this.deleteSelection();
+      // The global Delete shortcut removes a selection (through resolveSelection); what is
+      // left here is the v1 region cut.
+      this.deleteRegion();
     }
   }
 
@@ -577,6 +809,13 @@ export class SelectTool implements DrawingTool {
   }
 
   cancel(): void {
+    // A gesture cut short (a tool switch, a lost pointer) leaves nothing half-done behind.
+    if (this.transformSession) this.revertTransformSession();
+    this.dropDupDrag();
+    this.onMoveHover?.(null, []);
+    this.altPress = null;
+    this.altHandle = null;
+    this.roomPress = null;
     this.state = 'IDLE';
     this.startPoint = null;
     this.currentPoint = null;
@@ -658,24 +897,40 @@ export class SelectTool implements DrawingTool {
       return;
     }
 
-    const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon',
-    );
-    const children = this.resolveSelectedChildren(selectedIds, dungeonLayers);
+    const sel = resolveSelection(store, selectedIds);
+    const children = sel.children.map((c) => c.child);
 
     // Selection may change under a live gizmo (the layer panel writes
     // selectedIds directly). A selection with nothing transformable — doors,
-    // locked props — must not keep stale chrome on screen. Mirrors
+    // locked members, rooms — must not keep stale chrome on screen. Mirrors
     // snapshotChild's 'none' kind; a per-frame full snapshot would re-bake shape
     // contours for nothing.
-    const transformable = children.filter((c) => c.childType !== 'door' && !isLockedProp(c));
-    if (transformable.length === 0) {
+    const transformable = children.filter((c) => c.childType !== 'door' && !isLockedChild(c));
+    // Drawn walls take the same box: by their drawn band, so the handles sit outside the rock.
+    const walls = sel.walls.filter(({ wall }) => !isLockedObject(wall) && wall.visible !== false);
+    if (transformable.length === 0 && walls.length === 0) {
       this.destroyGizmo();
       return;
     }
 
     // Union world-space bounds, then project corners to screen
-    const worldBox = unionChildBounds(transformable);
+    // A mix boxes its lights by their marker (see boxesByFootprint); lights alone by their radius.
+    let worldBox = unionChildBounds(transformable, boxesByFootprint(transformable, walls.length));
+    for (const { wall, layer } of walls) {
+      const b = getWallBounds(wall, wallReach(wall, layer));
+      if (!worldBox) {
+        worldBox = b;
+        continue;
+      }
+      const x = Math.min(worldBox.x, b.x);
+      const y = Math.min(worldBox.y, b.y);
+      worldBox = {
+        x,
+        y,
+        width: Math.max(worldBox.x + worldBox.width, b.x + b.width) - x,
+        height: Math.max(worldBox.y + worldBox.height, b.y + b.height) - y,
+      };
+    }
     if (!worldBox) return;
     const worldCorners: [number, number][] = [
       [worldBox.x, worldBox.y],
@@ -689,12 +944,12 @@ export class SelectTool implements DrawingTool {
     });
     const screenBBox = computeBoundingBox(screenPoints);
 
-    // Lights have no orientation — hide the stem when nothing else is selected
+    // Lights and zones have no orientation — hide the stem when nothing else is selected
     // rather than draw an affordance that does nothing.
-    const showRotate = transformable.some((c) => c.childType !== 'light');
+    const showRotate = walls.length > 0 || transformable.some((c) => c.childType !== 'light' && c.childType !== 'zone');
     // "4.0 × 2.5 sq · 15°" — world units are grid squares. Angle only when a
     // single oriented child is selected; a union box has no one rotation.
-    const only = transformable.length === 1 ? transformable[0] : null;
+    const only = transformable.length === 1 && walls.length === 0 ? transformable[0] : null;
     const deg =
       only && (only.childType === 'asset' || only.childType === 'text') && only.rotation !== 0
         ? ` · ${Math.round((only.rotation * 180) / Math.PI)}°`
@@ -707,7 +962,11 @@ export class SelectTool implements DrawingTool {
       only && (only.childType === 'asset' || only.childType === 'text')
         ? { w: only.width * only.scale, h: only.height * only.scale }
         : { w: worldBox.width, h: worldBox.height };
-    const chip = `${ownSize.w.toFixed(1)} × ${ownSize.h.toFixed(1)} sq${deg}`;
+    // One drawn wall reads as its length, as its card does; the box still hugs its band.
+    const soleWall = transformable.length === 0 && walls.length === 1 ? walls[0].wall : null;
+    const chip = soleWall
+      ? `${polylineLength(soleWall.points).toFixed(1)} sq`
+      : `${ownSize.w.toFixed(1)} × ${ownSize.h.toFixed(1)} sq${deg}`;
 
     // A single prop or label is boxed on its own axes: its own size about its centre,
     // turned with it, so its handles sit on its sides.
@@ -740,13 +999,17 @@ export class SelectTool implements DrawingTool {
     const hosts = new Map<string, AssetChild>();
     const idSet = new Set(store.selection.selectedIds);
 
+    const floors: { layerId: string; ring: Pt[] }[] = [];
     for (const layer of dungeonLayers) {
       for (const child of layer.children) {
         if (!idSet.has(child.id)) continue;
-        // A locked prop stays where it is, whatever else the drag carries.
-        if (isLockedProp(child)) continue;
+        // Anything locked on its own stays where it is, whatever else the drag carries.
+        if (isLockedChild(child)) continue;
         const snap = snapshotChild(child);
         if (snap.kind === 'none') continue;
+        if (child.childType === 'shape' && snap.kind === 'rings') {
+          floors.push({ layerId: layer.id, ring: flattenRing(snap.contours[0] ?? [], snap.tangents?.[0]) });
+        }
         selected.push(child);
         // `before` mirrors the fields the patch writes, so undo restores exactly
         // what was overwritten and nothing else.
@@ -770,7 +1033,9 @@ export class SelectTool implements DrawingTool {
                 } as Partial<AnyChild>)
               : snap.kind === 'radius'
                 ? ({ position: snap.position, radius: snap.radius } as Partial<AnyChild>)
-                : ({} as Partial<AnyChild>);
+                : snap.kind === 'zone'
+                  ? ({ shape: structuredClone(snap.shape) } as Partial<AnyChild>)
+                  : ({} as Partial<AnyChild>);
         entries.push({ layerId: layer.id, childId: child.id, snap, before });
         if (child.childType === 'asset') hosts.set(child.id, child);
       }
@@ -791,20 +1056,39 @@ export class SelectTool implements DrawingTool {
       });
     }
 
-    if (entries.length === 0) {
+    // Drawn walls on unlocked layers, through the shared transform targets.
+    const walls = buildTargets({ layers: dungeonLayers }, [...idSet]).targets.filter(
+      (t) => t.kind === 'wall' && dungeonLayers.some((l) => l.id === t.layerId && isLayerShown(store, l)),
+    );
+
+    if (entries.length === 0 && walls.length === 0) {
       // Everything selected sits on a locked layer, so the filter above threw
       // it all away — the drag would otherwise just do nothing, silently.
       const lockedOut = store.layers.some(
-        (l) => l.type === 'dungeon' && l.locked && l.children.some((c) => idSet.has(c.id)),
+        (l) =>
+          l.type === 'dungeon' &&
+          l.locked &&
+          (l.children.some((c) => idSet.has(c.id)) || l.standaloneWalls.some((w) => idSet.has(w.id))),
       );
       if (lockedOut) notify.warning('Layer is locked');
       this.transformSession = null;
       return;
     }
 
-    const box = unionChildBounds(selected) ?? { x: 0, y: 0, width: 0, height: 0 };
+    let box = unionChildBounds(selected, boxesByFootprint(selected, walls.length));
+    for (const w of walls) {
+      const b = w.bounds;
+      if (!box) {
+        box = { ...b };
+        continue;
+      }
+      const x = Math.min(box.x, b.x);
+      const y = Math.min(box.y, b.y);
+      box = { x, y, width: Math.max(box.x + box.width, b.x + b.width) - x, height: Math.max(box.y + box.height, b.y + b.height) - y };
+    }
+    box ??= { x: 0, y: 0, width: 0, height: 0 };
     // One prop or label alone is boxed on its own axes, so its handles resize it along them.
-    const only = selected.length === 1 ? selected[0] : null;
+    const only = selected.length === 1 && walls.length === 0 ? selected[0] : null;
     const oriented =
       only && (only.childType === 'asset' || only.childType === 'text')
         ? {
@@ -815,7 +1099,8 @@ export class SelectTool implements DrawingTool {
             angle: only.rotation,
           }
         : null;
-    this.transformSession = { handle, start, box, oriented, hosts, entries };
+    this.transformSession = { handle, start, box, oriented, hosts, entries, walls, floors };
+    this.lastT = null;
   }
 
   /**
@@ -828,6 +1113,7 @@ export class SelectTool implements DrawingTool {
     input: DragInput,
   ): Partial<AnyChild>[] | null {
     const session = this.transformSession;
+    this.lastT = null;
     if (!session) return null;
     const k = this.screenToWorldScale();
     const { handle, box, oriented } = session;
@@ -871,6 +1157,7 @@ export class SelectTool implements DrawingTool {
           anchorY: anchor.y,
         };
         if (isIdentity(t)) return null;
+        this.lastT = t;
         for (const e of session.entries) if (!e.attachedTo) patches.set(e.childId, transformChild(e.snap, t));
       }
     } else {
@@ -884,6 +1171,7 @@ export class SelectTool implements DrawingTool {
         anchorY: box.y + box.height / 2,
       };
       if (isIdentity(t)) return null;
+      this.lastT = t;
       for (const e of session.entries) if (!e.attachedTo) patches.set(e.childId, transformChild(e.snap, t));
     }
 
@@ -908,33 +1196,126 @@ export class SelectTool implements DrawingTool {
     // Live preview only — no undo entry per frame.
     const updateChild = useStore.getState().updateChild;
     session.entries.forEach((e, i) => updateChild(e.layerId, e.childId, patches ? patches[i] : e.before));
+    const t = this.lastT;
+    for (const w of session.walls) {
+      if (t) w.apply(t);
+      else w.revert();
+    }
     this.lastPatches = patches;
   }
 
-  private commitTransformSession(): void {
+  /** Puts the live preview back where the gesture found it, with nothing on the undo stack. */
+  private revertTransformSession(): void {
     const session = this.transformSession;
-    const patches = this.lastPatches;
     this.transformSession = null;
     this.lastPatches = null;
+    this.lastT = null;
     if (!session) return;
+    for (const e of session.entries) useStore.getState().updateChild(e.layerId, e.childId, e.before);
+    for (const w of session.walls) w.revert();
+  }
 
-    // Rewind, then replay through the command so undo has a clean before/after. A
-    // click that never moved just puts back what the preview overwrote.
-    for (const e of session.entries) {
-      useStore.getState().updateChild(e.layerId, e.childId, e.before);
+  /**
+   * The gesture's one undo entry, or null when it never moved: the live preview rewound,
+   * then the edit rebuilt as commands so undo has a clean before/after. Children through
+   * the prop patch (it moves the lights attached to the props, so those are left out here,
+   * and leaves a selected light to its own patch), walls with their doors re-sealed, and
+   * the rooms anchored in a moved floor carried along.
+   */
+  private buildSessionCommand(): Command | null {
+    const session = this.transformSession;
+    const patches = this.lastPatches;
+    const t = this.lastT;
+    this.revertTransformSession();
+    if (!session) return null;
+    const moved = session.entries.filter((e) => !e.attachedTo).length + session.walls.length;
+    const label = moved > 1 ? 'Transform objects' : 'Transform object';
+    const cmds: Command[] = [];
+    if (patches) {
+      const edits: PropPatch[] = [];
+      session.entries.forEach((e, i) => {
+        if (!e.attachedTo && Object.keys(patches[i]).length > 0) {
+          edits.push({ layerId: e.layerId, id: e.childId, before: e.before, after: patches[i] });
+        }
+      });
+      if (edits.length > 0) cmds.push(createPropPatchCommand(label, edits));
     }
-    if (!patches) return;
+    if (t) {
+      const map = ([x, y]: Pt): Pt => mapPoint(x, y, t);
+      cmds.push(
+        ...wallMoveCommands(label, session.walls.map((w) => ({ layerId: w.layerId, wallId: w.id, map }))),
+        ...roomCarryCommands(session.floors.map((f) => ({ ...f, map }))),
+      );
+    }
+    if (cmds.length === 0) return null;
+    return cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds);
+  }
 
-    const label = session.entries.length > 1 ? 'Transform objects' : 'Transform object';
-    // One gesture, one undo entry, through the prop patch: it moves the lights attached
-    // to the props (so those are left out here) and leaves a selected light to its own
-    // patch. Executed separately, dragging three selected shapes took three presses to
-    // put back.
-    const edits: PropPatch[] = [];
-    session.entries.forEach((e, i) => {
-      if (!e.attachedTo) edits.push({ layerId: e.layerId, id: e.childId, before: e.before, after: patches[i] });
+  // ─── Alt: overlap cycling and the duplicate drag ─────────────────────────
+
+  /** An Alt press released where it went down: the next object down the stack under it. */
+  private finishCycle(): void {
+    const press = this.altPress;
+    this.altPress = null;
+    const store = useStore.getState();
+    this.state = store.selection.selectedIds.length > 0 ? 'SELECTED' : 'IDLE';
+    if (!press) return;
+    const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+    const stack = pickStackAt(layers, [press.raw.x, press.raw.y], {
+      zoom: this.engine.stage().scale.x,
+      includeLockedObjects: true,
     });
-    undoManager.execute(createPropPatchCommand(label, edits));
+    if (stack.length === 0) return;
+    const selected = store.selection.selectedIds;
+    const at = stack.findIndex((h) => selected.includes(h.id));
+    const next = at >= 0 && selected.length === 1 ? stack[(at + 1) % stack.length] : stack[0];
+    store.setSelectedIds([next.id]);
+    store.setActiveLayerId(next.layerId);
+    this.state = 'SELECTED';
+    this.createGizmo();
+    notify.subtle(`${pickName(next)} · ${stack.indexOf(next) + 1} of ${stack.length}`);
+  }
+
+  /** The Alt press travelled: copy what it pressed on, then drag the copies. */
+  private startDupDrag(): void {
+    const press = this.altPress;
+    this.altPress = null;
+    const store = useStore.getState();
+    this.state = store.selection.selectedIds.length > 0 ? 'SELECTED' : 'IDLE';
+    if (!press) return;
+    // A room is a place, never copied: Alt+drag from one takes away, as on empty ground.
+    if (press.hit.kind === 'room') {
+      this.beginMarquee(press.raw, 'subtract');
+      return;
+    }
+    const originalIds = [...store.selection.selectedIds];
+    const ids = originalIds.includes(press.hit.id) ? originalIds : expandIdsForGroups(store, [press.hit.id]);
+    const dup = createDuplicateSelectionCommand(store.layers, ids, { offset: { x: 0, y: 0 }, label: 'Duplicate and move' });
+    if (dup.doorsSkipped > 0) notify.warning(DOOR_COPY_MESSAGE);
+    if (!dup.command || dup.newIds.length === 0) return;
+    // Live, off the undo stack: the release lands copy and move as one step (and re-derives
+    // the rooms then, for copied walls).
+    dup.command.execute();
+    store.setSelectedIds(dup.newIds);
+    this.dupDrag = { command: dup.command, originalIds };
+    this.state = 'SELECTED';
+    this.createGizmo();
+    if (!this.gizmo) {
+      this.dropDupDrag();
+      return;
+    }
+    this.gizmo.startDrag('move', press.sx, press.sy);
+    this.state = 'DUP_DRAG';
+    this.beginTransformSession('move', { x: press.sx, y: press.sy });
+  }
+
+  /** Takes an Alt+drag's live copies back out and returns the selection they replaced. */
+  private dropDupDrag(): void {
+    const dup = this.dupDrag;
+    this.dupDrag = null;
+    if (!dup) return;
+    dup.command.undo();
+    useStore.getState().setSelectedIds(dup.originalIds);
   }
 
   /** Returns CSS cursor when hovering a gizmo handle or a selected room's badge, or null. */
@@ -954,7 +1335,7 @@ export class SelectTool implements DrawingTool {
 
   /** The unsnapped world point under a pointer event, for badge picks the grid must not shift. */
   private rawWorld(event: PointerEvent): Point | null {
-    if (typeof event.clientX !== 'number') return null;
+    if (typeof event.clientX !== 'number' || typeof this.engine.screenToWorld !== 'function') return null;
     const rect = this.engine.canvas().getBoundingClientRect();
     return this.engine.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
   }
@@ -995,12 +1376,9 @@ export class SelectTool implements DrawingTool {
   private updateHover(worldPoint: Point): void {
     this.hoverChild = null;
     const store = useStore.getState();
-    const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
-    );
-    const pt: [number, number] = [worldPoint.x, worldPoint.y];
-    // Locked props answer hover, so the prop overlay can show the lock on one.
-    const hit = pickAllLayers(dungeonLayers, pt, { zoom: this.engine.stage().scale.x, includeLocked: true });
+    const dungeonLayers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+    // The same pick as a click: locked objects answer, so the prop overlay can show the lock on one.
+    const hit = this.pickAt(worldPoint);
     const newHoveredId = hit?.id ?? null;
 
     // Only update store if value changed (avoid spurious re-renders)
@@ -1031,7 +1409,7 @@ export class SelectTool implements DrawingTool {
     const child = hit?.kind === 'child' ? hit.child : null;
 
     // A locked prop's outline is the prop overlay's (dashed, with its lock).
-    if (child && isLockedProp(child)) {
+    if (child && child.childType === 'asset' && isLockedChild(child)) {
       this.shapeHoverShownId = null;
       this.clearShapeHoverTimer();
       this.hoverGraphics.clear();
@@ -1061,7 +1439,8 @@ export class SelectTool implements DrawingTool {
   /**
    * Keep the hover outline on its child when the store moves it without the pointer moving:
    * the card's fields, Align, a nudge, an undo. Runs every frame, costs an id lookup, and
-   * redraws only when the child object changed. A child deleted or locked loses its outline.
+   * redraws only when the child object changed. A child deleted, hidden or locked loses its
+   * outline (a hidden one is never picked, so it lets go of the hover too).
    */
   private followHoveredChild(): void {
     const shown = this.hoverChild;
@@ -1073,7 +1452,11 @@ export class SelectTool implements DrawingTool {
       if (now) break;
     }
     if (now === shown) return;
-    this.drawHoverHighlight(now && !isLockedProp(now) ? now : null);
+    if (now && !now.visible && now.childType !== 'light') {
+      if (useStore.getState().selection.hoveredId === now.id) useStore.getState().setHoveredId(null);
+      now = null;
+    }
+    this.drawHoverHighlight(now && !(now.childType === 'asset' && isLockedChild(now)) ? now : null);
   }
 
   private clearShapeHoverTimer(): void {
@@ -1203,6 +1586,29 @@ export class SelectTool implements DrawingTool {
           g.circle(center.x, center.y, Math.max(radiusPx, 6));
           return true;
         }
+        case 'water': {
+          const screenPts = flattenRing(child.contours[0] ?? [], child.tangents?.[0]).map(([wx, wy]) =>
+            this.engine.worldToScreen(wx, wy),
+          );
+          if (screenPts.length < 2) return false;
+          g.moveTo(screenPts[0].x, screenPts[0].y);
+          for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
+          g.closePath();
+          return true;
+        }
+        case 'zone': {
+          const s = child.shape;
+          if (s.kind === 'rect') {
+            const a = this.engine.worldToScreen(s.x, s.y);
+            const b = this.engine.worldToScreen(s.x + s.width, s.y + s.height);
+            g.rect(a.x, a.y, b.x - a.x, b.y - a.y);
+            return true;
+          }
+          const c = this.engine.worldToScreen(s.position.x, s.position.y);
+          const r = s.kind === 'circle' ? this.engine.worldToScreen(s.position.x + s.radius, s.position.y).x - c.x : 6;
+          g.circle(c.x, c.y, Math.max(r, 6));
+          return true;
+        }
         default:
           return false;
       }
@@ -1224,15 +1630,24 @@ export class SelectTool implements DrawingTool {
     const dy = Math.abs(end.y - start.y);
 
     const store = useStore.getState();
+    // The level on show only: a marquee never reaches another level's objects.
     const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
+      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerShown(store, l) && !l.locked,
     );
     const seeUnder = store.ui.seeUnderOverhead;
+    const mode = this.marqueeMode;
+    const base = this.marqueeBase;
+    this.marqueeMode = 'replace';
+    this.marqueeBase = [];
+    void event;
 
     // Tiny drag → treat as click
     if (dx < 0.01 && dy < 0.01) {
-      // Single click with no hit was handled in onPointerDown already
-      this.state = 'IDLE';
+      // Single click with no hit was handled in onPointerDown already; Shift and Alt keep
+      // what was selected.
+      if (mode !== 'replace') store.setSelectedIds(base);
+      this.state = useStore.getState().selection.selectedIds.length > 0 ? 'SELECTED' : 'IDLE';
+      if (this.state === 'SELECTED') this.createGizmo();
       return;
     }
 
@@ -1241,49 +1656,75 @@ export class SelectTool implements DrawingTool {
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
     const dragRect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    // The status bar's chip may keep the marquee to the active tab's kinds.
+    const kinds = store.ui.marqueeFilter === 'tab' ? marqueeTabKinds() : null;
+    const takes = (kind: string): boolean => !kinds || (kinds as readonly string[]).includes(kind);
+    const inRect = ([x, y]: [number, number]): boolean => x >= minX && x <= maxX && y >= minY && y <= maxY;
+    const boundsInside = (b: { x: number; y: number; width: number; height: number }, r: typeof dragRect): boolean =>
+      b.x >= r.x && b.y >= r.y && b.x + b.width <= r.x + r.width && b.y + b.height <= r.y + r.height;
+    const wholeOnly = !!getEditorDesk();
 
     const collected: string[] = [];
+    // Merged groups are atomic: a member the box touches brings the rest. Plain groups stay
+    // granular (you drew the rect, you meant what it touched). Built per layer, once.
+    const seen = new Set<string>();
+    const take = (id: string): void => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      collected.push(id);
+    };
     for (const layer of dungeonLayers) {
+      const merged = new Set((layer.groups ?? []).filter((g) => g.merged).map((g) => g.id));
       for (const child of layer.children) {
-        if (!child.visible) continue;
-        // Zones are prep markers owned by ZoneTool — the marquee must not grab
-        // them (a group move would carry everything else and silently leave the
-        // trap anchor behind).
-        if (child.childType === 'zone') continue;
-        // Locked props pass the marquee through, as they pass clicks; so do overhead
-        // ones while the DM is looking under them.
-        if (isLockedProp(child)) continue;
+        if (!child.visible || !takes(child.childType)) continue;
+        // Overhead props pass the marquee through while the DM is looking under them.
+        // Objects locked on their own are collected, so their card can unlock them.
         if (seeUnder && child.childType === 'asset' && child.overhead) continue;
-        const bounds = getChildBounds(child);
-        if (boundsIntersect(bounds, dragRect)) {
-          collected.push(child.id);
+        // A light by its marker: its radius is light, not the object.
+        const bounds = getChildFootprint(child);
+        if (!boundsIntersect(bounds, dragRect)) continue;
+        // On v2 a floor or a water body joins only when the box covers it whole, as a room
+        // does: a box drawn inside a room is about what stands there, not the cave floor
+        // under the whole map.
+        if (wholeOnly && (child.childType === 'shape' || child.childType === 'water') && !boundsInside(bounds, dragRect)) continue;
+        if (child.groupId && merged.has(child.groupId)) {
+          for (const m of layer.children) if (m.groupId === child.groupId) take(m.id);
+        } else {
+          take(child.id);
         }
       }
       // Drawn walls by their drawn band, not their box: a marquee inside a walled room
       // must not grab the loop around it.
-      if (layer.sublayerVisibility?.walls === false) continue;
-      for (const wall of layer.standaloneWalls ?? []) {
-        if (wall.points.length < 2) continue;
-        const reach = wallReach(wall, layer);
-        if (!boundsIntersect(getWallBounds(wall, reach), dragRect)) continue;
-        if (wallTouchesRect(wall, dragRect, reach)) collected.push(wall.id);
+      if (layer.sublayerVisibility?.walls !== false && takes('wall')) {
+        for (const wall of layer.standaloneWalls ?? []) {
+          if (wall.points.length < 2 || wall.visible === false) continue;
+          const reach = wallReach(wall, layer);
+          if (!boundsIntersect(getWallBounds(wall, reach), dragRect)) continue;
+          if (wallTouchesRect(wall, dragRect, reach)) take(wall.id);
+        }
+      }
+      // A room joins only when the marquee covers its whole face: a box drawn inside a
+      // room is about the things in it, not the room.
+      if (roomPickingEnabled() && takes('room')) {
+        for (const room of layer.rooms ?? []) {
+          const face = roomFace(room);
+          if (face.length >= 3 && face.every(inRect)) take(room.id);
+        }
       }
     }
 
-    if (collected.length > 0) {
-      // Marquee stays granular over plain groups — you drew the rect, you meant
-      // what it touched. Merged groups are atomic and come along whole.
-      const expanded = expandIdsForGroups(store, collected, { mergedOnly: true });
-      if (event?.shiftKey) {
-        const merged = [...new Set([...store.selection.selectedIds, ...expanded])];
-        store.setSelectedIds(merged);
-      } else {
-        store.setSelectedIds(expanded);
-      }
+    const expanded = collected;
+    let next: string[];
+    if (mode === 'add') next = [...new Set([...base, ...expanded])];
+    else if (mode === 'subtract') {
+      const gone = new Set(expanded);
+      next = base.filter((id) => !gone.has(id));
+    } else next = expanded;
+    store.setSelectedIds(next);
+    if (next.length > 0) {
       this.state = 'SELECTED';
       this.createGizmo();
     } else {
-      store.setSelectedIds([]);
       this.state = 'IDLE';
     }
   }
@@ -1430,17 +1871,8 @@ export class SelectTool implements DrawingTool {
 
   // ─── Delete ───────────────────────────────────────────────────────────────
 
-  private deleteSelection(): void {
+  private deleteRegion(): void {
     const store = useStore.getState();
-
-    // Object selection: handled by Delete shortcut elsewhere; clear for now
-    if (store.selection.selectedIds.length > 0) {
-      store.setSelectedIds([]);
-      this.destroyGizmo();
-      this.state = 'IDLE';
-      return;
-    }
-
     // Legacy region-cut delete
     const region = store.selection.selectedRegion;
     if (!region) return;
@@ -1491,25 +1923,14 @@ export class SelectTool implements DrawingTool {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  /** Whether anything selected takes the gizmo: not a door, not a locked prop. */
+  /** Whether anything selected takes the gizmo: not a door, a room, or anything locked. */
   private hasTransformableSelection(): boolean {
     const store = useStore.getState();
-    const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-    return this.resolveSelectedChildren(store.selection.selectedIds, layers).some(
-      (c) => c.childType !== 'door' && !isLockedProp(c),
+    const sel = resolveSelection(store, store.selection.selectedIds);
+    return (
+      sel.children.some(({ child }) => child.childType !== 'door' && !isLockedChild(child)) ||
+      sel.walls.some(({ wall }) => !isLockedObject(wall) && wall.visible !== false)
     );
-  }
-
-  /** Resolves selected IDs to their AnyChild objects across all dungeon layers. */
-  private resolveSelectedChildren(ids: string[], layers: DungeonLayer[]): AnyChild[] {
-    const result: AnyChild[] = [];
-    const idSet = new Set(ids);
-    for (const layer of layers) {
-      for (const child of layer.children) {
-        if (idSet.has(child.id)) result.push(child);
-      }
-    }
-    return result;
   }
 }
 

@@ -1,5 +1,6 @@
 import { House } from 'lucide-react';
 import { useStore } from '@/store/store';
+import { openLevelMenuRef } from './layerActions';
 
 function clock(ts: number): string {
   const d = new Date(ts);
@@ -14,6 +15,10 @@ export function TitleCard({ onHome }: { onHome: () => void }) {
   });
   // `updatedAt` moves on every save, autosave included, so it is the last-save time.
   const savedAt = useStore((s) => s.mapIndex.find((m) => m.id === s.activeMapId)?.updatedAt ?? null);
+  // With more than one level, the level on show follows the name (board L4).
+  const levelName = useStore((s) =>
+    s.levels.length > 1 ? (s.levels.find((l) => l.id === s.ui.activeLevelId)?.name ?? null) : null,
+  );
 
   return (
     <div className="v2-float v2-bar-card v2-title-card" data-testid="v2-title-card" data-chrome>
@@ -30,8 +35,24 @@ export function TitleCard({ onHome }: { onHome: () => void }) {
       </button>
       <span className="v2-vr" role="presentation" />
       <div className="v2-title-card__text">
-        <div className="v2-title-card__name" title={name}>
+        <div className="v2-title-card__name" title={levelName !== null ? `${name} · ${levelName}` : name}>
           {name}
+          {levelName !== null && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="v2-title-card__level"
+                data-testid="v2-title-level"
+                aria-label={`Level: ${levelName}`}
+                data-tip="Levels"
+                data-tip-side="bottom"
+                onClick={() => openLevelMenuRef.current?.()}
+              >
+                · {levelName || 'Unnamed level'}
+              </button>
+            </>
+          )}
         </div>
         <div className="v2-title-card__meta">{savedAt ? `saved ${clock(savedAt)}` : 'not saved yet'}</div>
       </div>

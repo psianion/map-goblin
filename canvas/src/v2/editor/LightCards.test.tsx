@@ -243,4 +243,24 @@ describe('Light card', () => {
     render(<SelectionCard />);
     expect(card().classList.contains('v2-lcard')).toBe(false);
   });
+
+  it('a locked light says so and every field is read-only', () => {
+    show({ locked: true }, true);
+    expect(within(card()).getByTestId('v2-sel-locked-note').textContent).toBe('Locked: unlock to edit');
+    const fields = within(card()).getByTestId('v2-sel-lockset') as HTMLFieldSetElement;
+    expect(fields.disabled).toBe(true);
+    expect(fields.contains(box('Dim'))).toBe(true);
+    expect(fields.contains(track('Intensity'))).toBe(true);
+    // Attach and the switches are in it too; only the header's Unlock is not.
+    expect(fields.contains(within(card()).getByTestId('v2-light-attach'))).toBe(true);
+    expect(fields.contains(within(card()).getByTestId('v2-sel-act-unlock'))).toBe(false);
+  });
+
+  it('unlocking from the header gives the fields back', () => {
+    show({ locked: true });
+    fireEvent.click(within(card()).getByTestId('v2-sel-act-unlock'));
+    expect(live().locked).toBeFalsy();
+    expect(within(card()).queryByTestId('v2-sel-locked-note')).toBeNull();
+    expect((within(card()).getByTestId('v2-sel-lockset') as HTMLFieldSetElement).disabled).toBe(false);
+  });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronRight } from 'lucide-react';
-import { getWallBounds, unionChildBounds } from '@dnd/core/src/engine/hitTest';
+import { boxesByFootprint, getWallBounds, unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { notify } from '@/lib/toast';
@@ -30,7 +30,7 @@ import { TextProperties } from '@/components/properties/TextProperties';
 import { ZoneProperties } from '@/components/properties/ZoneProperties';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
-import { doorOpeningLimit, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
+import { doorOpeningLimit, polylineLength, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '@dnd/core/src/store/doorwayCommands';
 import type { DoorChild } from '@dnd/core/src/shared/types';
@@ -40,6 +40,11 @@ import { MAX_OPEN_ANGLE } from '@dnd/core/src/assets/doorKits';
 import { edgeStyles, ringStyles } from '@dnd/core/src/shared/wallLook';
 import { layerDrawStyle, layerLevelLook } from '@dnd/core/src/engine/levelLook';
 import { conditionZoneId } from '@dnd/core/src/shared/prep';
+import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
+import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
+import type { ZoneChild, ZoneShape } from '@/store/types';
+import { CardActions, LockFields, LockedNote } from './CardActions';
+import { MixedCard } from './MixedCard';
 import { RoomTargetCard } from './RoomCards';
 import { PropTargetCard } from './PropCards';
 import { LightTargetCard } from './LightCards';
@@ -164,64 +169,98 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
   const selectedIds = useStore((s) => s.selection.selectedIds);
   const layers = useStore((s) => s.layers);
   const propTarget = useMemo(() => resolvePropTarget({ layers }, selectedIds), [layers, selectedIds]);
+  // Rooms in a selection with anything else (or several rooms) go to the mixed card.
+  const roomCount = useStore((s) => resolveSelection(s, s.selection.selectedIds).rooms.length);
   if (propTarget) return <PropTargetCard target={propTarget} onOpenLayers={onOpenLayers} />;
 
   const first = children[0];
   const total = children.length + walls.length;
   // One light on its own has the v2 light card (the v1 panel stays for `/`).
-  if (total === 1 && first?.childType === 'light' && layerIds[0]) {
+  if (total === 1 && roomCount === 0 && first?.childType === 'light' && layerIds[0]) {
     return <LightTargetCard light={first as LightChild} layerId={layerIds[0]} />;
   }
   if (total === 0 && roomTarget.kind !== 'none') {
     return <RoomTargetCard target={roomTarget as RoomTarget} onOpenAssets={onOpenAssets} />;
   }
-  if (total === 0) return null;
+  if (total + roomCount === 0) return null;
   const layerId = layerIds[0] ?? null;
 
-  const many = total > 1;
-  const bounds = unionBounds(unionChildBounds(children), walls.length > 0 ? wallsBounds(walls) : null);
+  const many = total + roomCount > 1;
+  // A mix boxes its lights by their marker, as the canvas box does.
+  const bounds = unionBounds(
+    unionChildBounds(children, boxesByFootprint(children, walls.length + roomCount)),
+    walls.length > 0 ? wallsBounds(walls) : null,
+  );
   const kind = first ? (KIND_LABEL[first.childType] ?? first.childType) : 'Wall';
-  const title = many ? `${total} objects` : first ? first.name || kind : 'Wall';
-  const group = walls.length === 0 ? fieldsGroup(children, layerIds) : null;
+  const locked = !many && !!(first ?? walls[0])?.locked;
+  const title = first ? first.name || kind : 'Wall';
+  const group = walls.length === 0 && roomCount === 0 ? fieldsGroup(children, layerIds) : null;
   const soleWall = !many && !first ? walls[0] : null;
   const soleWallLayerId = soleWall ? wallLayerIds[0] : null;
 
-  return (
-    <>
-      <section className="v2-sel v2-float" data-testid="v2-selection-card" data-chrome aria-label="Selection">
-        <header className="v2-sel__head">
-          <span className="v2-sel__name">{title}</span>
-          <span className="v2-sel__kind">{many ? 'Selection' : kind}</span>
-        </header>
+  // One drawn wall measures as its length, the number its box on the canvas shows too.
+  const dims = soleWall ? (
+    <div className="v2-sel__dims" style={{ gridTemplateColumns: '1fr' }}>
+      <div className="v2-field">
+        <span>Length</span>
+        <span className="v2-num" data-testid="v2-sel-wall-length">{polylineLength(soleWall.points).toFixed(1)} sq</span>
+      </div>
+    </div>
+  ) : bounds && (
+    <div className="v2-sel__dims">
+      <div className="v2-field">
+        <span>W</span>
+        <span className="v2-num">{fmtSq(Math.round(bounds.width * 10) / 10)} sq</span>
+      </div>
+      <div className="v2-field">
+        <span>H</span>
+        <span className="v2-num">{fmtSq(Math.round(bounds.height * 10) / 10)} sq</span>
+      </div>
+    </div>
+  );
 
-        {/* A wall door's size is its width along the wall; its depth is the wall's. */}
-        {!many && first?.childType === 'door' && layerId ? (
-          <DoorDims layerId={layerId} doorId={first.id} />
-        ) : bounds && (
-          <div className="v2-sel__dims">
-            <div className="v2-field">
-              <span>W</span>
-              <span className="v2-num">{fmtSq(Math.round(bounds.width * 10) / 10)} sq</span>
-            </div>
-            <div className="v2-field">
-              <span>H</span>
-              <span className="v2-num">{fmtSq(Math.round(bounds.height * 10) / 10)} sq</span>
-            </div>
-          </div>
-        )}
-
+  if (many) {
+    // Several things, of one kind or many (board S3): the kinds counted, the shared
+    // verbs, arrange, and the fields every member agrees on.
+    return (
+      <MixedCard dims={dims}>
         {group?.kind === 'shape' ? (
           <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
         ) : group?.kind === 'water' ? (
           <WaterFields layerId={group.layerId} ids={group.ids} />
-        ) : soleWall && soleWallLayerId ? (
-          <WallFields layerId={soleWallLayerId} wallId={soleWall.id} />
-        ) : (
-          !many &&
-          first && (
-            <Fields child={first} layerId={layerId} onZoneMore={() => setZoneMore(true)} onOpenPrep={onOpenPrep} />
-          )
-        )}
+        ) : null}
+      </MixedCard>
+    );
+  }
+
+  return (
+    <>
+      <section className="v2-sel v2-float" data-testid="v2-selection-card" data-keys="canvas" data-chrome aria-label="Selection">
+        <header className="v2-sel__head">
+          <span className="v2-sel__name">{title}</span>
+          <span className="v2-sel__kind" data-testid="v2-sel-kind">
+            {locked ? `${kind} · locked` : kind}
+          </span>
+        </header>
+        <CardActions />
+        {locked && <LockedNote />}
+
+        <LockFields locked={locked}>
+          {/* A wall door's size is its width along the wall; its depth is the wall's. */}
+          {first?.childType === 'door' && layerId ? <DoorDims layerId={layerId} doorId={first.id} /> : dims}
+
+          {group?.kind === 'shape' ? (
+            <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
+          ) : group?.kind === 'water' ? (
+            <WaterFields layerId={group.layerId} ids={group.ids} />
+          ) : soleWall && soleWallLayerId ? (
+            <WallFields layerId={soleWallLayerId} wallId={soleWall.id} />
+          ) : (
+            first && (
+              <Fields child={first} layerId={layerId} onZoneMore={() => setZoneMore(true)} onOpenPrep={onOpenPrep} />
+            )
+          )}
+        </LockFields>
       </section>
 
       <SlideOver
@@ -264,6 +303,7 @@ function Fields({
   if (child.childType === 'zone') {
     return (
       <div className="v2-sel__rows">
+        {layerId && <ZoneFields layerId={layerId} zone={child} />}
         <div className="v2-sel__row">
           <span>Shape</span>
           <span>{child.shape.kind}</span>
@@ -286,6 +326,60 @@ function Fields({
     );
   }
   return <p className="v2-sel__note">Nothing else to set on this one yet.</p>;
+}
+
+/**
+ * A zone's place in numbers: X and Y (its corner for a rect, its centre otherwise), and its
+ * Radius or W and H. Typed values preview live and land as one undo step.
+ */
+function ZoneFields({ layerId, zone }: { layerId: string; zone: ZoneChild }) {
+  const { live, commit, revert } = useLiveEdit(layerId);
+  const s = zone.shape;
+  const set = (patch: (shape: ZoneShape) => ZoneShape) =>
+    live([zone.id], (c) => ({ shape: patch((c as ZoneChild).shape) }));
+  const done = () => commit('Zone shape');
+  const pos = s.kind === 'rect' ? { x: s.x, y: s.y } : s.position;
+  const at = (axis: 'x' | 'y') => (v: number) =>
+    set((sh) => (sh.kind === 'rect' ? { ...sh, [axis]: v } : { ...sh, position: { ...sh.position, [axis]: v } }));
+  return (
+    <div className="v2-zone__grid" data-testid="v2-zone-fields">
+      <NumField label="X" title="Zone X" value={pos.x} mixed={false} onLive={at('x')} onCommit={done} onRevert={revert} />
+      <NumField label="Y" title="Zone Y" value={pos.y} mixed={false} onLive={at('y')} onCommit={done} onRevert={revert} />
+      {s.kind === 'circle' && (
+        <NumField
+          label="R"
+          title="Zone radius"
+          value={s.radius}
+          mixed={false}
+          onLive={(v) => v > 0 && set((sh) => (sh.kind === 'circle' ? { ...sh, radius: v } : sh))}
+          onCommit={done}
+          onRevert={revert}
+        />
+      )}
+      {s.kind === 'rect' && (
+        <>
+          <NumField
+            label="W"
+            title="Zone width"
+            value={s.width}
+            mixed={false}
+            onLive={(v) => v > 0 && set((sh) => (sh.kind === 'rect' ? { ...sh, width: v } : sh))}
+            onCommit={done}
+            onRevert={revert}
+          />
+          <NumField
+            label="H"
+            title="Zone height"
+            value={s.height}
+            mixed={false}
+            onLive={(v) => v > 0 && set((sh) => (sh.kind === 'rect' ? { ...sh, height: v } : sh))}
+            onCommit={done}
+            onRevert={revert}
+          />
+        </>
+      )}
+    </div>
+  );
 }
 
 /* ── Live edits ─────────────────────────────────────────── */
@@ -1101,6 +1195,19 @@ function WallFields({ layerId, wallId }: { layerId: string; wallId: string }) {
         <span className="v2-selc__label">Set</span>
         <span className="v2-selc__value">{m.setName ?? 'None'}</span>
       </div>
+      <WallStones layerId={layerId} wall={wall} />
+    </div>
+  );
+}
+
+/** How many stones the wall shows (a cave band's rock is a walk, not stones). */
+function WallStones({ layerId, wall }: { layerId: string; wall: WallSegment }) {
+  const layer = useStore((s) => s.layers.find((l) => l.id === layerId)) as DungeonLayer | undefined;
+  const count = useMemo(() => (layer ? wallStoneCount(layer, wall) : null), [layer, wall]);
+  return (
+    <div className="v2-sel__row" data-testid="v2-wall-stones">
+      <span className="v2-selc__label">Stones</span>
+      <span className="v2-selc__value v2-num">{count === null ? 'Cave rock' : `${count} stones`}</span>
     </div>
   );
 }

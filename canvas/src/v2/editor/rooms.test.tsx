@@ -733,6 +733,8 @@ describe('Level picker', () => {
     seed();
     const s0 = useStore.getState();
     act(() => s0.addLevel({ id: 'lv2', name: 'Lower dens' }));
+    // A level never ends up empty: the level on show keeps a second layer.
+    act(() => s0.addLayer(createDungeonLayer('Second', s0.levels[0].id)));
     render(<Filmstrip onOpenLayers={() => {}} onOpenLayerSettings={() => {}} />);
     fireEvent.click(screen.getByTestId('v2-level-button'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move layer to level…' }));

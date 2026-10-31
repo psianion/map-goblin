@@ -172,6 +172,28 @@ describe('EditorShell', () => {
       expect(screen.getByTestId('v2-assets-sheet')).toBeTruthy();
       expect(openCount()).toBe(1);
     });
+
+    it('moves the selection card left of the Layers sheet and a layer sheet, and back when they close', async () => {
+      const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+      useStore.getState().setActiveLayerId(layer.id);
+      render(<EditorShell actions={actions} onHome={vi.fn()} />);
+      const room = () => screen.getByTestId('v2-editor').style.getPropertyValue('--v2-e-sheet');
+      expect(room()).toBe('');
+      fireEvent.click(screen.getByTestId('v2-open-layers'));
+      expect(room()).toBe('332px');
+      fireEvent.click(screen.getByRole('button', { name: 'Layer settings' }));
+      expect(layerSheet()).not.toBeNull();
+      expect(room()).toBe('332px');
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(room()).toBe('');
+      // The card's right edge reads the variable.
+      const { readFileSync } = await import('node:fs' as string);
+      // Vitest runs from canvas/.
+      const editorCss: string = readFileSync('src/v2/editor/v2-editor.css', 'utf8');
+      const start = editorCss.indexOf('.v2-sel {');
+      const rule = editorCss.slice(start, editorCss.indexOf('}', start));
+      expect(rule).toContain('right: calc(12px + var(--v2-e-sheet, 0px))');
+    });
   });
 
   describe('Tab', () => {

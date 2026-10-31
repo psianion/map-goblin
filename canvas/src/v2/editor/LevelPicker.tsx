@@ -1,24 +1,25 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
-import { MoveLayerToLevelCommand, RenameLevelCommand } from '@/store/commands';
+import { RenameLevelCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { FloatMenu, type FloatMenuEntry } from './FloatMenu';
 import { LevelIcon } from './roomIcons';
 import { addLevelWithLayer } from './roomActions';
 import { layerOnLevel } from './roomModel';
+import { moveLayerToLevel, openLevelMenuRef, reorderLevel } from './layerActions';
+import { LevelDeleteDialog } from './LevelDeleteDialog';
 import './rooms.css';
 
 type Mode = 'menu' | 'move' | null;
 
 /**
- * The level picker in front of the layer tiles (board 8): the level on show, and how many
- * there are. Its menu switches level, adds one (with a first layer to draw on), renames
- * the one on show, moves the active layer to another, or opens Level settings, which is
- * the Level card in the selection slot.
+ * The level picker in front of the layer tiles (boards 8, L4): the level on show, and how
+ * many there are. Its menu switches level (Page Up and Page Down do too), adds one (with a
+ * first layer to draw on), renames or moves the one on show, moves the active layer to
+ * another, opens Level settings (the Level card in the selection slot), or deletes it.
  */
 export function LevelPicker() {
   const levels = useStore(useShallow((s) => s.levels));
@@ -27,7 +28,16 @@ export function LevelPicker() {
   const activeLayerId = useStore((s) => s.ui.activeLayerId);
   const [mode, setMode] = useState<Mode>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const anchor = useRef<HTMLButtonElement>(null);
+
+  // The title card's level name opens this menu.
+  useEffect(() => {
+    openLevelMenuRef.current = () => setMode('menu');
+    return () => {
+      openLevelMenuRef.current = null;
+    };
+  }, []);
 
   if (levels.length === 0) return null;
   const index = Math.max(0, levels.findIndex((l) => l.id === activeLevelId));
@@ -42,13 +52,15 @@ export function LevelPicker() {
   };
 
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // The keys that reach a level from the one on show, where they apply.
+  const keyFor = (i: number) => (i === index - 1 ? ' · PgUp' : i === index + 1 ? ' · PgDn' : '');
 
   const mainEntries: FloatMenuEntry[] = [
     ...levels.map(
-      (l): FloatMenuEntry => ({
+      (l, i): FloatMenuEntry => ({
         label: l.name || 'Unnamed level',
         checked: l.id === level.id,
-        meta: plural(layerCount(l.id), 'layer'),
+        meta: `${plural(layerCount(l.id), 'layer')}${keyFor(i)}`,
         testId: `v2-level-${l.id}`,
         onSelect: () => {
           const s = useStore.getState();
@@ -61,6 +73,18 @@ export function LevelPicker() {
     { label: 'New level', testId: 'v2-level-new', onSelect: () => addLevelWithLayer() },
     { label: 'Rename level', testId: 'v2-level-rename', onSelect: () => setRenaming(level.name) },
     {
+      label: 'Move level up',
+      testId: 'v2-level-up',
+      disabled: index === 0,
+      onSelect: () => reorderLevel(index, index - 1),
+    },
+    {
+      label: 'Move level down',
+      testId: 'v2-level-down',
+      disabled: index >= levels.length - 1,
+      onSelect: () => reorderLevel(index, index + 1),
+    },
+    {
       label: 'Move layer to level…',
       testId: 'v2-level-move',
       disabled: levels.length < 2 || !activeLayer || activeLayer.type === 'background',
@@ -71,6 +95,13 @@ export function LevelPicker() {
       testId: 'v2-level-settings',
       onSelect: () => useStore.getState().setSelectedIds([level.id]),
     },
+    'divider',
+    {
+      label: 'Delete level…',
+      testId: 'v2-level-delete',
+      disabled: levels.length < 2,
+      onSelect: () => setDeleting(level.id),
+    },
   ];
 
   const moveEntries: FloatMenuEntry[] = levels
@@ -79,11 +110,7 @@ export function LevelPicker() {
       label: l.name || 'Unnamed level',
       meta: plural(layerCount(l.id), 'layer'),
       onSelect: () => {
-        if (!activeLayer) return;
-        undoManager.execute(new MoveLayerToLevelCommand(activeLayer.id, l.id));
-        // The layer left the level on show; the strip picks the level's next layer.
-        useStore.getState().setActiveLevelId(level.id);
-        notify.subtle(`${activeLayer.name || 'Layer'} moved to ${l.name}`, { icon: 'tool' });
+        if (activeLayer) moveLayerToLevel(activeLayer.id, l.id);
       },
     }));
 
@@ -139,6 +166,7 @@ export function LevelPicker() {
         anchor={anchor}
         placement="above"
       />
+      <LevelDeleteDialog levelId={deleting} onClose={() => setDeleting(null)} />
     </div>
   );
 }

@@ -220,6 +220,23 @@ export function wallRunSetId(layer: DungeonLayer, wallId: string): string | unde
   return style.wallTextureSetId || undefined;
 }
 
+/**
+ * How many stones a drawn wall shows: its kit's layout plus its hand edits, as the
+ * renderer lays them. Null for a cave band (its rock is a walk, not stones), a wall with
+ * no set, or a set still loading.
+ */
+export function wallStoneCount(layer: DungeonLayer, wall: WallSegment): number | null {
+  const look = standaloneWallLook(wall, layerDrawStyle(layer));
+  if (!look.setId || isBandSet(look.setId)) return null;
+  const specs = wallSetSpecs(look.setId);
+  if (specs.length === 0 || wall.points.length < 2) return null;
+  const auto = layoutWall(wall.points, isClosedSpine(wall.points), specs, {
+    wallWidth: look.width,
+    seed: seedForPoints(wall.points),
+  });
+  return applyWallEdits(auto, wall, undefined, { pieces: specs, wallWidth: look.width }).length;
+}
+
 /** Pieces a run's stones come from: its own set, see `RunBase.setId`. */
 export function runSetSpecs(run: EditableRun): WallPieceSpec[] {
   return run.setId ? buildPieceSpecs(run.setId) : [];

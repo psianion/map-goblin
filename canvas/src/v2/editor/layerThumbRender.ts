@@ -4,24 +4,24 @@ import { getLayerEntry } from '@/engine/sceneGraph';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { holdAuthoredLook } from '@dnd/core/src/engine/editorDesk';
 import type { Layer } from '@/store/types';
-import { TERRAIN_THUMB, fitFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
+import { TERRAIN_THUMB, THUMB_ASPECT, fitFrame, thumbFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
 
 /**
  * Paints one filmstrip tile from the live scene: the layer's own container rendered into a
- * small texture, framed to the whole map (the frame the export and the home cards use), then
- * read back as a PNG data URL. Nothing is redrawn from the document; the tile is exactly what
+ * small texture, framed to the layer's own content (`thumbFrame`; the whole map for the
+ * background, terrain and an empty layer), then read back as a PNG data URL. Nothing is redrawn from the document; the tile is exactly what
  * the canvas holds for that layer.
  */
 
 let target: RenderTexture | null = null;
 let targetOwner: Renderer | null = null;
 
-function textureFor(renderer: Renderer, px: number): RenderTexture {
-  if (target && (targetOwner !== renderer || target.width !== px || target.height !== px)) {
+function textureFor(renderer: Renderer, px: number, pxH: number): RenderTexture {
+  if (target && (targetOwner !== renderer || target.width !== px || target.height !== pxH)) {
     disposeLayerThumbRenderer();
   }
   if (!target) {
-    target = RenderTexture.create({ width: px, height: px, resolution: 1, antialias: true });
+    target = RenderTexture.create({ width: px, height: pxH, resolution: 1, antialias: true });
     targetOwner = renderer;
   }
   return target;
@@ -85,12 +85,17 @@ export const renderLayerThumb: ThumbPainter = (key: string, layers: Layer[]) => 
   if (!layer && key !== TERRAIN_THUMB) return null;
   if (!container || container.destroyed) return undefined;
 
-  const px = thumbPixels(typeof window === 'undefined' ? 1 : window.devicePixelRatio);
-  const rt = textureFor(renderer, px);
-  const { scale, tx, ty } = fitFrame(computeMapWorldBounds(layers), px);
+  const pxH = thumbPixels(typeof window === 'undefined' ? 1 : window.devicePixelRatio);
+  const px = Math.round(pxH * THUMB_ASPECT);
+  const rt = textureFor(renderer, px, pxH);
+  // A map layer framed to what it holds; the background, terrain and an empty layer to the map.
+  const { scale, tx, ty } = fitFrame(thumbFrame(layer, computeMapWorldBounds(layers)), px, pxH);
   const transform = new Matrix(scale, 0, 0, scale, tx, ty);
 
   const wasVisible = container.visible;
+  // Rendering a container on its own makes it a render group; the masked background then
+  // stops drawing in the scene, so it is handed back as it was.
+  const wasRenderGroup = container.isRenderGroup;
   let releaseLook: (() => void) | null = null;
   let releaseTerrain: (() => void) | null = null;
   let fill: Container | null = null;
@@ -120,6 +125,7 @@ export const renderLayerThumb: ThumbPainter = (key: string, layers: Layer[]) => 
     releaseLook?.();
     releaseTerrain?.();
     container.visible = wasVisible;
+    if (layer?.type === 'background' && !wasRenderGroup && container.isRenderGroup) container.disableRenderGroup();
   }
 
   const canvas = renderer.extract.canvas({ target: rt }) as HTMLCanvasElement;

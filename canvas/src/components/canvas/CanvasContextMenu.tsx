@@ -58,7 +58,7 @@ export function CanvasContextMenu() {
   if (payload.target.kind === 'canvas') {
     rows = buildCanvasMenu(payload.world)
   } else if (payload.target.kind === 'multi') {
-    rows = buildMultiMenu(payload.target.count)
+    rows = buildMultiMenu(payload.target.count, payload.world)
   } else if (payload.target.kind === 'room') {
     const roomId = payload.target.roomId
     const room = placeLayer?.rooms?.find((r) => r.id === roomId)
@@ -69,7 +69,7 @@ export function CanvasContextMenu() {
     rows = placeLayer && area ? buildAreaMenu({ layer: placeLayer, area }) : null
   } else if (payload.target.kind === 'wall') {
     // Gone the same way a child can go (deleted from the menu, an undo): close.
-    rows = wallEntry.wall && wallEntry.wallLayer ? buildWallMenu({ layer: wallEntry.wallLayer, wall: wallEntry.wall }) : null
+    rows = wallEntry.wall && wallEntry.wallLayer ? buildWallMenu({ layer: wallEntry.wallLayer, wall: wallEntry.wall, world: payload.world }) : null
   } else if (child && layer) {
     rows = buildChildMenu({ layer, child, selectedIds, world: payload.world })
   } else {

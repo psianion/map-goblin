@@ -630,6 +630,7 @@ export class SetAreaLookCommand extends RoomsEditCommand {
 
 export class AddLevelCommand implements Command {
   readonly label = 'New level';
+  readonly restoresUi = true;
   private readonly level: Level;
 
   constructor(level: Level) {
@@ -682,6 +683,7 @@ export class RenameLevelCommand implements Command {
  */
 export class RemoveLevelCommand implements Command {
   readonly label = 'Delete level';
+  readonly restoresUi = true;
   private readonly levelId: string;
   private snapshot: Level | null = null;
   private index = -1;
@@ -717,6 +719,7 @@ export class RemoveLevelCommand implements Command {
 /** Moves a layer to another level. */
 export class MoveLayerToLevelCommand implements Command {
   readonly label = 'Move layer to level';
+  readonly restoresUi = true;
   private readonly layerId: string;
   private readonly levelId: string;
   private before: string | null = null;

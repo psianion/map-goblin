@@ -10,3 +10,103 @@
   user-select: none;
   -webkit-user-drag: none;
 }
+
+/* Named tiles (board L1): the picture, then the name and object count under it. Doubled
+   class, so the 40 px .v2-tile other surfaces reuse keeps its size. */
+.v2-tile.v2-tile--named {
+  width: 56px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  outline: none;
+}
+.v2-tile--named:focus-visible .v2-tile__pick {
+  border-color: var(--v2-ink);
+}
+.v2-tile__box {
+  position: relative;
+  width: 56px;
+  height: 40px;
+}
+.v2-tile--named .v2-tile__pick {
+  padding: 3px;
+}
+.v2-tile__name {
+  display: flex;
+  gap: 3px;
+  max-width: 60px;
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--v2-text-2);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.v2-tile__name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-tile__name b {
+  font: 400 9.5px/12px 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--v2-text-3);
+}
+.v2-tile--on .v2-tile__name {
+  color: var(--v2-text);
+  font-weight: 500;
+}
+.v2-tile__rename {
+  width: 64px;
+  height: 18px;
+  margin-top: -3px;
+  padding: 0 5px;
+  border: 1px solid var(--v2-ink);
+  border-radius: 4px;
+  background: var(--v2-panel);
+  color: var(--v2-text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+/* Solo on: every tile it hides is dimmed, and the soloed eye reads in ink. */
+.v2-tile--soloout .v2-tile__pick {
+  opacity: 0.4;
+}
+.v2-tile--soloout .v2-tile__name {
+  opacity: 0.45;
+}
+.v2-tile .v2-tile__eye.v2-tile__eye--solo {
+  opacity: 1;
+  background: var(--v2-ink);
+  border-color: var(--v2-ink);
+  color: var(--v2-on-ink);
+}
+/* The lock shows on hover, and stays once the layer is locked. */
+.v2-tile--named .v2-tile__lock {
+  opacity: 0;
+}
+.v2-tile--named:hover .v2-tile__lock,
+.v2-tile--named:focus-within .v2-tile__lock,
+.v2-tile--named .v2-tile__lock--on {
+  opacity: 1;
+}
+/* A canvas drag over the tile: an ink ring where the selection would land. */
+.v2-tile--drop .v2-tile__pick,
+.v2-tile--drop .v2-tile__pick:hover {
+  border-color: var(--v2-ink);
+  box-shadow: inset 0 0 0 1.5px var(--v2-ink);
+  background: var(--v2-panel-3);
+}
+.v2-tile--lifted {
+  z-index: 3;
+}
+.v2-tile--lifted .v2-tile__pick {
+  box-shadow: var(--v2-e-shadow);
+}
+/* Add and All layers line up with the pictures, not the names under them. */
+.v2-film > .v2-tile--add,
+.v2-film > .v2-tile--btn {
+  margin-bottom: 15px;
+}

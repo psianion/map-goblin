@@ -136,7 +136,7 @@ describe('SelectionCard', () => {
     it('shows Mixed for a colour the selection disagrees on', () => {
       seed([shape('a', { styleOverrides: { floorColor: '#112233' } }), shape('b')], ['a', 'b']);
       render(<SelectionCard />);
-      expect(screen.getByText('2 objects')).not.toBeNull();
+      expect(screen.getByText('2 floors')).not.toBeNull();
       expect(screen.getByText('Mixed')).not.toBeNull();
     });
 
@@ -721,7 +721,7 @@ describe('SelectionCard', () => {
   it('a mix of kinds keeps the header and shows no shared fields', () => {
     seed([shape('a'), water('w')], ['a', 'w']);
     render(<SelectionCard />);
-    expect(screen.getByText('2 objects')).not.toBeNull();
+    expect(screen.getByText('1 floor · 1 water body')).not.toBeNull();
     expect(screen.queryByText('Colour')).toBeNull();
     expect(screen.queryByText('Flow')).toBeNull();
   });
@@ -765,9 +765,25 @@ describe('SelectionCard: drawn walls', () => {
     expect(screen.getByTestId('v2-sel-wall')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Solid' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('Fieldstone')).not.toBeNull();
-    // The line's own box, like any other kind.
-    expect(screen.getByText('4 sq')).not.toBeNull();
-    expect(screen.getByText('3 sq')).not.toBeNull();
+    // A wall measures as its length along the line (4 + 3), the number its box shows too.
+    expect(screen.getByTestId('v2-sel-wall-length').textContent).toBe('7.0 sq');
+  });
+
+  it('a wall’s card has one Length, no W and H', () => {
+    seedWalls([wall('w1', { points: [[0, 0], [3.5, 0]] })], ['w1']);
+    render(<SelectionCard />);
+    expect(screen.getByText('Length')).not.toBeNull();
+    expect(screen.getByTestId('v2-sel-wall-length').textContent).toBe('3.5 sq');
+    expect(screen.queryByText('W')).toBeNull();
+  });
+
+  it('a locked wall’s card says so and its fields are read-only', () => {
+    seedWalls([wall('w1', { locked: true })], ['w1']);
+    render(<SelectionCard />);
+    expect(screen.getByTestId('v2-sel-locked-note').textContent).toBe('Locked: unlock to edit');
+    expect((screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement).disabled).toBe(true);
+    // Disabled through the fieldset: a browser sends it no click.
+    expect(screen.getByRole('button', { name: 'Window' }).matches(':disabled')).toBe(true);
   });
 
   it('the set follows the wall’s own pin over the layer’s', () => {
@@ -799,13 +815,13 @@ describe('SelectionCard: drawn walls', () => {
   it('several walls, or a wall with other things, show the count and no fields', () => {
     seedWalls([wall('w1'), wall('w2')], ['w1', 'w2']);
     const { unmount } = render(<SelectionCard />);
-    expect(screen.getByText('2 objects')).not.toBeNull();
+    expect(screen.getByText('2 walls')).not.toBeNull();
     expect(screen.queryByTestId('v2-sel-wall')).toBeNull();
     unmount();
 
     seedWalls([wall('w1')], ['a', 'w1'], [shape('a')]);
     render(<SelectionCard />);
-    expect(screen.getByText('2 objects')).not.toBeNull();
+    expect(screen.getByText('1 floor · 1 wall')).not.toBeNull();
     expect(screen.queryByText('Colour')).toBeNull();
     expect(screen.queryByTestId('v2-sel-wall')).toBeNull();
   });
@@ -814,5 +830,39 @@ describe('SelectionCard: drawn walls', () => {
     seedWalls([], ['gone']);
     render(<SelectionCard />);
     expect(screen.queryByTestId('v2-selection-card')).toBeNull();
+  });
+});
+
+describe('SelectionCard: objects locked on their own', () => {
+  beforeEach(() => {
+    cleanup();
+    undoManager.clear();
+  });
+
+  it('a locked water body’s card says so and greys every field', () => {
+    seed([water('w', { locked: true })], ['w']);
+    render(<SelectionCard />);
+    expect(screen.getByTestId('v2-sel-kind').textContent).toBe('Water · locked');
+    expect(screen.getByTestId('v2-sel-locked-note').textContent).toBe('Locked: unlock to edit');
+    const fields = screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement;
+    expect(fields.disabled).toBe(true);
+    expect(fields.querySelectorAll('input, button, select').length).toBeGreaterThan(0);
+    // The header's Unlock stays live: it sits outside the greyed fields.
+    expect(fields.contains(screen.getByTestId('v2-sel-act-unlock'))).toBe(false);
+  });
+
+  it('a locked zone’s position fields are read-only', () => {
+    const zone = { id: 'z', name: 'Ambush', childType: 'zone', visible: true, locked: true, shape: { kind: 'circle', position: { x: 4, y: 5 }, radius: 2 } } as unknown as AnyChild;
+    seed([zone], ['z']);
+    render(<SelectionCard />);
+    expect(screen.getByTestId('v2-sel-locked-note')).not.toBeNull();
+    expect((screen.getByLabelText('Zone radius') as HTMLInputElement).closest('fieldset')?.disabled).toBe(true);
+  });
+
+  it('an unlocked object has no lock line and live fields', () => {
+    seed([water('w')], ['w']);
+    render(<SelectionCard />);
+    expect(screen.queryByTestId('v2-sel-locked-note')).toBeNull();
+    expect((screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement).disabled).toBe(false);
   });
 });

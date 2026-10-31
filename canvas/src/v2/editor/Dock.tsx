@@ -52,6 +52,7 @@ export const Dock = forwardRef<HTMLDivElement, DockProps>(function Dock(
       ref={ref}
       className={cn('v2-dock v2-float', collapsed && 'v2-dock--collapsed')}
       data-testid="v2-dock"
+      data-keys="canvas"
       data-chrome
       aria-label="Drawing dock"
     >

@@ -36,7 +36,7 @@ export function Rail({ prepOpen, onTogglePrep }: RailProps) {
   };
 
   return (
-    <nav className="v2-rail" data-testid="v2-rail" data-chrome aria-label="Tools">
+    <nav className="v2-rail" data-testid="v2-rail" data-keys="canvas" data-chrome aria-label="Tools">
       <div className="v2-rail__group">
         {RAIL_TOOLS.map(({ tool, label, shortcut, icon: Icon }) => (
           <button

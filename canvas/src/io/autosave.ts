@@ -99,6 +99,26 @@ function layersDiffer(next: readonly object[], prev: readonly object[]): boolean
   );
 }
 
+/** Object fields that are one click, like a layer's eye: a lock or a hide on a child or a wall. */
+const FLAG_FIELDS = new Set(['locked', 'visible']);
+
+/**
+ * Do two lists of children (or walls) differ only in their lock / hide flags? Same length,
+ * same ids in order, and every entry that changed changed nothing but `locked` / `visible`.
+ */
+function onlyFlagChanges(next: unknown, prev: unknown): boolean {
+  if (!Array.isArray(next) || !Array.isArray(prev) || next.length !== prev.length) return false;
+  for (let i = 0; i < next.length; i++) {
+    const a = next[i] as Record<string, unknown>;
+    const b = prev[i] as Record<string, unknown>;
+    if (a === b) continue;
+    if (a.id !== b.id) return false;
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) if (a[k] !== b[k] && !FLAG_FIELDS.has(k)) return false;
+  }
+  return true;
+}
+
 /** Did only layer settings change (see SETTING_LAYER_FIELDS), with no drawing mixed in? */
 function onlyLayerSettingsChanged(next: readonly object[], prev: readonly object[]): boolean {
   if (next === prev || next.length !== prev.length) return false;
@@ -108,7 +128,8 @@ function onlyLayerSettingsChanged(next: readonly object[], prev: readonly object
     const b = prev[i] as Record<string, unknown>;
     if (a.id !== b.id) return false;
     for (const k of changedLayerFields(a, b)) {
-      if (!SETTING_LAYER_FIELDS.has(k)) return false;
+      const flagsOnly = (k === 'children' || k === 'standaloneWalls') && onlyFlagChanges(a[k], b[k]);
+      if (!SETTING_LAYER_FIELDS.has(k) && !flagsOnly) return false;
       any = true;
     }
   }
@@ -132,7 +153,8 @@ export function isDocumentChange(next: DocumentSlices, prev: DocumentSlices): bo
 
 /**
  * A one-click setting: the map settings, the grid fields the file keeps (shown,
- * snap division), or a layer's settings (see SETTING_LAYER_FIELDS). Snap on/off is left out — it is the DM's per-browser
+ * snap division), a layer's settings (see SETTING_LAYER_FIELDS), or a lock or hide on its
+ * children and walls (see onlyFlagChanges). Snap on/off is left out — it is the DM's per-browser
  * preference (io/snapPref.ts) and is not written to the map.
  *
  * These are single discrete picks, not a stream of strokes to coalesce, so they

@@ -21,6 +21,9 @@ import {
 } from './autosave.ts';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
+import { undoManager } from '@/store/undoManager';
+import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import type { DungeonLayer, WaterChild } from '@/store/types';
 
 describe('isDocumentChange', () => {
   const base = () => {
@@ -95,6 +98,46 @@ describe('isDocumentChange', () => {
     const prev = base();
     const next = { ...prev, layers: [{ ...prev.layers[0], children: [{ id: 'c' }] }] };
     expect(isSettingsChange(next, prev)).toBe(false);
+  });
+
+  // A lock or a hide is one click, like a layer's eye: it saves promptly.
+  const withChildren = () => {
+    const prev = base();
+    const kids = [{ id: 'a', visible: true, position: { x: 0, y: 0 } }, { id: 'b', visible: true, position: { x: 1, y: 0 } }];
+    return { ...prev, layers: [{ ...prev.layers[0], children: kids, standaloneWalls: [{ id: 'w', points: [[0, 0], [1, 0]] }] }] };
+  };
+
+  it('counts locking a child as a prompt change', () => {
+    const prev = withChildren();
+    const [a, b] = prev.layers[0].children;
+    const next = { ...prev, layers: [{ ...prev.layers[0], children: [{ ...a, locked: true }, b] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('counts hiding a child as a prompt change', () => {
+    const prev = withChildren();
+    const [a, b] = prev.layers[0].children;
+    const next = { ...prev, layers: [{ ...prev.layers[0], children: [a, { ...b, visible: false }] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('counts locking a wall as a prompt change', () => {
+    const prev = withChildren();
+    const next = { ...prev, layers: [{ ...prev.layers[0], standaloneWalls: [{ ...prev.layers[0].standaloneWalls[0], locked: true }] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+  });
+
+  it('keeps a child move on the drawing debounce', () => {
+    const prev = withChildren();
+    const [a, b] = prev.layers[0].children;
+    const next = { ...prev, layers: [{ ...prev.layers[0], children: [{ ...a, position: { x: 3, y: 0 } }, b] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(false);
+    const both = { ...prev, layers: [{ ...prev.layers[0], children: [{ ...a, locked: true, position: { x: 3, y: 0 } }, b] }] };
+    expect(isSettingsChange(both, prev)).toBe(false);
   });
 
   it("sees the store's own setSnapDivision as a prompt change", () => {
@@ -255,6 +298,41 @@ describe('startAutosave timing', () => {
     const { saveCurrentMap, stop } = start();
     window.dispatchEvent(new Event('pagehide'));
     expect(saveCurrentMap).not.toHaveBeenCalled();
+    stop();
+  });
+});
+
+describe('autosave of a hide, wired as App wires it', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().setActiveTool('select');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('saves after Ctrl+Shift+H hides a water body, within the prompt delay', async () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const water = {
+      id: 'lake', name: 'Lake', childType: 'water', visible: true, waterType: 'lake', textureId: '', tint: '#ffffff',
+      opacity: 1, bankTextureId: '', bankWidth: 0, contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+    } as unknown as WaterChild;
+    useStore.getState().addChild(layer.id, water);
+    useStore.getState().setSelectedIds(['lake']);
+    const saveCurrentMap = vi.fn().mockResolvedValue(undefined);
+    const stop = startAutosave(saveCurrentMap, (listener) =>
+      useStore.subscribe((s, prev) => {
+        if (isDocumentChange(s, prev)) listener(isSettingsChange(s, prev));
+      }),
+    );
+    handleShortcut('ctrl+shift+h');
+    const after = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon')!;
+    expect(after.children.find((c) => c.id === 'lake')!.visible).toBe(false);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     stop();
   });
 });

@@ -74,7 +74,7 @@ type MapBuilderState = Omit<
   | 'addChild' | 'removeChild' | 'reorderChild' | 'setChildOrder' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
-  | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel'
+  | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
   | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'togglePanel' | 'toggleExpandedLayerId'
@@ -82,7 +82,7 @@ type MapBuilderState = Omit<
   | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
   | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
-  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setPropReplaceIds'
+  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setMarqueeFilter' | 'setPropReplaceIds'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -222,6 +222,7 @@ export function createDefaultState(): MapBuilderState {
       roomWalls: 'with' as const,
       pendingSplit: null,
       seeUnderOverhead: false,
+      marqueeFilter: 'all' as const,
       propReplaceIds: null,
     },
     assets: {

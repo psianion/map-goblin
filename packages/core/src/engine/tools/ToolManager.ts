@@ -124,6 +124,25 @@ export class ToolManager {
     return this.tools.get(type);
   }
 
+  /**
+   * Hands the Select tool a hook offered every move release (canvas px, the moved ids):
+   * true takes the drop, so the move is put back and nothing is committed. The Layers pass
+   * wires a filmstrip tile here; null removes it.
+   */
+  setMoveReleaseHook(fn: ((screen: { x: number; y: number }, ids: string[]) => boolean) | null): void {
+    const select = this.tools.get('select') as (DrawingTool & { onMoveRelease?: typeof fn }) | undefined;
+    if (select) select.onMoveRelease = fn ?? undefined;
+  }
+
+  /**
+   * Hands the Select tool a hook told the pointer on every move of a move (null when it
+   * ends); true back holds the live move while the pointer is over a drop target.
+   */
+  setMoveHoverHook(fn: ((screen: { x: number; y: number } | null, ids: string[]) => boolean | void) | null): void {
+    const select = this.tools.get('select') as (DrawingTool & { onMoveHover?: typeof fn }) | undefined;
+    if (select) select.onMoveHover = fn ?? undefined;
+  }
+
   /** Active tool's live preview shape (world coords), for overlays like the dimension HUD. */
   getActivePreview(): { toolType: string; preview: PreviewShape } | null {
     const preview = this.activeTool?.getPreview();

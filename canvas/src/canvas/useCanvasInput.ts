@@ -14,7 +14,7 @@ import { MIN_ZOOM, MAX_ZOOM } from '@/components/toolbar/zoomControl';
 import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
-import { hitTestChildren, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
+import { pickAt, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
 import { notify } from '@/lib/toast';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import type { DungeonLayer } from '@/store/types';
@@ -29,6 +29,8 @@ import {
   handleNodeKey,
 } from './wallNodeEdit';
 import { editSessionOwnsKey } from './editSessionKeys';
+import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
+import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { outlineHitAt } from '@/engine/shapeNodeOverlay';
 import { toggleFixtureAt } from './doubleClickToggle';
 import {
@@ -431,9 +433,15 @@ export function useCanvasInput(
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip shortcuts when focus is in a text input (e.g. hex color field)
-      // Exception: allow Ctrl/Cmd combos (Ctrl+S, Ctrl+Z, etc.) to still work
-      if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) return;
+      // v2: the map answers keys only from the page, the canvas and chrome marked for them,
+      // never from a field, a menu, a dialog, a tree, a listbox or a sheet (keyGuard.ts), and
+      // a Ctrl combo in a text field is the field's. v1 keeps its rule: plain keys skip text
+      // inputs, Ctrl/Cmd combos (Ctrl+S, Ctrl+Z) still reach the map.
+      if (getEditorDesk()) {
+        if (!canvasKeysAllowed(e)) return;
+      } else if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) {
+        return;
+      }
 
       // Escape leaves node editing before anything else claims it, so it does
       // not also cancel whatever drawing tool happens to be selected.
@@ -662,27 +670,11 @@ export function useCanvasInput(
       // The tool may take the right-click (the Props tool turns its stamp 90°).
       if (_toolManager?.onContextMenu(world, e)) return;
       const store = useStore.getState();
-      // Locked layers stay right-clickable — their menus render disabled,
-      // mirroring the layer panel — so only visibility filters here.
-      const layers = store.layers.filter(
-        (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l),
-      );
-      // Drawn walls answer in the same order the Select tool picks them.
-      let hit: PickHit | null = null;
-      // A locked prop still answers here: its menu is where Unlock lives.
-      const opts = { zoom: engine.stage().scale.x, includeLocked: true };
-      // Overhead props draw above every layer, so they answer first, as `pickAllLayers`
-      // has them, unless the DM is looking under them, when they do not answer at all.
-      if (!store.ui.seeUnderOverhead) {
-        for (let i = layers.length - 1; i >= 0 && !hit; i--) {
-          const overhead = layers[i].children.filter((c) => c.childType === 'asset' && c.overhead);
-          const child = overhead.length > 0 ? hitTestChildren(overhead, [world.x, world.y], layers[i], opts) : null;
-          if (child) hit = { kind: 'child', id: child.id, layerId: layers[i].id, child };
-        }
-      }
-      for (let i = layers.length - 1; i >= 0 && !hit; i--) {
-        hit = pickInLayer(layers[i], [world.x, world.y], { ...opts, skipOverhead: true });
-      }
+      const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+      // The one pick a left click, a hover and a double-click make too, at the raw point:
+      // the level on show, shown and unlocked layers only. An object locked on its own
+      // still answers: its menu is where Unlock lives.
+      const hit: PickHit | null = pickAt([world.x, world.y], { zoom: engine.stage().scale.x });
       if (hit) {
         // Select, then menu — clicking into a multi-selection keeps it, so
         // the menu can act on the group.

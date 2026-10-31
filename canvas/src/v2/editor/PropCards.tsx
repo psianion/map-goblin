@@ -57,6 +57,7 @@ import {
   type Mixed,
   type PropTarget,
 } from './selectionModel';
+import { CardActions, LockedNote } from './CardActions';
 import './rooms.css';
 import './selection-card.css';
 import './props.css';
@@ -602,6 +603,8 @@ function PropCard({ child, layer }: { child: AssetChild; layer: DungeonLayer }) 
         )}
         <span className="v2-sel__kind v2-rend">{locked ? 'Prop · locked' : 'Prop'}</span>
       </header>
+      <CardActions />
+      {locked && <LockedNote />}
 
       <Section title="Transform" testId="v2-prop-transform">
         <TransformFields children={[child]} disabled={locked} flips={{ onFlip: flip }} />
@@ -741,6 +744,7 @@ function PropsCard({ children, layerIds }: { children: AssetChild[]; layerIds: s
         <span className="v2-sel__name">{n} props</span>
         <span className="v2-sel__kind">Props</span>
       </header>
+      <CardActions />
 
       <Section title="Transform" quiet="One box" testId="v2-props-transform">
         <TransformFields children={allLocked ? children : editable} disabled={allLocked} />
@@ -854,6 +858,7 @@ function GroupCard({
         <span className="v2-sel__name">{group.name}</span>
         <span className="v2-sel__kind">Group</span>
       </header>
+      <CardActions />
       <div className="v2-rcard__own">
         <div className="v2-rrow">
           <span className="v2-rrow__lbl">Name</span>
@@ -918,7 +923,7 @@ function GroupCard({
 /** The whole card for one prop, several props, or a group. */
 export function PropTargetCard({ target, onOpenLayers }: { target: PropTarget; onOpenLayers?: () => void }) {
   return (
-    <section className="v2-sel v2-float v2-pcard" data-testid="v2-selection-card" data-prop-kind={target.kind} data-chrome aria-label="Selection">
+    <section className="v2-sel v2-float v2-pcard" data-testid="v2-selection-card" data-prop-kind={target.kind} data-keys="canvas" data-chrome aria-label="Selection">
       {target.kind === 'prop' ? (
         <PropCard key={target.child.id} child={target.child} layer={target.layer} />
       ) : target.kind === 'props' ? (

@@ -318,7 +318,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                   {label}
                 </span>
                 <ToggleSwitch
-                  checked={layer.sublayerVisibility[key]}
+                  checked={!!layer.sublayerVisibility[key]}
                   onChange={(v) =>
                     undoManager.execute(new PropertyCommand(
                       `${layer.sublayerVisibility[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`,

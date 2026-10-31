@@ -342,13 +342,18 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
  * only need to run again when `withoutDoorGaps` (wallNodeRenderer.ts) would
  * cut different gaps, which is a geometry change, not a state change.
  */
+/** Whether a door hangs on a drawn wall hidden on its own: it goes with the wall. */
+function onHiddenWall(layer: DungeonLayer, wallId: string): boolean {
+  return !!wallId && layer.standaloneWalls.some((w) => w.id === wallId && w.visible === false);
+}
+
 export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
   const { doors: doorsSublayer } = entry.sublayers;
   for (const child of doorsSublayer.removeChildren()) child.destroy();
 
   const resolvedWalls = resolveWalls(layer);
-  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
   if (doors.length === 0) return;
   const gridCellSize = useStore.getState().grid.snapDivision || 1;
   const level = layerLevelLook(layer);
@@ -493,7 +498,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // gaps the stones exactly like one on a standalone wall, and both follow node
   // edits because their geometry is derived here rather than read off the child.
   const resolvedWalls = resolveWalls(layer);
-  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
   // The marks that tell wall types apart are the editor's; the table never installs a desk.
   const marks = getEditorDesk() ? entry.sublayers.wallMarks : undefined;
   if (!marks) for (const child of entry.sublayers.wallMarks.removeChildren()) child.destroy({ children: true });
@@ -506,7 +511,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
-    layer.standaloneWalls,
+    // A wall hidden on its own draws nowhere (the export reads this scene graph too).
+    layer.standaloneWalls.filter((w) => w.visible !== false),
     drawStyle,
     doorGapsFor(doors, resolvedWalls),
     layer.floorWallEdits ?? {},

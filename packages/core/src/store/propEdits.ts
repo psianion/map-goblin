@@ -559,6 +559,8 @@ export function createDuplicateCommand(
     const copy = structuredClone(child);
     copy.id = id;
     copy.name = `${child.name} (copy)`;
+    // A copy of something locked comes out unlocked: it is a new thing to place.
+    delete copy.locked;
     const gid = groupFor(child, target);
     if (gid) copy.groupId = gid;
     else delete copy.groupId;

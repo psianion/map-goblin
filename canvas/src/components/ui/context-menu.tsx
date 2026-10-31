@@ -233,13 +233,21 @@ function ActionRow({ item, onClose, returnFocus }: {
   )
 }
 
-function Row({ row, onClose, returnFocus }: {
+function Row({ row, onClose, returnFocus, onResize }: {
   row: MenuRow
   onClose: () => void
   returnFocus: () => void
+  /** A submenu opened or closed: the menu changed height and is kept on screen again. */
+  onResize?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const kind = 'type' in row && row.type ? row.type : 'action'
+  const resized = useRef(expanded)
+  useLayoutEffect(() => {
+    if (resized.current === expanded) return
+    resized.current = expanded
+    onResize?.()
+  }, [expanded, onResize])
 
   switch (kind) {
     case 'header': {
@@ -445,7 +453,7 @@ function Row({ row, onClose, returnFocus }: {
           {expanded && (
             <div className="ml-3 border-l border-border-default">
               {r.rows.map((sub, i) => (
-                <Row key={i} row={sub} onClose={onClose} returnFocus={returnFocus} />
+                <Row key={i} row={sub} onClose={onClose} returnFocus={returnFocus} onResize={onResize} />
               ))}
             </div>
           )}
@@ -499,7 +507,9 @@ export function ContextMenu({
   // round-tripping through state — offsetWidth/Height are 0 in jsdom, so
   // this degrades to a no-op there (see clampMenuPosition's own test for the
   // actual math, exercised with real sizes).
-  useLayoutEffect(() => {
+  // Run again whenever a submenu opens or closes in place: the rows it adds would
+  // otherwise hang off the bottom of the window (the menu was placed for its first size).
+  const clamp = useCallback(() => {
     if (!pos || !ref.current) return
     const el = ref.current
     const { left, top } = clampMenuPosition(
@@ -510,6 +520,7 @@ export function ContextMenu({
     el.style.left = `${left}px`
     el.style.top = `${top}px`
   }, [pos])
+  useLayoutEffect(clamp, [clamp])
 
   useEffect(() => {
     if (!pos) return
@@ -576,7 +587,7 @@ export function ContextMenu({
           {'separatorBefore' in row && row.separatorBefore && (
             <div role="separator" className="h-px bg-border-default mx-2 my-1" />
           )}
-          <Row row={row} onClose={onClose} returnFocus={returnFocus} />
+          <Row row={row} onClose={onClose} returnFocus={returnFocus} onResize={clamp} />
         </div>
       ))}
     </div>,

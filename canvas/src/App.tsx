@@ -20,6 +20,8 @@ import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
+import { canvasKeysAllowed, isTypingTarget } from '@/shortcuts/keyGuard';
+import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { NewMapDialog } from '@/components/maps/NewMapDialog';
 import { ImportMapsDialog } from '@/components/maps/ImportMapsDialog';
@@ -116,6 +118,9 @@ export default function App({ renderChrome }: AppProps = {}) {
         .join('+');
 
       if (key === 'ctrl+e') {
+        // The same guard as every map key: on v2 never from a field, a menu, a dialog or a
+        // sheet; on v1 never from a text field.
+        if (getEditorDesk() ? !canvasKeysAllowed(e) : isTypingTarget(e.target as Element)) return;
         e.preventDefault();
         setExportOpen(true);
       }
@@ -224,7 +229,8 @@ export default function App({ renderChrome }: AppProps = {}) {
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
         <CanvasHost />
-        <FloatingActionBar belowChrome={customChrome} />
+        {/* v1 only: on v2 the selection's verbs live in the selection card's header. */}
+        {!customChrome && <FloatingActionBar belowChrome={false} />}
         <GridCalibrationOverlay />
         <CanvasContextMenu />
         {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
