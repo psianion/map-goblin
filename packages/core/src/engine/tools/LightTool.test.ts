@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { LightTool } from './LightTool';
+import { LightTool, onLightPlaced } from './LightTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import type { DungeonLayer } from '../../store/types';
@@ -72,6 +72,20 @@ describe('LightTool', () => {
     useStore.getState().setActiveLayerId('not-a-real-layer-id');
     tool.onPointerDown({ x: 5, y: 8 });
     expect(lights()).toHaveLength(0);
+  });
+
+  it('tells onLightPlaced listeners after each light it places, never when it places nothing', () => {
+    let calls = 0;
+    const stop = onLightPlaced(() => {
+      calls++;
+      expect(lights()).toHaveLength(calls);
+    });
+    tool.onPointerDown({ x: 5, y: 8 });
+    expect(calls).toBe(1);
+    useStore.getState().setActiveLayerId('not-a-real-layer-id');
+    tool.onPointerDown({ x: 6, y: 8 });
+    expect(calls).toBe(1);
+    stop();
   });
 
   it('picks up the tool defaults from the store', () => {

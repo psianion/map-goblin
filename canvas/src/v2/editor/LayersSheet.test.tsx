@@ -6,7 +6,7 @@ import { undoManager } from '@/store/undoManager';
 import type { AnyChild, DungeonLayer, WallSegment } from '@/store/types';
 import { notify } from '@/lib/toast';
 import { LayersSheet } from './LayersSheet';
-import { buildSheetRows, type RowState, type SheetRow } from './layerRows';
+import { buildSheetRows, objectRowName, type RowState, type SheetRow } from './layerRows';
 import { moveLayerOnto } from './layerActions';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { CompositeCommand, MoveLayerToLevelCommand } from '@/store/commands';
@@ -174,6 +174,17 @@ describe('Layers sheet rows (model)', () => {
   it('shows nothing for a filter nothing matches', () => {
     seed();
     expect(buildSheetRows(state({ filter: 'zzz' }))).toEqual([]);
+  });
+
+  it('a label row reads its text: first line, trimmed, cut at 24 with an ellipsis; its name while empty', () => {
+    const label = (id: string, text: string) =>
+      ({ id, name: `Label ${id}`, childType: 'text', visible: true, text, position: { x: 1, y: 1 }, rotation: 0, scale: 1, fontSize: 1, color: '#000000' }) as AnyChild;
+    expect(objectRowName(label('1', '  Great Hall  \nsecond line'))).toBe('Great Hall');
+    const long = objectRowName(label('2', 'Beware the pit beyond the ledge'));
+    expect(long).toBe('Beware the pit beyond t…');
+    expect(long.length).toBe(24);
+    expect(objectRowName(label('3', ' \n'))).toBe('Label 3');
+    expect(objectRowName(crate('c', 'Crate'))).toBe('Crate');
   });
 });
 

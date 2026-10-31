@@ -16,6 +16,8 @@ vi.mock('@/lib/toast', () => ({
 import {
   isDocumentChange,
   isSettingsChange,
+  AUTOSAVE_DELAY_MS,
+  AUTOSAVE_MAX_WAIT_MS,
   AUTOSAVE_PROMPT_DELAY_MS,
   startAutosave,
 } from './autosave.ts';
@@ -190,6 +192,14 @@ describe('isDocumentChange', () => {
     const prev = base();
     expect(isDocumentChange({ ...prev, layers: [...prev.layers, { id: 'l2' }] }, prev)).toBe(true);
   });
+
+  it('counts a prep edit (a trigger, a note) as a prompt change', () => {
+    const prev = { ...base(), prep: { version: 3, triggers: [], notes: [], rooms: [] } };
+    const next = { ...prev, prep: { ...prev.prep, notes: [{ id: 'n' }] } };
+    expect(isDocumentChange(next, prev)).toBe(true);
+    expect(isSettingsChange(next, prev)).toBe(true);
+    expect(isDocumentChange({ ...prev }, prev)).toBe(false);
+  });
 });
 
 describe('startAutosave failure surfacing', () => {
@@ -210,8 +220,8 @@ describe('startAutosave failure surfacing', () => {
     const saveCurrentMap = vi.fn().mockRejectedValue(new Error('disk full'));
 
     const stop = startAutosave(saveCurrentMap, subscribe);
-    listener(); // marks dirty + schedules the 30s debounced save
-    await vi.advanceTimersByTimeAsync(30_000);
+    listener(); // marks dirty + schedules the debounced save
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
 
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     expect(notify.action).toHaveBeenCalledWith(
@@ -241,7 +251,7 @@ describe('startAutosave timing', () => {
     return { change: (prompt?: boolean) => listener(prompt), saveCurrentMap, stop };
   }
 
-  it('saves a prompt change within seconds, not after the 30 s debounce', async () => {
+  it('saves a prompt change within seconds, not after the drawing debounce', async () => {
     const { change, saveCurrentMap, stop } = start();
     change(true);
     await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
@@ -272,13 +282,33 @@ describe('startAutosave timing', () => {
     stop();
   });
 
-  it('still waits the full debounce for a drawing change', async () => {
+  it('waits 5 s after the last drawing change', async () => {
     const { change, saveCurrentMap, stop } = start();
     change();
-    await vi.advanceTimersByTimeAsync(29_000);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS - 1_000);
     expect(saveCurrentMap).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1_000);
+    // Another stroke: the wait starts again from it.
+    change();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS - 1);
+    expect(saveCurrentMap).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('strokes that keep coming save 15 s after the first unsaved one, then start a new wait', async () => {
+    expect([AUTOSAVE_DELAY_MS, AUTOSAVE_MAX_WAIT_MS]).toEqual([5_000, 15_000]);
+    const { change, saveCurrentMap, stop } = start();
+    for (let t = 0; t < AUTOSAVE_MAX_WAIT_MS; t += 2_000) {
+      change();
+      await vi.advanceTimersByTimeAsync(2_000);
+      if (t + 2_000 < AUTOSAVE_MAX_WAIT_MS) expect(saveCurrentMap).not.toHaveBeenCalled();
+    }
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    // The next stroke is a fresh first change: 5 s on from it.
+    change();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(2);
     stop();
   });
 
@@ -289,7 +319,7 @@ describe('startAutosave timing', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     // Nothing left pending, so the timer does not save it a second time.
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS);
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     stop();
   });
@@ -331,6 +361,21 @@ describe('autosave of a hide, wired as App wires it', () => {
     handleShortcut('ctrl+shift+h');
     const after = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon')!;
     expect(after.children.find((c) => c.id === 'lake')!.visible).toBe(false);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('saves a trigger added through the prep slice within the prompt delay', async () => {
+    const saveCurrentMap = vi.fn().mockResolvedValue(undefined);
+    const stop = startAutosave(saveCurrentMap, (listener) =>
+      useStore.subscribe((s, prev) => {
+        if (isDocumentChange(s, prev)) listener(isSettingsChange(s, prev));
+      }),
+    );
+    useStore.getState().upsertTrigger({
+      id: 't', name: 'Wolves wake', when: { kind: 'enter-region', zoneId: 'z' }, actions: [], once: true, enabled: true,
+    });
     await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     stop();

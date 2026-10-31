@@ -2,6 +2,8 @@ import { useSyncExternalStore } from 'react';
 import { useStore } from '@/store/store';
 import type { LightDefaults, UISlice } from '@/store/types';
 import { LIGHT_PRESETS, lightPreset, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
+import { onLightPlaced } from '@dnd/core/src/engine/tools/LightTool';
+import { notify } from '@/lib/toast';
 
 /**
  * How the editor is viewed, remembered per browser: the focus mode (the store holds the
@@ -364,6 +366,25 @@ export function toggleLitPreview(): boolean {
   return getLitPreview();
 }
 
+export const LIT_ON_TOAST = 'Lit preview on · press I to toggle';
+
+/**
+ * A change only the lit preview shows (a light placed; the environment or the time set in
+ * the Sky sheet): turn the preview on, with one toast saying so. Never turns it off.
+ */
+export function litOnForEdit(): void {
+  if (getLitPreview()) return;
+  setLitPreview(true);
+  notify.subtle(LIT_ON_TOAST, { icon: 'eye' });
+}
+
+let stopLitOnLight: (() => void) | null = null;
+
+/** Placing a light with the Light tool turns the lit preview on (`litOnForEdit`). Called once. */
+export function initLitOnLight(): void {
+  stopLitOnLight ??= onLightPlaced(litOnForEdit);
+}
+
 function subscribeLit(listener: () => void): () => void {
   litListeners.add(listener);
   return () => litListeners.delete(listener);
@@ -427,4 +448,6 @@ export function resetViewPrefsForTests(): void {
   stopMarqueePrefs = null;
   stopLightBrush?.();
   stopLightBrush = null;
+  stopLitOnLight?.();
+  stopLitOnLight = null;
 }

@@ -153,11 +153,87 @@ describe('DoorTool', () => {
     expect(doors()[0].position[1]).toBeCloseTo(5);
   });
 
-  it('hangs no door on a wall when the click is out of snap range', () => {
-    // Out of range there is no wall to hang one on, so the press draws the other
-    // anchor instead — the blob rows below own that half.
+  it('hangs no door on a wall when the click is out of snap range: it stands free on its own piece', () => {
     click(tool, 5, 50);
-    expect(doors()).toHaveLength(0);
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).not.toBe('w1');
+    expect(layer().standaloneWalls.find((w) => w.id === doors()[0].wallId)).toBeDefined();
+  });
+
+  describe('free-standing doors (open floor)', () => {
+    const piece = () => layer().standaloneWalls.find((w) => w.id === doors()[0]?.wallId);
+
+    it('a click on open floor makes a piece the door’s width, centred on the click, and the door on it, as one undo step', () => {
+      click(tool, 5, 50);
+      expect(doors()).toHaveLength(1);
+      const p = piece()!;
+      expect(p.points).toEqual([[4.5, 50], [5.5, 50]]);
+      expect(p.width).toBeUndefined();
+      expect(p.color).toBe(layer().style.wallColor);
+      expect(doors()[0].position).toEqual([5, 50]);
+      expect(doors()[0].angle).toBe(0);
+      expect(selectedIds()).toEqual([doors()[0].id]);
+      expect(layer().standaloneWalls).toHaveLength(2);
+      undoManager.undo();
+      expect(doors()).toHaveLength(0);
+      expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['w1']);
+      undoManager.redo();
+      expect(doors()).toHaveLength(1);
+      expect(piece()).toBeDefined();
+    });
+
+    it('at the tool’s angle 90 the piece stands vertical, as wide as the door', () => {
+      useStore.getState().updateToolSettings({ doorAngle: 90, doorWidth: 2 });
+      click(tool, 5, 50);
+      const [a, b] = piece()!.points;
+      expect(a[0]).toBeCloseTo(5);
+      expect(b[0]).toBeCloseTo(5);
+      expect(Math.abs(b[1] - a[1])).toBeCloseTo(2);
+      expect(doors()[0].width).toBe(2);
+      expect(doors()[0].angle).toBeCloseTo(Math.PI / 2);
+    });
+
+    it('over a wall in range placement is unchanged, whatever the tool’s angle', () => {
+      useStore.getState().updateToolSettings({ doorAngle: 90 });
+      click(tool, 5, 5.1);
+      expect(doors()[0].wallId).toBe('w1');
+      expect(doors()[0].angle).toBeCloseTo(0);
+      expect(layer().standaloneWalls).toHaveLength(1);
+    });
+
+    it('a floor edge takes the door only from close by; further in, the door stands free', () => {
+      useStore.getState().updateLayer(layer().id, { mergedFloor: [[[20, 20], [30, 20], [30, 30], [20, 30]]] });
+      click(tool, 25, 20.3);
+      expect(doors()[0].wallId).toBe('');
+      click(tool, 25, 21.2);
+      expect(doors()).toHaveLength(2);
+      expect(doors()[1].wallId).not.toBe('');
+      expect(layer().standaloneWalls.some((w) => w.id === doors()[1].wallId)).toBe(true);
+    });
+
+    it('the ghost shows the free door at the pointer', () => {
+      tool.onPointerMove({ x: 5, y: 50 });
+      expect(ghost.children.length).toBeGreaterThan(0);
+      expect(ghost.tint).toBe(0xffffff);
+    });
+
+    it('Delete on a free door takes its piece too, one undo step; undo brings both back', () => {
+      click(tool, 5, 50);
+      const id = doors()[0].id;
+      tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+      expect(doors()).toHaveLength(0);
+      expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['w1']);
+      undoManager.undo();
+      expect(doors()[0].id).toBe(id);
+      expect(piece()).toBeDefined();
+    });
+
+    it('Delete on a door on a long wall leaves the wall', () => {
+      click(tool, 5, 5.1);
+      tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+      expect(doors()).toHaveLength(0);
+      expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['w1']);
+    });
   });
 
   it('places a door on a press with no hover before it', () => {
@@ -175,7 +251,8 @@ describe('DoorTool', () => {
   it('still hangs nothing on a wall from an unhovered press out of snap range', () => {
     tool.onPointerDown({ x: 5, y: 50 });
     tool.onPointerUp({ x: 5, y: 50 });
-    expect(doors()).toHaveLength(0);
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).not.toBe('w1');
   });
 
   it('selects a placed door on a single click without changing it', () => {
@@ -195,11 +272,12 @@ describe('DoorTool', () => {
     click(tool, 5, 5.1);
     expect(selectedIds()).toEqual([placed.id]);
 
-    // A click on empty ground is a deselect, not a placement: far from any
-    // wall there is nothing to hang a door on, so nothing is minted.
+    // A click on open floor misses every door: the old one is let go and a
+    // free-standing door is placed there, which arrives selected in its stead.
     click(tool, 5, 50);
-    expect(selectedIds()).toEqual([]);
-    expect(doors()).toHaveLength(1);
+    expect(selectedIds()).not.toContain(placed.id);
+    expect(doors()).toHaveLength(2);
+    expect(selectedIds()).toEqual([doors()[1].id]);
   });
 
   it('cycles closed → open → locked → closed on double-click', () => {
@@ -438,12 +516,14 @@ describe('DoorTool', () => {
     expect(doors()).toHaveLength(0);
   });
 
-  it('shows no ghost with no wall in snap range', () => {
+  it('with no wall in snap range the ghost is the free-standing door, not the wall’s', () => {
     tool.onPointerMove({ x: 5, y: 5.1 });
+    const onWall = ghost.children[0];
     expect(ghost.children.length).toBeGreaterThan(0);
 
     tool.onPointerMove({ x: 5, y: 50 });
-    expect(ghost.children).toHaveLength(0);
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.children[0]).not.toBe(onWall);
   });
 
   it('drops the ghost once the door it was showing is placed', () => {

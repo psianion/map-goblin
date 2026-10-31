@@ -167,6 +167,8 @@ const vaultLabel = {
   color: '#2a2016',
   width: 3,
   height: 0.6,
+  // Marked for players; an unmarked label is the DM's and no render draws it.
+  players: true,
 }
 
 /**

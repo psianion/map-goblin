@@ -22,10 +22,12 @@ interface TopActionsProps {
   actions: EditorChromeActions;
   /** "Map settings…". The dialog is the shell's, so it can show in any focus mode. */
   onOpenSettings: () => void;
+  /** "Packs…": the shell's Packs sheet. */
+  onOpenPacks?: () => void;
 }
 
 /** Top-right: history, everything else behind "…", and the one primary action. */
-export function TopActions({ actions, onOpenSettings }: TopActionsProps) {
+export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsProps) {
   const canUndo = useStore((s) => s.ui.canUndo);
   const canRedo = useStore((s) => s.ui.canRedo);
   const focusMode = useStore((s) => s.ui.focusMode);
@@ -57,6 +59,7 @@ export function TopActions({ actions, onOpenSettings }: TopActionsProps) {
     { kind: 'action', label: 'Map settings…', onSelect: onOpenSettings },
     'divider',
     { kind: 'action', label: 'Export…', keys: 'Ctrl E', onSelect: actions.openExport },
+    ...(onOpenPacks ? [{ kind: 'action', label: 'Packs…', onSelect: onOpenPacks } as const] : []),
     { kind: 'action', label: 'Import image…', keys: 'Ctrl I', onSelect: actions.importImage },
     'divider',
     { kind: 'action', label: 'Fit to content', keys: 'Ctrl 0', onSelect: () => zoomToFitRef.current?.() },

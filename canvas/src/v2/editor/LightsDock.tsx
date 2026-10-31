@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { ColorCtl, Ctl, DockPopover, RangeInput, Slider } from './controls';
 import { CONE_RANGE, DIRECTION_RANGE, EFFECTS, NIGHT_ONLY, SPEED_RANGE, animationFor, clampFt, coneOf, toCells, toFt, type Effect } from './lightModel';
 import { LIGHT_PRESETS, LIGHT_RADIUS_FT, presetDefaults, type LightPresetId } from './lightWrites';
+import { setLitPreview, useLitPreview } from '../viewPrefs';
 import './lighting.css';
 
 /* The Lights tab of the dock (board 1): six presets, the quick settings for the next light,
@@ -218,9 +219,22 @@ function LightMore() {
 
 /** The right end of the Lights tab: the Sky & mood sheet. */
 export function LightsDockTail({ skyOpen, onToggleSky }: { skyOpen: boolean; onToggleSky: () => void }) {
+  const lit = useLitPreview();
   return (
     <>
       <span className="v2-dock__spacer" />
+      {!lit && (
+        <button
+          type="button"
+          className="v2-rbtn v2-rbtn--ghost"
+          data-testid="v2-lights-unlit"
+          data-tip="The map is shown unlit: lights and mood show with Lit preview on"
+          data-tip-key="I"
+          onClick={() => setLitPreview(true)}
+        >
+          Unlit · turn on
+        </button>
+      )}
       <span className="v2-vr" role="presentation" />
       <button
         type="button"

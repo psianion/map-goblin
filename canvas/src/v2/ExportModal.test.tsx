@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { useStore } from '@/store/store';
 import { ExportModal } from './ExportModal';
@@ -193,5 +193,30 @@ describe('ExportModal', () => {
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(notify.error).toHaveBeenCalled();
     pipeline.mockImplementation(async () => ({ blob: new Blob(), filename: 'map.png' }));
+  });
+
+  const labelsOf = (o: ExportOpts) => (o as ExportOpts & { labels?: string }).labels;
+
+  it('exports every label by default, and only the players’ ones once picked', async () => {
+    const onOpenChange = vi.fn();
+    render(<ExportModal open onOpenChange={onOpenChange} />);
+    const group = screen.getByRole('radiogroup', { name: 'Labels' });
+    expect(within(group).getAllByRole('radio').map((b) => b.textContent)).toEqual(['None', 'Players', 'All']);
+    expect(within(group).getByRole('radio', { name: 'All' }).getAttribute('aria-checked')).toBe('true');
+    go();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(labelsOf(lastOpts())).toBe('all');
+    fireEvent.click(within(group).getByRole('radio', { name: 'Players' }));
+    await waitFor(() => expect(labelsOf(previews().at(-1)!)).toBe('players'));
+    go();
+    await waitFor(() => expect(labelsOf(lastOpts())).toBe('players'));
+  });
+
+  it('remembers the Labels pick across opens, like the other options', () => {
+    const { rerender } = render(<ExportModal open onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'None' }));
+    rerender(<ExportModal open={false} onOpenChange={() => {}} />);
+    rerender(<ExportModal open onOpenChange={() => {}} />);
+    expect(screen.getByRole('radio', { name: 'None' }).getAttribute('aria-checked')).toBe('true');
   });
 });

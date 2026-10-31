@@ -124,3 +124,38 @@ describe('mapSvg — degenerate documents', () => {
     expect(svg).not.toContain('<script>')
   })
 })
+
+describe('mapSvg — map labels', () => {
+  const floor = { childType: 'shape', contours: [[[0, 0], [12, 0], [12, 8], [0, 8]]] }
+  const label = (text: string, extra: Record<string, unknown> = {}) => ({
+    childType: 'text',
+    text,
+    position: { x: 6, y: 4 },
+    rotation: 0,
+    scale: 1,
+    fontSize: 0.8,
+    color: '#1b1b1b',
+    width: 4,
+    height: 1,
+    ...extra,
+  })
+  const render = (...children: unknown[]) => mapSvg({ layers: [{ type: 'dungeon', children: [floor, ...children] }] }, { dmView: true })
+
+  it('skips a DM-only label in every render, and draws one marked for players', () => {
+    const svg = render(label('Trap here'), label('Beware', { players: true }))
+    expect(svg).not.toContain('>Trap here</text>')
+    expect(svg).toContain('>Beware</text>')
+  })
+
+  it('draws a label in its own colour and weight, MUTED when the colour is missing', () => {
+    const svg = render(label('Red', { players: true, color: '#aa2222', weight: 'bold' }), label('Plain', { players: true, color: 7 }))
+    expect(svg).toMatch(/<text [^>]*fill="#aa2222"[^>]*font-weight="700"[^>]*>Red<\/text>/)
+    expect(svg).toMatch(/<text [^>]*fill="#6b5c46"[^>]*>Plain<\/text>/)
+  })
+
+  it('lines a left label up on its box’s left edge and a right one on its right edge', () => {
+    const svg = render(label('Left', { players: true, align: 'left' }), label('Right', { players: true, align: 'right' }))
+    expect(svg).toMatch(/<text x="4" [^>]*text-anchor="start"[^>]*>Left<\/text>/)
+    expect(svg).toMatch(/<text x="8" [^>]*text-anchor="end"[^>]*>Right<\/text>/)
+  })
+})

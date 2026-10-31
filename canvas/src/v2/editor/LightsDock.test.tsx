@@ -4,6 +4,7 @@ import { useStore } from '@/store/store';
 import { ToolSettings, ToolSwatches } from './DockControls';
 import { LightsDockTail } from './LightsDock';
 import { hasSwatches } from './dockTabs';
+import { getLitPreview, resetViewPrefsForTests } from '../viewPrefs';
 
 vi.mock('@/lib/toast', () => ({ notify: { subtle: vi.fn(), success: vi.fn(), error: vi.fn(), action: vi.fn() } }));
 
@@ -91,5 +92,15 @@ describe('Lights tab of the dock', () => {
     expect(toggle).toHaveBeenCalledTimes(1);
     rerender(<LightsDockTail skyOpen onToggleSky={toggle} />);
     expect(screen.getByRole('button', { name: 'Sky & mood' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('while unlit the row ends with "Unlit · turn on", which turns the lit preview on and goes', () => {
+    localStorage.clear();
+    resetViewPrefsForTests();
+    render(<LightsDockTail skyOpen={false} onToggleSky={() => {}} />);
+    fireEvent.click(screen.getByTestId('v2-lights-unlit'));
+    expect(getLitPreview()).toBe(true);
+    expect(screen.queryByTestId('v2-lights-unlit')).toBeNull();
+    resetViewPrefsForTests();
   });
 });

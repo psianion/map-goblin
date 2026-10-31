@@ -365,6 +365,11 @@
   display: flex;
   flex-direction: column;
 }
+/* The card's own sheet (the Zone sheet, mounted right after it) takes the right edge too:
+   the card moves left of it, the sheet's 320 px and a 12 px gap, as for the Layers sheet. */
+.v2-sel:has(+ .v2-sheet) {
+  --v2-e-sheet: 332px;
+}
 .v2-sel__head {
   flex-shrink: 0;
   display: flex;
@@ -751,17 +756,6 @@
   right: 0;
   bottom: 0;
   height: 9px;
-}
-.v2-swatch--soon,
-.v2-swatch--soon:hover {
-  border-style: dashed;
-  border-color: var(--v2-line-strong);
-  background: transparent;
-  color: var(--v2-text-3);
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .v2-swatch-grid {
   display: grid;
@@ -1317,6 +1311,10 @@
    below the sheet (30), which clipped the Grid and snap popover. The bar never overlaps
    the sheet, so while it holds an open popover it rises above it. */
 .v2-status:has(.v2-pop) {
+  z-index: 31;
+}
+/* The same for the "…" menu: its rows below the card hung behind an open sheet. */
+.v2-top-actions:has(.v2-menu) {
   z-index: 31;
 }
 @keyframes v2-sheet-in {

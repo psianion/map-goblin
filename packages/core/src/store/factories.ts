@@ -92,7 +92,7 @@ type MapBuilderState = Omit<
   | 'upsertTrigger' | 'removeTrigger' | 'upsertNote' | 'removeNote' | 'setRoomKey'
   | 'loadFromFile' | 'applyAssetNameShim' | 'normalizeChildGroups' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
-  | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking'
+  | 'setInstalledPacks' | 'refreshInstalledPacks' | 'installPackFromFile' | 'setAvailableUpdates' | 'setIsChecking'
   | 'checkForPackUpdates' | 'installPack' | 'updatePack' | 'dismissUpdateResult' | 'uninstallPack'
 >;
 
@@ -166,6 +166,7 @@ export function createDefaultState(): MapBuilderState {
         doorStyle: 'single' as const,
         doorSecret: false,
         doorWidth: 1,
+        doorAngle: 0,
         terrainBrush: {
           slot: 0,
           radius: 2,
@@ -242,6 +243,7 @@ export function createDefaultState(): MapBuilderState {
       installedPacks: [],
       availableUpdates: [],
       isChecking: false,
+      updateCheckError: null,
       activeUpdate: null,
     },
     terrainSplats: {

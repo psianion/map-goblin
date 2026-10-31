@@ -402,6 +402,27 @@ describe('door quick settings', () => {
     expect(useStore.getState().tools.settings.doorSecret).toBe(true);
     expect(screen.getByRole('slider', { name: 'Width' })).toBeTruthy();
   });
+
+  it('Angle takes a typed angle held to 0–180 in 15° steps, and Turn 90° adds a quarter and wraps', () => {
+    useStore.getState().updateToolSettings({ doorAngle: 0 });
+    settings('door');
+    const angle = () => useStore.getState().tools.settings.doorAngle;
+    const field = screen.getByRole('textbox', { name: 'Door angle' }) as HTMLInputElement;
+    expect(field.value).toBe('0');
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '47' } });
+    fireEvent.blur(field);
+    expect(angle()).toBe(45);
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '400' } });
+    fireEvent.blur(field);
+    expect(angle()).toBe(0);
+    const turn = screen.getByRole('button', { name: 'Turn 90°' });
+    fireEvent.click(turn);
+    expect(angle()).toBe(90);
+    fireEvent.click(turn);
+    expect(angle()).toBe(0);
+  });
 });
 
 describe('props quick settings', () => {

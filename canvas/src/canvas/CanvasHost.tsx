@@ -6,6 +6,7 @@ import { setupRenderLoop } from '@/engine/renderLoop';
 import { subscribeToStore } from '@/engine/subscribeToStore';
 import { subscribeToAssets } from '@/engine/subscribeToAssets';
 import { subscribeToTextLabels } from '@/engine/subscribeToTextLabels';
+import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
 import { LightManager } from '@dnd/core/src/engine/lighting/index';
 import { mountDoorIcons } from '@dnd/core/src/engine/doorIconRenderer';
@@ -96,10 +97,9 @@ export function CanvasHost() {
               name: p.packId,
               version: p.version,
               sizeBytes: p.bundleSize,
-              // Everything present at boot came from the bundled /packs install
-              // (or a CDN refresh of the same pack) — there is no other source yet.
-              bundled: true,
-              installedAt: Date.now(),
+              // As stored: a pack installed from a file stays "From file" after a reload.
+              bundled: p.bundled,
+              installedAt: p.installedAt,
             })),
           );
           // Merge pack manifests into asset browser manifest
@@ -172,6 +172,8 @@ export function CanvasHost() {
 
       // Text labels sync the same way, into the same layer containers
       const unsubLabels = subscribeToTextLabels();
+      // Room names, number pins and door tags follow the room or door they are bound to.
+      const unsubBoundLabels = installBoundLabelSync();
 
       pixiEngine.startRenderLoop();
 
@@ -270,6 +272,7 @@ export function CanvasHost() {
         unsubStore();
         unsubAssets();
         unsubLabels();
+        unsubBoundLabels();
         unregSnap();
         unregWallSnap();
         unregFogResize();

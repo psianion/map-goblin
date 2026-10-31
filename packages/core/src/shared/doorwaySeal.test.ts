@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { doorwayRoom, findDoorway, overDoorway, sealDoorway } from './doorwaySeal';
+import { doorwayRoom, findDoorway, isOwnPiece, overDoorway, sealDoorway, turnOwnPiece } from './doorwaySeal';
 import { extractWallSegments } from '../engine/lighting/raycaster';
 import type { DoorChild, WallSegment } from './types';
 import type { DungeonLayer } from '../store/types';
@@ -141,5 +141,44 @@ describe('sealDoorway', () => {
       expect(gaps[0][0]).toBeCloseTo(9 - width / 2);
       expect(gaps[0][1]).toBeCloseTo(9 + width / 2);
     }
+  });
+});
+
+describe('isOwnPiece', () => {
+  it('a free-standing door: a two-point piece no longer than the door plus the slack', () => {
+    const l = layer([wall('gap', [8, 0], [10, 0])]);
+    expect(isOwnPiece(l, 'd1')?.id).toBe('gap');
+    expect(isOwnPiece(layer([wall('gap', [8, 0], [11, 0])]), 'd1')?.id).toBe('gap');
+  });
+
+  it('not a long wall, a chained wall, a floor door, or no door', () => {
+    expect(isOwnPiece(layer([wall('gap', [0, 0], [10, 0])]), 'd1')).toBeNull();
+    expect(isOwnPiece(layer([{ ...wall('gap', [8, 0], [9, 0]), points: [[8, 0], [9, 0], [9, 1]] }]), 'd1')).toBeNull();
+    expect(isOwnPiece(layer([wall('gap', [8, 0], [10, 0])], door({ wallId: '' })), 'd1')).toBeNull();
+    expect(isOwnPiece(layer([wall('gap', [8, 0], [10, 0])]), 'nope')).toBeNull();
+  });
+});
+
+describe('turnOwnPiece', () => {
+  it('turns the piece about the door’s centre and gives the door its new angle', () => {
+    const turn = turnOwnPiece(layer([wall('gap', [8, 0], [10, 0])]), 'd1', Math.PI / 2)!;
+    expect(turn.wallId).toBe('gap');
+    expect(turn.before).toEqual([[8, 0], [10, 0]]);
+    expect(turn.after[0][0]).toBeCloseTo(9);
+    expect(turn.after[0][1]).toBeCloseTo(-1);
+    expect(turn.after[1][0]).toBeCloseTo(9);
+    expect(turn.after[1][1]).toBeCloseTo(1);
+    expect(turn.door).toEqual({ angle: Math.PI / 2, position: [9, 0] });
+  });
+
+  it('a door off-centre on a longer piece keeps its place on the piece', () => {
+    const turn = turnOwnPiece(layer([wall('gap', [8, 0], [11, 0])], door({ position: [10, 0] })), 'd1', Math.PI / 2)!;
+    expect(turn.door.position).toEqual([10, 0]);
+    expect(turn.after[0][1]).toBeCloseTo(-2);
+    expect(turn.after[1][1]).toBeCloseTo(1);
+  });
+
+  it('null for a door on a long wall', () => {
+    expect(turnOwnPiece(layer([wall('gap', [0, 0], [10, 0])]), 'd1', 1)).toBeNull();
   });
 });

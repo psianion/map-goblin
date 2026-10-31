@@ -89,6 +89,13 @@ interface Label {
   y: number
   size: number
   rotation: number
+  /** The label's own colour, MUTED when the document carries none. */
+  color: string
+  bold: boolean
+  /** Where the line sits in the label's box: its left edge, its middle, its right edge. */
+  anchor: 'start' | 'middle' | 'end'
+  /** Half the box's width, world units: how far the start or end sits from `x`. */
+  half: number
 }
 interface RoomLabel {
   text: string
@@ -215,15 +222,24 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
           break
         }
         case 'text': {
+          // A label is the DM's unless it is marked for players, in every render: the
+          // channel a picture lands in is not ours to judge.
+          if (child.players !== true) break
           const position = isRec(child.position) ? child.position : {}
           const text = str(child.text).trim()
           if (!text) break
+          const scale = num(child.scale, 1) || 1
+          const color = str(child.color)
           scene.labels.push({
             text,
             x: num(position.x),
             y: num(position.y),
-            size: clamp(num(child.fontSize, 0.5) * (num(child.scale, 1) || 1), 0.2, 3),
+            size: clamp(num(child.fontSize, 0.5) * scale, 0.2, 3),
             rotation: num(child.rotation),
+            color: /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color) ? color : MUTED,
+            bold: child.weight === 'bold',
+            anchor: child.align === 'left' ? 'start' : child.align === 'right' ? 'end' : 'middle',
+            half: (num(child.width) * scale) / 2,
           })
           break
         }
@@ -548,14 +564,17 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
 
   for (const door of scene.doors) out.push(drawDoor(door, doorAngle(door, segments)))
 
-  for (const label of scene.labels)
+  for (const label of scene.labels) {
+    const x = label.anchor === 'start' ? label.x - label.half : label.anchor === 'end' ? label.x + label.half : label.x
     out.push(
-      text(label.text, label.x, label.y, label.size, {
-        'text-anchor': 'middle',
-        fill: MUTED,
+      text(label.text, x, label.y, label.size, {
+        'text-anchor': label.anchor,
+        fill: label.color,
+        ...(label.bold ? { 'font-weight': '700' } : {}),
         ...(label.rotation ? { transform: `rotate(${f((label.rotation * 180) / Math.PI)} ${f(label.x)} ${f(label.y)})` } : {}),
       }),
     )
+  }
 
   const roomFont = clamp(LABEL_PX / cellPx, 0.3, 0.95)
   for (const room of scene.rooms)

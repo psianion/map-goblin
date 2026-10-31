@@ -101,7 +101,8 @@ export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon'
 
 /** Whether the tool in hand has a row of presets in the dock. */
 export function hasSwatches(tool: ToolType, tab: DockTabId): boolean {
-  return tool === 'terrain' || tool === 'scatterBrush' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tab === 'labels';
+  // The label style tiles are the Label tool's; the Zone tool on the same tab has none.
+  return tool === 'terrain' || tool === 'scatterBrush' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tool === 'text';
 }
 
 const COLLAPSED_KEY = 'v2-dock-collapsed';

@@ -30,7 +30,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new PathTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new RulerTool());
-  manager.registerTool(new TextTool());
+  manager.registerTool(new TextTool(previewContainer));
   manager.registerTool(new DoorTool(previewContainer));
   manager.registerTool(new LightTool());
   manager.registerTool(new StampScatterTool(previewContainer));

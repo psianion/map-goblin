@@ -39,6 +39,14 @@ function findAttachTarget(layer: DungeonLayer, point: Point): AssetChild | undef
   return best;
 }
 
+const placedListeners = new Set<() => void>();
+
+/** Called after the Light tool places a light (the v2 editor turns its lit preview on). */
+export function onLightPlaced(fn: () => void): () => void {
+  placedListeners.add(fn);
+  return () => placedListeners.delete(fn);
+}
+
 export class LightTool implements DrawingTool {
   readonly type = 'light' as const;
   readonly cursor = 'crosshair';
@@ -78,6 +86,7 @@ export class LightTool implements DrawingTool {
     };
 
     undoManager.execute(new AddChildCommand('Place light', activeLayerId, child));
+    for (const fn of placedListeners) fn();
   }
 
   onPointerMove(point: Point): void {

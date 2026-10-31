@@ -512,7 +512,16 @@ test('ten fast arrow presses undo in one step', async ({ page }) => {
   await addChild(page, prop('crate', c))
   await select(page, ['crate'])
   await blur(page)
-  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight')
+  // Fired in one page task, as a DM's quick presses reach the page. Ten `keyboard.press`
+  // calls each wait for the page to answer, and under a loaded run (four workers, software
+  // WebGL) that round trip passes the 600 ms window, which splits the run whatever the code.
+  await page.evaluate(() => {
+    for (let i = 0; i < 10; i++) {
+      for (const type of ['keydown', 'keyup']) {
+        document.body.dispatchEvent(new KeyboardEvent(type, { key: 'ArrowRight', code: 'ArrowRight', bubbles: true, cancelable: true }))
+      }
+    }
+  })
   await waitFrame(page, 2)
   expect((await child(page, 'crate')).position.x).toBeCloseTo(c.x + 10)
   await undo(page)

@@ -22,6 +22,14 @@ const FORMATS = [
 ] as const;
 type ExportFormat = (typeof FORMATS)[number]['value'];
 
+/** Which labels go in the picture: none, the ones players see, or every one. */
+const LABELS = [
+  { value: 'none', label: 'None' },
+  { value: 'players', label: 'Players' },
+  { value: 'all', label: 'All' },
+] as const;
+type ExportLabels = (typeof LABELS)[number]['value'];
+
 const PX_PER_CELL = [64, 128, 256] as const;
 type PxPerCell = (typeof PX_PER_CELL)[number];
 
@@ -204,6 +212,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [format, setFormat] = useState<ExportFormat>('png');
   const [pxPerCell, setPxPerCell] = useState<PxPerCell>(128);
   const [includeGrid, setIncludeGrid] = useState(false);
+  // Kept across opens, like the format, size and grid.
+  const [labels, setLabels] = useState<ExportLabels>('all');
   const [lighting, setLighting] = useState(true);
   const [pick, setPick] = useState<LightingPick>(seedLighting);
   const [busy, setBusy] = useState(false);
@@ -242,6 +252,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       includeGrid,
       mapName,
       lighting: lit,
+      labels,
     })
       .then(({ blob }) => {
         if (stale) return;
@@ -256,7 +267,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setPreview(null);
       if (url) URL.revokeObjectURL(url);
     };
-  }, [open, image, format, pxPerCell, includeGrid, lit, layers, cellWidth, cellHeight, mapName]);
+  }, [open, image, format, pxPerCell, includeGrid, lit, labels, layers, cellWidth, cellHeight, mapName]);
 
   const submit = useCallback(async () => {
     if (busy) return;
@@ -278,6 +289,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
           includeGrid,
           mapName,
           lighting: lit,
+          labels,
         });
         triggerDownload(blob, filename);
         notify.success(`Exported as ${format === 'png' ? 'PNG' : 'JPEG'}`);
@@ -290,7 +302,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     } finally {
       setBusy(false);
     }
-  }, [busy, format, layers, pxPerCell, includeGrid, mapName, lit, onOpenChange]);
+  }, [busy, format, layers, pxPerCell, includeGrid, mapName, lit, labels, onOpenChange]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   useEscapeToClose(open, close, busy);
@@ -352,6 +364,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                     </Toggle>
                     <Toggle label="Grid lines" checked={includeGrid} onChange={setIncludeGrid} />
                   </div>
+                  <Segs label="Labels" value={labels} options={LABELS} onChange={setLabels} />
                   <p className="v2-hint v2-export-size" data-testid="v2-export-size">
                     <span className="v2-export-size__px">
                       {dims.widthPx} × {dims.heightPx} px

@@ -338,11 +338,35 @@ export interface TextChild extends LayerChild {
   color: string;
   /**
    * Estimated extent in world units, kept on the child so hit testing stays a
-   * pure function of the data. Recomputed whenever text or size changes.
+   * pure function of the data. Recomputed whenever text, size or backdrop changes.
    */
   width: number;
   height: number;
+  /** The preset it was placed with (`shared/labelStyles`). Absent = Custom. */
+  style?: LabelStyleId;
+  /** Absent = regular. */
+  weight?: 'bold';
+  /** A contrasting outline round the letters, or a rounded plate behind them. Absent = none. */
+  backdrop?: 'halo' | 'pill';
+  /** How the lines of a multi-line label line up with each other. Absent = centre. */
+  align?: 'left' | 'right';
+  /** Shown to player seats at the table. Absent = DM-only. */
+  players?: true;
+  /**
+   * The room or door the label follows: its text comes from the target's name or number and
+   * its position is the target's anchor plus `offset`. `position` stays the stored truth;
+   * core keeps the two in step (`store/boundLabels`).
+   */
+  bound?: LabelBinding;
+  /** World units from the bound target's anchor to `position`. Only with `bound`. */
+  offset?: [number, number];
 }
+
+/** The label presets; Custom is the absence of one. */
+export type LabelStyleId = 'room-name' | 'door-tag' | 'gm-note' | 'number-pin' | 'callout';
+
+/** What a bound label follows, by id. */
+export type LabelBinding = { kind: 'room'; id: string } | { kind: 'door'; id: string };
 
 /** Where a zone sits, in world units (grid cells). */
 export type ZoneShape =

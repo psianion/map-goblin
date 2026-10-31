@@ -4,6 +4,7 @@ import type { MapStylePreset } from './presetRegistry';
 import { styleValueOrDefault } from '../shared/wallLook';
 import { RemoveRoomCommand } from './roomCommands';
 import { lightsOn } from './attachedLights';
+import { isOwnPiece } from '../shared/doorwaySeal';
 import { createDuplicateCommand } from './propEdits';
 
 // ─── PropertyCommand ─────────────────────────────────────
@@ -633,6 +634,13 @@ export function createSelectionRemovalCommand(
  * leaves its light behind.
  */
 export function createChildRemovalCommand(layerId: string, childId: string, label = 'Delete'): Command {
+  // A door on its own piece of wall (a free-standing door) takes the piece with it, in
+  // the same step, so no stray stub of wall is left on the floor.
+  const layer = useStore.getState().layers.find((l) => l.id === layerId);
+  const piece = layer?.type === 'dungeon' ? isOwnPiece(layer as DungeonLayer, childId) : null;
+  if (piece) {
+    return new CompositeCommand(label, [new RemoveChildCommand(label, layerId, childId), new RemoveWallCommand(layerId, piece.id)]);
+  }
   // On any layer: a lamp's light may sit on a lighting layer above the lamp.
   const attachedLights = lightsOn(useStore.getState().layers, [childId]);
   if (attachedLights.length === 0) {

@@ -24,7 +24,30 @@ class MockContainer {
 vi.mock('pixi.js', () => {
   class MockTextStyle {
     fill: string;
-    constructor(opts: { fill: string }) { this.fill = opts.fill; }
+    fontWeight?: string;
+    align?: string;
+    stroke?: { color: string; width: number };
+    constructor(opts: { fill: string; fontWeight?: string; align?: string; stroke?: { color: string; width: number } }) {
+      this.fill = opts.fill;
+      this.fontWeight = opts.fontWeight;
+      this.align = opts.align;
+      this.stroke = opts.stroke;
+    }
+  }
+  class MockGraphics {
+    position = { x: 0, y: 0, set(x: number, y: number): void { this.x = x; this.y = y; } };
+    scale = { x: 1, y: 1, set(x: number, y?: number): void { this.x = x; this.y = y ?? x; } };
+    rotation = 0;
+    visible = true;
+    label = '';
+    zIndex = 0;
+    rects: number[][] = [];
+    fills: { color: string; alpha: number }[] = [];
+    clear(): this { this.rects = []; this.fills = []; return this; }
+    roundRect(...a: number[]): this { this.rects.push(a); return this; }
+    fill(f: { color: string; alpha: number }): this { this.fills.push(f); return this; }
+    stroke(): this { return this; }
+    destroy(): void {}
   }
   class MockText {
     text: string;
@@ -42,7 +65,7 @@ vi.mock('pixi.js', () => {
     }
     destroy(): void {}
   }
-  return { Text: MockText, TextStyle: MockTextStyle };
+  return { Text: MockText, TextStyle: MockTextStyle, Graphics: MockGraphics };
 });
 vi.mock('./sceneGraph', () => ({ getLayerEntry: vi.fn() }));
 
@@ -126,5 +149,65 @@ describe('subscribeToTextLabels', () => {
     const t2 = labels.children.find((l) => l.label === 'label-t2')!;
     expect(t2.zIndex).toBe(0);
     expect(t1.zIndex).toBe(1);
+  });
+
+  type Styled = FakeText & { style: { fontWeight?: string; align?: string; stroke?: { color: string; width: number } } };
+  type Plate = FakeText & { rects: number[][]; fills: { color: string; alpha: number }[] };
+  const text = (id: string) => labels.children.find((l) => l.label === `label-${id}`) as Styled;
+  const pill = (id: string) => labels.children.find((l) => l.label === `label-pill-${id}`) as Plate | undefined;
+
+  it('draws a bold label bold, and a regular one regular', () => {
+    useStore.getState().addChild(layerId, { ...label('b'), weight: 'bold' });
+    useStore.getState().addChild(layerId, label('r'));
+    unsub = subscribeToTextLabels();
+    expect(text('b').style.fontWeight).toBe('bold');
+    expect(text('r').style.fontWeight).toBe('normal');
+  });
+
+  it('a halo is white under dark ink, a share of the raster size wide', () => {
+    useStore.getState().addChild(layerId, { ...label('h'), color: '#1b1b1b', backdrop: 'halo' });
+    unsub = subscribeToTextLabels();
+    expect(text('h').style.stroke).toMatchObject({ color: '#ffffff', width: 12 });
+  });
+
+  it('a halo is black under light ink, and goes when the backdrop does', () => {
+    useStore.getState().addChild(layerId, { ...label('h'), color: '#f0f0f0', backdrop: 'halo' });
+    unsub = subscribeToTextLabels();
+    expect(text('h').style.stroke).toMatchObject({ color: '#000000' });
+    useStore.getState().updateChild(layerId, 'h', { backdrop: undefined });
+    expect(text('h').style.stroke).toBeUndefined();
+  });
+
+  it('a pill is one plate behind its text, the size of the label’s box', () => {
+    useStore.getState().addChild(layerId, { ...label('p'), color: '#1b1b1b', backdrop: 'pill', width: 3, height: 1.2 });
+    unsub = subscribeToTextLabels();
+    const plate = pill('p')!;
+    expect(plate).toBeTruthy();
+    expect(plate.zIndex).toBeLessThan(text('p').zIndex);
+    expect(plate.rects[0].slice(0, 4)).toEqual([-1.5, -0.6, 3, 1.2]);
+    expect(plate.fills[0]).toMatchObject({ color: '#ffffff', alpha: 0.85 });
+    expect(pill('none')).toBeUndefined();
+  });
+
+  it('a hidden label hides its pill, and dropping the backdrop removes the plate', () => {
+    useStore.getState().addChild(layerId, { ...label('p'), backdrop: 'pill' });
+    unsub = subscribeToTextLabels();
+    useStore.getState().updateChild(layerId, 'p', { visible: false });
+    expect(text('p').visible).toBe(false);
+    expect(pill('p')!.visible).toBe(false);
+    useStore.getState().updateChild(layerId, 'p', { backdrop: undefined });
+    expect(pill('p')).toBeUndefined();
+    expect(labels.children.length).toBe(1);
+  });
+
+  it('lines up a multi-line label left, centre or right, its block centred on the position', () => {
+    useStore.getState().addChild(layerId, { ...label('l', 'a\nbb'), align: 'left', position: { x: 4, y: 2 } });
+    useStore.getState().addChild(layerId, { ...label('c', 'a\nbb') });
+    useStore.getState().addChild(layerId, { ...label('r', 'a\nbb'), align: 'right' });
+    unsub = subscribeToTextLabels();
+    expect(text('l').style.align).toBe('left');
+    expect(text('c').style.align).toBe('center');
+    expect(text('r').style.align).toBe('right');
+    expect((text('l') as unknown as { position: { x: number; y: number } }).position).toMatchObject({ x: 4, y: 2 });
   });
 });

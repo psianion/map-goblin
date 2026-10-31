@@ -260,6 +260,9 @@ function childShips(
   // Prep never travels: a zone in a revealed room is still the DM's trap marker, and a
   // zone's position IS where the trap is.
   if (child.childType === 'zone') return false
+  // A label is the DM's unless it is marked for players: a GM note, a trap's name, a room
+  // title the party has not learned. Marked ones then follow the room rule like any child.
+  if (child.childType === 'text' && child.players !== true) return false
   // With no room on the layer there is nothing to earn and nothing for a contour to fence.
   //
   // A door with no room to be bound to can never be earned, and the player's door marks are

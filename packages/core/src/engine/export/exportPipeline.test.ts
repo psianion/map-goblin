@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Container } from 'pixi.js';
 import { BAND_REACH, computeMapWorldBounds, runExportPipeline } from './exportPipeline';
 import type { RenderEngine } from '../RenderEngine';
-import { buildSceneGraph, type SceneGraph } from '../sceneGraph';
+import { buildSceneGraph, getLayerEntries, type SceneGraph } from '../sceneGraph';
 import { useStore } from '../../store/store';
 import { setAuthoredLookHold, setEditorDesk, type AuthoredLookOptions } from '../editorDesk';
 
@@ -47,7 +47,7 @@ function makeWater(outer: [number, number][], visible = true): WaterChild {
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
-    bankWidth: 0.5,
+    bankWidth: 0.5,
   };
 }
 
@@ -298,6 +298,68 @@ describe('runExportPipeline: the file', () => {
     let node: Container | null = sceneGraph.overheadContainer;
     while (node && node !== sceneGraph.worldContainer) node = node.parent as Container | null;
     expect(node).toBe(sceneGraph.worldContainer);
+  });
+
+  describe('labels and editor marks', () => {
+    type Node = { label: string; visible: boolean };
+    const node = (label: string, visible = true): Node => ({ label, visible });
+
+    /** A scene whose world holds the zone marks and the tool previews, and a layer with two labels. */
+    function labelled() {
+      const base = rig();
+      room();
+      const dl = dungeonLayer();
+      const text = (id: string, players?: true) => ({
+        id, name: id, childType: 'text' as const, visible: true, text: id, position: { x: 4, y: 4 }, rotation: 0, scale: 1,
+        fontSize: 1, color: '#111111', width: 2, height: 1, ...(players ? { players } : {}),
+      });
+      useStore.getState().addChild(dl.id, text('dm'));
+      useStore.getState().addChild(dl.id, text('seen', true));
+      const zones = node('zoneOverlay');
+      const preview = node('previewContainer');
+      const sub = { visible: true, children: [node('label-dm'), node('label-pill-dm'), node('label-seen')] };
+      getLayerEntries().set(dl.id, { sublayers: { labels: sub } } as never);
+      (base.sceneGraph.worldContainer as unknown as { children: Node[] }).children = [zones, preview];
+      const seen: Record<string, boolean>[] = [];
+      const engine = {
+        ...base.engine,
+        renderToTexture: () => {
+          seen.push({
+            zones: zones.visible,
+            preview: preview.visible,
+            labels: sub.visible,
+            dm: sub.children[0].visible,
+            dmPill: sub.children[1].visible,
+            seen: sub.children[2].visible,
+          });
+        },
+      } as unknown as RenderEngine;
+      return { engine, sceneGraph: base.sceneGraph, layers: useStore.getState().layers, seen, zones, preview, sub };
+    }
+
+    afterEach(() => getLayerEntries().clear());
+
+    it('All draws every label; the zone marks and tool previews never reach the file', async () => {
+      const r = labelled();
+      await runExportPipeline(r.engine, r.sceneGraph, r.layers, { ...opts, lighting: false });
+      expect(r.seen).toEqual([{ zones: false, preview: false, labels: true, dm: true, dmPill: true, seen: true }]);
+      // Handed back afterwards.
+      expect(r.zones.visible && r.preview.visible).toBe(true);
+    });
+
+    it('Players hides the DM-only labels and their pills, and puts them back', async () => {
+      const r = labelled();
+      await runExportPipeline(r.engine, r.sceneGraph, r.layers, { ...opts, lighting: false, labels: 'players' });
+      expect(r.seen[0]).toMatchObject({ labels: true, dm: false, dmPill: false, seen: true });
+      expect(r.sub.children.every((c) => c.visible)).toBe(true);
+    });
+
+    it('None hides the labels sublayer for the render only', async () => {
+      const r = labelled();
+      await runExportPipeline(r.engine, r.sceneGraph, r.layers, { ...opts, lighting: false, labels: 'none' });
+      expect(r.seen[0]).toMatchObject({ labels: false });
+      expect(r.sub.visible).toBe(true);
+    });
   });
 });
 

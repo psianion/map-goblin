@@ -126,6 +126,52 @@ export function findDoorway(layer: DungeonLayer, doorId: string, width?: number)
 }
 
 /**
+ * The door's host when it is the door's own piece: a drawn, straight (two-point) wall no
+ * longer than the door plus `DOORWAY_SLACK`, as a free-standing door is placed on. Such a
+ * door turns by turning its piece, and goes with it when deleted. Null otherwise (a long
+ * wall, a floor or room edge, no door).
+ */
+export function isOwnPiece(layer: DungeonLayer, doorId: string): WallSegment | null {
+  const door = layer.children.find((c): c is DoorChild => c.id === doorId && c.childType === 'door');
+  const host = door && (layer.standaloneWalls ?? []).find((w) => w.id === door.wallId);
+  if (!door || !host || host.points.length !== 2) return null;
+  const [a, b] = host.points;
+  return Math.hypot(b[0] - a[0], b[1] - a[1]) <= door.width + DOORWAY_SLACK + 1e-6 ? host : null;
+}
+
+/**
+ * A door on its own piece turned to `angle` (radians): the piece's two ends turned about
+ * the door's centre (where the resolver puts it on the piece), and the door's stored angle
+ * and centre. Null when the door is not on its own piece.
+ */
+export function turnOwnPiece(
+  layer: DungeonLayer,
+  doorId: string,
+  angle: number,
+): { wallId: string; before: Pt[]; after: Pt[]; door: Pick<DoorChild, 'angle' | 'position'> } | null {
+  const host = isOwnPiece(layer, doorId);
+  const door = layer.children.find((c): c is DoorChild => c.id === doorId && c.childType === 'door');
+  if (!host || !door) return null;
+  const [a, b] = host.points as [Pt, Pt];
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (length < JOIN) return null;
+  const dir: Pt = [(b[0] - a[0]) / length, (b[1] - a[1]) / length];
+  const half = door.width / 2;
+  const t = door.width >= length ? length / 2 : Math.min(length - half, Math.max(half, along(a, dir, door.position)));
+  const c: Pt = [a[0] + dir[0] * t, a[1] + dir[1] * t];
+  const [ux, uy] = [Math.cos(angle), Math.sin(angle)];
+  return {
+    wallId: host.id,
+    before: [[...a], [...b]],
+    after: [
+      [c[0] - ux * t, c[1] - uy * t],
+      [c[0] + ux * (length - t), c[1] + uy * (length - t)],
+    ],
+    door: { angle, position: c },
+  };
+}
+
+/**
  * Whether a point is over the doorway's run: within `reach` of its line, and along it no
  * further than `reach` past the span the door may take. A door dragged there slides in
  * its doorway; dragged anywhere else it is re-anchored like any other door.

@@ -10,6 +10,7 @@ import type {
   WallDirection,
   DoorChild,
   DoorStyle,
+  LabelStyleId,
   Level,
   LightChild,
   Room,
@@ -273,6 +274,8 @@ export interface LabelToolSettings {
   fontSize: number;
   /** Null takes the active layer's wall colour, so a label matches the ink it sits beside. */
   color: string | null;
+  /** The style tile picked in the Labels tab. Absent = Custom. */
+  style?: LabelStyleId;
 }
 
 /** The Props tool: Stamp and Scatter share the library and these settings. */
@@ -319,6 +322,8 @@ export interface ToolSettings {
   doorStyle: DoorStyle;
   doorSecret: boolean;
   doorWidth: number;
+  /** A free-standing door's angle, degrees: 0 runs along x, 90 along y. Doors on a wall take the wall's. */
+  doorAngle: number;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   zone: ZoneToolSettings;
@@ -570,6 +575,8 @@ export interface PacksSlice {
   installedPacks: PackSummary[];
   availableUpdates: PackUpdateInfo[];
   isChecking: boolean;
+  /** Why the last update check got no answer (the index unreachable or erroring), or null. */
+  updateCheckError: string | null;
   activeUpdate: PackUpdateState | null;
 }
 
@@ -827,6 +834,8 @@ export interface MapBuilderStore {
 
   // packs actions
   setInstalledPacks: (packs: PackSummary[]) => void;
+  refreshInstalledPacks: () => void;
+  installPackFromFile: (file: import('./packIO').PackFile) => Promise<import('./packIO').PackFileInstall>;
   setAvailableUpdates: (updates: PackUpdateInfo[]) => void;
   setIsChecking: (checking: boolean) => void;
   checkForPackUpdates: () => Promise<void>;

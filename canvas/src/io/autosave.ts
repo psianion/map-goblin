@@ -1,8 +1,9 @@
 // src/io/autosave.ts
 // Debounced autosave of the active map.
 //
-// Autosave trigger: debounced 30s after the last document change, brought
-// forward for a one-click setting (see isSettingsChange). Skipped while a map
+// Autosave trigger: debounced 5 s after the last document change (15 s at most
+// after the first unsaved one), brought forward for a one-click setting (see
+// isSettingsChange). Skipped while a map
 // switch is in flight (the store's isMapSwitching flag).
 
 import { useStore } from '@/store/store';
@@ -21,6 +22,8 @@ interface DocumentSlices {
   assets: { customImages: unknown };
   /** Splat bitmaps live outside customImages now — their rev is the change signal. */
   terrainSplats: { rev: number };
+  /** Triggers, notes and room keys. Optional so callers holding an older shape still type. */
+  prep?: unknown;
 }
 
 /**
@@ -61,7 +64,7 @@ function fieldDiffers(key: string, a: unknown, b: unknown): boolean {
  * Layer fields set by a single pick in a settings control (opacity, name, which
  * parts show, the style chips) rather than drawn. Like map settings they save
  * promptly: a layer opacity left for a few seconds before a reload used to come
- * back at 100% because it waited out the 30 s drawing debounce.
+ * back at 100% because it waited out the drawing debounce.
  */
 const SETTING_LAYER_FIELDS = new Set([
   'name',
@@ -153,17 +156,19 @@ export function isDocumentChange(next: DocumentSlices, prev: DocumentSlices): bo
 
 /**
  * A one-click setting: the map settings, the grid fields the file keeps (shown,
- * snap division), a layer's settings (see SETTING_LAYER_FIELDS), or a lock or hide on its
- * children and walls (see onlyFlagChanges). Snap on/off is left out — it is the DM's per-browser
+ * snap division), a layer's settings (see SETTING_LAYER_FIELDS), a lock or hide on its
+ * children and walls (see onlyFlagChanges), or a prep edit (a trigger, a note, a room key:
+ * each a pick or a field in a sheet). Snap on/off is left out — it is the DM's per-browser
  * preference (io/snapPref.ts) and is not written to the map.
  *
  * These are single discrete picks, not a stream of strokes to coalesce, so they
- * are saved promptly rather than after the 30 s drawing debounce — a reload a few
+ * are saved promptly rather than after the drawing debounce — a reload a few
  * seconds after choosing 1/4 snap used to bring the map back at 1/2.
  */
 export function isSettingsChange(next: DocumentSlices, prev: DocumentSlices): boolean {
   if (next.mapSettings !== prev.mapSettings) return true;
   if (next.levels !== prev.levels) return true;
+  if (next.prep !== prev.prep) return true;
   if (onlyLayerSettingsChanged(next.layers, prev.layers)) return true;
   if (next.grid === prev.grid) return false;
   return next.grid.visible !== prev.grid.visible || next.grid.snapDivision !== prev.grid.snapDivision;
@@ -175,7 +180,15 @@ let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 /** When the pending save is due, and whether a prompt (settings) change set it. */
 let _dueAt = 0;
 let _duePrompt = false;
-const AUTOSAVE_DELAY_MS = 30_000; // 30 seconds
+/** When the first change the pending save holds came in. */
+let _firstUnsavedAt = 0;
+/**
+ * Delay after the last drawing change. Short enough that a reload a few seconds after
+ * stamping a prop keeps it (30 s lost stamps); long enough to batch a run of strokes.
+ */
+export const AUTOSAVE_DELAY_MS = 5_000;
+/** The longest a drawing change waits, from the first unsaved one, however the strokes run on. */
+export const AUTOSAVE_MAX_WAIT_MS = 15_000;
 /** Delay after a one-click setting (see isSettingsChange): just long enough to batch a few picks. */
 export const AUTOSAVE_PROMPT_DELAY_MS = 1_500;
 
@@ -183,8 +196,9 @@ export const AUTOSAVE_PROMPT_DELAY_MS = 1_500;
  * Start the autosave system.
  * Call once on app mount. Returns a cleanup function for unmount.
  *
- * The subscriber schedules an autosave 30 seconds after the last document
- * change. A change the listener is told is prompt (a map setting, see
+ * The subscriber schedules an autosave {@link AUTOSAVE_DELAY_MS} after the last document
+ * change, and no later than {@link AUTOSAVE_MAX_WAIT_MS} after the first change still
+ * unsaved. A change the listener is told is prompt (a map setting, see
  * `isSettingsChange`) brings the save forward to
  * {@link AUTOSAVE_PROMPT_DELAY_MS}, and later drawing does not push it back out. Whatever is still pending when the page is hidden (tab switched,
  * closed, reloaded) is saved then rather than dropped with the timer.
@@ -228,9 +242,12 @@ export function startAutosave(
 
   const handleChange = (prompt = false) => {
     const now = Date.now();
-    let due = now + (prompt ? AUTOSAVE_PROMPT_DELAY_MS : AUTOSAVE_DELAY_MS);
+    if (_debounceTimer === null) _firstUnsavedAt = now;
+    let due = prompt
+      ? now + AUTOSAVE_PROMPT_DELAY_MS
+      : Math.min(now + AUTOSAVE_DELAY_MS, _firstUnsavedAt + AUTOSAVE_MAX_WAIT_MS);
     // A prompt save already on the way keeps its slot: strokes that follow it
-    // would otherwise slide the setting back to 30 s out.
+    // would otherwise slide the setting back out to the drawing delay.
     if (_debounceTimer !== null && _duePrompt) due = Math.min(due, _dueAt);
     _duePrompt = prompt || (_debounceTimer !== null && _duePrompt);
     _dueAt = due;

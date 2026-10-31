@@ -193,6 +193,31 @@ const roomAnchor = (page: Page, name: string) =>
     name,
   )
 
+test('a stamped crate survives a reload 6 s later, saved by autosave alone', async ({ page }) => {
+  await openWarren(page)
+  await page.keyboard.press('b')
+  await waitFrame(page, 2)
+  await setBrush(page, { stampMode: true, assetIds: [CRATE], stampRotation: 0 })
+  const before = await childIds(page)
+  const at = await roomAnchor(page, 'Warren Hall')
+  const s = await screenOf(page, at.x + 1.5, at.y + 1.5)
+  await firePointer(page, 'pointermove', s.x, s.y)
+  await firePointer(page, 'pointerdown', s.x, s.y, 0.5, 1)
+  await firePointer(page, 'pointerup', s.x, s.y)
+  await waitFrame(page, 3)
+  const added = (await childIds(page)).filter((id) => !before.includes(id))
+  expect(added).toHaveLength(1)
+  // No explicit save: the drawing debounce (5 s) has to have written it.
+  await page.waitForTimeout(6_000)
+  await page.reload()
+  await waitForBoot(page)
+  await page.getByTestId('v2-map-card').first().click()
+  await expect(page.getByTestId('v2-editor')).toBeVisible()
+  const everyChild = () =>
+    inPage<string[]>(page, `(s) => s().layers.flatMap((l) => (l.children ?? []).map((c) => c.id))`)
+  await expect.poll(async () => (await everyChild()).includes(added[0])).toBe(true)
+})
+
 test('B opens the Props tab, B again never folds the dock, and the dock row fits at 1366 px', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 })
   await openWarren(page)

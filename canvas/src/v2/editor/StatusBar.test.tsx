@@ -4,6 +4,7 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { StatusBar } from './StatusBar';
+import { getLitPreview, resetViewPrefsForTests, setLitPreview } from '../viewPrefs';
 
 const grid = () => useStore.getState().grid;
 const chip = () => screen.getByTestId('v2-grid-chip');
@@ -18,6 +19,26 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe('v2 StatusBar lit chip', () => {
+  it('reads Lit · off / on beside the grid chip, and a click flips the lit preview', () => {
+    localStorage.clear();
+    resetViewPrefsForTests();
+    render(<StatusBar />);
+    const lit = screen.getByTestId('v2-lit-chip');
+    expect(lit.textContent).toBe('Lit· off');
+    expect(lit.getAttribute('data-tip')).toBe('Lit preview');
+    expect(lit.getAttribute('data-tip-key')).toBe('I');
+    expect(chip().parentElement?.nextElementSibling?.contains(lit)).toBe(true);
+    fireEvent.click(lit);
+    expect(getLitPreview()).toBe(true);
+    expect(lit.textContent).toBe('Lit· on');
+    expect(lit.getAttribute('aria-pressed')).toBe('true');
+    act(() => setLitPreview(false));
+    expect(lit.textContent).toBe('Lit· off');
+    resetViewPrefsForTests();
+  });
+});
 
 describe('v2 StatusBar zoom readout', () => {
   it('reads 100% at the zoom a map opens at', () => {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type Ref } from 'react';
-import { Check, ChevronDown, Grid3x3, Minus, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, Grid3x3, Minus, Plus, Sun, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { strokeStatus, subscribeStrokeStatus } from '@dnd/core/src/engine/tools/StampScatterTool';
+import { labelMiss, subscribeLabelMiss } from '@dnd/core/src/engine/tools/TextTool';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { useStore } from '@/store/store';
 import { selectActiveLayer, selectChildById } from '@/store/selectors';
@@ -31,6 +32,7 @@ import { lightHintFor } from './lightModel';
 import { SELECT_LOCKED_TEXT, selectHintFor } from './selectHint';
 import { useDropTarget } from './dropToLayer';
 import { isStripFocused, subscribeStripFocus } from './layerActions';
+import { setLitPreview, useLitPreview } from '../viewPrefs';
 import './selection-actions.css';
 
 const ZOOM_STEP = 1.25;
@@ -47,6 +49,18 @@ const STRIP_HINT: ToolHint = {
     { text: 'rename' },
     { text: 'Alt+eye', key: true },
     { text: 'solo' },
+  ],
+};
+
+/** The Label tool's line: placing, typing in the card, and the two keys the card answers. */
+const LABEL_TOOL_HINT: ToolHint = {
+  label: 'Label',
+  segments: [
+    { text: 'Click to place · type in the card' },
+    { text: 'Enter', key: true },
+    { text: 'done' },
+    { text: 'Esc', key: true },
+    { text: 'removes an empty label' },
   ],
 };
 
@@ -192,6 +206,29 @@ function GridControl() {
   );
 }
 
+/** "Lit · on/off": the lit preview, one click to flip it (also I, and the … menu row). */
+function LitChip() {
+  const lit = useLitPreview();
+  return (
+    <span className="v2-status__grid">
+      <button
+        type="button"
+        className={cn('v2-status__gridchip', !lit && 'v2-status__gridchip--hidden')}
+        aria-pressed={lit}
+        aria-label={`Lit preview ${lit ? 'on' : 'off'}`}
+        data-testid="v2-lit-chip"
+        data-tip="Lit preview"
+        data-tip-key="I"
+        onClick={() => setLitPreview(!lit)}
+      >
+        <Sun size={12} aria-hidden />
+        <span>Lit</span>
+        <span className="v2-status__gridstate">· {lit ? 'on' : 'off'}</span>
+      </button>
+    </span>
+  );
+}
+
 const MARQUEE_CHOICES: { value: 'all' | 'tab'; label: string; sub: string }[] = [
   { value: 'all', label: 'Everything', sub: 'every kind on the level on show' },
   { value: 'tab', label: 'This tab’s kind', sub: 'only what the dock tab up now draws' },
@@ -331,6 +368,9 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
   const selectHint = useMemo(() => (selectHintKey ? (JSON.parse(selectHintKey) as ToolHint) : null), [selectHintKey]);
   // A locked selection says so ahead of its kind's own line (a prop's, a light's keys).
   const selectLocked = selectHint?.segments[0]?.text === SELECT_LOCKED_TEXT ? selectHint : null;
+  const labelTool = useStore((s) => s.tools.activeTool === 'text');
+  // Why the Label tool's last click placed nothing, for a moment.
+  const labelMissText = useSyncExternalStore(subscribeLabelMiss, labelMiss, () => null);
   // A canvas drag over a filmstrip tile, and the strip's keys while a tile has focus.
   const dropTarget = useDropTarget();
   const stripFocused = useSyncExternalStore(subscribeStripFocus, isStripFocused, () => false);
@@ -415,6 +455,10 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
           <ToolHintLine hint={propHint} />
         ) : lightHint ? (
           <ToolHintLine hint={lightHint} />
+        ) : labelTool && labelMissText ? (
+          <ToolHintLine hint={{ label: 'Label', segments: [{ text: labelMissText }] }} />
+        ) : labelTool ? (
+          <ToolHintLine hint={LABEL_TOOL_HINT} />
         ) : stripFocused ? (
           <ToolHintLine hint={STRIP_HINT} />
         ) : selectHint ? (
@@ -431,6 +475,7 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
       )}
       <MarqueeChip />
       <GridControl />
+      <LitChip />
       <span className="v2-status__sep" />
       <div className="v2-status__zoom">
         <button
