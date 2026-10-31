@@ -955,3 +955,37 @@ describe('subscribeToStore — background layer visibility/opacity reach sceneGr
     expect(sceneGraph.backgroundLayer.alpha).toBe(0.42);
   });
 });
+
+describe('subscribeToStore — the labels show row', () => {
+  let unsub: () => void;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    flushLayerDraws();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    unsub?.();
+    flushLayerDraws();
+  });
+
+  it('hides and shows the labels sublayer with sublayerVisibility.labels', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
+    unsub = subscribeToStore(engine, sceneGraph, new LightManager());
+    flushLayerDraws();
+    const entry = getLayerEntry(layerId)!;
+    useStore.getState().setSublayerVisibility(layerId, 'labels', false);
+    expect(entry.sublayers!.labels.visible).toBe(false);
+    useStore.getState().setSublayerVisibility(layerId, 'labels', true);
+    expect(entry.sublayers!.labels.visible).toBe(true);
+  });
+
+  it('shows labels on a layer saved before the row existed', () => {
+    const layerId = seed({ sublayerVisibility: { floor: true, grid: true, walls: true } });
+    getLayerEntry(layerId)!.sublayers!.labels.visible = false;
+    unsub = subscribeToStore(engine, sceneGraph, new LightManager());
+    flushLayerDraws();
+    expect(getLayerEntry(layerId)!.sublayers!.labels.visible).toBe(true);
+  });
+});

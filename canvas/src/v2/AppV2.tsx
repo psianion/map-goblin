@@ -8,7 +8,7 @@ import { NewMapModal } from './NewMapModal';
 import { EditorShell } from './editor/EditorShell';
 import { initTheme, useTheme } from './theme';
 import { readDesk } from './desk';
-import { initLightBrush, initPropPrefs, initRoomPrefs, useLitPreview } from './viewPrefs';
+import { initLightBrush, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from './viewPrefs';
 import './v2.css';
 import './editor/v2-editor.css';
 
@@ -18,6 +18,8 @@ initTheme();
 initRoomPrefs();
 // The prop view (see under overhead) as the DM last left it.
 initPropPrefs();
+// What the marquee picks (the status bar's chip), as the DM last left it.
+initMarqueePrefs();
 // The Lights dock's brush (the next light) as the DM last set it; the Torch preset at first.
 initLightBrush();
 

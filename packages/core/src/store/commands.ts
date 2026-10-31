@@ -77,6 +77,11 @@ export class CompositeCommand implements Command {
     return this.commands.some((c) => c.affectsRooms);
   }
 
+  /** A group holding a layer or level step restores the active layer like that step. */
+  get restoresUi(): boolean {
+    return this.commands.some((c) => c.restoresUi);
+  }
+
   execute(): void {
     for (const cmd of this.commands) {
       cmd.execute();
@@ -314,6 +319,7 @@ export class UpdateChildCommand implements Command {
  */
 export class ReorderLayerCommand implements Command {
   readonly label: string;
+  readonly restoresUi = true;
   private fromIndex: number;
   private toIndex: number;
 
@@ -337,6 +343,7 @@ export class ReorderLayerCommand implements Command {
  */
 export class AddLayerCommand implements Command {
   readonly label: string;
+  readonly restoresUi = true;
   private layer: Layer;
   private layerId: string;
 
@@ -367,6 +374,7 @@ export class AddLayerCommand implements Command {
  */
 export class RemoveLayerCommand implements Command {
   readonly label: string;
+  readonly restoresUi = true;
   private layerId: string;
   private snapshot: Layer | null = null;
   private layerIndex: number = -1;
@@ -390,7 +398,8 @@ export class RemoveLayerCommand implements Command {
     const state = useStore.getState();
     state.addLayer(structuredClone(this.snapshot));
     if (this.layerIndex >= 0) {
-      const currentIndex = state.layers.findIndex((l) => l.id === this.layerId);
+      // Read the layers after the add: the state captured above predates it.
+      const currentIndex = useStore.getState().layers.findIndex((l) => l.id === this.layerId);
       if (currentIndex !== -1 && currentIndex !== this.layerIndex) {
         state.reorderLayers(currentIndex, this.layerIndex);
       }

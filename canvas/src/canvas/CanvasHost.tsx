@@ -30,6 +30,8 @@ import { mountZoneOverlay } from './zoneOverlay';
 import { mountRoomConnectorOverlay } from './roomConnectorOverlay';
 import { mountRoomOverlay } from '@/v2/canvas/roomOverlay';
 import { mountPropOverlay } from '@/v2/canvas/propOverlay';
+import { mountSelectionOverlay } from '@/v2/canvas/selectionOverlay';
+import { mountDropToLayer } from '@/v2/editor/dropToLayer';
 import { mountLightOverlay } from '@/v2/canvas/lightOverlay';
 import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
 import { setRoomHighlightEnabled } from '@dnd/core/src/engine/roomHighlight';
@@ -205,11 +207,17 @@ export function CanvasHost() {
         // Locks and selected groups, v2 only like the rooms.
         const propOverlay = mountPropOverlay(pixiEngine);
         if (import.meta.env.DEV) (window as Window & { __propOverlay?: typeof propOverlay }).__propOverlay = propOverlay;
+        // Locked members of the selection: a dashed outline and a padlock, no handles.
+        const selectionOverlay = mountSelectionOverlay(pixiEngine);
+        if (import.meta.env.DEV) (window as Window & { __selectionOverlay?: typeof selectionOverlay }).__selectionOverlay = selectionOverlay;
         // The selected light's rings and handles, and the Light tool's ghost rings.
         const lightOverlay = mountLightOverlay(pixiEngine);
         if (import.meta.env.DEV) (window as Window & { __lightOverlay?: typeof lightOverlay }).__lightOverlay = lightOverlay;
         const unregLightPress = registerCanvasPressHandler((sx, sy) => lightOverlay.pressAt(sx, sy));
+        // A canvas drag released over a filmstrip tile moves the selection to that layer.
+        const unmountDropToLayer = mountDropToLayer(sceneGraph.toolManager, pixiEngine.canvas());
         unmountRoomConnectorOverlay = () => {
+          unmountDropToLayer();
           unregPress();
           unregLightPress();
           lightOverlay.destroy();
@@ -217,6 +225,7 @@ export function CanvasHost() {
           setRoomHighlightEnabled(true);
           roomOverlay.destroy();
           propOverlay.destroy();
+          selectionOverlay.destroy();
         };
       } else {
         unmountRoomConnectorOverlay = mountRoomConnectorOverlay(sceneGraph.worldContainer);

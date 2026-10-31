@@ -6,6 +6,7 @@ export interface LevelActions {
   removeLevel: (levelId: string) => void;
   updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook }) => void;
   setLayerLevel: (layerId: string, levelId: string) => void;
+  reorderLevel: (from: number, to: number) => void;
 }
 
 /**
@@ -57,5 +58,12 @@ export const createLevelsSlice: StateCreator<
       if (!state.levels.some((l) => l.id === levelId)) return;
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer) layer.levelId = levelId;
+    }),
+  reorderLevel: (from, to) =>
+    set((state) => {
+      const n = state.levels.length;
+      if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+      const [level] = state.levels.splice(from, 1);
+      state.levels.splice(to, 0, level);
     }),
 });

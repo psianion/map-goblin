@@ -574,7 +574,7 @@ test('a sibling swap from the card keeps the footprint; Replace opens the librar
   expect(await inPage(page, `(s) => s().ui.propReplaceIds`)).toBeNull()
 })
 
-test('a locked prop ignores clicks, offers Unlock on right-click, and unlocks', async ({ page }) => {
+test('a locked prop selects on click but never moves, offers Unlock on right-click, and unlocks', async ({ page }) => {
   await openWarren(page)
   // The boulder: no light sits on it, so a click and a right-click reach the prop itself.
   const BOULDER = 'gg-demo:boulder_2x2_object_A'
@@ -585,10 +585,17 @@ test('a locked prop ignores clicks, offers Unlock on right-click, and unlocks', 
   expect(await inPage<string[]>(page, `(s) => s().selection.selectedIds`)).toEqual([boulder.id])
   await page.getByTestId('v2-selection-card').getByRole('switch', { name: 'Lock', exact: true }).click()
   expect((await propOf(page, BOULDER)).locked).toBe(true)
-  await expect(page.getByTestId('v2-status-hint')).toContainText('Locked: right-click to unlock')
+  // A locked selection's line is the Select tool's locked one, ahead of the prop's keys.
+  await expect(page.getByTestId('v2-status-hint')).toContainText('Locked · Unlock in the card')
   await select(page, [])
+  // Locked on its own: a click still selects it (its card can unlock it), a drag never moves it.
   await click(page, at)
-  expect(await inPage<string[]>(page, `(s) => s().selection.selectedIds`)).not.toContain(boulder.id)
+  expect(await inPage<string[]>(page, `(s) => s().selection.selectedIds`)).toContain(boulder.id)
+  await firePointer(page, 'pointerdown', at.x, at.y, 0.5, 1)
+  await firePointer(page, 'pointermove', at.x + 60, at.y + 20, 0.5, 1)
+  await firePointer(page, 'pointerup', at.x + 60, at.y + 20, 0, 0)
+  await waitFrame(page, 2)
+  expect((await propOf(page, BOULDER)).x).toBeCloseTo(boulder.x)
 
   await rightClick(page, at)
   const unlock = page.getByRole('menuitem', { name: 'Unlock' })
@@ -889,12 +896,14 @@ test('selection fixes: the outline follows card edits, the box survives lock and
   await page.screenshot({ path: test.info().outputPath('align-menu.png') })
   await page.keyboard.press('Escape')
 
-  // A locked prop: the floating bar offers Unlock and nothing else.
+  // A locked prop: the card's action row offers Unlock and the menu, nothing else (the
+  // floating bar is gone on v2; its verbs live in the card header).
   await select(page, [barrel.id])
   await page.getByTestId('v2-selection-card').getByRole('switch', { name: 'Lock', exact: true }).click()
   const bar = page.getByRole('toolbar', { name: 'Selection actions' })
   await expect(bar).toBeVisible()
-  await expect(bar.getByRole('button')).toHaveCount(1)
+  await expect(bar.getByRole('button')).toHaveCount(2)
+  await expect(bar.getByRole('button', { name: 'More' })).toBeVisible()
   await bar.getByRole('button', { name: 'Unlock' }).click()
   expect((await propOf(page, THREE[0])).locked).toBeFalsy()
   await expect(bar.getByRole('button', { name: 'Lock', exact: true })).toBeVisible()

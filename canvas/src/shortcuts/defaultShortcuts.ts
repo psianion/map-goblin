@@ -7,22 +7,36 @@ import { undoManager } from '@/store/undoManager';
 import { notify, notifyCoalesce } from '@/lib/toast';
 import {
   CompositeCommand,
-  createChildRemovalCommand,
   createSelectionRemovalCommand,
-  type SelectionRemoval,
+  UpdateChildCommand,
+  UpdateWallCommand,
 } from '@/store/commands';
 import {
   createDuplicateCommand,
-  createPropPatchCommand,
+  createMoveToLayerCommand,
   createZOrderCommand,
-  type PropPatch,
+  type AlignEdge,
   type ZOrderOp,
 } from '@dnd/core/src/store/propEdits';
-import type { AnyChild, DungeonLayer } from '@/store/types';
+import type { AnyChild, ChildClipboard, Command, DungeonLayer } from '@/store/types';
 import { conditionZoneId } from '@dnd/core/src/shared/prep';
-import { selectLayerForChild, selectLayerForSelected, selectWallById } from '@/store/selectors';
+import { isLayerShown, selectLayerForChild, selectLayerForSelected } from '@/store/selectors';
 import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
-import { snapshotChild, transformChild } from '@dnd/core/src/engine/tools/childTransform';
+import { kindCounts, resolveSelection, selectionNoun, type SelectionKind } from '@dnd/core/src/store/selectionResolve';
+import {
+  clipboardWalls,
+  createDuplicateSelectionCommand,
+  DOOR_COPY_MESSAGE,
+  wallCopyCommands,
+} from '@dnd/core/src/store/duplicateSelection';
+import {
+  alignTargetsCommand,
+  buildTargets,
+  createNudgeCommand,
+  distributeTargetsCommand,
+  flipCommand,
+  rotate90Command,
+} from '@dnd/core/src/engine/transformTargets';
 import { openNewMapRef, togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
@@ -45,14 +59,35 @@ function selectionIsAllProps(): boolean {
   );
 }
 
-/** A locked prop: the canvas verbs pass over it; the layer panel and Unlock still reach it. */
-function isLockedChild(store: ReturnType<typeof useStore.getState>, id: string): boolean {
-  const child = selectLayerForChild(store, id)?.children.find((c) => c.id === id);
-  return child?.childType === 'asset' && !!child.locked;
-}
-
-/** Said when a verb finds nothing but locked props to act on. */
+/** Said when a verb finds nothing but locked members to act on. */
 const LOCKED_MESSAGE = 'Locked: unlock to edit';
+
+/** Said when a copy finds nothing it can carry. */
+const NOTHING_TO_COPY = 'Nothing to copy: rooms stay where they are';
+
+/**
+ * What Copy and Cut put on the clipboard for `ids` (the selection by default): the
+ * children, and drawn walls with the doors on them. A door copied without its wall is left
+ * out (it lives on its wall), as is a room. Null, with the reason said, when nothing is left.
+ */
+function copyableSelection(
+  store: ReturnType<typeof useStore.getState>,
+  ids: readonly string[] = store.selection.selectedIds,
+): { clipboard: ChildClipboard; count: number } | null {
+  const sel = resolveSelection(store, ids);
+  const wallIds = new Set(sel.walls.map((w) => w.wall.id));
+  const loneDoors = sel.children.filter(({ child }) => child.childType === 'door' && !wallIds.has(child.wallId));
+  const children = sel.children
+    .filter(({ child }) => child.childType !== 'door')
+    .map(({ child }) => structuredClone(child) as AnyChild);
+  const walls = clipboardWalls(store, sel.walls.map((w) => w.wall.id));
+  const count = children.length + walls.length;
+  if (count === 0) {
+    notify.warning(loneDoors.length > 0 ? DOOR_COPY_MESSAGE : NOTHING_TO_COPY);
+    return null;
+  }
+  return { clipboard: walls.length > 0 ? { children, walls } : { children }, count };
+}
 
 /**
  * Delete/cut via the layers panel selection go through `selectLayerForChild`
@@ -80,18 +115,22 @@ function blockedChildrenLayerReason(store: ReturnType<typeof useStore.getState>,
 const counted = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 /**
- * The delete toast: "Deleted 1 shape" as it always read for children, with the walls
- * and the doors that went with them named when there are any.
+ * The delete toast: what was deleted named by its kind ("Deleted 1 wall", "Deleted 4
+ * props", "Deleted 3 objects" for a mix), and the doors that went with the walls.
  */
-export function deletedMessage(r: Pick<SelectionRemoval, 'children' | 'walls' | 'doors' | 'rooms'>): string {
-  const parts: string[] = [];
-  const rooms = r.rooms ?? 0;
-  if (r.children > 0 || (r.walls === 0 && r.doors === 0 && rooms === 0)) parts.push(counted(r.children, 'shape', 'shapes'));
-  if (rooms > 0) parts.push(counted(rooms, 'room', 'rooms'));
-  if (r.walls > 0) parts.push(counted(r.walls, 'wall', 'walls'));
-  if (r.doors > 0) parts.push(counted(r.doors, 'door', 'doors'));
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
-  return `Deleted ${list}`;
+export function deletedMessage(kinds: Partial<Record<SelectionKind, number>>, doorsWithWalls = 0): string {
+  const what = selectionNoun(kinds) || '0 objects';
+  return doorsWithWalls > 0 ? `Deleted ${what} and ${counted(doorsWithWalls, 'door', 'doors')}` : `Deleted ${what}`;
+}
+
+/** The kinds of what a removal of `ids` takes on purpose: the doors riding on its walls left out. */
+function removedKinds(state: Parameters<typeof resolveSelection>[0], ids: readonly string[]): Partial<Record<SelectionKind, number>> {
+  const sel = resolveSelection(state, ids);
+  const walls = new Set(sel.walls.map((w) => w.wall.id));
+  const kept = sel.children.filter(({ child }) => !(child.childType === 'door' && walls.has(child.wallId)));
+  const kinds = kindCounts(kept.map((c) => c.child), sel.walls.length);
+  if (sel.rooms.length > 0) kinds.room = sel.rooms.length;
+  return kinds;
 }
 
 /**
@@ -109,166 +148,88 @@ function selectionShortcutsApply(store: ReturnType<typeof useStore.getState>): b
   );
 }
 
-/** Selected children paired with their owning layer, in selection order. Locked props sit out. */
+/** Selected children paired with their owning layer, in selection order. Locked members sit out. */
 function selectedChildEntries(
   store: ReturnType<typeof useStore.getState>,
 ): { layer: DungeonLayer; child: AnyChild }[] {
-  const out: { layer: DungeonLayer; child: AnyChild }[] = [];
-  for (const id of store.selection.selectedIds) {
-    const layer = selectLayerForChild(store, id);
-    if (!layer) continue;
-    const child = layer.children.find((c) => c.id === id);
-    if (child && !(child.childType === 'asset' && child.locked)) out.push({ layer, child });
-  }
-  return out;
+  return resolveSelection(store, store.selection.selectedIds).children.filter(({ child }) => !child.locked);
 }
 
-/** The values `child` holds now for each key `after` writes, so undo restores exactly those. */
-function beforeFor(child: AnyChild, after: Partial<AnyChild>): Partial<AnyChild> {
-  const before: Partial<AnyChild> = {};
-  for (const key of Object.keys(after)) {
-    (before as Record<string, unknown>)[key] = structuredClone(
-      (child as unknown as Record<string, unknown>)[key],
-    );
-  }
-  return before;
+/** Said when a batch leaves locked members where they are: "3 locked objects skipped". */
+function lockedSkipped(n: number): void {
+  if (n > 0) notify.warning(`${n} locked object${n === 1 ? '' : 's'} skipped`);
 }
 
 /**
- * Move every selected child by (dx, dy) world squares as one undo entry.
- * Goes through childTransform so shapes bake their pending transform the same
- * way a gizmo drag does. Returns false when nothing was nudged, so the key
- * event can fall through to whoever wants arrows next.
+ * The gate every selection verb passes: the Select tool (or, for the card's buttons, any
+ * tool), a selection, no node edit. False when it does not apply at all (the key falls
+ * through); null when it applies but a member's layer is locked or hidden (said, consumed).
+ */
+function verbGate(anyTool: boolean): boolean | null {
+  const store = useStore.getState();
+  const ok = anyTool
+    ? store.selection.selectedIds.length > 0 && !store.tools.nodeEditWallId && !store.tools.shapeNodeEditId
+    : selectionShortcutsApply(store);
+  if (!ok) return false;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return null;
+  }
+  return true;
+}
+
+/**
+ * Move the selection by (dx, dy) world squares: every kind through its transform target
+ * (walls with their doors, doors along their wall), locked members left where they are.
+ * A run of presses on one selection folds into one undo entry (NudgeCommand). Returns
+ * false when nothing could move, so the key falls through to whoever wants arrows next.
  */
 function nudgeSelection(dx: number, dy: number): void | false {
+  const gate = verbGate(false);
+  if (gate !== true) return gate === false ? false : undefined;
   const store = useStore.getState();
-  if (!selectionShortcutsApply(store)) return false;
-  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
-  if (reason) {
-    notify.warning(reason);
-    return;
+  const { command, locked } = createNudgeCommand(store, store.selection.selectedIds, dx, dy);
+  if (!command) {
+    if (locked > 0) {
+      notify.warning(LOCKED_MESSAGE);
+      return;
+    }
+    return false;
   }
-  const t = {
-    translateX: dx, translateY: dy, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0,
-  };
-  const edits: PropPatch[] = [];
-  for (const { layer, child } of selectedChildEntries(store)) {
-    const snap = snapshotChild(child);
-    if (snap.kind === 'none') continue;
-    const after = transformChild(snap, t);
-    edits.push({ layerId: layer.id, id: child.id, before: beforeFor(child, after), after });
-  }
-  if (edits.length === 0) return false;
-  // Through the prop patch: the lights attached to a nudged prop come along.
-  undoManager.execute(createPropPatchCommand('Nudge', edits));
+  undoManager.execute(command);
 }
 
 /**
- * Flip selected children in place. Assets toggle flipX/flipY (the sprite
- * mirrors, bounds don't change); shapes and water mirror their rings about
- * their own bbox centre, order reversed so winding survives. Text and lights
- * have nothing to mirror and pass through unchanged.
+ * Flip the selection in place, each member about its own centre: props mirror their art,
+ * floors, water and drawn walls their outline. Labels, lights and zones have nothing to
+ * mirror and pass through unchanged.
  */
-function flipSelection(axis: 'h' | 'v'): void | false {
+export function flipSelection(axis: 'h' | 'v', anyTool = false): void | false {
+  const gate = verbGate(anyTool);
+  if (gate !== true) return gate === false ? false : undefined;
   const store = useStore.getState();
-  if (!selectionShortcutsApply(store)) return false;
-  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
-  if (reason) {
-    notify.warning(reason);
-    return;
-  }
-  const label = axis === 'h' ? 'Flip horizontal' : 'Flip vertical';
-  const edits: PropPatch[] = [];
-  for (const { layer, child } of selectedChildEntries(store)) {
-    if (child.childType === 'asset') {
-      const key = axis === 'h' ? 'flipX' : 'flipY';
-      edits.push({
-        layerId: layer.id,
-        id: child.id,
-        before: { [key]: child[key] } as Partial<AnyChild>,
-        after: { [key]: !child[key] } as Partial<AnyChild>,
-      });
-    } else if (child.childType === 'shape' || child.childType === 'water') {
-      // Mirror the baked rings about the child's own centre.
-      const snap = snapshotChild(child);
-      if (snap.kind !== 'rings') continue;
-      const pts = snap.contours.flat();
-      if (pts.length === 0) continue;
-      const xs = pts.map((p) => p[0]);
-      const ys = pts.map((p) => p[1]);
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const mirrorPt = ([x, y]: [number, number]): [number, number] =>
-        axis === 'h' ? [2 * cx - x, y] : [x, 2 * cy - y];
-      const mirrored = snap.contours.map((ring) => ring.map(mirrorPt).reverse());
-      // Curve handles mirror with their ring — and because the ring's order is
-      // reversed, each vertex's incoming edge becomes its outgoing one, so the
-      // in/out pair swaps sides too.
-      const mirroredTangents = snap.tangents?.map((rt, r) =>
-        Array.from({ length: snap.contours[r]?.length ?? 0 }, (_, i) => {
-          const vt = rt?.[i];
-          return vt
-            ? {
-                ...(vt.tout ? { tin: mirrorPt(vt.tout) } : {}),
-                ...(vt.tin ? { tout: mirrorPt(vt.tin) } : {}),
-              }
-            : null;
-        }).reverse(),
-      );
-      // Only shapes carry an optional baked-in transform; snapshotChild folded
-      // it into the rings above, so the patch must clear it on shapes only.
-      const before = (child.childType === 'shape'
-        ? { contours: structuredClone(child.contours), tangents: structuredClone(child.tangents), transform: child.transform }
-        : { contours: structuredClone(child.contours), tangents: structuredClone(child.tangents) }) as Partial<AnyChild>;
-      const after = (child.childType === 'shape'
-        ? { contours: mirrored, tangents: mirroredTangents, transform: undefined }
-        : { contours: mirrored, tangents: mirroredTangents }) as Partial<AnyChild>;
-      edits.push({ layerId: layer.id, id: child.id, before, after });
-    }
-  }
-  if (edits.length === 0) return false;
-  // The lights attached to a flipped prop mirror with it.
-  undoManager.execute(createPropPatchCommand(label, edits));
-  notify.subtle(label, { icon: 'tool' });
+  const { targets, locked } = buildTargets(store, store.selection.selectedIds);
+  const cmd = flipCommand(targets, axis);
+  lockedSkipped(locked.length);
+  if (!cmd) return locked.length > 0 ? undefined : false;
+  undoManager.execute(cmd);
+  notify.subtle(cmd.label, { icon: 'tool' });
 }
 
 /**
- * Rotate the selection a quarter turn clockwise, each child about its own
- * centre. Exported for the floating action bar — it has no key binding.
+ * Rotate the selection a quarter turn clockwise, each member about its own centre
+ * (Shift+R, the card and the menus). Lights have no turn.
  */
-export function rotateSelection90(): void | false {
+export function rotateSelection90(anyTool = false): void | false {
+  const gate = verbGate(anyTool);
+  if (gate !== true) return gate === false ? false : undefined;
   const store = useStore.getState();
-  if (!selectionShortcutsApply(store)) return false;
-  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
-  if (reason) {
-    notify.warning(reason);
-    return;
-  }
-  const edits: PropPatch[] = [];
-  for (const { layer, child } of selectedChildEntries(store)) {
-    const snap = snapshotChild(child);
-    if (snap.kind === 'none' || snap.kind === 'radius') continue; // lights have no orientation
-    let anchorX = 0;
-    let anchorY = 0;
-    if (snap.kind === 'rings') {
-      const pts = snap.contours.flat();
-      if (pts.length === 0) continue;
-      const xs = pts.map((p) => p[0]);
-      const ys = pts.map((p) => p[1]);
-      anchorX = (Math.min(...xs) + Math.max(...xs)) / 2;
-      anchorY = (Math.min(...ys) + Math.max(...ys)) / 2;
-    } else {
-      anchorX = snap.position.x;
-      anchorY = snap.position.y;
-    }
-    const after = transformChild(snap, {
-      translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: Math.PI / 2, anchorX, anchorY,
-    });
-    edits.push({ layerId: layer.id, id: child.id, before: beforeFor(child, after), after });
-  }
-  if (edits.length === 0) return false;
-  // The lights attached to a turned prop turn with it.
-  undoManager.execute(createPropPatchCommand('Rotate 90°', edits));
+  const { targets, locked } = buildTargets(store, store.selection.selectedIds);
+  const cmd = rotate90Command(targets);
+  lockedSkipped(locked.length);
+  if (!cmd) return locked.length > 0 ? undefined : false;
+  undoManager.execute(cmd);
 }
 
 /** Restack the selected children (array order is draw order), one undo entry. v2 only. */
@@ -276,6 +237,12 @@ function orderSelection(op: ZOrderOp): void | false {
   if (!isV2Route()) return false;
   const store = useStore.getState();
   if (!selectionShortcutsApply(store)) return false;
+  orderSelectionNow(op);
+}
+
+/** The restack itself, from any tool (the mixed card's Order row). */
+export function orderSelectionNow(op: ZOrderOp): void {
+  const store = useStore.getState();
   const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
   if (reason) {
     notify.warning(reason);
@@ -285,6 +252,187 @@ function orderSelection(op: ZOrderOp): void | false {
   const cmd = ids.length > 0 ? createZOrderCommand(ids, op) : null;
   if (!cmd) return;
   undoManager.execute(cmd);
+}
+
+/** Align the selection's members with a box to an edge of their union (2+), one step. */
+export function alignSelection(edge: AlignEdge): void {
+  if (verbGate(true) !== true) return;
+  const store = useStore.getState();
+  const { targets, locked } = buildTargets(store, store.selection.selectedIds);
+  const cmd = alignTargetsCommand(targets, edge);
+  lockedSkipped(locked.length);
+  if (cmd) undoManager.execute(cmd);
+}
+
+/** Space three or more members evenly along an axis, one step. */
+export function distributeSelection(axis: 'h' | 'v'): void {
+  if (verbGate(true) !== true) return;
+  const store = useStore.getState();
+  const { targets, locked } = buildTargets(store, store.selection.selectedIds);
+  const cmd = distributeTargetsCommand(targets, axis);
+  lockedSkipped(locked.length);
+  if (cmd) undoManager.execute(cmd);
+}
+
+/** Move the selection to another layer, walls with their doors; locked members stay. */
+export function moveSelectionToLayer(targetLayerId: string): void {
+  const store = useStore.getState();
+  const sel = resolveSelection(store, store.selection.selectedIds);
+  const ids = store.selection.selectedIds.filter((id) => !sel.locked.includes(id));
+  lockedSkipped(sel.locked.length);
+  const cmd = ids.length > 0 ? createMoveToLayerCommand(ids, targetLayerId) : null;
+  if (cmd) undoManager.execute(cmd);
+}
+
+/** Duplicate the selection one square right and down; the selection follows the copies. */
+function duplicateSelection(anyTool: boolean): void | false {
+  const gate = verbGate(anyTool);
+  if (gate !== true) return gate === false ? false : undefined;
+  const store = useStore.getState();
+  // Children in their own layers, drawn walls with their doors; a door alone stays on its
+  // wall, a room stays where it is. Locked members are copied unlocked.
+  const { command, newIds, doorsSkipped } = createDuplicateSelectionCommand(store.layers, store.selection.selectedIds);
+  if (doorsSkipped > 0) notify.warning(DOOR_COPY_MESSAGE);
+  if (!command) return;
+  undoManager.execute(command);
+  // Selection follows the copies, so Ctrl+D, drag, Ctrl+D chains work.
+  useStore.getState().setSelectedIds(newIds);
+  notify.subtle(`Duplicated ${selectionNoun(resolveSelection(useStore.getState(), newIds).kinds)}`, { icon: 'copy' });
+}
+
+/**
+ * Lock the selection, every kind (rooms have no lock): one step. When everything that can
+ * lock already is, unlock it instead, so the key toggles; `lock` forces one way.
+ */
+export function toggleLockSelection(lock?: boolean): void {
+  const store = useStore.getState();
+  const sel = resolveSelection(store, store.selection.selectedIds);
+  const members = sel.children.length + sel.walls.length;
+  if (members === 0) return;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+  const next = lock ?? sel.locked.length < members;
+  const label = next ? 'Lock' : 'Unlock';
+  const cmds: Command[] = [];
+  for (const { child, layer } of sel.children) {
+    if (!!child.locked === next) continue;
+    cmds.push(new UpdateChildCommand(label, layer.id, child.id, { locked: child.locked }, { locked: next }));
+  }
+  for (const { wall, layer } of sel.walls) {
+    if (!!wall.locked === next) continue;
+    cmds.push(new UpdateWallCommand(layer.id, wall.id, { locked: wall.locked }, { locked: next }));
+  }
+  if (cmds.length === 0) return;
+  undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
+  const changed = kindCounts(
+    sel.children.filter(({ child }) => !!child.locked !== next).map((c) => c.child),
+    sel.walls.filter(({ wall }) => !!wall.locked !== next).length,
+  );
+  notify.subtle(`${label}ed ${selectionNoun(changed)}`, { icon: 'tool' });
+}
+
+/**
+ * Hide the selection, every kind but rooms: hidden objects draw nowhere and are never
+ * picked, so they leave the selection too. Undo brings them back, selected.
+ */
+export function hideSelection(): void {
+  const store = useStore.getState();
+  const sel = resolveSelection(store, store.selection.selectedIds);
+  if (sel.children.length + sel.walls.length === 0) return;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+  const cmds: Command[] = [];
+  for (const { child, layer } of sel.children) {
+    if (!child.visible) continue;
+    cmds.push(new UpdateChildCommand('Hide', layer.id, child.id, { visible: true }, { visible: false }));
+  }
+  for (const { wall, layer } of sel.walls) {
+    if (wall.visible === false) continue;
+    cmds.push(new UpdateWallCommand(layer.id, wall.id, { visible: wall.visible }, { visible: false }));
+  }
+  if (cmds.length === 0) return;
+  undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Hide', cmds));
+  const hidden = new Set([...sel.children.map((c) => c.child.id), ...sel.walls.map((w) => w.wall.id)]);
+  useStore.getState().setSelectedIds(useStore.getState().selection.selectedIds.filter((id) => !hidden.has(id)));
+  notify.action(`Hid ${selectionNoun(kindCounts(sel.children.map((c) => c.child), sel.walls.length))}`, {
+    label: 'Undo',
+    onClick: () => undoManager.undo(),
+    icon: 'eye',
+  });
+}
+
+/** Ctrl+A: a second press within this long reaches every shown layer, ms. */
+const SELECT_ALL_AGAIN_MS = 1000;
+let lastSelectAll = -Infinity;
+
+/** Every shown child and drawn wall on `layer`: what Ctrl+A takes. */
+function selectableOn(layer: DungeonLayer): string[] {
+  const walls = layer.sublayerVisibility?.walls === false ? [] : layer.standaloneWalls.filter((w) => w.visible !== false);
+  return [...layer.children.filter((c) => c.visible).map((c) => c.id), ...walls.map((w) => w.id)];
+}
+
+/** Select everything on the active layer; pressed again within a second, on every shown layer. */
+function selectAll(): void | false {
+  const store = useStore.getState();
+  if (store.tools.activeTool !== 'select' || store.tools.nodeEditWallId || store.tools.shapeNodeEditId) return false;
+  const now = Date.now();
+  const again = now - lastSelectAll <= SELECT_ALL_AGAIN_MS;
+  lastSelectAll = now;
+  const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  if (again) {
+    const shown = layers.filter((l) => isLayerShown(store, l) && !l.locked);
+    store.setSelectedIds(shown.flatMap(selectableOn));
+    notify.subtle('Selected every shown layer', { icon: 'tool' });
+    return;
+  }
+  const active = layers.find((l) => l.id === store.ui.activeLayerId);
+  if (!active) {
+    notify.warning(noEditableLayerMessage());
+    return;
+  }
+  if (active.locked) {
+    notify.warning('Layer is locked');
+    return;
+  }
+  store.setSelectedIds(selectableOn(active));
+}
+
+/** The verbs the selection card's header buttons run (from any tool). */
+export type SelectionVerb = 'flipH' | 'flipV' | 'rotate' | 'duplicate' | 'lock' | 'unlock' | 'hide' | 'delete';
+
+export function runSelectionVerb(verb: SelectionVerb): void {
+  switch (verb) {
+    case 'flipH':
+      flipSelection('h', true);
+      return;
+    case 'flipV':
+      flipSelection('v', true);
+      return;
+    case 'rotate':
+      rotateSelection90(true);
+      return;
+    case 'duplicate':
+      duplicateSelection(true);
+      return;
+    case 'lock':
+      toggleLockSelection(true);
+      return;
+    case 'unlock':
+      toggleLockSelection(false);
+      return;
+    case 'hide':
+      hideSelection();
+      return;
+    case 'delete':
+      toolKeyMap['delete']?.();
+      return;
+  }
 }
 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
@@ -465,30 +613,21 @@ const toolKeyMap: Record<string, () => void | false> = {
     const store = useStore.getState();
     if (store.tools.activeTool !== 'select') return false;
 
-    // Object-based copy: copy selected children
+    // Object-based copy: the selected children, and drawn walls with the doors on them.
     if (store.selection.selectedIds.length > 0) {
-      const children = store.selection.selectedIds
-        .map((id) => {
-          for (const layer of store.layers) {
-            if (layer.type !== 'dungeon') continue;
-            const child = layer.children.find((c) => c.id === id);
-            if (child) return structuredClone(child);
-          }
-          return undefined;
-        })
-        .filter(Boolean);
-      if (children.length > 0) {
-        store.setClipboard({ children: children as AnyChild[] });
-        notify.subtle(children.length === 1 ? 'Copied' : `Copied ${children.length} items`, { icon: 'copy' });
-      }
+      const copied = copyableSelection(store);
+      if (!copied) return;
+      store.setClipboard(copied.clipboard);
+      notify.subtle(copied.count === 1 ? 'Copied' : `Copied ${copied.count} items`, { icon: 'copy' });
       return;
     }
   },
   'ctrl+v': (): void | false => {
     const store = useStore.getState();
 
-    // Object-based paste: duplicate children with new IDs
-    if (store.selection.clipboard && store.selection.clipboard.children.length > 0) {
+    // Object-based paste: duplicate children (and drawn walls) with new IDs
+    const clip = store.selection.clipboard;
+    if (clip && (clip.children.length > 0 || (clip.walls?.length ?? 0) > 0)) {
       const activeLayerId = store.ui.activeLayerId;
       // Same exists/dungeon/unlocked/visible check the canvas guards
       // pointerDown with — paste is a canvas-triggered mutation too, and had
@@ -510,16 +649,32 @@ const toolKeyMap: Record<string, () => void | false> = {
         return;
       }
       // The one duplicate path: copies offset one square, attached lights glued to the
-      // copies, no copy left pointing at a group the layer does not have.
-      const { command } = createDuplicateCommand(store.layers, [], {
-        children: store.selection.clipboard.children,
-        targetLayerId: activeLayerId,
-        label: 'Paste',
-      });
-      if (!command) return;
-      undoManager.execute(command);
-      const count = store.selection.clipboard.children.length;
-      notify.action(count === 1 ? 'Pasted 1 shape' : `Pasted ${count} shapes`, {
+      // copies, no copy left pointing at a group the layer does not have. Walls land on
+      // the active layer too, their doors re-bound to the copies.
+      const cmds: Command[] = [];
+      const pasted: string[] = [];
+      if (clip.children.length > 0) {
+        const { command, newIds } = createDuplicateCommand(store.layers, [], {
+          children: clip.children,
+          targetLayerId: activeLayerId,
+          label: 'Paste',
+        });
+        if (command) {
+          cmds.push(command);
+          pasted.push(...newIds);
+        }
+      }
+      if (clip.walls?.length) {
+        const walls = wallCopyCommands('Paste', clip.walls, activeLayerId, 1, 1);
+        cmds.push(...walls.commands);
+        pasted.push(...walls.newIds);
+      }
+      if (cmds.length === 0) return;
+      undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Paste', cmds));
+      // What was pasted is the selection, so it can be moved straight away; undo then
+      // redo hands it back (the entry records the selection held when it is undone).
+      useStore.getState().setSelectedIds(pasted);
+      notify.action(`Pasted ${selectionNoun(kindCounts(clip.children, clip.walls?.length ?? 0))}`, {
         label: 'Undo',
         onClick: () => undoManager.undo(),
         icon: 'paste',
@@ -530,23 +685,19 @@ const toolKeyMap: Record<string, () => void | false> = {
     // Region-based paste not implemented in v2.0
     return false;
   },
-  'ctrl+d': (): void | false => {
-    const store = useStore.getState();
-    if (!selectionShortcutsApply(store)) return false;
-    const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
-    if (reason) {
-      notify.warning(reason);
-      return;
-    }
-    // Duplicate into each child's own layer — unlike paste, which targets the
-    // active layer — offset one square like paste so the copy is visible.
-    const ids = selectedChildEntries(store).map(({ child }) => child.id);
-    const { command, newIds } = createDuplicateCommand(store.layers, ids);
-    if (!command) return false;
-    undoManager.execute(command);
-    // Selection follows the copies, so Ctrl+D, drag, Ctrl+D chains work.
-    store.setSelectedIds(newIds);
-    notify.subtle(newIds.length === 1 ? 'Duplicated' : `Duplicated ${newIds.length} items`, { icon: 'copy' });
+  // Duplicate into each member's own layer — unlike paste, which targets the active
+  // layer — offset one square like paste so the copy is visible.
+  'ctrl+d': (): void | false => duplicateSelection(false),
+  // Select everything on the active layer; again within a second, every shown layer.
+  'ctrl+a': (): void | false => selectAll(),
+  'shift+r': (): void | false => rotateSelection90(),
+  'ctrl+shift+l': (): void | false => {
+    if (!selectionShortcutsApply(useStore.getState())) return false;
+    toggleLockSelection();
+  },
+  'ctrl+shift+h': (): void | false => {
+    if (!selectionShortcutsApply(useStore.getState())) return false;
+    hideSelection();
   },
   // No canGroupSelection() gate: groupSelection warns with the specific reason
   // when it refuses, and a silently swallowed Ctrl+G is the bug.
@@ -623,43 +774,35 @@ const toolKeyMap: Record<string, () => void | false> = {
     const store = useStore.getState();
     if (store.tools.activeTool !== 'select') return false;
 
-    // Object-based cut: copy then delete. The clipboard holds children only, so a drawn
-    // wall in the selection stays where it is (Delete removes it); so does a locked prop.
+    // Object-based cut: copy then delete, walls with their doors. Locked members and rooms
+    // stay where they are.
+    const sel = resolveSelection(store, store.selection.selectedIds);
     const cutIds = store.selection.selectedIds.filter(
-      (id) => !selectWallById(store, id) && !isLockedChild(store, id),
+      (id) => !sel.locked.includes(id) && !sel.rooms.some((r) => r.room.id === id),
     );
-    if (cutIds.length === 0 && store.selection.selectedIds.length > 0) return;
+    if (cutIds.length === 0 && store.selection.selectedIds.length > 0) {
+      notify.warning(sel.locked.length > 0 ? LOCKED_MESSAGE : NOTHING_TO_COPY);
+      return;
+    }
     if (cutIds.length > 0) {
       const reason = blockedChildrenLayerReason(store, cutIds);
       if (reason) {
         notify.warning(reason);
         return;
       }
+      lockedSkipped(sel.locked.length);
 
       // Copy first
-      const children = cutIds
-        .map((id) => {
-          for (const layer of store.layers) {
-            if (layer.type !== 'dungeon') continue;
-            const child = layer.children.find((c) => c.id === id);
-            if (child) return structuredClone(child);
-          }
-          return undefined;
-        })
-        .filter(Boolean);
-      if (children.length > 0) {
-        store.setClipboard({ children: children as AnyChild[] });
-      }
+      const copied = copyableSelection(store, cutIds);
+      if (copied) store.setClipboard(copied.clipboard);
 
       // Delete selected
       warnOrphanedTriggers(store, cutIds);
-      const commands = cutIds.map((id) => {
-        const layer = selectLayerForChild(store, id);
-        return createChildRemovalCommand(layer?.id ?? '', id, 'Cut');
-      });
-      const cutCount = cutIds.length;
-      undoManager.execute(new CompositeCommand('Cut', commands));
-      notify.action(cutCount === 1 ? 'Cut 1 shape' : `Cut ${cutCount} shapes`, {
+      const cutKinds = removedKinds(store, cutIds);
+      const removal = createSelectionRemovalCommand(cutIds, 'Cut');
+      if (!removal.command) return;
+      undoManager.execute(removal.command);
+      notify.action(`Cut ${selectionNoun(cutKinds)}`, {
         label: 'Undo',
         onClick: () => undoManager.undo(),
         icon: 'scissors',
@@ -683,18 +826,21 @@ const toolKeyMap: Record<string, () => void | false> = {
       return;
     }
 
-    // A locked prop stays; the rest of the selection goes.
-    const ids = store.selection.selectedIds.filter((id) => !isLockedChild(store, id));
+    // Anything locked on its own stays; the rest of the selection goes.
+    const locked = resolveSelection(store, store.selection.selectedIds).locked;
+    const ids = store.selection.selectedIds.filter((id) => !locked.includes(id));
     if (ids.length === 0) {
       notify.warning(LOCKED_MESSAGE);
       return;
     }
+    lockedSkipped(locked.length);
     warnOrphanedTriggers(store, ids);
     // Drawn walls ride in the same selection; their doors go with them, in this one step.
+    const kinds = removedKinds(store, ids);
     const removal = createSelectionRemovalCommand(ids, 'Delete', 'Delete selected');
     if (removal.command) {
       undoManager.execute(removal.command);
-      notify.action(deletedMessage(removal), {
+      notify.action(deletedMessage(kinds, removal.doors), {
         label: 'Undo',
         onClick: () => undoManager.undo(),
         icon: 'trash',
@@ -778,6 +924,12 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.back',           keys: 'ctrl+shift+[', category: 'Edit', label: 'Send to Back' },
     { id: 'edit.nudge',          keys: 'ArrowLeft',   category: 'Edit',  label: 'Nudge 1 square (arrows)' },
     { id: 'edit.nudgeFine',      keys: 'shift+ArrowLeft', category: 'Edit', label: 'Nudge ¼ square' },
+    { id: 'edit.selectAll',      keys: 'ctrl+a',      category: 'Edit',  label: 'Select All in Layer (twice: every shown layer)' },
+    { id: 'edit.rotate90',       keys: 'shift+r',     category: 'Edit',  label: 'Rotate 90°' },
+    { id: 'edit.lock',           keys: 'ctrl+shift+l', category: 'Edit', label: 'Lock / Unlock Selection' },
+    { id: 'edit.hide',           keys: 'ctrl+shift+h', category: 'Edit', label: 'Hide Selection' },
+    { id: 'edit.selectBehind',   keys: 'alt+click',   category: 'Edit',  label: 'Select the Next Object Below' },
+    { id: 'edit.dupDrag',        keys: 'alt+drag',    category: 'Edit',  label: 'Duplicate and Move' },
     { id: 'view.fitToContent',   keys: 'ctrl+0',      category: 'View',  label: 'Fit to Content' },
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
     { id: 'view.litPreview',     keys: 'i',           category: 'View',  label: 'Toggle Lit Preview' },

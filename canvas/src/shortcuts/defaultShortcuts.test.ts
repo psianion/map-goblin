@@ -296,25 +296,27 @@ describe('delete — drawn walls', () => {
     expect(toast.warning).toHaveBeenCalledWith('Layer is hidden', expect.anything());
   });
 
-  it('ctrl+x leaves walls alone: the clipboard holds children only', () => {
+  it('ctrl+x cuts a wall like anything else: the clipboard carries it', () => {
     addWall('w', 1);
     useStore.getState().setActiveTool('select');
     useStore.getState().setSelectedIds(['w']);
     handleShortcut('ctrl+x');
-    expect(layer().standaloneWalls).toHaveLength(1);
+    expect(layer().standaloneWalls).toHaveLength(0);
+    expect(useStore.getState().selection.clipboard?.walls).toHaveLength(1);
   });
 });
 
 describe('deletedMessage', () => {
-  it('reads as it always did for children alone', () => {
-    expect(deletedMessage({ children: 1, walls: 0, doors: 0 })).toBe('Deleted 1 shape');
-    expect(deletedMessage({ children: 3, walls: 0, doors: 0 })).toBe('Deleted 3 shapes');
+  it('names what went by its kind', () => {
+    expect(deletedMessage({ shape: 1 })).toBe('Deleted 1 floor');
+    expect(deletedMessage({ asset: 3 })).toBe('Deleted 3 props');
+    expect(deletedMessage({ water: 1 })).toBe('Deleted 1 water body');
   });
 
-  it('names the walls and the doors that went with them', () => {
-    expect(deletedMessage({ children: 0, walls: 2, doors: 0 })).toBe('Deleted 2 walls');
-    expect(deletedMessage({ children: 0, walls: 1, doors: 2 })).toBe('Deleted 1 wall and 2 doors');
-    expect(deletedMessage({ children: 2, walls: 1, doors: 1 })).toBe('Deleted 2 shapes, 1 wall and 1 door');
+  it('names the walls and the doors that went with them; a mix is objects', () => {
+    expect(deletedMessage({ wall: 2 })).toBe('Deleted 2 walls');
+    expect(deletedMessage({ wall: 1 }, 2)).toBe('Deleted 1 wall and 2 doors');
+    expect(deletedMessage({ shape: 2, wall: 1 }, 1)).toBe('Deleted 3 objects and 1 door');
   });
 });
 

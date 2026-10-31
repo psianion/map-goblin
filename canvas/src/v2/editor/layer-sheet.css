@@ -171,6 +171,81 @@
   background: var(--v2-panel-3);
 }
 
+/* Layer section: Lock and Solo switches, then the verbs on one row (ink, never red). */
+.v2-lsheet__btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.v2-lsheet__btnrow .v2-rbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Background: colour field, then texture tiles. */
+.v2-lsheet__colour {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.v2-lsheet__colour .v2-ctl {
+  width: auto;
+}
+.v2-lsheet__hex {
+  width: 84px;
+  height: 28px;
+  padding: 0 8px;
+}
+.v2-lsheet__colour .v2-lsheet__note {
+  margin-left: auto;
+  align-self: center;
+}
+.v2-lsheet__texgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.v2-lsheet__tex {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--v2-line);
+  border-radius: 6px;
+  background: var(--v2-panel-2);
+  color: var(--v2-text-2);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.v2-lsheet__tex:hover {
+  border-color: var(--v2-line-strong);
+}
+.v2-lsheet__tex--on,
+.v2-lsheet__tex--on:hover {
+  border-color: var(--v2-ink);
+  box-shadow: inset 0 0 0 0.5px var(--v2-ink);
+  color: var(--v2-text);
+}
+.v2-lsheet__tex canvas,
+.v2-lsheet__texnone {
+  display: block;
+  width: 100%;
+  height: 36px;
+  border-radius: 3px;
+}
+.v2-lsheet__texnone {
+  border: 1px solid var(--v2-line);
+}
+.v2-lsheet__texname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .v2-tile .v2-tile__set,
   .v2-lsheet__room,

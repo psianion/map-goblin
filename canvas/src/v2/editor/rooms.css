@@ -131,7 +131,7 @@
 }
 /* The picker is one more fixed column the strip keeps when it gives way. */
 .v2-film:has(> .v2-level) {
-  min-width: calc((var(--v2-film-fixed, 2) + 3) * 46px + 5px + 104px);
+  min-width: calc((var(--v2-film-fixed, 2) + var(--v2-film-floor, 1)) * 62px + 2 * 46px + 5px + 104px);
 }
 
 /* ── Small menus ───────────────────────────────────────── */

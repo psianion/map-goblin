@@ -6,7 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { createDissolveGroupCommand, createGroupChildrenCommand } from '../../store/commands';
 import { setNotify } from '../../store/notify';
 import type { RenderEngine } from '../RenderEngine';
-import type { DungeonLayer } from '../../store/types';
+import type { AnyChild, DungeonLayer } from '../../store/types';
 import type { AssetChild, LightChild, ShapeChild } from '../../shared/types';
 
 // jsdom has no real <canvas> 2D context (the `canvas` npm package isn't
@@ -246,6 +246,21 @@ describe('SelectTool — shape hover dwell gate', () => {
     tool.updateGizmo();
     expect(drawn()).toBe(false);
   });
+
+  it('a hovered water body hidden from outside the canvas leaves no outline', () => {
+    const water = {
+      id: 'lake', name: 'Lake', childType: 'water', visible: true, waterType: 'lake', textureId: '', tint: '#ffffff',
+      opacity: 1, bankTextureId: '', bankWidth: 0, contours: [[[20, 20], [24, 20], [24, 24], [20, 24]]],
+    } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, water);
+    tool.onPointerMove({ x: 22, y: 22 });
+    expect(drawn()).toBe(true);
+    // The card's Hide button: the store hides it, the pointer does not move.
+    useStore.getState().updateChild(layer().id, 'lake', { visible: false });
+    tool.updateGizmo();
+    expect(drawn()).toBe(false);
+    expect(useStore.getState().selection.hoveredId).toBeNull();
+  });
 });
 
 // The lock can land after the selection does — the layers panel selects a
@@ -349,14 +364,16 @@ describe('SelectTool — props: lock, overhead, oriented gizmo', () => {
     return findChild(a.id) as AssetChild;
   }
 
-  it('lets a click pass through a locked prop', () => {
+  it('selects a locked prop on click, and a drag never moves it', () => {
     const rug = addProp({ locked: true, width: 2, height: 2 });
     tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(250, 250));
-    tool.onPointerUp({ x: 5, y: 5 }, pointerEvent(250, 250));
-    expect(useStore.getState().selection.selectedIds).not.toContain(rug.id);
+    tool.onPointerMove({ x: 8, y: 8 }, pointerEvent(400, 400));
+    tool.onPointerUp({ x: 8, y: 8 }, pointerEvent(400, 400));
+    expect(useStore.getState().selection.selectedIds).toContain(rug.id);
+    expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('leaves locked props out of a marquee', () => {
+  it('takes locked props into a marquee, so their card can unlock them', () => {
     const rug = addProp({ locked: true });
     const crate = addProp({ position: { x: 7, y: 7 } });
     tool.onPointerDown({ x: 0, y: 0 }, pointerEvent(0, 0));
@@ -364,7 +381,7 @@ describe('SelectTool — props: lock, overhead, oriented gizmo', () => {
     tool.onPointerUp({ x: 10, y: 10 }, pointerEvent(500, 500));
     const ids = useStore.getState().selection.selectedIds;
     expect(ids).toContain(crate.id);
-    expect(ids).not.toContain(rug.id);
+    expect(ids).toContain(rug.id);
   });
 
   it('picks an overhead prop before the prop drawn over it in the layer', () => {

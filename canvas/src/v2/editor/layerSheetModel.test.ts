@@ -21,11 +21,11 @@ const dungeon = (over: Partial<DungeonLayer> = {}): DungeonLayer =>
 const background = { id: 'bg', name: 'Background', type: 'background', opacity: 1 } as BackgroundLayer;
 
 describe('sheetSections', () => {
-  it('gives a dungeon layer every group', () => {
-    expect(sheetSections(dungeon())).toEqual(['name', 'opacity', 'show', 'edges']);
+  it('gives a dungeon layer every group, the layer actions last', () => {
+    expect(sheetSections(dungeon())).toEqual(['name', 'opacity', 'show', 'edges', 'actions']);
   });
-  it('gives a background layer name and opacity only, since it has no sublayers', () => {
-    expect(sheetSections(background)).toEqual(['name', 'opacity']);
+  it('gives a background layer its name, colour and texture, and opacity; no sublayers', () => {
+    expect(sheetSections(background)).toEqual(['name', 'background', 'opacity']);
   });
   it('gives terrain its own group', () => {
     expect(sheetSections('terrain')).toEqual(['terrain']);
@@ -34,11 +34,11 @@ describe('sheetSections', () => {
 
 describe('showRows', () => {
   it('lists the sublayers a layer has, in order', () => {
-    expect(showRows(dungeon()).map((r) => r.label)).toEqual(['Floor', 'Grid', 'Walls and doors']);
+    expect(showRows(dungeon()).map((r) => r.label)).toEqual(['Floor', 'Grid', 'Walls and doors', 'Labels', 'Zones']);
   });
-  it('skips sublayers the layer does not carry', () => {
+  it('skips sublayers the layer does not carry, but always offers Labels and Zones', () => {
     const l = dungeon({ sublayerVisibility: { floor: true } as DungeonLayer['sublayerVisibility'] });
-    expect(showRows(l).map((r) => r.key)).toEqual(['floor']);
+    expect(showRows(l).map((r) => r.key)).toEqual(['floor', 'labels', 'zones']);
     expect(showRows(background)).toEqual([]);
   });
 });

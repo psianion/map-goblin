@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { Minimize2 } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { TERRAIN_PANEL_ID } from '@/store/types';
 import type { EditorChromeActions } from '@/App';
-import { LayerPanel } from '@/components/layers/LayerPanel';
 import { AssetBrowserPanel, type AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { cancelZoomAnimationRef, viewportInsetsRef, zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
@@ -18,6 +17,8 @@ import { SelectionCard } from './SelectionCard';
 import { StatusBar } from './StatusBar';
 import { SlideOver } from './SlideOver';
 import { LayerSheet } from './LayerSheet';
+import { LayersSheet } from './LayersSheet';
+import { stepLevel } from './layerActions';
 import { TipLayer } from './TipLayer';
 import { PrepOverview } from './PrepOverview';
 import { RoomsSheet } from './RoomsSheet';
@@ -37,9 +38,14 @@ import {
   type DockTabId,
 } from './dockTabs';
 import { notify } from '@/lib/toast';
+import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
+import { TAB_KINDS, setMarqueeKinds } from '@dnd/core/src/engine/marqueeFilter';
 
 /** Mirrors --v2-e-rail in v2-editor.css. */
 const RAIL_W = 44;
+/** Mirrors .v2-sheet's width and its 12px from the edge in v2-editor.css. */
+const SHEET_W = 320;
+const SHEET_GAP = 12;
 /** Air between the map and the chrome around it when the map is fitted. */
 const FIT_PAD = 32;
 
@@ -90,6 +96,15 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
 
   const [tab, setTabState] = useState<DockTabId>(loadDockTab);
   const [collapsed, setCollapsed] = useState(loadDockCollapsed);
+  // "Select: This tab's kind" asks the Select tool's marquee what the tab up now picks.
+  const tabRef = useRef(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+  useEffect(() => {
+    setMarqueeKinds(() => TAB_KINDS[tabRef.current] ?? null);
+    return () => setMarqueeKinds(null);
+  }, []);
   const [sheet, setSheet] = useState<Sheet>(null);
   // The type tab the asset browser opens on; unset, it follows the tool in hand.
   const [assetsType, setAssetsType] = useState<AssetTypeFilter | undefined>(undefined);
@@ -198,9 +213,8 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
       const key = e.key.toLowerCase();
       const tool = ROOM_TOOL_KEYS[key];
       if (!tool || (key !== 'x' && tab !== 'rooms')) return;
-      // A focused button (the tab just clicked) still lets the key through; a field does not.
-      const el = e.target as HTMLElement | null;
-      if (el?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
+      // A focused dock tab still lets the key through; a field, a menu, a sheet does not.
+      if (!canvasKeysAllowed(e)) return;
       if (editSessionActive(useStore.getState().tools)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -212,6 +226,20 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [tab]);
+
+  // Page Up and Page Down step through the levels (board L4), clamped at the ends.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'PageUp' && e.key !== 'PageDown') return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+      if (!canvasKeysAllowed(e)) return;
+      if (editSessionActive(useStore.getState().tools)) return;
+      e.preventDefault();
+      stepLevel(e.key === 'PageUp' ? -1 : 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Tab collapses and restores the dock, unless something else already used the key
   // or focus is on a control. A wall, cave-band or outline edit owns Tab outright,
@@ -284,6 +312,10 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
   );
 
   const settings = <MapSettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />;
+  // The Layers sheet and a layer's settings sheet take the right edge; the selection card
+  // moves left of them rather than hide under them (v2-editor.css reads --v2-e-sheet).
+  const sheetBeside = sheet === 'layers' || layerSheetTarget(sheet) !== null;
+  const shellStyle = sheetBeside ? ({ '--v2-e-sheet': `${SHEET_W + SHEET_GAP}px` } as CSSProperties) : undefined;
 
   if (hidden) {
     return (
@@ -303,7 +335,7 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
   }
 
   return (
-    <div className="v2-editor" data-testid="v2-editor" data-faded={(faded && !selecting) || undefined} ref={shellRef}>
+    <div className="v2-editor" data-testid="v2-editor" data-faded={(faded && !selecting) || undefined} ref={shellRef} style={shellStyle}>
       {/* First in both trees, so going in or out of fullscreen keeps an open dialog as it is. */}
       {settings}
       <Rail prepOpen={sheet === 'prep'} onTogglePrep={() => setSheet((s) => (s === 'prep' ? null : 'prep'))} />
@@ -337,9 +369,7 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
       >
         <SkySheet />
       </SlideOver>
-      <SlideOver title="Layers" open={sheet === 'layers'} onClose={closeSheet} testId="v2-layers-sheet">
-        <LayerPanel />
-      </SlideOver>
+      <LayersSheet open={sheet === 'layers'} onClose={closeSheet} onOpenLayerSettings={openLayerSettings} />
       <SlideOver title="Assets" open={sheet === 'assets'} onClose={closeSheet} testId="v2-assets-sheet">
         <AssetBrowserPanel key={assetsType ?? 'tool'} initialType={assetsType} hint={assetHint} floorHint={floorHint} />
       </SlideOver>

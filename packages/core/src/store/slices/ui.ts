@@ -27,6 +27,7 @@ export interface UIActions {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
 }
 
@@ -186,6 +187,10 @@ export const createUISlice: StateCreator<
   setSeeUnderOverhead: (on) =>
     set((state) => {
       state.ui.seeUnderOverhead = on;
+    }),
+  setMarqueeFilter: (filter) =>
+    set((state) => {
+      state.ui.marqueeFilter = filter;
     }),
   setPropReplaceIds: (ids) =>
     set((state) => {

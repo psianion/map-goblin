@@ -24,6 +24,7 @@ import { LightManager } from './lighting';
 import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomRefresh';
+import * as textureLoader from '../assets/textureLoader';
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -530,7 +531,7 @@ export function subscribeToStore(
           // renderKey and lightingKey, so a wall that moves re-lays its stones,
           // re-detects the rooms and re-sweeps the lights, exactly once.
           wallSignature: l.standaloneWalls
-            .map((w) => `${w.id}:${w.wallType}:${w.direction}:${wallDigest(w)}`)
+            .map((w) => `${w.id}:${w.wallType}:${w.direction}:${wallDigest(w)}${w.visible === false ? ':hidden' : ''}`)
             .join(','),
           // Hand stone edits, standalone runs and floor rings alike — see wallEditsKeyOf.
           // This rides into renderKey and nothing else: a nudged stone is cosmetic layout,
@@ -849,6 +850,8 @@ export function subscribeToStore(
         // follow the "walls" visibility toggle — same as when they lived
         // inside the walls container.
         entry.sublayers.doors.visible = vis.walls;
+        // Absent on layers saved before the row existed: shown.
+        entry.sublayers.labels.visible = vis.labels !== false;
       }
     },
     { fireImmediately: true },
@@ -862,7 +865,7 @@ export function subscribeToStore(
     (state) => {
       const bg = state.layers.find((l) => l.type === 'background');
       return bg?.type === 'background'
-        ? { url: bg.backgroundTexture, scale: bg.textureScale }
+        ? { url: bg.backgroundTexture, scale: bg.textureScale, tint: bg.textureTint }
         : null;
     },
     (bgData) => {
@@ -874,11 +877,18 @@ export function subscribeToStore(
       }
 
       if (!bgData?.url) return;
+      const url = bgData.url;
+      // A pack texture id (a floor texture picked in the layer sheet) tiles at its own
+      // size in grid cells, scaled; a data URL or asset URL tiles at its pixel size.
+      const packId = url.includes(':') && !/^(data|blob|https?):/.test(url);
 
       // Load texture from data URL / asset URL asynchronously
-      Assets.load<Texture>(bgData.url)
+      (packId ? textureLoader.load(url) : Assets.load<Texture>(url))
         .then((texture) => {
-          if (!texture) return;
+          if (!texture || texture === Texture.EMPTY) return;
+          // A newer pick (or none) landed while this one loaded.
+          const now = useStore.getState().layers.find((l) => l.type === 'background');
+          if (now?.type !== 'background' || now.backgroundTexture !== url) return;
           const WORLD_HALF = 5000;
           const sprite = new TilingSprite({
             texture,
@@ -886,8 +896,19 @@ export function subscribeToStore(
             height: WORLD_HALF * 2,
           });
           sprite.position.set(-WORLD_HALF, -WORLD_HALF);
-          sprite.tileScale.set(bgData.scale ?? 1);
+          const scale = bgData.scale ?? 1;
+          if (packId) {
+            const unit = textureLoader.unitTexture(url);
+            sprite.tileScale.set((unit.cellsWide * scale) / Math.max(1, texture.width), (unit.cellsHigh * scale) / Math.max(1, texture.height));
+          } else {
+            sprite.tileScale.set(scale);
+          }
+          if (bgData.tint && bgData.tint.toLowerCase() !== '#ffffff') sprite.tint = bgData.tint;
           sprite.label = 'bgTexture';
+          if (bgTilingSprite) {
+            sceneGraph.backgroundLayer.removeChild(bgTilingSprite);
+            bgTilingSprite.destroy();
+          }
           sceneGraph.backgroundLayer.addChild(sprite);
           bgTilingSprite = sprite;
         })
@@ -897,7 +918,7 @@ export function subscribeToStore(
     },
     {
       equalityFn: (a, b) =>
-        a?.url === b?.url && a?.scale === b?.scale,
+        a?.url === b?.url && a?.scale === b?.scale && a?.tint === b?.tint,
       fireImmediately: true,
     },
   );

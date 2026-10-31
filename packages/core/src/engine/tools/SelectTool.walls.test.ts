@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import { SelectTool } from './SelectTool';
+import { getWallBounds, wallReach } from '../hitTest';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import type { RenderEngine } from '../RenderEngine';
@@ -154,19 +155,21 @@ describe('SelectTool: drawn walls', () => {
     expect(new Set(selected())).toEqual(new Set(['floor', 'w1', 'w2']));
   });
 
-  it('a press on a selected wall does not drag the rest of the selection', () => {
+  it('a press on a selected wall drags the whole selection with it, in one undo step', () => {
     const floor = addFloor('floor');
     addWall('w', [[2, 10], [18, 10]]);
     click(tool, 5, 5);
     click(tool, 9, 10, { shiftKey: true });
-    // Plain press on the wall, then a drag: the floor stays put.
+    // Walls move like everything else now: the floor and the wall go together.
     tool.onPointerDown({ x: 9, y: 10 }, ev({ x: 9, y: 10 }));
     tool.onPointerMove({ x: 12, y: 13 }, ev({ x: 12, y: 13 }));
     tool.onPointerUp({ x: 12, y: 13 }, ev({ x: 12, y: 13 }));
     const after = layer().children.find((c) => c.id === floor.id) as ShapeChild;
-    expect(after.contours).toEqual(floor.contours);
-    expect(after.transform).toBeUndefined();
+    expect(after.contours[0][0]).toEqual([floor.contours[0][0][0] + 3, floor.contours[0][0][1] + 3]);
+    expect(layer().standaloneWalls.find((w) => w.id === 'w')!.points).toEqual([[5, 13], [21, 13]]);
+    undoManager.undo();
     expect(undoManager.canUndo()).toBe(false);
+    expect(layer().standaloneWalls.find((w) => w.id === 'w')!.points).toEqual([[2, 10], [18, 10]]);
   });
 
   it('hovering a wall sets it as the hovered id and outlines it at once', () => {
@@ -188,11 +191,12 @@ describe('SelectTool: drawn walls', () => {
     expect(g.bounds.width).toBe(0);
   });
 
-  it('a wall-only selection shows no transform gizmo', () => {
-    addWall('w', [[2, 10], [18, 10]]);
+  it('a wall-only selection gets the same box as everything else, handles at its corners', () => {
+    const w = addWall('w', [[2, 10], [18, 10]]);
     click(tool, 9, 10);
     tool.updateGizmo();
-    expect(tool.getHoverCursor(9 * ZOOM, 10 * ZOOM)).toBeNull();
+    const b = getWallBounds(w, wallReach(w, layer()));
+    expect(tool.getHoverCursor((b.x + b.width) * ZOOM, (b.y + b.height) * ZOOM)).not.toBeNull();
   });
 
   it('the marquee takes a wall it crosses, not a loop it sits inside', () => {

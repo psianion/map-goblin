@@ -296,6 +296,7 @@ describe('buildMultiMenu', () => {
       'Duplicate',
       'Flip horizontal',
       'Flip vertical',
+      'Rotate 90°',
       'Move to layer',
       'Group selection',
       'Merge selection',
@@ -382,8 +383,8 @@ describe('buildWallMenu', () => {
     expect(header).toMatchObject({ type: 'header', label: 'Wall', sublabel: 'Fieldstone' });
     const last = rows[rows.length - 1] as ContextMenuItem;
     expect([last.label, last.danger]).toEqual(['Delete', true]);
-    // Copies are children-only; a wall offers no Duplicate it could not keep.
-    expect(labels(rows)).not.toContain('Duplicate');
+    // A wall moves, turns and copies whole like anything else (Selection & editing).
+    expect(labels(rows)).toContain('Duplicate');
   });
 
   it('Delete removes the wall and the door on it, one undo', () => {
@@ -642,6 +643,7 @@ describe('prop menus', () => {
       'Blocks light',
       'Lock',
       'Duplicate',
+      'Hide',
       'Move to layer',
       'Delete',
     ]);
@@ -749,10 +751,10 @@ describe('prop menus', () => {
     expect(['a', 'b', 'c'].every((id) => childById(id)?.locked)).toBe(true);
   });
 
-  it('leaves locked props out of Select all in layer', () => {
+  it('takes locked props into Select all in layer, as Ctrl+A does (their card unlocks them)', () => {
     useStore.getState().addChild(layer().id, prop('rug', 'p:crate_1', { locked: true }));
     useStore.getState().addChild(layer().id, prop('crate', 'p:crate_1'));
     row<ContextMenuItem>(buildCanvasMenu({ x: 0, y: 0 }), 'Select all in layer').onSelect();
-    expect(useStore.getState().selection.selectedIds).toEqual(['crate']);
+    expect(useStore.getState().selection.selectedIds).toEqual(['rug', 'crate']);
   });
 });

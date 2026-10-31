@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type Ref } from 'react';
-import { Grid3x3, Minus, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, Grid3x3, Minus, Plus, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
@@ -28,8 +28,27 @@ import { ColorCtl } from './controls';
 import { hintText, roomHintFor, type ToolHint } from './roomModel';
 import { propHintFor } from './propModel';
 import { lightHintFor } from './lightModel';
+import { SELECT_LOCKED_TEXT, selectHintFor } from './selectHint';
+import { useDropTarget } from './dropToLayer';
+import { isStripFocused, subscribeStripFocus } from './layerActions';
+import './selection-actions.css';
 
 const ZOOM_STEP = 1.25;
+
+/** The filmstrip's keys, while a tile has focus. */
+const STRIP_HINT: ToolHint = {
+  label: 'Layers',
+  segments: [
+    { text: '← →', key: true },
+    { text: 'layers' },
+    { text: 'Enter', key: true },
+    { text: 'activate' },
+    { text: 'F2', key: true },
+    { text: 'rename' },
+    { text: 'Alt+eye', key: true },
+    { text: 'solo' },
+  ],
+};
 
 /** The frame rate, for the performance checks: dev builds, or any build opened with `?fps`. */
 const SHOW_FPS = import.meta.env.DEV || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fps'));
@@ -173,6 +192,63 @@ function GridControl() {
   );
 }
 
+const MARQUEE_CHOICES: { value: 'all' | 'tab'; label: string; sub: string }[] = [
+  { value: 'all', label: 'Everything', sub: 'every kind on the level on show' },
+  { value: 'tab', label: 'This tab’s kind', sub: 'only what the dock tab up now draws' },
+];
+
+/**
+ * "Select: Everything ▾": what a marquee picks, every kind or only the dock tab's. A view
+ * preference (remembered per browser), never a map edit.
+ */
+function MarqueeChip() {
+  const filter = useStore((s) => s.ui.marqueeFilter);
+  const [open, setOpen] = useState(false);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const current = MARQUEE_CHOICES.find((c) => c.value === filter) ?? MARQUEE_CHOICES[0];
+  return (
+    <span className="v2-status__grid">
+      <button
+        ref={chipRef}
+        type="button"
+        className={cn('v2-status__gridchip', open && 'v2-status__gridchip--open')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid="v2-marquee-chip"
+        data-tip={open ? undefined : 'What a marquee picks'}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>Select: {current.label}</span>
+        <ChevronDown size={11} aria-hidden />
+      </button>
+      <DockPopover open={open} onClose={close} className="v2-pop--grid v2-pop--marquee" label="Marquee picks">
+        <div role="menu" aria-label="Marquee picks" className="v2-marquee__menu">
+          {MARQUEE_CHOICES.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={filter === c.value}
+              className="v2-menu__item v2-menu__item--check"
+              onClick={() => {
+                useStore.getState().setMarqueeFilter(c.value);
+                close();
+              }}
+            >
+              <span className="v2-menu__mark">{filter === c.value ? <Check size={14} strokeWidth={2} /> : null}</span>
+              <span className="v2-menu__label">
+                {c.label}
+                <small className="v2-status__muted"> · {c.sub}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </DockPopover>
+    </span>
+  );
+}
+
 /** Which node editor is open and its key map, keys drawn as keycaps. */
 function HintLine({ hint }: { hint: EditHint }) {
   return (
@@ -247,6 +323,17 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
     return h ? JSON.stringify(h) : '';
   });
   const lightHint = useMemo(() => (lightHintKey ? (JSON.parse(lightHintKey) as ToolHint) : null), [lightHintKey]);
+  // The Select tool's own line: its gestures with nothing selected, its verbs with something.
+  const selectHintKey = useStore((s) => {
+    const h = selectHintFor(s);
+    return h ? JSON.stringify(h) : '';
+  });
+  const selectHint = useMemo(() => (selectHintKey ? (JSON.parse(selectHintKey) as ToolHint) : null), [selectHintKey]);
+  // A locked selection says so ahead of its kind's own line (a prop's, a light's keys).
+  const selectLocked = selectHint?.segments[0]?.text === SELECT_LOCKED_TEXT ? selectHint : null;
+  // A canvas drag over a filmstrip tile, and the strip's keys while a tile has focus.
+  const dropTarget = useDropTarget();
+  const stripFocused = useSyncExternalStore(subscribeStripFocus, isStripFocused, () => false);
 
   const cellScaleRef = useRef(cellScale);
   useEffect(() => {
@@ -291,7 +378,7 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
   const pct = zoomPercent(zoom);
 
   return (
-    <footer className="v2-status" data-testid="v2-status">
+    <footer className="v2-status" data-testid="v2-status" data-keys="canvas">
       <span className="v2-status__cursor">{cursor}</span>
       {sel && (
         <span data-testid="v2-status-selection">
@@ -307,13 +394,19 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
         </span>
       )}
 
-      {/* One slot, most transient first: a live ruler, then the node editor's key map,
-          then the way out of solo. */}
+      {/* One slot, most transient first: a drop target, a live ruler, then the node editor's
+          key map, then the tool's or the selection's line. */}
       <span className="v2-status__mid">
-        {ruler ? (
+        {dropTarget ? (
+          <span className="v2-status__hint" data-testid="v2-status-hint">
+            Release to move to <b>{dropTarget.name}</b>
+          </span>
+        ) : ruler ? (
           <span>{ruler}</span>
         ) : hint ? (
           <HintLine hint={hint} />
+        ) : selectLocked ? (
+          <ToolHintLine hint={selectLocked} />
         ) : skyOpen && lightHint ? (
           <ToolHintLine hint={lightHint} />
         ) : roomHint ? (
@@ -322,14 +415,21 @@ export function StatusBar({ skyOpen = false }: { skyOpen?: boolean } = {}) {
           <ToolHintLine hint={propHint} />
         ) : lightHint ? (
           <ToolHintLine hint={lightHint} />
-        ) : soloName ? (
-          <button type="button" className="v2-status__chip" onClick={() => useStore.getState().clearSolo()}>
-            Soloing {soloName}
-            <X size={11} />
-          </button>
+        ) : stripFocused ? (
+          <ToolHintLine hint={STRIP_HINT} />
+        ) : selectHint ? (
+          <ToolHintLine hint={selectHint} />
         ) : null}
       </span>
 
+      {/* The way out of solo is a chip of its own, so no hint line ever hides it. */}
+      {soloName && (
+        <button type="button" className="v2-status__chip" data-testid="v2-solo-chip" onClick={() => useStore.getState().clearSolo()}>
+          Soloing {soloName}
+          <X size={11} />
+        </button>
+      )}
+      <MarqueeChip />
       <GridControl />
       <span className="v2-status__sep" />
       <div className="v2-status__zoom">

@@ -183,7 +183,7 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
       // Invisible and ethereal walls are sight/movement rules, not masonry — drawing them
       // would put ink where the map has none.
       const kind = str(wall.wallType, 'normal')
-      if (kind === 'invisible' || kind === 'ethereal') continue
+      if (kind === 'invisible' || kind === 'ethereal' || wall.visible === false) continue
       const points = list(wall.points)
         .filter((p): p is unknown[] => Array.isArray(p) && p.length >= 2)
         .map((p): [number, number] => [num(p[0]), num(p[1])])

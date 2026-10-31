@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { useStore } from '@/store/store';
-import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
+import { isLayerShown } from '@dnd/core/src/store/selectors';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import type { DungeonLayer, ZoneChild } from '@/store/types';
 import type { ZoneShape } from '@dnd/core/src/shared/types';
@@ -207,7 +207,10 @@ type StoreState = ReturnType<typeof useStore.getState>;
 function visibleZones(state: StoreState): { zone: ZoneChild; selected: boolean }[] {
   const out: { zone: ZoneChild; selected: boolean }[] = [];
   for (const l of state.layers) {
-    if (l.type !== 'dungeon' || !isLayerEffectivelyVisible(state, l as DungeonLayer)) continue;
+    // Shown and on the level on show: a zone belongs to its layer's level.
+    if (l.type !== 'dungeon' || !isLayerShown(state, l as DungeonLayer)) continue;
+    // The layer sheet's Zones row.
+    if ((l as DungeonLayer).sublayerVisibility?.zones === false) continue;
     for (const c of (l as DungeonLayer).children) {
       if (c.childType !== 'zone' || !c.visible) continue;
       out.push({ zone: c, selected: state.selection.selectedIds.includes(c.id) });
@@ -243,13 +246,14 @@ export function mountZoneOverlay(worldContainer: Container): () => void {
   // of every dungeon child.
   let dirty = true;
   // ui.solo is a key of its own: toggleSoloLayer never touches `layers`, but
-  // isLayerEffectivelyVisible reads it — same trap renderLoop.ts documents.
+  // isLayerEffectivelyVisible reads it — same trap renderLoop.ts documents. So is the
+  // active level: switching levels moves no layer, but changes which zones show.
   const unsubscribe = useStore.subscribe(
-    (state) => [state.layers, state.selection.selectedIds, state.ui.solo] as const,
+    (state) => [state.layers, state.selection.selectedIds, state.ui.solo, state.ui.activeLevelId] as const,
     () => {
       dirty = true;
     },
-    { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] },
+    { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] },
   );
 
   let lastZoom = NaN;

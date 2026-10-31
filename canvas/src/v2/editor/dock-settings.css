@@ -3,9 +3,10 @@
 /* The dock grows by the terrain row's six slots and four controls (992px held the shape
    tools only), and again by the Props row: its strip of eight beside Stamp's Scale track and
    number, next to the level picker and the layer tiles. On a narrower window the strip gives
-   way first. Still one width for every tab. */
+   way first. Still one width for every tab. 48px more for the filmstrip's named tiles
+   (56px each where the bare tiles were 40px). */
 .v2-editor .v2-dock {
-  width: min(1384px, calc(100vw - var(--v2-e-rail) - 24px));
+  width: min(1432px, calc(100vw - var(--v2-e-rail) - 24px));
 }
 
 /* The settings column takes four controls for terrain, water and walls; still one row. */

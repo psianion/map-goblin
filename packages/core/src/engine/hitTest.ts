@@ -1,4 +1,4 @@
-import type { AnyChild, LightChild, DungeonLayer } from '../store/types';
+import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
@@ -111,34 +111,55 @@ function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
   const labels = reversed.filter((c) => c.childType === 'text');
   const assets = reversed.filter((c) => c.childType === 'asset');
   const doors = reversed.filter((c) => c.childType === 'door');
+  // Zones draw as the editor's overlay over the floors: under the props, over the walls.
+  const zones = reversed.filter((c) => c.childType === 'zone');
   const rest = reversed.filter(
     (c) =>
       c.childType !== 'text' &&
       c.childType !== 'asset' &&
       c.childType !== 'door' &&
-      c.childType !== 'light',
+      c.childType !== 'light' &&
+      c.childType !== 'zone',
   );
-  return [...lights, ...labels, ...assets, ...doors, ...rest];
+  return [...lights, ...labels, ...assets, ...doors, ...zones, ...rest];
 }
 
 /**
- * How a pick treats props. A locked prop is unclickable on the map, so a pick passes
- * through it unless `includeLocked` (the right-click menu, which offers Unlock).
- * `skipOverhead` leaves overhead props out: the DM is looking under them, or the
- * caller already tried them first.
+ * How a pick treats locks and overhead props. An object locked on its own passes the
+ * pick through unless `includeLockedObjects` (the Select tool, hover and the right-click
+ * menu all include them, flagged `locked` on the hit; `includeLocked` is the older name
+ * for the same switch). A locked LAYER is click-through either way. `skipOverhead` leaves
+ * overhead props out: the DM is looking under them, or the caller already tried them first.
  */
 export interface PickOptions {
   zoom?: number;
   includeLocked?: boolean;
+  includeLockedObjects?: boolean;
   skipOverhead?: boolean;
 }
 
-export function hitTestChildren(
+/** World radius a point zone answers within. */
+export const ZONE_POINT_HIT_RADIUS = 0.35;
+
+const takesLocked = (opts?: PickOptions): boolean => !!(opts?.includeLockedObjects || opts?.includeLocked);
+
+/** Whether a point lies on a zone: in a circle or a rect, or near a point zone. */
+export function pointInZone(zone: Pick<ZoneChild, 'shape'>, point: [number, number]): boolean {
+  const s = zone.shape;
+  if (s.kind === 'rect') {
+    return point[0] >= s.x && point[0] <= s.x + s.width && point[1] >= s.y && point[1] <= s.y + s.height;
+  }
+  const r = s.kind === 'circle' ? s.radius : ZONE_POINT_HIT_RADIUS;
+  return Math.hypot(point[0] - s.position.x, point[1] - s.position.y) <= r;
+}
+
+/** Every child under `point`, topmost first, in draw order. */
+function* childHits(
   children: AnyChild[],
   point: [number, number],
   layer?: DungeonLayer,
   opts?: PickOptions,
-): AnyChild | null {
+): Generator<AnyChild> {
   // Doors hit-test at their *resolved* position (a floor-ring door draws where
   // the resolver projects it, not where it was authored), which needs the whole
   // layer. Resolved lazily, once, only when a door child is actually reached;
@@ -149,20 +170,26 @@ export function hitTestChildren(
     // swaps in — so it stays pickable. Skipping it made switching one off a one-way trip:
     // the bulb sat there on screen with nothing behind it to click.
     if (!child.visible && child.childType !== 'light') continue;
+    if (child.locked && !takesLocked(opts)) continue;
     switch (child.childType) {
       case 'shape':
-        if (pointInShape(child, point)) return child;
+        if (pointInShape(child, point)) yield child;
+        break;
+      case 'water':
+        if (pointInShape(child, point)) yield child;
+        break;
+      case 'zone':
+        if (pointInZone(child, point)) yield child;
         break;
       case 'asset':
-        if (child.locked && !opts?.includeLocked) break;
         if (child.overhead && opts?.skipOverhead) break;
-        if (pointInAsset(child, point)) return child;
+        if (pointInAsset(child, point)) yield child;
         break;
       case 'text':
-        if (pointInAsset(child, point)) return child;
+        if (pointInAsset(child, point)) yield child;
         break;
       case 'light':
-        if (pointInLight(child, point, opts?.zoom)) return child;
+        if (pointInLight(child, point, opts?.zoom)) yield child;
         break;
       case 'door': {
         if (doorPositions === null) {
@@ -175,11 +202,20 @@ export function hitTestChildren(
         }
         const pos = doorPositions.get(child.id) ?? child.position;
         const dist = Math.hypot(pos[0] - point[0], pos[1] - point[1]);
-        if (dist <= Math.max(child.width / 2, DOOR_MIN_HIT_RADIUS)) return child;
+        if (dist <= Math.max(child.width / 2, DOOR_MIN_HIT_RADIUS)) yield child;
         break;
       }
     }
   }
+}
+
+export function hitTestChildren(
+  children: AnyChild[],
+  point: [number, number],
+  layer?: DungeonLayer,
+  opts?: PickOptions,
+): AnyChild | null {
+  for (const child of childHits(children, point, layer, opts)) return child;
   return null;
 }
 
@@ -250,24 +286,30 @@ export function distanceToWall(wall: Pick<WallSegment, 'points'>, point: [number
 export function hitTestWalls(
   layer: DungeonLayer,
   point: [number, number],
-  opts?: { zoom?: number },
+  opts?: PickOptions,
 ): WallSegment | null {
-  if (layer.sublayerVisibility?.walls === false) return null;
+  return wallHits(layer, point, opts)[0] ?? null;
+}
+
+/**
+ * Every drawn wall whose band reaches `point`, nearest line first (on a tie the later
+ * wall, drawn on top). Hidden walls never answer; walls locked on their own only when
+ * the pick takes locked objects.
+ */
+function wallHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions): WallSegment[] {
+  if (layer.sublayerVisibility?.walls === false) return [];
   const slop = opts?.zoom ? WALL_HIT_SLOP_PX / opts.zoom : 0;
-  let best: WallSegment | null = null;
-  let bestDist = Infinity;
+  const hits: { wall: WallSegment; d: number; i: number }[] = [];
   const walls = layer.standaloneWalls ?? [];
   for (let i = walls.length - 1; i >= 0; i--) {
     const wall = walls[i];
-    if (wall.points.length < 2) continue;
+    if (wall.points.length < 2 || wall.visible === false) continue;
+    if (wall.locked && !takesLocked(opts)) continue;
     const d = distanceToWall(wall, point);
-    // The nearest line wins where two reaches overlap; on a tie the later wall, drawn on top.
-    if (d <= wallReach(wall, layer) + slop && d < bestDist) {
-      best = wall;
-      bestDist = d;
-    }
+    if (d <= wallReach(wall, layer) + slop) hits.push({ wall, d, i });
   }
-  return best;
+  hits.sort((a, b) => a.d - b.d || b.i - a.i);
+  return hits.map((h) => h.wall);
 }
 
 /** World-space box around a drawn wall's line, grown by `reach` on every side. */
@@ -341,10 +383,30 @@ export function wallTouchesRect(
  * What a click lands on: a child, a drawn wall, or a room (its permanent id; rooms
  * select like anything else). `id` is the one the selection holds.
  */
-export type PickHit =
+export type PickHit = (
   | { kind: 'child'; id: string; layerId: string; child: AnyChild }
   | { kind: 'wall'; id: string; layerId: string; wall: WallSegment }
-  | { kind: 'room'; id: string; layerId: string; room: Room };
+  | { kind: 'room'; id: string; layerId: string; room: Room }
+) & {
+  /** The object is locked on its own: selectable, never transformed. */
+  locked?: boolean;
+};
+
+const childHit = (layerId: string, child: AnyChild): PickHit => ({
+  kind: 'child',
+  id: child.id,
+  layerId,
+  child,
+  ...(child.locked ? { locked: true } : {}),
+});
+
+const wallHit = (layerId: string, wall: WallSegment): PickHit => ({
+  kind: 'wall',
+  id: wall.id,
+  layerId,
+  wall,
+  ...(wall.locked ? { locked: true } : {}),
+});
 
 /* ── Rooms ───────────────────────────────────────────────
  *
@@ -403,10 +465,91 @@ export function hitTestRoom(layer: DungeonLayer, point: [number, number], opts?:
 /** Children drawn above the walls: lights, labels, props and doors. */
 const ABOVE_WALLS = new Set<AnyChild['childType']>(['light', 'text', 'asset', 'door']);
 
+/** Screen px either side of a zone's outline that still takes it ahead of the walls and rooms. */
+const ZONE_EDGE_SLOP_PX = 6;
+
 /**
- * The pick on one layer, in draw order: whatever stands on the walls (lights, labels,
- * props, doors), then a drawn wall, then the room the point is in (where rooms pick,
- * see `setRoomPicking`; `opts.rooms` overrides), then the floors and water under it.
+ * Whether a point lies on a zone's drawn outline (or its centre mark): how a zone is taken
+ * where a room or a wall would otherwise answer. Inside, away from the outline, the zone
+ * answers only below the rooms (`pointInZone`).
+ */
+export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, number], zoom?: number): boolean {
+  const s = zone.shape;
+  const slop = Math.max(0.2, zoom ? ZONE_EDGE_SLOP_PX / zoom : 0.3);
+  if (s.kind === 'point') return pointInZone(zone, point);
+  if (s.kind === 'circle') {
+    const d = Math.hypot(point[0] - s.position.x, point[1] - s.position.y);
+    return Math.abs(d - s.radius) <= slop || d <= ZONE_POINT_HIT_RADIUS;
+  }
+  const [x, y] = point;
+  const inOuter = x >= s.x - slop && x <= s.x + s.width + slop && y >= s.y - slop && y <= s.y + s.height + slop;
+  const inInner = x > s.x + slop && x < s.x + s.width - slop && y > s.y + slop && y < s.y + s.height - slop;
+  return inOuter && !inInner;
+}
+
+/**
+ * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
+ * labels, props, doors), a zone by its outline, the drawn walls, water, the room the point
+ * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
+ * area, then the floors.
+ */
+function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions & { rooms?: boolean }): Generator<PickHit> {
+  const above = layer.children.filter((c) => ABOVE_WALLS.has(c.childType));
+  for (const c of childHits(above, point, layer, opts)) yield childHit(layer.id, c);
+  const zones = layer.children.filter((c): c is ZoneChild => c.childType === 'zone');
+  const zoneHits = [...childHits(zones, point, layer, opts)] as ZoneChild[];
+  for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
+  const walls = wallHits(layer, point, opts);
+  for (const w of walls) yield wallHit(layer.id, w);
+  const water = layer.children.filter((c) => c.childType === 'water');
+  for (const c of childHits(water, point, layer, opts)) yield childHit(layer.id, c);
+  // Where a drawn wall answers, the rooms and floor it stands on are looked for beside it too.
+  const beside = walls.flatMap((w) => besideWall(w, layer, point));
+  if (opts?.rooms ?? roomPicking()) {
+    const room = hitTestRoom(layer, point, opts);
+    if (room) yield { kind: 'room', id: room.id, layerId: layer.id, room };
+    for (const p of beside) {
+      const r = roomIndexOf(layer.rooms ?? []).roomAt(p[0], p[1]);
+      if (r) yield { kind: 'room', id: r.id, layerId: layer.id, room: r };
+    }
+  }
+  for (const z of zoneHits) yield childHit(layer.id, z);
+  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'water');
+  for (const c of childHits(below, point, layer, opts)) yield childHit(layer.id, c);
+  for (const p of beside) for (const c of childHits(below, p, layer, opts)) yield childHit(layer.id, c);
+}
+
+/**
+ * Where a drawn wall's rooms and floor are looked for: just past its band either side of
+ * the middle of its run nearest `point`, then that middle. A point on the wall itself is in
+ * neither room it divides (their faces meet on its line), and away from its doorway it is
+ * often over no floor at all (a passage wall's ends sit in the rock).
+ */
+function besideWall(wall: WallSegment, layer: DungeonLayer, point: [number, number]): [number, number][] {
+  const pts = wall.points;
+  if (pts.length < 2) return [];
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = projectPointOntoLineSegment(point, pts[i], pts[i + 1]).distance;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  const [a, b] = [pts[best], pts[best + 1]];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len === 0) return [];
+  const off = wallReach(wall, layer) + 0.1;
+  const [mx, my] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const [nx, ny] = [(-(b[1] - a[1]) / len) * off, ((b[0] - a[0]) / len) * off];
+  return [[mx + nx, my + ny], [mx - nx, my - ny], [mx, my]];
+}
+
+/**
+ * The pick on one layer, in draw order (see `layerHits`): whatever stands on the walls,
+ * a zone by its outline, a drawn wall, water, the room the point is in, a zone by its
+ * area, then the floors.
  * Callers decide which layers may answer (hidden, locked).
  */
 export function pickInLayer(
@@ -414,46 +557,72 @@ export function pickInLayer(
   point: [number, number],
   opts?: PickOptions & { rooms?: boolean },
 ): PickHit | null {
-  const above = layer.children.filter((c) => ABOVE_WALLS.has(c.childType));
-  const top = hitTestChildren(above, point, layer, opts);
-  if (top) return { kind: 'child', id: top.id, layerId: layer.id, child: top };
-  const wall = hitTestWalls(layer, point, opts);
-  if (wall) return { kind: 'wall', id: wall.id, layerId: layer.id, wall };
-  if (opts?.rooms ?? roomPicking()) {
-    const room = hitTestRoom(layer, point, opts);
-    if (room) return { kind: 'room', id: room.id, layerId: layer.id, room };
-  }
-  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType));
-  const rest = hitTestChildren(below, point, layer, opts);
-  return rest ? { kind: 'child', id: rest.id, layerId: layer.id, child: rest } : null;
+  for (const hit of layerHits(layer, point, opts)) return hit;
+  return null;
 }
 
 /**
- * `hitTestAllLayers` with drawn walls: topmost visible, unlocked layer first, and within
- * a layer the order `pickInLayer` gives. Overhead props draw above every layer, so they
- * answer first, from every layer, unless the DM is looking under them
- * (`ui.seeUnderOverhead`), when they do not answer at all.
+ * Everything under `point` across the layers, topmost first: overhead props from every
+ * layer (unless the DM is looking under them, `ui.seeUnderOverhead`, when they do not
+ * answer at all), then each shown, unlocked layer from the top, in `pickInLayer` order.
  */
-export function pickAllLayers(
-  layers: DungeonLayer[],
-  point: [number, number],
-  opts?: PickOptions & { rooms?: boolean },
-): PickHit | null {
+function* stackHits(layers: DungeonLayer[], point: [number, number], opts?: PickOptions & { rooms?: boolean }): Generator<PickHit> {
   const state = useStore.getState();
   const open = layers.filter((l) => isLayerShown(state, l) && !l.locked);
   if (!state.ui.seeUnderOverhead && !opts?.skipOverhead) {
     for (let i = open.length - 1; i >= 0; i--) {
       const layer = open[i];
       const overhead = layer.children.filter((c) => c.childType === 'asset' && c.overhead);
-      const hit = overhead.length > 0 ? hitTestChildren(overhead, point, layer, opts) : null;
-      if (hit) return { kind: 'child', id: hit.id, layerId: layer.id, child: hit };
+      if (overhead.length === 0) continue;
+      for (const c of childHits(overhead, point, layer, opts)) yield childHit(layer.id, c);
     }
   }
-  for (let i = open.length - 1; i >= 0; i--) {
-    const hit = pickInLayer(open[i], point, { ...opts, skipOverhead: true });
-    if (hit) return hit;
+  for (let i = open.length - 1; i >= 0; i--) yield* layerHits(open[i], point, { ...opts, skipOverhead: true });
+}
+
+/** Every object under `point`, topmost first, each once: what overlap cycling and "Select behind" walk. */
+export function pickStackAt(
+  layers: DungeonLayer[],
+  point: [number, number],
+  opts?: PickOptions & { rooms?: boolean },
+): PickHit[] {
+  const out: PickHit[] = [];
+  const seen = new Set<string>();
+  for (const hit of stackHits(layers, point, opts)) {
+    if (seen.has(hit.id)) continue;
+    seen.add(hit.id);
+    out.push(hit);
   }
+  return out;
+}
+
+/**
+ * `hitTestAllLayers` with drawn walls and rooms: the top of `pickStackAt`, worked out
+ * lazily so a click stops at the first answer.
+ */
+export function pickAllLayers(
+  layers: DungeonLayer[],
+  point: [number, number],
+  opts?: PickOptions & { rooms?: boolean },
+): PickHit | null {
+  for (const hit of stackHits(layers, point, opts)) return hit;
   return null;
+}
+
+/**
+ * The one pick every pointer entry point makes (left press, hover, double-click and
+ * right-click) at the raw world point under the pointer: every dungeon layer that is
+ * shown and unlocked, objects locked on their own included and flagged.
+ */
+export function pickAt(point: [number, number], opts: { zoom: number }): PickHit | null {
+  const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  return pickAllLayers(layers, point, { zoom: opts.zoom, includeLockedObjects: true });
+}
+
+/** `pickStackAt` over the store's dungeon layers, with the same options as `pickAt`. */
+export function pickStackAtPoint(point: [number, number], opts: { zoom: number }): PickHit[] {
+  const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  return pickStackAt(layers, point, { zoom: opts.zoom, includeLockedObjects: true });
 }
 
 /**
@@ -575,19 +744,41 @@ export function getChildBounds(child: AnyChild): {
 }
 
 /**
- * Returns the union AABB of multiple children's bounds.
+ * What a child takes up on the map as an object: a light is its marker, one square centred
+ * on its position (its radius is light, not the object); every other kind its bounds. A
+ * marquee collects by this, a mixed selection's box wraps it, align lines it up.
+ */
+export function getChildFootprint(child: AnyChild): { x: number; y: number; width: number; height: number } {
+  if (child.childType === 'light') return { x: child.position.x - 0.5, y: child.position.y - 0.5, width: 1, height: 1 };
+  return getChildBounds(child);
+}
+
+/**
+ * Does a selection's box wrap its lights by their marker? Yes once it holds two or more
+ * members and anything but lights (`others` counts its walls and rooms); a light-only
+ * selection keeps its radius box, which the radius handles work on.
+ */
+export function boxesByFootprint(children: readonly AnyChild[], others = 0): boolean {
+  return children.length + others >= 2 && (others > 0 || children.some((c) => c.childType !== 'light'));
+}
+
+/**
+ * Returns the union AABB of multiple children's bounds (lights by their marker when
+ * `footprint`, see getChildFootprint).
  */
 export function unionChildBounds(
   children: AnyChild[],
+  footprint = false,
 ): { x: number; y: number; width: number; height: number } | null {
   if (children.length === 0) return null;
-  const first = getChildBounds(children[0]);
+  const boundsOf = footprint ? getChildFootprint : getChildBounds;
+  const first = boundsOf(children[0]);
   let minX = first.x;
   let minY = first.y;
   let maxX = first.x + first.width;
   let maxY = first.y + first.height;
   for (let i = 1; i < children.length; i++) {
-    const b = getChildBounds(children[i]);
+    const b = boundsOf(children[i]);
     if (b.x < minX) minX = b.x;
     if (b.y < minY) minY = b.y;
     if (b.x + b.width > maxX) maxX = b.x + b.width;

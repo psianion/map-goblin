@@ -123,3 +123,58 @@ describe('zone interior fill (N8)', () => {
     unmount();
   });
 });
+
+describe('zones and levels', () => {
+  /** A layer on a second level, holding the circle zone; the first level stays on show. */
+  function zoneUpstairs() {
+    useStore.getState().addLevel({ id: 'up', name: 'Up' });
+    const upper = { ...structuredClone(dungeonLayer()), id: 'upper', name: 'Upper', levelId: 'up', children: [CIRCLE_ZONE], standaloneWalls: [] };
+    useStore.getState().addLayer(upper as DungeonLayer);
+  }
+
+  it('does not draw a zone whose layer is on another level', () => {
+    zoneUpstairs();
+    const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
+    const unmount = mountZoneOverlay(new Container());
+    expect(strokeSpy).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('redraws when the level on show switches', () => {
+    zoneUpstairs();
+    const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
+    const unmount = mountZoneOverlay(new Container());
+    useStore.getState().setActiveLevelId('up');
+    rafCallback?.();
+    expect(strokeSpy).toHaveBeenCalled();
+    strokeSpy.mockClear();
+    useStore.getState().setActiveLevelId(useStore.getState().levels[0].id);
+    rafCallback?.();
+    expect(strokeSpy).not.toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('the zones show row', () => {
+  it('draws no zone of a layer whose Zones row is off', () => {
+    const layer = dungeonLayer();
+    useStore.getState().addChild(layer.id, CIRCLE_ZONE);
+    useStore.getState().setSublayerVisibility(layer.id, 'zones', false);
+    const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
+    const unmount = mountZoneOverlay(new Container());
+    expect(strokeSpy).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('redraws the zones when the row comes back on', () => {
+    const layer = dungeonLayer();
+    useStore.getState().addChild(layer.id, CIRCLE_ZONE);
+    useStore.getState().setSublayerVisibility(layer.id, 'zones', false);
+    const strokeSpy = vi.spyOn(Graphics.prototype, 'stroke');
+    const unmount = mountZoneOverlay(new Container());
+    useStore.getState().setSublayerVisibility(layer.id, 'zones', true);
+    rafCallback?.();
+    expect(strokeSpy).toHaveBeenCalled();
+    unmount();
+  });
+});

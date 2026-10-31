@@ -60,13 +60,16 @@ export function setZoomAtCentre(newZoom: number): void {
 }
 
 export function fitToContent(): void {
+  fitToBounds(computeMapWorldBounds(useStore.getState().layers));
+}
+
+/** Frame the camera on a world box (a layer's content), the way Fit frames the map. */
+export function fitToBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number }): void {
   const singleton = getEngineSingleton();
   if (!singleton) return;
 
   const stage = singleton.engine.stage();
   const vp = singleton.engine.viewport();
-  const layers = useStore.getState().layers;
-  const bounds = computeMapWorldBounds(layers);
 
   let worldWidth = bounds.maxX - bounds.minX;
   let worldHeight = bounds.maxY - bounds.minY;

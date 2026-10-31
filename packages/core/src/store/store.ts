@@ -24,6 +24,8 @@ import { createMapsSlice } from './slices/maps';
 import { createPacksSlice } from './slices/packs';
 import { createPrepSlice } from './slices/prep';
 import { undoManager } from './undoManager';
+import { isLayerShown, shownLevelId } from './selectors';
+import { shownSelectionIds } from './selectionResolve';
 
 /** A room as a file holds it: the authored fields only (see `ROOM_RUNTIME_KEYS`). */
 export function serializableRoom(room: Room): Room {
@@ -234,8 +236,8 @@ export const useStore = create<MapBuilderStore>()(
           state.tools = defaults.tools;
           // The room view preferences are the DM's, not the map's (persisted per
           // browser in the v2 view prefs), so a new or opened map keeps them.
-          const { roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead } = state.ui;
-          state.ui = { ...defaults.ui, roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead };
+          const { roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead, marqueeFilter } = state.ui;
+          state.ui = { ...defaults.ui, roomLabels, dividerMode, roomWalls, roomsSheetOpen, seeUnderOverhead, marqueeFilter };
           state.assets = defaults.assets;
           state.assets.manifest = manifest;
           state.assets.recentlyUsed = recentlyUsed;
@@ -263,3 +265,18 @@ undoManager.onChange = (canUndo, canRedo) => {
     state.ui.canRedo = canRedo;
   });
 };
+
+// Whatever changes the level on show (the picker, New level, a deleted level, Page Up and
+// Down, an undo), the selection keeps only what the map now shows, so no overlay, card or
+// status line speaks for objects off screen. Undo puts a step's own selection back after
+// its level, so undoing the switch hands the old selection back.
+useStore.subscribe(
+  (s) => shownLevelId(s),
+  () => {
+    const state = useStore.getState();
+    const ids = state.selection.selectedIds;
+    if (ids.length === 0) return;
+    const kept = shownSelectionIds(state, ids, (l) => isLayerShown(state, l));
+    if (kept.length !== ids.length) state.setSelectedIds(kept);
+  },
+);

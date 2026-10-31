@@ -5,7 +5,7 @@
 // is the missing half.
 
 import type { AnyChild } from '../../store/types';
-import type { RingGeometry } from '../../shared/types';
+import type { RingGeometry, ZoneShape } from '../../shared/types';
 import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
 import { localScaleFor } from './transformMath';
@@ -130,6 +130,8 @@ export type ChildSnapshot =
       uniform: boolean;
     }
   | { kind: 'radius'; position: { x: number; y: number }; radius: number }
+  /** A zone keeps its shape kind: a point moves, a circle scales its radius uniformly, a rect resizes. */
+  | { kind: 'zone'; shape: ZoneShape }
   | { kind: 'none' };
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
@@ -155,6 +157,8 @@ export function snapshotChild(child: AnyChild): ChildSnapshot {
       };
     case 'light':
       return { kind: 'radius', position: { ...child.position }, radius: child.radius };
+    case 'zone':
+      return { kind: 'zone', shape: structuredClone(child.shape) };
     // Doors live on a wall; moving one by gizmo would detach it from its host.
     default:
       return { kind: 'none' };
@@ -218,6 +222,41 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
           y: snap.position.y + t.translateY,
         },
         radius: Math.max(snap.radius * factor, 0.1),
+      } as Partial<AnyChild>;
+    }
+    case 'zone': {
+      const s = snap.shape;
+      if (s.kind === 'point') {
+        const [x, y] = mapPoint(s.position.x, s.position.y, t);
+        return { shape: { kind: 'point', position: { x, y } } } as Partial<AnyChild>;
+      }
+      if (s.kind === 'circle') {
+        // One size: the geometric mean of the two factors, exact under a uniform scale.
+        const [x, y] = mapPoint(s.position.x, s.position.y, t);
+        const factor = Math.sqrt(Math.abs(t.scaleX * t.scaleY));
+        return {
+          shape: { kind: 'circle', position: { x, y }, radius: Math.max(s.radius * factor, 0.1) },
+        } as Partial<AnyChild>;
+      }
+      // A rect stays axis-aligned: its four corners mapped, boxed.
+      const corners = [
+        mapPoint(s.x, s.y, t),
+        mapPoint(s.x + s.width, s.y, t),
+        mapPoint(s.x, s.y + s.height, t),
+        mapPoint(s.x + s.width, s.y + s.height, t),
+      ];
+      const xs = corners.map((c) => c[0]);
+      const ys = corners.map((c) => c[1]);
+      const x0 = Math.min(...xs);
+      const y0 = Math.min(...ys);
+      return {
+        shape: {
+          kind: 'rect',
+          x: x0,
+          y: y0,
+          width: Math.max(Math.max(...xs) - x0, 0.1),
+          height: Math.max(Math.max(...ys) - y0, 0.1),
+        },
       } as Partial<AnyChild>;
     }
     case 'none':

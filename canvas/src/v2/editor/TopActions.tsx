@@ -78,7 +78,7 @@ export function TopActions({ actions, onOpenSettings }: TopActionsProps) {
   ];
 
   return (
-    <div className="v2-float v2-bar-card v2-top-actions" data-chrome ref={wrapRef}>
+    <div className="v2-float v2-bar-card v2-top-actions" data-keys="canvas" data-chrome ref={wrapRef}>
       <button
         type="button"
         className="v2-ib"

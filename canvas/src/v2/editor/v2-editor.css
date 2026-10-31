@@ -227,6 +227,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The level on show, after the map name when there is more than one; opens the level menu. */
+.v2-title-card__level {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 400;
+  color: var(--v2-text-2);
+  cursor: pointer;
+}
+.v2-title-card__level:hover {
+  color: var(--v2-text);
+}
 .v2-title-card__meta {
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 11px;
@@ -342,7 +355,8 @@
 .v2-sel {
   position: absolute;
   top: 68px;
-  right: 12px;
+  /* --v2-e-sheet: the room a right sheet takes (the shell sets it while one is open). */
+  right: calc(12px + var(--v2-e-sheet, 0px));
   z-index: 24;
   width: 272px;
   max-height: calc(100vh - 68px - 160px);
@@ -515,7 +529,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 64px;
+  /* 16 px taller than the 40 px tiles alone: the name and count sit under each tile. */
+  height: 80px;
   padding: 0 12px;
 }
 .v2-dock__section {
@@ -524,6 +539,18 @@
   display: flex;
   align-items: center;
   gap: 4px;
+}
+/* The family's tool row gives way last: past the filmstrip's floor and the asset strip it
+   scrolls sideways (no bar) rather than push the row out of the dock. The padding keeps
+   a focus ring inside the clip. */
+.v2-dock__body > .v2-dock__section[role='toolbar'] {
+  flex-shrink: 0.001;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 2px;
+  margin: -2px;
 }
 .v2-dock__body > .v2-swatches,
 .v2-dock__body > .v2-dock__note {
@@ -544,18 +571,20 @@
   align-items: center;
   gap: 6px;
   /* Takes the dock's overflow first (the scroll hides layers before the asset strip drops a
-     tile), but no further than one tile in the scroll: the fixed tiles, the scrolled tile,
-     Add and All layers (40px, 6px apart) and the divider. Past that the strip gives way. */
+     tile), but no further than its floor: the fixed tiles, four tiles in the scroll (every
+     tile when there are fewer; --v2-film-floor), Add and All layers (40px, 6px apart) and
+     the divider. Past that the tools give way: the asset strip, then the tool row. */
   flex-shrink: 1000;
-  min-width: calc((var(--v2-film-fixed, 2) + 3) * 46px + 5px);
+  /* Named tiles are 56px; Add and All layers stay 40px. */
+  min-width: calc((var(--v2-film-fixed, 2) + var(--v2-film-floor, 1)) * 62px + 2 * 46px + 5px);
 }
 .v2-film__scroll {
   display: flex;
   align-items: center;
   gap: 6px;
-  /* Shrinks first when the window is narrow, never below one tile; eight before it scrolls. */
-  min-width: 44px;
-  max-width: calc(8 * 40px + 7 * 6px + 4px);
+  /* Shrinks first when the window is narrow, never below the floor; eight before it scrolls. */
+  min-width: calc(var(--v2-film-floor, 1) * 62px - 2px);
+  max-width: calc(8 * 56px + 7 * 6px + 4px);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -1474,6 +1503,10 @@
 .v2-editor > [data-chrome],
 .v2-chrome-contents > * {
   transition: opacity 400ms var(--v2-ease);
+}
+/* The selection card steps aside for a right sheet at the sheet's own pace. */
+.v2-editor > .v2-sel[data-chrome] {
+  transition: opacity 400ms var(--v2-ease), right 160ms var(--v2-ease);
 }
 .v2-editor[data-faded] > [data-chrome]:not(.v2-chrome-contents):not(:has(:focus-visible)) {
   opacity: 0.35;

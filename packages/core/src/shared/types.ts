@@ -106,6 +106,16 @@ export interface WallSegment extends WallEdits {
    */
   textureSetId?: string;
   textureTint?: string;
+  /**
+   * Locked on its own: selectable (with a lock badge), never moved, turned, deleted, cut
+   * or moved to another layer. Absent = false. The layer's lock is a separate switch.
+   */
+  locked?: boolean;
+  /**
+   * Shown. Absent = true. A hidden wall is drawn nowhere in the editor, the export or the
+   * bot, and is never picked; the server still counts it, as it does a hidden layer's walls.
+   */
+  visible?: boolean;
 }
 
 // ---- Door Types ----
@@ -127,6 +137,11 @@ export interface LayerChild {
   name: string;
   childType: ChildType;
   visible: boolean;
+  /**
+   * Locked on its own, for every kind: selectable by click and marquee (with a lock badge),
+   * never moved, turned, flipped, deleted, cut or moved to another layer. Absent = false.
+   */
+  locked?: boolean;
   /**
    * Membership in a `DungeonLayer.groups` entry. Grouping is metadata plus
    * selection fan-out — there is no group child — so every consumer that walks

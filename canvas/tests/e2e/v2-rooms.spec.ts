@@ -178,10 +178,32 @@ async function openWarren(page: Page): Promise<void> {
   await waitFrame(page, 6)
 }
 
-async function roomScreen(page: Page, name: string): Promise<{ x: number; y: number }> {
+/**
+ * A point inside a room with nothing standing on it, on screen: the anchor when it is bare,
+ * else the nearest bare spot round it. A click there lands on the room itself; one on a
+ * prop takes the prop (every click picks at the raw pointer).
+ */
+async function bareRoomScreen(page: Page, name: string): Promise<{ x: number; y: number }> {
   return inPage(
     page,
-    `(s, layer, w2s, name) => { const r = layer().rooms.find((x) => x.name === name); return w2s(r.anchor[0], r.anchor[1]) }`,
+    `(s, layer, w2s, name) => {
+      const l = layer()
+      const r = l.rooms.find((x) => x.name === name)
+      const inFace = (x, y) => { let c = false; const f = r.face; for (let i = 0, j = f.length - 1; i < f.length; j = i++) { const [xi, yi] = f[i]; const [xj, yj] = f[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c } return c }
+      const covered = (x, y) => l.children.some((c) => {
+        if (c.childType === 'asset' || c.childType === 'text') { const hw = (c.width * c.scale) / 2 + 0.6, hh = (c.height * c.scale) / 2 + 0.6; return Math.abs(x - c.position.x) <= Math.max(hw, hh) && Math.abs(y - c.position.y) <= Math.max(hw, hh) }
+        if (c.childType === 'light') return Math.hypot(x - c.position.x, y - c.position.y) < 1.2
+        if (c.childType === 'door') return Math.hypot(x - c.position[0], y - c.position[1]) < 2
+        return false
+      }) || l.standaloneWalls.some((w) => w.points.some((p) => Math.hypot(x - p[0], y - p[1]) < 3))
+      const [ax, ay] = r.anchor
+      for (let ring = 0; ring < 12; ring++) for (let k = 0; k < Math.max(1, ring * 8); k++) {
+        const a = (k / Math.max(1, ring * 8)) * Math.PI * 2
+        const x = ax + Math.cos(a) * ring * 0.5, y = ay + Math.sin(a) * ring * 0.5
+        if (inFace(x, y) && !covered(x, y)) return w2s(x, y)
+      }
+      return w2s(ax, ay)
+    }`,
     name,
   )
 }
@@ -249,7 +271,7 @@ test('the warren opens with seven numbered, named rooms and the Rooms tab', asyn
 test('a click on Warren Hall selects it, the card renames it, and the name survives a reload', async ({ page }) => {
   await openWarren(page)
   await page.keyboard.press('v')
-  const at = await roomScreen(page, 'Warren Hall')
+  const at = await bareRoomScreen(page, 'Warren Hall')
   await firePointer(page, 'pointerdown', at.x, at.y, 0.5, 1)
   await firePointer(page, 'pointerup', at.x, at.y, 0, 0)
   await waitFrame(page, 2)

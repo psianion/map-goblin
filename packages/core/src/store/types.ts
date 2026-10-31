@@ -8,6 +8,7 @@ import type {
   WallEdits,
   WallType,
   WallDirection,
+  DoorChild,
   DoorStyle,
   Level,
   LightChild,
@@ -105,6 +106,10 @@ export interface SublayerVisibility {
   floor: boolean;
   grid: boolean;
   walls: boolean;
+  /** Text labels; absent means shown (layers saved before the row existed). */
+  labels?: boolean;
+  /** Zone markers; absent means shown. */
+  zones?: boolean;
 }
 
 export interface DungeonStyle {
@@ -357,6 +362,8 @@ export interface ToolsSlice {
 // ─── Selection ───────────────────────────────────────────
 export interface ChildClipboard {
   children: AnyChild[];
+  /** Drawn walls copied with the doors that hang on them. Absent on an older clipboard. */
+  walls?: { wall: WallSegment; doors: DoorChild[] }[];
 }
 
 export interface SelectionSlice {
@@ -466,6 +473,11 @@ export interface UISlice {
    * view preference; never saved with the map.
    */
   seeUnderOverhead: boolean;
+  /**
+   * What a marquee picks: every kind, or only the active dock tab's kinds. Persisted as a
+   * view preference; never saved with the map.
+   */
+  marqueeFilter: 'all' | 'tab';
   /** The props browser is replacing these props; null when it is not. View state. */
   propReplaceIds: string[] | null;
 }
@@ -598,6 +610,18 @@ export interface Command {
    * which keeps the binding inside the same undo entry as the geometry.
    */
   readonly affectsRooms?: boolean;
+  /**
+   * Commands with the same key, executed within the undo manager's window of each other,
+   * fold into one undo entry (a run of arrow nudges on one selection).
+   */
+  readonly coalesceKey?: string;
+  /** Takes `next` (already executed) into this entry; false when it will not. */
+  merge?(next: Command): boolean;
+  /**
+   * A layer or level step: its undo entry also restores the active layer and the level
+   * on show (what was active before on undo, what was active at undo time on redo).
+   */
+  readonly restoresUi?: boolean;
 }
 
 // ─── Serialization ────────────────────────────────────────
@@ -730,6 +754,8 @@ export interface MapBuilderStore {
   removeLevel: (levelId: string) => void;
   updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook }) => void;
   setLayerLevel: (layerId: string, levelId: string) => void;
+  /** Moves the level at `from` to `to` in the level order. */
+  reorderLevel: (from: number, to: number) => void;
 
   // tool actions
   setActiveTool: (tool: ToolType) => void;
@@ -774,6 +800,7 @@ export interface MapBuilderStore {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
 
   // asset actions

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ContextMenu, clampMenuPosition, type ContextMenuItem } from './context-menu'
+import { ContextMenu, clampMenuPosition, type ContextMenuItem, type MenuRow } from './context-menu'
 
 describe('ContextMenu', () => {
   const items: ContextMenuItem[] = [
@@ -209,6 +209,59 @@ describe('ContextMenu', () => {
     it('never goes negative when the menu is bigger than the viewport', () => {
       const result = clampMenuPosition({ x: 0, y: 0 }, { width: 2000, height: 2000 }, { width: 1024, height: 768 })
       expect(result).toEqual({ left: 0, top: 0 })
+    })
+  })
+
+  // A submenu opens in place, under its row: the menu grows, and is kept on screen again.
+  describe('a submenu opened near the window edge', () => {
+    const ROW_PX = 30
+    const submenu: MenuRow[] = [
+      { label: 'Duplicate', onSelect: vi.fn() },
+      { type: 'submenu', label: 'Select behind', rows: Array.from({ length: 8 }, (_, i) => ({ label: `thing ${i}`, onSelect: vi.fn() })) },
+    ]
+    let restore: () => void
+    beforeEach(() => {
+      // jsdom lays nothing out: a menu is as tall as its rows, as wide as 200 px.
+      const h = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+      const w = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.getAttribute('role') === 'menu' ? this.querySelectorAll('[role="menuitem"]').length * ROW_PX : 0
+        },
+      })
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.getAttribute('role') === 'menu' ? 200 : 0
+        },
+      })
+      restore = () => {
+        if (h) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', h)
+        if (w) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', w)
+      }
+    })
+    afterEach(() => restore())
+
+    it('shifts the menu up by what the opened submenu would hang below the window', () => {
+      render(<ContextMenu pos={{ x: 100, y: window.innerHeight - 90 }} onClose={() => {}} items={submenu} />)
+      const menu = screen.getByRole('menu')
+      expect(menu.style.top).toBe(`${window.innerHeight - 90}px`)
+      fireEvent.click(screen.getByText('Select behind'))
+      // Two rows and eight more: all of it inside the window.
+      expect(menu.style.top).toBe(`${window.innerHeight - 10 * ROW_PX}px`)
+      expect(screen.getByText('thing 7')).toBeDefined()
+    })
+
+    it('keeps an opened submenu inside the right edge, and goes back when it closes', () => {
+      const y = window.innerHeight - 90
+      render(<ContextMenu pos={{ x: window.innerWidth - 50, y }} onClose={() => {}} items={submenu} />)
+      const menu = screen.getByRole('menu')
+      expect(menu.style.left).toBe(`${window.innerWidth - 200}px`)
+      fireEvent.click(screen.getByText('Select behind'))
+      expect(menu.style.left).toBe(`${window.innerWidth - 200}px`)
+      fireEvent.click(screen.getByText('Select behind'))
+      expect(menu.style.top).toBe(`${y}px`)
     })
   })
 })
