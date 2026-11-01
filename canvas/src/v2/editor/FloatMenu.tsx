@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } fr
 import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useEscapeToClose } from '../useEscapeToClose';
 
 /* A small menu for the rooms UI: the level picker's, an area header's, a sheet row's
  * right-click. Portalled to the page and placed against its anchor (or the pointer), so no
@@ -76,19 +77,10 @@ export function FloatMenu({
       if (ref.current?.contains(t) || anchor?.current?.contains(t)) return;
       onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    };
     document.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('keydown', onKey, true);
-    };
+    return () => document.removeEventListener('pointerdown', onDown, true);
   }, [open, onClose, anchor]);
+  useEscapeToClose(open, onClose);
 
   if (!open) return null;
   return createPortal(

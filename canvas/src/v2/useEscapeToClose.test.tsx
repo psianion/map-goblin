@@ -47,6 +47,31 @@ describe('useEscapeToClose', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('closes only what was opened last, one per press', () => {
+    const sheet = vi.fn();
+    const popover = vi.fn();
+    renderHook(() => useEscapeToClose(true, sheet));
+    const { unmount } = renderHook(() => useEscapeToClose(true, popover));
+    press('Escape');
+    expect(popover).toHaveBeenCalledTimes(1);
+    expect(sheet).not.toHaveBeenCalled();
+    unmount();
+    press('Escape');
+    expect(sheet).toHaveBeenCalledTimes(1);
+    expect(popover).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a field its own Escape where the top entry asks for that', () => {
+    const onClose = vi.fn();
+    renderHook(() => useEscapeToClose(true, onClose, false, true));
+    const field = document.body.appendChild(document.createElement('input'));
+    expect(press('Escape', field).defaultPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    press('Escape');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    field.remove();
+  });
+
   it('lets go of the window when unmounted', () => {
     const onClose = vi.fn();
     const { unmount } = renderHook(() => useEscapeToClose(true, onClose));

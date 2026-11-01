@@ -246,15 +246,4 @@ describe('ToolManager preview on the overlay', () => {
     expect(overlay.children.at(-1)).toBe(marquee);
     expect([marquee.position.x, marquee.position.y, marquee.scale.x]).toEqual([10, 20, 3]);
   });
-
-  it('owns a key only when the active tool says so', () => {
-    const tm = new ToolManager(new Container() as never);
-    const tool = fakeTool('light');
-    tool.ownsKey = (e) => e.key === 'r';
-    tm.registerTool(tool);
-    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'r' }))).toBe(false);
-    tm.switchTool('light');
-    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'r' }))).toBe(true);
-    expect(tm.ownsKey(new KeyboardEvent('keydown', { key: 'w' }))).toBe(false);
-  });
 });

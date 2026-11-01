@@ -7,7 +7,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
-import { createDefaultShortcuts } from '@/shortcuts/defaultShortcuts';
+import { createDefaultShortcuts, SHORTCUT_GROUPS } from '@/shortcuts/defaultShortcuts';
 import type { ShortcutDefinition } from '@/shortcuts/defaultShortcuts';
 
 interface ShortcutHelpDialogProps {
@@ -18,7 +18,7 @@ interface ShortcutHelpDialogProps {
 const isMac =
   typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
-const CATEGORY_ORDER = ['Tools', 'Edit', 'File', 'View', 'Layers'] as const;
+const CATEGORY_ORDER = SHORTCUT_GROUPS;
 
 /** Split a key combo like "ctrl+shift+z" into display parts ["Ctrl", "Shift", "Z"]. */
 function formatKeyCombo(keys: string): string[] {
@@ -93,12 +93,12 @@ export function ShortcutHelpDialog({
     grouped.set(s.category, list);
   }
 
-  // Left column: Tools + Edit, Right column: File + View
+  // Left column: Tools, Selection, Edit. Right column: the rest.
   const leftCategories = CATEGORY_ORDER.filter(
-    (c) => c === 'Tools' || c === 'Edit',
+    (c) => c === 'Tools' || c === 'Selection' || c === 'Edit',
   );
   const rightCategories = CATEGORY_ORDER.filter(
-    (c) => c === 'File' || c === 'View' || c === 'Layers',
+    (c) => c !== 'Tools' && c !== 'Selection' && c !== 'Edit',
   );
 
   return (
@@ -129,7 +129,7 @@ export function ShortcutHelpDialog({
               })}
             </div>
 
-            {/* Right column: File + View */}
+            {/* Right column: View, Levels and dock, File, Node editing */}
             <div className="space-y-6">
               {rightCategories.map((cat) => {
                 const shortcuts = grouped.get(cat);

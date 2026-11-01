@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useEscapeToClose } from '../useEscapeToClose';
 
 interface SlideOverProps {
   title: string;
@@ -23,19 +24,8 @@ interface SlideOverProps {
 
 /** A right-hand sheet: the full v1 panels the shell has no room for, and v2's own sheets. */
 export function SlideOver({ title, open, onClose, children, testId, header, legacy = true, className, footer }: SlideOverProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // A field inside the sheet keeps its own Escape (rename, filter).
-      const t = e.target as HTMLElement | null;
-      if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      e.stopPropagation();
-      onClose();
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [open, onClose]);
+  // A field inside the sheet keeps its own Escape (rename, filter).
+  useEscapeToClose(open, onClose, false, true);
 
   if (!open) return null;
   return (

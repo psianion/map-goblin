@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from '@/store/store';
 import type { ToolType, UISlice } from '@/store/types';
-import { editSessionActive } from '@/canvas/editSessionKeys';
 import { cn } from '@/lib/utils';
 import { Seg, Switch } from './controls';
 import { RoomsListIcon, SuggestIcon } from './roomIcons';
@@ -91,16 +90,11 @@ export function RoomsDockTail() {
   );
 }
 
-/** Keys typed into a field are not the bar's Enter and Escape. */
-function typing(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return !!el?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"]');
-}
-
 /**
  * The Suggest bar (board 3), over the dock while proposals are up: how many, that the
- * rooms already there stay, Dismiss and Accept all. Enter accepts all, Escape dismisses.
- * Picking another layer dismisses: proposals belong to the layer they were made on.
+ * rooms already there stay, Dismiss and Accept all. Enter accepts all, Escape dismisses
+ * (both in the shortcut table, behind the map's key guard). Picking another layer
+ * dismisses: proposals belong to the layer they were made on.
  */
 export function SuggestBar() {
   const suggested = useStore((s) => s.ui.roomSuggestions?.rooms.length ?? 0);
@@ -119,21 +113,6 @@ export function SuggestBar() {
     const list = useStore.getState().ui.roomSuggestions;
     if (list && list.layerId !== activeLayerId) dismissSuggestions();
   }, [activeLayerId]);
-
-  useEffect(() => {
-    if (!up) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || typing(e.target)) return;
-      if (editSessionActive(useStore.getState().tools)) return;
-      if (e.key === 'Enter') acceptAllSuggestions();
-      else if (e.key === 'Escape') dismissSuggestions();
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [up]);
 
   if (!up) return null;
   return (

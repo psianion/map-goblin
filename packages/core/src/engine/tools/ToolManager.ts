@@ -100,11 +100,6 @@ export class ToolManager {
     return wasActive;
   }
 
-  /** Whether the active tool answers this key itself, ahead of the global shortcuts. */
-  ownsKey(e: KeyboardEvent): boolean {
-    return this.activeTool?.ownsKey?.(e) ?? false;
-  }
-
   /** Offer a wheel turn to the active tool; true when it took it. */
   onWheel(e: WheelEvent, world: Point): boolean {
     return this.activeTool?.onWheel?.(e, world) ?? false;

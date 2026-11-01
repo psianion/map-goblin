@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { HexColorPicker } from 'react-colorful';
 import { cn } from '@/lib/utils';
 import { placePopover, type PopPlacement } from './popPlacement';
+import { useEscapeToClose } from '../useEscapeToClose';
 
 /* Shared v2 controls. Class names and markup are what `v2-editor.css` styles; keep them. */
 
@@ -74,18 +75,10 @@ export function DockPopover({
       if (t.closest?.('[data-color-picker], [data-texture-picker], [data-anchored-pop]')) return;
       onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      onClose();
-    };
     document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-    };
+    return () => document.removeEventListener('pointerdown', onDown, true);
   }, [open, onClose, anchor]);
+  useEscapeToClose(open, onClose);
   if (!open) return null;
   const pop = (
     <div

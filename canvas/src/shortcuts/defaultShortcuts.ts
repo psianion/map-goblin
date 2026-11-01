@@ -1,5 +1,7 @@
 // src/shortcuts/defaultShortcuts.ts
-// Default keyboard shortcut bindings — file.save and file.load wired to save/load pipeline.
+// The one shortcut table: every key the map answers, with its label and help group. The
+// dispatch map, the v1 help list, the v2 shortcuts sheet and the chrome's key captions all
+// read it.
 
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
@@ -18,7 +20,8 @@ import {
   type AlignEdge,
   type ZOrderOp,
 } from '@dnd/core/src/store/propEdits';
-import type { AnyChild, ChildClipboard, Command, DungeonLayer } from '@/store/types';
+import type { AnyChild, ChildClipboard, Command, DungeonLayer, ToolType } from '@/store/types';
+import { TERRAIN_PANEL_ID } from '@/store/types';
 import { conditionZoneId } from '@dnd/core/src/shared/prep';
 import { isLayerShown, selectLayerForChild, selectLayerForSelected } from '@/store/selectors';
 import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
@@ -37,14 +40,37 @@ import {
   flipCommand,
   rotate90Command,
 } from '@dnd/core/src/engine/transformTargets';
-import { openNewMapRef, togglePopoverRef } from '@/components/toolbar/toolConstants';
+import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
 import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { nextFocusMode, toggleLitPreview } from '@/v2/viewPrefs';
+import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomActions';
+import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
+import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
+import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
+
+/** Set by App.tsx: opens whichever export dialog is mounted (it lives in React state). */
+export const openExportRef: { current: (() => void) | null } = { current: null };
+
+/**
+ * Set by the canvas input hook: hands a key to the tool in hand, true when the tool had a
+ * gesture live (a chain, a drag) that the key went to.
+ */
+export const activeToolKeyRef: { current: ((e: KeyboardEvent) => boolean) | null } = { current: null };
+
+/** What the v2 editor shell lends the table. Registered by EditorShell; null on v1. */
+export interface EditorShellKeys {
+  /** The dock tab up now. */
+  tab: () => string;
+  toggleDock: () => void;
+  stepLevel: (step: -1 | 1) => void;
+  openShortcuts: () => void;
+}
+export const editorShellKeysRef: { current: EditorShellKeys | null } = { current: null };
 
 /** The v2 editor (`/v2`): the only place the Props verbs (z-order, lock, replace) are offered. */
 export const isV2Route = (): boolean => /^\/v2(\/|$)/.test(window.location.pathname);
@@ -430,428 +456,551 @@ export function runSelectionVerb(verb: SelectionVerb): void {
       hideSelection();
       return;
     case 'delete':
-      toolKeyMap['delete']?.();
+      deleteSelection();
       return;
   }
 }
 
-// Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
-const toolKeyMap: Record<string, () => void | false> = {
-  // Tool selection
-  v: () => { useStore.getState().setActiveTool('select'); notify.subtle('Select', { icon: 'tool' }); },
-  g: () => { useStore.getState().setActiveTool('pan'); notify.subtle('Pan', { icon: 'tool' }); },
-  r: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'rectangle') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('rectangle');
-      notify.subtle('Rectangle', { icon: 'tool' });
-    }
-  },
-  p: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'polygon') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('polygon');
-      notify.subtle('Polygon', { icon: 'tool' });
-    }
-  },
-  h: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'regularPolygon') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('regularPolygon');
-      notify.subtle('Regular Polygon', { icon: 'tool' });
-    }
-  },
-  a: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'path') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('path');
-      notify.subtle('Path', { icon: 'tool' });
-    }
-  },
-  d: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'door') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('door');
-      notify.subtle('Door', { icon: 'tool' });
-    }
-  },
-  w: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'wall') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('wall');
-      notify.subtle('Wall', { icon: 'tool' });
-    }
-  },
-  l: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'light') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('light');
-      notify.subtle('Light', { icon: 'tool' });
-    }
-  },
-  b: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'scatterBrush') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('scatterBrush');
-      notify.subtle('Props', { icon: 'tool' });
-    }
-  },
-  t: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'terrain') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('terrain');
-      notify.subtle('Terrain Brush', { icon: 'tool' });
-    }
-  },
-  u: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'water') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('water');
-      notify.subtle('Water', { icon: 'tool' });
-    }
-  },
-  m: () => {
-    // No popover: the ruler has nothing to configure.
-    useStore.getState().setActiveTool('ruler');
-    notify.subtle('Measure', { icon: 'tool' });
-  },
-  // N for note — T is terrain.
-  n: () => {
-    useStore.getState().setActiveTool('text');
-    notify.subtle('Label', { icon: 'tool' });
-  },
-  z: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'zone') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('zone');
-      notify.subtle('Zone', { icon: 'tool' });
-    }
-  },
-  // Mode toggles
-  e: () => {
-    const s = useStore.getState();
-    const next = !s.tools.eraseMode;
-    s.setEraseMode(next);
-    notify.subtle(next ? 'Erase mode' : 'Draw mode', { icon: 'tool' });
-  },
-  c: () => {
-    const s = useStore.getState();
-    const next = !s.tools.curveMode;
-    s.setCurveMode(next);
-    notify.subtle(next ? 'Curve mode' : 'Straight mode', { icon: 'tool' });
-  },
-  // Undo / redo
-  'ctrl+z': () => {
-    if (!undoManager.canUndo()) {
-      // Full-weight toast, not subtle: a quiet "nothing happened" here reads
-      // as undo being broken, not as an empty history.
-      notifyCoalesce('undo', 'Nothing to undo', { duration: 1500, icon: 'undo' });
-      return;
-    }
-    undoManager.undo();
-    notifyCoalesce('undo', 'Undo', { duration: 1500, icon: 'undo' });
-  },
-  'ctrl+shift+z': () => {
-    if (!undoManager.canRedo()) {
-      notifyCoalesce('redo', 'Nothing to redo', { duration: 1500, icon: 'redo' });
-      return;
-    }
-    undoManager.redo();
-    notifyCoalesce('redo', 'Redo', { duration: 1500, icon: 'redo' });
-  },
-  'ctrl+y': () => {
-    if (!undoManager.canRedo()) {
-      notifyCoalesce('redo', 'Nothing to redo', { duration: 1500, icon: 'redo' });
-      return;
-    }
-    undoManager.redo();
-    notifyCoalesce('redo', 'Redo', { duration: 1500, icon: 'redo' });
-  },
-  'ctrl+s': () => {
-    saveMap().then((saved) => {
-      if (saved) notify.success('Map saved');
-    }).catch((err: unknown) => {
-      console.error('[save] failed:', err);
-      notify.error('Save failed — see console for details.');
-    });
-  },
-  'ctrl+o': () => {
-    import('@/io/saveLoad')
-      .then(({ loadMap }) => {
-        loadMap().catch((err: unknown) => {
-          console.error('[load] failed:', err);
-          notify.error('Open failed — see console for details.');
-        });
-      })
-      .catch(() => {
-        console.error('[load] could not import saveLoad module');
-      });
-  },
-  'ctrl+c': (): void | false => {
-    const store = useStore.getState();
-    if (store.tools.activeTool !== 'select') return false;
+/** Undo, with the coalesced toast. */
+function undo(): void {
+  if (!undoManager.canUndo()) {
+    // Full-weight toast, not subtle: a quiet "nothing happened" here reads
+    // as undo being broken, not as an empty history.
+    notifyCoalesce('undo', 'Nothing to undo', { duration: 1500, icon: 'undo' });
+    return;
+  }
+  undoManager.undo();
+  notifyCoalesce('undo', 'Undo', { duration: 1500, icon: 'undo' });
+}
 
-    // Object-based copy: the selected children, and drawn walls with the doors on them.
-    if (store.selection.selectedIds.length > 0) {
-      const copied = copyableSelection(store);
-      if (!copied) return;
-      store.setClipboard(copied.clipboard);
-      notify.subtle(copied.count === 1 ? 'Copied' : `Copied ${copied.count} items`, { icon: 'copy' });
-      return;
-    }
-  },
-  'ctrl+v': (): void | false => {
-    const store = useStore.getState();
+function redo(): void {
+  if (!undoManager.canRedo()) {
+    notifyCoalesce('redo', 'Nothing to redo', { duration: 1500, icon: 'redo' });
+    return;
+  }
+  undoManager.redo();
+  notifyCoalesce('redo', 'Redo', { duration: 1500, icon: 'redo' });
+}
 
-    // Object-based paste: duplicate children (and drawn walls) with new IDs
-    const clip = store.selection.clipboard;
-    if (clip && (clip.children.length > 0 || (clip.walls?.length ?? 0) > 0)) {
-      const activeLayerId = store.ui.activeLayerId;
-      // Same exists/dungeon/unlocked/visible check the canvas guards
-      // pointerDown with — paste is a canvas-triggered mutation too, and had
-      // none of it. Duplicated here rather than imported: the core helper's
-      // notify channel and this file's @/lib/toast are wired separately.
-      const activeLayer = store.layers.find(
-        (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-      );
-      if (!activeLayer) {
-        notify.warning(noEditableLayerMessage());
-        return;
-      }
-      if (activeLayer.locked) {
-        notify.warning('Layer is locked');
-        return;
-      }
-      if (!activeLayer.visible) {
-        notify.warning('Layer is hidden');
-        return;
-      }
-      // The one duplicate path: copies offset one square, attached lights glued to the
-      // copies, no copy left pointing at a group the layer does not have. Walls land on
-      // the active layer too, their doors re-bound to the copies.
-      const cmds: Command[] = [];
-      const pasted: string[] = [];
-      if (clip.children.length > 0) {
-        const { command, newIds } = createDuplicateCommand(store.layers, [], {
-          children: clip.children,
-          targetLayerId: activeLayerId,
-          label: 'Paste',
-        });
-        if (command) {
-          cmds.push(command);
-          pasted.push(...newIds);
-        }
-      }
-      if (clip.walls?.length) {
-        const walls = wallCopyCommands('Paste', clip.walls, activeLayerId, 1, 1);
-        cmds.push(...walls.commands);
-        pasted.push(...walls.newIds);
-      }
-      if (cmds.length === 0) return;
-      undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Paste', cmds));
-      // What was pasted is the selection, so it can be moved straight away; undo then
-      // redo hands it back (the entry records the selection held when it is undone).
-      useStore.getState().setSelectedIds(pasted);
-      notify.action(`Pasted ${selectionNoun(kindCounts(clip.children, clip.walls?.length ?? 0))}`, {
-        label: 'Undo',
-        onClick: () => undoManager.undo(),
-        icon: 'paste',
-      });
-      return;
-    }
+function copySelection(): void | false {
+  const store = useStore.getState();
+  if (store.tools.activeTool !== 'select') return false;
 
-    // Region-based paste not implemented in v2.0
-    return false;
-  },
-  // Duplicate into each member's own layer — unlike paste, which targets the active
-  // layer — offset one square like paste so the copy is visible.
-  'ctrl+d': (): void | false => duplicateSelection(false),
-  // Select everything on the active layer; again within a second, every shown layer.
-  'ctrl+a': (): void | false => selectAll(),
-  'shift+r': (): void | false => rotateSelection90(),
-  'ctrl+shift+l': (): void | false => {
-    if (!selectionShortcutsApply(useStore.getState())) return false;
-    toggleLockSelection();
-  },
-  'ctrl+shift+h': (): void | false => {
-    if (!selectionShortcutsApply(useStore.getState())) return false;
-    hideSelection();
-  },
-  // No canGroupSelection() gate: groupSelection warns with the specific reason
-  // when it refuses, and a silently swallowed Ctrl+G is the bug.
-  'ctrl+g': (): void => {
-    // On v2 a group of props clicks as one by default (Group board); v1 keeps plain groups.
-    groupSelection(isV2Route() && selectionIsAllProps());
-  },
-  'ctrl+shift+g': (): void | false => {
-    if (!selectionGroup()) return false;
-    ungroupSelection();
-  },
-  'shift+h': () => flipSelection('h'),
-  'shift+v': () => flipSelection('v'),
-  // Draw order. With Shift held the bracket keys arrive as braces on most layouts.
-  'ctrl+]': () => orderSelection('forward'),
-  'ctrl+[': () => orderSelection('backward'),
-  'ctrl+shift+]': () => orderSelection('front'),
-  'ctrl+shift+}': () => orderSelection('front'),
-  'ctrl+shift+[': () => orderSelection('back'),
-  'ctrl+shift+{': () => orderSelection('back'),
-  'arrowleft': () => nudgeSelection(-1, 0),
-  'arrowright': () => nudgeSelection(1, 0),
-  'arrowup': () => nudgeSelection(0, -1),
-  'arrowdown': () => nudgeSelection(0, 1),
-  'shift+arrowleft': () => nudgeSelection(-0.25, 0),
-  'shift+arrowright': () => nudgeSelection(0.25, 0),
-  'shift+arrowup': () => nudgeSelection(0, -0.25),
-  'shift+arrowdown': () => nudgeSelection(0, 0.25),
-  'ctrl+i': () => {
-    importImageRef.current?.();
-  },
-  'shift+?': () => {
-    useStore.getState().showModal({ type: 'shortcutReference', props: {} });
-  },
-  '?': () => {
-    // Fallback: some keyboards/layouts produce '?' as e.key without shift flag
-    useStore.getState().showModal({ type: 'shortcutReference', props: {} });
-  },
-  'ctrl+0': () => {
-    zoomToFitRef.current?.();
-    notify.subtle('Zoom to fit', { icon: 'focus' });
-  },
-  '`': () => {
-    const state = useStore.getState();
-    const next = nextFocusMode(state.ui.focusMode);
-    state.setFocusMode(next);
-    const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
-    notify.subtle(labels[next], { icon: 'focus' });
-  },
-  // Only where the editor lies on a desk (v2): without one the view is always lit.
-  i: (): void | false => {
-    if (!getEditorDesk()) return false;
-    notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
-  },
-  // v1 only: the v2 editor has no maps side panel to toggle.
-  'ctrl+shift+m': (): void | false => {
-    if (getEditorDesk()) return false;
-    const state = useStore.getState();
-    state.togglePanel('left');
-    notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened', { icon: 'map' });
-  },
-  'ctrl+shift+n': () => {
-    // On /v2 the route registers its own New map dialog here.
-    if (openNewMapRef.current) {
-      openNewMapRef.current();
-      return;
-    }
-    // Opens the New map dialog — the same one the maps panel's "New Map" button opens,
-    // mounted once in App.tsx off this modal state so the shortcut works with the panel
-    // closed. Enter commits, so the fast path is still two keystrokes.
-    useStore.getState().showModal({ type: 'newMap', props: { mode: 'create' } });
-  },
-  'ctrl+x': (): void | false => {
-    const store = useStore.getState();
-    if (store.tools.activeTool !== 'select') return false;
+  // Object-based copy: the selected children, and drawn walls with the doors on them.
+  if (store.selection.selectedIds.length > 0) {
+    const copied = copyableSelection(store);
+    if (!copied) return;
+    store.setClipboard(copied.clipboard);
+    notify.subtle(copied.count === 1 ? 'Copied' : `Copied ${copied.count} items`, { icon: 'copy' });
+    return;
+  }
+}
 
-    // Object-based cut: copy then delete, walls with their doors. Locked members and rooms
-    // stay where they are.
-    const sel = resolveSelection(store, store.selection.selectedIds);
-    const cutIds = store.selection.selectedIds.filter(
-      (id) => !sel.locked.includes(id) && !sel.rooms.some((r) => r.room.id === id),
+function pasteClipboard(): void | false {
+  const store = useStore.getState();
+
+  // Object-based paste: duplicate children (and drawn walls) with new IDs
+  const clip = store.selection.clipboard;
+  if (clip && (clip.children.length > 0 || (clip.walls?.length ?? 0) > 0)) {
+    const activeLayerId = store.ui.activeLayerId;
+    // Same exists/dungeon/unlocked/visible check the canvas guards
+    // pointerDown with — paste is a canvas-triggered mutation too, and had
+    // none of it. Duplicated here rather than imported: the core helper's
+    // notify channel and this file's @/lib/toast are wired separately.
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
-    if (cutIds.length === 0 && store.selection.selectedIds.length > 0) {
-      notify.warning(sel.locked.length > 0 ? LOCKED_MESSAGE : NOTHING_TO_COPY);
+    if (!activeLayer) {
+      notify.warning(noEditableLayerMessage());
       return;
     }
-    if (cutIds.length > 0) {
-      const reason = blockedChildrenLayerReason(store, cutIds);
-      if (reason) {
-        notify.warning(reason);
-        return;
-      }
-      lockedSkipped(sel.locked.length);
-
-      // Copy first
-      const copied = copyableSelection(store, cutIds);
-      if (copied) store.setClipboard(copied.clipboard);
-
-      // Delete selected
-      warnOrphanedTriggers(store, cutIds);
-      const cutKinds = removedKinds(store, cutIds);
-      const removal = createSelectionRemovalCommand(cutIds, 'Cut');
-      if (!removal.command) return;
-      undoManager.execute(removal.command);
-      notify.action(`Cut ${selectionNoun(cutKinds)}`, {
-        label: 'Undo',
-        onClick: () => undoManager.undo(),
-        icon: 'scissors',
+    if (activeLayer.locked) {
+      notify.warning('Layer is locked');
+      return;
+    }
+    if (!activeLayer.visible) {
+      notify.warning('Layer is hidden');
+      return;
+    }
+    // The one duplicate path: copies offset one square, attached lights glued to the
+    // copies, no copy left pointing at a group the layer does not have. Walls land on
+    // the active layer too, their doors re-bound to the copies.
+    const cmds: Command[] = [];
+    const pasted: string[] = [];
+    if (clip.children.length > 0) {
+      const { command, newIds } = createDuplicateCommand(store.layers, [], {
+        children: clip.children,
+        targetLayerId: activeLayerId,
+        label: 'Paste',
       });
-      store.setSelectedIds([]);
-      return;
+      if (command) {
+        cmds.push(command);
+        pasted.push(...newIds);
+      }
     }
-
-    // Region selection (Alt+drag legacy): cutting it just clears it
-    if (store.selection.selectedRegion) {
-      store.setSelectedRegion(null);
+    if (clip.walls?.length) {
+      const walls = wallCopyCommands('Paste', clip.walls, activeLayerId, 1, 1);
+      cmds.push(...walls.commands);
+      pasted.push(...walls.newIds);
     }
-  },
-  'delete': (): void | false => {
-    const store = useStore.getState();
-    if (store.selection.selectedIds.length === 0) return false;
+    if (cmds.length === 0) return;
+    undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Paste', cmds));
+    // What was pasted is the selection, so it can be moved straight away; undo then
+    // redo hands it back (the entry records the selection held when it is undone).
+    useStore.getState().setSelectedIds(pasted);
+    notify.action(`Pasted ${selectionNoun(kindCounts(clip.children, clip.walls?.length ?? 0))}`, {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+      icon: 'paste',
+    });
+    return;
+  }
 
-    const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  // Region-based paste not implemented in v2.0
+  return false;
+}
+
+function cutSelection(): void | false {
+  const store = useStore.getState();
+  if (store.tools.activeTool !== 'select') return false;
+
+  // Object-based cut: copy then delete, walls with their doors. Locked members and rooms
+  // stay where they are.
+  const sel = resolveSelection(store, store.selection.selectedIds);
+  const cutIds = store.selection.selectedIds.filter(
+    (id) => !sel.locked.includes(id) && !sel.rooms.some((r) => r.room.id === id),
+  );
+  if (cutIds.length === 0 && store.selection.selectedIds.length > 0) {
+    notify.warning(sel.locked.length > 0 ? LOCKED_MESSAGE : NOTHING_TO_COPY);
+    return;
+  }
+  if (cutIds.length > 0) {
+    const reason = blockedChildrenLayerReason(store, cutIds);
     if (reason) {
       notify.warning(reason);
       return;
     }
+    lockedSkipped(sel.locked.length);
 
-    // Anything locked on its own stays; the rest of the selection goes.
-    const locked = resolveSelection(store, store.selection.selectedIds).locked;
-    const ids = store.selection.selectedIds.filter((id) => !locked.includes(id));
-    if (ids.length === 0) {
-      notify.warning(LOCKED_MESSAGE);
-      return;
-    }
-    lockedSkipped(locked.length);
-    warnOrphanedTriggers(store, ids);
-    // Drawn walls ride in the same selection; their doors go with them, in this one step.
-    const kinds = removedKinds(store, ids);
-    const removal = createSelectionRemovalCommand(ids, 'Delete', 'Delete selected');
-    if (removal.command) {
-      undoManager.execute(removal.command);
-      notify.action(deletedMessage(kinds, removal.doors), {
-        label: 'Undo',
-        onClick: () => undoManager.undo(),
-        icon: 'trash',
-      });
-    }
+    // Copy first
+    const copied = copyableSelection(store, cutIds);
+    if (copied) store.setClipboard(copied.clipboard);
+
+    // Delete selected
+    warnOrphanedTriggers(store, cutIds);
+    const cutKinds = removedKinds(store, cutIds);
+    const removal = createSelectionRemovalCommand(cutIds, 'Cut');
+    if (!removal.command) return;
+    undoManager.execute(removal.command);
+    notify.action(`Cut ${selectionNoun(cutKinds)}`, {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+      icon: 'scissors',
+    });
     store.setSelectedIds([]);
-  },
-  'backspace': (): void | false => {
-    return toolKeyMap['delete']?.() ?? false;
-  },
-};
+    return;
+  }
+
+  // Region selection (Alt+drag legacy): cutting it just clears it
+  if (store.selection.selectedRegion) {
+    store.setSelectedRegion(null);
+  }
+}
+
+function deleteSelection(): void | false {
+  const store = useStore.getState();
+  if (store.selection.selectedIds.length === 0) return false;
+
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+
+  // Anything locked on its own stays; the rest of the selection goes.
+  const locked = resolveSelection(store, store.selection.selectedIds).locked;
+  const ids = store.selection.selectedIds.filter((id) => !locked.includes(id));
+  if (ids.length === 0) {
+    notify.warning(LOCKED_MESSAGE);
+    return;
+  }
+  lockedSkipped(locked.length);
+  warnOrphanedTriggers(store, ids);
+  // Drawn walls ride in the same selection; their doors go with them, in this one step.
+  const kinds = removedKinds(store, ids);
+  const removal = createSelectionRemovalCommand(ids, 'Delete', 'Delete selected');
+  if (removal.command) {
+    undoManager.execute(removal.command);
+    notify.action(deletedMessage(kinds, removal.doors), {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+      icon: 'trash',
+    });
+  }
+  store.setSelectedIds([]);
+}
+
+/**
+ * Pick `tool`. Pressed again with the tool in hand, a tool with settings opens them: the
+ * v2 dock (brought forward if folded), the v1 popover.
+ */
+function pickTool(tool: ToolType, label: string, settings = true): void {
+  const s = useStore.getState();
+  if (settings && s.tools.activeTool === tool) {
+    togglePopoverRef.current?.();
+    return;
+  }
+  s.setActiveTool(tool);
+  notify.subtle(label, { icon: 'tool' });
+}
+
+/** The room tools: pressed again with the tool in hand, nothing more happens. */
+function pickRoomTool(tool: ToolType, label: string): void {
+  const s = useStore.getState();
+  if (s.tools.activeTool === tool) return;
+  s.setActiveTool(tool);
+  notify.subtle(label, { icon: 'tool' });
+}
+
+/** The key, to the tool in hand: Enter ends a chain, Escape drops it, F mirrors the stamp. */
+function toTool(e?: KeyboardEvent): void | false {
+  if (!e || !activeToolKeyRef.current) return false;
+  activeToolKeyRef.current(e);
+}
+
+/**
+ * Escape, once nothing above the map claims it: the tool in hand cancels its gesture, and
+ * only if it had none does the view let go of solo (D1) and of the Terrain row (D5b),
+ * restoring the dungeon layer that was active before it. Solo and the terrain row are
+ * view-level state with no claim to pre-empt a gesture's own Escape, and cancelling a
+ * chain and clearing solo must not both fire off one press.
+ */
+function cancelOrLeaveSolo(e?: KeyboardEvent): void | false {
+  if (!e) return false;
+  if (activeToolKeyRef.current?.(e)) return;
+  const state = useStore.getState();
+  if (state.ui.solo) state.clearSolo();
+  if (state.ui.activeLayerId === TERRAIN_PANEL_ID) {
+    const prior = priorActiveLayerRef.current;
+    if (prior && state.layers.some((l) => l.id === prior)) {
+      state.setActiveLayerId(prior);
+    }
+    priorActiveLayerRef.current = null;
+  }
+}
+
+/**
+ * A node edit's key: the picked outline vertex goes on Delete, the picked wall stone turns,
+ * sizes, moves its gap, swaps its piece, gains a neighbour or goes. With nothing picked the
+ * key is still the session's (editSessionKeys.ts): swallowed, so Tab does not fold the dock
+ * and Delete does not take the whole shape.
+ */
+function nodeKey(e?: KeyboardEvent): void {
+  if (!e) return;
+  const tools = useStore.getState().tools;
+  if (tools.shapeNodeEditId && tools.selectedVertex !== null && (e.key === 'Delete' || e.key === 'Backspace')) {
+    applyOutlineEdit({ kind: 'delete', index: tools.selectedVertex }, 'Delete vertex');
+    useStore.getState().selectVertex(null);
+    return;
+  }
+  if (tools.nodeEditWallId && tools.selectedNodeT !== null) handleNodeKey(e.key, tools.selectedNodeT);
+}
+
+/** Keys typed into a field, or Tab moving focus between controls, are not dock toggles. */
+function isTypingOrNavigating(target: EventTarget | null | undefined): boolean {
+  const el = target as HTMLElement | null | undefined;
+  if (!el || el === document.body) return false;
+  return !!el.closest?.(
+    'input, textarea, select, button, a, [contenteditable="true"], [role="dialog"], [role="menu"], [tabindex]',
+  );
+}
+
+const sessionKey = (e?: KeyboardEvent): boolean => !!e && editSessionOwnsKey(useStore.getState().tools, e);
+const noEditSession = (): boolean => !editSessionActive(useStore.getState().tools);
+/** The v2 editor shell is up, and no node edit holds the keys. */
+const shellFree = (): boolean => editorShellKeysRef.current !== null && noEditSession();
+const suggesting = (): boolean => (useStore.getState().ui.roomSuggestions?.rooms.length ?? 0) > 0 && noEditSession();
+
+/** Where a binding answers: anywhere, only with one tool in hand, or only with the Rooms tab up. */
+export type ShortcutScope = 'canvas' | `tool:${ToolType}` | 'tab:rooms';
+
+/** The help groups, in the order the shortcuts sheet lists them. */
+export const SHORTCUT_GROUPS = ['Tools', 'Selection', 'Edit', 'View', 'Levels and dock', 'File', 'Node editing'] as const;
+export type ShortcutGroup = (typeof SHORTCUT_GROUPS)[number];
+
+export interface Shortcut {
+  /** The help row. Bindings sharing an id are one action on several keys. */
+  id: string;
+  /** What onKeyDown builds (comboOf): ctrl, shift, alt, then the key, lower case. */
+  combo: string;
+  label: string;
+  group: ShortcutGroup;
+  scope: ShortcutScope;
+  /** Bound, but not shown in the help: another spelling of a key its row already shows. */
+  alias?: true;
+  /** Whether it applies right now; false hands the key to the next binding on the combo. */
+  when?: (e?: KeyboardEvent) => boolean;
+  /** The action. False: it did not apply after all, and the key falls through. */
+  run: (e?: KeyboardEvent) => void | false;
+}
+
+/**
+ * Every key the map answers. Bindings on one combo are tried in the order listed here, so
+ * the node-edit keys come first (Delete with a stone picked means that stone), then the
+ * room tools on R and P, then the tool-owned keys, then the rest.
+ */
+export const SHORTCUTS: readonly Shortcut[] = [
+  // Node editing, ahead of everything else on the same keys.
+  { id: 'node.exit', combo: 'escape', group: 'Node editing', scope: 'canvas', label: 'Leave node editing',
+    when: () => !noEditSession(),
+    run: () => (useStore.getState().tools.nodeEditWallId ? exitNodeEdit() : exitShapeNodeEdit()) },
+  { id: 'node.turn', combo: '[', group: 'Node editing', scope: 'canvas', label: 'Turn the stone', when: sessionKey, run: nodeKey },
+  { id: 'node.turn', combo: ']', group: 'Node editing', scope: 'canvas', label: 'Turn the stone', when: sessionKey, run: nodeKey },
+  { id: 'node.size', combo: '-', group: 'Node editing', scope: 'canvas', label: 'Size the stone', when: sessionKey, run: nodeKey },
+  { id: 'node.size', combo: '_', group: 'Node editing', scope: 'canvas', label: 'Size the stone', when: sessionKey, run: nodeKey, alias: true },
+  { id: 'node.size', combo: '=', group: 'Node editing', scope: 'canvas', label: 'Size the stone', when: sessionKey, run: nodeKey },
+  { id: 'node.size', combo: '+', group: 'Node editing', scope: 'canvas', label: 'Size the stone', when: sessionKey, run: nodeKey, alias: true },
+  { id: 'node.gap', combo: ',', group: 'Node editing', scope: 'canvas', label: 'Narrow or widen the gap', when: sessionKey, run: nodeKey },
+  { id: 'node.gap', combo: '<', group: 'Node editing', scope: 'canvas', label: 'Narrow or widen the gap', when: sessionKey, run: nodeKey, alias: true },
+  { id: 'node.gap', combo: '.', group: 'Node editing', scope: 'canvas', label: 'Narrow or widen the gap', when: sessionKey, run: nodeKey },
+  { id: 'node.gap', combo: '>', group: 'Node editing', scope: 'canvas', label: 'Narrow or widen the gap', when: sessionKey, run: nodeKey, alias: true },
+  { id: 'node.insert', combo: '{', group: 'Node editing', scope: 'canvas', label: 'Add a stone before or after', when: sessionKey, run: nodeKey },
+  { id: 'node.insert', combo: '}', group: 'Node editing', scope: 'canvas', label: 'Add a stone before or after', when: sessionKey, run: nodeKey },
+  { id: 'node.piece', combo: 'tab', group: 'Node editing', scope: 'canvas', label: 'Next piece', when: sessionKey, run: nodeKey },
+  { id: 'node.remove', combo: 'delete', group: 'Node editing', scope: 'canvas', label: 'Remove the picked stone or corner', when: sessionKey, run: nodeKey },
+  { id: 'node.remove', combo: 'backspace', group: 'Node editing', scope: 'canvas', label: 'Remove the picked stone or corner', when: sessionKey, run: nodeKey },
+
+  // Tools: the rail.
+  { id: 'tool.select', combo: 'v', group: 'Tools', scope: 'canvas', label: 'Select', run: () => pickTool('select', 'Select', false) },
+  { id: 'tool.pan', combo: 'g', group: 'Tools', scope: 'canvas', label: 'Pan', run: () => pickTool('pan', 'Pan', false) },
+  // No settings: the ruler has nothing to configure.
+  { id: 'tool.ruler', combo: 'm', group: 'Tools', scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
+  { id: 'mode.erase', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
+    run: () => {
+      const s = useStore.getState();
+      const next = !s.tools.eraseMode;
+      s.setEraseMode(next);
+      notify.subtle(next ? 'Erase mode' : 'Draw mode', { icon: 'tool' });
+    } },
+  { id: 'mode.curve', combo: 'c', group: 'Tools', scope: 'canvas', label: 'Curve mode',
+    run: () => {
+      const s = useStore.getState();
+      const next = !s.tools.curveMode;
+      s.setCurveMode(next);
+      notify.subtle(next ? 'Curve mode' : 'Straight mode', { icon: 'tool' });
+    } },
+  // Rooms: R and P while the Rooms tab is up (plain floors from every other tab), X from
+  // anywhere on v2, where it is free.
+  { id: 'tool.roomRect', combo: 'r', group: 'Tools', scope: 'tab:rooms', label: 'Rectangle room', when: noEditSession,
+    run: () => pickRoomTool('roomRect', 'Rectangle room') },
+  { id: 'tool.roomPolygon', combo: 'p', group: 'Tools', scope: 'tab:rooms', label: 'Polygon room', when: noEditSession,
+    run: () => pickRoomTool('roomPolygon', 'Polygon room') },
+  { id: 'tool.divide', combo: 'x', group: 'Tools', scope: 'canvas', label: 'Divide', when: shellFree,
+    run: () => pickRoomTool('divide', 'Divide') },
+  // Props: F is the tool's own (mirror the next stamp).
+  { id: 'tool.scatterBrush', combo: 'b', group: 'Tools', scope: 'canvas', label: 'Props', run: () => pickTool('scatterBrush', 'Props') },
+  { id: 'tool.propsMirror', combo: 'f', group: 'Tools', scope: 'tool:scatterBrush', label: 'Mirror the stamp', run: toTool },
+  // Lights: R is the tool's (turn the next light's cone; Shift+R the other way), not Rectangle.
+  { id: 'tool.light', combo: 'l', group: 'Tools', scope: 'canvas', label: 'Light', run: () => pickTool('light', 'Light') },
+  { id: 'tool.lightTurn', combo: 'r', group: 'Tools', scope: 'tool:light', label: 'Turn the cone', run: toTool },
+  { id: 'tool.lightTurn', combo: 'shift+r', group: 'Tools', scope: 'tool:light', label: 'Turn the cone', run: toTool },
+  // Floors.
+  { id: 'tool.rectangle', combo: 'r', group: 'Tools', scope: 'canvas', label: 'Rectangle', run: () => pickTool('rectangle', 'Rectangle') },
+  { id: 'tool.polygon', combo: 'p', group: 'Tools', scope: 'canvas', label: 'Polygon', run: () => pickTool('polygon', 'Polygon') },
+  { id: 'tool.regularPolygon', combo: 'h', group: 'Tools', scope: 'canvas', label: 'Regular polygon',
+    run: () => pickTool('regularPolygon', 'Regular Polygon') },
+  { id: 'tool.path', combo: 'a', group: 'Tools', scope: 'canvas', label: 'Path', run: () => pickTool('path', 'Path') },
+  { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
+  { id: 'tool.water', combo: 'u', group: 'Tools', scope: 'canvas', label: 'Water', run: () => pickTool('water', 'Water') },
+  // Walls.
+  { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
+  { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },
+  // Labels. N for note: T is terrain.
+  { id: 'tool.text', combo: 'n', group: 'Tools', scope: 'canvas', label: 'Label', run: () => pickTool('text', 'Label', false) },
+  { id: 'tool.zone', combo: 'z', group: 'Tools', scope: 'canvas', label: 'Zone', run: () => pickTool('zone', 'Zone') },
+
+  // Selection.
+  { id: 'edit.nudge', combo: 'arrowleft', group: 'Selection', scope: 'canvas', label: 'Nudge 1 square', run: () => nudgeSelection(-1, 0) },
+  { id: 'edit.nudge', combo: 'arrowright', group: 'Selection', scope: 'canvas', label: 'Nudge 1 square', run: () => nudgeSelection(1, 0) },
+  { id: 'edit.nudge', combo: 'arrowup', group: 'Selection', scope: 'canvas', label: 'Nudge 1 square', run: () => nudgeSelection(0, -1) },
+  { id: 'edit.nudge', combo: 'arrowdown', group: 'Selection', scope: 'canvas', label: 'Nudge 1 square', run: () => nudgeSelection(0, 1) },
+  { id: 'edit.nudgeFine', combo: 'shift+arrowleft', group: 'Selection', scope: 'canvas', label: 'Nudge ¼ square', run: () => nudgeSelection(-0.25, 0) },
+  { id: 'edit.nudgeFine', combo: 'shift+arrowright', group: 'Selection', scope: 'canvas', label: 'Nudge ¼ square', run: () => nudgeSelection(0.25, 0) },
+  { id: 'edit.nudgeFine', combo: 'shift+arrowup', group: 'Selection', scope: 'canvas', label: 'Nudge ¼ square', run: () => nudgeSelection(0, -0.25) },
+  { id: 'edit.nudgeFine', combo: 'shift+arrowdown', group: 'Selection', scope: 'canvas', label: 'Nudge ¼ square', run: () => nudgeSelection(0, 0.25) },
+  // Duplicate into each member's own layer (unlike paste, which targets the active
+  // layer), offset one square like paste so the copy is visible.
+  { id: 'edit.duplicate', combo: 'ctrl+d', group: 'Selection', scope: 'canvas', label: 'Duplicate', run: () => duplicateSelection(false) },
+  // Select everything on the active layer; again within a second, every shown layer.
+  { id: 'edit.selectAll', combo: 'ctrl+a', group: 'Selection', scope: 'canvas', label: 'Select all in the layer (twice: every shown layer)',
+    run: () => selectAll() },
+  { id: 'edit.rotate90', combo: 'shift+r', group: 'Selection', scope: 'canvas', label: 'Rotate 90°', run: () => rotateSelection90() },
+  { id: 'edit.flipH', combo: 'shift+h', group: 'Selection', scope: 'canvas', label: 'Flip horizontal', run: () => flipSelection('h') },
+  { id: 'edit.flipV', combo: 'shift+v', group: 'Selection', scope: 'canvas', label: 'Flip vertical', run: () => flipSelection('v') },
+  { id: 'edit.lock', combo: 'ctrl+shift+l', group: 'Selection', scope: 'canvas', label: 'Lock or unlock',
+    run: () => {
+      if (!selectionShortcutsApply(useStore.getState())) return false;
+      toggleLockSelection();
+    } },
+  { id: 'edit.hide', combo: 'ctrl+shift+h', group: 'Selection', scope: 'canvas', label: 'Hide',
+    run: () => {
+      if (!selectionShortcutsApply(useStore.getState())) return false;
+      hideSelection();
+    } },
+  // No canGroupSelection() gate: groupSelection warns with the specific reason
+  // when it refuses, and a silently swallowed Ctrl+G is the bug.
+  // On v2 a group of props clicks as one by default (Group board); v1 keeps plain groups.
+  { id: 'edit.group', combo: 'ctrl+g', group: 'Selection', scope: 'canvas', label: 'Group',
+    run: () => groupSelection(isV2Route() && selectionIsAllProps()) },
+  { id: 'edit.ungroup', combo: 'ctrl+shift+g', group: 'Selection', scope: 'canvas', label: 'Ungroup',
+    run: () => {
+      if (!selectionGroup()) return false;
+      ungroupSelection();
+    } },
+  // Draw order. With Shift held the bracket keys arrive as braces on most layouts.
+  { id: 'edit.forward', combo: 'ctrl+]', group: 'Selection', scope: 'canvas', label: 'Bring forward', run: () => orderSelection('forward') },
+  { id: 'edit.backward', combo: 'ctrl+[', group: 'Selection', scope: 'canvas', label: 'Send backward', run: () => orderSelection('backward') },
+  { id: 'edit.front', combo: 'ctrl+shift+]', group: 'Selection', scope: 'canvas', label: 'Bring to front', run: () => orderSelection('front') },
+  { id: 'edit.front', combo: 'ctrl+shift+}', group: 'Selection', scope: 'canvas', label: 'Bring to front', run: () => orderSelection('front'), alias: true },
+  { id: 'edit.back', combo: 'ctrl+shift+[', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back') },
+  { id: 'edit.back', combo: 'ctrl+shift+{', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back'), alias: true },
+  // With nothing selected the tool in hand has the key (a hovered door, a selected zone).
+  { id: 'edit.delete', combo: 'delete', group: 'Selection', scope: 'canvas', label: 'Delete',
+    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+  { id: 'edit.delete', combo: 'backspace', group: 'Selection', scope: 'canvas', label: 'Delete',
+    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+
+  // Edit.
+  { id: 'edit.undo', combo: 'ctrl+z', group: 'Edit', scope: 'canvas', label: 'Undo', run: undo },
+  { id: 'edit.redo', combo: 'ctrl+y', group: 'Edit', scope: 'canvas', label: 'Redo', run: redo },
+  { id: 'edit.redo', combo: 'ctrl+shift+z', group: 'Edit', scope: 'canvas', label: 'Redo', run: redo },
+  { id: 'edit.copy', combo: 'ctrl+c', group: 'Edit', scope: 'canvas', label: 'Copy', run: copySelection },
+  { id: 'edit.cut', combo: 'ctrl+x', group: 'Edit', scope: 'canvas', label: 'Cut', run: cutSelection },
+  { id: 'edit.paste', combo: 'ctrl+v', group: 'Edit', scope: 'canvas', label: 'Paste', run: pasteClipboard },
+  // The Suggest bar's keys, while proposals are up.
+  { id: 'rooms.accept', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Accept the suggested rooms', when: suggesting,
+    run: () => acceptAllSuggestions() },
+  { id: 'rooms.dismiss', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Dismiss the suggested rooms', when: suggesting,
+    run: () => dismissSuggestions() },
+  { id: 'edit.finish', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Finish the line (wall, polygon, path, lake)', run: toTool },
+  { id: 'edit.cancel', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Cancel the drawing, or leave solo', run: cancelOrLeaveSolo },
+
+  // View.
+  { id: 'view.fitToContent', combo: 'ctrl+0', group: 'View', scope: 'canvas', label: 'Fit to content',
+    run: () => {
+      zoomToFitRef.current?.();
+      notify.subtle('Zoom to fit', { icon: 'focus' });
+    } },
+  { id: 'view.focusMode', combo: '`', group: 'View', scope: 'canvas', label: 'Cycle focus mode',
+    run: () => {
+      const state = useStore.getState();
+      const next = nextFocusMode(state.ui.focusMode);
+      state.setFocusMode(next);
+      const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
+      notify.subtle(labels[next], { icon: 'focus' });
+    } },
+  // Only where the editor lies on a desk (v2): without one the view is always lit.
+  { id: 'view.litPreview', combo: 'i', group: 'View', scope: 'canvas', label: 'Lit preview',
+    run: () => {
+      if (!getEditorDesk()) return false;
+      notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
+    } },
+  // Shift+? lands here too: a shifted punctuation key falls back to the plain key.
+  { id: 'view.shortcuts', combo: '?', group: 'View', scope: 'canvas', label: 'Keyboard shortcuts',
+    run: () => {
+      const shell = editorShellKeysRef.current;
+      if (shell) shell.openShortcuts();
+      else useStore.getState().showModal({ type: 'shortcutReference', props: {} });
+    } },
+
+  // Levels and dock (v2).
+  { id: 'level.up', combo: 'pageup', group: 'Levels and dock', scope: 'canvas', label: 'Level above', when: shellFree,
+    run: () => editorShellKeysRef.current?.stepLevel(-1) },
+  { id: 'level.down', combo: 'pagedown', group: 'Levels and dock', scope: 'canvas', label: 'Level below', when: shellFree,
+    run: () => editorShellKeysRef.current?.stepLevel(1) },
+  // Not with focus on a control: there Tab moves between them.
+  { id: 'dock.toggle', combo: 'tab', group: 'Levels and dock', scope: 'canvas', label: 'Fold or open the dock',
+    when: (e) => shellFree() && !isTypingOrNavigating(e?.target),
+    run: () => editorShellKeysRef.current?.toggleDock() },
+
+  // File.
+  { id: 'file.save', combo: 'ctrl+s', group: 'File', scope: 'canvas', label: 'Save',
+    run: () => {
+      saveMap().then((saved) => {
+        if (saved) notify.success('Map saved');
+      }).catch((err: unknown) => {
+        console.error('[save] failed:', err);
+        notify.error('Save failed — see console for details.');
+      });
+    } },
+  { id: 'file.load', combo: 'ctrl+o', group: 'File', scope: 'canvas', label: 'Open',
+    run: () => {
+      import('@/io/saveLoad')
+        .then(({ loadMap }) => {
+          loadMap().catch((err: unknown) => {
+            console.error('[load] failed:', err);
+            notify.error('Open failed — see console for details.');
+          });
+        })
+        .catch(() => {
+          console.error('[load] could not import saveLoad module');
+        });
+    } },
+  { id: 'file.export', combo: 'ctrl+e', group: 'File', scope: 'canvas', label: 'Export', run: () => openExportRef.current?.() },
+  { id: 'file.import', combo: 'ctrl+i', group: 'File', scope: 'canvas', label: 'Import image', run: () => importImageRef.current?.() },
+  { id: 'file.newMap', combo: 'ctrl+shift+n', group: 'File', scope: 'canvas', label: 'New map',
+    run: () => {
+      // On /v2 the route registers its own New map dialog here.
+      if (openNewMapRef.current) {
+        openNewMapRef.current();
+        return;
+      }
+      // Opens the New map dialog — the same one the maps panel's "New Map" button opens,
+      // mounted once in App.tsx off this modal state so the shortcut works with the panel
+      // closed. Enter commits, so the fast path is still two keystrokes.
+      useStore.getState().showModal({ type: 'newMap', props: { mode: 'create' } });
+    } },
+];
+
+/** Mouse gestures the help lists beside the keys. No key binds them: the Select tool reads them. */
+export const POINTER_HINTS: readonly { id: string; combo: string; label: string; group: ShortcutGroup }[] = [
+  { id: 'edit.selectBehind', combo: 'alt+click', group: 'Selection', label: 'Select the next object below' },
+  { id: 'edit.dupDrag', combo: 'alt+drag', group: 'Selection', label: 'Duplicate and move' },
+];
+
+/** The dispatch map, derived from the table: each combo's bindings, in table order. */
+const toolKeyMap = new Map<string, Shortcut[]>();
+for (const s of SHORTCUTS) toolKeyMap.set(s.combo, [...(toolKeyMap.get(s.combo) ?? []), s]);
+
+/** Every combo the map answers. */
+export function boundCombos(): string[] {
+  return [...toolKeyMap.keys()];
+}
+
+/** The combo for a key event: ctrl (or cmd), shift, alt, then the key, lower case. */
+export function comboOf(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): string {
+  return [e.ctrlKey || e.metaKey ? 'ctrl' : '', e.shiftKey ? 'shift' : '', e.altKey ? 'alt' : '', e.key.toLowerCase()]
+    .filter(Boolean)
+    .join('+');
+}
+
+/**
+ * A combo's bindings. A shifted punctuation key with nothing of its own falls back to the
+ * plain key: `e.key` already carries the shift ('?', '{', '+'), and whether Shift is needed
+ * to type it depends on the layout.
+ */
+function bindingsFor(combo: string): readonly Shortcut[] {
+  const exact = toolKeyMap.get(combo);
+  if (exact) return exact;
+  const shifted = /^shift\+(.)$/.exec(combo)?.[1];
+  return shifted && !/[a-z0-9]/.test(shifted) ? (toolKeyMap.get(shifted) ?? []) : [];
+}
+
+function inScope(scope: ShortcutScope): boolean {
+  if (scope === 'canvas') return true;
+  if (scope === 'tab:rooms') return editorShellKeysRef.current?.tab() === 'rooms';
+  return useStore.getState().tools.activeTool === scope.slice('tool:'.length);
+}
 
 /**
  * Triggers keyed to a removed zone become unreachable from every screen while
@@ -880,91 +1029,28 @@ export interface ShortcutDefinition {
   label: string;
 }
 
+/** The v1 help list: one row per action, on its first key, and the mouse gestures. */
 export function createDefaultShortcuts(): ShortcutDefinition[] {
-  return [
-    { id: 'tool.select',         keys: 'v',           category: 'Tools', label: 'Select' },
-    { id: 'tool.pan',            keys: 'g',           category: 'Tools', label: 'Pan' },
-    { id: 'tool.rectangle',      keys: 'r',           category: 'Tools', label: 'Rectangle' },
-    { id: 'tool.polygon',        keys: 'p',           category: 'Tools', label: 'Polygon' },
-    { id: 'tool.regularPolygon', keys: 'h',           category: 'Tools', label: 'Regular Polygon' },
-    { id: 'tool.path',           keys: 'a',           category: 'Tools', label: 'Path' },
-    { id: 'tool.terrain',        keys: 't',           category: 'Tools', label: 'Terrain' },
-    { id: 'tool.water',          keys: 'u',           category: 'Tools', label: 'Water' },
-    { id: 'tool.wall',           keys: 'w',           category: 'Tools', label: 'Wall' },
-    { id: 'tool.ruler',          keys: 'm',           category: 'Tools', label: 'Measure' },
-    { id: 'tool.text',           keys: 'n',           category: 'Tools', label: 'Label' },
-    { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
-    { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
-    { id: 'tool.scatterBrush',   keys: 'b',           category: 'Tools', label: 'Props' },
-    { id: 'tool.propsMirror',    keys: 'f',           category: 'Tools', label: 'Mirror prop (Props tool)' },
-    { id: 'tool.zone',           keys: 'z',           category: 'Tools', label: 'Zone' },
-    { id: 'tool.room',           keys: 'o',           category: 'Tools', label: 'Room' },
-    { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
-    { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },
-    { id: 'edit.undo',           keys: 'ctrl+z',      category: 'Edit',  label: 'Undo' },
-    { id: 'edit.redo',           keys: 'ctrl+y',      category: 'Edit',  label: 'Redo' },
-    { id: 'edit.redoAlt',        keys: 'ctrl+shift+z', category: 'Edit', label: 'Redo (Alt)' },
-    { id: 'edit.deleteAlt',      keys: 'Backspace',   category: 'Edit',  label: 'Delete (Alt)' },
-    { id: 'file.save',           keys: 'ctrl+s',      category: 'File',  label: 'Save' },
-    { id: 'file.load',           keys: 'ctrl+o',      category: 'File',  label: 'Open' },
-    { id: 'file.export',         keys: 'ctrl+e',      category: 'File',  label: 'Export' }, // handler is in App.tsx (needs React state)
-    { id: 'file.import',         keys: 'ctrl+i',      category: 'File',  label: 'Import Image' },
-    { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
-    { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
-    { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
-    { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
-    { id: 'edit.duplicate',      keys: 'ctrl+d',      category: 'Edit',  label: 'Duplicate' },
-    { id: 'edit.group',          keys: 'ctrl+g',      category: 'Edit',  label: 'Group Selection' },
-    { id: 'edit.ungroup',        keys: 'ctrl+shift+g', category: 'Edit', label: 'Ungroup' },
-    { id: 'edit.flipH',          keys: 'shift+h',     category: 'Edit',  label: 'Flip Horizontal' },
-    { id: 'edit.flipV',          keys: 'shift+v',     category: 'Edit',  label: 'Flip Vertical' },
-    { id: 'edit.forward',        keys: 'ctrl+]',      category: 'Edit',  label: 'Bring Forward' },
-    { id: 'edit.backward',       keys: 'ctrl+[',      category: 'Edit',  label: 'Send Backward' },
-    { id: 'edit.front',          keys: 'ctrl+shift+]', category: 'Edit', label: 'Bring to Front' },
-    { id: 'edit.back',           keys: 'ctrl+shift+[', category: 'Edit', label: 'Send to Back' },
-    { id: 'edit.nudge',          keys: 'ArrowLeft',   category: 'Edit',  label: 'Nudge 1 square (arrows)' },
-    { id: 'edit.nudgeFine',      keys: 'shift+ArrowLeft', category: 'Edit', label: 'Nudge ¼ square' },
-    { id: 'edit.selectAll',      keys: 'ctrl+a',      category: 'Edit',  label: 'Select All in Layer (twice: every shown layer)' },
-    { id: 'edit.rotate90',       keys: 'shift+r',     category: 'Edit',  label: 'Rotate 90°' },
-    { id: 'edit.lock',           keys: 'ctrl+shift+l', category: 'Edit', label: 'Lock / Unlock Selection' },
-    { id: 'edit.hide',           keys: 'ctrl+shift+h', category: 'Edit', label: 'Hide Selection' },
-    { id: 'edit.selectBehind',   keys: 'alt+click',   category: 'Edit',  label: 'Select the Next Object Below' },
-    { id: 'edit.dupDrag',        keys: 'alt+drag',    category: 'Edit',  label: 'Duplicate and Move' },
-    { id: 'view.fitToContent',   keys: 'ctrl+0',      category: 'View',  label: 'Fit to Content' },
-    { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
-    { id: 'view.litPreview',     keys: 'i',           category: 'View',  label: 'Toggle Lit Preview' },
-    { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
-    { id: 'file.newMap',         keys: 'ctrl+shift+n', category: 'File', label: 'New Map' },
-    { id: 'view.shortcuts',      keys: '?',           category: 'View',  label: 'Shortcut Reference' },
-    // Layers panel — documentation-only, like file.export above: these live
-    // as row-level keydown handling / dnd-kit sensors in the panel
-    // components, not in toolKeyMap, so they're listed here purely for the
-    // reference dialog.
-    // L2: 'ArrowUp+ArrowDown' and 'enter+space' below used to be single
-    // entries — formatKeyCombo only knows how to split on '+' and render a
-    // chord ("press both at once"), which is wrong for keys that are
-    // alternatives. Split into one entry per key instead.
-    { id: 'layers.navigateDown', keys: 'ArrowDown',   category: 'Layers', label: 'Navigate Panel' },
-    { id: 'layers.navigateUp',   keys: 'ArrowUp',      category: 'Layers', label: 'Navigate Panel' },
-    { id: 'layers.select',       keys: 'enter',       category: 'Layers', label: 'Select' },
-    { id: 'layers.rename',       keys: 'f2',           category: 'Layers', label: 'Rename (or double-click)' },
-    { id: 'layers.toggleVisible', keys: 'space',       category: 'Layers', label: 'Show/Hide' },
-    { id: 'layers.delete',       keys: 'Delete',       category: 'Layers', label: 'Delete' },
-    { id: 'layers.solo',         keys: 'alt+click',    category: 'Layers', label: 'Solo Layer' },
-    { id: 'layers.exitSolo',     keys: 'escape',       category: 'Layers', label: 'Exit Solo' },
-    { id: 'layers.selectChildren', keys: 'ctrl+click', category: 'Layers', label: 'Select All Children' },
-    { id: 'layers.rowMenu',      keys: 'shift+f10',    category: 'Layers', label: 'Row Menu' },
-    { id: 'layers.reorderEnter', keys: 'enter',       category: 'Layers', label: 'Grab/Drop Reorder (on grip)' },
-    { id: 'layers.reorderSpace', keys: 'space',       category: 'Layers', label: 'Grab/Drop Reorder (on grip)' },
-  ];
+  const rows: ShortcutDefinition[] = [];
+  for (const s of [...SHORTCUTS, ...POINTER_HINTS]) {
+    if (!rows.some((r) => r.id === s.id)) rows.push({ id: s.id, keys: s.combo, category: s.group, label: s.label });
+  }
+  return rows;
 }
 
-/** Pass a key-combo string (e.g. 'ctrl+s'). Returns true if handled. */
-export function handleShortcut(keyCombo: string): boolean {
-  const handler = toolKeyMap[keyCombo];
-  if (handler) {
-    const result = handler();
-    return result !== false;
+/** The first binding with this id: its combo is what captions show. */
+export function shortcutById(id: string): Shortcut | undefined {
+  return SHORTCUTS.find((s) => s.id === id);
+}
+
+/**
+ * Pass a key combo (e.g. 'ctrl+s'), and the key event when there is one. Runs the first
+ * binding in scope that applies; true if one handled it.
+ */
+export function handleShortcut(keyCombo: string, e?: KeyboardEvent): boolean {
+  for (const s of bindingsFor(keyCombo)) {
+    if (!inScope(s.scope) || (s.when && !s.when(e))) continue;
+    if (s.run(e) !== false) return true;
   }
   return false;
 }

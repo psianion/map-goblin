@@ -210,10 +210,9 @@ describe('LightTool: wheel and R size and turn the next light', () => {
     expect([defaults().featherRadius, defaults().radius]).toEqual([1, 1]);
   });
 
-  it('R turns a cone 45° (Shift+R back), owns R over the Rectangle shortcut, and leaves a full circle alone', () => {
+  // That R is the tool's, not Rectangle's, is the shortcut table's (scope tool:light).
+  it('R turns a cone 45° (Shift+R back), and leaves a full circle alone', () => {
     const tool = new LightTool();
-    expect(tool.ownsKey(key('r'))).toBe(true);
-    expect(tool.ownsKey({ ...key('r'), ctrlKey: true } as KeyboardEvent)).toBe(false);
     tool.onKeyDown(key('r'));
     expect(defaults().cone).toBeUndefined();
     useStore.getState().updateLightDefaults({ cone: { angle: 90, direction: 0 } });
