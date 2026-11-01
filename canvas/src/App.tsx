@@ -13,6 +13,7 @@ import { GridCalibrationOverlay } from '@/components/canvas/GridCalibrationOverl
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { ExportModal } from '@/v2/ExportModal';
 import { PublishDialog } from '@/components/shared/PublishDialog';
+import { PublishDialog as PublishDialogV2 } from '@/v2/editor/PublishDialog';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
@@ -259,8 +260,8 @@ export default function App({ renderChrome }: AppProps = {}) {
             <ImageDown size={15} strokeWidth={2} />
           </button>
           <button
-            title="Publish to library"
-            aria-label="Publish to library"
+            title="Publish to table"
+            aria-label="Publish to table"
             onClick={() => setPublishOpen(true)}
             className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
           >
@@ -355,14 +356,18 @@ export default function App({ renderChrome }: AppProps = {}) {
     </div>
 
     {/* Modals + overlays outside the layout so they never clip */}
-    {/* A host drawing its own chrome (/v2) gets its own export dialog; Ctrl+E and the
-        chrome's "Export…" both open whichever one is mounted. */}
+    {/* A host drawing its own chrome (/v2) gets its own export and publish dialogs; Ctrl+E
+        and the chrome's "Export…" both open whichever one is mounted. */}
     {customChrome ? (
       <ExportModal open={exportOpen} onOpenChange={setExportOpen} />
     ) : (
       <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
     )}
-    <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
+    {customChrome ? (
+      <PublishDialogV2 open={publishOpen} onOpenChange={setPublishOpen} />
+    ) : (
+      <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
+    )}
     <ShortcutHelpDialog
       open={modalState?.type === 'shortcutReference'}
       onOpenChange={(open) => { if (!open) showModal(null); }}

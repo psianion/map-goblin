@@ -190,6 +190,19 @@ describe('MapIndexDB', () => {
       expect(Array.from((await db.getMapBlob(id))!)).toEqual(Array.from(blob));
     });
 
+    it('clearPublishState drops one campaign slot and keeps the other', async () => {
+      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      await db.setPublishState(id, 'camp-1', { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' });
+      await db.setPublishState(id, 'camp-2', { sceneId: 's2', mapHash: 'h2', prepHash: 'p2' });
+
+      await db.clearPublishState(id, 'camp-1');
+
+      expect(await db.getPublishState(id)).toEqual({
+        'camp-2': { sceneId: 's2', mapHash: 'h2', prepHash: 'p2' },
+      });
+      await expect(db.clearPublishState('nonexistent', 'camp-1')).resolves.not.toThrow();
+    });
+
     it('nonexistent id is a no-op', async () => {
       await expect(
         db.setPublishState('nonexistent', 'a', { sceneId: 'b', mapHash: 'h', prepHash: 'p' }),

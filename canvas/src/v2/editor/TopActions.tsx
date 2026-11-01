@@ -121,7 +121,7 @@ export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsP
       </button>
       <span className="v2-vr" role="presentation" />
       <button type="button" className="v2-primary" data-testid="v2-publish" onClick={actions.openPublish}>
-        Publish to Table
+        Publish to table
       </button>
 
       {menuOpen && (
