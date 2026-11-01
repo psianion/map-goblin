@@ -3,7 +3,7 @@
 // do it too, because there is nothing standing in for anything.
 
 import { once } from 'node:events'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -800,6 +800,36 @@ describe('scenes (#47)', () => {
   })
 })
 
+describe('an older map file', () => {
+  const V2_FILE = readFileSync(join(import.meta.dirname, '../../testdata/old-keep-v2.mapbuilder'), 'utf8')
+  const storedOf = async (base: string, token: string, sceneId: string) =>
+    JSON.parse((await api(base, 'GET', `/api/maps/${sceneId}`, { token })).text) as {
+      version: string
+      layers: { standaloneWalls?: Record<string, unknown>[] }[]
+    }
+
+  it('is stored migrated, on upload and on republish', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: V2_FILE })
+      expect(uploaded.status).toBe(201)
+      const sceneId = uploaded.body.sceneId as string
+      const first = await storedOf(base, dmToken, sceneId)
+      expect(first.version).toBe('3.0')
+      expect(first.layers[1].standaloneWalls?.map((w) => w.wallType)).toEqual(['normal', 'terrain'])
+
+      const republished = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: V2_FILE })
+      expect(republished.status).toBe(200)
+      const second = await storedOf(base, dmToken, sceneId)
+      expect(second.version).toBe('3.0')
+      expect(second.layers[1].standaloneWalls?.some((w) => 'blocksLight' in w)).toBe(false)
+    })
+  })
+})
+
 describe('dm-token (M3)', () => {
   it('mints a fresh DM token for an existing campaign, admin-pass gated', async () => {
     await withServer(async ({ base, adminPass }) => {
@@ -1113,6 +1143,85 @@ describe('scene prep (M3)', () => {
         raw: JSON.stringify({ ...MAP, prep: null }),
       })
       expect(server.stores.scenes.get(sceneId)?.prep).toBeNull()
+    })
+  })
+
+  it('tells the DM seats at a live table that prep changed, and drops no one’s map', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, playerToken } = await table(base, adminPass)
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const dm = (await joinSocket(server.port, dmToken)).socket
+      const player = (await joinSocket(server.port, playerToken)).socket
+      await nextMessage(dm, 'player-joined')
+
+      const heard = { dm: [] as string[], player: [] as string[] }
+      dm.on('message', (raw: Buffer) => heard.dm.push((JSON.parse(raw.toString()) as ServerMessage).type))
+      player.on('message', (raw: Buffer) => heard.player.push((JSON.parse(raw.toString()) as ServerMessage).type))
+      const notice = nextMessage(dm, 'prep-changed')
+
+      expect((await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: PREP })).status).toBe(200)
+      expect((await notice).sceneId).toBe(sceneId)
+
+      // A pong comes back behind anything the server had already queued on that socket.
+      for (const socket of [dm, player]) {
+        const pong = nextMessage(socket, 'pong')
+        socket.send(JSON.stringify({ type: 'ping', t: 1 }))
+        await pong
+      }
+      expect(heard.dm).toEqual(['prep-changed', 'pong'])
+      expect(heard.player).toEqual(['pong'])
+      dm.terminate()
+      player.terminate()
+    })
+  })
+
+  it('tells the DM seats when a republish stores prep, and only then', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, playerToken } = await table(base, adminPass)
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const dm = (await joinSocket(server.port, dmToken)).socket
+      const player = (await joinSocket(server.port, playerToken)).socket
+      await nextMessage(dm, 'player-joined')
+
+      const heard = { dm: [] as ServerMessage[], player: [] as ServerMessage[] }
+      dm.on('message', (raw: Buffer) => heard.dm.push(JSON.parse(raw.toString()) as ServerMessage))
+      player.on('message', (raw: Buffer) => heard.player.push(JSON.parse(raw.toString()) as ServerMessage))
+      const flush = async () => {
+        for (const socket of [dm, player]) {
+          const pong = nextMessage(socket, 'pong')
+          socket.send(JSON.stringify({ type: 'ping', t: 1 }))
+          await pong
+        }
+      }
+      const notices = (seat: ServerMessage[]) => seat.filter((m) => m.type === 'prep-changed')
+
+      const withPrep = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: PREP }),
+      })
+      expect(withPrep.status).toBe(200)
+      await flush()
+      expect(notices(heard.dm)).toEqual([{ type: 'prep-changed', sceneId }])
+      expect(heard.dm.map((m) => m.type)).toContain('scene-changed')
+      expect(notices(heard.player)).toEqual([])
+
+      // A file without prep leaves the stored prep alone, so there is nothing to refetch.
+      heard.dm.length = 0
+      const withoutPrep = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(MAP) })
+      expect(withoutPrep.status).toBe(200)
+      await flush()
+      expect(heard.dm.map((m) => m.type)).toContain('scene-changed')
+      expect(notices(heard.dm)).toEqual([])
+      dm.terminate()
+      player.terminate()
     })
   })
 })

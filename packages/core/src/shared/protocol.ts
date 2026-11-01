@@ -2,6 +2,8 @@
 // Session wire protocol — shared by @dnd/server and @dnd/session-client.
 // Pure types + one constant; no runtime deps.
 
+import type { AnyChild, Room, WallSegment } from './types';
+
 export const PROTOCOL_VERSION = 5;
 // `modules` gains { fog: FogState, doors: DoorsState } in snapshots, redacted per viewer.
 // A fog `state-update` may carry a `mapDelta` field: the map slices of the rooms that
@@ -35,6 +37,37 @@ export interface SessionState {
   modules: Record<string, unknown>;
 }
 
+/** One layer's worth of newly available geometry, shaped to be merged by layer id. */
+export interface MapDeltaLayer {
+  id: string;
+  rooms: Room[];
+  children: AnyChild[];
+  standaloneWalls: WallSegment[];
+}
+
+/**
+ * §2.1/D5 — rides on the `fog` state-update that reveals the rooms it carries, so a client
+ * never knows a room is revealed before it has the geometry to draw. Placement JSON only:
+ * textures shipped with the asset packs at join. Written by the server's redactor
+ * (`session/server/src/fog/redactMap.ts`), merged by the client's `mergeMapDelta`.
+ */
+export interface MapDelta {
+  sceneId: string;
+  layers: MapDeltaLayer[];
+  /**
+   * The re-cut `lockMask` (see the server's `lockMaskFor`), when this delta credits rooms — the
+   * same debt D5 makes a reveal pay for geometry, for the same reason. The mask is cut against
+   * the rooms a seat holds, a reveal is what grows that set, and nothing else re-cuts a
+   * connected seat's document: `mergeMapDelta` patches layers and the client re-fetches only
+   * on a join, a scene swap, a republish or a mode flip. Without this the newly shipped room's
+   * locked ground would have art, no fence, and no correction ever coming.
+   *
+   * Mechanics' `RegionMask`, spelled out the way `SerializedMapData.lockMask` spells it: core
+   * does not depend on mechanics, and this file stays clear of the store's DOM-typed module.
+   */
+  lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
+}
+
 export type ClientMessage =
   // Token already presented at WS upgrade.
   | { type: 'join'; protocolVersion: number }
@@ -48,6 +81,10 @@ export type ServerMessage =
   // `mapId` lets a client key its map cache on (sceneId, mapId): a republish of the
   // active scene re-broadcasts the same sceneId with a new mapId.
   | { type: 'scene-changed'; sceneId: string; mapId: string }
+  // DM seats only: a scene's prep was rewritten (`PUT /scenes/:id/prep`, or a republish
+  // whose file carries prep), so the Prep panel refetches. It drops no map. Additive, so no version
+  // bump: a client that does not know it ignores it and keeps the prep it already had.
+  | { type: 'prep-changed'; sceneId: string }
   | { type: 'player-joined' | 'player-left'; player: PlayerInfo }
   | { type: 'dm-disconnected' }
   | { type: 'dm-reconnected' }

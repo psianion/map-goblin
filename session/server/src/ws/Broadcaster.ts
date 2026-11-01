@@ -2,9 +2,8 @@
 // Every frame is redacted for its recipient on the way out; the raw socket write lives in
 // ClientConnection#deliver and this file is its only caller.
 
-import type { ServerMessage } from '@dnd/core/src/shared/protocol'
+import type { MapDelta, ServerMessage } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '@dnd/mechanics/contract'
-import type { MapDelta } from '../fog/redactMap'
 import type { Vision } from '../fog/vision'
 import type { ModuleRegistry } from '../modules/registry'
 import type { ClientConnection } from './ClientConnection'

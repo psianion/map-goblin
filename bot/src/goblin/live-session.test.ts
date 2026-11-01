@@ -406,7 +406,7 @@ describe('session runner', () => {
     expect(warn).toHaveBeenCalledWith('recap map snapshot failed', expect.anything())
   })
 
-  it('hands /map the scene and tokens the observer is holding', async () => {
+  it('hands /map the scene, tokens and doors the observer is holding', async () => {
     const { runner, campaign, observers } = harness()
     await runner.start(campaign)
     observers[0].emit(snapshot)
@@ -420,10 +420,15 @@ describe('session runner', () => {
         },
       },
     })
+    observers[0].emit({
+      type: 'doors',
+      state: { byScene: { 'scene-1': { 'door-1': { open: true, locked: false, revealed: false } } } },
+    })
 
     expect(runner.liveState('camp-1')).toEqual({
       sceneId: 'scene-1',
       tokens: [{ id: 't1', name: 'Zed', x: 1, y: 2, cells: 2, disposition: 'hostile', hidden: true }],
+      doors: { 'door-1': { open: true, locked: false, revealed: false } },
     })
     expect(runner.liveState('camp-nope')).toBeUndefined()
   })

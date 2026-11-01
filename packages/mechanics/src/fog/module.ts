@@ -7,7 +7,7 @@
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
 import type { GameModule, ModuleContext } from '../contract'
-import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
+import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {
@@ -562,9 +562,9 @@ function hexColor(v: unknown, field: string): string {
   return s
 }
 
-function ranged(v: unknown, field: string, lo: number, hi: number): number {
+function ranged(v: unknown, field: string, { min, max }: { min: number; max: number }): number {
   const n = num(v, field)
-  if (n < lo || n > hi) bad(`${field} must be between ${lo} and ${hi}`)
+  if (n < min || n > max) bad(`${field} must be between ${min} and ${max}`)
   return n
 }
 
@@ -573,10 +573,10 @@ function parseFogLayer(v: unknown, i: number): FogLayer {
   return {
     type: oneOf(o.type, FOG_LAYER_TYPES, `look.layers[${i}].type`),
     tint: hexColor(o.tint, `look.layers[${i}].tint`),
-    strength: ranged(o.strength, `look.layers[${i}].strength`, 0, 1),
-    scale: ranged(o.scale, `look.layers[${i}].scale`, 0.2, 8),
-    speed: ranged(o.speed, `look.layers[${i}].speed`, 0, 0.3),
-    angle: ranged(o.angle, `look.layers[${i}].angle`, 0, 360),
+    strength: ranged(o.strength, `look.layers[${i}].strength`, FOG_LOOK_RANGES.strength),
+    scale: ranged(o.scale, `look.layers[${i}].scale`, FOG_LOOK_RANGES.scale),
+    speed: ranged(o.speed, `look.layers[${i}].speed`, FOG_LOOK_RANGES.speed),
+    angle: ranged(o.angle, `look.layers[${i}].angle`, FOG_LOOK_RANGES.angle),
   }
 }
 
@@ -598,10 +598,10 @@ function parseFogLook(v: unknown): Partial<FogLook> | null {
   if (o.preset !== undefined) out.preset = oneOf(o.preset, FOG_LOOK_PRESETS, 'look.preset')
   if (o.base !== undefined) out.base = hexColor(o.base, 'look.base')
   if (o.layers !== undefined) out.layers = parseFogLayers(o.layers)
-  if (o.wind !== undefined) out.wind = ranged(o.wind, 'look.wind', 0.5, 12)
-  if (o.fade !== undefined) out.fade = ranged(o.fade, 'look.fade', 1, 4)
-  if (o.veil !== undefined) out.veil = ranged(o.veil, 'look.veil', 0, 0.5)
-  if (o.glow !== undefined) out.glow = ranged(o.glow, 'look.glow', 0, 1)
+  if (o.wind !== undefined) out.wind = ranged(o.wind, 'look.wind', FOG_LOOK_RANGES.wind)
+  if (o.fade !== undefined) out.fade = ranged(o.fade, 'look.fade', FOG_LOOK_RANGES.fade)
+  if (o.veil !== undefined) out.veil = ranged(o.veil, 'look.veil', FOG_LOOK_RANGES.veil)
+  if (o.glow !== undefined) out.glow = ranged(o.glow, 'look.glow', FOG_LOOK_RANGES.glow)
   if (o.heavy !== undefined) out.heavy = bool(o.heavy, 'look.heavy')
   return out
 }

@@ -1,11 +1,12 @@
 // D3 — the server treats a `.mapbuilder` file as schema-validated JSON and nothing more.
 // Rooms, walls and lighting were computed in the editor and arrive inside the file; this
-// module only refuses payloads the renderer could not read, and never throws doing it.
+// module only refuses payloads the renderer could not read, brings an older file up to the
+// current schema (the editor's own `migrateToLatest`), and never throws doing it.
 
 import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3 waiver, same as shared/mapBounds: store/migration is the shared version list + pure JSON migration, pixi-free by design
-import { SUPPORTED_VERSIONS } from '@dnd/core/src/store/migration'
+import { SUPPORTED_VERSIONS, migrateToLatest } from '@dnd/core/src/store/migration'
 
 /**
  * The editor writes a `.mapbuilder` as `MPBLD\0` + gzip(UTF-8 JSON) — canvas/src/io/saveLoad.ts
@@ -36,15 +37,38 @@ export type MapImportResult =
   | { ok: true; data: SerializedMapData; name: string }
   | { ok: false; error: string }
 
-/** Parse + validate in one step, because a body that is not JSON fails the same way. */
-export function parseMapFile(text: string): MapImportResult {
+/** `migrated`: the schema moved, so the stored JSON has to be re-serialised from `data`, not
+ *  kept as the bytes that arrived. */
+export type MapFileResult =
+  | { ok: true; data: SerializedMapData; name: string; migrated: boolean }
+  | { ok: false; error: string }
+
+/**
+ * Parse + validate + migrate in one step, because a body that is not JSON fails the same way.
+ * The upload and the republish both come through here, so a 2.0 file is stored as the 3.x
+ * document every reader past this point expects. A file already on a 3.x schema keeps its own
+ * bytes: what else `migrateToLatest` does (legacy tints, retired fields) is load-time tidying
+ * the editor's and the table's own load repeats and nothing on the server reads, and the map
+ * GET answers with the file as uploaded.
+ */
+export function parseMapFile(text: string): MapFileResult {
   let value: unknown
   try {
     value = JSON.parse(text)
   } catch {
     return { ok: false, error: 'not valid JSON' }
   }
-  return validateMapData(value)
+  const map = validateMapData(value)
+  if (!map.ok) return map
+  let data: SerializedMapData
+  try {
+    data = migrateToLatest(map.data)
+  } catch {
+    // The envelope passed, but a layer inside it is not one the migration can read.
+    return { ok: false, error: 'could not migrate that .mapbuilder file' }
+  }
+  const migrated = data.version !== map.data.version
+  return { ...map, data: migrated ? data : map.data, migrated }
 }
 
 export function validateMapData(value: unknown): MapImportResult {

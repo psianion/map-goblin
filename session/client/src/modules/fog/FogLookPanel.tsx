@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
-import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, type FogLayer, type FogLayerType, type FogLook } from '@dnd/core/src/shared/fogLook';
+import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type FogLayerType, type FogLook } from '@dnd/core/src/shared/fogLook';
 import { fogLookOf, sceneFogOf, type FogState } from '@dnd/mechanics/fog';
 import { Segmented, Switch } from '../../components/controls';
 import { Icon } from '../../shell/icons';
@@ -192,8 +192,7 @@ function LayerRow({
           label="Strength"
           ariaLabel={`Layer ${index + 1} strength`}
           value={layer.strength}
-          min={0}
-          max={1}
+          {...FOG_LOOK_RANGES.strength}
           step={0.05}
           onChange={(v) => onChange({ ...layer, strength: v })}
         />
@@ -203,8 +202,7 @@ function LayerRow({
           label="Scale"
           ariaLabel={`Layer ${index + 1} scale`}
           value={layer.scale}
-          min={0.2}
-          max={8}
+          {...FOG_LOOK_RANGES.scale}
           step={0.1}
           onChange={(v) => onChange({ ...layer, scale: v })}
         />
@@ -214,8 +212,7 @@ function LayerRow({
           label="Speed"
           ariaLabel={`Layer ${index + 1} speed`}
           value={layer.speed}
-          min={0}
-          max={0.3}
+          {...FOG_LOOK_RANGES.speed}
           step={0.005}
           onChange={(v) => onChange({ ...layer, speed: v })}
         />
@@ -225,8 +222,7 @@ function LayerRow({
           label="Direction"
           ariaLabel={`Layer ${index + 1} direction`}
           value={layer.angle}
-          min={0}
-          max={360}
+          {...FOG_LOOK_RANGES.angle}
           step={5}
           onChange={(v) => onChange({ ...layer, angle: v })}
         />
@@ -390,10 +386,10 @@ export function FogLookPanel() {
         )}
       </div>
 
-      <Dial testId="fog-look-wind" label="Wind" value={view.wind} min={0.5} max={12} step={0.5} onChange={(v) => apply({ wind: v }, false)} />
-      <Dial testId="fog-look-fade" label="Fade" value={view.fade} min={1} max={4} step={0.1} onChange={(v) => apply({ fade: v }, false)} />
-      <Dial testId="fog-look-veil" label="Veil" value={view.veil} min={0} max={0.5} step={0.01} onChange={(v) => apply({ veil: v }, false)} />
-      <Dial testId="fog-look-glow" label="Glow" value={view.glow} min={0} max={1} step={0.05} onChange={(v) => apply({ glow: v }, false)} />
+      <Dial testId="fog-look-wind" label="Wind" value={view.wind} {...FOG_LOOK_RANGES.wind} step={0.5} onChange={(v) => apply({ wind: v }, false)} />
+      <Dial testId="fog-look-fade" label="Fade" value={view.fade} {...FOG_LOOK_RANGES.fade} step={0.1} onChange={(v) => apply({ fade: v }, false)} />
+      <Dial testId="fog-look-veil" label="Veil" value={view.veil} {...FOG_LOOK_RANGES.veil} step={0.01} onChange={(v) => apply({ veil: v }, false)} />
+      <Dial testId="fog-look-glow" label="Glow" value={view.glow} {...FOG_LOOK_RANGES.glow} step={0.05} onChange={(v) => apply({ glow: v }, false)} />
 
       <div>
         <Switch testId="fog-look-heavy" checked={view.heavy ?? false} onToggle={() => apply({ heavy: !(view.heavy ?? false) }, true)}>

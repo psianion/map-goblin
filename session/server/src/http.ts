@@ -273,8 +273,9 @@ async function uploadMap(
   // the prep endpoints below ever have to read.
   const prep = map.data.prep
   // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back — less
-  // any room lineage, which a brand-new scene has no fog to carry for (`takeLineage`).
-  const stored = takeLineage(map.data) ? JSON.stringify(map.data) : text
+  // any room lineage, which a brand-new scene has no fog to carry for (`takeLineage`), and
+  // unless the file was an older version `parseMapFile` migrated.
+  const stored = takeLineage(map.data) || map.migrated ? JSON.stringify(map.data) : text
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, stored)
   const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name, storablePrep(prep))
   deps.stores.campaigns.touch(campaignId)
@@ -432,7 +433,7 @@ async function publishScene(
     randomUUID(),
     scene.campaign_id,
     map.name,
-    lineage ? JSON.stringify(map.data) : raw,
+    lineage || map.migrated ? JSON.stringify(map.data) : raw,
   )
   deps.stores.scenes.republish(sceneId, row.id)
   // M3 — `prep` absent means the author never opened prep in this save, so whatever is
@@ -451,6 +452,9 @@ async function publishScene(
   // The re-published map is live state for anyone at the table — `changedSceneId` is what
   // tells a session playing this scene to drop its map and refetch (see refreshScenes).
   deps.sessionManager.refreshScenes(scene.campaign_id, sceneId)
+  // The map refetch above never reaches the DM's Prep panel, so prep stored from this file
+  // is announced the way a prep-only PUT is.
+  if (map.data.prep !== undefined) deps.sessionManager.prepChanged(scene.campaign_id, sceneId)
   json(res, 200, { sceneId, mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
 }
 
@@ -546,9 +550,10 @@ function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse,
 
 /**
  * PUT /api/scenes/:id/prep — DM authors prep directly, without a whole map re-publish.
- * Deliberately quiet: no `refreshScenes`, no `vision.invalidateScene` — a prep edit
+ * Quiet about the map: no `refreshScenes`, no `vision.invalidateScene` — a prep edit
  * changes nothing about the map or fog a live table is looking at, only what a future
- * trigger check will read (M4 re-reads prep itself rather than being told to reload).
+ * trigger check will read (M4 re-reads prep itself rather than being told to reload). The
+ * one thing a live table hears is `prepChanged`, so the DM's Prep panel refetches.
  */
 async function putScenePrep(
   deps: HttpDeps,
@@ -579,6 +584,7 @@ async function putScenePrep(
   const prep = normalizePrep(body)
   const stored: ScenePrep = { version: 3, triggers: prep.triggers, notes: prep.notes, rooms: prep.rooms }
   deps.stores.scenes.setPrep(sceneId, JSON.stringify(stored))
+  deps.sessionManager.prepChanged(scene.campaign_id, sceneId)
   json(res, 200, { prep: stored })
 }
 
