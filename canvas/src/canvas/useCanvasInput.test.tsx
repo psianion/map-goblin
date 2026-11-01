@@ -1,9 +1,9 @@
 // Keyboard routing out of the canvas — the DOM layer between a real keypress
 // and the thing that answers it.
 //
-// The chain is: document keydown → handleKeyDown → (node-edit Escape, outline
-// vertex Delete, the node key table) → the global shortcut table → the active
-// tool. Every rung of it was covered except the routing itself, which is where
+// The chain is: document keydown → handleKeyDown → the key guard → the shortcut
+// table (the node-edit keys first, then the keys the active tool owns, then the
+// rest). Every rung of it was covered except the routing itself, which is where
 // "Ctrl+Z does nothing while I'm editing a wall" would live: the node table
 // claims Delete and Tab, and if it ever claimed a Ctrl combo the undo binding
 // below it would never be reached.
@@ -339,13 +339,14 @@ describe('focus in a text field', () => {
     expect(useStore.getState().tools.curveMode).toBe(before);
   });
 
-  it('still lets Ctrl+Z through', () => {
+  // One guard on v1 and v2 (keyGuard.ts): a Ctrl combo typed into a field is the field's.
+  it('keeps Ctrl+Z for the field', () => {
     const { committedCount } = seedWallInEditMode();
     useStore.getState().selectNode(currentWallNodes()[1].t);
 
     press('z', { ctrl: true }, focusedInput());
 
-    expect(layer().children).toHaveLength(committedCount - 1);
+    expect(layer().children).toHaveLength(committedCount);
   });
 });
 

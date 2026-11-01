@@ -29,6 +29,8 @@ import type { MenuSliderRow, MenuSubmenuRow, MenuSwatchesRow, MenuThumbStripRow,
 import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 import { groupSelection, mergeSelection } from './groupActions';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
+import { shortcutById } from '@/shortcuts/defaultShortcuts';
+import { formatCombo } from '@/shortcuts/formatCombo';
 import type { MenuRow, ContextMenuItem } from '@/components/ui/context-menu';
 import type { AssetChild, DungeonLayer, LightChild, DoorChild, WallSegment } from '@/store/types';
 
@@ -668,6 +670,22 @@ describe('prop menus', () => {
 
     row<ContextMenuItem>(rows, 'Lock').onSelect();
     expect(childById('c')?.locked).toBe(true);
+  });
+
+  it('shows the shortcut table key on Rotate 90°, Lock and the Order rows, and none on unbound rows', () => {
+    window.history.pushState({}, '', '/v2');
+    openPropBrowserRef.current = vi.fn();
+    const crate = prop('c', 'p:crate_1');
+    useStore.getState().addChild(layer().id, crate);
+    const rows = buildChildMenu(propCtx(crate));
+    const key = (id: string) => formatCombo(shortcutById(id)!.combo);
+    expect(row<ContextMenuItem>(rows, 'Rotate 90°').kbd).toBe(key('edit.rotate90'));
+    expect(row<ContextMenuItem>(rows, 'Lock').kbd).toBe(key('edit.lock'));
+    const order = row<MenuSubmenuRow>(rows, 'Order');
+    expect(order.rows.map((r) => (r as ContextMenuItem).kbd)).toEqual(
+      ['edit.front', 'edit.forward', 'edit.backward', 'edit.back'].map(key),
+    );
+    expect(row<ContextMenuItem>(rows, 'Replace from library').kbd).toBeUndefined();
   });
 
   it('closes the menu once a swap is picked', () => {

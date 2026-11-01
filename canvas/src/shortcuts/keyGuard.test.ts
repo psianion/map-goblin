@@ -8,7 +8,7 @@ function mount(html: string): HTMLElement {
   return host;
 }
 
-const at = (el: Element | null) => ({ target: el as EventTarget | null });
+const at = (el: Element | null, key = 'v') => ({ target: el as EventTarget | null, key });
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -101,5 +101,35 @@ describe('canvasKeysAllowed', () => {
     const host = mount('<input id="i">');
     (host.querySelector('#i') as HTMLInputElement).focus();
     expect(canvasKeysAllowed(at(null))).toBe(false);
+  });
+
+  it('leaves a focused slider its arrows, inside marked chrome, and still lets tool letters through', () => {
+    const host = mount('<section data-keys="canvas"><input id="s" type="range"></section>');
+    const slider = host.querySelector('#s');
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) expect(canvasKeysAllowed(at(slider, key))).toBe(false);
+    expect(canvasKeysAllowed(at(slider, 'v'))).toBe(true);
+    expect(canvasKeysAllowed(at(slider, 'Delete'))).toBe(true);
+  });
+
+  it('leaves a focused button its Enter and Space, and its arrows', () => {
+    const host = mount('<nav data-keys="canvas"><button id="b">Wall</button></nav>');
+    const button = host.querySelector('#b');
+    for (const key of ['Enter', ' ', 'ArrowLeft', 'ArrowDown']) expect(canvasKeysAllowed(at(button, key))).toBe(false);
+    expect(canvasKeysAllowed(at(button, 'w'))).toBe(true);
+    expect(canvasKeysAllowed(at(button, 'Escape'))).toBe(true);
+  });
+
+  it('lets only Escape through from a trigger whose menu is open', () => {
+    const host = mount('<div data-keys="canvas"><button id="more" aria-haspopup="menu" aria-expanded="true">More</button></div>');
+    const more = host.querySelector('#more');
+    for (const key of ['v', 'Delete', 'z', 'Enter']) expect(canvasKeysAllowed(at(more, key))).toBe(false);
+    expect(canvasKeysAllowed(at(more, 'Escape'))).toBe(true);
+    more?.setAttribute('aria-expanded', 'false');
+    expect(canvasKeysAllowed(at(more, 'v'))).toBe(true);
+  });
+
+  it('keeps every key, Ctrl combos and Escape included, in a text field', () => {
+    const host = mount('<section data-keys="canvas"><input id="name" type="text"></section>');
+    for (const key of ['v', 'z', 'Escape', 'Enter', 'ArrowLeft']) expect(canvasKeysAllowed(at(host.querySelector('#name'), key))).toBe(false);
   });
 });

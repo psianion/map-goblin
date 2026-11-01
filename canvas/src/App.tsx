@@ -19,9 +19,7 @@ import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
-import { importImageRef } from '@/shortcuts/defaultShortcuts';
-import { canvasKeysAllowed, isTypingTarget } from '@/shortcuts/keyGuard';
-import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
+import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { NewMapDialog } from '@/components/maps/NewMapDialog';
 import { ImportMapsDialog } from '@/components/maps/ImportMapsDialog';
@@ -105,28 +103,10 @@ export default function App({ renderChrome }: AppProps = {}) {
     return () => { importImageRef.current = null; };
   }, [openImagePicker]);
 
-  // Ctrl+E for export (not in defaultShortcuts because it needs React state)
+  // Ctrl+E (the shortcut table's) opens whichever export dialog is mounted.
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const key = [
-        e.ctrlKey || e.metaKey ? 'ctrl' : '',
-        e.shiftKey ? 'shift' : '',
-        e.altKey ? 'alt' : '',
-        e.key.toLowerCase(),
-      ]
-        .filter(Boolean)
-        .join('+');
-
-      if (key === 'ctrl+e') {
-        // The same guard as every map key: on v2 never from a field, a menu, a dialog or a
-        // sheet; on v1 never from a text field.
-        if (getEditorDesk() ? !canvasKeysAllowed(e) : isTypingTarget(e.target as Element)) return;
-        e.preventDefault();
-        setExportOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    openExportRef.current = () => setExportOpen(true);
+    return () => { openExportRef.current = null; };
   }, []);
 
   // Multi-map migration + index load on app startup
@@ -225,6 +205,9 @@ export default function App({ renderChrome }: AppProps = {}) {
     <div
       className="relative h-screen w-screen overflow-hidden bg-surface-0"
       data-focus-mode={focusMode}
+      // v1: the whole layout answers map keys, its fields, menus, trees and dialogs aside
+      // (keyGuard.ts). The v2 chrome marks its own.
+      data-keys={customChrome ? undefined : 'canvas'}
     >
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">

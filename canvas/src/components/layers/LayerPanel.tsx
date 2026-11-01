@@ -305,6 +305,9 @@ export function LayerPanel() {
           ref={treeRef}
           role="tree"
           aria-label="Layers"
+          // Its rows stop the keys they handle; the rest (Ctrl+Z, tool letters) are the map's,
+          // as v1 always had them (keyGuard.ts).
+          data-keys="canvas"
           className="flex-1 min-h-0 overflow-y-auto"
           onKeyDown={(e) => handleTreeKeyDown(e, treeRef.current)}
         >

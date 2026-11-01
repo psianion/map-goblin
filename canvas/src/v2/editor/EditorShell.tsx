@@ -7,8 +7,8 @@ import { AssetBrowserPanel, type AssetTypeFilter } from '@/components/layers/Ass
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { cancelZoomAnimationRef, viewportInsetsRef, zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import { cancelZoomAnimation, fitToContent } from '@/components/toolbar/zoomControl';
-import { editSessionActive } from '@/canvas/editSessionKeys';
 import { openPropBrowserRef } from '@/canvas/menuRegistry';
+import { editorShellKeysRef } from '@/shortcuts/defaultShortcuts';
 import { Rail } from './Rail';
 import { TitleCard } from './TitleCard';
 import { TopActions } from './TopActions';
@@ -26,6 +26,7 @@ import { PropBrowser, PropBrowserHead } from './PropBrowser';
 import { SplitDialog } from './SplitDialog';
 import { SkySheet, SkySheetFoot } from './SkySheet';
 import { PacksSheet } from './PacksSheet';
+import { ShortcutsSheet } from './ShortcutsSheet';
 import { MapSettingsModal } from '../MapSettingsModal';
 import { usePanelFade } from './usePanelFade';
 import { assetBrowserHint, floorBrowserHint } from './assetStrip';
@@ -35,11 +36,8 @@ import {
   saveDockCollapsed,
   saveDockTab,
   tabForTool,
-  ROOM_TOOL_KEYS,
   type DockTabId,
 } from './dockTabs';
-import { notify } from '@/lib/toast';
-import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
 import { TAB_KINDS, setMarqueeKinds } from '@dnd/core/src/engine/marqueeFilter';
 
 /** Mirrors --v2-e-rail in v2-editor.css. */
@@ -52,10 +50,20 @@ const FIT_PAD = 32;
 
 /**
  * The one right sheet that is open, if any: the layer list, the asset browser (floors and
- * walls), the props browser, prep, one layer's settings, the terrain's, or the packs. Opening
- * a sheet replaces the one that was open.
+ * walls), the props browser, prep, one layer's settings, the terrain's, the packs, or the
+ * keyboard shortcuts. Opening a sheet replaces the one that was open.
  */
-type Sheet = 'layers' | 'assets' | 'props' | 'prep' | 'terrain' | 'sky' | 'packs' | { kind: 'layer'; layerId: string } | null;
+type Sheet =
+  | 'layers'
+  | 'assets'
+  | 'props'
+  | 'prep'
+  | 'terrain'
+  | 'sky'
+  | 'packs'
+  | 'shortcuts'
+  | { kind: 'layer'; layerId: string }
+  | null;
 
 /** What the layer sheet shows for `sheet`: a layer id, the terrain pseudo-layer, or nothing. */
 function layerSheetTarget(sheet: Sheet): string | null {
@@ -63,14 +71,6 @@ function layerSheetTarget(sheet: Sheet): string | null {
   return typeof sheet === 'object' && sheet?.kind === 'layer' ? sheet.layerId : null;
 }
 
-/** Keys typed into a field, or Tab moving focus between controls, are not dock toggles. */
-function isTypingOrNavigating(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el || el === document.body) return false;
-  return !!el.closest?.(
-    'input, textarea, select, button, a, [contenteditable="true"], [role="dialog"], [role="menu"], [tabindex]',
-  );
-}
 
 interface EditorShellProps {
   actions: EditorChromeActions;
@@ -206,56 +206,19 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
     };
   }, [expandDock]);
 
-  // R, P and X pick the room tools while the Rooms tab is up (R and P draw plain floors
-  // from every other tab); X is free elsewhere, so it picks Divide from anywhere.
+  // The shortcut table's v2 keys (defaultShortcuts.ts): R and P pick the room tools while
+  // the Rooms tab is up, Page Up and Page Down step through the levels (board L4), Tab
+  // folds and restores the dock, ? opens the shortcuts sheet.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-      const key = e.key.toLowerCase();
-      const tool = ROOM_TOOL_KEYS[key];
-      if (!tool || (key !== 'x' && tab !== 'rooms')) return;
-      // A focused dock tab still lets the key through; a field, a menu, a sheet does not.
-      if (!canvasKeysAllowed(e)) return;
-      if (editSessionActive(useStore.getState().tools)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const s = useStore.getState();
-      if (s.tools.activeTool === tool) return;
-      s.setActiveTool(tool);
-      notify.subtle(tool === 'roomRect' ? 'Rectangle room' : tool === 'roomPolygon' ? 'Polygon room' : 'Divide', { icon: 'tool' });
+    editorShellKeysRef.current = {
+      tab: () => tabRef.current,
+      toggleDock: toggleCollapsed,
+      stepLevel,
+      openShortcuts: () => setSheet('shortcuts'),
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [tab]);
-
-  // Page Up and Page Down step through the levels (board L4), clamped at the ends.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'PageUp' && e.key !== 'PageDown') return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-      if (!canvasKeysAllowed(e)) return;
-      if (editSessionActive(useStore.getState().tools)) return;
-      e.preventDefault();
-      stepLevel(e.key === 'PageUp' ? -1 : 1);
+    return () => {
+      editorShellKeysRef.current = null;
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  // Tab collapses and restores the dock, unless something else already used the key
-  // or focus is on a control. A wall, cave-band or outline edit owns Tab outright,
-  // stone picked or not: folding the dock re-fits the map, which would jump the
-  // zoom in the middle of the edit.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-      if (e.defaultPrevented || isTypingOrNavigating(e.target)) return;
-      if (editSessionActive(useStore.getState().tools)) return;
-      e.preventDefault();
-      toggleCollapsed();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
   }, [toggleCollapsed]);
 
   // Fit-to-content centres in what the shell leaves free: right of the rail, under the
@@ -341,7 +304,12 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
       {settings}
       <Rail prepOpen={sheet === 'prep'} onTogglePrep={() => setSheet((s) => (s === 'prep' ? null : 'prep'))} />
       <TitleCard onHome={onHome} />
-      <TopActions actions={actions} onOpenSettings={() => setSettingsOpen(true)} onOpenPacks={() => setSheet('packs')} />
+      <TopActions
+        actions={actions}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenPacks={() => setSheet('packs')}
+        onOpenShortcuts={() => setSheet('shortcuts')}
+      />
       <SelectionCard onOpenPrep={() => setSheet('prep')} onOpenAssets={openAssets} onOpenLayers={() => setSheet('layers')} />
       <Dock
         ref={dockRef}
@@ -385,6 +353,7 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
         <PropBrowser />
       </SlideOver>
       <PacksSheet open={sheet === 'packs'} onClose={closeSheet} />
+      <ShortcutsSheet open={sheet === 'shortcuts'} onClose={closeSheet} />
       <SlideOver title="Prep" open={sheet === 'prep'} onClose={closeSheet} testId="v2-prep-sheet">
         <PrepOverview />
       </SlideOver>

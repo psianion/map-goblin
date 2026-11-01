@@ -1,6 +1,6 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cn } from '@/lib/utils';
-import type { ReactNode } from 'react';
+import { createContext, useContext, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 interface DialogProps {
   open: boolean;
@@ -8,10 +8,13 @@ interface DialogProps {
   children: ReactNode;
 }
 
+/** Whether the Dialog around a DialogContent is open. */
+const DialogOpenContext = createContext(true);
+
 function Dialog({ open, onOpenChange, children }: DialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      {children}
+      <DialogOpenContext.Provider value={open}>{children}</DialogOpenContext.Provider>
     </DialogPrimitive.Root>
   );
 }
@@ -37,8 +40,18 @@ function DialogBackdrop({ className }: { className?: string }) {
 }
 
 function DialogContent({ className, children }: { className?: string; children: ReactNode }) {
+  const open = useContext(DialogOpenContext);
+  const popup = useRef<HTMLDivElement>(null);
+  // A closed dialog stays mounted for its fade, and Base UI hands the focus back only when it
+  // unmounts. Let go of the focus now, so a key pressed during the fade (Ctrl+Shift+N straight
+  // after Escape) reaches the map instead of the fading form.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (!open && active instanceof HTMLElement && popup.current?.contains(active)) active.blur();
+  }, [open]);
   return (
     <DialogPrimitive.Popup
+      ref={popup}
       className={cn(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
         'w-full max-w-md rounded-xl border border-border bg-surface-1 p-6 shadow-xl',

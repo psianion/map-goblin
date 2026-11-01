@@ -15,6 +15,7 @@ import {
 import type { ComponentType } from 'react';
 import { DivideIcon, RoomPolygonIcon, RoomRectIcon } from './roomIcons';
 import type { ToolType } from '@/store/types';
+import { keyCaption } from '@/shortcuts/formatCombo';
 
 export interface ToolEntry {
   tool: ToolType;
@@ -38,48 +39,48 @@ export const DOCK_TABS: DockTab[] = [
     id: 'floors',
     label: 'Floors',
     tools: [
-      { tool: 'rectangle', label: 'Rectangle', shortcut: 'R', icon: Square },
-      { tool: 'polygon', label: 'Polygon', shortcut: 'P', icon: Pentagon },
-      { tool: 'regularPolygon', label: 'Regular polygon', shortcut: 'H', icon: Hexagon },
-      { tool: 'path', label: 'Path', shortcut: 'A', icon: Pen },
-      { tool: 'terrain', label: 'Terrain', shortcut: 'T', icon: Mountain },
-      { tool: 'water', label: 'Water', shortcut: 'U', icon: Droplets },
+      { tool: 'rectangle', label: 'Rectangle', shortcut: keyCaption('tool.rectangle'), icon: Square },
+      { tool: 'polygon', label: 'Polygon', shortcut: keyCaption('tool.polygon'), icon: Pentagon },
+      { tool: 'regularPolygon', label: 'Regular polygon', shortcut: keyCaption('tool.regularPolygon'), icon: Hexagon },
+      { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Pen },
+      { tool: 'terrain', label: 'Terrain', shortcut: keyCaption('tool.terrain'), icon: Mountain },
+      { tool: 'water', label: 'Water', shortcut: keyCaption('tool.water'), icon: Droplets },
     ],
   },
   {
     id: 'walls',
     label: 'Walls',
     tools: [
-      { tool: 'wall', label: 'Wall', shortcut: 'W', icon: Minus },
-      { tool: 'door', label: 'Door', shortcut: 'D', icon: DoorOpen },
+      { tool: 'wall', label: 'Wall', shortcut: keyCaption('tool.wall'), icon: Minus },
+      { tool: 'door', label: 'Door', shortcut: keyCaption('tool.door'), icon: DoorOpen },
     ],
   },
   {
     id: 'rooms',
     label: 'Rooms',
     tools: [
-      { tool: 'roomRect', label: 'Rectangle room', shortcut: 'R', icon: RoomRectIcon },
-      { tool: 'roomPolygon', label: 'Polygon room', shortcut: 'P', icon: RoomPolygonIcon },
-      { tool: 'divide', label: 'Divide', shortcut: 'X', icon: DivideIcon },
+      { tool: 'roomRect', label: 'Rectangle room', shortcut: keyCaption('tool.roomRect'), icon: RoomRectIcon },
+      { tool: 'roomPolygon', label: 'Polygon room', shortcut: keyCaption('tool.roomPolygon'), icon: RoomPolygonIcon },
+      { tool: 'divide', label: 'Divide', shortcut: keyCaption('tool.divide'), icon: DivideIcon },
     ],
   },
   {
     id: 'props',
     label: 'Props',
     // One tool, two modes (Stamp, Scatter) sharing the library and settings.
-    tools: [{ tool: 'scatterBrush', label: 'Props', shortcut: 'B', icon: Stamp }],
+    tools: [{ tool: 'scatterBrush', label: 'Props', shortcut: keyCaption('tool.scatterBrush'), icon: Stamp }],
   },
   {
     id: 'lights',
     label: 'Lights',
-    tools: [{ tool: 'light', label: 'Light', shortcut: 'L', icon: Lightbulb }],
+    tools: [{ tool: 'light', label: 'Light', shortcut: keyCaption('tool.light'), icon: Lightbulb }],
   },
   {
     id: 'labels',
     label: 'Labels',
     tools: [
-      { tool: 'text', label: 'Label', shortcut: 'N', icon: Type },
-      { tool: 'zone', label: 'Zone', shortcut: 'Z', icon: Crosshair },
+      { tool: 'text', label: 'Label', shortcut: keyCaption('tool.text'), icon: Type },
+      { tool: 'zone', label: 'Zone', shortcut: keyCaption('tool.zone'), icon: Crosshair },
     ],
   },
   { id: 'assets', label: 'Assets', tools: [] },
@@ -89,9 +90,6 @@ export const DOCK_TABS: DockTab[] = [
 export function tabForTool(tool: ToolType): DockTabId | null {
   return DOCK_TABS.find((t) => t.tools.some((e) => e.tool === tool))?.id ?? null;
 }
-
-/** The room tools, by the key that picks each while the Rooms tab is up (X picks Divide anywhere). */
-export const ROOM_TOOL_KEYS: Record<string, ToolType> = { r: 'roomRect', p: 'roomPolygon', x: 'divide' };
 
 /** Tools that lay down floor, so a floor texture picked while one is in hand goes on the floors. */
 export const FLOOR_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'path', 'roomRect', 'roomPolygon'];
