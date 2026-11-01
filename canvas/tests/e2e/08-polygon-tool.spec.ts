@@ -5,7 +5,7 @@ test.describe('08 - Polygon Tool', () => {
   test('click vertices then close to draw polygon', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('p');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -45,7 +45,7 @@ test.describe('08 - Polygon Tool', () => {
   test('Escape cancels polygon drawing', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('p');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

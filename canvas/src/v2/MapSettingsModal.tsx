@@ -7,7 +7,7 @@ import {
   normalizeFixedSize,
   type CellScaleUnit,
 } from '@dnd/core/src/store/slices/mapSettings';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { cn } from '@/lib/utils';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';

@@ -9,7 +9,7 @@ import { SCATTER_TINT_PALETTE } from './PropsDock';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
 
 // jsdom has no 2D canvas; the thumbnails are not what these tests look at.
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({
+vi.mock('@/editor/PackThumbnailCanvas', () => ({
   PackThumbnailCanvas: ({ textureId }: { textureId: string }) => <i data-testid={`thumb-${textureId}`} />,
 }));
 

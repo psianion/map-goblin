@@ -11,7 +11,7 @@ test.describe('09 - Path Tool', () => {
   test('click segments then Enter to finalize path', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('a');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -37,7 +37,7 @@ test.describe('09 - Path Tool', () => {
   test('Escape cancels path drawing', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('a');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

@@ -9,8 +9,7 @@ export const PANEL_FADE_DELAY_MS = 5000;
  * `[data-chrome]` element turns it back and holds it until the pointer leaves again.
  *
  * Polls pointermove on the document rather than counting enter/leave per panel, which
- * goes wrong when panels unmount and remount (the v1 right panel collapsing swaps
- * components). Both routes use it: v1 fades its panels inline, v2 off `data-faded` on the shell.
+ * goes wrong when panels unmount and remount. The shell fades off `data-faded`.
  */
 export function usePanelFade(active: boolean) {
   const [faded, setFaded] = useState(false);

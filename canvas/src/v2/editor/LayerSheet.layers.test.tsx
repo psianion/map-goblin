@@ -10,7 +10,7 @@ vi.mock('@/lib/toast', () => ({
   notify: { action: vi.fn(), subtle: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 // No canvas 2D in jsdom: the texture tiles draw nothing here.
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => null }));
+vi.mock('@/editor/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => null }));
 vi.mock('@dnd/core/src/assets/packCatalog', async (orig) => {
   const real = await orig<typeof import('@dnd/core/src/assets/packCatalog')>();
   return {

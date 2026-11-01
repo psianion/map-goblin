@@ -1,7 +1,6 @@
 // src/shortcuts/defaultShortcuts.ts
 // The one shortcut table: every key the map answers, with its label and help group. The
-// dispatch map, the v1 help list, the v2 shortcuts sheet and the chrome's key captions all
-// read it.
+// dispatch map, the shortcuts sheet and the chrome's key captions all read it.
 
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
@@ -40,20 +39,19 @@ import {
   flipCommand,
   rotate90Command,
 } from '@dnd/core/src/engine/transformTargets';
-import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/components/toolbar/toolConstants';
-import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
+import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/editor/toolConstants';
+import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
-import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { nextFocusMode, toggleLitPreview } from '@/v2/viewPrefs';
 import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomActions';
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
 import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
 
-/** Set by App.tsx so the shortcut system can trigger the file picker */
+/** Set by EditorHost so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
 
-/** Set by App.tsx: opens whichever export dialog is mounted (it lives in React state). */
+/** Set by EditorHost: opens the export dialog (it lives in React state). */
 export const openExportRef: { current: (() => void) | null } = { current: null };
 
 /**
@@ -62,7 +60,7 @@ export const openExportRef: { current: (() => void) | null } = { current: null }
  */
 export const activeToolKeyRef: { current: ((e: KeyboardEvent) => boolean) | null } = { current: null };
 
-/** What the v2 editor shell lends the table. Registered by EditorShell; null on v1. */
+/** What the editor shell lends the table. Registered by EditorShell; null while it is not mounted. */
 export interface EditorShellKeys {
   /** The dock tab up now. */
   tab: () => string;
@@ -71,9 +69,6 @@ export interface EditorShellKeys {
   openShortcuts: () => void;
 }
 export const editorShellKeysRef: { current: EditorShellKeys | null } = { current: null };
-
-/** The v2 editor (`/v2`): the only place the Props verbs (z-order, lock, replace) are offered. */
-export const isV2Route = (): boolean => /^\/v2(\/|$)/.test(window.location.pathname);
 
 /** Something is selected and every selected child is a prop (pack art or an imported image). */
 function selectionIsAllProps(): boolean {
@@ -258,9 +253,8 @@ export function rotateSelection90(anyTool = false): void | false {
   undoManager.execute(cmd);
 }
 
-/** Restack the selected children (array order is draw order), one undo entry. v2 only. */
+/** Restack the selected children (array order is draw order), one undo entry. */
 function orderSelection(op: ZOrderOp): void | false {
-  if (!isV2Route()) return false;
   const store = useStore.getState();
   if (!selectionShortcutsApply(store)) return false;
   orderSelectionNow(op);
@@ -641,8 +635,8 @@ function deleteSelection(): void | false {
 }
 
 /**
- * Pick `tool`. Pressed again with the tool in hand, a tool with settings opens them: the
- * v2 dock (brought forward if folded), the v1 popover.
+ * Pick `tool`. Pressed again with the tool in hand, a tool with settings opens them in the
+ * dock (brought forward if folded).
  */
 function pickTool(tool: ToolType, label: string, settings = true): void {
   const s = useStore.getState();
@@ -717,7 +711,7 @@ function isTypingOrNavigating(target: EventTarget | null | undefined): boolean {
 
 const sessionKey = (e?: KeyboardEvent): boolean => !!e && editSessionOwnsKey(useStore.getState().tools, e);
 const noEditSession = (): boolean => !editSessionActive(useStore.getState().tools);
-/** The v2 editor shell is up, and no node edit holds the keys. */
+/** The editor shell is up, and no node edit holds the keys. */
 const shellFree = (): boolean => editorShellKeysRef.current !== null && noEditSession();
 const suggesting = (): boolean => (useStore.getState().ui.roomSuggestions?.rooms.length ?? 0) > 0 && noEditSession();
 
@@ -790,7 +784,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
       notify.subtle(next ? 'Curve mode' : 'Straight mode', { icon: 'tool' });
     } },
   // Rooms: R and P while the Rooms tab is up (plain floors from every other tab), X from
-  // anywhere on v2, where it is free.
+  // anywhere, where it is free.
   { id: 'tool.roomRect', combo: 'r', group: 'Tools', scope: 'tab:rooms', label: 'Rectangle room', when: noEditSession,
     run: () => pickRoomTool('roomRect', 'Rectangle room') },
   { id: 'tool.roomPolygon', combo: 'p', group: 'Tools', scope: 'tab:rooms', label: 'Polygon room', when: noEditSession,
@@ -849,9 +843,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
     } },
   // No canGroupSelection() gate: groupSelection warns with the specific reason
   // when it refuses, and a silently swallowed Ctrl+G is the bug.
-  // On v2 a group of props clicks as one by default (Group board); v1 keeps plain groups.
+  // A group of props clicks as one by default (Group board).
   { id: 'edit.group', combo: 'ctrl+g', group: 'Selection', scope: 'canvas', label: 'Group',
-    run: () => groupSelection(isV2Route() && selectionIsAllProps()) },
+    run: () => groupSelection(selectionIsAllProps()) },
   { id: 'edit.ungroup', combo: 'ctrl+shift+g', group: 'Selection', scope: 'canvas', label: 'Ungroup',
     run: () => {
       if (!selectionGroup()) return false;
@@ -899,21 +893,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
       const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
       notify.subtle(labels[next], { icon: 'focus' });
     } },
-  // Only where the editor lies on a desk (v2): without one the view is always lit.
   { id: 'view.litPreview', combo: 'i', group: 'View', scope: 'canvas', label: 'Lit preview',
     run: () => {
-      if (!getEditorDesk()) return false;
       notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
     } },
   // Shift+? lands here too: a shifted punctuation key falls back to the plain key.
   { id: 'view.shortcuts', combo: '?', group: 'View', scope: 'canvas', label: 'Keyboard shortcuts',
-    run: () => {
-      const shell = editorShellKeysRef.current;
-      if (shell) shell.openShortcuts();
-      else useStore.getState().showModal({ type: 'shortcutReference', props: {} });
-    } },
+    run: () => editorShellKeysRef.current?.openShortcuts() },
 
-  // Levels and dock (v2).
+  // Levels and dock.
   { id: 'level.up', combo: 'pageup', group: 'Levels and dock', scope: 'canvas', label: 'Level above', when: shellFree,
     run: () => editorShellKeysRef.current?.stepLevel(-1) },
   { id: 'level.down', combo: 'pagedown', group: 'Levels and dock', scope: 'canvas', label: 'Level below', when: shellFree,
@@ -949,17 +937,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'file.export', combo: 'ctrl+e', group: 'File', scope: 'canvas', label: 'Export', run: () => openExportRef.current?.() },
   { id: 'file.import', combo: 'ctrl+i', group: 'File', scope: 'canvas', label: 'Import image', run: () => importImageRef.current?.() },
   { id: 'file.newMap', combo: 'ctrl+shift+n', group: 'File', scope: 'canvas', label: 'New map',
-    run: () => {
-      // On /v2 the route registers its own New map dialog here.
-      if (openNewMapRef.current) {
-        openNewMapRef.current();
-        return;
-      }
-      // Opens the New map dialog — the same one the maps panel's "New Map" button opens,
-      // mounted once in App.tsx off this modal state so the shortcut works with the panel
-      // closed. Enter commits, so the fast path is still two keystrokes.
-      useStore.getState().showModal({ type: 'newMap', props: { mode: 'create' } });
-    } },
+    // The app registers its New map dialog here. Enter commits, so the fast path is two keystrokes.
+    run: () => openNewMapRef.current?.() },
 ];
 
 /** Mouse gestures the help lists beside the keys. No key binds them: the Select tool reads them. */
@@ -1020,22 +999,6 @@ function warnOrphanedTriggers(
       `Zone deleted — ${orphaned} trigger${orphaned === 1 ? ' now references' : 's now reference'} nothing (undo restores the zone)`,
     );
   }
-}
-
-export interface ShortcutDefinition {
-  id: string;
-  keys: string;
-  category: string;
-  label: string;
-}
-
-/** The v1 help list: one row per action, on its first key, and the mouse gestures. */
-export function createDefaultShortcuts(): ShortcutDefinition[] {
-  const rows: ShortcutDefinition[] = [];
-  for (const s of [...SHORTCUTS, ...POINTER_HINTS]) {
-    if (!rows.some((r) => r.id === s.id)) rows.push({ id: s.id, keys: s.combo, category: s.group, label: s.label });
-  }
-  return rows;
 }
 
 /** The first binding with this id: its combo is what captions show. */

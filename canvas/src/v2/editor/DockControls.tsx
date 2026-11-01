@@ -22,10 +22,10 @@ import {
 import { NumBox } from './PropCards';
 import { LABEL_SIZE_RANGE } from '@dnd/core/src/engine/tools/TextTool';
 import { LABEL_STYLES } from '@dnd/core/src/shared/labelStyles';
-import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import type { AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
+import type { AssetTypeFilter } from '@/editor/AssetBrowserPanel';
 import { STYLE_TOOLS, type DockTabId } from './dockTabs';
 import { ColorCtl, Ctl, DockPopover, RangeInput, Seg, Select, Slider, Switch } from './controls';
 import {

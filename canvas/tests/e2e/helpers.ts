@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 /**
  * A minute each rather than the twenty seconds this used to allow: the first page
@@ -46,12 +46,15 @@ export async function waitForBoot(page: Page): Promise<void> {
   await waitFrame(page, 2)
 }
 
-/** Navigate to the app and wait for it to finish booting. */
+/** Navigate to the app, wait for it to finish booting, and enter the editor on a fresh blank map. */
 export async function gotoApp(page: Page): Promise<void> {
   // ?e2e=1 opts into PixiRenderEngine's preserveDrawingBuffer, which getPixelColor below
   // (and any WebGL readback) needs — off by default so real users don't pay for it.
   await page.goto('/?e2e=1')
   await waitForBoot(page)
+  await page.getByTestId('v2-new-map-card').click()
+  await page.getByTestId('v2-new-map-submit').click()
+  await expect(page.getByTestId('v2-editor')).toBeVisible()
 }
 
 /**

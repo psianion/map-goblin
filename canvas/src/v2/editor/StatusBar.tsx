@@ -21,8 +21,8 @@ import {
   zoomToSlider,
   zoomPercent,
   DEFAULT_ZOOM,
-} from '@/components/toolbar/zoomControl';
-import { editHint, type EditHint } from '@/components/layout/statusHints';
+} from '@/editor/zoomControl';
+import { editHint, type EditHint } from '@/editor/statusHints';
 import { cn } from '@/lib/utils';
 import { DockPopover } from './DockControls';
 import { ColorCtl } from './controls';

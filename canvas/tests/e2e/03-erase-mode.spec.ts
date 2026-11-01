@@ -25,7 +25,7 @@ test.describe('03 - Erase Mode', () => {
   test('erasing removes floor pixels', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

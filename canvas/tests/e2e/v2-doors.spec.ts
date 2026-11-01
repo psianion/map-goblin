@@ -8,7 +8,9 @@ import { firePointer, waitForBoot, waitFrame } from './helpers'
  * lands on a piece of wall of its own, turns a quarter from its card (the piece reads
  * vertical), goes with its piece when deleted and comes back with it on undo; the dock's
  * angle places it turned; a click on the door picks the door and Alt+click steps to its
- * piece; and a click on a drawn wall still hangs the door on that wall.
+ * piece; a click on a drawn wall still hangs the door on that wall; W draws a wall by
+ * clicks and Enter; a double-click cycles a hung door closed, open, locked (an archway only
+ * opens and shuts); and Secret, from the dock and on the card, with Locked on the card.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -77,6 +79,39 @@ async function click(page: Page, world: Pt, mods: { alt?: boolean } = {}): Promi
   await firePointer(page, 'pointermove', at.x, at.y, 0, 0, mods)
   await firePointer(page, 'pointerdown', at.x, at.y, 0.5, 1, mods)
   await firePointer(page, 'pointerup', at.x, at.y, 0, 0, mods)
+  await waitFrame(page, 3)
+}
+
+/**
+ * `n` down/up pairs at one point, dispatched in one go after a real move there: a driver
+ * round trip per event is slower than the tool's double-click window.
+ */
+async function tap(page: Page, world: Pt, n: number): Promise<void> {
+  const at = await screenOf(page, world)
+  await page.mouse.move(at.x, at.y)
+  await waitFrame(page, 1)
+  await page.evaluate(
+    ({ x, y, n }) => {
+      const canvas = document.querySelector('canvas')!
+      for (let i = 0; i < n; i++) {
+        for (const type of ['pointerdown', 'pointerup']) {
+          canvas.dispatchEvent(
+            new PointerEvent(type, {
+              clientX: x,
+              clientY: y,
+              pointerId: 1,
+              pointerType: 'mouse',
+              bubbles: true,
+              cancelable: true,
+              buttons: type === 'pointerdown' ? 1 : 0,
+              pressure: type === 'pointerdown' ? 0.5 : 0,
+            }),
+          )
+        }
+      }
+    },
+    { x: at.x, y: at.y, n },
+  )
   await waitFrame(page, 3)
 }
 
@@ -198,4 +233,86 @@ test('a click on a drawn wall still hangs the door on that wall, at the wall’s
   expect(placed.wallId).toBe('wall-003')
   expect(placed.angle).toBeCloseTo(Math.atan2(b[1] - a[1], b[0] - a[0]))
   expect(await walls(page)).toHaveLength(wallsBefore)
+})
+
+test('W draws a wall by click, click, Enter: a normal wall, and one undo takes it away', async ({ page }) => {
+  await openWarren(page)
+  const before = (await walls(page)).length
+  await page.evaluate(() => (window as Any).__store.getState().setSnapEnabled(false))
+  await blur(page)
+  await page.keyboard.press('w')
+  await waitFrame(page, 2)
+  expect(await inPage<string>(page, `(s) => s().tools.activeTool`)).toBe('wall')
+  await click(page, { x: OPEN_FLOOR.x - 3, y: OPEN_FLOOR.y })
+  await click(page, { x: OPEN_FLOOR.x + 3, y: OPEN_FLOOR.y })
+  await page.keyboard.press('Enter')
+  await waitFrame(page, 4)
+  const after = await walls(page)
+  expect(after).toHaveLength(before + 1)
+  const drawn = after.at(-1)
+  expect(drawn.wallType).toBe('normal')
+  expect(drawn.points[0][0]).toBeCloseTo(OPEN_FLOOR.x - 3)
+  expect(drawn.points.at(-1)[0]).toBeCloseTo(OPEN_FLOOR.x + 3)
+  await undo(page)
+  expect(await walls(page)).toHaveLength(before)
+})
+
+test('a double-click on a hung door cycles closed → open → locked → closed; an archway has no state to cycle', async ({ page }) => {
+  await openWarren(page)
+  const w = (await walls(page)).find((x: Any) => x.id === 'wall-003')
+  await doorTool(page)
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    st.removeChild(st.ui.activeLayerId, 'door-03-timber-door')
+  })
+  const [a, b] = w.points
+  const mid = { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 }
+  await click(page, mid)
+  const placed = (await doors(page)).at(-1)
+  expect(placed.wallId).toBe('wall-003')
+  expect(placed.state).toBe('closed')
+  const state = async () => (await doors(page)).find((d: Any) => d.id === placed.id).state
+  const at = { x: placed.position[0], y: placed.position[1] }
+  for (const want of ['open', 'locked', 'closed']) {
+    await page.waitForTimeout(500)
+    await tap(page, at, 2)
+    expect(await state()).toBe(want)
+  }
+
+  // A permanent opening has no state to cycle: a double-click leaves it as it is.
+  await page.getByTestId('v2-selection-card').getByRole('combobox', { name: 'Style' }).selectOption('archway')
+  await waitFrame(page, 2)
+  const arch = await state()
+  for (let i = 0; i < 2; i++) {
+    await page.waitForTimeout(500)
+    await tap(page, at, 2)
+    expect(await state()).toBe(arch)
+  }
+})
+
+test('the dock’s Secret places a secret door; the card’s Secret and Locked each land as one undo step', async ({ page }) => {
+  await openWarren(page)
+  await doorTool(page)
+  const dock = page.getByTestId('v2-dock')
+  await dock.getByRole('switch', { name: 'Secret' }).click()
+  expect(await inPage<boolean>(page, `(s) => s().tools.settings.doorSecret`)).toBe(true)
+  await click(page, OPEN_FLOOR)
+  const { door } = await freeDoor(page)
+  expect(door.isSecret).toBe(true)
+  const now = async () => (await doors(page)).find((d: Any) => d.id === door.id)
+
+  const card = page.getByTestId('v2-selection-card')
+  await expect(card.getByRole('switch', { name: 'Secret' })).toHaveAttribute('aria-checked', 'true')
+  await card.getByRole('switch', { name: 'Secret' }).click()
+  expect((await now()).isSecret).toBe(false)
+  await undo(page)
+  expect((await now()).isSecret).toBe(true)
+
+  await card.getByRole('button', { name: 'Locked' }).click()
+  expect((await now()).state).toBe('locked')
+  await expect(card.getByRole('button', { name: 'Locked' })).toHaveAttribute('aria-pressed', 'true')
+  await undo(page)
+  expect((await now()).state).toBe('closed')
+  // The door is still there after both undos: each was one step.
+  expect(await now()).toBeDefined()
 })

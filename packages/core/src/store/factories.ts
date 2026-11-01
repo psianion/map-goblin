@@ -77,9 +77,9 @@ type MapBuilderState = Omit<
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
   | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
-  | 'setActiveLayerId' | 'togglePanel' | 'toggleExpandedLayerId'
-  | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
-  | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
+  | 'setActiveLayerId' | 'toggleExpandedLayerId'
+  | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
+  | 'toggleChildGroup' | 'setRevealChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
   | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
   | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setMarqueeFilter' | 'setPropReplaceIds'
@@ -196,19 +196,15 @@ export function createDefaultState(): MapBuilderState {
       selectedVertex: null,
     },
     ui: {
-      leftPanelOpen: true,
-      rightPanelOpen: true,
       activeLayerId: dungeonLayer.id,
       expandedLayerIds: [],
       canUndo: false,
       canRedo: false,
-      modalState: null,
       clipperReady: false,
       focusMode: 'auto' as const,
       highlightedRoomId: null,
       childGroupOverrides: [],
       revealChildId: null,
-      panelHoverChildId: null,
       solo: null,
       previewClock: null,
       previewSky: null,

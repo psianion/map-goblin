@@ -344,7 +344,7 @@ test.describe('Pack Loading from CDN', () => {
     await gotoApp(page)
 
     // App should be ready
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     await expect(canvas).toBeVisible()
 
     // Store should be accessible
@@ -455,7 +455,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
   test('asset browser tab is accessible', async ({ page }) => {
     await gotoApp(page)
 
-    const assetsTab = page.getByRole('button', { name: /assets/i })
+    const assetsTab = page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' })
     await expect(assetsTab).toBeVisible()
     await assetsTab.click()
     await waitFrame(page, 2)
@@ -467,7 +467,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
   test('asset browser is reachable from the assets tab', async ({ page }) => {
     await gotoApp(page)
 
-    await page.getByRole('button', { name: /assets/i }).click()
+    await page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' }).click()
     await waitFrame(page, 3)
 
     await expect(page.getByPlaceholder('Search assets…')).toBeVisible()
@@ -538,7 +538,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
   test('asset search/filter works in asset browser without crash', async ({ page }) => {
     await gotoApp(page)
 
-    await page.getByRole('button', { name: /assets/i }).click()
+    await page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' }).click()
     await waitFrame(page, 2)
 
     const searchInput = page.getByPlaceholder('Search assets…')
@@ -549,7 +549,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     await waitFrame(page, 3)
 
     // App should not crash — canvas and search box still visible
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
     await expect(searchInput).toBeVisible()
 
     // Clear search
@@ -561,7 +561,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
   test('search with no matches shows empty state without crash', async ({ page }) => {
     await gotoApp(page)
 
-    await page.getByRole('button', { name: /assets/i }).click()
+    await page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' }).click()
     await waitFrame(page, 2)
 
     const searchInput = page.getByPlaceholder('Search assets…')
@@ -569,7 +569,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     await waitFrame(page, 3)
 
     // Either shows empty state or no results — app doesn't crash
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     await expect(canvas).toBeVisible()
     const emptyState = page.getByText('No assets in this category.')
     // Empty state may or may not appear depending on manifest load state
@@ -718,7 +718,7 @@ test.describe('Asset Placement from CDN', () => {
     await page.waitForTimeout(300)
 
     // Canvas should still be visible and functional after placement
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
 
     const canvasSize = await page.evaluate(() => {
       const c = document.querySelector('canvas') as HTMLCanvasElement
@@ -743,7 +743,7 @@ test.describe('Asset Placement from CDN', () => {
     await waitFrame(page, 3)
 
     // App doesn't crash — canvas still visible
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
   })
 })
 
@@ -859,7 +859,7 @@ test.describe('CDN Failure Resilience', () => {
     await gotoApp(page)
 
     // App must still initialize
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
 
     // Store should be accessible
     const storeOk = await page.evaluate(() => {
@@ -874,7 +874,7 @@ test.describe('CDN Failure Resilience', () => {
     await gotoApp(page)
 
     // Toolbar buttons should still work
-    const assetsTab = page.getByRole('button', { name: /assets/i })
+    const assetsTab = page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' })
     await expect(assetsTab).toBeVisible()
     await assetsTab.click()
     await waitFrame(page, 2)
@@ -986,7 +986,7 @@ test.describe('CDN Failure Resilience', () => {
     await waitFrame(page, 5)
 
     // Canvas should still be visible and the app should not have crashed
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
 
     // Check that a layer has been modified (floor polygon added).
     // The merged floor lives on `mergedFloor`; there is no `floor` object.

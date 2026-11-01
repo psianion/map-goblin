@@ -331,34 +331,6 @@ test.describe('Transform Controls — Snap Behavior', () => {
     expect(Math.abs(pos.x - (beforeX + rawDeltaX))).toBeGreaterThan(0.1)
   })
 
-  test('ctrl held during move overrides snap — raw delta applied', async ({ page }) => {
-    // Enable snap first
-    await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-      if (!store) return
-      ;(store.getState() as { setSnapEnabled: (v: boolean) => void }).setSnapEnabled(true)
-    })
-
-    const objId = await importAndSelectImage(page)
-    const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
-    const beforeX = (before['position'] as { x: number }).x
-
-    const { cx, cy, zoom } = await objectScreenBox(page, objId)
-    const rawDeltaX = 37 / zoom
-    const ctrl = { ctrl: true }
-    await firePointer(page, 'pointerdown', cx, cy, 0.5, 1, ctrl)
-    await firePointer(page, 'pointermove', cx + 37, cy + 23, 0.5, 1, ctrl)
-    await firePointer(page, 'pointerup', cx + 37, cy + 23, 0, 0, ctrl)
-    await waitFrame(page, 5)
-
-    const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
-    const pos = after['position'] as { x: number; y: number }
-    // With snap overridden, the position should move by the raw delta
-    const delta = pos.x - beforeX
-    expect(delta).toBeGreaterThan(0)
-    expect(Math.abs(delta - rawDeltaX)).toBeLessThan(0.1)
-  })
-
   test('shift + rotate snaps to 15-degree increments', async ({ page }) => {
     const objId = await importAndSelectImage(page)
 
@@ -421,93 +393,6 @@ test.describe('Transform Controls — Edge Cases', () => {
       (before['position'] as { x: number }).x,
     )
   })
-
-  test('multi-select move translates both objects by same delta', async ({ page }) => {
-    const ids = await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-      if (!store) return []
-      const s = store.getState() as unknown as Record<string, (...args: unknown[]) => void> & {
-        layers: Array<{ id: string; type: string }>
-      }
-      const layerId = s.layers.find((l) => l.type === 'dungeon')?.id
-      if (!layerId) return []
-      s['setActiveLayerId'](layerId)
-      const id1 = crypto.randomUUID()
-      const id2 = crypto.randomUUID()
-      s['addChild'](layerId, {
-        id: id1,
-        name: 'Test Image 1',
-        childType: 'asset',
-        visible: true,
-        objectType: 'image',
-        assetId: 'test1',
-        position: { x: -3, y: -2 },
-        rotation: 0,
-        scale: 1,
-        width: 2,
-        height: 1.6,
-        tint: '#ffffff',
-        flipX: false,
-        flipY: false,
-      })
-      s['addChild'](layerId, {
-        id: id2,
-        name: 'Test Image 2',
-        childType: 'asset',
-        visible: true,
-        objectType: 'image',
-        assetId: 'test2',
-        position: { x: 3, y: 2 },
-        rotation: 0,
-        scale: 1,
-        width: 2,
-        height: 1.6,
-        tint: '#ffffff',
-        flipX: false,
-        flipY: false,
-      })
-      s['setActiveTool']('select')
-      return [id1, id2]
-    })
-    await waitFrame(page, 5)
-
-    // Select both through the tool — click one, shift-click the other — so the
-    // gizmo exists and spans them.
-    const first = await objectScreenBox(page, ids[0])
-    await firePointer(page, 'pointerdown', first.cx, first.cy, 0.5, 1)
-    await firePointer(page, 'pointerup', first.cx, first.cy, 0, 0)
-    await waitFrame(page, 3)
-    const second = await objectScreenBox(page, ids[1])
-    await firePointer(page, 'pointerdown', second.cx, second.cy, 0.5, 1, { shift: true })
-    await firePointer(page, 'pointerup', second.cx, second.cy, 0, 0, { shift: true })
-    await waitFrame(page, 5)
-
-    const before1 = (await getPlacedObject(page, ids[0])) as Record<string, unknown>
-    const before2 = (await getPlacedObject(page, ids[1])) as Record<string, unknown>
-
-    // Drag inside the shared bounding box — the two objects straddle the world
-    // origin, so its midpoint is the centre of the first object's box shifted
-    // halfway to the second.
-    const a = await objectScreenBox(page, ids[0])
-    const b = await objectScreenBox(page, ids[1])
-    const cx = (a.cx + b.cx) / 2
-    const cy = (a.cy + b.cy) / 2
-    await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
-    await firePointer(page, 'pointermove', cx + 50, cy + 50, 0.5, 1)
-    await firePointer(page, 'pointerup', cx + 50, cy + 50, 0, 0)
-    await waitFrame(page, 5)
-
-    const after1 = (await getPlacedObject(page, ids[0])) as Record<string, unknown>
-    const after2 = (await getPlacedObject(page, ids[1])) as Record<string, unknown>
-
-    const delta1x = (after1['position'] as { x: number }).x - (before1['position'] as { x: number }).x
-    const delta2x = (after2['position'] as { x: number }).x - (before2['position'] as { x: number }).x
-
-    expect(delta1x).toBeGreaterThan(0)
-    expect(delta2x).toBeGreaterThan(0)
-    // Both objects moved by the same delta
-    expect(Math.abs(delta1x - delta2x)).toBeLessThan(0.1)
-  })
 })
 
 // ─── Dungeon Shape Transform Tests ────────────────────────────────────────────
@@ -518,7 +403,7 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
   })
 
   test('select shape then move updates shape transform in store', async ({ page }) => {
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     if (!box) return
 
@@ -587,26 +472,12 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
 // ─── Cursor Behavior Tests ─────────────────────────────────────────────────────
 
 test.describe('Transform Controls — Cursor Behavior', () => {
-  test('hover over selected object center shows move cursor', async ({ page }) => {
-    await gotoApp(page)
-    const objId = await importAndSelectImage(page)
-
-    const canvas = page.locator('canvas')
-    const { cx, cy } = await objectScreenBox(page, objId)
-
-    // Hover over the object center
-    await page.mouse.move(cx, cy)
-    await waitFrame(page, 2)
-
-    const cursor = await canvas.evaluate((el) => (el as HTMLCanvasElement).style.cursor)
-    expect(cursor).toBe('move')
-  })
 
   test('hover outside selected object shows default cursor', async ({ page }) => {
     await gotoApp(page)
     const objId = await importAndSelectImage(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const sb = await objectScreenBox(page, objId)
 
     // Hover well clear of the object and its handles

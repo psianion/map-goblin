@@ -4,8 +4,8 @@ import { restoreLastDeletedMap } from '@dnd/core/src/store/slices/maps';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
-import { ContextMenu, useContextMenu, type MenuRow } from '@/components/ui/context-menu';
+import { ConfirmDialog } from '@/ui/ConfirmDialog';
+import { ContextMenu, useContextMenu, type MenuRow } from '@/ui/context-menu';
 import type { MapMeta } from '@/store/types';
 import { NewMapModal } from './NewMapModal';
 import { openMap } from './openMap';
@@ -24,9 +24,9 @@ interface HomeScreenProps {
 }
 
 /**
- * The v2 landing page: every saved map as a card, newest first, with a "+" card that
+ * The landing page: every saved map as a card, newest first, with a "+" card that
  * founds a new one. Sits over the editor rather than replacing it, so the canvas boots
- * underneath exactly as it does on the v1 route and is ready the moment a card is picked.
+ * underneath and is ready the moment a card is picked.
  */
 export function HomeScreen({ onEnter }: HomeScreenProps) {
   const mapIndex = useStore((s) => s.mapIndex);

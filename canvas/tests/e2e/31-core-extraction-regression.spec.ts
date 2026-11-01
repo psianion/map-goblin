@@ -4,13 +4,13 @@ import { gotoApp, waitFrame, shapeCount } from './helpers'
 test.describe('Core extraction regression', () => {
   test('canvas loads and renders', async ({ page }) => {
     await gotoApp(page)
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     await expect(canvas).toBeVisible({ timeout: 10000 })
   })
 
   test('can draw a rectangle via @dnd/core tools', async ({ page }) => {
     await gotoApp(page)
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     await expect(canvas).toBeVisible({ timeout: 10000 })
 
     // Select rectangle tool (keyboard shortcut 'r')

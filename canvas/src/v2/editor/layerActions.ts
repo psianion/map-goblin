@@ -19,7 +19,7 @@ import {
   layerDeleteBlock,
   layerMoveBlock,
 } from '@dnd/core/src/store/layerCommands';
-import { fitToBounds, fitToContent } from '@/components/toolbar/zoomControl';
+import { fitToBounds, fitToContent } from '@/editor/zoomControl';
 import { nextLayerName } from './roomActions';
 
 /*

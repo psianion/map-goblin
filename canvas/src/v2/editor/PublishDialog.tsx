@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { AlertCircle, X } from 'lucide-react';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { usePublishFlow, type PublishChange } from '@/io/publishFlow';
 import { timeAgo } from '../format';
 import { useEscapeToClose } from '../useEscapeToClose';

@@ -78,13 +78,6 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().selection.selectedIds).toEqual(['picked-inside']);
   });
 
-  it('togglePanel toggles panel visibility', () => {
-    useStore.getState().togglePanel('right');
-    expect(useStore.getState().ui.rightPanelOpen).toBe(false);
-    useStore.getState().togglePanel('right');
-    expect(useStore.getState().ui.rightPanelOpen).toBe(true);
-  });
-
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
     expect(data.version).toBe('3.1');

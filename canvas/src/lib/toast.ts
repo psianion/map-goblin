@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { resolveIcon, type ToastIconKey } from '@/components/toast/AnimatedIcons';
+import { resolveIcon, type ToastIconKey } from '@/ui/AnimatedIcons';
 
 export const notify = {
   subtle(message: string, opts?: { icon?: ToastIconKey }): void {

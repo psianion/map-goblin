@@ -9,7 +9,7 @@ import { firePointer, waitForBoot, waitFrame } from './helpers'
  * its guards, Duplicate), drop to layer from a canvas drag, the Layers sheet (levels,
  * wall and room rows, per-object lock, the name filter, cross-level drag), levels in the
  * chrome (Page Up and Down, the title card, Delete level), the gear sheet's Labels row
- * and the background colour (pixels), no accent colour, and v1 keeping its panel.
+ * and the background colour (pixels), and no accent colour.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -631,14 +631,4 @@ test('no accent colour in the new CSS: every colour it names is a grey', () => {
     }
     expect(css).not.toMatch(/hsla?\(|oklch\(/)
   }
-})
-
-test('/v2 no longer mounts the v1 layer panel; / still does', async ({ page }) => {
-  await openEditor(page)
-  await page.getByTestId('v2-open-layers').click()
-  await expect(page.getByTestId('v2-layers-tree')).toBeVisible()
-  await expect(page.getByTestId('layer-filter')).toHaveCount(0)
-  await page.goto('/?e2e=1')
-  await waitForBoot(page)
-  await expect(page.getByTestId('layer-filter')).toBeVisible()
 })

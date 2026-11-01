@@ -29,7 +29,7 @@ import {
   roomUnder,
 } from './useCanvasInput';
 import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
-import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
+import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
 import type { DimensionHud } from './dimensionHud';
 import { WallTool } from '@dnd/core/src/engine/tools/WallTool';
 import type { RenderEngine } from '@/engine/RenderEngine';

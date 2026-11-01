@@ -17,7 +17,7 @@ test.describe('06 - Keyboard Shortcuts', () => {
       await gotoApp(page);
       await page.keyboard.press(key);
       await waitFrame(page, 2);
-      const canvas = page.locator('canvas');
+      const canvas = page.locator('canvas').first();
       await expect(canvas).toBeVisible();
     });
   }
@@ -26,7 +26,7 @@ test.describe('06 - Keyboard Shortcuts', () => {
     await gotoApp(page);
     await page.keyboard.press('e');
     await waitFrame(page, 2);
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
   });
 });

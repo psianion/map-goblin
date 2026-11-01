@@ -90,7 +90,7 @@ test.describe('Image Import', () => {
     // This test validates the file chooser intercept works; placement via
     // drag-drop is tested in a dedicated test.
     // Just verify no crash occurred and the page is still functional.
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
   })
 
   test('JPEG via file picker does not crash', async ({ page }) => {
@@ -112,7 +112,7 @@ test.describe('Image Import', () => {
     await fileChooser.setFiles(path.join(FIXTURES_DIR, 'test-1x1.jpeg'))
     await waitFrame(page, 5)
 
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
   })
 
   test('drag-and-drop PNG places a PlacedObject in images layer', async ({ page }) => {
@@ -310,7 +310,7 @@ test.describe('Image Import', () => {
     await addImagesLayerAndActivate(page)
 
     // Switch to asset browser panel so search input is visible
-    await page.getByRole('button', { name: /assets/i }).click()
+    await page.getByTestId('v2-strip-floors').getByRole('button', { name: 'More' }).click()
     await waitFrame(page, 2)
 
     // Focus the search input

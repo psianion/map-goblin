@@ -7,7 +7,7 @@ import type { AnyChild, DungeonLayer } from '@/store/types';
 import type { ZoneChild } from '@/store/types';
 import { SelectionCard } from './SelectionCard';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({
+vi.mock('@/editor/PackThumbnailCanvas', () => ({
   PackThumbnailCanvas: () => <span />,
 }));
 vi.mock('@/lib/toast', () => ({

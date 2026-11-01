@@ -5,7 +5,7 @@ test.describe('10 - Regular Polygon Tool', () => {
   test('drag to draw a regular polygon', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('h');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

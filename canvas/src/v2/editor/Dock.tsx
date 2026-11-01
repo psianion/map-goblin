@@ -6,7 +6,7 @@ import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { DOCK_TABS, hasSwatches, tabForTool, type DockTab, type DockTabId, type ToolEntry } from './dockTabs';
 import { Filmstrip } from './Filmstrip';
-import type { AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
+import type { AssetTypeFilter } from '@/editor/AssetBrowserPanel';
 import { ToolSettings, ToolSwatches } from './DockControls';
 import { RoomsDockTail, SuggestBar } from './RoomsDock';
 import { PropsDockTail } from './PropsDock';

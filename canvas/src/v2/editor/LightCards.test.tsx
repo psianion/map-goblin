@@ -5,7 +5,7 @@ import { undoManager } from '@/store/undoManager';
 import type { AssetChild, DungeonLayer, LightChild } from '@/store/types';
 import { SelectionCard } from './SelectionCard';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => <i /> }));
+vi.mock('@/editor/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => <i /> }));
 
 function dungeon(): DungeonLayer {
   return useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon')!;

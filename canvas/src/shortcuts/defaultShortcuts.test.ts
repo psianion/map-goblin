@@ -16,11 +16,9 @@ import { undoManager } from '@/store/undoManager';
 import {
   activeToolKeyRef,
   boundCombos,
-  createDefaultShortcuts,
   deletedMessage,
   editorShellKeysRef,
   handleShortcut,
-  POINTER_HINTS,
   rotateSelection90,
   shortcutById,
   SHORTCUTS,
@@ -28,7 +26,7 @@ import {
 import { formatCombo, keyCaption } from './formatCombo';
 import { DOCK_TABS } from '@/v2/editor/dockTabs';
 import { TERRAIN_PANEL_ID } from '@/store/types';
-import { openNewMapRef } from '@/components/toolbar/toolConstants';
+import { openNewMapRef } from '@/editor/toolConstants';
 import type { AssetChild, DungeonLayer, LightChild, ShapeChild } from '@/store/types';
 
 function layer(): DungeonLayer {
@@ -158,20 +156,20 @@ describe('delete / ctrl+x — owning-layer validation (X1)', () => {
 
 describe('help list', () => {
   it('lists the terrain and water tools with their keys', () => {
-    const tools = createDefaultShortcuts().filter((s) => s.category === 'Tools');
-    expect(tools).toContainEqual(expect.objectContaining({ keys: 't', label: 'Terrain' }));
-    expect(tools).toContainEqual(expect.objectContaining({ keys: 'u', label: 'Water' }));
+    const tools = SHORTCUTS.filter((s) => s.group === 'Tools');
+    expect(tools).toContainEqual(expect.objectContaining({ combo: 't', label: 'Terrain' }));
+    expect(tools).toContainEqual(expect.objectContaining({ combo: 'u', label: 'Water' }));
   });
 
   it('lists the Props tool on B', () => {
-    const tools = createDefaultShortcuts().filter((s) => s.category === 'Tools');
+    const tools = SHORTCUTS.filter((s) => s.group === 'Tools');
     expect(tools).toContainEqual(
-      expect.objectContaining({ id: 'tool.scatterBrush', keys: 'b', label: 'Props' }),
+      expect.objectContaining({ id: 'tool.scatterBrush', combo: 'b', label: 'Props' }),
     );
   });
 
   it('lists the draw-order keys', () => {
-    const keys = createDefaultShortcuts().map((s) => s.keys);
+    const keys = SHORTCUTS.map((s) => s.combo);
     expect(keys).toEqual(expect.arrayContaining(['ctrl+]', 'ctrl+[', 'ctrl+shift+]', 'ctrl+shift+[']));
   });
 });
@@ -188,18 +186,12 @@ describe('b picks the scatter brush', () => {
 describe('ctrl+shift+n (new map)', () => {
   beforeEach(() => useStore.getState().resetToDefault());
 
-  it('opens the v1 dialog when no v2 dialog is registered', () => {
-    expect(handleShortcut('ctrl+shift+n')).toBe(true);
-    expect(useStore.getState().ui.modalState?.type).toBe('newMap');
-  });
-
-  it('opens the v2 dialog instead when the v2 route registered one', () => {
+  it('opens the dialog the app registered', () => {
     const open = vi.fn();
     openNewMapRef.current = open;
     try {
       expect(handleShortcut('ctrl+shift+n')).toBe(true);
       expect(open).toHaveBeenCalledTimes(1);
-      expect(useStore.getState().ui.modalState).toBeNull();
     } finally {
       openNewMapRef.current = null;
     }
@@ -395,7 +387,6 @@ describe('draw-order keys', () => {
     useStore.getState().resetToDefault();
     useStore.getState().setActiveTool('select');
     for (const id of ['a', 'b', 'c']) useStore.getState().addChild(layer().id, prop(id));
-    window.history.pushState({}, '', '/v2');
   });
 
   it('moves the selection forward, to the front, backward and to the back, one undo each', () => {
@@ -413,22 +404,10 @@ describe('draw-order keys', () => {
     expect(order()).toEqual(['b', 'a', 'c']);
   });
 
-  it('Ctrl+G on v2 makes props a merged group, as the Group board shows; v1 keeps a plain one', () => {
+  it('Ctrl+G makes props a merged group, as the Group board shows', () => {
     useStore.getState().setSelectedIds(['a', 'b']);
     handleShortcut('ctrl+g');
     expect(layer().groups?.[0]).toMatchObject({ name: 'Group 1', merged: true });
-    undoManager.undo();
-    window.history.pushState({}, '', '/');
-    useStore.getState().setSelectedIds(['a', 'b']);
-    handleShortcut('ctrl+g');
-    expect(layer().groups?.[0].merged).toBeFalsy();
-  });
-
-  it('is a v2 verb: v1 lets the key fall through', () => {
-    window.history.pushState({}, '', '/');
-    useStore.getState().setSelectedIds(['a']);
-    expect(handleShortcut('ctrl+]')).toBe(false);
-    expect(order()).toEqual(['a', 'b', 'c']);
   });
 });
 
@@ -530,19 +509,10 @@ describe('attached lights follow every selection verb', () => {
 
 // The one table: what the map answers and what the help lists are the same list.
 describe('the shortcut table', () => {
-  const helpCombos = () => createDefaultShortcuts().filter((r) => !POINTER_HINTS.some((p) => p.id === r.id));
-
   it('binds every combo it lists, and lists every combo it binds', () => {
     const bound = new Set(boundCombos());
     for (const s of SHORTCUTS) expect(bound.has(s.combo)).toBe(true);
     expect([...bound].sort()).toEqual([...new Set(SHORTCUTS.map((s) => s.combo))].sort());
-  });
-
-  it('shows every bound action in the help, on a key it binds', () => {
-    const bound = new Set(boundCombos());
-    const rows = helpCombos();
-    for (const s of SHORTCUTS) expect(rows.some((r) => r.id === s.id)).toBe(true);
-    for (const r of rows) expect(bound.has(r.keys)).toBe(true);
   });
 
   it('has no duplicate, and nothing a binding before it on the same key always takes', () => {
@@ -561,12 +531,10 @@ describe('the shortcut table', () => {
     });
   });
 
-  it('carries no v1-only rows: no maps panel, no O, no Layers panel keys', () => {
+  it('carries no maps panel, no O and no old room tool', () => {
     expect(boundCombos()).not.toContain('ctrl+shift+m');
     expect(boundCombos()).not.toContain('o');
-    const rows = createDefaultShortcuts();
-    expect(rows.some((r) => r.category === 'Layers')).toBe(false);
-    expect(rows.some((r) => r.id === 'tool.room' || r.id === 'view.toggleMaps')).toBe(false);
+    expect(SHORTCUTS.some((s) => s.id === 'tool.room' || s.id === 'view.toggleMaps')).toBe(false);
   });
 
   it('lists what the v2 editor answers: X, R and P in Rooms, levels, the dock, Enter and Escape, I, the light’s R, node edits', () => {
@@ -638,7 +606,7 @@ describe('scopes and the v2 shell', () => {
     expect(useStore.getState().tools.activeTool).toBe('light');
   });
 
-  it('Page Up and Page Down step the levels, Tab folds the dock, ? opens the sheet; none of them on v1', () => {
+  it('Page Up and Page Down step the levels, Tab folds the dock, ? opens the sheet; none of them without the shell', () => {
     expect(handleShortcut('pageup', key('PageUp'))).toBe(false);
     expect(handleShortcut('tab', key('Tab'))).toBe(false);
     const s = shell();
@@ -650,12 +618,6 @@ describe('scopes and the v2 shell', () => {
     expect(s.toggleDock).toHaveBeenCalledTimes(1);
     handleShortcut('shift+?', key('?', { shiftKey: true }));
     expect(s.openShortcuts).toHaveBeenCalledTimes(1);
-    expect(useStore.getState().ui.modalState).toBeNull();
-  });
-
-  it('? opens the v1 reference where there is no shell', () => {
-    expect(handleShortcut('shift+?', key('?', { shiftKey: true }))).toBe(true);
-    expect(useStore.getState().ui.modalState?.type).toBe('shortcutReference');
   });
 
   it('Enter goes to the tool in hand (a wall chain ends there)', () => {

@@ -4,7 +4,7 @@ import { Copy, EyeOff, FlipHorizontal2, FlipVertical2, Lock, LockOpen, MoreHoriz
 import { useStore } from '@/store/store';
 import { resolveSelection, isLockedObject } from '@dnd/core/src/store/selectionResolve';
 import { cardActions, type CardAction } from './cardModels';
-import { openCanvasMenuRef, type CanvasMenuPayload } from '@/components/canvas/canvasMenuRef';
+import { openCanvasMenuRef, type CanvasMenuPayload } from '@/editor/canvasMenuRef';
 import { runSelectionVerb } from '@/shortcuts/defaultShortcuts';
 import { getChildBounds, getWallBounds } from '@dnd/core/src/engine/hitTest';
 import './selection-actions.css';

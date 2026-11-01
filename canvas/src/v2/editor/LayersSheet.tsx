@@ -33,10 +33,10 @@ import { TERRAIN_PANEL_ID, type AnyChild, type DungeonLayer, type Layer, type Wa
 import { PropertyCommand, ReorderChildCommand, TerrainAppearanceCommand, UpdateWallCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { cn } from '@/lib/utils';
-import { ContextMenu, useContextMenu } from '@/components/ui/context-menu';
-import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
+import { ContextMenu, useContextMenu } from '@/ui/context-menu';
+import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
 import { buildLayerTileMenu } from '@/canvas/menuRegistry';
-import { computeChildDragReorder } from '@/components/layers/childReorder';
+import { computeChildDragReorder } from '@/editor/childReorder';
 import { getChildBounds, getWallBounds } from '@dnd/core/src/engine/hitTest';
 import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
 import { standaloneWallLook } from '@dnd/core/src/shared/wallLook';
@@ -530,7 +530,7 @@ function parentIndex(rows: SheetRow[], index: number): number {
 /**
  * The Layers sheet (board L3): every level, its layers top of the stack first, and each
  * layer's objects by kind (rooms and drawn walls included), each row with its eye and
- * lock. Replaces the v1 layer panel on /v2.
+ * lock.
  */
 export function LayersSheet({ open, onClose, onOpenLayerSettings }: { open: boolean; onClose: () => void; onOpenLayerSettings: (id: string) => void }) {
   return (

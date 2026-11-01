@@ -3,7 +3,7 @@ import { render, screen, cleanup, fireEvent, act, within } from '@testing-librar
 import { useStore } from '@/store/store';
 import { EditorShell } from './EditorShell';
 import { PANEL_FADE_DELAY_MS } from './usePanelFade';
-import { togglePopoverRef } from '@/components/toolbar/toolConstants';
+import { togglePopoverRef } from '@/editor/toolConstants';
 import { openPropBrowserRef } from '@/canvas/menuRegistry';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 

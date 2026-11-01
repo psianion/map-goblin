@@ -2,11 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { Minimize2 } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { TERRAIN_PANEL_ID } from '@/store/types';
-import type { EditorChromeActions } from '@/App';
-import { AssetBrowserPanel, type AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
-import { togglePopoverRef } from '@/components/toolbar/toolConstants';
-import { cancelZoomAnimationRef, viewportInsetsRef, zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
-import { cancelZoomAnimation, fitToContent } from '@/components/toolbar/zoomControl';
+import type { EditorChromeActions } from '@/editor/EditorHost';
+import { AssetBrowserPanel, type AssetTypeFilter } from '@/editor/AssetBrowserPanel';
+import { togglePopoverRef } from '@/editor/toolConstants';
+import { cancelZoomAnimationRef, viewportInsetsRef, zoomToFitRef } from '@/editor/zoomToFitRef';
+import { cancelZoomAnimation, fitToContent } from '@/editor/zoomControl';
 import { openPropBrowserRef } from '@/canvas/menuRegistry';
 import { editorShellKeysRef } from '@/shortcuts/defaultShortcuts';
 import { Rail } from './Rail';

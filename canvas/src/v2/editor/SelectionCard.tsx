@@ -25,8 +25,8 @@ import type {
   WallSegment,
   WaterChild,
 } from '@/store/types';
-import type { AssetTypeFilter } from '@/components/layers/AssetBrowserPanel';
-import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import type { AssetTypeFilter } from '@/editor/AssetBrowserPanel';
+import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
 import { doorOpeningLimit, polylineLength, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { doorwayRoom, isOwnPiece, turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
@@ -175,11 +175,11 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
 
   const first = children[0];
   const total = children.length + walls.length;
-  // One light on its own has the v2 light card (the v1 panel stays for `/`).
+  // One light on its own has the light card.
   if (total === 1 && roomCount === 0 && first?.childType === 'light' && layerIds[0]) {
     return <LightTargetCard light={first as LightChild} layerId={layerIds[0]} />;
   }
-  // One label on its own has the v2 label card (the v1 panel stays for `/`).
+  // One label on its own has the label card.
   if (total === 1 && roomCount === 0 && first?.childType === 'text' && layerIds[0]) {
     return <LabelTargetCard key={first.id} label={first as TextChild} layerId={layerIds[0]} />;
   }
