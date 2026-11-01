@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { RoomKey, ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep';
 import type { Layer } from '@dnd/core/src/store/types';
@@ -98,6 +98,52 @@ beforeEach(() => {
   useStore.setState({ layers: [] });
   useShell.setState({ sidebarOpen: false });
   __resetPrepBadgeForTests();
+});
+
+describe('a prep-only publish', () => {
+  it('refetches the active scene’s prep on `prep-changed`, and leaves the map alone', async () => {
+    fetchPrep
+      .mockResolvedValueOnce({ prep: prepOf([trigger({ name: 'Pit trap' })]), resolved: [{ id: 't1' }], resolvedNotes: [] })
+      .mockResolvedValueOnce({ prep: prepOf([trigger({ name: 'Rock fall' })]), resolved: [{ id: 't1' }], resolvedNotes: [] });
+    const mapData = { layers: [] };
+    useSessionStore.setState({ session: session({}), you: dm, mapData });
+    render(<PrepSidebar />);
+    expect(await screen.findByText('Pit trap')).not.toBeNull();
+
+    // Another scene's prep is not this panel's business: no fetch for it.
+    act(() => useSessionStore.getState().applyServerMessage({ type: 'prep-changed', sceneId: 'scene-2' }));
+    expect(fetchPrep).toHaveBeenCalledTimes(1);
+
+    act(() => useSessionStore.getState().applyServerMessage({ type: 'prep-changed', sceneId: 'scene-1' }));
+    expect(await screen.findByText('Rock fall')).not.toBeNull();
+    expect(fetchPrep).toHaveBeenCalledTimes(2);
+    expect(fetchPrep).toHaveBeenLastCalledWith('scene-1', 'tok');
+    expect(useSessionStore.getState().mapData).toBe(mapData);
+  });
+});
+
+describe('a map and prep republish', () => {
+  it('refetches the prep once the republish’s `prep-changed` follows its snapshot and `scene-changed`', async () => {
+    fetchPrep
+      .mockResolvedValueOnce({ prep: null, resolved: [], resolvedNotes: [] })
+      .mockResolvedValueOnce({ prep: prepOf([trigger({ name: 'Rock fall' })]), resolved: [{ id: 't1' }], resolvedNotes: [] });
+    useSessionStore.setState({ session: session({}), you: dm });
+    render(<PrepSidebar />);
+    await act(async () => {});
+    expect(fetchPrep).toHaveBeenCalledTimes(1);
+
+    // What the server sends a DM seat for a republish of the scene being played.
+    act(() => {
+      const apply = useSessionStore.getState().applyServerMessage;
+      apply({ type: 'session-state', state: session({}), you: dm });
+      apply({ type: 'scene-changed', sceneId: 'scene-1', mapId: 'map-2' });
+    });
+    expect(fetchPrep).toHaveBeenCalledTimes(1);
+
+    act(() => useSessionStore.getState().applyServerMessage({ type: 'prep-changed', sceneId: 'scene-1' }));
+    expect(await screen.findByText('Rock fall')).not.toBeNull();
+    expect(fetchPrep).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('zone grouping', () => {

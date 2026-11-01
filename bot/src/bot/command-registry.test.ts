@@ -600,7 +600,7 @@ function mapDeps(over: { liveScene?: string | null; tokens?: MapToken[]; maps?: 
     sessionRunner: {
       ...stubRunner(),
       liveState: () =>
-        over.liveScene === undefined ? undefined : { sceneId: over.liveScene, tokens: over.tokens ?? [] },
+        over.liveScene === undefined ? undefined : { sceneId: over.liveScene, tokens: over.tokens ?? [], doors: {} },
     },
   })
   deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')

@@ -45,6 +45,23 @@ export interface FogLook {
   heavy?: boolean;
 }
 
+/**
+ * The range every number in a `FogLook` lives in — one table for the three places that bound
+ * them: the table's validator (packages/mechanics/src/fog/module.ts) refuses a value outside
+ * it, and the table's FogLookPanel and canvas's EnvironmentSection stop their sliders at it.
+ * Each slider keeps its own step.
+ */
+export const FOG_LOOK_RANGES = {
+  strength: { min: 0, max: 1 },
+  scale: { min: 0.2, max: 8 },
+  speed: { min: 0, max: 0.3 },
+  angle: { min: 0, max: 360 },
+  wind: { min: 0.5, max: 12 },
+  fade: { min: 1, max: 4 },
+  veil: { min: 0, max: 0.5 },
+  glow: { min: 0, max: 1 },
+} as const;
+
 /** [type, tint, strength, scale, speed, angle-in-degrees] — the mockup's own row shape. */
 type PresetRow = readonly [number, string, number, number, number, number];
 const presetLayers = (

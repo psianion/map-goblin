@@ -720,10 +720,10 @@ async function postMap(interaction: ChatInputCommandInteraction, deps: Deps): Pr
     throw userInput("No session is running, so there's no current scene — pass the `scene` option.")
 
   const doc = await deps.goblin.getMap(token, sceneId)
-  // Tokens only for the scene the observer is actually watching: positions from another scene
-  // would be fiction drawn at full confidence.
-  const tokens = live?.sceneId === sceneId ? live.tokens : undefined
-  const png = rasterize(mapSvg(doc, { tokens, dmView }))
+  // Tokens and door flags only for the scene the observer is actually watching: positions from
+  // another scene would be fiction drawn at full confidence.
+  const watched = live?.sceneId === sceneId ? live : undefined
+  const png = rasterize(mapSvg(doc, { tokens: watched?.tokens, doors: watched?.doors, dmView }))
 
   await deps.announce(
     dmView ? campaign.dmChannelId : interaction.channelId,

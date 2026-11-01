@@ -198,10 +198,11 @@ export function PrepSidebar() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const state = useModuleState<TriggersState>('triggers');
   const layers = useStore((s) => s.layers);
+  const prepRevision = useSessionStore((s) => s.prepRevision);
   const [fetched, setFetched] = useState<PrepFetch | null>(null);
 
-  // Refetches on every scene switch — quiet by design (see the endpoint's own PUT), so
-  // nothing else tells this panel prep changed underneath it.
+  // Refetches on every scene switch, and when the server says this scene's prep was
+  // rewritten (`prep-changed`, from a prep PUT or a republish that carries prep).
   useEffect(() => {
     if (!sceneId) return;
     const { token } = useSessionStore.getState();
@@ -217,7 +218,7 @@ export function PrepSidebar() {
         setFetched({ sceneId, prep: res.prep, inertById, inertNoteById, roomVerdicts });
       })
       .catch((e) => setFetched({ sceneId, error: e instanceof Error ? e.message : String(e) }));
-  }, [sceneId]);
+  }, [sceneId, prepRevision]);
 
   const current = fetched?.sceneId === sceneId ? fetched : null;
   const prep = current && 'prep' in current ? current.prep : null;

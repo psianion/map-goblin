@@ -293,6 +293,21 @@ export class SessionManager {
     }
   }
 
+  /**
+   * A prep write (`PUT /scenes/:id/prep`, or a republish whose file carries prep) lands
+   * here: every DM seat at the campaign's table is told that scene's prep changed. This
+   * sends no snapshot and no `scene-changed`, so on its own no map is dropped or refetched. Prep is the DM's alone, so a player
+   * is never sent it.
+   */
+  prepChanged(campaignId: string, sceneId: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.campaignId !== campaignId) continue
+      for (const conn of session.clients) {
+        if (conn.identity.role === 'dm') this.broadcaster.sendTo(conn, { type: 'prep-changed', sceneId })
+      }
+    }
+  }
+
   private heartbeat(): void {
     for (const conn of this.connections) {
       if (conn.missedPongs >= this.missedPongLimit) conn.terminate()

@@ -50,6 +50,7 @@ import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
 import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
 import type { Viewer } from '@dnd/mechanics/contract'
+import type { MapDelta } from '@dnd/core/src/shared/protocol'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import {
@@ -60,7 +61,6 @@ import {
   mapDeltaFor,
   redactMapForViewer,
   exploredRooms,
-  type MapDelta,
 } from './redactMap'
 import {
   CACHE_MAX,

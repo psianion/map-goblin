@@ -37,6 +37,10 @@ export interface MapSvgOptions {
   dmView?: boolean
   /** Overrides the document's own map name in the sheet header. */
   title?: string
+  /** Live door flags for this scene, keyed by door id, when a session is running. They win
+   * over the document's authored `state`: the map file says how the door was drawn, the
+   * table says whether someone has opened it since. */
+  doors?: Record<string, { open: boolean; locked: boolean }>
 }
 
 // ── palette (art style guide §4, matching render/card-kit.ts) ────────────────────────────
@@ -156,7 +160,7 @@ function readDoorState(value: unknown): Door['state'] {
   return text === 'open' || text === 'locked' ? text : 'closed'
 }
 
-export function readScene(doc: unknown, dmView: boolean): Scene {
+export function readScene(doc: unknown, dmView: boolean, doors: MapSvgOptions['doors'] = {}): Scene {
   const root = isRec(doc) ? doc : {}
   const settings = isRec(root.mapSettings) ? root.mapSettings : {}
   const cellScale = isRec(settings.cellScale) ? settings.cellScale : {}
@@ -216,7 +220,7 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
             y: num(position[1]),
             width: clamp(num(child.width, 1), 0.4, 6),
             angle: num(child.angle),
-            state: readDoorState(child.state),
+            state: readDoorState((typeof child.id === 'string' && doors[child.id]) || child.state),
             secret: child.isSecret === true,
           })
           break
@@ -485,11 +489,11 @@ function emptySheet(title: string, dmView: boolean): string {
 
 /**
  * The whole renderer: document → parchment schematic. Options carry only what the document
- * cannot: the live tokens, and whether this is the DM's own view.
+ * cannot: the live tokens and doors, and whether this is the DM's own view.
  */
 export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   const dmView = options.dmView === true
-  const scene = readScene(doc, dmView)
+  const scene = readScene(doc, dmView, options.doors)
   const tokens = visibleTokens(options.tokens ?? [], dmView)
   const title = options.title ?? scene.name
 

@@ -1,5 +1,5 @@
-import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types';
-import type { Role } from '@dnd/core/src/shared/protocol';
+import type { AnyChild, DoorChild } from '@dnd/core/src/shared/types';
+import type { MapDelta, Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import { restoreCustomImages, registerImageBlob } from '@dnd/core/src/assets/textureLoader';
@@ -8,27 +8,6 @@ import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
-
-/**
- * The geometry a reveal hands over, riding on the `fog` state-update that reveals it (D5).
- *
- * Structural, not imported: `protocol.ts` does not name it and belongs to another lane. The
- * authority is the server's own `MapDelta` / `MapDeltaLayer` in
- * `session/server/src/fog/redactMap.ts` — keep these in step with it.
- */
-export interface MapDeltaLayer {
-  id: string;
-  rooms: Room[];
-  children: AnyChild[];
-  standaloneWalls: WallSegment[];
-}
-
-export interface MapDelta {
-  sceneId: string;
-  layers: MapDeltaLayer[];
-  /** The re-cut `lockMask` a room reveal owes this seat — see `SerializedMapData.lockMask`. */
-  lockMask?: SerializedMapData['lockMask'];
-}
 
 /**
  * Secret doors are the DM's authoring state, and the session client renders scenes with the

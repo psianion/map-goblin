@@ -35,6 +35,9 @@ export interface SessionStats {
   /** The last known token positions for a scene — the map snapshot's overlay. Empty until
    * the `tokens` module has said something about that scene. */
   tokens: (sceneId: string) => MapToken[]
+  /** The last known door flags for a scene, keyed by door id — the map snapshot's door
+   * state. Empty until the `doors` module has said something about that scene. */
+  doors: (sceneId: string) => Record<string, DoorFlags>
 }
 
 /** SIZE_CELLS on the game side. Re-declared, like every other wire constant here. */
@@ -76,6 +79,8 @@ export function createSessionStats(startedAt: number): SessionStats {
   let dmConnected = false
   /** Latest positions per scene. Replaced wholesale — the module sends its whole state. */
   const tokensByScene = new Map<string, MapToken[]>()
+  /** Latest door flags per scene, the same way: the module sends its whole state. */
+  let doorsByScene: DoorsState['byScene'] = {}
   /** Null means "no baseline" — the next doors state is recorded, not counted. */
   let openDoors: Record<string, Record<string, boolean>> | null = null
 
@@ -113,6 +118,7 @@ export function createSessionStats(startedAt: number): SessionStats {
     // state (or the next update, if it carries none) becomes the new baseline. Better to
     // miss opens than to count a whole scene's worth of them at once.
     openDoors = hasByScene(state.modules?.doors) ? snapshotOf(state.modules!.doors as DoorsState) : null
+    if (hasByScene(state.modules?.doors)) doorsByScene = (state.modules!.doors as DoorsState).byScene ?? {}
     // Positions, unlike door counts, are pure "latest wins" — a snapshot is simply the truth.
     if (hasByScene(state.modules?.tokens)) ingestTokens(state.modules!.tokens as TokensState)
   }
@@ -150,6 +156,7 @@ export function createSessionStats(startedAt: number): SessionStats {
           return
         case 'doors':
           countOpens(event.state)
+          doorsByScene = event.state.byScene ?? {}
           return
         case 'tokens':
           ingestTokens(event.state)
@@ -168,6 +175,8 @@ export function createSessionStats(startedAt: number): SessionStats {
     live: () => ({ players: [...present], sceneName, sceneId, dmConnected }),
 
     tokens: (scene) => tokensByScene.get(scene) ?? [],
+
+    doors: (scene) => doorsByScene[scene] ?? {},
 
     recap: (endedAt) => ({
       scenes: [...scenesVisited],

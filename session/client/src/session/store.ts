@@ -1,13 +1,12 @@
 import { create } from 'zustand';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type { MapDelta, PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
 import {
   mergeMapDelta,
   invalidateSceneDocs,
   swapSceneMap,
-  type MapDelta,
 } from './loadSceneMap';
 import { decodePaintedArea } from './paintedArea';
 import { WebSocketClient } from './WebSocketClient';
@@ -82,6 +81,8 @@ export interface SessionStore {
   paintedArea: Polygon[] | null;
   /** Most recent server refusal; modules interpret it (see `useDoorFeedback`). */
   lastError: ServerError | null;
+  /** Bumped by each `prep-changed` for the active scene — the Prep panel refetches on it. */
+  prepRevision: number;
   latencyMs: number | null;
   client: WebSocketClient | null;
   /** Session token, kept so REST calls (GET /api/maps/:id) can authorize. */
@@ -151,6 +152,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   splatPngs: [null, null, null],
   paintedArea: null,
   lastError: null,
+  prepRevision: 0,
   latencyMs: null,
   client: null,
   token: null,
@@ -277,6 +279,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           set({ session: { ...session, activeSceneId: msg.sceneId, scenes } });
           break;
         }
+
+        case 'prep-changed':
+          // Prep only: the map stays as it is. Another scene's prep is fetched when it is opened.
+          if (msg.sceneId === get().session?.activeSceneId) set({ prepRevision: get().prepRevision + 1 });
+          break;
 
         case 'player-joined':
         case 'player-left': {
