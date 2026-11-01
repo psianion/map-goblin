@@ -13,15 +13,14 @@ import { GridCalibrationOverlay } from '@/components/canvas/GridCalibrationOverl
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { ExportModal } from '@/v2/ExportModal';
 import { PublishDialog } from '@/components/shared/PublishDialog';
+import { PublishDialog as PublishDialogV2 } from '@/v2/editor/PublishDialog';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
-import { importImageRef } from '@/shortcuts/defaultShortcuts';
-import { canvasKeysAllowed, isTypingTarget } from '@/shortcuts/keyGuard';
-import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
+import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { NewMapDialog } from '@/components/maps/NewMapDialog';
 import { ImportMapsDialog } from '@/components/maps/ImportMapsDialog';
@@ -105,28 +104,10 @@ export default function App({ renderChrome }: AppProps = {}) {
     return () => { importImageRef.current = null; };
   }, [openImagePicker]);
 
-  // Ctrl+E for export (not in defaultShortcuts because it needs React state)
+  // Ctrl+E (the shortcut table's) opens whichever export dialog is mounted.
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const key = [
-        e.ctrlKey || e.metaKey ? 'ctrl' : '',
-        e.shiftKey ? 'shift' : '',
-        e.altKey ? 'alt' : '',
-        e.key.toLowerCase(),
-      ]
-        .filter(Boolean)
-        .join('+');
-
-      if (key === 'ctrl+e') {
-        // The same guard as every map key: on v2 never from a field, a menu, a dialog or a
-        // sheet; on v1 never from a text field.
-        if (getEditorDesk() ? !canvasKeysAllowed(e) : isTypingTarget(e.target as Element)) return;
-        e.preventDefault();
-        setExportOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    openExportRef.current = () => setExportOpen(true);
+    return () => { openExportRef.current = null; };
   }, []);
 
   // Multi-map migration + index load on app startup
@@ -225,6 +206,9 @@ export default function App({ renderChrome }: AppProps = {}) {
     <div
       className="relative h-screen w-screen overflow-hidden bg-surface-0"
       data-focus-mode={focusMode}
+      // v1: the whole layout answers map keys, its fields, menus, trees and dialogs aside
+      // (keyGuard.ts). The v2 chrome marks its own.
+      data-keys={customChrome ? undefined : 'canvas'}
     >
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
@@ -259,8 +243,8 @@ export default function App({ renderChrome }: AppProps = {}) {
             <ImageDown size={15} strokeWidth={2} />
           </button>
           <button
-            title="Publish to library"
-            aria-label="Publish to library"
+            title="Publish to table"
+            aria-label="Publish to table"
             onClick={() => setPublishOpen(true)}
             className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
           >
@@ -355,14 +339,18 @@ export default function App({ renderChrome }: AppProps = {}) {
     </div>
 
     {/* Modals + overlays outside the layout so they never clip */}
-    {/* A host drawing its own chrome (/v2) gets its own export dialog; Ctrl+E and the
-        chrome's "Export…" both open whichever one is mounted. */}
+    {/* A host drawing its own chrome (/v2) gets its own export and publish dialogs; Ctrl+E
+        and the chrome's "Export…" both open whichever one is mounted. */}
     {customChrome ? (
       <ExportModal open={exportOpen} onOpenChange={setExportOpen} />
     ) : (
       <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
     )}
-    <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
+    {customChrome ? (
+      <PublishDialogV2 open={publishOpen} onOpenChange={setPublishOpen} />
+    ) : (
+      <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
+    )}
     <ShortcutHelpDialog
       open={modalState?.type === 'shortcutReference'}
       onOpenChange={(open) => { if (!open) showModal(null); }}

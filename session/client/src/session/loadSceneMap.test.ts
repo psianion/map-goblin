@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
+import { PROTOCOL_VERSION, type MapDelta } from '@dnd/core/src/shared/protocol';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { endpoints } from '../endpoints';
@@ -7,7 +7,6 @@ import {
   swapSceneMap,
   invalidateSceneDocs,
   mergeMapDelta,
-  type MapDelta,
 } from './loadSceneMap';
 
 // Real `restoreCustomImages` decodes data URLs through Pixi, which needs a GPU jsdom has

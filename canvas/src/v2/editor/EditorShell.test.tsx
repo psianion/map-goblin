@@ -5,6 +5,7 @@ import { EditorShell } from './EditorShell';
 import { PANEL_FADE_DELAY_MS } from './usePanelFade';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { openPropBrowserRef } from '@/canvas/menuRegistry';
+import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 
 const actions = { openExport: vi.fn(), openPublish: vi.fn(), importImage: vi.fn() };
 
@@ -197,7 +198,8 @@ describe('EditorShell', () => {
   });
 
   describe('Tab', () => {
-    const pressTab = () => fireEvent.keyDown(document.body, { key: 'Tab' });
+    // The shortcut table answers Tab; the canvas input hook routes the key event there.
+    const pressTab = () => act(() => void handleShortcut('tab', new KeyboardEvent('keydown', { key: 'Tab' })));
     const toggle = () => screen.getByTestId('v2-dock-toggle');
 
     beforeEach(() => {
@@ -253,7 +255,7 @@ describe('EditorShell', () => {
 
       // Folded and on another tab: the press opens the dock on the tool's own tab.
       fireEvent.click(screen.getByTestId('v2-dock-tab-floors'));
-      fireEvent.keyDown(document.body, { key: 'Tab' });
+      act(() => void handleShortcut('tab', new KeyboardEvent('keydown', { key: 'Tab' })));
       expect(toggle().getAttribute('aria-expanded')).toBe('false');
       act(() => togglePopoverRef.current?.());
       expect(toggle().getAttribute('aria-expanded')).toBe('true');

@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Ellipsis, Redo2, Undo2 } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import { keyCaption } from '@/shortcuts/formatCombo';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import type { EditorChromeActions } from '@/App';
 import { cn } from '@/lib/utils';
 import { useTheme } from '../theme';
 import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '../viewPrefs';
+import { useEscapeToClose } from '../useEscapeToClose';
 
 type MenuItem =
   | { kind: 'action'; label: string; keys?: string; onSelect: () => void }
@@ -24,10 +26,12 @@ interface TopActionsProps {
   onOpenSettings: () => void;
   /** "Packs…": the shell's Packs sheet. */
   onOpenPacks?: () => void;
+  /** "Keyboard shortcuts": the shell's shortcuts sheet. */
+  onOpenShortcuts?: () => void;
 }
 
 /** Top-right: history, everything else behind "…", and the one primary action. */
-export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsProps) {
+export function TopActions({ actions, onOpenSettings, onOpenPacks, onOpenShortcuts }: TopActionsProps) {
   const canUndo = useStore((s) => s.ui.canUndo);
   const canRedo = useStore((s) => s.ui.canRedo);
   const focusMode = useStore((s) => s.ui.focusMode);
@@ -35,38 +39,30 @@ export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsP
   const [theme, toggleTheme] = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  useEscapeToClose(menuOpen, closeMenu);
 
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (e: PointerEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setMenuOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        setMenuOpen(false);
-      }
-    };
     document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-    };
+    return () => document.removeEventListener('pointerdown', onDown, true);
   }, [menuOpen]);
 
   const items: MenuItem[] = [
     { kind: 'action', label: 'Map settings…', onSelect: onOpenSettings },
     'divider',
-    { kind: 'action', label: 'Export…', keys: 'Ctrl E', onSelect: actions.openExport },
+    { kind: 'action', label: 'Export…', keys: keyCaption('file.export'), onSelect: actions.openExport },
     ...(onOpenPacks ? [{ kind: 'action', label: 'Packs…', onSelect: onOpenPacks } as const] : []),
-    { kind: 'action', label: 'Import image…', keys: 'Ctrl I', onSelect: actions.importImage },
+    { kind: 'action', label: 'Import image…', keys: keyCaption('file.import'), onSelect: actions.importImage },
     'divider',
-    { kind: 'action', label: 'Fit to content', keys: 'Ctrl 0', onSelect: () => zoomToFitRef.current?.() },
+    { kind: 'action', label: 'Fit to content', keys: keyCaption('view.fitToContent'), onSelect: () => zoomToFitRef.current?.() },
     'divider',
     { kind: 'caption', label: 'View' },
-    { kind: 'check', label: 'Lit preview', keys: 'I', checked: lit, onSelect: () => setLitPreview(!lit) },
-    { kind: 'caption', label: 'Focus', keys: '`' },
+    { kind: 'check', label: 'Lit preview', keys: keyCaption('view.litPreview'), checked: lit, onSelect: () => setLitPreview(!lit) },
+    { kind: 'caption', label: 'Focus', keys: keyCaption('view.focusMode') },
     ...FOCUS_MODES.map(
       (mode): MenuItem => ({
         kind: 'check',
@@ -78,16 +74,21 @@ export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsP
     ),
     'divider',
     { kind: 'action', label: theme === 'dark' ? 'Light mode' : 'Dark mode', onSelect: toggleTheme },
+    ...(onOpenShortcuts
+      ? (['divider', { kind: 'action', label: 'Keyboard shortcuts', keys: keyCaption('view.shortcuts'), onSelect: onOpenShortcuts }] as const)
+      : []),
   ];
+  const undoKey = keyCaption('edit.undo');
+  const redoKey = keyCaption('edit.redo');
 
   return (
     <div className="v2-float v2-bar-card v2-top-actions" data-keys="canvas" data-chrome ref={wrapRef}>
       <button
         type="button"
         className="v2-ib"
-        aria-label="Undo (Ctrl Z)"
+        aria-label={`Undo (${undoKey})`}
         data-tip="Undo"
-        data-tip-key="Ctrl Z"
+        data-tip-key={undoKey}
         data-tip-side="bottom"
         disabled={!canUndo}
         onClick={() => handleShortcut('ctrl+z')}
@@ -97,9 +98,9 @@ export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsP
       <button
         type="button"
         className="v2-ib"
-        aria-label="Redo (Ctrl Y)"
+        aria-label={`Redo (${redoKey})`}
         data-tip="Redo"
-        data-tip-key="Ctrl Y"
+        data-tip-key={redoKey}
         data-tip-side="bottom"
         disabled={!canRedo}
         onClick={() => handleShortcut('ctrl+y')}
@@ -121,7 +122,7 @@ export function TopActions({ actions, onOpenSettings, onOpenPacks }: TopActionsP
       </button>
       <span className="v2-vr" role="presentation" />
       <button type="button" className="v2-primary" data-testid="v2-publish" onClick={actions.openPublish}>
-        Publish to Table
+        Publish to table
       </button>
 
       {menuOpen && (

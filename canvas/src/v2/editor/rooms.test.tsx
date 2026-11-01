@@ -10,6 +10,7 @@ import { SelectionCard } from './SelectionCard';
 import { RoomsSheet } from './RoomsSheet';
 import { SplitDialog } from './SplitDialog';
 import { acceptAllSuggestions } from './roomActions';
+import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { Filmstrip } from './Filmstrip';
 import { buildPrepGroups } from './prepModel';
 import { pickFloorTexture } from './assetStrip';
@@ -144,14 +145,14 @@ describe('Suggest bar', () => {
     expect(live().rooms).toHaveLength(3);
   });
 
-  it('Enter accepts all and Escape dismisses, from anywhere but a field', () => {
+  it('Enter accepts all and Escape dismisses, through the shortcut table', () => {
     seed();
     render(<SuggestBar />);
     act(() => suggest([room('s1', 'Room 4', 4, 30)]));
-    fireEvent.keyDown(window, { key: 'Escape' });
+    act(() => void handleShortcut('escape', new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(useStore.getState().ui.roomSuggestions).toBeNull();
     act(() => suggest([room('s1', 'Room 4', 4, 30)]));
-    fireEvent.keyDown(window, { key: 'Enter' });
+    act(() => void handleShortcut('enter', new KeyboardEvent('keydown', { key: 'Enter' })));
     expect(live().rooms).toHaveLength(4);
   });
 

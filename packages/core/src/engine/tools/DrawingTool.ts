@@ -70,6 +70,4 @@ export interface DrawingTool {
   onWheel?(e: WheelEvent, world: Point): boolean;
   /** A right-click on the canvas, before the context menu. True takes it (no menu). */
   onContextMenu?(world: Point, e: MouseEvent): boolean;
-  /** A key this tool answers itself, ahead of the global shortcut bound to it (the Light tool's R). */
-  ownsKey?(e: KeyboardEvent): boolean;
 }

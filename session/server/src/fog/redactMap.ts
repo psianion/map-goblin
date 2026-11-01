@@ -23,6 +23,7 @@ import type {
   ShapeChild,
   WallSegment,
 } from '@dnd/core/src/shared/types'
+import type { MapDelta } from '@dnd/core/src/shared/protocol'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
   centreOf,
@@ -34,33 +35,6 @@ import {
   type SceneMap,
 } from './sceneMap'
 import { exploreLocks, inAnyLock } from './sweep'
-
-/** One layer's worth of newly available geometry, shaped to be merged by layer id. */
-export interface MapDeltaLayer {
-  id: string
-  rooms: Room[]
-  children: AnyChild[]
-  standaloneWalls: WallSegment[]
-}
-
-/**
- * §2.1/D5 — rides on the `fog` state-update that reveals the rooms it carries, so a client
- * never knows a room is revealed before it has the geometry to draw. Placement JSON only:
- * textures shipped with the asset packs at join.
- */
-export interface MapDelta {
-  sceneId: string
-  layers: MapDeltaLayer[]
-  /**
-   * The re-cut `lockMask` (see {@link lockMaskFor}), when this delta credits rooms — the same
-   * debt D5 makes a reveal pay for geometry, for the same reason. The mask is cut against the
-   * rooms a seat holds, a reveal is what grows that set, and nothing else re-cuts a connected
-   * seat's document: `mergeMapDelta` patches layers and the client re-fetches only on a join,
-   * a scene swap, a republish or a mode flip. Without this the newly shipped room's locked
-   * ground would have art, no fence, and no correction ever coming.
-   */
-  lockMask?: RegionMask
-}
 
 type Doors = Record<string, DoorLiveState>
 

@@ -7,6 +7,10 @@ export interface PublishState {
   sceneId: string;
   mapHash: string;
   prepHash: string;
+  /** The campaign's name when it was published to; absent on records from before it was kept. */
+  campaignName?: string;
+  /** When it was last published, ms since epoch; absent on records from before it was kept. */
+  publishedAt?: number;
 }
 
 /** One slot per campaign a map has been published to — publishing to a second
@@ -189,6 +193,30 @@ export class MapIndexDB {
           ? undefined
           : (entry.publish as PublishRecord | undefined);
         entry.publish = { ...existing, [campaignId]: publish };
+        const putReq = store.put(entry);
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  /** Drops one campaign's slot (its scene is gone at the table), in the same one-transaction
+   * read-modify-write as setPublishState; the other slots stay. */
+  async clearPublishState(id: string, campaignId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const entry = getReq.result as MapEntry | undefined;
+        if (!entry || !entry.publish || isLegacyPublishShape(entry.publish)) {
+          resolve();
+          return;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { [campaignId]: _gone, ...rest } = entry.publish;
+        entry.publish = rest;
         const putReq = store.put(entry);
         putReq.onsuccess = () => resolve();
         putReq.onerror = () => reject(putReq.error);

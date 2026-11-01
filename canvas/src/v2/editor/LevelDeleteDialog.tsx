@@ -5,6 +5,7 @@ import { useStore } from '@/store/store';
 import { layerObjectCount, layersOnLevel } from '@dnd/core/src/store/layerCommands';
 import { cn } from '@/lib/utils';
 import { deleteLevel } from './layerActions';
+import { useEscapeToClose } from '../useEscapeToClose';
 import './rooms.css';
 import './layers-sheet.css';
 
@@ -27,6 +28,7 @@ function DeleteForm({ levelId, onClose }: { levelId: string; onClose: () => void
   const objects = onLevel.reduce((n, l) => n + layerObjectCount(l), 0);
   const [mode, setMode] = useState<'move' | 'delete'>('move');
   const [moveTo, setMoveTo] = useState(others[0]?.id ?? '');
+  useEscapeToClose(true, onClose);
 
   const confirm = () => {
     if (deleteLevel(levelId, mode === 'move' ? moveTo : null)) onClose();
@@ -43,11 +45,6 @@ function DeleteForm({ levelId, onClose }: { levelId: string; onClose: () => void
             data-testid="v2-level-delete-dialog"
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                onClose();
-                return;
-              }
               if (e.key !== 'Enter' || e.target instanceof HTMLButtonElement || e.target instanceof HTMLSelectElement) return;
               e.preventDefault();
               confirm();

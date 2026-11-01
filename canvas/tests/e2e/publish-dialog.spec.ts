@@ -8,54 +8,14 @@
  */
 import { test, expect, type Page } from '@playwright/test'
 import { gotoApp } from './helpers'
-
-interface RecordedRequest {
-  method: string
-  path: string
-  headers: Record<string, string>
-  bodyBuffer: Buffer | null
-}
-
-interface StubRoute {
-  method: string
-  path: RegExp
-  respond: (req: RecordedRequest) => { status?: number; json?: unknown }
-}
-
-/** Install a wildcard /api stub. Records every request; unstubbed ones 404. */
-async function installStubs(page: Page, routes: StubRoute[]): Promise<RecordedRequest[]> {
-  const calls: RecordedRequest[] = []
-  await page.route('**/api/**', async (route) => {
-    const request = route.request()
-    const url = new URL(request.url())
-    const recorded: RecordedRequest = {
-      method: request.method(),
-      path: url.pathname,
-      headers: request.headers(),
-      bodyBuffer: request.postDataBuffer(),
-    }
-    calls.push(recorded)
-    const match = routes.find((r) => r.method === recorded.method && r.path.test(recorded.path))
-    if (!match) {
-      await route.fulfill({ status: 404, json: { error: `unstubbed ${recorded.method} ${recorded.path}` } })
-      return
-    }
-    const result = match.respond(recorded)
-    if (result.json !== undefined) {
-      await route.fulfill({ status: result.status ?? 200, json: result.json })
-    } else {
-      await route.fulfill({ status: result.status ?? 200 })
-    }
-  })
-  return calls
-}
+import { installStubs } from './publishStubs'
 
 async function openPublishDialog(page: Page): Promise<void> {
-  await page.getByTitle('Publish to library').click()
+  await page.getByTitle('Publish to table').click()
 }
 
 async function expectDialogClosed(page: Page): Promise<void> {
-  await expect(page.getByText('Publish to Library')).not.toBeVisible({ timeout: 5000 })
+  await expect(page.getByText('Publish to table')).not.toBeVisible({ timeout: 5000 })
 }
 
 /**

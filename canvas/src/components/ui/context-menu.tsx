@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
+import { useEscapeToClose } from '@/v2/useEscapeToClose'
 
 export interface ContextMenuItem {
   /** Absent means 'action' — the original plain-verb row every menu already uses. */
@@ -17,7 +18,7 @@ export interface ContextMenuItem {
   disabled?: boolean
   /** Small leading icon. */
   icon?: ReactNode
-  /** Right-aligned shortcut hint, e.g. "Ctrl+D". */
+  /** Right-aligned shortcut hint, e.g. "Ctrl D" (the shortcut table's key, through formatCombo). */
   kbd?: string
   /**
    * Marks the row as one choice of a set (a door's style): renders a real
@@ -522,17 +523,19 @@ export function ContextMenu({
   }, [pos])
   useLayoutEffect(clamp, [clamp])
 
+  // Escape closes the menu alone, on the one Escape stack, if it is the last thing opened.
+  const closeAndReturnFocus = useCallback(() => {
+    onClose()
+    returnFocusRef.current?.focus()
+  }, [onClose])
+  useEscapeToClose(pos !== null, closeAndReturnFocus)
+
   useEffect(() => {
     if (!pos) return
     const onClickOutside = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-        returnFocusRef.current?.focus()
-        return
-      }
       // Tab isn't trapped — it closes the menu and lets focus continue
       // its normal course to whatever's next in the document.
       if (e.key === 'Tab') {

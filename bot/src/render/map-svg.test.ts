@@ -60,6 +60,26 @@ describe('mapSvg — the player document', () => {
   })
 })
 
+describe('mapSvg — live door state', () => {
+  // The fixture's hall door is authored closed and the vault door open; the table has since
+  // opened the one and shut and locked the other.
+  const doors = {
+    'door-west': { open: true, locked: false },
+    'door-vault': { open: false, locked: true },
+  }
+  const svg = mapSvg(playerMap, { tokens, doors })
+
+  it('draws each door as the table left it, not as the file has it', () => {
+    expect(svg).toMatchSnapshot()
+    expect(svg).not.toBe(mapSvg(playerMap, { tokens }))
+    expect(readScene(playerMap, false, doors).doors.map((door) => door.state)).toEqual(['open', 'locked'])
+  })
+
+  it('keeps the authored state for a door the table has said nothing about', () => {
+    expect(readScene(playerMap, false, {}).doors.map((door) => door.state)).toEqual(['closed', 'open'])
+  })
+})
+
 describe('mapSvg — the second lock on DM-only geometry', () => {
   it('drops secret doors from a player render even when the document still carries them', () => {
     // A mis-issued token, or a server that forgot: the renderer refuses anyway.

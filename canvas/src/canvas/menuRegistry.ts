@@ -74,6 +74,7 @@ import {
   rotateSelection90,
   runSelectionVerb,
 } from '@/shortcuts/defaultShortcuts'
+import { keyCaption } from '@/shortcuts/formatCombo'
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve'
 import { wallCopyCommands } from '@dnd/core/src/store/duplicateSelection'
 import { getChildBounds, getWallBounds, pickStackAtPoint } from '@dnd/core/src/engine/hitTest'
@@ -187,11 +188,11 @@ function run(cmd: ReturnType<typeof createZOrderCommand>): void {
  */
 export const openPropBrowserRef: { current: ((replaceIds: string[]) => void) | null } = { current: null }
 
-const ORDER_ROWS: { op: ZOrderOp; label: string; kbd: string }[] = [
-  { op: 'front', label: 'Bring to front', kbd: 'Ctrl+Shift+]' },
-  { op: 'forward', label: 'Bring forward', kbd: 'Ctrl+]' },
-  { op: 'backward', label: 'Send backward', kbd: 'Ctrl+[' },
-  { op: 'back', label: 'Send to back', kbd: 'Ctrl+Shift+[' },
+const ORDER_ROWS: { op: ZOrderOp; label: string }[] = [
+  { op: 'front', label: 'Bring to front' },
+  { op: 'forward', label: 'Bring forward' },
+  { op: 'backward', label: 'Send backward' },
+  { op: 'back', label: 'Send to back' },
 ]
 
 const ALIGN_ROWS: { edge: AlignEdge; label: string }[] = [
@@ -209,9 +210,10 @@ function orderRow(ids: string[]): MenuRow {
     type: 'submenu',
     label: 'Order',
     separatorBefore: true,
-    rows: ORDER_ROWS.map(({ op, label, kbd }) => ({
+    rows: ORDER_ROWS.map(({ op, label }) => ({
       label,
-      kbd,
+      // The table's ids are edit.front, edit.forward, edit.backward, edit.back.
+      kbd: keyCaption(`edit.${op}`),
       onSelect: () => run(createZOrderCommand(ids, op)),
     })),
   }
@@ -249,7 +251,7 @@ function lockedChildRows(ctx: ChildMenuContext): MenuRow[] {
   const behind = isV2Route() ? selectBehindRow(ctx.world) : null
   return [
     { type: 'header', label: child.name || kind, sublabel: `${kind} · locked` },
-    { label: 'Unlock', kbd: isV2Route() ? 'Ctrl+Shift+L' : undefined, onSelect: unlock },
+    { label: 'Unlock', kbd: isV2Route() ? keyCaption('edit.lock') : undefined, onSelect: unlock },
     ...(behind ? [behind] : []),
   ]
 }
@@ -257,8 +259,8 @@ function lockedChildRows(ctx: ChildMenuContext): MenuRow[] {
 /** Rows a v2 menu offers for any object: lock it, hide it. */
 function lockHideRows(): MenuRow[] {
   return [
-    { label: 'Lock', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('lock') },
-    { label: 'Hide', kbd: 'Ctrl+Shift+H', onSelect: () => runSelectionVerb('hide') },
+    { label: 'Lock', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
+    { label: 'Hide', kbd: keyCaption('edit.hide'), onSelect: () => runSelectionVerb('hide') },
   ]
 }
 
@@ -298,7 +300,7 @@ function sharedVerbs(ctx: ChildMenuContext): MenuRow[] {
     {
       separatorBefore: true,
       label: 'Duplicate',
-      kbd: 'Ctrl+D',
+      kbd: keyCaption('edit.duplicate'),
       onSelect: () => runSelectionVerb('duplicate'),
     },
   ]
@@ -309,7 +311,7 @@ function sharedVerbs(ctx: ChildMenuContext): MenuRow[] {
     separatorBefore: true,
     label: 'Delete',
     danger: true,
-    kbd: 'Del',
+    kbd: keyCaption('edit.delete'),
     onSelect: () => handleShortcut('delete'),
   })
   return rows
@@ -352,12 +354,12 @@ function groupRows(ctx?: ChildMenuContext): MenuRow[] {
     rows.push({
       separatorBefore: true,
       label: sameGroup.group.merged ? 'Unmerge' : 'Ungroup',
-      kbd: 'Ctrl+Shift+G',
+      kbd: keyCaption('edit.ungroup'),
       onSelect: () => ungroupSelection(),
     })
   } else if (canGroupSelection()) {
     rows.push(
-      { separatorBefore: true, label: 'Group selection', kbd: 'Ctrl+G', onSelect: () => groupSelection() },
+      { separatorBefore: true, label: 'Group selection', kbd: keyCaption('edit.group'), onSelect: () => groupSelection() },
       { label: 'Merge selection', onSelect: () => mergeSelection() },
     )
   }
@@ -437,11 +439,11 @@ registerMenu('asset', (ctx) => {
     {
       separatorBefore: true,
       label: 'Flip horizontal',
-      kbd: 'Shift+H',
+      kbd: keyCaption('edit.flipH'),
       onSelect: () => handleShortcut('shift+h'),
     },
-    { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
-    { label: 'Rotate 90°', onSelect: () => rotateSelection90() },
+    { label: 'Flip vertical', kbd: keyCaption('edit.flipV'), onSelect: () => handleShortcut('shift+v') },
+    { label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => rotateSelection90() },
   )
   if (v2) {
     rows.push(
@@ -467,7 +469,7 @@ registerMenu('asset', (ctx) => {
         checked: propField(child, 'blocksLight'),
         onToggle: (next) => run(createSetPropFieldsCommand([child.id], { blocksLight: next })),
       },
-      { label: 'Lock', onSelect: () => run(createSetPropFieldsCommand([child.id], { locked: true })) },
+      { label: 'Lock', kbd: keyCaption('edit.lock'), onSelect: () => run(createSetPropFieldsCommand([child.id], { locked: true })) },
     )
   }
   return [...rows, ...sharedVerbs(ctx)]
@@ -603,7 +605,7 @@ registerMenu('door', (ctx) => {
     separatorBefore: true,
     label: 'Delete',
     danger: true,
-    kbd: 'Del',
+    kbd: keyCaption('edit.delete'),
     onSelect: () => handleShortcut('delete'),
   })
   return rows
@@ -611,7 +613,7 @@ registerMenu('door', (ctx) => {
 
 registerMenu('text', (ctx) => [
   headerRow(ctx.child),
-  { label: 'Rotate 90°', onSelect: () => rotateSelection90() },
+  { label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => rotateSelection90() },
   ...sharedVerbs(ctx),
 ])
 
@@ -748,7 +750,7 @@ export function buildRoomMenu({ layer, room, selectedIds, world }: RoomMenuConte
     separatorBefore: true,
     label: picked.length > 1 ? 'Delete rooms' : 'Delete room',
     danger: true,
-    kbd: 'Del',
+    kbd: keyCaption('edit.delete'),
     onSelect: () => {
       const cmds = pickedIds.map((id) => new RemoveRoomCommand(layer.id, id))
       undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Delete rooms', cmds))
@@ -838,7 +840,7 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
     const unlock = (): void => run(new UpdateWallCommand(layer.id, wall.id, { locked: true }, { locked: false }))
     const rows: MenuRow[] = [
       { type: 'header', label: 'Wall', sublabel: `${sublabel} · locked` },
-      { label: 'Unlock', kbd: 'Ctrl+Shift+L', onSelect: unlock },
+      { label: 'Unlock', kbd: keyCaption('edit.lock'), onSelect: unlock },
       ...(behind ? [behind] : []),
     ]
     const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
@@ -846,10 +848,10 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
   }
   const rows: MenuRow[] = [{ type: 'header', label: 'Wall', sublabel }]
   rows.push(
-    { separatorBefore: true, label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => runSelectionVerb('duplicate') },
-    { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => runSelectionVerb('flipH') },
-    { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => runSelectionVerb('flipV') },
-    { label: 'Rotate 90°', kbd: 'Shift+R', onSelect: () => runSelectionVerb('rotate') },
+    { separatorBefore: true, label: 'Duplicate', kbd: keyCaption('edit.duplicate'), onSelect: () => runSelectionVerb('duplicate') },
+    { label: 'Flip horizontal', kbd: keyCaption('edit.flipH'), onSelect: () => runSelectionVerb('flipH') },
+    { label: 'Flip vertical', kbd: keyCaption('edit.flipV'), onSelect: () => runSelectionVerb('flipV') },
+    { label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => runSelectionVerb('rotate') },
     ...(isV2Route() ? lockHideRows() : []),
   )
   rows.push(moveToLayerRow(layer.id, { separatorBefore: true }))
@@ -857,7 +859,7 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
     separatorBefore: true,
     label: 'Delete',
     danger: true,
-    kbd: 'Del',
+    kbd: keyCaption('edit.delete'),
     onSelect: () => handleShortcut('delete'),
   })
   const withBehind = withSelectBehind(rows, world)
@@ -955,22 +957,22 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
   const lockRow: MenuRow[] = v2
     ? [
         allLocked
-          ? { label: 'Unlock all', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('unlock') }
-          : { label: 'Lock all', kbd: 'Ctrl+Shift+L', onSelect: () => runSelectionVerb('lock') },
-        { label: 'Hide', kbd: 'Ctrl+Shift+H', onSelect: () => runSelectionVerb('hide') },
+          ? { label: 'Unlock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('unlock') }
+          : { label: 'Lock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
+        { label: 'Hide', kbd: keyCaption('edit.hide'), onSelect: () => runSelectionVerb('hide') },
       ]
     : []
   return withSelectBehind(
     withGroupRows([
       { type: 'header', label: `${count} selected` },
-      ...(onlyDoors ? [] : [{ label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => runSelectionVerb('duplicate') }]),
+      ...(onlyDoors ? [] : [{ label: 'Duplicate', kbd: keyCaption('edit.duplicate'), onSelect: () => runSelectionVerb('duplicate') }]),
       ...(flippable
         ? [
-            { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => runSelectionVerb('flipH') },
-            { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => runSelectionVerb('flipV') },
+            { label: 'Flip horizontal', kbd: keyCaption('edit.flipH'), onSelect: () => runSelectionVerb('flipH') },
+            { label: 'Flip vertical', kbd: keyCaption('edit.flipV'), onSelect: () => runSelectionVerb('flipV') },
           ]
         : []),
-      ...(rotatable ? [{ label: 'Rotate 90°', kbd: 'Shift+R', onSelect: () => runSelectionVerb('rotate') }] : []),
+      ...(rotatable ? [{ label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => runSelectionVerb('rotate') }] : []),
       ...arrangeRows,
       ...propRows,
       ...lockRow,
@@ -979,7 +981,7 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
         separatorBefore: true,
         label: 'Delete',
         danger: true,
-        kbd: 'Del',
+        kbd: keyCaption('edit.delete'),
         onSelect: () => handleShortcut('delete'),
       },
     ]),
@@ -998,13 +1000,13 @@ export function buildCanvasMenu(world: { x: number; y: number }): MenuRow[] {
   return [
     {
       label: 'Paste here',
-      kbd: 'Ctrl+V',
+      kbd: keyCaption('edit.paste'),
       disabled: empty || !activeLayer,
       onSelect: () => pasteAt(world),
     },
     {
       label: 'Select all in layer',
-      kbd: 'Ctrl+A',
+      kbd: keyCaption('edit.selectAll'),
       disabled: !activeLayer || (activeLayer.children.length === 0 && activeLayer.standaloneWalls.length === 0),
       onSelect: () => {
         if (!activeLayer) return
@@ -1021,7 +1023,7 @@ export function buildCanvasMenu(world: { x: number; y: number }): MenuRow[] {
     {
       separatorBefore: true,
       label: 'Zoom to fit',
-      kbd: 'Ctrl+0',
+      kbd: keyCaption('view.fitToContent'),
       onSelect: () => zoomToFitRef.current?.(),
     },
   ]

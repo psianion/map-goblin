@@ -1,24 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useStore } from '@/store/store';
-import { getMapDB } from '@/store/slices/maps';
-import type { MapIndexDB, PublishRecord, PublishState } from '@/io/mapIndexDB';
-import { serializeToBytes } from '@/io/saveLoad';
-import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
-import {
-  hashMapForPublish,
-  hashPrep,
-  getPublishToken,
-  setPublishToken,
-  clearPublishToken,
-  listCampaigns,
-  createCampaign,
-  mintDmToken,
-  uploadMap,
-  republishScene,
-  putScenePrep,
-  PublishAuthError,
-  type CampaignSummary,
-} from '@/io/publish';
+import { usePublishFlow, type PublishChange } from '@/io/publishFlow';
 import {
   Dialog,
   DialogPortal,
@@ -28,23 +8,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { notify } from '@/lib/toast';
-
-// The factory behind getMapDB() is always canvas's MapIndexDB (see store/init.ts) — the
-// core-side MapDB interface just doesn't list the publish-state methods added there.
-async function getDb(): Promise<MapIndexDB> {
-  return (await getMapDB()) as unknown as MapIndexDB;
-}
-
-type Mode = 'checking' | 'summary' | 'password' | 'campaigns';
-type Changed = 'map' | 'prep' | 'none';
-
-interface Summary {
-  campaignId: string;
-  campaignLabel: string;
-  sceneId: string;
-  changed: Changed;
-}
+import { timeAgo } from '@/v2/format';
 
 interface PublishDialogProps {
   open: boolean;
@@ -52,257 +16,37 @@ interface PublishDialogProps {
 }
 
 export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
-  const activeMapId = useStore((s) => s.activeMapId);
+  const {
+    mode,
+    busy,
+    busyLabel,
+    error,
+    summary,
+    campaigns,
+    adminPass,
+    setAdminPass,
+    newCampaignName,
+    setNewCampaignName,
+    publish,
+    connect,
+    pickCampaign,
+    create,
+    retryCheck,
+  } = usePublishFlow({ open, onClose: () => onOpenChange(false) });
 
-  const [mode, setMode] = useState<Mode>('checking');
-  const [busy, setBusy] = useState(false);
-  const [busyLabel, setBusyLabel] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Nothing changed is no reason to refuse: the table may hold another map by now.
+  const handlePublishFromSummary = () => void publish(summary?.changed === 'none');
+  const handlePickCampaign = (c: (typeof campaigns)[number]) => void pickCampaign(c);
+  const handleConnectSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void connect();
+  };
+  const handleCreateCampaign = (e: React.FormEvent) => {
+    e.preventDefault();
+    void create();
+  };
 
-  const [publishState, setPublishStateLocal] = useState<PublishRecord | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
-
-  // Never persisted — lives only as long as the dialog needs it to mint a token.
-  const [adminPass, setAdminPass] = useState('');
-  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
-  const [newCampaignName, setNewCampaignName] = useState('');
-  // Names learned this session (from listCampaigns/createCampaign) so the summary step
-  // can show one cheaply, without a login round trip just to label an id.
-  const [campaignNames, setCampaignNames] = useState<Record<string, string>>({});
-
-  const labelFor = useCallback(
-    (campaignId: string) => campaignNames[campaignId] ?? campaignId,
-    [campaignNames],
-  );
-
-  // Reset transient state whenever the dialog is dismissed — the pass must not survive
-  // a close, and a stale error/summary must not flash before the next open re-checks.
-  useEffect(() => {
-    if (open) return;
-    setAdminPass('');
-    setError(null);
-    setNotice(null);
-    setMode('checking');
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setMode('checking');
-    setError(null);
-    setNotice(null);
-
-    (async () => {
-      if (!activeMapId) {
-        if (!cancelled) setMode('password');
-        return;
-      }
-      const db = await getDb();
-      const record = await db.getPublishState(activeMapId);
-      if (cancelled) return;
-      setPublishStateLocal(record);
-
-      // A map may have been published to more than one campaign — pick whichever
-      // slot still has a live token; the rest surface once that one's re-published
-      // or the user connects fresh via the campaign picker.
-      const entry = record
-        ? Object.entries(record).find(([campaignId]) => getPublishToken(campaignId))
-        : undefined;
-      if (!entry) {
-        setMode('password');
-        return;
-      }
-      const [campaignId, ps] = entry;
-
-      const data = useStore.getState().getSerializableState();
-      // Match serializeToBytes: a stroke still sitting in the terrain worker's buffer
-      // must land in the store before pngs is read, or it silently misses the hash.
-      await getTerrainRenderer()?.flushPersistNow();
-      const pngs = useStore.getState().terrainSplats.pngs;
-      const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
-      if (cancelled) return;
-      const changed: Changed = hash !== ps.mapHash ? 'map' : prepHash !== ps.prepHash ? 'prep' : 'none';
-      setSummary({
-        campaignId,
-        campaignLabel: labelFor(campaignId),
-        sceneId: ps.sceneId,
-        changed,
-      });
-      setMode('summary');
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // labelFor intentionally excluded — it would re-run this on every campaignNames update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeMapId]);
-
-  /** Auth failure on any call — the token is dead, so drop it and start over. */
-  const handleAuthError = useCallback((campaignId: string) => {
-    clearPublishToken(campaignId);
-    setMode('password');
-    setError('Session expired — reconnect to publish.');
-  }, []);
-
-  const runPublish = useCallback(
-    async (campaignId: string, token: string, campaignLabel: string) => {
-      if (!activeMapId) throw new Error('No active map to publish.');
-      const data = useStore.getState().getSerializableState();
-      await getTerrainRenderer()?.flushPersistNow();
-      const pngs = useStore.getState().terrainSplats.pngs;
-      const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
-      const target = publishState?.[campaignId] ?? null;
-      const db = await getDb();
-      const mapName = data.mapSettings.name || 'Untitled map';
-
-      const remember = async (next: PublishState) => {
-        await db.setPublishState(activeMapId, campaignId, next);
-        setPublishStateLocal((prev) => ({ ...prev, [campaignId]: next }));
-      };
-
-      if (!target) {
-        setBusyLabel('Publishing…');
-        const bytes = await serializeToBytes(data);
-        const result = await uploadMap(token, campaignId, bytes);
-        await remember({ sceneId: result.sceneId, mapHash: hash, prepHash });
-        notify.success(`Published "${mapName}" to ${campaignLabel} — first publish`);
-      } else if (hash !== target.mapHash) {
-        setBusyLabel('Publishing…');
-        const bytes = await serializeToBytes(data);
-        await republishScene(token, target.sceneId, bytes);
-        await remember({ ...target, mapHash: hash, prepHash });
-        notify.success(`Republished "${mapName}" to ${campaignLabel} — map updated`);
-      } else if (prepHash !== target.prepHash) {
-        setBusyLabel('Updating prep…');
-        await putScenePrep(token, target.sceneId, data.prep ?? { version: 3, triggers: [], notes: [], rooms: [] });
-        await remember({ ...target, prepHash });
-        notify.success(`Updated prep for "${mapName}" in ${campaignLabel}`);
-      } else {
-        setNotice('No changes since your last publish.');
-        return;
-      }
-      onOpenChange(false);
-    },
-    [activeMapId, publishState, onOpenChange],
-  );
-
-  const handlePublishFromSummary = useCallback(async () => {
-    if (!summary) return;
-    const token = getPublishToken(summary.campaignId);
-    if (!token) {
-      setMode('password');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await runPublish(summary.campaignId, token, summary.campaignLabel);
-    } catch (err) {
-      if (err instanceof PublishAuthError) {
-        handleAuthError(summary.campaignId);
-      } else {
-        const message = err instanceof Error ? err.message : 'Publish failed.';
-        setError(message);
-        notify.error(message);
-      }
-    } finally {
-      setBusy(false);
-      setBusyLabel('');
-    }
-  }, [summary, runPublish, handleAuthError]);
-
-  const handleConnectSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setBusy(true);
-      setBusyLabel('Connecting…');
-      setError(null);
-      try {
-        const { campaigns: list } = await listCampaigns(adminPass);
-        setCampaigns(list);
-        setCampaignNames((prev) => {
-          const next = { ...prev };
-          for (const c of list) next[c.id] = c.name;
-          return next;
-        });
-        setMode('campaigns');
-      } catch (err) {
-        if (err instanceof PublishAuthError) setError('Invalid admin pass.');
-        else setError(err instanceof Error ? err.message : 'Could not reach the Good Goblin server.');
-      } finally {
-        setBusy(false);
-        setBusyLabel('');
-      }
-    },
-    [adminPass],
-  );
-
-  const handlePickCampaign = useCallback(
-    async (campaign: CampaignSummary) => {
-      setBusy(true);
-      setError(null);
-      setBusyLabel('Connecting…');
-      try {
-        const { token } = await mintDmToken(adminPass, campaign.id);
-        setPublishToken(campaign.id, token);
-        setAdminPass('');
-        await runPublish(campaign.id, token, campaign.name);
-      } catch (err) {
-        if (err instanceof PublishAuthError) {
-          handleAuthError(campaign.id);
-        } else {
-          const message = err instanceof Error ? err.message : 'Could not connect.';
-          setError(message);
-          notify.error(message);
-        }
-      } finally {
-        setBusy(false);
-        setBusyLabel('');
-      }
-    },
-    [adminPass, runPublish, handleAuthError],
-  );
-
-  const handleCreateCampaign = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const name = newCampaignName.trim();
-      if (!name) return;
-      setBusy(true);
-      setError(null);
-      setBusyLabel('Creating…');
-      // Only set once createCampaign resolves — a 401 on that call itself has no
-      // campaign to drop a token for, so it's reported as an invalid admin pass instead.
-      let campaignId: string | undefined;
-      try {
-        const created = await createCampaign(adminPass, name);
-        campaignId = created.campaignId;
-        setPublishToken(created.campaignId, created.token);
-        setCampaignNames((prev) => ({ ...prev, [created.campaignId]: name }));
-        setAdminPass('');
-        await runPublish(created.campaignId, created.token, name);
-      } catch (err) {
-        if (err instanceof PublishAuthError && campaignId) {
-          handleAuthError(campaignId);
-        } else if (err instanceof PublishAuthError) {
-          setError('Invalid admin pass.');
-        } else {
-          const message = err instanceof Error ? err.message : 'Could not create campaign.';
-          setError(message);
-          notify.error(message);
-        }
-      } finally {
-        setBusy(false);
-        setBusyLabel('');
-      }
-    },
-    [adminPass, newCampaignName, runPublish, handleAuthError],
-  );
-
-  const changedLabel: Record<Changed, string> = {
+  const changedLabel: Record<PublishChange, string> = {
     map: 'Map changed since your last publish.',
     prep: 'Only trigger prep has changed.',
     none: 'No changes since your last publish.',
@@ -314,7 +58,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
         <DialogBackdrop />
         <DialogContent className="max-w-sm">
           <div className="flex items-center justify-between mb-4">
-            <DialogTitle>Publish to Library</DialogTitle>
+            <DialogTitle>Publish to table</DialogTitle>
             <DialogClose className="text-muted-foreground hover:text-foreground transition-colors">
               ✕
             </DialogClose>
@@ -322,7 +66,26 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
 
           <div className="space-y-4">
             {mode === 'checking' && (
-              <p className="text-sm text-muted-foreground">Checking publish status…</p>
+              <>
+                <p className="text-sm text-muted-foreground">Checking publish status…</p>
+                <Button variant="outline" className="w-full" onClick={() => onOpenChange(false)}>
+                  Cancel
+                </Button>
+              </>
+            )}
+
+            {mode === 'error' && (
+              <>
+                <p className="text-xs text-destructive">{error}</p>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+                    Cancel
+                  </Button>
+                  <Button className="flex-1" autoFocus onClick={retryCheck}>
+                    Retry
+                  </Button>
+                </div>
+              </>
             )}
 
             {mode === 'summary' && summary && (
@@ -331,15 +94,12 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
                   <div>
                     Campaign: <span className="text-foreground">{summary.campaignLabel}</span>
                   </div>
-                  <div>
-                    Scene: <span className="font-mono text-foreground">{summary.sceneId}</span>
-                  </div>
+                  {summary.publishedAt && <div>Last published {timeAgo(summary.publishedAt)}</div>}
                   <div>{changedLabel[summary.changed]}</div>
-                  <div>Light edits made at the table are kept on republish.</div>
+                  {summary.changed === 'map' && <div>Light edits made at the table are kept on republish.</div>}
                 </div>
 
                 {error && <p className="text-xs text-destructive">{error}</p>}
-                {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
 
                 <div className="flex gap-2 pt-1">
                   <Button variant="outline" className="flex-1" disabled={busy} onClick={() => onOpenChange(false)}>
@@ -359,10 +119,9 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
 
             {mode === 'password' && (
               <form onSubmit={handleConnectSubmit} className="space-y-4">
-                {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
                 <div>
                   <label htmlFor="publish-admin-pass" className="text-xs text-muted-foreground mb-1.5 block">
-                    Good Goblin server admin pass
+                    Admin pass
                   </label>
                   <input
                     id="publish-admin-pass"
@@ -374,6 +133,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
                     className="w-full rounded border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                     disabled={busy}
                   />
+                  <p className="text-xs text-muted-foreground mt-1.5">The pass printed by your table server on first run.</p>
                 </div>
 
                 {error && <p className="text-xs text-destructive">{error}</p>}

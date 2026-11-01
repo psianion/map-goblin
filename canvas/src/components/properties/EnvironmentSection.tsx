@@ -12,6 +12,7 @@ import {
   ENVIRONMENTS,
   FOG_LAYER_TYPES,
   FOG_LOOK_PRESETS,
+  FOG_LOOK_RANGES,
   FOG_PRESETS,
   KEY_MINUTES,
   NIGHT_SKIES,
@@ -222,18 +223,17 @@ function LayerRow({
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {(
           [
-            ['strength', 'Strength', 0, 1, 0.01, ''],
-            ['scale', 'Scale', 0.2, 8, 0.1, ''],
-            ['speed', 'Speed', 0, 0.3, 0.005, ''],
-            ['angle', 'Angle', 0, 360, 1, '°'],
+            ['strength', 'Strength', 0.01, ''],
+            ['scale', 'Scale', 0.1, ''],
+            ['speed', 'Speed', 0.005, ''],
+            ['angle', 'Angle', 1, '°'],
           ] as const
-        ).map(([field, label, min, max, step, unit]) => (
+        ).map(([field, label, step, unit]) => (
           <div key={field} className="flex flex-col gap-0.5">
             <span className="text-panel-small text-text-muted">{label}</span>
             <SliderInput
               value={layer[field]}
-              min={min}
-              max={max}
+              {...FOG_LOOK_RANGES[field]}
               step={step}
               unit={unit}
               ariaLabel={label}
@@ -653,18 +653,17 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
           <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
             {(
               [
-                ['wind', 'Wind', 0.5, 12, 0.1],
-                ['fade', 'Fade', 1, 4, 0.1],
-                ['veil', 'Veil', 0, 0.5, 0.01],
-                ['glow', 'Glow', 0, 1, 0.01],
+                ['wind', 'Wind', 0.1],
+                ['fade', 'Fade', 0.1],
+                ['veil', 'Veil', 0.01],
+                ['glow', 'Glow', 0.01],
               ] as const
-            ).map(([field, label, min, max, step]) => (
+            ).map(([field, label, step]) => (
               <div key={field} className="flex flex-col gap-0.5">
                 <span className="text-panel-small text-text-muted">{label}</span>
                 <SliderInput
                   value={fogLook[field]}
-                  min={min}
-                  max={max}
+                  {...FOG_LOOK_RANGES[field]}
                   step={step}
                   ariaLabel={label}
                   onChange={(v) => setFogField(field, v)}

@@ -5,13 +5,11 @@ import type { SnapIndicator } from './snapIndicator';
 import type { DimensionHud } from './dimensionHud';
 import type { Point } from '../types/geometry';
 import { handleImageImport } from './importImage';
-import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import { activeToolKeyRef, comboOf, handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '../store/store';
-import { TERRAIN_PANEL_ID } from '@/store/types';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
 import { MIN_ZOOM, MAX_ZOOM } from '@/components/toolbar/zoomControl';
-import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
 import { pickAt, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
@@ -25,12 +23,8 @@ import {
   cancelNodeDrag,
   isDraggingNode,
   toggleNodeEditAt,
-  exitNodeEdit,
-  handleNodeKey,
 } from './wallNodeEdit';
-import { editSessionOwnsKey } from './editSessionKeys';
 import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
-import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { outlineHitAt } from '@/engine/shapeNodeOverlay';
 import { toggleFixtureAt } from './doubleClickToggle';
 import {
@@ -41,7 +35,6 @@ import {
   cancelOutlineDrag,
   isDraggingOutline,
   toggleShapeNodeEditAt,
-  exitShapeNodeEdit,
 } from '@/engine/shapeNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
@@ -121,6 +114,23 @@ export function roomUnder(world: Point, zoom: number): { layerId: string; anchor
   return null;
 }
 
+/** Tools that place nothing on the grid: no snap cross-hair under the pointer. */
+const NO_SNAP_CROSSHAIR = new Set(['select', 'pan', 'ruler']);
+
+/** A selected object as a pick, for a right-click on the selection's gizmo or room badge. */
+function selectionPick(id: string): PickHit | null {
+  for (const l of useStore.getState().layers) {
+    if (l.type !== 'dungeon') continue;
+    const room = (l.rooms ?? []).find((r) => r.id === id);
+    if (room) return { kind: 'room', id, layerId: l.id, room };
+    const wall = (l.standaloneWalls ?? []).find((w) => w.id === id);
+    if (wall) return { kind: 'wall', id, layerId: l.id, wall };
+    const child = l.children.find((c) => c.id === id);
+    if (child) return { kind: 'child', id, layerId: l.id, child };
+  }
+  return null;
+}
+
 function isTextInput(el: Element | null): boolean {
   if (!el) return false;
   // A synthetic event can target `document`, which has no tagName.
@@ -181,11 +191,11 @@ export function useCanvasInput(
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
 
-      // Tools never see button 2 — the contextmenu handler below owns it. It
-      // fires after this click's pointerdown AND mousedown, which matters: a
-      // menu opened here would be closed again by the same click's trailing
-      // mousedown once the menu's own click-outside listener attaches.
-      if (e.button === 2) return;
+      // Tools see the left button only. The middle one pans (onMiddleDown below), and
+      // button 2 is the contextmenu handler's. That fires after this click's pointerdown
+      // AND mousedown, which matters: a menu opened here would be closed again by the
+      // same click's trailing mousedown once the menu's own click-outside listener attaches.
+      if (e.button !== 0) return;
 
       // Pan tool: left-click starts panning
       if (e.button === 0 && useStore.getState().tools.activeTool === 'pan') {
@@ -281,6 +291,12 @@ export function useCanvasInput(
         const stage = engine.stage();
         stage.position.x += dx;
         stage.position.y += dy;
+        _snapIndicator?.hide();
+        return;
+      }
+      // A middle-button pan, or a right press, is not the tool's: no hover, no drag.
+      if (e.buttons !== 0 && (e.buttons & 1) === 0) {
+        _snapIndicator?.hide();
         return;
       }
       const rect = canvasEl.getBoundingClientRect();
@@ -322,7 +338,9 @@ export function useCanvasInput(
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = toolPoint(world);
       cursorWorldPosition.current = snapped;
-      _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
+      // Select, Pan and Measure place nothing on the grid, so they show no snap cross-hair.
+      if (NO_SNAP_CROSSHAIR.has(useStore.getState().tools.activeTool)) _snapIndicator?.hide();
+      else _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
 
       // Dimension readout while a drawing tool has a live preview.
       syncHud();
@@ -337,6 +355,8 @@ export function useCanvasInput(
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      // The middle and right buttons' releases are not the tool's either.
+      if (e.button !== 0) return;
       if (isPanToolDragging) {
         isPanToolDragging = false;
         canvasEl.style.cursor = 'grab';
@@ -433,132 +453,33 @@ export function useCanvasInput(
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // v2: the map answers keys only from the page, the canvas and chrome marked for them,
-      // never from a field, a menu, a dialog, a tree, a listbox or a sheet (keyGuard.ts), and
-      // a Ctrl combo in a text field is the field's. v1 keeps its rule: plain keys skip text
-      // inputs, Ctrl/Cmd combos (Ctrl+S, Ctrl+Z) still reach the map.
-      if (getEditorDesk()) {
-        if (!canvasKeysAllowed(e)) return;
-      } else if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) {
+      // The map answers keys only from the page, the canvas and chrome marked for them,
+      // never from a field, a menu, a dialog, a tree, a listbox or a sheet (keyGuard.ts),
+      // on v1 and v2 alike. Escape for whatever is open above the map (a menu, a popover, a
+      // sheet, a dialog) never gets here: the Escape stack takes it first.
+      if (!canvasKeysAllowed(e)) return;
+
+      // Escape mid-drag abandons the gesture and stays in edit mode. Leaving outright would
+      // strand the half-dragged stone: the drag writes straight to the store, and
+      // endNodeDrag can no longer resolve the run once edit mode is gone. Rolling an
+      // outline drag back also undoes the collapse it performed for the preview.
+      if (e.key === 'Escape' && isDraggingNode()) {
+        draggingNodeTs = [];
+        nodeDragLast = null;
+        cancelNodeDrag();
+        e.preventDefault();
         return;
       }
-
-      // Escape leaves node editing before anything else claims it, so it does
-      // not also cancel whatever drawing tool happens to be selected.
-      if (e.key === 'Escape' && useStore.getState().tools.nodeEditWallId) {
-        // Mid-drag it abandons the gesture and stays in edit mode, matching the
-        // outline handles below. Leaving outright would strand the half-dragged
-        // stone: the drag writes straight to the store, and endNodeDrag can no
-        // longer resolve the run once edit mode is gone.
-        if (isDraggingNode()) {
-          draggingNodeTs = [];
-          nodeDragLast = null;
-          cancelNodeDrag();
-        } else {
-          exitNodeEdit();
-        }
+      if (e.key === 'Escape' && isDraggingOutline()) {
+        outlineDragStart = null;
+        cancelOutlineDrag();
         e.preventDefault();
         return;
       }
 
-      if (e.key === 'Escape' && useStore.getState().tools.shapeNodeEditId) {
-        // Mid-drag Escape abandons the gesture but stays in edit mode; a second
-        // one leaves. Rolling the drag back first also undoes the collapse it
-        // performed for the preview.
-        if (isDraggingOutline()) {
-          outlineDragStart = null;
-          cancelOutlineDrag();
-        } else {
-          exitShapeNodeEdit();
-        }
-        e.preventDefault();
-        return;
-      }
-
-      // Delete removes the selected vertex, ahead of the global table where
-      // Delete means "delete the selected shape".
-      {
-        const tools = useStore.getState().tools;
-        if (
-          tools.shapeNodeEditId &&
-          tools.selectedVertex !== null &&
-          (e.key === 'Delete' || e.key === 'Backspace') &&
-          !e.ctrlKey &&
-          !e.metaKey
-        ) {
-          applyOutlineEdit({ kind: 'delete', index: tools.selectedVertex }, 'Delete vertex');
-          useStore.getState().selectVertex(null);
-          e.preventDefault();
-          return;
-        }
-      }
-
-      // Rotate / resize / delete the selected node, ahead of the global
-      // shortcut table: Delete is bound there to the shape selection, and with
-      // a node selected it has to mean this node.
-      {
-        const tools = useStore.getState().tools;
-        if (
-          tools.nodeEditWallId &&
-          tools.selectedNodeT !== null &&
-          !e.ctrlKey &&
-          !e.metaKey &&
-          handleNodeKey(e.key, tools.selectedNodeT)
-        ) {
-          e.preventDefault();
-          return;
-        }
-        // With nothing picked the session has nothing to apply its keys to, but
-        // they are still its keys: let past here, Tab folds the v2 dock (which
-        // re-fits the zoom) and Delete reaches the shape binding.
-        if (editSessionOwnsKey(tools, e)) {
-          e.preventDefault();
-          return;
-        }
-      }
-
-      // A key the active tool answers itself (the Light tool's R) goes to it, not to the
-      // shortcut bound to the same key.
-      if (_toolManager?.ownsKey?.(e)) {
-        e.preventDefault();
-        _toolManager.onKeyDown(e);
-        return;
-      }
-
-      const combo = [
-        e.ctrlKey || e.metaKey ? 'ctrl' : '',
-        e.shiftKey ? 'shift' : '',
-        e.altKey ? 'alt' : '',
-        e.key.toLowerCase(),
-      ]
-        .filter(Boolean)
-        .join('+');
-      if (handleShortcut(combo)) {
-        e.preventDefault();
-        return;
-      }
-      const consumedGesture = _toolManager?.onKeyDown(e);
-
-      // Escape also exits solo (D1) and, if the Terrain row was active,
-      // restores the dungeon layer that was active before it (D5b). Placed
-      // last, after every tool-specific Escape consumer above (node-edit,
-      // shape-node-edit, and whatever the active tool's own onKeyDown just
-      // did — a wall/polygon/path chain cancels itself there) — solo and
-      // terrain selection are view-level state, not something with any claim
-      // to pre-empt an in-progress drawing gesture's own Escape handling.
-      // Skipped when that Escape just cancelled a live gesture (consumedGesture)
-      // so cancelling a chain and clearing solo don't both fire off one press.
-      if (e.key === 'Escape' && !consumedGesture) {
-        const state = useStore.getState();
-        if (state.ui.solo) state.clearSolo();
-        if (state.ui.activeLayerId === TERRAIN_PANEL_ID) {
-          const prior = priorActiveLayerRef.current;
-          if (prior && state.layers.some((l) => l.id === prior)) {
-            state.setActiveLayerId(prior);
-          }
-          priorActiveLayerRef.current = null;
-        }
-      }
+      // Everything else is the shortcut table's (defaultShortcuts.ts): the node-edit keys,
+      // the keys the tool in hand owns, the suggestions bar, the dock and the verbs.
+      if (handleShortcut(comboOf(e), e)) e.preventDefault();
     };
 
     // ─── Pan and zoom ─────────────────────────────────────────
@@ -585,6 +506,7 @@ export function useCanvasInput(
       const stage = engine.stage();
       stage.position.x += dx;
       stage.position.y += dy;
+      _snapIndicator?.hide();
     };
 
     const onMouseUp = (e: MouseEvent) => {
@@ -646,6 +568,8 @@ export function useCanvasInput(
     const applyActiveTool = (type: string): void => {
       _toolManager?.switchTool(type);
       syncHud();
+      // The next move draws it again for a tool that snaps.
+      _snapIndicator?.hide();
       canvasEl.style.cursor = type === 'pan' ? 'grab' : (_toolManager?.getCursor() ?? 'default');
     };
     applyActiveTool(useStore.getState().tools.activeTool);
@@ -658,6 +582,7 @@ export function useCanvasInput(
     const onPointerLeave = () => {
       cursorWorldPosition.current = null;
       _dimensionHud?.hide();
+      _snapIndicator?.hide();
     };
 
     // Right-click: offered to the active tool, then hit-test → adjust selection
@@ -670,11 +595,19 @@ export function useCanvasInput(
       // The tool may take the right-click (the Props tool turns its stamp 90°).
       if (_toolManager?.onContextMenu(world, e)) return;
       const store = useStore.getState();
+      // The pre-pick a left press makes first. A node edit takes the press: no menu.
+      if (store.tools.nodeEditWallId || store.tools.shapeNodeEditId) return;
       const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-      // The one pick a left click, a hover and a double-click make too, at the raw point:
-      // the level on show, shown and unlocked layers only. An object locked on its own
-      // still answers: its menu is where Unlock lives.
-      const hit: PickHit | null = pickAt([world.x, world.y], { zoom: engine.stage().scale.x });
+      // A gizmo handle or a selected room's badge is the selection's, not whatever lies
+      // under it. Otherwise the one pick a left click, a hover and a double-click make too,
+      // at the raw point: the level on show, shown and unlocked layers only. An object
+      // locked on its own still answers: its menu is where Unlock lives.
+      const onSelection =
+        store.selection.selectedIds.length > 0 &&
+        _toolManager?.getHoverCursor(e.clientX - rect.left, e.clientY - rect.top) != null;
+      const hit: PickHit | null = onSelection
+        ? selectionPick(store.selection.selectedIds[0])
+        : pickAt([world.x, world.y], { zoom: engine.stage().scale.x });
       if (hit) {
         // Select, then menu — clicking into a multi-selection keeps it, so
         // the menu can act on the group.
@@ -721,8 +654,10 @@ export function useCanvasInput(
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('paste', onPaste as unknown as EventListener);
     containerEl?.addEventListener('pointerleave', onPointerLeave);
+    activeToolKeyRef.current = (e) => _toolManager?.onKeyDown(e) ?? false;
 
     return () => {
+      activeToolKeyRef.current = null;
       unsubToolSwitch();
       canvasEl.style.cursor = '';
       canvasEl.removeEventListener('contextmenu', onContextMenu);

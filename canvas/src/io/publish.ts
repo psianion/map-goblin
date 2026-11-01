@@ -1,11 +1,11 @@
 // src/io/publish.ts
-// Client-side plumbing for "publish to library": the map content hash used to tell a
+// Client-side plumbing for "publish to table": the map content hash used to tell a
 // prep-only edit from a real map change, DM-token storage, and thin wrappers over the
 // session server's /api/campaigns + /api/scenes routes. All requests are same-origin
 // `/api/...` — the vite dev proxy (vite.config.ts) and prod nginx both route it.
 //
-// The admin pass is NEVER stored here or anywhere else: it lives in PublishDialog's
-// component state for the lifetime of the connect step and is discarded once a DM
+// The admin pass is NEVER stored here or anywhere else: it lives in usePublishFlow's
+// state (publishFlow.ts) for the lifetime of the connect step and is discarded once a DM
 // token comes back.
 
 import type { ScenePrep, SerializedMapData } from '@/store/types';
@@ -84,8 +84,22 @@ export interface CampaignSummary {
 /** Thrown on a 401 from any publish call — the caller drops the stored token and re-connects. */
 export class PublishAuthError extends Error {}
 
-async function api<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, init);
+/** Thrown on a 404 from republish or prep — the scene was deleted at the table. */
+export class PublishGoneError extends Error {}
+
+/**
+ * A fetch that never got an answer, or a 5xx with no JSON `error` of the server's own:
+ * the vite proxy's 500 or a tunnel's 502/504 when the table server is down.
+ */
+export const UNREACHABLE_MESSAGE = 'Could not reach the table server. Check it is running and try again.';
+
+async function api<T>(path: string, init: RequestInit, goneOn404 = false): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, init);
+  } catch {
+    throw new Error(UNREACHABLE_MESSAGE);
+  }
   if (res.status === 401) throw new PublishAuthError('session expired');
 
   // Bodies are JSON when present, but a PUT can legitimately answer empty — read as text
@@ -99,7 +113,10 @@ async function api<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    const message = (body as { error?: string } | null)?.error ?? `request failed (${res.status})`;
+    const message =
+      (body as { error?: string } | null)?.error ??
+      (res.status >= 500 ? UNREACHABLE_MESSAGE : `request failed (${res.status})`);
+    if (res.status === 404 && goneOn404) throw new PublishGoneError(message);
     throw new Error(message);
   }
   return body as T;
@@ -157,7 +174,7 @@ export function republishScene(
     // See uploadMap above — copy onto a fresh ArrayBuffer-backed array rather than
     // trusting bytes.buffer, which is only correct for a byteOffset-0 view.
     body: new Blob([new Uint8Array(bytes)]),
-  });
+  }, true);
 }
 
 export function putScenePrep(dmToken: string, sceneId: string, prep: ScenePrep): Promise<void> {
@@ -165,5 +182,5 @@ export function putScenePrep(dmToken: string, sceneId: string, prep: ScenePrep):
     method: 'PUT',
     headers: { authorization: `Bearer ${dmToken}`, 'content-type': 'application/json' },
     body: JSON.stringify(prep),
-  });
+  }, true);
 }

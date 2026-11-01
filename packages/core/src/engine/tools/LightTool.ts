@@ -112,11 +112,6 @@ export class LightTool implements DrawingTool {
     }
   }
 
-  /** R is this tool's (rotate cone) while it is out, not the Rectangle shortcut's. */
-  ownsKey(event: KeyboardEvent): boolean {
-    return plainR(event);
-  }
-
   /**
    * Wheel sizes the next light: bright radius, Shift+Wheel dim, one 5 ft step a notch (up
    * grows). Bright never passes dim — pushing one past the other carries the other with it.

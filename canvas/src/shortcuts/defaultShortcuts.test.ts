@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), {
@@ -13,9 +13,21 @@ vi.mock('sonner', () => ({
 import { toast } from 'sonner';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { createDefaultShortcuts, deletedMessage, handleShortcut, rotateSelection90 } from './defaultShortcuts';
+import {
+  activeToolKeyRef,
+  boundCombos,
+  createDefaultShortcuts,
+  deletedMessage,
+  editorShellKeysRef,
+  handleShortcut,
+  POINTER_HINTS,
+  rotateSelection90,
+  shortcutById,
+  SHORTCUTS,
+} from './defaultShortcuts';
+import { formatCombo, keyCaption } from './formatCombo';
+import { DOCK_TABS } from '@/v2/editor/dockTabs';
 import { TERRAIN_PANEL_ID } from '@/store/types';
-import { setEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { openNewMapRef } from '@/components/toolbar/toolConstants';
 import type { AssetChild, DungeonLayer, LightChild, ShapeChild } from '@/store/types';
 
@@ -170,33 +182,6 @@ describe('b picks the scatter brush', () => {
   it('switches to the scatter brush', () => {
     expect(handleShortcut('b')).toBe(true);
     expect(useStore.getState().tools.activeTool).toBe('scatterBrush');
-  });
-});
-
-const DESK = { desk: '#eeeeee', dot: '#cccccc', sheet: '#ffffff', ink: '#111111' };
-
-describe('ctrl+shift+m (maps panel)', () => {
-  beforeEach(() => {
-    useStore.getState().resetToDefault();
-    vi.mocked(toast).mockClear();
-  });
-
-  it('toggles the maps panel on v1', () => {
-    const before = useStore.getState().ui.leftPanelOpen;
-    expect(handleShortcut('ctrl+shift+m')).toBe(true);
-    expect(useStore.getState().ui.leftPanelOpen).toBe(!before);
-  });
-
-  it('does nothing on v2, which has no maps panel', () => {
-    setEditorDesk(DESK);
-    try {
-      const before = useStore.getState().ui.leftPanelOpen;
-      expect(handleShortcut('ctrl+shift+m')).toBe(false);
-      expect(useStore.getState().ui.leftPanelOpen).toBe(before);
-      expect(toast).not.toHaveBeenCalled();
-    } finally {
-      setEditorDesk(null);
-    }
   });
 });
 
@@ -540,5 +525,162 @@ describe('attached lights follow every selection verb', () => {
     expect(lights).toHaveLength(2);
     const copy = props.find((p) => p.id !== 'brazier')!;
     expect(lights.find((l) => l.attachedTo === copy.id)?.position).toEqual({ x: 7, y: 6 });
+  });
+});
+
+// The one table: what the map answers and what the help lists are the same list.
+describe('the shortcut table', () => {
+  const helpCombos = () => createDefaultShortcuts().filter((r) => !POINTER_HINTS.some((p) => p.id === r.id));
+
+  it('binds every combo it lists, and lists every combo it binds', () => {
+    const bound = new Set(boundCombos());
+    for (const s of SHORTCUTS) expect(bound.has(s.combo)).toBe(true);
+    expect([...bound].sort()).toEqual([...new Set(SHORTCUTS.map((s) => s.combo))].sort());
+  });
+
+  it('shows every bound action in the help, on a key it binds', () => {
+    const bound = new Set(boundCombos());
+    const rows = helpCombos();
+    for (const s of SHORTCUTS) expect(rows.some((r) => r.id === s.id)).toBe(true);
+    for (const r of rows) expect(bound.has(r.keys)).toBe(true);
+  });
+
+  it('has no duplicate, and nothing a binding before it on the same key always takes', () => {
+    const seen = new Set<string>();
+    for (const s of SHORTCUTS) {
+      const key = `${s.combo}|${s.id}`;
+      expect(seen.has(key), key).toBe(false);
+      seen.add(key);
+    }
+    // A binding with no `when` in the same scope ahead of another on the same combo would
+    // leave the later one unreachable, except where the earlier can decline (run → false):
+    // only the selection verbs do that, and none sits ahead of another in its own scope.
+    SHORTCUTS.forEach((s, i) => {
+      const shadow = SHORTCUTS.slice(0, i).find((p) => p.combo === s.combo && p.scope === s.scope && !p.when && p.id !== s.id);
+      expect(shadow?.id, `${s.combo} → ${s.id}`).toBeUndefined();
+    });
+  });
+
+  it('carries no v1-only rows: no maps panel, no O, no Layers panel keys', () => {
+    expect(boundCombos()).not.toContain('ctrl+shift+m');
+    expect(boundCombos()).not.toContain('o');
+    const rows = createDefaultShortcuts();
+    expect(rows.some((r) => r.category === 'Layers')).toBe(false);
+    expect(rows.some((r) => r.id === 'tool.room' || r.id === 'view.toggleMaps')).toBe(false);
+  });
+
+  it('lists what the v2 editor answers: X, R and P in Rooms, levels, the dock, Enter and Escape, I, the light’s R, node edits', () => {
+    const at = (id: string) => SHORTCUTS.filter((s) => s.id === id).map((s) => s.combo);
+    expect(at('tool.divide')).toEqual(['x']);
+    expect(SHORTCUTS.filter((s) => s.scope === 'tab:rooms').map((s) => s.combo)).toEqual(['r', 'p']);
+    expect(at('level.up')).toEqual(['pageup']);
+    expect(at('level.down')).toEqual(['pagedown']);
+    expect(at('dock.toggle')).toEqual(['tab']);
+    expect(at('edit.finish')).toEqual(['enter']);
+    expect(at('edit.cancel')).toEqual(['escape']);
+    expect(at('view.litPreview')).toEqual(['i']);
+    expect(at('tool.lightTurn')).toEqual(['r', 'shift+r']);
+    expect(SHORTCUTS.filter((s) => s.group === 'Node editing').map((s) => s.combo)).toEqual(
+      expect.arrayContaining(['[', ']', '-', '=', ',', '.', '{', '}', 'tab', 'delete', 'escape']),
+    );
+  });
+
+  it('gives the rail, the dock and the title menu their keys from the table', () => {
+    for (const tab of DOCK_TABS) {
+      for (const t of tab.tools) expect(t.shortcut, t.tool).toBe(keyCaption(`tool.${t.tool}`));
+    }
+    expect(DOCK_TABS.flatMap((t) => t.tools).every((t) => t.shortcut !== '')).toBe(true);
+    for (const id of ['tool.select', 'tool.pan', 'tool.ruler', 'mode.erase', 'mode.curve', 'edit.undo', 'edit.redo', 'file.export', 'file.import', 'view.fitToContent', 'view.litPreview', 'view.focusMode', 'view.shortcuts']) {
+      expect(shortcutById(id), id).toBeDefined();
+    }
+  });
+});
+
+describe('scopes and the v2 shell', () => {
+  const shell = (tab = 'floors') => ({
+    tab: () => tab,
+    toggleDock: vi.fn(),
+    stepLevel: vi.fn(),
+    openShortcuts: vi.fn(),
+  });
+  const key = (k: string, init: KeyboardEventInit = {}) => new KeyboardEvent('keydown', { key: k, ...init });
+
+  beforeEach(() => useStore.getState().resetToDefault());
+  afterEach(() => {
+    editorShellKeysRef.current = null;
+    activeToolKeyRef.current = null;
+  });
+
+  it('R and P pick the room tools with the Rooms tab up, and plain floors from any other', () => {
+    editorShellKeysRef.current = shell('rooms');
+    handleShortcut('r', key('r'));
+    expect(useStore.getState().tools.activeTool).toBe('roomRect');
+    handleShortcut('p', key('p'));
+    expect(useStore.getState().tools.activeTool).toBe('roomPolygon');
+    editorShellKeysRef.current = shell('floors');
+    handleShortcut('r', key('r'));
+    expect(useStore.getState().tools.activeTool).toBe('rectangle');
+  });
+
+  it('X picks Divide on v2 only', () => {
+    expect(handleShortcut('x', key('x'))).toBe(false);
+    editorShellKeysRef.current = shell();
+    expect(handleShortcut('x', key('x'))).toBe(true);
+    expect(useStore.getState().tools.activeTool).toBe('divide');
+  });
+
+  it('R with the Light tool in hand is the tool’s, not Rectangle', () => {
+    const toTool = vi.fn(() => false);
+    activeToolKeyRef.current = toTool;
+    useStore.getState().setActiveTool('light');
+    expect(handleShortcut('r', key('r'))).toBe(true);
+    expect(toTool).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().tools.activeTool).toBe('light');
+  });
+
+  it('Page Up and Page Down step the levels, Tab folds the dock, ? opens the sheet; none of them on v1', () => {
+    expect(handleShortcut('pageup', key('PageUp'))).toBe(false);
+    expect(handleShortcut('tab', key('Tab'))).toBe(false);
+    const s = shell();
+    editorShellKeysRef.current = s;
+    handleShortcut('pageup', key('PageUp'));
+    handleShortcut('pagedown', key('PageDown'));
+    expect(s.stepLevel.mock.calls).toEqual([[-1], [1]]);
+    handleShortcut('tab', key('Tab'));
+    expect(s.toggleDock).toHaveBeenCalledTimes(1);
+    handleShortcut('shift+?', key('?', { shiftKey: true }));
+    expect(s.openShortcuts).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().ui.modalState).toBeNull();
+  });
+
+  it('? opens the v1 reference where there is no shell', () => {
+    expect(handleShortcut('shift+?', key('?', { shiftKey: true }))).toBe(true);
+    expect(useStore.getState().ui.modalState?.type).toBe('shortcutReference');
+  });
+
+  it('Enter goes to the tool in hand (a wall chain ends there)', () => {
+    const toTool = vi.fn(() => true);
+    activeToolKeyRef.current = toTool;
+    expect(handleShortcut('enter', key('Enter'))).toBe(true);
+    expect(toTool).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('formatCombo', () => {
+  it('reads Windows keys as words, in Ctrl Shift Alt order', () => {
+    expect(formatCombo('ctrl+shift+z', false)).toBe('Ctrl Shift Z');
+    expect(formatCombo('ctrl+0', false)).toBe('Ctrl 0');
+    expect(formatCombo('alt+click', false)).toBe('Alt Click');
+    expect(formatCombo('arrowleft', false)).toBe('←');
+    expect(formatCombo('pageup', false)).toBe('Page Up');
+    expect(formatCombo('delete', false)).toBe('Del');
+    expect(formatCombo('+', false)).toBe('+');
+  });
+
+  it('reads Mac keys as marks: ⌘ for Ctrl, ⌥ for Alt', () => {
+    expect(formatCombo('ctrl+shift+z', true)).toBe('⇧⌘Z');
+    expect(formatCombo('ctrl+e', true)).toBe('⌘E');
+    expect(formatCombo('alt+drag', true)).toBe('⌥ Drag');
+    expect(formatCombo('v', true)).toBe('V');
   });
 });

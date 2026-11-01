@@ -3,18 +3,19 @@ import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
 import type { ToolType } from '@/store/types';
 import { cn } from '@/lib/utils';
+import { keyCaption } from '@/shortcuts/formatCombo';
 
 const RAIL_TOOLS: { tool: ToolType; label: string; shortcut: string; icon: LucideIcon }[] = [
-  { tool: 'select', label: 'Select', shortcut: 'V', icon: MousePointer2 },
-  { tool: 'pan', label: 'Pan', shortcut: 'G', icon: Hand },
-  { tool: 'ruler', label: 'Measure', shortcut: 'M', icon: Ruler },
+  { tool: 'select', label: 'Select', shortcut: keyCaption('tool.select'), icon: MousePointer2 },
+  { tool: 'pan', label: 'Pan', shortcut: keyCaption('tool.pan'), icon: Hand },
+  { tool: 'ruler', label: 'Measure', shortcut: keyCaption('tool.ruler'), icon: Ruler },
 ];
 
 type Mode = 'eraseMode' | 'curveMode';
 
 const MODES: { mode: Mode; label: string; shortcut: string; icon: LucideIcon }[] = [
-  { mode: 'eraseMode', label: 'Erase mode', shortcut: 'E', icon: Eraser },
-  { mode: 'curveMode', label: 'Curve mode', shortcut: 'C', icon: Spline },
+  { mode: 'eraseMode', label: 'Erase mode', shortcut: keyCaption('mode.erase'), icon: Eraser },
+  { mode: 'curveMode', label: 'Curve mode', shortcut: keyCaption('mode.curve'), icon: Spline },
 ];
 
 interface RailProps {
