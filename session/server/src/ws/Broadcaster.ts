@@ -36,15 +36,25 @@ export type Redactor = (msg: ServerMessage, viewer: Viewer) => OutboundMessage
  * One function, injected once, so Broadcaster still has exactly one place to call it.
  */
 export function buildRedactor(registry: ModuleRegistry, vision?: Vision): Redactor {
+  // The delta each seat was last handed, per scene: one mutation can go out in two frames (a
+  // fog write and the tokens slice it retracts), and the rooms it opened ship once.
+  const handed = new Map<string, MapDelta>()
   return (msg, viewer) => {
     if (msg.type === 'state-update') {
       const out = { ...msg, state: registry.redactModule(msg.module, msg.state, viewer) }
       // D5 — atomic: the rooms this change just opened travel in the same frame as the fog
       // state that names them, so there is no window where a client knows a room is
       // revealed and has nothing to draw. The DM already holds the whole map.
-      if (msg.module === 'fog' && viewer.role !== 'dm' && vision) {
+      //
+      // A token change can open a room too: on a fresh table the room the party stands in
+      // counts as revealed (`revealPartyRooms`), so a claim or a move brings its geometry.
+      if ((msg.module === 'fog' || msg.module === 'tokens') && viewer.role !== 'dm' && vision) {
         const mapDelta = revealed(msg, vision)
-        if (mapDelta) return { ...out, mapDelta }
+        const seat = `${viewer.identityId}|${mapDelta?.sceneId}`
+        if (mapDelta && handed.get(seat) !== mapDelta) {
+          handed.set(seat, mapDelta)
+          return { ...out, mapDelta }
+        }
       }
       return out
     }

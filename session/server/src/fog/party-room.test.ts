@@ -146,7 +146,11 @@ describe('a player’s first move on a fresh table', () => {
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
       const borin = tokensIn(placed, sceneId)[0]
       dm.command('tokens', 'assign', { id: borin.id, identityId: joined.body.identityId })
-      await player.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).some((t) => t.id === borin.id))
+      // The claim is what puts the party in the field, so the field's geometry rides with it.
+      const claimed = await player.until(
+        (m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).some((t) => t.id === borin.id),
+      )
+      expect(JSON.stringify(claimed.mapDelta ?? null)).toContain('room-field')
 
       player.frames.length = 0
       player.command('tokens', 'move', { id: borin.id, x: 36.5, y: 20.5 })
