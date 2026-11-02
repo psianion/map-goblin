@@ -1,0 +1,117 @@
+// Plateaus in the sweep: a cliff tall enough hides its top from below and nothing from above,
+// for eyes and lights alike; the map threshold and each floor's override decide which cliffs
+// count; openings never block; and a one-way wall still blocks only from its own side.
+import { describe, it, expect, beforeAll } from 'vitest'
+import type { MainModule } from 'clipper2-wasm/dist/clipper2z'
+import { setClipperModule } from '../../geometry/Clipper2Engine'
+import { extractWallSegments, type Segment } from './raycaster'
+import { clockwiseSweep } from './ClockwiseSweep'
+import type { DungeonLayer, ShapeChild, WallSegment } from '../../store/types'
+import type { OpeningChild } from '../../shared/types'
+
+beforeAll(async () => {
+  const { readFileSync } = await import('node:fs' as string)
+  const { createRequire } = await import('node:module' as string)
+  const wasmBinary = readFileSync(createRequire(import.meta.url).resolve('clipper2-wasm/dist/es/clipper2z.wasm'))
+  const mod = await import('clipper2-wasm/dist/es/clipper2z.js' as string)
+  const clipper: MainModule = await mod.default({ wasmBinary })
+  setClipperModule(clipper)
+}, 30_000)
+
+function rect(id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<ShapeChild> = {}): ShapeChild {
+  return {
+    id,
+    name: id,
+    childType: 'shape',
+    visible: true,
+    shapeType: 'rectangle',
+    contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+    ...extra,
+  }
+}
+
+const layerOf = (children: unknown[], walls: WallSegment[] = []): DungeonLayer =>
+  ({ type: 'dungeon', children, standaloneWalls: walls, mergedFloor: null }) as unknown as DungeonLayer
+
+function inside(px: number, py: number, poly: [number, number][]): boolean {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) c = !c
+  }
+  return c
+}
+
+const sees = (segs: Segment[], from: [number, number], to: [number, number]) =>
+  inside(to[0], to[1], clockwiseSweep(from, 30, segs).map((v) => v.point))
+
+const ground = rect('ground', 0, 0, 30, 30)
+const plateau = (extra: Partial<ShapeChild> = {}) => rect('top', 10, 10, 14, 14, { height: 2, edge: 'cliff', ...extra })
+
+describe('cliffs as one-way occluders', () => {
+  it('a ray from the low side stops at the cliff; from the high side it passes', () => {
+    for (const kind of ['sight', 'light'] as const) {
+      const segs = extractWallSegments([layerOf([ground, plateau()])], kind)
+      expect(segs).toHaveLength(4)
+      expect(sees(segs, [5, 12], [12, 12])).toBe(false)
+      expect(sees(segs, [12, 12], [20, 12])).toBe(true)
+      expect(sees(segs, [12, 12], [5, 12])).toBe(true)
+    }
+  })
+
+  it('a pit hides from its own floor, not from the rim above', () => {
+    const pit = rect('pit', 10, 10, 14, 14, { height: -2, edge: 'cliff' })
+    const segs = extractWallSegments([layerOf([ground, pit])], 'sight')
+    expect(sees(segs, [12, 12], [20, 12])).toBe(false)
+    expect(sees(segs, [20, 12], [12, 12])).toBe(true)
+  })
+
+  it('hides from the map threshold up', () => {
+    const low = [layerOf([ground, plateau({ height: 1 })])]
+    expect(extractWallSegments(low, 'sight')).toHaveLength(0)
+    expect(extractWallSegments(low, 'sight', { sightDropCells: 1 })).toHaveLength(4)
+    expect(extractWallSegments([layerOf([ground, plateau({ height: 3 })])], 'sight', { sightDropCells: 4 })).toHaveLength(0)
+  })
+
+  it('honours the floor override either way, and never hides with a slope on Auto', () => {
+    expect(extractWallSegments([layerOf([ground, plateau({ height: 1, sightOverride: 'hide' })])], 'sight')).toHaveLength(4)
+    expect(extractWallSegments([layerOf([ground, plateau({ height: 5, sightOverride: 'show' })])], 'sight')).toHaveLength(0)
+    expect(extractWallSegments([layerOf([ground, plateau({ height: 5, edge: 'slope' })])], 'sight')).toHaveLength(0)
+  })
+
+  it('never blocks through an opening', () => {
+    // Stairs on the west edge, centred at (10, 12): the outline runs (10,10)→(14,10)→(14,14)→(10,14),
+    // so (10, 12) sits at 14/16 of the way round.
+    const stairs: OpeningChild = { id: 's', name: 's', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 14 / 16, width: 2 }
+    const segs = extractWallSegments([layerOf([ground, plateau(), stairs])], 'sight')
+    expect(sees(segs, [5, 12], [12, 12])).toBe(true)
+    expect(sees(segs, [5, 12], [12, 10.5])).toBe(false)
+  })
+
+  it('stays out of the wall-shadow pass, which casts cliffs by their drop', () => {
+    expect(extractWallSegments([layerOf([ground, plateau()])], 'light', { props: false, cliffs: false })).toHaveLength(0)
+  })
+
+  it('still honours a wall’s direction beside them', () => {
+    const wall = {
+      id: 'w',
+      points: [[0, 20], [30, 20]],
+      wallType: 'normal',
+      direction: 'left',
+      color: '#000',
+      roughness: 0,
+    } as unknown as WallSegment
+    const segs = extractWallSegments([layerOf([ground], [wall])], 'sight')
+    // Walking +x, left is -y (screen space): blocked from above the line, open from below.
+    expect(sees(segs, [5, 15], [5, 25])).toBe(false)
+    expect(sees(segs, [5, 25], [5, 15])).toBe(true)
+    const both = extractWallSegments([layerOf([ground], [{ ...wall, direction: 'both' }])], 'sight')
+    expect(sees(both, [5, 25], [5, 15])).toBe(false)
+  })
+})

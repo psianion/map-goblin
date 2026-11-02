@@ -183,7 +183,7 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
   if (look === null || look.length <= 0 || look.alpha <= 0) return;
   // Per layer, off the same extractor the lights sweep — a layer's walls cast a layer's
   // shadows, and an open door drops its segment here exactly as it drops it there.
-  const segments = extractWallSegments([layer], 'light', { props: false });
+  const segments = extractWallSegments([layer], 'light', { props: false, cliffs: false });
   const ground = groundOf(layer);
   if (segments.length === 0 || ground.length === 0) return;
   const color = parseInt(look.color.replace('#', ''), 16);

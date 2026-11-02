@@ -616,3 +616,78 @@ export function cliffSpansNear(layer: Pick<DungeonLayer, 'children'>, outline: P
     (e) => near(e.a[0], e.a[1]) && near(e.b[0], e.b[1]) && near((e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2),
   );
 }
+
+// ─── Sight ─────────────────────────────────────────────────
+
+/** A raised edge that hides its top from below: blocks only an origin on its `direction` side. */
+export interface CliffOccluder {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** The low side, walking (x1, y1) → (x2, y2) in screen space: what `blocksFrom` reads. */
+  direction: 'left' | 'right';
+}
+
+/** The parts of a→b farther than each gap's half-width from the gap's centre. */
+function outsideGaps(a: Vec, b: Vec, gaps: readonly RingGap[]): [number, number][] {
+  let keep: [number, number][] = [[0, 1]];
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const L2 = dx * dx + dy * dy;
+  if (L2 < 1e-12) return [];
+  for (const g of gaps) {
+    // |a + u(b - a) - c|² = r²: the stretch of the edge inside the gap's circle.
+    const fx = a[0] - g.position[0];
+    const fy = a[1] - g.position[1];
+    const r = g.width / 2;
+    const B = 2 * (fx * dx + fy * dy);
+    const C = fx * fx + fy * fy - r * r;
+    const disc = B * B - 4 * L2 * C;
+    if (disc <= 0) continue;
+    const s = Math.sqrt(disc);
+    const u0 = (-B - s) / (2 * L2);
+    const u1 = (-B + s) / (2 * L2);
+    keep = keep.flatMap(([k0, k1]): [number, number][] => {
+      const out: [number, number][] = [];
+      if (u0 > k0) out.push([k0, Math.min(k1, u0)]);
+      if (u1 < k1) out.push([Math.max(k0, u1), k1]);
+      return out.filter(([p, q]) => q - p > 1e-6);
+    });
+  }
+  return keep;
+}
+
+/**
+ * The raised edges of a layer that hide what is above them from below (`edgeHides`), as one-way
+ * segments blocking from the low side, with openings and bridge landings cut out. A plateau's
+ * ring has its low side on the left of travel (outside); a pit's on the right.
+ */
+export function cliffOccluders(
+  layer: Pick<DungeonLayer, 'children'>,
+  sightDropCells: number = DEFAULT_SIGHT_DROP_CELLS,
+): CliffOccluder[] {
+  if (!hasPlateaus(layer)) return [];
+  const gaps = ringGaps(layer);
+  const out: CliffOccluder[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    band.rings.forEach((ring, ri) => {
+      if (band.ringEdge[ri] === 'wall') return;
+      band.edges[ri].forEach((e, i) => {
+        if (e.drop === 0 || !edgeHides(e.owner, e.edge, e.drop, sightDropCells)) return;
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        for (const [u0, u1] of outsideGaps(a, b, gaps)) {
+          out.push({
+            x1: a[0] + (b[0] - a[0]) * u0,
+            y1: a[1] + (b[1] - a[1]) * u0,
+            x2: a[0] + (b[0] - a[0]) * u1,
+            y2: a[1] + (b[1] - a[1]) * u1,
+            direction: e.drop > 0 ? 'left' : 'right',
+          });
+        }
+      });
+    });
+  }
+  return out;
+}
