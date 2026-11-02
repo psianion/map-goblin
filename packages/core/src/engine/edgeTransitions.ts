@@ -1,14 +1,19 @@
 /**
- * Edge transition detection and rendering.
+ * Borders between floors.
  *
- * Where two floor shapes of different textures meet, a semi-transparent colour blend strip
- * lies along the shared boundary. The edge strip texture that stood in for it went with the
- * other strip textures; units walked along the shared boundary (`sharedBoundary`) replace
- * the blend next. Uses AABB pre-filtering to avoid O(n²) Clipper2 calls — only tests pairs
- * whose bounding boxes overlap within the transition width.
+ * Where two floor shapes of different textures meet, the top one's kit lays its edge units
+ * along the boundary they share (`sharedBoundary`), walked as a path's edge is
+ * (path/pathKitLayout `edgeWalk`). Only where the top floor's texture has no kit with edge
+ * units does a semi-transparent colour blend strip lie along the boundary instead. Uses AABB
+ * pre-filtering to avoid O(n²) Clipper2 calls — only tests pairs whose bounding boxes overlap
+ * within the transition width.
  */
 
 import { Container, Graphics } from 'pixi.js';
+import { getCatalogEntry, pathKits, type CatalogEntry, type PathKit } from '../assets/packCatalog';
+import { resolveTexture } from '../assets/textureLoader';
+import { edgeWalk, type UnitPlacement } from './path/pathKitLayout';
+import { kitEdgeUnits, placePieces, type Piece } from './path/kitUnits';
 import { pointInRing } from '../shared/roomUtils';
 import type { ShapeChild, DungeonLayer } from '../store/types';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -179,10 +184,11 @@ export function sharedBoundary(ring: Polygon, bottom: Polygon, probe = 0.05, ste
   return { chains, closed: false };
 }
 
-/** The colour blend strips for the pairs that have no edge strip. */
+/** The colour blend strips along the boundaries of `pairs`. */
 function drawBlends(parent: Container, pairs: ShapeChild[][], width: number): void {
   for (const strip of pairs.flatMap((pair) => detectEdgeTransitions(pair, width))) {
     const g = new Graphics();
+    g.label = 'floor-edge-blend';
     g.alpha = 0.4; // Semi-transparent blend
     for (const poly of strip.polygons) {
       if (poly.length < 3) continue;
@@ -197,13 +203,83 @@ function drawBlends(parent: Container, pairs: ShapeChild[][], width: number): vo
 }
 
 /**
- * Render the borders between differently textured floor shapes into the floor sublayer:
- * the colour blend along every boundary they share.
+ * The kit a floor texture borders with: the path kit whose fill it is, else the kit of the
+ * texture's own material set in its pack. None for a texture no kit claims.
  */
-export function renderEdgeTransitions(parent: Container, layer: DungeonLayer): void {
+export function floorKit(textureId: string | undefined): PathKit | undefined {
+  const entry = textureId ? getCatalogEntry(textureId) : undefined;
+  if (!entry) return undefined;
+  const kits = pathKits();
+  return kits.find((k) => k.fill?.id === entry.id) ?? kits.find((k) => k.packId === entry.packId && !!entry.set && k.set === entry.set);
+}
+
+/** Units walked along the boundary one floor (`top`, later in child order) shares with one beneath it. */
+export interface FloorBorder {
+  top: ShapeChild;
+  under: ShapeChild;
+  units: UnitPlacement[];
+  entries: Map<string, CatalogEntry>;
+}
+
+/**
+ * Where differently textured floors meet: for each pair, the top floor's kit's edge units
+ * walked along the stretch of its outline that lies over or against the floor beneath
+ * (`sharedBoundary`), by the paths' edge walk, seeded by the two floors' ids. A pair whose
+ * top floor has no kit with edge units falls back to the colour blend.
+ */
+export function floorBorders(shapes: readonly ShapeChild[], margin: number): { borders: FloorBorder[]; blends: ShapeChild[][] } {
+  const borders: FloorBorder[] = [];
+  const blends: ShapeChild[][] = [];
+  const rings: Polygon[] = shapes.map((s) => flattenRing(s.contours[0] ?? [], s.tangents?.[0]));
+  const boxes = rings.map((r) => computeAABB(r));
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) {
+      const under = shapes[i];
+      const top = shapes[j];
+      if (shapeTextureKey(under) === shapeTextureKey(top)) continue;
+      if (rings[i].length < 3 || rings[j].length < 3 || !aabbOverlap(boxes[i], boxes[j], margin)) continue;
+      const kit = floorKit(top.textureId);
+      const { units, entries } = kit ? kitEdgeUnits(kit) : { units: [], entries: new Map<string, CatalogEntry>() };
+      if (units.length === 0) {
+        blends.push([under, top]);
+        continue;
+      }
+      const { chains, closed } = sharedBoundary(rings[j], rings[i]);
+      if (chains.length === 0) continue;
+      borders.push({ top, under, units: edgeWalk(chains, units, `${top.id}|${under.id}`, [], { open: !closed }), entries });
+    }
+  }
+  return { borders, blends };
+}
+
+/**
+ * Render the borders between differently textured floor shapes into the floor sublayer: the
+ * top floor's kit units walked along every boundary two floors share, and the colour blend
+ * where the top floor's texture has no kit with edge units. `waitFor` hears of a unit's art
+ * that has yet to load.
+ */
+export function renderEdgeTransitions(parent: Container, layer: DungeonLayer, waitFor?: (textureId: string) => void): void {
   const s = layer.style;
-  if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
+  if (!s.showEdgeTransitions) return;
   const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
   if (shapes.length < 2) return;
-  drawBlends(parent, [shapes], s.edgeTransitionWidth);
+  const { borders, blends } = floorBorders(shapes, Math.max(0.5, s.edgeTransitionWidth));
+  if (blends.length > 0 && s.edgeTransitionWidth > 0) drawBlends(parent, blends, s.edgeTransitionWidth);
+  const pieces: Piece[] = [];
+  for (const b of borders) {
+    for (const u of b.units) {
+      const entry = b.entries.get(u.key);
+      if (!entry) continue;
+      if (resolveTexture(entry.id).width <= 1) {
+        waitFor?.(entry.id);
+        continue;
+      }
+      pieces.push({ entry, x: u.x, y: u.y, rotation: u.rotation, scale: u.scale ?? 1 });
+    }
+  }
+  if (pieces.length === 0) return;
+  const holder = new Container();
+  holder.label = 'floor-edge-units';
+  placePieces(holder, pieces, 0xffffff, 0);
+  parent.addChild(holder);
 }

@@ -444,3 +444,47 @@ test('the path card fits its width and every control takes a real click', async 
   expect(road.ends.start).toBe('taper')
 })
 
+
+/** A rectangular floor painted with `textureId`, as the store holds one. */
+const floorRect = (id: string, x0: number, x1: number, textureId: string) => ({
+  id, name: id, childType: 'shape', visible: true, shapeType: 'rectangle',
+  contours: [[[x0, 0], [x1, 0], [x1, 10], [x0, 10]]], textureId,
+  textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+})
+
+/** What the floor sublayer draws along the borders between floors. */
+const floorBorder = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-floor' ? c : (c.children ?? []).map(find).find(Boolean))
+    const all: Any[] = []
+    const walk = (c: Any) => {
+      all.push(c)
+      for (const k of c.children ?? []) walk(k)
+    }
+    walk(find(w.__pixiApp.stage))
+    const holder = all.find((c) => c.label === 'floor-edge-units')
+    return {
+      units: (holder?.children ?? []).map((s: Any) => ({ x: s.position.x, y: s.position.y })),
+      blends: all.filter((c) => c.label === 'floor-edge-blend').length,
+    }
+  })
+
+test('two floors meet with the top floor’s kit units along their shared edge, not a strip; a kitless pair blends', async ({ page }) => {
+  await openEditor(page)
+  await addRoad(page, floorRect('cave', 0, 10, 'gg-forge:cave_floor_8x8_floor_A'))
+  await addRoad(page, floorRect('dirt', 10, 20, 'gg-forge:road-dirt-fill'))
+  // Ten cells of shared edge, a unit every 0.6 to 1.5 cells.
+  await expect.poll(async () => (await floorBorder(page)).units.length).toBeGreaterThanOrEqual(8)
+  const { units, blends } = await floorBorder(page)
+  expect(blends).toBe(0)
+  for (const u of units) {
+    expect(Math.abs(u.x - 10), `unit at ${u.x.toFixed(2)}, ${u.y.toFixed(2)}`).toBeLessThan(0.01)
+    expect(u.y).toBeGreaterThanOrEqual(0)
+    expect(u.y).toBeLessThanOrEqual(10)
+  }
+  // The top floor in a texture no kit claims: the colour blend, and no units.
+  await inPage(page, `(s, layer) => s().updateChild(layer().id, 'dirt', { textureId: 'gg-demo:floor_small_8x8_floor_A' })`)
+  await expect.poll(async () => (await floorBorder(page)).blends).toBeGreaterThan(0)
+  expect((await floorBorder(page)).units).toHaveLength(0)
+})

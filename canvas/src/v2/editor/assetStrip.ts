@@ -15,6 +15,7 @@ import {
   getWallSetIds,
   hasLiveTexture,
   isBandSet,
+  pathKits,
 } from '@dnd/core/src/assets/packCatalog';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { pickAsset } from '@dnd/core/src/store/pickAsset';
@@ -143,11 +144,13 @@ export function pickedFloorTexture(t: FloorTargets): string | undefined {
 
 /**
  * Recent floor textures, then the one in use, the layer's default, and the catalogue
- * (the preferred pack's floors before the rest).
+ * (the preferred pack's floors before the rest, then the path kits' fill tiles: a floor
+ * painted with one borders a different floor with its kit's edge units).
  */
 export function floorCandidates(recent: readonly string[], picked: string | undefined, layerDefault: string | undefined): string[] {
-  const isFloor = ofType('floor');
-  const catalogue = preferredFirst(getEntriesByType('floor'));
+  const fills = pathKits().flatMap((k) => (k.fill ? [k.fill.id] : []));
+  const isFloor = (id: string | null | undefined): id is string => ofType('floor')(id) || (!!id && fills.includes(id));
+  const catalogue = [...preferredFirst(getEntriesByType('floor')), ...fills];
   return orderStripCandidates(recent.filter(isFloor), [picked, layerDefault, ...catalogue].filter(isFloor));
 }
 

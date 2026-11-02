@@ -50,8 +50,11 @@ const CATALOGUE = [
 /** Entries a test adds for itself; emptied after each. */
 const EXTRA: typeof CATALOGUE = [];
 const all = () => [...CATALOGUE, ...EXTRA];
+/** Path kits a test ships; emptied after each. */
+const KITS: { fill?: { id: string } }[] = [];
 afterEach(() => {
   EXTRA.length = 0;
+  KITS.length = 0;
 });
 
 vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
@@ -67,6 +70,7 @@ vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
     getBandSet: (set: string) => (set === 'GG_Cave' ? CATALOGUE.filter((e) => e.set === set) : []),
     isBandSet: (set: string | undefined) => set === 'GG_Cave',
     getWallPieces: (set: string, piece: string) => CATALOGUE.filter((e) => e.set === set && e.pieceType === piece),
+    pathKits: () => KITS,
   };
 });
 
@@ -143,6 +147,19 @@ describe('strip candidates per tab', () => {
       'p:floor_b',
       'p:floor_c',
     ]);
+  });
+
+  it('floors: the path kits’ fill tiles follow the floors, and a recent one leads', () => {
+    EXTRA.push({ id: 'gg-forge:road-dirt-fill', type: 'path', packId: 'gg-forge', label: 'road dirt fill' });
+    KITS.push({ fill: { id: 'gg-forge:road-dirt-fill' } }, {});
+    expect(floorCandidates([], undefined, undefined)).toEqual([
+      'gg-forge:flagstone',
+      'p:floor_a',
+      'p:floor_b',
+      'p:floor_c',
+      'gg-forge:road-dirt-fill',
+    ]);
+    expect(floorCandidates(['gg-forge:road-dirt-fill'], undefined, undefined)[0]).toBe('gg-forge:road-dirt-fill');
   });
 
   it('floors: the preferred pack leads the catalogue, after recents and the layer default', () => {

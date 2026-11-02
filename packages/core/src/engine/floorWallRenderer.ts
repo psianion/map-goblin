@@ -645,7 +645,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   floor.mask = floorMask;
 
   // ── Edge transitions (between differently-textured shapes) ───
-  renderEdgeTransitions(floor, layer);
+  renderEdgeTransitions(floor, layer, (id) => armLateTextureRebuild(layer.id, id));
 
   // ── Floor looks pinned on rooms, areas and the level ─────────
   drawRoomFills(floor, layer);
