@@ -6,6 +6,8 @@ import { bindDoorToRooms } from '../shared/roomBinding';
 import { faceMetrics, pointInRing } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
+import { hasPlateaus, layerPlateaus, wallBandRings } from '../shared/plateaus';
+import type { WallSegment } from '../shared/types';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -75,7 +77,20 @@ export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Poly
   // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
   // the server never has one. Union it here rather than reading "no floor".
   const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
+  // A raised room's ring is a wall like a drawn one: it cuts the ground's face around it,
+  // or the union would swallow the room whole (shared/plateaus.ts).
+  const raised: WallSegment[] = hasPlateaus(layer)
+    ? wallBandRings(layerPlateaus(layer)).map((ring, i) => ({
+        id: `raised-ring-${i}`,
+        points: [...ring, ring[0]],
+        wallType: 'normal',
+        direction: 'both',
+        color: '',
+        roughness: 0,
+      }))
+    : [];
+  const walls = raised.length > 0 ? [...layer.standaloneWalls, ...raised] : layer.standaloneWalls;
+  return roomFaces(floor, walls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
 }
 
 /**
@@ -98,13 +113,22 @@ export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): RoomS
   const faces = needFaces ? layerFaces(layer, gridSize) : [];
   const boxes = faces.map(bboxOf);
 
+  // The smallest face holding the point: a face is its outer ring only, so a room sealed
+  // inside another (a tower in a field) sits inside both, and the outer one is the wrong answer.
   const faceAt = (x: number, y: number): Polygon | null => {
+    let best: Polygon | null = null;
+    let bestArea = Infinity;
     for (let i = 0; i < faces.length; i++) {
       const [x0, y0, x1, y1] = boxes[i];
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (pointInRing(x, y, faces[i])) return faces[i];
+      if (!pointInRing(x, y, faces[i])) continue;
+      const area = (x1 - x0) * (y1 - y0);
+      if (area < bestArea) {
+        best = faces[i];
+        bestArea = area;
+      }
     }
-    return null;
+    return best;
   };
 
   // Faces first, doors second: binding reads the faces just placed.
