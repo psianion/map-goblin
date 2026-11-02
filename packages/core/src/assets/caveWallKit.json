@@ -661,5 +661,200 @@
       0
     ],
     "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_1x1",
+    "file": "ledge_bend_1x1_A-8510351e.webp",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        9.508,
+        183.967
+      ],
+      [
+        185.117,
+        11.6
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.452,
+        0.42
+      ],
+      [
+        0.426,
+        -0.442
+      ]
+    ],
+    "chordCells": 1.23,
+    "turnDeg": 44,
+    "voidCentroidCells": [
+      -0.363,
+      -0.368
+    ],
+    "floorCentroidCells": [
+      0.337,
+      0.346
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_2x1",
+    "file": "ledge_bend_2x1_A-6295029c.webp",
+    "wPx": 399,
+    "hPx": 200,
+    "wCells": 2,
+    "hCells": 1,
+    "joints": [
+      [
+        25.808,
+        194.47
+      ],
+      [
+        336.318,
+        7.29
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.868,
+        0.472
+      ],
+      [
+        0.684,
+        -0.464
+      ]
+    ],
+    "chordCells": 1.812,
+    "turnDeg": 26,
+    "voidCentroidCells": [
+      -0.35,
+      -0.424
+    ],
+    "floorCentroidCells": [
+      0.166,
+      0.432
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_2x2",
+    "file": "ledge_bend_2x2_A-30c6a14a.webp",
+    "wPx": 400,
+    "hPx": 394,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        10.745,
+        365.285
+      ],
+      [
+        368.644,
+        10.177
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.946,
+        0.841
+      ],
+      [
+        0.843,
+        -0.934
+      ]
+    ],
+    "chordCells": 2.52,
+    "turnDeg": 70,
+    "voidCentroidCells": [
+      -0.404,
+      -0.401
+    ],
+    "floorCentroidCells": [
+      0.301,
+      0.308
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_3x3",
+    "file": "ledge_bend_3x3_A-08d93cb0.webp",
+    "wPx": 600,
+    "hPx": 599,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        12.188,
+        562.512
+      ],
+      [
+        594.217,
+        36.883
+      ]
+    ],
+    "jointsCells": [
+      [
+        -1.439,
+        1.315
+      ],
+      [
+        1.471,
+        -1.313
+      ]
+    ],
+    "chordCells": 3.921,
+    "turnDeg": 83,
+    "voidCentroidCells": [
+      -0.319,
+      -0.37
+    ],
+    "floorCentroidCells": [
+      0.351,
+      0.372
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_4x2",
+    "file": "ledge_bend_4x2_A-ca406ae2.webp",
+    "wPx": 799,
+    "hPx": 396,
+    "wCells": 4,
+    "hCells": 2,
+    "joints": [
+      [
+        39.618,
+        388.794
+      ],
+      [
+        774.081,
+        13.691
+      ]
+    ],
+    "jointsCells": [
+      [
+        -1.799,
+        0.954
+      ],
+      [
+        1.873,
+        -0.922
+      ]
+    ],
+    "chordCells": 4.123,
+    "turnDeg": 57,
+    "voidCentroidCells": [
+      -0.19,
+      -0.429
+    ],
+    "floorCentroidCells": [
+      0.264,
+      0.461
+    ],
+    "voidSide": "left"
   }
 ]

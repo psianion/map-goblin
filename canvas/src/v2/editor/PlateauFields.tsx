@@ -5,7 +5,7 @@ import { undoManager } from '@/store/undoManager';
 import type { Command, DungeonLayer, ShapeChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
-import { getBandSetIds } from '@dnd/core/src/assets/packCatalog';
+import { cliffArtSetIds } from '@dnd/core/src/engine/plateauKit';
 import { Ctl, Seg, Select, Switch } from './controls';
 
 /*
@@ -56,7 +56,7 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
   const drop = raised ? shapeDrop(layer, head.id) : 0;
   const hides = edgeHides(head, edge, drop, threshold);
   const sight: SightChoice = head.sightOverride ?? 'auto';
-  const artIds = getBandSetIds();
+  const artIds = cliffArtSetIds();
   const crossingDefault = kinds.find((k) => k.id === defaultCrossingId(edge));
 
   return (

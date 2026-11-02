@@ -113,6 +113,31 @@ export function caveBandPieces(): CaveKitPiece[] {
 }
 
 /**
+ * The same piece walked the other way: joints swapped, turn negated. Only for art that paints
+ * no void side — the ledge — where it turns a convex bend into the concave one for free.
+ */
+export function reversePiece(p: CaveKitPiece): CaveKitPiece {
+  const [a, b] = p.jointsCells;
+  return { ...p, jointsCells: [b, a], turnDeg: -p.turnDeg };
+}
+
+/**
+ * The cliff kit: the ledge straights (forge, mirrors included) and the ledge bends (gg-demo),
+ * each bend also reversed. The bends were measured by their two line ends and the turn
+ * between the line's directions there, since a thin ledge line never fills a frame edge
+ * (see caveWallKit.json's ledge_bend entries).
+ */
+let ledgePool: CaveKitPiece[] | null = null;
+export function ledgePieces(): CaveKitPiece[] {
+  if (!ledgePool) {
+    const straights = [...BY_KEY.values()].filter((p) => p.key.startsWith('ledge_') && p.turnDeg === 0);
+    const bends = [...BY_KEY.values()].filter((p) => p.key.startsWith('ledge_bend_'));
+    ledgePool = [...straights, ...straights.map(mirrorPiece), ...bends, ...bends.map(reversePiece)];
+  }
+  return ledgePool;
+}
+
+/**
  * The kit piece a placed asset is showing, or null when it is not kit art.
  *
  * Joined through the catalog's `material` + `gridSize` rather than by parsing the

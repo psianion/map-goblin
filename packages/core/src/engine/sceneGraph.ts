@@ -47,6 +47,11 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
+  /**
+   * Raised and sunken floors (plateauRenderer.ts): each band's floor, slope, cliff rock and
+   * openings, lowest band first, over the ground and under the paths and shadows on them.
+   */
+  plateaus: Container;
   /** Paths sorted `under` (roads, rivers, lakes): over the floor, under props; not masked to the floor. See `pathRenderer.ts`. */
   paths: Container;
   /** Paths sorted `over`: above the layer's props, under its labels. */
@@ -233,6 +238,7 @@ export function addLayerToScene(
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const plateaus = new Container(); plateaus.label = 'sublayer-plateaus';
     const paths = new Container(); paths.label = 'sublayer-paths';
     const pathsOver = new Container(); pathsOver.label = 'sublayer-paths-over';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
@@ -246,8 +252,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, paths, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
-    sublayers = { floor, paths, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, plateaus, paths, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
+    sublayers = { floor, plateaus, paths, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

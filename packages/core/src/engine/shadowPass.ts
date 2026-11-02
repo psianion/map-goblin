@@ -22,6 +22,7 @@ import { useStore } from '../store/store';
 import {
   SHADOW_STEPS,
   bandAlpha,
+  casterLook,
   propShadow,
   shadowBand,
   shadowLook,
@@ -29,6 +30,8 @@ import {
   type ShadowLook,
 } from '../shared/shadows';
 import { timeBucket } from '../shared/world';
+import { edgeRuns, hasPlateaus, layerPlateaus } from '../shared/plateaus';
+import { shadeCliffs } from './plateauRenderer';
 import { worldFrame, type WorldFrame } from './worldOverride';
 
 /** The look under whichever sun this surface is standing — the Table's, or the Editor's own. */
@@ -148,6 +151,8 @@ export function updateShadows(
     state.terrainRef = terrain;
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
+    drawCliffShadows(state.graphics, layer, look);
+    shadeCliffs(layer.id, look);
     drawPropShadows(layer.id, look);
   }
 }
@@ -194,6 +199,62 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
     for (const poly of clipper2Engine.intersection(quads, ground)) g.poly(poly.flat());
     g.fill({ color, alpha });
   }
+}
+
+/**
+ * The cliffs' shadows (plan §4.3): every raised edge but a slope casts, as tall as its drop.
+ * A plateau's falls outward onto whatever ground is lower than it; a pit's falls inward from
+ * its rim onto the pit's own floor. Clipped as geometry, like the walls' (see above), and
+ * drawn into the same Graphics at the same alpha per step.
+ */
+function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null): void {
+  if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
+  const steps = cliffShadowGeometry(layer, look, groundOf(layer));
+  const color = parseInt(look.color.replace('#', ''), 16);
+  const alpha = bandAlpha(look);
+  for (let step = SHADOW_STEPS; step >= 1; step--) {
+    const polys = steps[step - 1];
+    if (polys.length === 0) continue;
+    for (const poly of polys) g.poly(poly.flat());
+    g.fill({ color, alpha });
+  }
+}
+
+/**
+ * The cliffs' shadow polygons, per step (index `step - 1`), cut to where they land: a
+ * plateau's on the `ground` and the lower bands outside it, a pit's on its own floor, and
+ * never on a band as high as the caster or higher. Pure geometry, for the pass and its tests.
+ */
+export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): Polygon[][] {
+  const out: Polygon[][] = Array.from({ length: SHADOW_STEPS }, () => []);
+  const { bands } = layerPlateaus(layer);
+  const everywhere = [...ground, ...bands.flatMap((b) => b.rings)];
+  for (const band of bands) {
+    const runs = edgeRuns(band).filter((r) => r.edge !== 'slope' && r.drop !== 0);
+    for (const pit of [false, true]) {
+      const casting = runs.filter((r) => (r.drop < 0) === pit);
+      if (casting.length === 0) continue;
+      const onto = pit ? band.rings : everywhere;
+      const above = bands
+        .filter((b) => (pit ? b.height > band.height : b.height >= band.height))
+        .flatMap((b) => b.rings);
+      for (let step = 1; step <= SHADOW_STEPS; step++) {
+        const quads: Polygon[] = [];
+        for (const run of casting) {
+          const cast = casterLook(look, Math.abs(run.drop));
+          const pts = run.closed ? [...run.points, run.points[0]] : run.points;
+          for (let i = 0; i + 1 < pts.length; i++) {
+            const q = shadowBand(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], cast, step);
+            const ring: Polygon = [];
+            for (let k = 0; k < q.length; k += 2) ring.push([q[k]!, q[k + 1]!]);
+            quads.push(ring);
+          }
+        }
+        out[step - 1].push(...clipper2Engine.difference(clipper2Engine.intersection(quads, onto), above));
+      }
+    }
+  }
+  return out;
 }
 
 // ─── Props ────────────────────────────────────────────────

@@ -860,6 +860,8 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
+        // Raised floors are floor too.
+        entry.sublayers.plateaus.visible = vis.floor;
         // Shadows fall on the floor, so they follow it: hiding the ground to look at what is
         // under it should not leave the sun's own pass floating over nothing.
         entry.sublayers.shadows.visible = vis.floor;

@@ -149,6 +149,15 @@ export function shadowBand(
   return [x1, y1, x2, y2, x2 - ux + vx, y2 - uy + vy, x1 + ux + vx, y1 + uy + vy];
 }
 
+/**
+ * The look for a caster `height` cells tall rather than a wall's {@link CASTER_HEIGHT}: the
+ * reach scales with the height, the cap ({@link MAX_LENGTH}) with it, so a two-cell cliff
+ * throws twice the shadow of a one-cell one at every hour. Walls keep the plain look.
+ */
+export function casterLook(look: ShadowLook, height: number): ShadowLook {
+  return { ...look, length: (look.length * Math.max(0, height)) / CASTER_HEIGHT };
+}
+
 /** What each band is filled at — even fractions, so the overlap lands on {@link ShadowLook.alpha}. */
 export const bandAlpha = (look: ShadowLook, steps: number = SHADOW_STEPS): number =>
   look.alpha / steps;
