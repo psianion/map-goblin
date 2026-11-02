@@ -58,6 +58,8 @@ export interface KitManifest {
   rope?: { color: string; width: number }
   band?: { straight: string[]; bendDrawn: true }
   end?: string
+  /** Liquids: the piece that hangs where the path runs off a cliff. */
+  fall?: string
 }
 
 export interface PackManifest {

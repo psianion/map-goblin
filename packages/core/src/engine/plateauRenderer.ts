@@ -10,9 +10,14 @@
 import { BufferImageSource, Container, Graphics, MeshSimple, Rectangle, Sprite, Texture } from 'pixi.js';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { OpeningChild } from '../shared/types';
+import type { OpeningChild, PathChild } from '../shared/types';
+import { pathCentreline } from '../geometry/pathGeometry';
+import { setCliffCrossings, type CliffCrossing } from './path/waterfalls';
 import type { Polygon } from '../types/geometry';
 import {
+  cliffCrossings,
+  cliffSpansNear,
+  pointInPoly,
   edgeRuns,
   hasPlateaus,
   layerPlateaus,
@@ -20,7 +25,6 @@ import {
   ringGaps,
   tierLift,
   type EdgeRun,
-  type FallSpan,
   type PlateauBand,
   type RingGap,
 } from '../shared/plateaus';
@@ -143,15 +147,6 @@ let slopeTex: Texture | null = null;
 function slopeTexture(): Texture {
   if (!slopeTex || slopeTex.destroyed) slopeTex = stripTexture((v) => [42, 36, 31, 0.5 * (1 - v) ** 1.4]);
   return slopeTex;
-}
-
-let fallTex: Texture | null = null;
-/** Placeholder waterfall: white foam at the lip, blue below, fading at the foot. */
-function fallTexture(): Texture {
-  if (!fallTex || fallTex.destroyed) {
-    fallTex = stripTexture((v) => [235 - 120 * v, 245 - 80 * v, 255, 0.9 * (1 - v ** 3)]);
-  }
-  return fallTex;
 }
 
 function meshOf(mesh: RibbonMesh, texture: Texture): MeshSimple | null {
@@ -490,20 +485,57 @@ export function drawOpening(
 
 // ─── Waterfalls ────────────────────────────────────────────
 
-/**
- * A waterfall over a raised edge: a strip from the lip `a`→`b` down `downhill`, as long as the
- * drop (at least a cell). Water paths call this at `cliffCrossings`, raised pools at
- * `cliffSpansNear` (shared/plateaus.ts). Placeholder art: a white-to-blue gradient.
- */
-export function drawWaterfall(parent: Container, span: FallSpan): MeshSimple | null {
-  const reach = reachOf(span.drop);
-  const [ax, ay] = span.a;
-  const [bx, by] = span.b;
-  const [dx, dy] = span.downhill;
-  const vertices = new Float32Array([ax, ay, bx, by, ax + dx * reach, ay + dy * reach, bx + dx * reach, by + dy * reach]);
-  const uvs = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
-  const mesh = new MeshSimple({ texture: fallTexture(), vertices, uvs, indices: new Uint32Array([0, 1, 2, 1, 3, 2]) });
-  mesh.label = 'waterfall';
-  parent.addChild(mesh);
-  return mesh;
+/** The point of a polyline nearest (x, y), as an arc length along it, and its travel direction there. */
+function arcOn(xy: readonly Vec[], x: number, y: number): { s: number; dir: Vec } {
+  let best = { d: Infinity, s: 0, dir: [1, 0] as Vec };
+  let total = 0;
+  for (let i = 0; i + 1 < xy.length; i++) {
+    const [ax, ay] = xy[i];
+    const dx = xy[i + 1][0] - ax;
+    const dy = xy[i + 1][1] - ay;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) continue;
+    const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (len * len)));
+    const d = Math.hypot(x - ax - dx * u, y - ay - dy * u);
+    if (d < best.d) best = { d, s: total + len * u, dir: [dx / len, dy / len] };
+    total += len;
+  }
+  return { s: best.s, dir: best.dir };
 }
+
+/**
+ * Where a water path meets a drop, as arc-length crossings of its centreline (waterfalls.ts
+ * `CliffCrossing`). A river, or any open or unfilled path, falls where its centreline crosses a
+ * raised edge (`cliffCrossings`), `down` +1 when it was drawn downhill there and -1 when
+ * drawn up it, so the fall always hangs off the low side. A raised pool (a closed, filled
+ * path) spills over the stretch of cliff its shore runs along (`cliffSpansNear`), `down` +1
+ * when the drop falls out of the pool.
+ */
+export function plateauCliffCrossings(layer: Pick<DungeonLayer, 'children'>, path: PathChild): CliffCrossing[] {
+  if (!hasPlateaus(layer)) return [];
+  const line = pathCentreline(path);
+  if (line.xy.length < 2) return [];
+  const out: CliffCrossing[] = [];
+  if (path.closed && path.fill) {
+    const ring = line.xy.slice(0, -1) as Polygon;
+    const reach = Math.max(...line.width) / 2;
+    for (const span of cliffSpansNear(layer, ring, reach)) {
+      const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
+      const half = Math.hypot(span.b[0] - span.a[0], span.b[1] - span.a[1]) / 2;
+      const { s } = arcOn(line.xy, mid[0], mid[1]);
+      const outward = !pointInPoly(mid[0] + span.downhill[0] * 0.3, mid[1] + span.downhill[1] * 0.3, ring);
+      out.push({ start: s - half, end: s + half, down: outward ? 1 : -1, drop: span.drop });
+    }
+    return out;
+  }
+  for (const span of cliffCrossings(layer, line.xy, 1)) {
+    const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
+    const { s, dir } = arcOn(line.xy, mid[0], mid[1]);
+    const down = dir[0] * span.downhill[0] + dir[1] * span.downhill[1] >= 0 ? 1 : -1;
+    out.push({ start: s, end: s, down, drop: span.drop });
+  }
+  return out;
+}
+
+// The water paths ask the plateaus where they fall.
+setCliffCrossings(plateauCliffCrossings);

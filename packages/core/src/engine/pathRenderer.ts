@@ -18,13 +18,18 @@ import { GRID_CELL_PX, kitPiece, pathKit, type CatalogEntry, type PathKit } from
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { paintTiled } from './floorWallRenderer';
-import { edgeWalk, layPlanks, type EdgeUnit, type PlanksKit } from './path/pathKitLayout';
+import { bankPieces, edgeWalk, layBank, layPlanks, type EdgeUnit, type PlanksKit } from './path/pathKitLayout';
+import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
+import { placeBand, textureTone } from './caveBandRenderer';
 import type { PathChild } from '../shared/types';
+import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { SEE_UNDER_ALPHA } from './subscribeToAssets';
 
 /** The stand-in for a kit that is not installed, or ships no fill: drawn flat, so the path stays findable. */
 const MISSING_COLOUR = 0x8a8a8a;
+/** The bank's ground colour when its art cannot be read for one (tests, a worker). */
+const BANK_FALLBACK = 0x6f6a60;
 /** Overhead paths sit just under the overhead props of their own layer (see subscribeToAssets). */
 const LAYER_Z = 1e5;
 
@@ -184,6 +189,22 @@ function piecesOf(
   return out;
 }
 
+/** The kit's bank straights the pack has art for, as walk pieces, and the colour they are drawn in. */
+function bankOf(kit: PathKit): { pieces: ReturnType<typeof bankPieces>; art: Map<string, CatalogEntry>; tone: number } | null {
+  const art = new Map<string, CatalogEntry>();
+  const straights: { key: string; length: number }[] = [];
+  for (const key of kit.manifest.band?.straight ?? []) {
+    const entry = kitPiece(kit, key);
+    if (!entry) continue;
+    art.set(key, entry);
+    straights.push({ key, length: paintedSize(entry).w });
+  }
+  const first = art.values().next().value;
+  // Wait for the first straight's art: the ground under the bank takes its colour.
+  if (!first || !textureNow(first.id)) return null;
+  return { pieces: bankPieces(straights), art, tone: textureTone(first.id) ?? BANK_FALLBACK };
+}
+
 /** A pooled Graphics at slot `at` of `pool`, cleared: where the pieces drawn in code go. */
 function graphicsAt(pool: Container, at: number): Graphics {
   const slot = pool.children[at];
@@ -220,19 +241,29 @@ function placePieces(pool: Container, pieces: readonly Piece[], tint: number, fr
     const px = cr ? cr.w : p.entry.naturalWidth;
     sprite.scale.set(((px / tex.width) * p.scale) / GRID_CELL_PX);
     sprite.tint = tint;
+    sprite.label = p.entry.material;
     at++;
   }
   return at;
 }
 
-/** One group into `parent`: its fill, then its pieces in the group's pool. */
-function drawGroup(parent: Container, group: Group, pool: Container): void {
+/**
+ * One group into `parent`: its fill, then its pieces in the group's pool: the bank, the edge
+ * units, planks with their ropes and posts, and falls where the paths run off a cliff.
+ */
+function drawGroup(parent: Container, layer: DungeonLayer, group: Group, pool: Container): void {
   const rings = groupOutline(group.paths);
   const head = group.paths[0];
   const kit = pathKit(head.materialId);
   if (rings.length > 0) drawFill(parent, rings, kit, head);
   const tint = parseHex(head.tint);
   let at = 0;
+  const bank = kit?.manifest.band && rings.length > 0 ? bankOf(kit) : null;
+  if (bank) {
+    for (const { ring, placed } of layBank(rings, bank.pieces)) {
+      at = placeBand(pool, placed, bank.art, tint, at, { edge: ring, closed: true, gaps: [], color: bank.tone });
+    }
+  }
   if (kit && rings.length > 0) {
     const { units, entries } = edgeUnits(kit);
     at = placePieces(pool, piecesOf(edgeWalk(rings, units, head.id, group.paths), entries), tint, at);
@@ -249,6 +280,16 @@ function drawGroup(parent: Container, group: Group, pool: Container): void {
         g.stroke({ color: parseHex(rope.color), width: rope.width, cap: 'round' });
       }
       at = placePieces(pool, piecesOf(laid.posts, entries), tint, at);
+    }
+  }
+  const fall = kit?.manifest.fall ? kitPiece(kit, kit.manifest.fall) : undefined;
+  if (fall && textureNow(fall.id)) {
+    const art = paintedSize(fall).w;
+    for (const path of group.paths) {
+      const crossings = cliffCrossingsOf(layer, path);
+      if (crossings.length === 0) continue;
+      const pieces = fallPieces(waterfallSpans(path, crossings), art).map((p) => ({ ...p, entry: fall }));
+      at = placePieces(pool, pieces, tint, at);
     }
   }
   for (const c of pool.children.slice(at)) c.destroy();
@@ -297,6 +338,8 @@ interface Drawn {
   /** Each group's pieces, by group key: kept across redraws. */
   pools: Map<string, Container>;
   paths: PathChild[];
+  /** The raised floors: where the water falls is theirs to say. */
+  raised: ShapeChild[];
   epoch: number;
   index: number;
   look: string;
@@ -304,9 +347,9 @@ interface Drawn {
 }
 
 /**
- * Keeps every dungeon layer's paths drawn. A layer redraws when its paths change (the store
- * hands back new child objects on any edit), when its scene entry is new, or when art it was
- * waiting for arrives.
+ * Keeps every dungeon layer's paths drawn. A layer redraws when its paths or its raised floors
+ * change (the store hands back new child objects on any edit), when its scene entry is new,
+ * or when art it was waiting for arrives.
  */
 export function subscribeToPaths(): () => void {
   const drawn = new Map<string, Drawn>();
@@ -321,6 +364,7 @@ export function subscribeToPaths(): () => void {
       const sub = getLayerEntry(layer.id)?.sublayers;
       if (!sub) return;
       const paths = layer.children.filter((c): c is PathChild => c.childType === 'path');
+      const raised = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !!(c.height || c.edge));
       const look = `${layer.opacity}|${state.ui.seeUnderOverhead}`;
       const prev = drawn.get(layer.id);
       if (
@@ -330,7 +374,9 @@ export function subscribeToPaths(): () => void {
         prev.index === index &&
         prev.look === look &&
         prev.paths.length === paths.length &&
-        prev.paths.every((p, i) => p === paths[i])
+        prev.paths.every((p, i) => p === paths[i]) &&
+        prev.raised.length === raised.length &&
+        prev.raised.every((r, i) => r === raised[i])
       ) {
         return;
       }
@@ -361,16 +407,16 @@ export function subscribeToPaths(): () => void {
           c.zIndex = index * LAYER_Z - 1;
           const base = layer.opacity * (state.ui.seeUnderOverhead ? SEE_UNDER_ALPHA : 1);
           c.alpha = base * (fades.get(group.paths[0].id) ?? 1);
-          drawGroup(c, group, poolOf(group.key));
+          drawGroup(c, layer, group, poolOf(group.key));
           top.addChild(c);
           tops.push(c);
           overhead.set(group.paths[0].id, { container: c, path: group.paths[0], base });
         } else {
-          drawGroup(sort === 'over' ? sub.pathsOver : sub.paths, group, poolOf(group.key));
+          drawGroup(sort === 'over' ? sub.pathsOver : sub.paths, layer, group, poolOf(group.key));
         }
       }
       for (const [key, pool] of prev?.pools ?? []) if (!pools.has(key)) pool.destroy({ children: true });
-      drawn.set(layer.id, { under: sub.paths, pools, paths, epoch, index, look, overhead: tops });
+      drawn.set(layer.id, { under: sub.paths, pools, paths, raised, epoch, index, look, overhead: tops });
     });
     for (const [id, d] of drawn) {
       if (live.has(id)) continue;

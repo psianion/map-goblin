@@ -24,6 +24,7 @@ const KitManifestSchema = z.object({
   rope: z.object({ color: z.string().min(1), width: z.number().positive() }).optional(),
   band: z.object({ straight: z.array(z.string().min(1)).min(1), bendDrawn: z.literal(true) }).optional(),
   end: z.string().min(1).optional(),
+  fall: z.string().min(1).optional(),
 });
 
 const FrameSchema = z.object({

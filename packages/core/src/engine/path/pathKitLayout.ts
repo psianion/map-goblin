@@ -9,6 +9,9 @@
 import type { Polygon } from '../../types/geometry';
 import type { PathChild } from '../../shared/types';
 import { pathCentreline } from '../../geometry/pathGeometry';
+import type { CaveKitPiece } from '../../assets/caveWallKit';
+import { layBandRing, orientRings } from '../caveBandRenderer';
+import type { WalkPlacement } from '../caveWalk';
 
 /** One edge unit a kit may lay. `size` is its footprint across, cells. */
 export interface EdgeUnit {
@@ -388,4 +391,38 @@ export function layPlanks(path: PathChild, kit: PlanksKit, seed: string): Planks
     }
   }
   return out;
+}
+
+// ─── Bands: a water bank ───────────────────────────────────
+
+/** A band kit's straight: its key and painted length, cells. */
+export interface BandStraight {
+  key: string;
+  length: number;
+}
+
+/**
+ * The cave walk's pieces for a band kit's straights: each a straight with its joints at the two
+ * ends of its painted length, on its midline. The kit ships no bends; where the walk turns, the
+ * ground strip drawn in the straight's colour under the pieces covers the joint.
+ */
+export function bankPieces(straights: readonly BandStraight[]): CaveKitPiece[] {
+  return straights.map((s) => ({
+    key: s.key,
+    jointsCells: [
+      [-s.length / 2, 0],
+      [s.length / 2, 0],
+    ],
+    chordCells: s.length,
+    turnDeg: 0,
+  }));
+}
+
+/**
+ * A bank laid round every ring of a water outline by the cave walk, with the water as the
+ * floor and the land as the void: per ring, in ring order, the ring wound the way the walk
+ * laid it (void on its left) and the placements.
+ */
+export function layBank(rings: readonly Polygon[], pieces: CaveKitPiece[]): { ring: Polygon; placed: WalkPlacement[] }[] {
+  return orientRings([...rings]).map((ring) => ({ ring, placed: pieces.length === 0 ? [] : layBandRing(ring, [], pieces) }));
 }

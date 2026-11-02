@@ -72,6 +72,8 @@ export interface KitManifest {
   rope?: { color: string; width: number };
   band?: { straight: string[]; bendDrawn: true };
   end?: string;
+  /** Liquids: the piece that hangs where the path runs off a cliff. */
+  fall?: string;
 }
 
 /** Grid size notation (e.g., "1x1", "2x1", "3x1") */

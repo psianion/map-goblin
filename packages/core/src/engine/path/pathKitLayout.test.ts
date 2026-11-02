@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { groupOutline } from '../pathRenderer';
-import { edgeWalk, layPlanks, unitOverlap, POST_SPACING, type EdgeUnit, type PlanksKit, type UnitPlacement } from './pathKitLayout';
+import { bankPieces, edgeWalk, layBank, layPlanks, unitOverlap, POST_SPACING, type EdgeUnit, type PlanksKit, type UnitPlacement } from './pathKitLayout';
+import { bandHoles } from '../caveWalk';
 import type { PathChild } from '../../shared/types';
 import type { Polygon } from '../../types/geometry';
 
@@ -245,5 +246,59 @@ describe('layPlanks', () => {
     expect(faded.ends.filter((e) => e.x < 1)).toHaveLength(2);
     const nearEnd = (r: typeof cut) => r.planks.filter((p) => p.x > 14).length;
     expect(nearEnd(faded)).toBeLessThan(nearEnd(cut));
+  });
+});
+
+describe('layBank', () => {
+  // The water kit's bank straights: two cells and four cells long.
+  const BANK = bankPieces([
+    { key: 'bank-A', length: 2 },
+    { key: 'bank-B', length: 2 },
+    { key: 'bank-long-A', length: 4 },
+  ]);
+  const water = (id: string, points: { x: number; y: number }[], over: Partial<PathChild> = {}) =>
+    road(id, points, { materialId: 'gg-forge:water', width: 1.5, ...over });
+
+  it('makes a straight piece of each bank unit, joints at its two ends', () => {
+    expect(BANK.map((p) => [p.key, p.chordCells, p.turnDeg])).toEqual([
+      ['bank-A', 2, 0],
+      ['bank-B', 2, 0],
+      ['bank-long-A', 4, 0],
+    ]);
+  });
+
+  it('chains the bank round a lake and along both banks of a river with no gap', () => {
+    const lake = water(
+      'lake',
+      Array.from({ length: 10 }, (_, i) => ({ x: 20 + 7 * Math.cos((i / 10) * 2 * Math.PI), y: 5 * Math.sin((i / 10) * 2 * Math.PI) })),
+      { closed: true, fill: true },
+    );
+    const river = water('river', [{ x: -20, y: -6 }, { x: -10, y: -2 }, { x: -2, y: -8 }, { x: 6, y: -3 }]);
+    for (const p of [lake, river]) {
+      const rings = groupOutline([p]);
+      const laid = layBank(rings, BANK);
+      expect(laid).toHaveLength(rings.length);
+      for (const { placed } of laid) {
+        expect(placed.length, p.id).toBeGreaterThan(8);
+        expect(bandHoles(placed, true), p.id).toEqual([]);
+      }
+    }
+  });
+
+  it('lays a river and the lake it runs into as one bank, none across the mouth', () => {
+    const lake = water('lake', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }], { closed: true, fill: true });
+    const river = water('river', [{ x: 5, y: 4 }, { x: 5, y: 20 }]);
+    const rings = groupOutline([lake, river]);
+    expect(rings).toHaveLength(1);
+    const [{ placed }] = layBank(rings, BANK);
+    expect(bandHoles(placed, true)).toEqual([]);
+    // Nothing laid across the river's mouth at the lake's south shore: no piece's chord runs
+    // through the water between the river's banks (x 4.25 to 5.75).
+    const across = placed.filter((pl) => {
+      const mx = (pl.P[0] + pl.Q[0]) / 2;
+      const my = (pl.P[1] + pl.Q[1]) / 2;
+      return mx > 4.4 && mx < 5.6 && my > 8 && my < 19;
+    });
+    expect(across).toEqual([]);
   });
 });

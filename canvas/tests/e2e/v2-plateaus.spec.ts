@@ -6,9 +6,9 @@ import { installStubs } from './publishStubs'
 
 /**
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
- * tower-test): plan §0 scenarios 2, 3, 4 and the editor half of 5 (bridge landings), the
- * hill's card readouts, and both maps opening, exporting a PNG and publishing. Waterfalls
- * are the next step and stand here as a `fixme` row with the scenario's words.
+ * tower-test): plan §0 scenarios 2, 3, 4, the editor half of 5 (bridge landings) and 7 (the
+ * river's waterfall), the hill's card readouts, and both maps opening, exporting a PNG and
+ * publishing.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -224,10 +224,31 @@ test.describe('plateau-test in the editor', () => {
     expect(laid.right).toBeGreaterThan(5)
   })
 
-  test.fixme('scenario 7: the river shows a waterfall where it runs off the outcrop’s west cliff', async () => {
+  test('scenario 7: the river shows a waterfall where it runs off the outcrop’s west cliff', async ({ page }) => {
     // "Draw a river with banks; where it crosses a cliff downhill a waterfall shows." The
-    // river leaves the +2 outcrop over its west edge (x = 4) near y = 6.8: cliffCrossings
-    // finds that span and drawWaterfall hangs from it.
+    // river leaves the +2 outcrop over its west edge (x = 4) near y = 6.8: the plateau code
+    // finds that crossing and the water kit's fall pieces hang from it, west of the lip.
+    await openMap(page, PLATEAU)
+    const water = () =>
+      page.evaluate(() => {
+        const w = window as Any
+        const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+        const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
+        const sprites = pools.flatMap((p: Any) => p.children.filter((k: Any) => k.anchor))
+        return {
+          falls: sprites.filter((s: Any) => s.label === 'water-fall').map((s: Any) => ({ x: s.position.x, y: s.position.y })),
+          // The bank's straights are laid by the cave walk and keep Pixi's own label; the units carry their names.
+          bank: sprites.filter((s: Any) => !s.label || s.label === 'Sprite').length,
+        }
+      })
+    await expect.poll(async () => (await water()).falls.length).toBeGreaterThan(0)
+    await expect.poll(async () => (await water()).bank, 'bank pieces along both banks').toBeGreaterThan(10)
+    const { falls } = await water()
+    for (const f of falls) {
+      expect(f.x, 'the fall hangs west of the lip').toBeLessThan(4)
+      expect(f.x).toBeGreaterThan(1.5)
+      expect(Math.abs(f.y - 6.8), 'at the crossing').toBeLessThan(1.5)
+    }
   })
 })
 

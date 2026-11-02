@@ -703,7 +703,7 @@ export function inGap(gaps: readonly RingGap[], x: number, y: number): boolean {
 
 // ─── Waterfalls (the seam water paths and lakes call) ──────
 
-/** A place where water leaves a raised edge: drawn by `drawWaterfall` (plateauRenderer.ts). */
+/** A place where water leaves a raised edge: the water kit's fall hangs there (plateauRenderer `plateauCliffCrossings`). */
 export interface FallSpan {
   /** The stretch of edge the water falls over, in ring order. */
   a: Vec;
@@ -736,8 +736,9 @@ function fallEdges(layer: Pick<DungeonLayer, 'children'>): FallSpan[] {
 }
 
 /**
- * Where a polyline (a water path's centreline) crosses a raised edge going downhill: one
- * span per crossing, `width` cells wide along the edge, centred on the crossing.
+ * Where a polyline (a water path's centreline) crosses a raised edge, either way: one span
+ * per crossing, `width` cells wide along the edge, centred on the crossing. `downhill` says
+ * which way the water falls, whichever way the line was drawn.
  */
 export function cliffCrossings(layer: Pick<DungeonLayer, 'children'>, points: readonly Vec[], width = 1): FallSpan[] {
   const out: FallSpan[] = [];
@@ -754,7 +755,8 @@ export function cliffCrossings(layer: Pick<DungeonLayer, 'children'>, points: re
       const t = ((edge.a[0] - px) * ey - (edge.a[1] - py) * ex) / den;
       const u = ((edge.a[0] - px) * dy - (edge.a[1] - py) * dx) / den;
       if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-      if (dx * edge.downhill[0] + dy * edge.downhill[1] <= 0) continue;
+      // A crossing right on a vertex belongs to the segment it starts.
+      if (t === 1 && i + 2 < points.length) continue;
       const cx = px + dx * t;
       const cy = py + dy * t;
       const h = width / 2 / elen;
@@ -769,7 +771,14 @@ export function cliffCrossings(layer: Pick<DungeonLayer, 'children'>, points: re
   return out;
 }
 
-/** The raised edges a closed outline (a raised pool's shore) runs along within `tol` cells. */
+/** Samples per cell along a raised edge when finding the stretch a shore runs along. */
+const SPILL_STEP = 0.25;
+
+/**
+ * The stretches of raised edge a closed outline (a raised pool's shore) runs along within
+ * `tol` cells: each a run of the edge, sampled every SPILL_STEP, whose every sample is near
+ * the outline, so a pool spills over just the part of a cliff its shore shares.
+ */
 export function cliffSpansNear(layer: Pick<DungeonLayer, 'children'>, outline: Polygon, tol = 0.1): FallSpan[] {
   const near = (x: number, y: number): boolean => {
     for (let i = 0; i < outline.length; i++) {
@@ -783,9 +792,23 @@ export function cliffSpansNear(layer: Pick<DungeonLayer, 'children'>, outline: P
     }
     return false;
   };
-  return fallEdges(layer).filter(
-    (e) => near(e.a[0], e.a[1]) && near(e.b[0], e.b[1]) && near((e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2),
-  );
+  const out: FallSpan[] = [];
+  for (const e of fallEdges(layer)) {
+    const len = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+    const n = Math.max(1, Math.ceil(len / SPILL_STEP));
+    const at = (k: number): Vec => [e.a[0] + ((e.b[0] - e.a[0]) * k) / n, e.a[1] + ((e.b[1] - e.a[1]) * k) / n];
+    let from = -1;
+    for (let k = 0; k <= n + 1; k++) {
+      const p = k <= n ? at(k) : null;
+      if (p && near(p[0], p[1])) {
+        if (from < 0) from = k;
+        continue;
+      }
+      if (from >= 0 && k - 1 > from) out.push({ a: at(from), b: at(k - 1), downhill: e.downhill, drop: e.drop });
+      from = -1;
+    }
+  }
+  return out;
 }
 
 // ─── Sight ─────────────────────────────────────────────────

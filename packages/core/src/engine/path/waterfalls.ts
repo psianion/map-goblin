@@ -1,8 +1,9 @@
-// Waterfalls: where a liquid path meets a drop, its material's `fall` sprite hangs over
-// the edge. Which spans of a path cross a cliff is the plateau code's to say (it knows the
-// rings and their heights); this turns those spans into sprite placements and draws them.
+// Waterfalls: where a liquid path meets a drop, its kit's `fall` piece hangs over the edge.
+// Which spans of a path cross a cliff is the plateau code's to say (it knows the rings and
+// their heights, and installs itself with `setCliffCrossings`); this turns those spans into
+// placements, and each placement into square fall pieces of one size.
 
-import { Container, Sprite, type Texture } from 'pixi.js';
+import type { DungeonLayer } from '../../store/types';
 import type { PathChild } from '../../shared/types';
 import { pathCentreline } from '../../geometry/pathGeometry';
 import type { Centreline } from '../../geometry/ribbon';
@@ -101,30 +102,59 @@ export function waterfallSpans(path: PathChild, crossings: readonly CliffCrossin
   return out;
 }
 
-/**
- * Where a path's cliff crossings come from. Nothing supplies them until plateaus do; the
- * plateau code installs its own with `setCliffCrossings`.
- */
-let crossingsOf: (path: PathChild) => readonly CliffCrossing[] = () => [];
+type CrossingsFn = (layer: Pick<DungeonLayer, 'children'>, path: PathChild) => readonly CliffCrossing[];
 
-export function setCliffCrossings(fn: ((path: PathChild) => readonly CliffCrossing[]) | null): void {
+/**
+ * Where a path's cliff crossings come from: the plateau code installs its own with
+ * `setCliffCrossings` (plateauRenderer.ts); until then a path crosses none.
+ */
+let crossingsOf: CrossingsFn = () => [];
+
+export function setCliffCrossings(fn: CrossingsFn | null): void {
   crossingsOf = fn ?? (() => []);
 }
 
-export function cliffCrossingsOf(path: PathChild): readonly CliffCrossing[] {
-  return crossingsOf(path);
+export function cliffCrossingsOf(layer: Pick<DungeonLayer, 'children'>, path: PathChild): readonly CliffCrossing[] {
+  return crossingsOf(layer, path);
 }
 
-/** Fall sprites for `placements`, the texture's top edge at the lip. */
-export function drawFalls(parent: Container, texture: Texture, placements: readonly FallPlacement[]): void {
+/** One square fall piece: its centre, turn (radians) and scale against its `art`-cell tile. */
+export interface FallPiece {
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
+
+/**
+ * Square pieces of one size covering each placement: as many across the lip as fit the art's
+ * size best, each scaled alike, then rows of them down the drop from the lip, the last row
+ * running past the foot rather than leaving it bare. The art's top edge is the lip.
+ */
+export function fallPieces(placements: readonly FallPlacement[], art: number): FallPiece[] {
+  const out: FallPiece[] = [];
   for (const f of placements) {
-    const s = new Sprite(texture);
-    s.anchor.set(0.5);
-    s.width = f.width;
-    s.height = f.length;
-    // The texture runs top to bottom; turn its +y onto the fall's direction.
-    s.rotation = f.angle - Math.PI / 2;
-    s.position.set(f.x, f.y);
-    parent.addChild(s);
+    const across = Math.max(1, Math.round(f.width / art));
+    const size = f.width / across;
+    const rows = Math.max(1, Math.ceil(f.length / size - 1e-6));
+    const dx = Math.cos(f.angle);
+    const dy = Math.sin(f.angle);
+    // Across the fall: the direction's left normal.
+    const ax = -dy;
+    const ay = dx;
+    for (let r = 0; r < rows; r++) {
+      const down = -f.length / 2 + size * (r + 0.5);
+      for (let k = 0; k < across; k++) {
+        const side = -f.width / 2 + size * (k + 0.5);
+        out.push({
+          x: f.x + dx * down + ax * side,
+          y: f.y + dy * down + ay * side,
+          // The art runs top to bottom; turn its +y onto the fall's direction.
+          rotation: f.angle - Math.PI / 2,
+          scale: size / art,
+        });
+      }
+    }
   }
+  return out;
 }

@@ -50,11 +50,12 @@ import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
-import { drawOpening, drawWaterfall, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
+import { drawOpening, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
 import { cliffShadowGeometry } from './shadowPass';
 import { CASTER_HEIGHT, casterLook, type ShadowLook } from '../shared/shadows';
 import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { OpeningChild } from '../shared/types';
+import type { OpeningChild, PathChild } from '../shared/types';
+import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
 import type { Polygon } from '../types/geometry';
 import { layerPlateaus, ringGaps } from '../shared/plateaus';
 
@@ -346,11 +347,80 @@ describe('openings and waterfalls', () => {
     expect(drawOpening({ id: 'c', kind: 'ladder', width: 1 }, frame)).toBeInstanceOf(Graphics);
   });
 
-  it('hangs a waterfall from its lip down the drop', () => {
-    const parent = new Container();
-    const mesh = drawWaterfall(parent, { a: [0, 0], b: [2, 0], downhill: [0, 1], drop: 3 })!;
-    expect(parent.children).toContain(mesh);
-    const v = mesh.geometry.getBuffer('aPosition').data as Float32Array;
-    expect(Math.max(...Array.from(v).filter((_, i) => i % 2 === 1))).toBe(3);
+});
+
+describe('waterfalls at cliff crossings', () => {
+  // The plateau-test outcrop: +2, cliff all round, its west edge at x = 4.
+  const outcrop = rect('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
+  const water = (id: string, points: PathChild['points'], over: Partial<PathChild> = {}): PathChild => ({
+    id,
+    name: id,
+    childType: 'path',
+    visible: true,
+    points,
+    closed: false,
+    width: 1.5,
+    heightMode: 'ground',
+    materialId: 'gg-forge:water',
+    tint: '#ffffff',
+    opacity: 1,
+    offset: 0,
+    flip: false,
+    edge: 'soft',
+    ends: { start: 'cut', end: 'cut', length: 1 },
+    sort: 'under',
+    ...over,
+  });
+
+  it('finds where a river runs off a cliff, and hangs the fall on the low side', () => {
+    const river = water('river', [{ x: 10, y: 6.5 }, { x: 1, y: 6.5 }]);
+    const layer = layerOf([ground, outcrop, river]);
+    const crossings = cliffCrossingsOf(layer, river);
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0]).toMatchObject({ down: 1, drop: 2 });
+    expect(crossings[0].start).toBeCloseTo(6, 6);
+    const [fall] = waterfallSpans(river, crossings);
+    // From the lip at x = 4, half the 2-cell drop on, falling west.
+    expect(fall.x).toBeCloseTo(3, 6);
+    expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
+  });
+
+  it('honours the drop when the river is drawn uphill: the fall still hangs off the low side', () => {
+    const river = water('river', [{ x: 1, y: 6.5 }, { x: 10, y: 6.5 }]);
+    const crossings = cliffCrossingsOf(layerOf([ground, outcrop, river]), river);
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0].down).toBe(-1);
+    const [fall] = waterfallSpans(river, crossings);
+    expect(fall.x).toBeCloseTo(3, 6);
+    expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
+  });
+
+  it('spills a raised pool over the stretch of its shore that runs along the cliff', () => {
+    const corner = (x: number, y: number) => ({ x, y, handles: null });
+    const pool = water('pool', [corner(4, 5), corner(8, 5), corner(8, 9), corner(4, 9)], { closed: true, fill: true, width: 1 });
+    const crossings = cliffCrossingsOf(layerOf([ground, outcrop, pool]), pool);
+    expect(crossings).toHaveLength(1);
+    const falls = waterfallSpans(pool, crossings);
+    expect(falls).toHaveLength(2);
+    for (const f of falls) {
+      expect(f.x).toBeLessThan(4);
+      expect(Math.abs(f.angle)).toBeCloseTo(Math.PI, 6);
+      expect(f.y).toBeGreaterThan(5 - 1e-6);
+      expect(f.y).toBeLessThan(9 + 1e-6);
+    }
+  });
+
+  it('finds none on flat ground', () => {
+    const river = water('river', [{ x: 10, y: 20 }, { x: 1, y: 20 }]);
+    expect(cliffCrossingsOf(layerOf([ground, outcrop, river]), river)).toEqual([]);
+  });
+
+  it('tiles a fall with square pieces of one size, none stretched', () => {
+    const pieces = fallPieces([{ x: 0, y: 0, angle: Math.PI / 2, width: 3, length: 2 }], 2);
+    expect(pieces).toHaveLength(4);
+    for (const p of pieces) expect(p.scale).toBeCloseTo(0.75, 6);
+    // Two across, two down, the first row at the lip (y = -1).
+    expect([...new Set(pieces.map((p) => p.x.toFixed(3)))]).toEqual(['0.750', '-0.750']);
+    expect(Math.min(...pieces.map((p) => p.y))).toBeCloseTo(-0.25, 6);
   });
 });

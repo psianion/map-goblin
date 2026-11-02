@@ -12,6 +12,7 @@
 //   now (a forge round paints proper seamless fills), and keeps the water fill;
 // - builds each kit's edge, cross, rail and band pieces from the round 4 units in
 //   GG_Paths_Props (scripts/install-paths-round4.mjs installs them);
+// - names the water fall as the water kit's `fall` piece;
 // - removes every strip, edge and end entry, and the files only they used.
 //
 // Rerunnable: a pack with nothing left to migrate is left alone. Then rebuilds the pack
@@ -68,6 +69,7 @@ const KITS = {
       bendDrawn: true,
     },
     edge: [...both('water-reeds', '1x1', 2, 1.5, 0.5), ...both('water-lily-pads', '1x1', 1, 2.5, PI), { key: unit('water-ripple', 'A', '1x1'), weight: 1, spacing: 3, jitter: PI }],
+    fall: 'water-fall',
   },
 };
 
@@ -122,6 +124,7 @@ for (const [set, kit] of Object.entries(KITS)) {
   const straight = (kit.band?.straight ?? []).filter(has);
   if (straight.length) out.band = { straight, bendDrawn: true };
   if (kit.end && has(kit.end)) out.end = kit.end;
+  if (kit.fall && has(kit.fall)) out.fall = kit.fall;
   entries[`${set}-kit`] = { type: 'kit', material: set, gridSize: '1x1', pieceType: 'kit', variant: 'A', set, tags: ['path', 'kit'], kit: out };
 }
 

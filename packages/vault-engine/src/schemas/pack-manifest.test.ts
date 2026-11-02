@@ -88,4 +88,11 @@ describe('kit entries', () => {
     expect(bad({ kind: 'band', band: { straight: [], bendDrawn: true } })).toBe(false);
     expect(bad({ kind: 'planks', cross: [{ key: 'plank', weight: 1 }], railPost: 'post', rope: { color: '#6b4a2b', width: 0.06 } })).toBe(true);
   });
+
+  it('keeps a water kit’s fall piece, and rejects an empty one', () => {
+    const water = { kind: 'surface', fill: 'water-fill', band: { straight: ['water-bank'], bendDrawn: true }, fall: 'water-fall' };
+    const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { 'water-kit': { ...kitEntry, kit: water } } });
+    expect(parsed.entries['water-kit']!.kit?.fall).toBe('water-fall');
+    expect(PackManifestSchema.safeParse({ ...VALID_MANIFEST, entries: { k: { ...kitEntry, kit: { ...water, fall: '' } } } }).success).toBe(false);
+  });
 });

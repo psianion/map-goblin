@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2950,7 +2950,8 @@
             "water-bank-long_4x1_object_B"
           ],
           "bendDrawn": true
-        }
+        },
+        "fall": "water-fall"
       }
     }
   },
