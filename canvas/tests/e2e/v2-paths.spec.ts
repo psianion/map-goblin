@@ -488,3 +488,54 @@ test('two floors meet with the top floor’s kit units along their shared edge, 
   await expect.poll(async () => (await floorBorder(page)).blends).toBeGreaterThan(0)
   expect((await floorBorder(page)).units).toHaveLength(0)
 })
+
+const attached = (page: Page) =>
+  inPage<Any[]>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'asset' && c.attachedTo)`)
+
+test('a dirt road lays its trees on draw, moves them with it, Detach keeps one as a plain prop, undo and delete', async ({ page }) => {
+  await openEditor(page)
+  await addRoad(page, dirtRoad('r', [{ x: -10, y: 0 }, { x: 10, y: 0 }]))
+  await expect.poll(async () => (await attached(page)).length).toBeGreaterThan(3)
+  const first = await attached(page)
+  for (const t of first) {
+    expect(t.attachedTo).toMatchObject({ kind: 'path', id: 'r', side: 1 })
+    expect(t.assetId).toContain('tree')
+  }
+  // The trees are drawn as props.
+  const drawnTrees = () =>
+    page.evaluate((ids: string[]) => {
+      const w = window as Any
+      const all: Any[] = []
+      const walk = (c: Any) => {
+        all.push(c)
+        for (const k of c.children ?? []) walk(k)
+      }
+      walk(w.__pixiApp.stage)
+      return ids.filter((id) => all.some((c) => c.label === 'placed-' + id)).length
+    }, first.map((t: Any) => t.id))
+  await expect.poll(drawnTrees).toBe(first.length)
+
+  // The road moves 3 cells down: its trees go with it.
+  await inPage(page, `(s, layer) => s().updateChild(layer().id, 'r', { points: [{ x: -10, y: 3 }, { x: 10, y: 3 }] })`)
+  const meanY = (list: Any[]) => list.reduce((s: number, t: Any) => s + t.position.y, 0) / list.length
+  await expect.poll(async () => meanY(await attached(page)) - meanY(first)).toBeCloseTo(3, 1)
+  const moved = await attached(page)
+  expect(moved.length).toBe(first.length)
+
+  // Detach one from its card: it stays where it is, a plain prop.
+  const one = moved[0]
+  await inPage(page, `(s, layer, w2s, id) => s().setSelectedIds([id])`, one.id)
+  await page.getByTestId('v2-prop-detach').click()
+  await waitFrame(page, 2)
+  const plain = await inPage<Any>(page, `(s, layer, w2s, id) => layer().children.find((c) => c.id === id)`, one.id)
+  expect(plain.attachedTo).toBeUndefined()
+  expect(plain.position).toEqual(one.position)
+  // Undo: attached again.
+  await key(page, 'Control+z')
+  await expect.poll(async () => (await inPage<Any>(page, `(s, layer, w2s, id) => layer().children.find((c) => c.id === id)`, one.id))?.attachedTo?.id).toBe('r')
+
+  // Deleting the road takes its trees.
+  await inPage(page, `(s, layer) => s().setSelectedIds([])`)
+  await inPage(page, `(s, layer) => s().removeChild(layer().id, 'r')`)
+  await expect.poll(async () => (await attached(page)).length).toBe(0)
+})

@@ -16,6 +16,9 @@
 // - lays edge units at half their painted size (the kit's `scale`), spaced to cover about a
 //   third of their verge, the water bank at its own size, and adds the `cliff-foot` kit whose
 //   edge units are the rubble walked along a cliff's foot;
+// - gives kits their attached objects: trees (gg-demo's) along the dirt road's verge, reeds
+//   on a shore and lily pads on the water (moved off the water's edge units), rubble out past
+//   a cliff's foot;
 // - removes every strip, edge and end entry, and the files only they used.
 //
 // Rerunnable: a pack with nothing left to migrate is left alone. Then rebuilds the pack
@@ -36,6 +39,8 @@ const PI = 3.14;
 const unit = (item, variant, gridSize) => `${item}_${gridSize}_object_${variant}`;
 const both = (item, gridSize, weight, spacing, jitter) =>
   ['A', 'B'].map((v) => ({ key: unit(item, v, gridSize), weight, spacing, jitter }));
+/** Attached objects of both variants of an item, on `side` of the outline. */
+const objects = (item, gridSize, weight, spacing, jitter, side) => both(item, gridSize, weight, spacing, jitter).map((o) => ({ ...o, side }));
 
 /** Each material set's kit. Keys name entries of the same pack; absent ones are dropped. */
 const KITS = {
@@ -44,6 +49,7 @@ const KITS = {
     fill: 'road-dirt-fill',
     scale: 0.5,
     edge: [...both('dirt-grass-tuft', '1x1', 2, 0.7, 0.5), ...both('dirt-pebbles', '1x1', 3, 0.6, PI), ...both('dirt-puddle', '1x1', 0.5, 1.5, PI)],
+    objects: ['tree_small_1_3x3_object_A', 'tree_small_2_3x3_object_A'].map((key) => ({ key: `gg-demo:${key}`, weight: 1, spacing: 5, jitter: PI, side: 1 })),
   },
   'road-cobble': {
     kind: 'surface',
@@ -62,6 +68,7 @@ const KITS = {
     kind: 'surface',
     scale: 0.5,
     edge: both('cliff-rubble', '1x1', 1, 0.7, PI),
+    objects: objects('cliff-rubble', '1x1', 1, 4, PI, 1),
   },
   planks: {
     kind: 'planks',
@@ -82,7 +89,8 @@ const KITS = {
       scale: 1,
     },
     scale: 0.5,
-    edge: [...both('water-reeds', '1x1', 2, 1.5, 0.5), ...both('water-lily-pads', '1x1', 1, 2.5, PI), { key: unit('water-ripple', 'A', '1x1'), weight: 1, spacing: 3, jitter: PI }],
+    edge: [{ key: unit('water-ripple', 'A', '1x1'), weight: 1, spacing: 3, jitter: PI }],
+    objects: [...objects('water-reeds', '1x1', 2, 2.5, 0.5, 0), ...objects('water-lily-pads', '1x1', 1, 3.5, PI, -1)],
     fall: 'water-fall',
   },
 };
@@ -94,7 +102,15 @@ const isStripPiece = (e) => (e.type === 'path' && ['strip', 'edge', 'end'].inclu
 
 const filePrefix = (e) => `${e.material}_${e.gridSize}_${e.variant}-`;
 
-const manifestName = readdirSync(PACK_DIR).find((f) => /^pack-[0-9a-f]+\.json$/.test(f));
+/** Whether `<packId>:<entry>` names an entry of another installed pack. */
+function otherPackHas(key) {
+  const [packId, entry] = key.split(':');
+  const dir = join(PACKS, packId);
+  const name = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f));
+  return !!name && !!JSON.parse(readFileSync(join(dir, name), 'utf8')).entries[entry];
+}
+
+const manifestName =readdirSync(PACK_DIR).find((f) => /^pack-[0-9a-f]+\.json$/.test(f));
 if (!manifestName) throw new Error(`no pack-*.json in ${PACK_DIR}`);
 const manifest = JSON.parse(readFileSync(join(PACK_DIR, manifestName), 'utf8'));
 const entries = { ...manifest.entries };
@@ -123,7 +139,7 @@ for (const k of removed) delete entries[k];
 const missing = [];
 for (const [set, kit] of Object.entries(KITS)) {
   const has = (key) => {
-    if (entries[key]) return true;
+    if (key.includes(':') ? otherPackHas(key) : entries[key]) return true;
     missing.push(`${set}: ${key}`);
     return false;
   };
@@ -140,6 +156,8 @@ for (const [set, kit] of Object.entries(KITS)) {
   if (kit.end && has(kit.end)) out.end = kit.end;
   if (kit.fall && has(kit.fall)) out.fall = kit.fall;
   if (kit.scale) out.scale = kit.scale;
+  const objs = (kit.objects ?? []).filter((o) => has(o.key));
+  if (objs.length) out.objects = objs;
   entries[`${set}-kit`] = { type: 'kit', material: set, gridSize: '1x1', pieceType: 'kit', variant: 'A', set, tags: ['path', 'kit'], kit: out };
 }
 

@@ -180,6 +180,21 @@ export function createPropPatchCommand(label: string, patches: PropPatch[]): Com
   return one(label, cmds);
 }
 
+/**
+ * Detach every prop in `ids` placed by a path's or a plot's kit (engine/path/attachedObjects):
+ * each lets go of its host and stays where it is, a plain prop. Null when none is attached.
+ */
+export function createDetachCommand(ids: string[]): Command | null {
+  const attached = findChildren(useStore.getState().layers, ids).filter(
+    (f): f is Found<AssetChild> => f.child.childType === 'asset' && !!f.child.attachedTo,
+  );
+  if (attached.length === 0) return null;
+  return createPropPatchCommand(
+    'Detach',
+    attached.map((f) => ({ layerId: f.layer.id, id: f.child.id, before: { attachedTo: f.child.attachedTo }, after: { attachedTo: undefined } })),
+  );
+}
+
 // ─── Fields ──────────────────────────────────────────────
 
 /**

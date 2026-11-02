@@ -36,10 +36,15 @@ export interface UnitPlacement {
   scale?: number;
 }
 
-/** How a walk runs: along open lines rather than rings, and how far units stray off the line either way (cells). */
+/**
+ * How a walk runs: along open lines rather than rings, how far units stray off the line
+ * either way (cells), and what already stands in the way (`avoid`: footprints laid by
+ * someone else, such as edge units and props).
+ */
 export interface WalkOptions {
   open?: boolean;
   spread?: number;
+  avoid?: readonly Pick<UnitPlacement, 'x' | 'y' | 'size'>[];
 }
 
 /** Two units may share at most this much of the smaller one's footprint. */
@@ -169,6 +174,9 @@ export function survivesEnds(ends: readonly ThinEnd[], seed: string, x: number, 
  * MAX_OVERLAP tries a little further on, then is skipped. `paths` gives the fade and taper
  * ends, where units are dropped rather than faded. With `open` each line is walked end to end
  * and not closed; with `spread` each unit is pushed off the line by up to that much either way.
+ * A unit that would overlap an `avoid` footprint by more than MAX_OVERLAP is not laid and not
+ * moved on: its place is kept as if it were, so the rest of the walk lays exactly as it would
+ * have (a prop left where an attached one stood blocks that one and only that one).
  */
 export function edgeWalk(
   rings: readonly Polygon[],
@@ -182,6 +190,9 @@ export function edgeWalk(
   const room = new Room(Math.max(0.5, ...units.map((u) => u.size)));
   const minSpacing = Math.min(...units.map((u) => u.spacing));
   const spread = options.spread ?? 0;
+  const avoid = options.avoid ?? [];
+  const blocked = new Room(Math.max(0.5, ...units.map((u) => u.size), ...avoid.map((a) => a.size)));
+  for (const a of avoid) blocked.add({ key: '', rotation: 0, ...a });
   rings.forEach((ring, ri) => {
     const n = ring.length;
     if (n < (options.open ? 2 : 3)) return;
@@ -222,7 +233,7 @@ export function edgeWalk(
         };
         if (room.fits(u)) {
           room.add(u);
-          out.push(u);
+          if (avoid.length === 0 || blocked.fits(u)) out.push(u);
           break;
         }
         s += unit.spacing / ROOM_TRIES;

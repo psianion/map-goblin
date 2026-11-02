@@ -36,6 +36,17 @@ const KitManifestSchema = z.object({
   end: z.string().min(1).optional(),
   fall: z.string().min(1).optional(),
   scale: z.number().positive().optional(),
+  objects: z
+    .array(
+      z.object({
+        key: z.string().min(1),
+        weight: z.number().positive(),
+        spacing: z.number().positive(),
+        jitter: z.number().nonnegative(),
+        side: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+      }),
+    )
+    .optional(),
 });
 
 const FrameSchema = z.object({

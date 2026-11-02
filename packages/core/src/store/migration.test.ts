@@ -267,6 +267,18 @@ describe('3.2: old water goes, plateau settings arrive', () => {
     expect(result.layers).toBe(doc.layers)
   })
 
+  it('loads a 3.2 file whose props carry no attachment unchanged, and one that does as it is', () => {
+    const prop = {
+      id: 'p1', name: 'Crate', childType: 'asset', visible: true, objectType: 'asset', assetId: 'gg-demo:crate',
+      position: { x: 2, y: 3 }, rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
+    }
+    const tree = { ...prop, id: 'r~0', attachedTo: { kind: 'path', id: 'r', t: 0.4, side: 1 } }
+    const doc = { ...V2_BASE, version: '3.2', layers: [dungeon('l1', [prop, tree])] } as unknown as Parameters<typeof migrateToLatest>[0]
+    const before = JSON.stringify(doc.layers)
+    const result = migrateToLatest(doc)
+    expect(JSON.stringify(result.layers)).toBe(before)
+  })
+
   it('hands the layers back untouched when there is no water', () => {
     const layers = [dungeon('l1', [corridor, torch])] as unknown as Parameters<typeof dropWaterBodies>[0]
     expect(dropWaterBodies(layers)).toEqual({ layers, removed: 0 })

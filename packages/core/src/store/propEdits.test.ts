@@ -4,6 +4,7 @@ import { undoManager } from './undoManager';
 import { createDungeonLayer } from './factories';
 import {
   createAlignCommand,
+  createDetachCommand,
   createDistributeCommand,
   createDuplicateCommand,
   createMoveToLayerCommand,
@@ -142,6 +143,19 @@ describe('createPlacePropsCommand', () => {
     expect(ids(main)).toEqual(['l', 'u1', 'u2', 'a', 'b', 'top']);
     undoManager.undo();
     expect(ids(main)).toEqual(['l', 'a', 'b', 'top']);
+  });
+});
+
+describe('createDetachCommand', () => {
+  it('lets attached props go of their host where they stand, one undo puts them back', () => {
+    const host = { kind: 'path' as const, id: 'road', t: 0.25, side: 1 as const };
+    add(main, prop('tree', { position: { x: 4, y: 2 }, attachedTo: host }), prop('crate'));
+    expect(createDetachCommand(['crate'])).toBeNull();
+    run(createDetachCommand(['tree', 'crate']));
+    expect(child('tree').attachedTo).toBeUndefined();
+    close(child('tree').position, 4, 2);
+    undoManager.undo();
+    expect(child('tree').attachedTo).toEqual(host);
   });
 });
 

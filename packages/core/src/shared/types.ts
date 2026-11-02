@@ -238,6 +238,13 @@ export interface AssetChild extends LayerChild {
   glows?: boolean;
   /** How the glow burns while `glows` is on. Absent = strength 0.9, steady (`GLOW_DEFAULT`). */
   glow?: { strength: number; animation?: LightAnimation };
+  /**
+   * Placed by its host's kit along a path or a plot (engine/path/attachedObjects.ts): `t` how
+   * far along the host's line, 0..1, and `side` which side of it (1 out, -1 in, 0 on). Laid
+   * again on every edit of the host and gone with it. Absent = a plain prop (one placed by
+   * hand, or detached).
+   */
+  attachedTo?: { kind: 'path' | 'shape'; id: string; t: number; side: -1 | 0 | 1 };
 }
 
 /** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */

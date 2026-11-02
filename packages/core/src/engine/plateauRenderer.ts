@@ -342,6 +342,27 @@ export function layCliffFoot(
   return laid.filter((u) => gaps.every((g) => Math.hypot(u.x - g.position[0], u.y - g.position[1]) >= g.width / 2 + FOOT_OUT));
 }
 
+/** What a cliff run's foot is seeded by: its floor and where the run starts. */
+const footSeed = (run: EdgeRun): string => `foot|${run.owner?.id ?? ''}|${run.points[0]}`;
+
+/** The run's points as the walk takes them: a pit's walked backwards, so its void is on the left. */
+const walkPoints = (run: EdgeRun): Polygon => (run.drop > 0 ? run.points : [...run.points].reverse());
+
+/** Every cliff foot unit a layer lays, as drawn: what attached objects keep clear of. */
+export function layerFootUnits(layer: DungeonLayer): UnitPlacement[] {
+  if (!hasPlateaus(layer)) return [];
+  const { units } = footUnits();
+  if (units.length === 0) return [];
+  const gaps: DoorGap[] = ringGaps(layer).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
+  const out: UnitPlacement[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    for (const run of edgeRuns(band)) {
+      if (run.edge === 'cliff') out.push(...layCliffFoot(walkPoints(run), run.closed, gaps, units, footSeed(run)));
+    }
+  }
+  return out;
+}
+
 /** The unit direction from the nearest point of polyline `line` to (x, y). */
 function awayFrom(line: Polygon, x: number, y: number): Vec {
   let best: Vec = [0, 1];
@@ -402,7 +423,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   for (const e of foot.entries.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const ledgeTone = ledgeToneOf(art);
   const rubble: Piece[] = [];
-  for (const u of layCliffFoot(pts, run.closed, gaps, foot.units, `foot|${run.owner?.id ?? ''}|${run.points[0]}`)) {
+  for (const u of layCliffFoot(pts, run.closed, gaps, foot.units, footSeed(run))) {
     const entry = foot.entries.get(u.key);
     if (!entry || resolveTexture(entry.id).width <= 1) continue;
     rubble.push({ entry, x: u.x, y: u.y, rotation: u.rotation, scale: u.scale ?? 1, tint: greyMatch(ledgeTone, textureTone(entry.id)) });

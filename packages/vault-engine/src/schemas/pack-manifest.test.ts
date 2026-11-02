@@ -98,6 +98,20 @@ describe('kit entries', () => {
     expect(bad({ ...kitEntry.kit, edge: [{ ...kitEntry.kit.edge[0], scale: -1 }] })).toBe(false);
   });
 
+  it('keeps a kit’s attached objects, a key into another pack too, and rejects a side that is not -1, 0 or 1', () => {
+    const objects = [
+      { key: 'gg-demo:tree_small_1_3x3_object_A', weight: 1, spacing: 6, jitter: 3.14, side: 1 },
+      { key: 'water-lily-pads_1x1_object_A', weight: 2, spacing: 3, jitter: 3.14, side: -1 },
+    ];
+    const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { k: { ...kitEntry, kit: { ...kitEntry.kit, objects } } } });
+    expect(parsed.entries.k!.kit?.objects).toEqual(objects);
+    const bad = PackManifestSchema.safeParse({
+      ...VALID_MANIFEST,
+      entries: { k: { ...kitEntry, kit: { ...kitEntry.kit, objects: [{ ...objects[0], side: 2 }] } } },
+    });
+    expect(bad.success).toBe(false);
+  });
+
   it('keeps a water kit’s fall piece, and rejects an empty one', () => {
     const water = { kind: 'surface', fill: 'water-fill', band: { straight: ['water-bank'], bendDrawn: true }, fall: 'water-fall' };
     const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { 'water-kit': { ...kitEntry, kit: water } } });

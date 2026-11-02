@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2777,7 +2777,23 @@
             "jitter": 3.14
           }
         ],
-        "scale": 0.5
+        "scale": 0.5,
+        "objects": [
+          {
+            "key": "gg-demo:tree_small_1_3x3_object_A",
+            "weight": 1,
+            "spacing": 5,
+            "jitter": 3.14,
+            "side": 1
+          },
+          {
+            "key": "gg-demo:tree_small_2_3x3_object_A",
+            "weight": 1,
+            "spacing": 5,
+            "jitter": 3.14,
+            "side": 1
+          }
+        ]
       }
     },
     "road-cobble-kit": {
@@ -2915,30 +2931,6 @@
         "fill": "water-fill",
         "edge": [
           {
-            "key": "water-reeds_1x1_object_A",
-            "weight": 2,
-            "spacing": 1.5,
-            "jitter": 0.5
-          },
-          {
-            "key": "water-reeds_1x1_object_B",
-            "weight": 2,
-            "spacing": 1.5,
-            "jitter": 0.5
-          },
-          {
-            "key": "water-lily-pads_1x1_object_A",
-            "weight": 1,
-            "spacing": 2.5,
-            "jitter": 3.14
-          },
-          {
-            "key": "water-lily-pads_1x1_object_B",
-            "weight": 1,
-            "spacing": 2.5,
-            "jitter": 3.14
-          },
-          {
             "key": "water-ripple_1x1_object_A",
             "weight": 1,
             "spacing": 3,
@@ -2956,7 +2948,37 @@
           "scale": 1
         },
         "fall": "water-fall",
-        "scale": 0.5
+        "scale": 0.5,
+        "objects": [
+          {
+            "key": "water-reeds_1x1_object_A",
+            "weight": 2,
+            "spacing": 2.5,
+            "jitter": 0.5,
+            "side": 0
+          },
+          {
+            "key": "water-reeds_1x1_object_B",
+            "weight": 2,
+            "spacing": 2.5,
+            "jitter": 0.5,
+            "side": 0
+          },
+          {
+            "key": "water-lily-pads_1x1_object_A",
+            "weight": 1,
+            "spacing": 3.5,
+            "jitter": 3.14,
+            "side": -1
+          },
+          {
+            "key": "water-lily-pads_1x1_object_B",
+            "weight": 1,
+            "spacing": 3.5,
+            "jitter": 3.14,
+            "side": -1
+          }
+        ]
       }
     },
     "cliff-foot-kit": {
@@ -2986,7 +3008,23 @@
             "jitter": 3.14
           }
         ],
-        "scale": 0.5
+        "scale": 0.5,
+        "objects": [
+          {
+            "key": "cliff-rubble_1x1_object_A",
+            "weight": 1,
+            "spacing": 4,
+            "jitter": 3.14,
+            "side": 1
+          },
+          {
+            "key": "cliff-rubble_1x1_object_B",
+            "weight": 1,
+            "spacing": 4,
+            "jitter": 3.14,
+            "side": 1
+          }
+        ]
       }
     }
   },

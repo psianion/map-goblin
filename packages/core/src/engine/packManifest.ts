@@ -67,6 +67,21 @@ export interface KitManifest {
   fall?: string
   /** What edge units naming no scale of their own are laid at against their painted size: 0.5 when absent. */
   scale?: number
+  /** Props placed along the outline as attached objects (engine/path/attachedObjects.ts). */
+  objects?: KitObject[]
+}
+
+/**
+ * A prop a kit places along its outline: picked by weight, `spacing` cells apart, turned up
+ * to `jitter` radians, on `side` of the outline (1 out, -1 in, 0 on it). `key` names an entry
+ * of the kit's pack, or of another pack as `<packId>:<entry>`.
+ */
+export interface KitObject {
+  key: string
+  weight: number
+  spacing: number
+  jitter: number
+  side: -1 | 0 | 1
 }
 
 export interface PackManifest {
