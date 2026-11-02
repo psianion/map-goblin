@@ -13,7 +13,7 @@ import type { CaveKitPiece } from '../../assets/caveWallKit';
 import { layBandRing, orientRings } from '../caveBandRenderer';
 import type { WalkPlacement } from '../caveWalk';
 
-/** One edge unit a kit may lay. `size` is its footprint across, cells. */
+/** One edge unit a kit may lay. `size` is its footprint across as laid, cells. */
 export interface EdgeUnit {
   key: string;
   weight: number;
@@ -22,15 +22,24 @@ export interface EdgeUnit {
   /** Most the unit turns off the tangent either way, radians. */
   jitter: number;
   size: number;
+  /** What it is laid at against its painted size; 1 when absent. */
+  scale?: number;
 }
 
-/** One unit laid: its centre, its turn (radians) and its footprint across (cells). */
+/** One unit laid: its centre, its turn (radians), its footprint across (cells) and its scale. */
 export interface UnitPlacement {
   key: string;
   x: number;
   y: number;
   rotation: number;
   size: number;
+  scale?: number;
+}
+
+/** How a walk runs: along open lines rather than rings, and how far units stray off the line either way (cells). */
+export interface WalkOptions {
+  open?: boolean;
+  spread?: number;
 }
 
 /** Two units may share at most this much of the smaller one's footprint. */
@@ -158,33 +167,38 @@ export function survivesEnds(ends: readonly ThinEnd[], seed: string, x: number, 
  * by weight, set on the line turned to the tangent plus up to its jitter, then the walk moves
  * on by the unit's spacing (±15 %). A unit that would overlap one already laid by more than
  * MAX_OVERLAP tries a little further on, then is skipped. `paths` gives the fade and taper
- * ends, where units are dropped rather than faded.
+ * ends, where units are dropped rather than faded. With `open` each line is walked end to end
+ * and not closed; with `spread` each unit is pushed off the line by up to that much either way.
  */
 export function edgeWalk(
   rings: readonly Polygon[],
   units: readonly EdgeUnit[],
   seed: string,
   paths: readonly PathChild[] = [],
+  options: WalkOptions = {},
 ): UnitPlacement[] {
   if (units.length === 0) return [];
   const out: UnitPlacement[] = [];
   const room = new Room(Math.max(0.5, ...units.map((u) => u.size)));
   const minSpacing = Math.min(...units.map((u) => u.spacing));
+  const spread = options.spread ?? 0;
   rings.forEach((ring, ri) => {
     const n = ring.length;
-    if (n < 3) return;
+    if (n < (options.open ? 2 : 3)) return;
+    // An open line has one segment fewer: no closing segment back to its start.
+    const segs = options.open ? n - 1 : n;
     const cum = [0];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < segs; i++) {
       const [ax, ay] = ring[i];
       const [bx, by] = ring[(i + 1) % n];
       cum.push(cum[i] + Math.hypot(bx - ax, by - ay));
     }
-    const total = cum[n];
+    const total = cum[segs];
     if (total < 1e-6) return;
     const rand = seededRandom(`${seed}|${ri}`);
     let seg = 0;
     const at = (s: number): { x: number; y: number; angle: number } => {
-      while (seg < n - 1 && cum[seg + 1] < s) seg++;
+      while (seg < segs - 1 && cum[seg + 1] < s) seg++;
       const [ax, ay] = ring[seg];
       const [bx, by] = ring[(seg + 1) % n];
       const len = cum[seg + 1] - cum[seg] || 1;
@@ -195,9 +209,17 @@ export function edgeWalk(
     while (s < total) {
       const unit = pickWeighted(units, rand());
       const turn = (rand() * 2 - 1) * unit.jitter;
+      const off = spread > 0 ? (rand() * 2 - 1) * spread : 0;
       for (let k = 0; k < ROOM_TRIES && s < total; k++) {
         const p = at(s);
-        const u: UnitPlacement = { key: unit.key, x: p.x, y: p.y, rotation: p.angle + turn, size: unit.size };
+        const u: UnitPlacement = {
+          key: unit.key,
+          x: p.x - Math.sin(p.angle) * off,
+          y: p.y + Math.cos(p.angle) * off,
+          rotation: p.angle + turn,
+          size: unit.size,
+          scale: unit.scale ?? 1,
+        };
         if (room.fits(u)) {
           room.add(u);
           out.push(u);

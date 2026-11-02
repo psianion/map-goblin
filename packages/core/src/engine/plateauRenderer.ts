@@ -33,11 +33,12 @@ import { buildEdgeStrips, sampleCentreline } from '../geometry/ribbon';
 import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
-import { CURVE_STEP, layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces, rubbleArt, rubblePieces } from './plateauKit';
+import { CURVE_STEP, layBandChain, layBandRing, placeBand, textureTone } from './caveBandRenderer';
+import { cliffArt, cliffPieces, footUnits } from './plateauKit';
 import type { DoorGap } from './wallNodeRenderer';
 import { offsetCurve, resampleClosed, type Curve, type WalkPlacement } from './caveWalk';
-import type { CaveKitPiece } from '../assets/caveWallKit';
+import { edgeWalk, type EdgeUnit, type UnitPlacement } from './path/pathKitLayout';
+import { placePieces, type Piece } from './path/kitUnits';
 
 type Vec = [number, number];
 
@@ -55,17 +56,27 @@ const INK = 0x2b2420;
 /** The cliff's top-edge line, cells wide. */
 const LINE = 0.04;
 const TOP_LINE_ALPHA = 0.5;
-/** A slope's contour rings: solid ink, heavier than the top line, one per cell of drop. */
-const CONTOUR_LINE = 0.07;
-const CONTOUR_ALPHA = 0.6;
-/** How dark a slope face turned square from the sun is shaded; one facing it, not at all. */
+/**
+ * A slope's contour rings: ink lines one per cell of drop, 2 px wide at 1x (PixiRenderEngine
+ * INITIAL_ZOOM, 20 px a cell).
+ */
+export const CONTOUR_LINE = 2 / 20;
+const CONTOUR_ALPHA = 0.85;
+/**
+ * How dark a slope face turned square from the sun is shaded at its foot; the shade steps up
+ * ring by ring from the top, so the hill reads light at the top and dark at the foot. A face
+ * turned to the sun is not shaded at all.
+ */
 const SLOPE_SHADE = 0.45;
-/** How far past the cliff edge the foot's rubble rides, cells: out beyond the ledge rock. */
-const FOOT_OUT = 0.7;
+/** How far past the cliff edge the ledge rock reaches on the low side, cells. */
+export const LEDGE_DEPTH = 0.475;
+/** How far past the cliff edge the foot's rubble rides, cells, and how far each piece strays either way. */
+export const FOOT_OUT = 0.7;
+export const FOOT_SPREAD = 0.1;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
-/** How far the light on a cliff face reaches across the rock from the edge, cells. */
-const LIGHT_REACH = 0.475;
+/** How far the light on a cliff face reaches across the rock from the edge, cells: the ledge rock's depth. */
+const LIGHT_REACH = LEDGE_DEPTH;
 /**
  * Lit/shaded faces under a sun: a face turned away from the light keeps SHADE_FLOOR of its
  * brightness, one side-on to it SHADE_SIDE, one square to it all of it. The rock art is dark
@@ -83,8 +94,11 @@ const WASH_COLOR = 0xfff0d0;
 // ─── Lighting the rock ─────────────────────────────────────
 
 interface CliffSprite {
-  /** A piece of rock, tinted by how its face turns to the light… */
+  /** A piece of rock, tinted by how its face turns to the light (over its own `base` tint)… */
   sprite?: Sprite;
+  base?: number;
+  /** A slope face's share of its full shade: deeper toward the foot. */
+  weight?: number;
   /** …or the light added over one face of it… */
   light?: Graphics;
   /** …or one face of a slope, shaded as it turns from the light. */
@@ -123,11 +137,33 @@ export function slopeShade(normal: Vec, look: ShadowLook | null): number {
 /** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
-    if (sprite && !sprite.destroyed) sprite.tint = grey(faceShade(normal, look));
+  for (const { sprite, base, weight, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
+    if (sprite && !sprite.destroyed) sprite.tint = mulColour(base ?? 0xffffff, faceShade(normal, look));
     if (light && !light.destroyed) light.alpha = faceLight(normal, look);
-    if (shade && !shade.destroyed) shade.alpha = slopeShade(normal, look);
+    if (shade && !shade.destroyed) shade.alpha = slopeShade(normal, look) * (weight ?? 1);
   }
+}
+
+/** `colour` darkened to `k` of itself. */
+function mulColour(colour: number, k: number): number {
+  const c = (shift: number) => Math.round(((colour >> shift) & 255) * Math.max(0, Math.min(1, k)));
+  return (c(16) << 16) | (c(8) << 8) | c(0);
+}
+
+/**
+ * The tint that turns art whose mean colour is `unit` the ledge's grey: every channel brought
+ * down to one neutral level, the ledge's brightness (`ledge`'s mean) or the art's darkest
+ * channel if that is darker (a tint only darkens), so no blue or purple cast of the art's own
+ * survives. White (no tint) when either colour is unknown.
+ */
+export function greyMatch(ledge: number | null, unit: number | null): number {
+  if (ledge === null || unit === null) return 0xffffff;
+  const ch = (c: number, shift: number) => (c >> shift) & 255;
+  const level = 0.299 * ch(ledge, 16) + 0.587 * ch(ledge, 8) + 0.114 * ch(ledge, 0);
+  const own = [ch(unit, 16), ch(unit, 8), ch(unit, 0)];
+  const target = Math.min(level, ...own);
+  const [r, g, b] = own.map((c) => (c <= 0 ? 255 : Math.round(255 * Math.min(1, target / c))));
+  return (r << 16) | (g << 8) | b;
 }
 
 // ─── Geometry helpers ──────────────────────────────────────
@@ -243,24 +279,30 @@ function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
   const shade = new Container();
   shade.label = 'plateau-slope';
   const faces: CliffSprite[] = [];
-  // Each sample is its inner and outer point; one quad per stretch between two samples.
+  const cells = Math.max(1, Math.round(drop));
+  // Each sample is its inner and outer point; per stretch between two samples, one quad for
+  // each ring step across, shaded deeper the further down the slope it lies.
   const p = strip.positions;
+  const across = (k: number, t: number): [number, number] => [p[k] + (p[k + 2] - p[k]) * t, p[k + 1] + (p[k + 3] - p[k + 1]) * t];
   for (let k = 0; k + 7 < p.length; k += 4) {
-    const quad = [p[k], p[k + 1], p[k + 4], p[k + 5], p[k + 6], p[k + 7], p[k + 2], p[k + 3]];
     const nx = (p[k + 2] + p[k + 6] - p[k] - p[k + 4]) / 2;
     const ny = (p[k + 3] + p[k + 7] - p[k + 1] - p[k + 5]) / 2;
     const len = Math.hypot(nx, ny);
     if (len < 1e-6) continue;
-    const g = new Graphics().poly(quad).fill({ color: INK });
-    g.alpha = 0;
-    shade.addChild(g);
-    faces.push({ shade: g, normal: [nx / len, ny / len] });
+    for (let r = 0; r < cells; r++) {
+      const t0 = r / cells;
+      const t1 = (r + 1) / cells;
+      const quad = [...across(k, t0), ...across(k + 4, t0), ...across(k + 4, t1), ...across(k, t1)];
+      const g = new Graphics().poly(quad).fill({ color: INK });
+      g.alpha = 0;
+      shade.addChild(g);
+      faces.push({ shade: g, normal: [nx / len, ny / len], weight: (r + 1) / cells });
+    }
   }
   parent.addChild(shade);
   if (run.owner?.contourLines === false) return faces;
   const rings = new Container();
   rings.label = 'plateau-contours';
-  const cells = Math.max(1, Math.round(drop));
   for (let k = 1; k <= cells; k++) {
     const line = offsetLine(run, (k * width) / cells, side);
     rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: CONTOUR_LINE, alpha: CONTOUR_ALPHA }));
@@ -281,15 +323,50 @@ function offsetOpen(pts: Polygon, d: number): Polygon {
 }
 
 /**
- * The rubble at a cliff's foot: the band walk with the rubble pieces along the cliff's run
- * pushed FOOT_OUT toward its void (the low side), so it lies out past the ledge rock. Gaps
- * widen by as much, so an opening or a landing parts the foot as far as it parts the rock.
+ * The rubble at a cliff's foot: the foot kit's units walked as edge units (pathKitLayout
+ * `edgeWalk`, seeded by `seed`) along the cliff's run pushed FOOT_OUT toward its void (the low
+ * side), each straying up to FOOT_SPREAD across it, so the rubble lies scattered just out past
+ * the ledge rock. A unit within an opening's or landing's reach is left out, so the foot parts
+ * where the rock does.
  */
-export function layCliffFoot(pts: Polygon, closed: boolean, gaps: DoorGap[], pieces: CaveKitPiece[]): WalkPlacement[] {
-  if (pieces.length === 0 || pts.length < 2) return [];
-  const wide = gaps.map((g) => ({ ...g, width: g.width + 2 * FOOT_OUT }));
-  if (closed) return layBandRing(offsetCurve(resampleClosed(pts as Curve, CURVE_STEP), FOOT_OUT) as Polygon, wide, pieces);
-  return layBandChain(offsetOpen(pts, FOOT_OUT), wide, pieces);
+export function layCliffFoot(
+  pts: Polygon,
+  closed: boolean,
+  gaps: readonly DoorGap[],
+  units: readonly EdgeUnit[],
+  seed: string,
+): UnitPlacement[] {
+  if (units.length === 0 || pts.length < 2) return [];
+  const line = closed ? (offsetCurve(resampleClosed(pts as Curve, CURVE_STEP), FOOT_OUT) as Polygon) : offsetOpen(pts, FOOT_OUT);
+  const laid = edgeWalk([line], units, seed, [], { open: !closed, spread: FOOT_SPREAD });
+  return laid.filter((u) => gaps.every((g) => Math.hypot(u.x - g.position[0], u.y - g.position[1]) >= g.width / 2 + FOOT_OUT));
+}
+
+/** The unit direction from the nearest point of polyline `line` to (x, y). */
+function awayFrom(line: Polygon, x: number, y: number): Vec {
+  let best: Vec = [0, 1];
+  let bestD = Infinity;
+  for (let i = 0; i + 1 < line.length; i++) {
+    const [ax, ay] = line[i];
+    const dx = line[i + 1][0] - ax;
+    const dy = line[i + 1][1] - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+    const ox = x - ax - dx * u;
+    const oy = y - ay - dy * u;
+    const d = Math.hypot(ox, oy);
+    if (d < bestD && d > 1e-9) {
+      bestD = d;
+      best = [ox / d, oy / d];
+    }
+  }
+  return best;
+}
+
+/** The mean colour of a cliff set's first ledge straight, once its art is in hand. */
+function ledgeToneOf(art: Map<string, CatalogEntry>): number | null {
+  for (const e of art.values()) if (e.material === 'ledge') return textureTone(e.id);
+  return null;
 }
 
 /** Which placements `placeBand` will turn into sprites, in the order it adds them. */
@@ -318,22 +395,25 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
 
-  // The foot first, under the rock: rubble walked out past the ledge on the low side.
+  // The foot first, under the rock: rubble walked out past the ledge on the low side, each
+  // unit tinted to the ledge's own grey.
   const sprites: CliffSprite[] = [];
-  const rubble = rubbleArt();
-  for (const e of rubble.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
-  const footPlaced = drawnPlacements(layCliffFoot(pts, run.closed, gaps, rubblePieces(rubble)), rubble);
-  if (footPlaced.length > 0) {
-    const foot = new Container();
-    foot.label = 'plateau-foot';
-    placeBand(foot, footPlaced, rubble, 0xffffff, 0);
-    footPlaced.forEach((pl, i) => {
-      const dx = pl.Q[0] - pl.P[0];
-      const dy = pl.Q[1] - pl.P[1];
-      const len = Math.hypot(dx, dy) || 1;
-      sprites.push({ sprite: foot.children[i] as Sprite, normal: [dy / len, -dx / len] });
-    });
-    parent.addChild(foot);
+  const foot = footUnits();
+  for (const e of foot.entries.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  const ledgeTone = ledgeToneOf(art);
+  const rubble: Piece[] = [];
+  for (const u of layCliffFoot(pts, run.closed, gaps, foot.units, `foot|${run.owner?.id ?? ''}|${run.points[0]}`)) {
+    const entry = foot.entries.get(u.key);
+    if (!entry || resolveTexture(entry.id).width <= 1) continue;
+    rubble.push({ entry, x: u.x, y: u.y, rotation: u.rotation, scale: u.scale ?? 1, tint: greyMatch(ledgeTone, textureTone(entry.id)) });
+  }
+  if (rubble.length > 0) {
+    const holder = new Container();
+    holder.label = 'plateau-foot';
+    placePieces(holder, rubble, 0xffffff, 0);
+    // Lit like the rock: by the face of the cliff it lies under.
+    rubble.forEach((p, i) => sprites.push({ sprite: holder.children[i] as Sprite, base: p.tint, normal: awayFrom(path, p.x, p.y) }));
+    parent.addChild(holder);
   }
 
   // The whole run, straights and corners alike, is walked with the measured ledge pieces:

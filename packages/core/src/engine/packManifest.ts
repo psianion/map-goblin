@@ -35,12 +35,16 @@ export interface ManifestEntry {
 }
 
 // SYNC: mirrors vault-engine's KitManifest (packages/vault-engine/src/types.ts)
-/** A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to `jitter` radians. */
+/**
+ * A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to
+ * `jitter` radians, laid at `scale` times its painted size (the kit's `scale` when absent).
+ */
 export interface KitEdgeUnit {
   key: string
   weight: number
   spacing: number
   jitter: number
+  scale?: number
 }
 
 /**
@@ -56,10 +60,13 @@ export interface KitManifest {
   cross?: { key: string; weight: number }[]
   railPost?: string
   rope?: { color: string; width: number }
-  band?: { straight: string[]; bendDrawn: true }
+  /** The band's straights, laid at `scale` times their painted size (1 when absent). */
+  band?: { straight: string[]; bendDrawn: true; scale?: number }
   end?: string
   /** Liquids: the piece that hangs where the path runs off a cliff. */
   fall?: string
+  /** What edge units naming no scale of their own are laid at against their painted size: 0.5 when absent. */
+  scale?: number
 }
 
 export interface PackManifest {

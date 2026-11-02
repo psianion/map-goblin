@@ -26,6 +26,18 @@ const manager = {
           ledge_1x4_A: object('ledge', '1x4', 'GG_Cave_Ink'),
           'cliff-rubble_1x1_object_A': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
           'cliff-rubble_1x1_object_B': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
+          'cliff-foot-kit': {
+            type: 'kit',
+            material: 'cliff-foot',
+            gridSize: '1x1',
+            set: 'cliff-foot',
+            tags: ['path', 'kit'],
+            kit: {
+              kind: 'surface',
+              scale: 0.5,
+              edge: ['A', 'B'].map((v) => ({ key: `cliff-rubble_1x1_object_${v}`, weight: 1, spacing: 0.7, jitter: 3.14 })),
+            },
+          },
         },
       },
     },
@@ -51,9 +63,21 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
-import { cliffArt, cliffArtSetIds, cliffPieces, rubbleArt, rubblePieces } from './plateauKit';
-import { drawOpening, layCliffFoot, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
-import { cliffShadowGeometry } from './shadowPass';
+import { cliffArt, cliffArtSetIds, cliffPieces, footUnits } from './plateauKit';
+import {
+  CONTOUR_LINE,
+  FOOT_OUT,
+  FOOT_SPREAD,
+  drawOpening,
+  layCliffFoot,
+  faceLight,
+  faceShade,
+  renderPlateaus,
+  shadeCliffs,
+  SHADE_FLOOR,
+  SHADE_SIDE,
+} from './plateauRenderer';
+import { BLUR_WEIGHTS_5, CLIFF_BLUR_PASSES, CLIFF_SHADOW_ALPHA, cliffBlurStrength, cliffShadowGeometry } from './shadowPass';
 import { CASTER_HEIGHT, casterLook, type ShadowLook } from '../shared/shadows';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
@@ -144,7 +168,7 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  it('draws a slope as one ink contour ring per cell of drop, flat shade, no gradient; none when switched off', () => {
+  it('draws a slope as one ink contour ring per cell of drop, 2 px at 1x, shaded in quads; none when switched off', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), parent, paint);
     const band = parent.children[0] as Container;
@@ -153,6 +177,8 @@ describe('renderPlateaus', () => {
     // Each ring a cell further down the slope: 8, 10 and 12 cells across round the 6-cell top.
     const widths = contours.children.map((g) => Math.round(g.getLocalBounds().width));
     expect(widths).toEqual([8, 10, 12]);
+    // 2 px wide at 1x (20 px a cell).
+    expect(CONTOUR_LINE * 20).toBeCloseTo(2);
     expect(band.children.some((c) => c.label === 'plateau-slope')).toBe(true);
     const meshes: Container[] = [];
     const walk = (c: Container) => {
@@ -192,6 +218,31 @@ describe('renderPlateaus', () => {
     expect(Math.max(...west.map((f) => f.alpha))).toBe(0);
     shadeCliffs('l1', null);
     expect(shade.children.every((g) => g.alpha === 0)).toBe(true);
+  });
+
+  it('reads as a hill: on the face turned from the sun, light at the top and darker ring by ring to the foot', () => {
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), parent, paint);
+    const band = parent.children[0] as Container;
+    const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
+    shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
+    // The east face's quads (not its corner wedges), by how far down the slope each lies.
+    const east = shade.children
+      .map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }))
+      .filter(({ b }) => b.minX >= 11 - 1e-6 && b.height > 2);
+    const byStep = new Map<number, number[]>();
+    for (const { b, alpha } of east) {
+      const step = Math.floor((b.minX + b.maxX) / 2 - 11);
+      byStep.set(step, [...(byStep.get(step) ?? []), alpha]);
+    }
+    expect([...byStep.keys()].sort()).toEqual([0, 1, 2]);
+    // Brightness under the shade (1 - alpha), top to foot.
+    const bright = [0, 1, 2].map((k) => 1 - Math.max(...byStep.get(k)!));
+    expect(bright[0]).toBeGreaterThan(bright[1]);
+    expect(bright[1]).toBeGreaterThan(bright[2]);
+    expect(bright[0] - bright[2]).toBeGreaterThan(0.2);
+    // Every quad of one step is shaded alike: flat between rings, a step at each.
+    for (const alphas of byStep.values()) expect(Math.max(...alphas) - Math.min(...alphas)).toBeLessThan(1e-9);
   });
 
   it('orders bands low to high, a pit before the plateau', () => {
@@ -279,28 +330,29 @@ describe('every cliff ring is walked', () => {
 });
 
 describe('the cliff foot', () => {
-  const pieces = () => rubblePieces(rubbleArt());
+  const units = () => footUnits().units;
   const square: Polygon = [[5, 5], [11, 5], [11, 11], [5, 11]];
 
-  it('builds the foot band from the cliff rubble units', () => {
-    expect(pieces().map((p) => [p.key, p.chordCells, p.turnDeg])).toEqual([
-      ['gg-forge:cliff-rubble_1x1_object_A', 1, 0],
-      ['gg-forge:cliff-rubble_1x1_object_B', 1, 0],
+  it('walks the foot kit’s rubble units at half their size', () => {
+    expect(units().map((u) => [u.key, u.size, u.scale])).toEqual([
+      ['cliff-rubble_1x1_object_A', 0.5, 0.5],
+      ['cliff-rubble_1x1_object_B', 0.5, 0.5],
     ]);
   });
 
-  it('lays rubble round a plateau and a round one with no holes, out on the void side of the ledge', () => {
+  it('scatters rubble round a plateau and a round one, out on the void side of the ledge', () => {
     const round: Polygon = Array.from({ length: 24 }, (_, i) => [20 + 4 * Math.cos((i / 24) * 2 * Math.PI), 20 + 4 * Math.sin((i / 24) * 2 * Math.PI)]);
-    for (const ring of [square, round]) {
-      const placed = layCliffFoot(ring, true, [], pieces());
-      expect(placed.length).toBeGreaterThan(10);
-      expect(bandHoles(placed, true)).toEqual([]);
+    expect(layCliffFoot(round, true, [], units(), 'r').length).toBeGreaterThan(20);
+    const placed = layCliffFoot(square, true, [], units(), 's');
+    expect(placed.length).toBeGreaterThan(20);
+    // Every unit of the square's foot sits outside the square, FOOT_OUT out give or take its spread.
+    for (const u of placed) {
+      const d = Math.hypot(Math.max(5 - u.x, 0, u.x - 11), Math.max(5 - u.y, 0, u.y - 11));
+      expect(d, `${u.x.toFixed(2)}, ${u.y.toFixed(2)}`).toBeGreaterThan(FOOT_OUT - FOOT_SPREAD - 0.15);
+      expect(d).toBeLessThan(FOOT_OUT + FOOT_SPREAD + 0.15);
     }
-    // Every piece of the square's foot sits outside the square.
-    for (const pl of layCliffFoot(square, true, [], pieces())) {
-      const { x, y } = pl.at.position;
-      expect(x < 5 || x > 11 || y < 5 || y > 11, `${x.toFixed(2)}, ${y.toFixed(2)}`).toBe(true);
-    }
+    // The same run lays the same rubble: seeded, so an unrelated edit leaves it be.
+    expect(layCliffFoot(square, true, [], units(), 's')).toEqual(placed);
   });
 
   it('draws the foot under the rock of every cliff, inside a pit', () => {
@@ -318,9 +370,9 @@ describe('the cliff foot', () => {
   });
 
   it('parts the foot where an opening stands', () => {
-    const plain = layCliffFoot(square, true, [], pieces());
-    const cut = layCliffFoot(square, true, [{ wallId: 'opening:s', position: [8, 11], width: 2 }], pieces());
-    const near = (list: typeof plain) => list.filter((pl) => Math.hypot(pl.at.position.x - 8, pl.at.position.y - 11.6) < 0.6).length;
+    const plain = layCliffFoot(square, true, [], units(), 's');
+    const cut = layCliffFoot(square, true, [{ wallId: 'opening:s', position: [8, 11], width: 2 }], units(), 's');
+    const near = (list: typeof plain) => list.filter((u) => Math.hypot(u.x - 8, u.y - 11.7) < 0.6).length;
     expect(near(plain)).toBeGreaterThan(0);
     expect(near(cut)).toBe(0);
   });
@@ -378,7 +430,7 @@ describe('light on the rock', () => {
 describe('cliff shadows', () => {
   const look: ShadowLook = { dx: 1, dy: 0, length: 1.2, alpha: 0.4, color: '#000000' };
   const groundRing: Polygon[] = [ground.contours[0] as Polygon];
-  const points = (polys: Polygon[][]) => polys.flat().flat();
+  const points = (polys: Polygon[]) => polys.flat();
 
   it('casts as tall as the drop', () => {
     expect(casterLook(look, 2).length).toBeCloseTo((2 / CASTER_HEIGHT) * look.length);
@@ -406,6 +458,37 @@ describe('cliff shadows', () => {
       expect(x).toBeLessThanOrEqual(12 + 1e-6);
       expect(y).toBeGreaterThanOrEqual(10 - 1e-6);
       expect(y).toBeLessThanOrEqual(16 + 1e-6);
+    }
+  });
+
+  it('is soft: a flat 40 % black whose far edge the blur fades over at least 0.3 cell at any zoom', () => {
+    expect(CLIFF_SHADOW_ALPHA).toBeGreaterThanOrEqual(0.35);
+    expect(CLIFF_SHADOW_ALPHA).toBeLessThanOrEqual(0.45);
+    // Pixi's blur, pass for pass: 5 taps `u` px apart, the first pass at the strength that
+    // makes the passes add up to the filter's, each next one half the last; across the far edge.
+    const fade = (pxPerCell: number): number => {
+      const strength = cliffBlurStrength(pxPerCell);
+      const sum = [...Array(CLIFF_BLUR_PASSES).keys()].reduce((acc, i) => acc + 0.25 ** i, 0);
+      const n = 4000;
+      let row: number[] = Array.from({ length: n }, (_, i) => (i < n / 2 ? CLIFF_SHADOW_ALPHA : 0));
+      const at = (r: number[], x: number) => {
+        const c = Math.max(0, Math.min(n - 1, x));
+        const i = Math.floor(c);
+        const t = c - i;
+        return r[i] * (1 - t) + r[Math.min(n - 1, i + 1)] * t;
+      };
+      const w = [BLUR_WEIGHTS_5[2], BLUR_WEIGHTS_5[1], BLUR_WEIGHTS_5[0], BLUR_WEIGHTS_5[1], BLUR_WEIGHTS_5[2]];
+      for (let pass = 0, u = strength / Math.sqrt(sum); pass < CLIFF_BLUR_PASSES; pass++, u /= 2) {
+        const prev = row;
+        row = prev.map((_, x) => w.reduce((acc, wk, k) => acc + wk * at(prev, x + (k - 2) * u), 0));
+      }
+      const hi = row.findIndex((a) => a < 0.9 * CLIFF_SHADOW_ALPHA);
+      const lo = row.findIndex((a) => a < 0.1 * CLIFF_SHADOW_ALPHA);
+      return (lo - hi) / pxPerCell;
+    };
+    for (const zoom of [20, 60, 120]) {
+      expect(fade(zoom), `at ${zoom} px a cell`).toBeGreaterThanOrEqual(0.3);
+      expect(fade(zoom)).toBeLessThan(0.6);
     }
   });
 

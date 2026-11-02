@@ -49,12 +49,16 @@ export type PieceType = WallPieceType | FloorPieceType | PathPieceType | 'floor'
  */
 export type KitKind = 'surface' | 'planks' | 'band';
 
-/** A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to `jitter` radians. */
+/**
+ * A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to
+ * `jitter` radians, laid at `scale` times its painted size (the kit's `scale` when absent).
+ */
 export interface KitEdgeUnit {
   key: string;
   weight: number;
   spacing: number;
   jitter: number;
+  scale?: number;
 }
 
 /** A unit laid across a path, picked by weight. */
@@ -70,10 +74,13 @@ export interface KitManifest {
   cross?: KitCrossUnit[];
   railPost?: string;
   rope?: { color: string; width: number };
-  band?: { straight: string[]; bendDrawn: true };
+  /** The band's straights, laid at `scale` times their painted size (1 when absent). */
+  band?: { straight: string[]; bendDrawn: true; scale?: number };
   end?: string;
   /** Liquids: the piece that hangs where the path runs off a cliff. */
   fall?: string;
+  /** What edge units naming no scale of their own are laid at against their painted size: 0.5 when absent. */
+  scale?: number;
 }
 
 /** Grid size notation (e.g., "1x1", "2x1", "3x1") */

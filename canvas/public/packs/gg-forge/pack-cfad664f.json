@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2743,40 +2743,41 @@
           {
             "key": "dirt-grass-tuft_1x1_object_A",
             "weight": 2,
-            "spacing": 1,
+            "spacing": 0.7,
             "jitter": 0.5
           },
           {
             "key": "dirt-grass-tuft_1x1_object_B",
             "weight": 2,
-            "spacing": 1,
+            "spacing": 0.7,
             "jitter": 0.5
           },
           {
             "key": "dirt-pebbles_1x1_object_A",
             "weight": 3,
-            "spacing": 0.7,
+            "spacing": 0.6,
             "jitter": 3.14
           },
           {
             "key": "dirt-pebbles_1x1_object_B",
             "weight": 3,
-            "spacing": 0.7,
+            "spacing": 0.6,
             "jitter": 3.14
           },
           {
             "key": "dirt-puddle_1x1_object_A",
             "weight": 0.5,
-            "spacing": 2.5,
+            "spacing": 1.5,
             "jitter": 3.14
           },
           {
             "key": "dirt-puddle_1x1_object_B",
             "weight": 0.5,
-            "spacing": 2.5,
+            "spacing": 1.5,
             "jitter": 3.14
           }
-        ]
+        ],
+        "scale": 0.5
       }
     },
     "road-cobble-kit": {
@@ -2797,28 +2798,29 @@
           {
             "key": "dirt-cobbles_1x1_object_A",
             "weight": 3,
-            "spacing": 0.8,
+            "spacing": 0.65,
             "jitter": 3.14
           },
           {
             "key": "dirt-cobbles_1x1_object_B",
             "weight": 3,
-            "spacing": 0.8,
+            "spacing": 0.65,
             "jitter": 3.14
           },
           {
             "key": "dirt-flagstone_1x1_object_A",
             "weight": 1,
-            "spacing": 1.2,
+            "spacing": 0.8,
             "jitter": 0.4
           },
           {
             "key": "dirt-flagstone_1x1_object_B",
             "weight": 1,
-            "spacing": 1.2,
+            "spacing": 0.8,
             "jitter": 0.4
           }
-        ]
+        ],
+        "scale": 0.5
       }
     },
     "trail-grass-kit": {
@@ -2839,22 +2841,23 @@
           {
             "key": "dirt-grass-tuft_1x1_object_A",
             "weight": 3,
-            "spacing": 0.8,
+            "spacing": 0.65,
             "jitter": 0.6
           },
           {
             "key": "dirt-grass-tuft_1x1_object_B",
             "weight": 3,
-            "spacing": 0.8,
+            "spacing": 0.65,
             "jitter": 0.6
           },
           {
             "key": "dirt-pebbles_1x1_object_A",
             "weight": 1,
-            "spacing": 1.5,
+            "spacing": 1,
             "jitter": 3.14
           }
-        ]
+        ],
+        "scale": 0.5
       }
     },
     "planks-kit": {
@@ -2949,9 +2952,41 @@
             "water-bank-long_4x1_object_A",
             "water-bank-long_4x1_object_B"
           ],
-          "bendDrawn": true
+          "bendDrawn": true,
+          "scale": 1
         },
-        "fall": "water-fall"
+        "fall": "water-fall",
+        "scale": 0.5
+      }
+    },
+    "cliff-foot-kit": {
+      "type": "kit",
+      "material": "cliff-foot",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "cliff-foot",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "surface",
+        "edge": [
+          {
+            "key": "cliff-rubble_1x1_object_A",
+            "weight": 1,
+            "spacing": 0.7,
+            "jitter": 3.14
+          },
+          {
+            "key": "cliff-rubble_1x1_object_B",
+            "weight": 1,
+            "spacing": 0.7,
+            "jitter": 3.14
+          }
+        ],
+        "scale": 0.5
       }
     }
   },

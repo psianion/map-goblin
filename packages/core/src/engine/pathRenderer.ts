@@ -9,16 +9,17 @@
 // The units are pooled sprites, one pool per group kept across redraws, re-laid on every
 // edit the way the cave band is (caveBandRenderer `placeBand`).
 
-import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
+import { Container, Graphics, type Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
 import { pathOutline, pointInPath } from '../geometry/pathGeometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { GRID_CELL_PX, kitPiece, pathKit, type CatalogEntry, type PathKit } from '../assets/packCatalog';
+import { kitPiece, pathKit, type CatalogEntry, type PathKit } from '../assets/packCatalog';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { paintTiled } from './floorWallRenderer';
-import { bankPieces, edgeWalk, layBank, layPlanks, type EdgeUnit, type PlanksKit } from './path/pathKitLayout';
+import { bankPieces, edgeWalk, layBank, layPlanks, type PlanksKit } from './path/pathKitLayout';
+import { kitEdgeUnits, paintedSize, placePieces, type Piece } from './path/kitUnits';
 import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
 import { placeBand, textureTone } from './caveBandRenderer';
 import type { PathChild } from '../shared/types';
@@ -118,42 +119,6 @@ function drawFill(parent: Container, rings: Polygon[], kit: PathKit | undefined,
   parent.children[parent.children.length - 1].label = 'path-fill';
 }
 
-/** A piece to draw: its pack entry, centre, turn, and size against the authored one. */
-interface Piece {
-  entry: CatalogEntry;
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
-}
-
-/** A piece's painted width and height, cells: its content rect, else its grid size. */
-function paintedSize(entry: CatalogEntry): { w: number; h: number } {
-  const cr = entry.contentRect;
-  if (cr) return { w: cr.w / GRID_CELL_PX, h: cr.h / GRID_CELL_PX };
-  const [w, h] = entry.gridSize.split('x').map(Number);
-  return { w, h };
-}
-
-/** A unit's footprint across, cells. */
-function unitSize(entry: CatalogEntry): number {
-  const { w, h } = paintedSize(entry);
-  return Math.max(w, h);
-}
-
-/** The kit's edge units the pack has art for, and their entries by key. */
-function edgeUnits(kit: PathKit): { units: EdgeUnit[]; entries: Map<string, CatalogEntry> } {
-  const units: EdgeUnit[] = [];
-  const entries = new Map<string, CatalogEntry>();
-  for (const u of kit.manifest.edge ?? []) {
-    const entry = kitPiece(kit, u.key);
-    if (!entry) continue;
-    entries.set(u.key, entry);
-    units.push({ ...u, size: unitSize(entry) });
-  }
-  return { units, entries };
-}
-
 /** The kit's planks, post and end piece the pack has art for, and their entries by key. */
 function planksOf(kit: PathKit): { planks: PlanksKit; entries: Map<string, CatalogEntry> } {
   const entries = new Map<string, CatalogEntry>();
@@ -189,20 +154,26 @@ function piecesOf(
   return out;
 }
 
-/** The kit's bank straights the pack has art for, as walk pieces, and the colour they are drawn in. */
-function bankOf(kit: PathKit): { pieces: ReturnType<typeof bankPieces>; art: Map<string, CatalogEntry>; tone: number } | null {
+/**
+ * The kit's bank straights the pack has art for, as walk pieces at the band's scale, and the
+ * colour they are drawn in.
+ */
+function bankOf(
+  kit: PathKit,
+): { pieces: ReturnType<typeof bankPieces>; art: Map<string, CatalogEntry>; tone: number; scale: number } | null {
   const art = new Map<string, CatalogEntry>();
   const straights: { key: string; length: number }[] = [];
+  const scale = kit.manifest.band?.scale ?? 1;
   for (const key of kit.manifest.band?.straight ?? []) {
     const entry = kitPiece(kit, key);
     if (!entry) continue;
     art.set(key, entry);
-    straights.push({ key, length: paintedSize(entry).w });
+    straights.push({ key, length: paintedSize(entry).w * scale });
   }
   const first = art.values().next().value;
   // Wait for the first straight's art: the ground under the bank takes its colour.
   if (!first || !textureNow(first.id)) return null;
-  return { pieces: bankPieces(straights), art, tone: textureTone(first.id) ?? BANK_FALLBACK };
+  return { pieces: bankPieces(straights), art, tone: textureTone(first.id) ?? BANK_FALLBACK, scale };
 }
 
 /** A pooled Graphics at slot `at` of `pool`, cleared: where the pieces drawn in code go. */
@@ -212,39 +183,6 @@ function graphicsAt(pool: Container, at: number): Graphics {
   const g = new Graphics();
   pool.addChildAt(g, at);
   return g;
-}
-
-/**
- * Fill `pool` from index `from` with one sprite per piece, reusing the sprites already there.
- * The sprite pivots on its tile's centre even when its texture arrived trimmed to the content
- * rect, as the cave band's do. Returns the next free index.
- */
-function placePieces(pool: Container, pieces: readonly Piece[], tint: number, from: number): number {
-  let at = from;
-  for (const p of pieces) {
-    const tex = textureLoader.resolveTexture(p.entry.id);
-    if (tex.width <= 1) continue;
-    const slot = pool.children[at];
-    let sprite: Sprite;
-    if (slot instanceof Sprite) {
-      sprite = slot;
-      sprite.texture = tex;
-    } else {
-      sprite = new Sprite(tex);
-      pool.addChildAt(sprite, at);
-    }
-    const cr = p.entry.contentRect;
-    if (cr) sprite.anchor.set((p.entry.naturalWidth / 2 - cr.x) / cr.w, (p.entry.naturalHeight / 2 - cr.y) / cr.h);
-    else sprite.anchor.set(0.5, 0.5);
-    sprite.position.set(p.x, p.y);
-    sprite.rotation = p.rotation;
-    const px = cr ? cr.w : p.entry.naturalWidth;
-    sprite.scale.set(((px / tex.width) * p.scale) / GRID_CELL_PX);
-    sprite.tint = tint;
-    sprite.label = p.entry.material;
-    at++;
-  }
-  return at;
 }
 
 /**
@@ -261,11 +199,12 @@ function drawGroup(parent: Container, layer: DungeonLayer, group: Group, pool: C
   const bank = kit?.manifest.band && rings.length > 0 ? bankOf(kit) : null;
   if (bank) {
     for (const { ring, placed } of layBank(rings, bank.pieces)) {
-      at = placeBand(pool, placed, bank.art, tint, at, { edge: ring, closed: true, gaps: [], color: bank.tone });
+      const laid = bank.scale === 1 ? placed : placed.map((pl) => ({ ...pl, at: { ...pl.at, scale: pl.at.scale * bank.scale } }));
+      at = placeBand(pool, laid, bank.art, tint, at, { edge: ring, closed: true, gaps: [], color: bank.tone });
     }
   }
   if (kit && rings.length > 0) {
-    const { units, entries } = edgeUnits(kit);
+    const { units, entries } = kitEdgeUnits(kit);
     at = placePieces(pool, piecesOf(edgeWalk(rings, units, head.id, group.paths), entries), tint, at);
   }
   if (kit?.kind === 'planks') {

@@ -17,14 +17,25 @@ const KitManifestSchema = z.object({
   kind: z.enum(['surface', 'planks', 'band']),
   fill: z.string().min(1).optional(),
   edge: z
-    .array(z.object({ key: z.string().min(1), weight: z.number().positive(), spacing: z.number().positive(), jitter: z.number().nonnegative() }))
+    .array(
+      z.object({
+        key: z.string().min(1),
+        weight: z.number().positive(),
+        spacing: z.number().positive(),
+        jitter: z.number().nonnegative(),
+        scale: z.number().positive().optional(),
+      }),
+    )
     .optional(),
   cross: z.array(z.object({ key: z.string().min(1), weight: z.number().positive() })).optional(),
   railPost: z.string().min(1).optional(),
   rope: z.object({ color: z.string().min(1), width: z.number().positive() }).optional(),
-  band: z.object({ straight: z.array(z.string().min(1)).min(1), bendDrawn: z.literal(true) }).optional(),
+  band: z
+    .object({ straight: z.array(z.string().min(1)).min(1), bendDrawn: z.literal(true), scale: z.number().positive().optional() })
+    .optional(),
   end: z.string().min(1).optional(),
   fall: z.string().min(1).optional(),
+  scale: z.number().positive().optional(),
 });
 
 const FrameSchema = z.object({

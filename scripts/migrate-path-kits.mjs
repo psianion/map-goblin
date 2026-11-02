@@ -13,6 +13,9 @@
 // - builds each kit's edge, cross, rail and band pieces from the round 4 units in
 //   GG_Paths_Props (scripts/install-paths-round4.mjs installs them);
 // - names the water fall as the water kit's `fall` piece;
+// - lays edge units at half their painted size (the kit's `scale`), spaced to cover about a
+//   third of their verge, the water bank at its own size, and adds the `cliff-foot` kit whose
+//   edge units are the rubble walked along a cliff's foot;
 // - removes every strip, edge and end entry, and the files only they used.
 //
 // Rerunnable: a pack with nothing left to migrate is left alone. Then rebuilds the pack
@@ -39,17 +42,26 @@ const KITS = {
   'road-dirt': {
     kind: 'surface',
     fill: 'road-dirt-fill',
-    edge: [...both('dirt-grass-tuft', '1x1', 2, 1, 0.5), ...both('dirt-pebbles', '1x1', 3, 0.7, PI), ...both('dirt-puddle', '1x1', 0.5, 2.5, PI)],
+    scale: 0.5,
+    edge: [...both('dirt-grass-tuft', '1x1', 2, 0.7, 0.5), ...both('dirt-pebbles', '1x1', 3, 0.6, PI), ...both('dirt-puddle', '1x1', 0.5, 1.5, PI)],
   },
   'road-cobble': {
     kind: 'surface',
     fill: 'road-cobble-fill',
-    edge: [...both('dirt-cobbles', '1x1', 3, 0.8, PI), ...both('dirt-flagstone', '1x1', 1, 1.2, 0.4)],
+    scale: 0.5,
+    edge: [...both('dirt-cobbles', '1x1', 3, 0.65, PI), ...both('dirt-flagstone', '1x1', 1, 0.8, 0.4)],
   },
   'trail-grass': {
     kind: 'surface',
     fill: 'trail-grass-fill',
-    edge: [...both('dirt-grass-tuft', '1x1', 3, 0.8, 0.6), { key: unit('dirt-pebbles', 'A', '1x1'), weight: 1, spacing: 1.5, jitter: PI }],
+    scale: 0.5,
+    edge: [...both('dirt-grass-tuft', '1x1', 3, 0.65, 0.6), { key: unit('dirt-pebbles', 'A', '1x1'), weight: 1, spacing: 1, jitter: PI }],
+  },
+  // No fill: the outline is a cliff's foot line, walked with rubble.
+  'cliff-foot': {
+    kind: 'surface',
+    scale: 0.5,
+    edge: both('cliff-rubble', '1x1', 1, 0.7, PI),
   },
   planks: {
     kind: 'planks',
@@ -67,7 +79,9 @@ const KITS = {
     band: {
       straight: [unit('water-bank', 'A', '2x1'), unit('water-bank', 'B', '2x1'), unit('water-bank-long', 'A', '4x1'), unit('water-bank-long', 'B', '4x1')],
       bendDrawn: true,
+      scale: 1,
     },
+    scale: 0.5,
     edge: [...both('water-reeds', '1x1', 2, 1.5, 0.5), ...both('water-lily-pads', '1x1', 1, 2.5, PI), { key: unit('water-ripple', 'A', '1x1'), weight: 1, spacing: 3, jitter: PI }],
     fall: 'water-fall',
   },
@@ -122,9 +136,10 @@ for (const [set, kit] of Object.entries(KITS)) {
   if (kit.railPost && has(kit.railPost)) out.railPost = kit.railPost;
   if (kit.rope) out.rope = kit.rope;
   const straight = (kit.band?.straight ?? []).filter(has);
-  if (straight.length) out.band = { straight, bendDrawn: true };
+  if (straight.length) out.band = { straight, bendDrawn: true, ...(kit.band.scale ? { scale: kit.band.scale } : {}) };
   if (kit.end && has(kit.end)) out.end = kit.end;
   if (kit.fall && has(kit.fall)) out.fall = kit.fall;
+  if (kit.scale) out.scale = kit.scale;
   entries[`${set}-kit`] = { type: 'kit', material: set, gridSize: '1x1', pieceType: 'kit', variant: 'A', set, tags: ['path', 'kit'], kit: out };
 }
 

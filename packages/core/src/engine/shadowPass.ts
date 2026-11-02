@@ -12,7 +12,7 @@
 // (`timeBucket`) or the map's orientation moves — so a paused clock on an unedited map draws
 // once and then costs nothing, which is the whole gate.
 
-import { Graphics, Sprite } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Sprite } from 'pixi.js';
 import type { DungeonLayer, AssetChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -46,6 +46,9 @@ function shadowLookNow(): ShadowLook | null {
 
 interface LayerShadows {
   graphics: Graphics;
+  /** The cliffs' lee shadows: their own Graphics, softened by `blur` (see drawCliffShadows). */
+  cliff: Graphics;
+  blur: BlurFilter;
   signature: string;
   /** Identity of the ground the shadows were last clipped against — floor union, terrain bounds. */
   groundRef: unknown;
@@ -69,8 +72,22 @@ function shadowsOf(layerId: string): LayerShadows | null {
   graphics.blendMode = 'multiply';
   entry.sublayers.shadows.addChild(graphics);
 
+  // The cliffs' shadows lie in a holder of their own, blurred: a soft lee shadow whose edge
+  // fades out across CLIFF_SHADOW_FADE, never a hard-edged band.
+  const cliff = new Graphics();
+  cliff.label = 'cliffShadows';
+  const blur = new BlurFilter({ strength: 1, quality: CLIFF_BLUR_PASSES, kernelSize: CLIFF_BLUR_KERNEL });
+  blur.resolution = 1;
+  const holder = new Container();
+  holder.label = 'cliffShadowHolder';
+  holder.filters = [blur];
+  holder.addChild(cliff);
+  entry.sublayers.shadows.addChild(holder);
+
   const state: LayerShadows = {
     graphics,
+    cliff,
+    blur,
     signature: '',
     groundRef: undefined,
     terrainRef: undefined,
@@ -129,6 +146,7 @@ export function updateShadows(
   for (const [id, state] of byLayer) {
     if (live.has(id)) continue;
     if (!state.graphics.destroyed) state.graphics.destroy();
+    if (!state.cliff.destroyed) (state.cliff.parent ?? state.cliff).destroy({ children: true });
     byLayer.delete(id);
     propInputs.delete(id);
   }
@@ -139,6 +157,9 @@ export function updateShadows(
     const castsHere = casting || (cliffsCast && hasPlateaus(layer));
     const state = castsHere || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
     if (!state) continue;
+    // The blur is in screen pixels: kept at CLIFF_SHADOW_FADE cells at whatever the zoom is.
+    const m = state.cliff.worldTransform;
+    state.blur.strength = cliffBlurStrength(Math.hypot(m.a, m.b) || 1);
 
     // The ground is part of what is drawn, so it is part of what the memo is keyed on — and it
     // arrives on its own schedule. A freshly loaded map has `mergedFloor: null` until
@@ -160,7 +181,7 @@ export function updateShadows(
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
-    drawCliffShadows(state.graphics, layer, cliffLook);
+    drawCliffShadows(state.cliff, layer, cliffLook);
     shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
   }
@@ -213,34 +234,50 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
 /**
  * The cliffs' shadows (plan §4.3): every raised edge but a slope casts, as tall as its drop.
  * A plateau's falls outward onto whatever ground is lower than it; a pit's falls inward from
- * its rim onto the pit's own floor. Clipped as geometry, like the walls' (see above), and
- * drawn into the same Graphics at the same alpha per step.
+ * its rim onto the pit's own floor. Clipped as geometry, like the walls' (see above), filled
+ * flat at CLIFF_SHADOW_ALPHA black and softened by the holder's blur into a lee shadow whose
+ * edges fade out over CLIFF_SHADOW_FADE.
  */
 function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null): void {
+  g.clear();
   if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
-  const steps = cliffShadowGeometry(layer, look, groundOf(layer));
-  const color = parseInt(look.color.replace('#', ''), 16);
-  // A cliff is a mass of rock, not a wall's thin band: its pool reads darker at the foot.
-  const alpha = Math.min(CLIFF_SHADOW_MAX, look.alpha * CLIFF_SHADOW_STRENGTH) / SHADOW_STEPS;
-  for (let step = SHADOW_STEPS; step >= 1; step--) {
-    const polys = steps[step - 1];
-    if (polys.length === 0) continue;
-    for (const poly of polys) g.poly(poly.flat());
-    g.fill({ color, alpha });
-  }
+  const polys = cliffShadowGeometry(layer, look, groundOf(layer));
+  if (polys.length === 0) return;
+  for (const poly of polys) g.poly(poly.flat());
+  g.fill({ color: 0x000000, alpha: CLIFF_SHADOW_ALPHA });
 }
 
-/** How much darker than a wall's a cliff's shadow pools at its foot, and the most it reaches. */
-const CLIFF_SHADOW_STRENGTH = 1.8;
-const CLIFF_SHADOW_MAX = 0.8;
+/** How dark a cliff's lee shadow is: black at this opacity. */
+export const CLIFF_SHADOW_ALPHA = 0.4;
+/** How far a cliff shadow's edge takes to fade, cells: from 90 % of its darkness to 10 %. */
+export const CLIFF_SHADOW_FADE = 0.4;
+/** The blur's passes and kernel taps (Pixi's BlurFilter `quality` and `kernelSize`). */
+export const CLIFF_BLUR_PASSES = 3;
+export const CLIFF_BLUR_KERNEL = 5;
+/** The 5-tap kernel's weights, centre out, as Pixi's BlurFilter ships them (const GAUSSIAN_VALUES[5]). */
+export const BLUR_WEIGHTS_5 = [0.250301, 0.221461, 0.153388];
+/** That kernel's spread, in taps: the standard deviation its weights make. */
+const KERNEL_SIGMA = Math.sqrt(2 * (BLUR_WEIGHTS_5[1] * 1 + BLUR_WEIGHTS_5[2] * 4));
+/** A Gaussian edge falls from 90 % to 10 % over this many standard deviations. */
+const FADE_PER_SIGMA = 2.5631;
 
 /**
- * The cliffs' shadow polygons, per step (index `step - 1`), cut to where they land: a
- * plateau's on the `ground` and the lower bands outside it, a pit's on its own floor, and
- * never on a band as high as the caster or higher. Pure geometry, for the pass and its tests.
+ * The BlurFilter strength that fades a cliff shadow's edge over CLIFF_SHADOW_FADE cells at
+ * `pxPerCell` screen pixels a cell. Pixi spreads its taps `strength` pixels apart (the passes
+ * add up to that by variance), so the edge's spread is KERNEL_SIGMA × strength pixels.
  */
-export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): Polygon[][] {
-  const out: Polygon[][] = Array.from({ length: SHADOW_STEPS }, () => []);
+export function cliffBlurStrength(pxPerCell: number): number {
+  return (CLIFF_SHADOW_FADE / FADE_PER_SIGMA / KERNEL_SIGMA) * pxPerCell;
+}
+
+/**
+ * The cliffs' shadow polygons, cut to where they land: a plateau's on the `ground` and the
+ * lower bands outside it, a pit's on its own floor, and never on a band as high as the caster
+ * or higher. Each is the casting outline swept along the light by its drop's length. Pure
+ * geometry, for the pass and its tests.
+ */
+export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): Polygon[] {
+  const out: Polygon[] = [];
   const { bands } = layerPlateaus(layer);
   const everywhere = [...ground, ...bands.flatMap((b) => b.rings)];
   for (const band of bands) {
@@ -252,20 +289,19 @@ export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, groun
       const above = bands
         .filter((b) => (pit ? b.height > band.height : b.height >= band.height))
         .flatMap((b) => b.rings);
-      for (let step = 1; step <= SHADOW_STEPS; step++) {
-        const quads: Polygon[] = [];
-        for (const run of casting) {
-          const cast = casterLook(look, Math.abs(run.drop));
-          const pts = run.closed ? [...run.points, run.points[0]] : run.points;
-          for (let i = 0; i + 1 < pts.length; i++) {
-            const q = shadowBand(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], cast, step);
-            const ring: Polygon = [];
-            for (let k = 0; k < q.length; k += 2) ring.push([q[k]!, q[k + 1]!]);
-            quads.push(ring);
-          }
+      const quads: Polygon[] = [];
+      for (const run of casting) {
+        // The whole drop's length, untapered: the blur is what softens it.
+        const cast = { ...casterLook(look, Math.abs(run.drop)), taper: 0 };
+        const pts = run.closed ? [...run.points, run.points[0]] : run.points;
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const q = shadowBand(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], cast, 1, 1);
+          const ring: Polygon = [];
+          for (let k = 0; k < q.length; k += 2) ring.push([q[k]!, q[k + 1]!]);
+          quads.push(ring);
         }
-        out[step - 1].push(...clipper2Engine.difference(clipper2Engine.intersection(quads, onto), above));
       }
+      out.push(...clipper2Engine.difference(clipper2Engine.intersection(quads, onto), above));
     }
   }
   return out;

@@ -3,9 +3,10 @@
 // ship in gg-demo (ledge_bend_*), so a set's own ledge bends are used when it has them and
 // gg-demo's otherwise. Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
-import { GRID_CELL_PX, bandSetArt, getBandSetIds, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, getBandSetIds, getEntriesByType, pathKits, type CatalogEntry } from '../assets/packCatalog';
 import { ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
-import { bankPieces } from './path/pathKitLayout';
+import type { EdgeUnit } from './path/pathKitLayout';
+import { kitEdgeUnits } from './path/kitUnits';
 
 /** The band set a cliff takes when its floor names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
@@ -53,22 +54,14 @@ export function cliffPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
 }
 
-/** The rubble a cliff's foot is laid with: every cliff-rubble unit installed, keyed by its id. */
-export function rubbleArt(): Map<string, CatalogEntry> {
-  const art = new Map<string, CatalogEntry>();
-  for (const e of getEntriesByType('object')) if (e.material === 'cliff-rubble') art.set(e.id, e);
-  return art;
-}
+/** The kit set a cliff's foot is laid from: its edge units are the rubble. */
+export const CLIFF_FOOT_KIT = 'cliff-foot';
 
 /**
- * The foot band's pieces: each rubble unit a straight as long as its painted width, walked
- * like a band kit's straights (pathKitLayout `bankPieces`).
+ * The units a cliff's foot is walked with, at the kit's scale, and their entries by key: the
+ * `cliff-foot` kit's edge units. None when no pack ships the kit.
  */
-export function rubblePieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
-  return bankPieces(
-    [...art.values()].map((e) => ({
-      key: e.id,
-      length: e.contentRect ? e.contentRect.w / GRID_CELL_PX : Number(e.gridSize.split('x')[0]),
-    })),
-  );
+export function footUnits(): { units: EdgeUnit[]; entries: Map<string, CatalogEntry> } {
+  const kit = pathKits().find((k) => k.set === CLIFF_FOOT_KIT);
+  return kit ? kitEdgeUnits(kit) : { units: [], entries: new Map() };
 }

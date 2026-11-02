@@ -89,6 +89,15 @@ describe('kit entries', () => {
     expect(bad({ kind: 'planks', cross: [{ key: 'plank', weight: 1 }], railPost: 'post', rope: { color: '#6b4a2b', width: 0.06 } })).toBe(true);
   });
 
+  it('keeps a kit’s unit scale, per unit and per band, and rejects a scale of zero', () => {
+    const scaled = { ...kitEntry.kit, scale: 0.5, edge: [{ ...kitEntry.kit.edge[0], scale: 0.6 }], band: { straight: ['bank'], bendDrawn: true, scale: 1 } };
+    const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { k: { ...kitEntry, kit: scaled } } });
+    expect(parsed.entries.k!.kit).toEqual(scaled);
+    const bad = (kit: unknown) => PackManifestSchema.safeParse({ ...VALID_MANIFEST, entries: { k: { ...kitEntry, kit } } }).success;
+    expect(bad({ ...kitEntry.kit, scale: 0 })).toBe(false);
+    expect(bad({ ...kitEntry.kit, edge: [{ ...kitEntry.kit.edge[0], scale: -1 }] })).toBe(false);
+  });
+
   it('keeps a water kit’s fall piece, and rejects an empty one', () => {
     const water = { kind: 'surface', fill: 'water-fill', band: { straight: ['water-bank'], bendDrawn: true }, fall: 'water-fall' };
     const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { 'water-kit': { ...kitEntry, kit: water } } });
