@@ -13,6 +13,7 @@ import type { TokensState } from '@dnd/mechanics/tokens';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { overheadEntries, setOverheadFade } from '@dnd/core/src/engine/subscribeToAssets';
+import { overheadPathEntries, setOverheadPathFade } from '@dnd/core/src/engine/pathRenderer';
 import type { Obb } from '@dnd/core/src/engine/tools/propPlacement';
 import { mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
@@ -63,6 +64,16 @@ export function mountOverheadLayer(engine: RenderEngine, sceneGraph: SceneGraph)
       else fades.set(childId, next);
       setOverheadFade(childId, next);
     }
+    // Overhead paths (bridges) fade the same way, judged by their outline.
+    for (const { childId, contains } of overheadPathEntries()) {
+      const target = tokens.some((t) => contains(t.x, t.y)) ? OVERHEAD_FADE : 1;
+      const from = fades.get(childId) ?? 1;
+      if (from === target) continue;
+      const next = approach(from, target, ticker.deltaMS, FADE_MS);
+      if (next === 1) fades.delete(childId);
+      else fades.set(childId, next);
+      setOverheadPathFade(childId, next);
+    }
   };
 
   const probe = (): OverheadProbe => ({
@@ -87,7 +98,10 @@ export function mountOverheadLayer(engine: RenderEngine, sceneGraph: SceneGraph)
     // destroyed objects throws; there is nothing left to hand back in that case.
     try {
       ticker.remove(tick);
-      for (const childId of fades.keys()) setOverheadFade(childId, 1);
+      for (const childId of fades.keys()) {
+        setOverheadFade(childId, 1);
+        setOverheadPathFade(childId, 1);
+      }
     } catch {
       /* engine torn down first */
     }

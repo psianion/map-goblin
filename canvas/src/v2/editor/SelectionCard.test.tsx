@@ -932,6 +932,26 @@ describe('SelectionCard: a path', () => {
     expect(p().fill).toBeUndefined();
   });
 
+  it('hides the ends on a closed path, and in Set height mode shows the start and end heights', () => {
+    seed([path({ closed: true, heightMode: 'set', points: [{ x: 0, y: 0, height: 1 }, { x: 4, y: 0 }, { x: 4, y: 4, height: 3 }] })], ['p']);
+    render(<SelectionCard />);
+    expect(screen.queryByRole('button', { name: 'Taper' })).toBeNull();
+    expect(screen.queryByLabelText('Length')).toBeNull();
+    expect((screen.getByLabelText('Start height') as HTMLInputElement).value).toBe('1');
+    expect((screen.getByLabelText('End height') as HTMLInputElement).value).toBe('3');
+    const end = screen.getByLabelText('End height') as HTMLInputElement;
+    fireEvent.change(end, { target: { value: '2' } });
+    fireEvent.keyDown(end, { key: 'Enter' });
+    fireEvent.blur(end);
+    expect(p().points[2].height).toBe(2);
+  });
+
+  it('shows no heights while the path follows the ground', () => {
+    seed([path()], ['p']);
+    render(<SelectionCard />);
+    expect(screen.queryByTestId('v2-path-heights')).toBeNull();
+  });
+
   it('picks a crossing from the map’s kinds', () => {
     seed([path()], ['p']);
     render(<SelectionCard />);

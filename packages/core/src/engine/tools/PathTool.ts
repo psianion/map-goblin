@@ -76,8 +76,8 @@ export class PathTool implements DrawingTool {
   readonly editsActiveLayer = true;
   private points: PathPoint[] = [];
   private cursorPoint: Point | null = null;
-  /** Width of the next point, cells; null = the path's default width. */
-  private nextWidth: number | null = null;
+  /** The dock width when the chain started: the path's own width. Points that differ carry theirs. */
+  private startWidth: number | null = null;
   private lastClick: { point: Point; time: number } | null = null;
   private press: { screen: { x: number; y: number }; samples: Point[]; freehand: boolean } | null = null;
   /** The active layer when the chain started — see WallTool for why. */
@@ -91,14 +91,16 @@ export class PathTool implements DrawingTool {
     return useStore.getState().tools.settings.path;
   }
 
+  /** The next point's width: the dock's, which the wheel and `[` `]` move while drawing. */
   private widthNow(): number {
-    return this.nextWidth ?? this.settings().width;
+    return this.settings().width;
   }
 
-  /** The point a width is stored on: only when it differs from the path's default. */
+  /** The point a width is stored on: only when it differs from the path's own width. */
   private withWidth(p: Point, extra: Partial<PathPoint> = {}): PathPoint {
     const w = this.widthNow();
-    return { x: p.x, y: p.y, ...(Math.abs(w - this.settings().width) > 1e-9 ? { width: w } : {}), ...extra };
+    const base = this.startWidth ?? w;
+    return { x: p.x, y: p.y, ...(Math.abs(w - base) > 1e-9 ? { width: w } : {}), ...extra };
   }
 
   private place(point: Point, event?: PointerEvent): Point {
@@ -114,7 +116,10 @@ export class PathTool implements DrawingTool {
       this.finish();
       return;
     }
-    if (this.points.length === 0) this.chainLayerId = useStore.getState().ui.activeLayerId;
+    if (this.points.length === 0) {
+      this.chainLayerId = useStore.getState().ui.activeLayerId;
+      this.startWidth = this.settings().width;
+    }
     const first = this.points[0];
     if (first && this.points.length >= 3 && Math.hypot(point.x - first.x, point.y - first.y) <= LAND_RADIUS) {
       this.finish(true);
@@ -165,8 +170,8 @@ export class PathTool implements DrawingTool {
     const end = kept.length - 1;
     kept[end] = snapPathPoint(kept[end], this.chainLayerId);
     for (const p of kept) this.points.push(this.withWidth(p));
-    this.lastClick = null;
-    this.cursorPoint = kept[end];
+    // One stroke, one path: a freehand drag finishes on release.
+    this.finish();
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -189,8 +194,11 @@ export class PathTool implements DrawingTool {
     return true;
   }
 
+  /** Moves the dock width, so the change shows there and the next path starts from it. */
   private stepWidth(dir: 1 | -1, fine: boolean): void {
-    this.nextWidth = clampWidth(this.widthNow() + dir * (fine ? PATH_WIDTH_FINE_STEP : PATH_WIDTH_STEP));
+    const path = this.settings();
+    const width = clampWidth(path.width + dir * (fine ? PATH_WIDTH_FINE_STEP : PATH_WIDTH_STEP));
+    useStore.getState().updateToolSettings({ path: { ...path, width } });
   }
 
   /** The next point's width, cells. */
@@ -210,7 +218,7 @@ export class PathTool implements DrawingTool {
     for (const s of this.press?.freehand ? this.press.samples.slice(1) : []) pts.push(this.withWidth(s));
     if (this.cursorPoint && !this.press?.freehand) pts.push(this.withWidth(this.cursorPoint));
     const closed = this.type === 'lake' && pts.length >= 3;
-    const mesh = buildRibbon(pts, closed, this.settings().width, { ends: { start: 'fade', end: 'fade', length: 0 } });
+    const mesh = buildRibbon(pts, closed, this.startWidth ?? this.widthNow(), { ends: { start: 'fade', end: 'fade', length: 0 } });
     const n = mesh.positions.length / 4;
     if (n < 2) return { type: 'circle', points: [pts[0]] };
     const outline: Point[] = [];
@@ -225,6 +233,7 @@ export class PathTool implements DrawingTool {
     this.lastClick = null;
     this.press = null;
     this.chainLayerId = null;
+    this.startWidth = null;
     live = false;
   }
 
@@ -234,6 +243,7 @@ export class PathTool implements DrawingTool {
 
   private finish(close = false): void {
     const points = this.points;
+    const width = this.startWidth ?? this.settings().width;
     const layerId = this.chainLayerId;
     this.cancel();
     const lake = this.type === 'lake';
@@ -251,9 +261,9 @@ export class PathTool implements DrawingTool {
       points,
       closed,
       ...(lake ? { fill: true } : {}),
-      width: s.width,
+      width,
       heightMode: s.heightMode,
-      materialId: lake ? LAKE_MATERIAL_ID : s.materialId,
+      materialId: lake ? s.lakeMaterialId : s.materialId,
       tint: '#ffffff',
       opacity: 1,
       // The strip is four cells long; a random start keeps two paths from repeating in step.

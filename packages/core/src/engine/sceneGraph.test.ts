@@ -9,7 +9,7 @@ function fakeSceneGraph(): SceneGraph {
 }
 
 describe('addLayerToScene', () => {
-  it('orders dungeon sublayers floor, paths, shadows, grid, walls, wall marks, doors, objects, labels', () => {
+  it('orders dungeon sublayers floor, paths, shadows, grid, walls, wall marks, doors, objects, paths over, labels', () => {
     const sceneGraph = fakeSceneGraph();
     const entry = addLayerToScene({} as RenderEngine, sceneGraph, 'layer-1', 'dungeon');
 
@@ -22,6 +22,7 @@ describe('addLayerToScene', () => {
       'sublayer-wall-marks',
       'sublayer-doors',
       'sublayer-objects',
+      'sublayer-paths-over',
       'sublayer-labels',
     ]);
   });

@@ -186,6 +186,7 @@ export function createDefaultState(): MapBuilderState {
           sort: 'under' as const,
           heightMode: 'ground' as const,
           snapEnds: true,
+          lakeMaterialId: 'gg-forge:water',
         },
         zone: {
           mode: 'point' as const,

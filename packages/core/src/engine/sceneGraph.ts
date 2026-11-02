@@ -47,8 +47,10 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
-  /** Paths (roads, rivers, lakes) over the floor; not masked to it. See `pathRenderer.ts`. */
+  /** Paths sorted `under` (roads, rivers, lakes): over the floor, under props; not masked to the floor. See `pathRenderer.ts`. */
   paths: Container;
+  /** Paths sorted `over`: above the layer's props, under its labels. */
+  pathsOver: Container;
   /**
    * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
    * per-layer grid as well as the walls, because a shadow falls on the floor and the grid is
@@ -232,6 +234,7 @@ export function addLayerToScene(
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
     const paths = new Container(); paths.label = 'sublayer-paths';
+    const pathsOver = new Container(); pathsOver.label = 'sublayer-paths-over';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
@@ -243,8 +246,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, paths, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, paths, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, paths, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
+    sublayers = { floor, paths, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

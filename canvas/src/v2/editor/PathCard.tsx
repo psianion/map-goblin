@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { UpdateChildCommand } from '@/store/commands';
 import type { DungeonLayer, PathChild } from '@/store/types';
-import { setPathFields, type PathPatch } from '@dnd/core/src/store/pathCommands';
+import { setPathFields, setPathPointHeight, type PathPatch } from '@dnd/core/src/store/pathCommands';
+import { NumBox } from './PropCards';
 import { pathMaterials } from '@dnd/core/src/assets/packCatalog';
 import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { WidthStepper } from './DockControls';
@@ -93,43 +94,44 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
   if (!materials.some((m) => m.id === path.materialId)) materialOptions.unshift({ value: path.materialId, label: path.materialId });
   const handlesOn = pathHandlesOn(path);
 
+  const row = (child: ReactNode) => <div className="v2-sel__row">{child}</div>;
+  const last = path.points.length - 1;
+  const setHeight = (index: number) => (v: number) => {
+    const cmd = setPathPointHeight(path.id, index, v);
+    if (cmd) undoManager.execute(cmd);
+  };
+
+  // One control to a row, so a segmented control never shares its width with another.
   return (
-    <div className="v2-sel__rows v2-selc" data-testid="v2-sel-path">
+    <div className="v2-sel__rows v2-selc v2-selc--path" data-testid="v2-sel-path">
       <PathName path={path} />
-      <div className="v2-sel__row">
-        <Select label="Material" width={120} value={path.materialId} options={materialOptions} onChange={(materialId) => set({ materialId }, 'Path material')} />
-      </div>
-      <div className="v2-sel__row">
-        <WidthStepper value={path.width} onChange={(width) => set({ width }, 'Path width')} />
-        <Seg label="Edge" value={path.edge} options={PATH_EDGE_CHOICES} onChange={(edge) => set({ edge }, 'Path edge')} />
-      </div>
-      <div className="v2-sel__row">
-        <Seg label="Start" value={path.ends.start} options={PATH_END_CHOICES} onChange={(start) => set({ ends: { ...path.ends, start } }, 'Path ends')} />
-        <Seg label="End" value={path.ends.end} options={PATH_END_CHOICES} onChange={(end) => set({ ends: { ...path.ends, end } }, 'Path ends')} />
-      </div>
-      {(path.ends.start !== 'cut' || path.ends.end !== 'cut') && (
-        <div className="v2-sel__row">
-          <Slider
-            label="End length"
-            value={path.ends.length}
-            min={0.25}
-            max={6}
-            step={0.25}
-            format={(v) => v.toFixed(2)}
-            onChange={(length) => preview({ ends: { ...path.ends, length } })}
-            onCommit={(length, start) => land('Path ends', { ends: { ...path.ends, length: start } }, { ends: { ...path.ends, length } })}
-          />
-        </div>
+      {row(<Select label="Material" width={170} value={path.materialId} options={materialOptions} onChange={(materialId) => set({ materialId }, 'Path material')} />)}
+      {row(<WidthStepper value={path.width} onChange={(width) => set({ width }, 'Path width')} />)}
+      {row(<Seg label="Edge" value={path.edge} options={PATH_EDGE_CHOICES} onChange={(edge) => set({ edge }, 'Path edge')} />)}
+      {!path.closed && (
+        <>
+          {row(<Seg label="Start" value={path.ends.start} options={PATH_END_CHOICES} onChange={(start) => set({ ends: { ...path.ends, start } }, 'Path ends')} />)}
+          {row(<Seg label="End" value={path.ends.end} options={PATH_END_CHOICES} onChange={(end) => set({ ends: { ...path.ends, end } }, 'Path ends')} />)}
+          {(path.ends.start !== 'cut' || path.ends.end !== 'cut') &&
+            row(
+              <Slider
+                label="Length"
+                value={path.ends.length}
+                min={0.25}
+                max={6}
+                step={0.25}
+                format={(v) => v.toFixed(2)}
+                onChange={(length) => preview({ ends: { ...path.ends, length } })}
+                onCommit={(length, start) => land('Path ends', { ends: { ...path.ends, length: start } }, { ends: { ...path.ends, length } })}
+              />,
+            )}
+        </>
       )}
-      <div className="v2-sel__row">
-        <Switch label="Edge strip" checked={path.edgeStrip} onChange={(edgeStrip) => set({ edgeStrip }, edgeStrip ? 'Show edge strip' : 'Hide edge strip')} />
-        {path.closed && <Switch label="Fill" checked={!!path.fill} onChange={(fill) => set({ fill }, fill ? 'Fill path' : 'Unfill path')} />}
-      </div>
-      <div className="v2-sel__row">
-        <Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort }, 'Path sort')} />
-      </div>
-      {path.sort === 'overhead' && (
-        <div className="v2-sel__row">
+      {row(<Switch label="Edge strip" checked={path.edgeStrip} onChange={(edgeStrip) => set({ edgeStrip }, edgeStrip ? 'Show edge strip' : 'Hide edge strip')} />)}
+      {path.closed && row(<Switch label="Fill" checked={!!path.fill} onChange={(fill) => set({ fill }, fill ? 'Fill path' : 'Unfill path')} />)}
+      {row(<Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort }, 'Path sort')} />)}
+      {path.sort === 'overhead' &&
+        row(
           <Seg
             label="Under"
             value={path.under ?? 'walkable'}
@@ -138,27 +140,34 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
               { value: 'blocked', label: 'Blocked' },
             ]}
             onChange={(under) => set({ under }, 'Under the bridge')}
-          />
+          />,
+        )}
+      {row(<Seg label="Height" value={path.heightMode} options={PATH_HEIGHT_CHOICES} onChange={(heightMode) => set({ heightMode }, 'Path height')} />)}
+      {path.heightMode === 'set' && (
+        <div className="v2-sel__row" data-testid="v2-path-heights">
+          <NumBox label="Start" title="Start height" value={path.points[0].height ?? 0} format={(v) => String(v)} onCommit={setHeight(0)} />
+          <NumBox label="End" title="End height" value={path.points[last].height ?? 0} format={(v) => String(v)} onCommit={setHeight(last)} />
         </div>
       )}
-      <div className="v2-sel__row">
-        <Seg label="Height" value={path.heightMode} options={PATH_HEIGHT_CHOICES} onChange={(heightMode) => set({ heightMode }, 'Path height')} />
+      {row(
         <Select
           label="Crossing"
-          width={88}
+          width={170}
           value={path.crossingId ?? ''}
           options={crossingOptions(kinds)}
           onChange={(v) => set({ crossingId: v || undefined }, 'Path crossing')}
-        />
-      </div>
-      <div className="v2-sel__row">
+        />,
+      )}
+      {row(
         <ColorCtl
           label="Tint"
           placement="beside"
           value={path.tint}
           onChange={(tint) => preview({ tint })}
           onCommit={(tint, start) => land('Path tint', { tint: start }, { tint })}
-        />
+        />,
+      )}
+      {row(
         <Slider
           label="Opacity"
           value={path.opacity}
@@ -168,8 +177,8 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
           format={(v) => `${Math.round(v * 100)}%`}
           onChange={(opacity) => preview({ opacity })}
           onCommit={(opacity, start) => land('Path opacity', { opacity: start }, { opacity })}
-        />
-      </div>
+        />,
+      )}
       <div className="v2-sel__links">
         <button type="button" className="v2-rbtn" onClick={() => reshape('Reverse path', reversedPath(path))}>
           Reverse

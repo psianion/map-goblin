@@ -503,6 +503,7 @@ export function ToolSwatches({
 }) {
   if (tool === 'terrain') return <TerrainSlots onAssign={() => onOpenAssets('floor')} />;
   if (tool === 'path') return <PathMaterialStrip />;
+  if (tool === 'lake') return <PathMaterialStrip lake />;
   if (STYLE_TOOLS.includes(tool)) {
     return (
       <>
@@ -831,21 +832,28 @@ function ZoneSettings() {
 /* ── Paths ──────────────────────────────────────────────── */
 
 /** The path materials installed, as tiles; the next path is drawn in the one picked. */
-function PathMaterialStrip() {
-  const materialId = useStore((s) => s.tools.settings.path.materialId);
+/**
+ * The path materials installed, as tiles; the next path is drawn in the one picked. For the
+ * lake preset, every material with a fill (water, lava, poison, ice), shown by its fill.
+ */
+function PathMaterialStrip({ lake = false }: { lake?: boolean }) {
+  const key = lake ? 'lakeMaterialId' : 'materialId';
+  const materialId = useStore((s) => s.tools.settings.path[key]);
   // Re-read when packs land: the catalog is rebuilt from the installed manifests.
   useStore((s) => s.packs.installedPacks);
-  const tiles: StripTile[] = pathMaterials().map((m) => ({ id: m.id, textureId: m.pieces.strip!.id, label: m.label }));
+  const tiles: StripTile[] = pathMaterials()
+    .filter((m) => !lake || m.pieces.fill)
+    .map((m) => ({ id: m.id, textureId: (lake ? m.pieces.fill! : m.pieces.strip!).id, label: m.label }));
   return (
     <AssetStrip
-      label="Path materials"
-      testId="v2-strip-paths"
+      label={lake ? 'Lake materials' : 'Path materials'}
+      testId={lake ? 'v2-strip-lakes' : 'v2-strip-paths'}
       tiles={tiles}
       fit="cover"
       isOn={(id) => id === materialId}
       onPick={(id) => {
         const path = useStore.getState().tools.settings.path;
-        useStore.getState().updateToolSettings({ path: { ...path, materialId: id } });
+        useStore.getState().updateToolSettings({ path: { ...path, [key]: id } });
       }}
     />
   );

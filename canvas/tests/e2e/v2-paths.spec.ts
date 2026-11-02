@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { firePointer, waitForBoot, waitFrame } from './helpers'
+import { firePointer, getPixelColor, waitForBoot, waitFrame } from './helpers'
 
 /**
  * The Path tool in /v2, end to end on a blank map (scenario 1 without junctions): a road
@@ -197,3 +197,125 @@ test('dragging a selected path’s point is one undo step', async ({ page }) => 
   await key(page, 'Control+z')
   expect(await paths(page)).toHaveLength(0)
 })
+
+/** A dirt road through the given points, added straight to the store (the tool is covered above). */
+const dirtRoad = (id: string, points: Pt[]) => ({
+  id, name: id, childType: 'path', visible: true, points, closed: false, width: 2, heightMode: 'ground',
+  materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft', edgeStrip: false,
+  ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
+})
+
+/** Luminance of the canvas pixel under world point `p`. */
+async function lum(page: Page, p: Pt): Promise<number> {
+  const at = await screenOf(page, p)
+  const r = await page.evaluate(() => (window as Any).__pixiApp.canvas.getBoundingClientRect())
+  // The median of three reads a frame apart: a single read now and then lands mid-present.
+  const reads: number[] = []
+  for (let k = 0; k < 3; k++) {
+    const c = await getPixelColor(page, at.x - r.left, at.y - r.top)
+    reads.push(0.299 * c.r + 0.587 * c.g + 0.114 * c.b)
+    await waitFrame(page, 1)
+  }
+  return reads.sort((a, b) => a - b)[1]
+}
+
+/** Waits until the paths sublayer holds drawn ribbons (their art arrives with the pack). */
+async function drawn(page: Page, count: number) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const w = window as Any
+        const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+        return find(w.__pixiApp.stage)?.children.length ?? 0
+      }),
+    )
+    .toBeGreaterThanOrEqual(count)
+  // And the camera at rest: a new map may still be easing to its frame.
+  const camera = () =>
+    page.evaluate(() => {
+      const wd = (window as Any).__pixiApp.stage.children[0]
+      return [wd.position.x, wd.position.y, wd.scale.x].map((v: number) => v.toFixed(2)).join(',')
+    })
+  let last = ''
+  await expect
+    .poll(async () => {
+      await waitFrame(page, 3)
+      const now = await camera()
+      const still = now === last
+      last = now
+      return still
+    })
+    .toBe(true)
+}
+
+const addRoad = (page: Page, road: unknown) => inPage(page, `(s, layer, w2s, r) => s().addChild(layer().id, r)`, road)
+
+test('two dirt roads crossing show no seam: across the junction the road reads as it does alone', async ({ page }) => {
+  await openEditor(page)
+  await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
+  await drawn(page, 1)
+  // A line across where the second road's edges will run, inside the first road.
+  const line = Array.from({ length: 17 }, (_, i) => ({ x: -2 + i * 0.25, y: 0.4 }))
+  const alone: number[] = []
+  for (const p of line) alone.push(await lum(page, p))
+  const background = await lum(page, { x: 0, y: 5 })
+  await addRoad(page, dirtRoad('b', [{ x: 0, y: -5 }, { x: 0, y: 5 }]))
+  await drawn(page, 2)
+  for (let i = 0; i < line.length; i++) {
+    const now = await lum(page, line[i])
+    // Still road, nowhere near the ground showing through, and close to what it was.
+    expect(Math.abs(now - background), `at x = ${line[i].x}`).toBeGreaterThan(60)
+    expect(Math.abs(now - alone[i]), `at x = ${line[i].x}`).toBeLessThan(40)
+  }
+})
+
+test('twenty roads on a layer: one edit rebuilds their shared outline, and how long it takes', async ({ page }) => {
+  await openEditor(page)
+  for (let i = 0; i < 10; i++) {
+    const at = i * 3 - 15
+    await addRoad(page, { ...dirtRoad(`h${i}`, [{ x: -20, y: at }, { x: 0, y: at + 2 }, { x: 20, y: at }]), edgeStrip: true })
+    await addRoad(page, { ...dirtRoad(`v${i}`, [{ x: at, y: -20 }, { x: at + 2, y: 0 }, { x: at, y: 20 }]), edgeStrip: true })
+  }
+  await drawn(page, 1)
+  const times: { mask: number; redraw: number }[] = []
+  for (let k = 0; k < 5; k++) {
+    await inPage(
+      page,
+      `(s, layer, w2s, k) => s().updateChild(layer().id, 'h0', { points: [{ x: -20, y: -15 }, { x: 0, y: -13 + (k + 1) * 0.1 }, { x: 20, y: -15 }] })`,
+      k,
+    )
+    await waitFrame(page, 2)
+    times.push(await page.evaluate(() => ({ mask: (window as Any).__pathMaskRebuildMs, redraw: (window as Any).__pathRedrawMs })))
+  }
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+  const mask = median(times.map((t) => t.mask))
+  const redraw = median(times.map((t) => t.redraw))
+  console.log(`20 roads: mask rebuild ${mask.toFixed(2)} ms, layer redraw ${redraw.toFixed(2)} ms (median of 5)`)
+  expect(mask).toBeGreaterThan(0)
+  // The plan's budget for the rebuild.
+  expect(mask).toBeLessThan(4)
+})
+
+test('the path card fits its width and every control takes a real click', async ({ page }) => {
+  await openEditor(page)
+  await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
+  await inPage(page, `(s) => { s().setActiveTool('select'); s().setSelectedIds(['a']) }`)
+  const card = page.getByTestId('v2-sel-path')
+  await expect(card).toBeVisible()
+  const fits = await card.evaluate((el) => {
+    const host = el.closest('[data-testid="v2-selection-card"]') as HTMLElement
+    return { card: host.scrollWidth <= host.clientWidth + 1, rows: el.scrollWidth <= el.clientWidth + 1 }
+  })
+  expect(fits).toEqual({ card: true, rows: true })
+  // Real clicks: Playwright refuses one that would land on something covering the control.
+  await card.getByRole('button', { name: 'Set' }).click()
+  await expect(card.getByTestId('v2-path-heights')).toBeVisible()
+  await card.getByRole('button', { name: 'Taper' }).first().click()
+  await card.getByRole('button', { name: 'Overhead' }).click()
+  await card.getByRole('button', { name: 'Blocked' }).click()
+  await card.getByRole('combobox', { name: 'Crossing' }).selectOption('climb')
+  const [road] = await paths(page)
+  expect(road).toMatchObject({ heightMode: 'set', sort: 'overhead', under: 'blocked', crossingId: 'climb' })
+  expect(road.ends.start).toBe('taper')
+})
+

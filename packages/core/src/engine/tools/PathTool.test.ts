@@ -111,8 +111,16 @@ describe('PathTool: clicks', () => {
     expect(tool.width).toBe(2.2);
     click(tool, 8, 0);
     tool.onKeyDown(key('Enter'));
-    // The first point carries the default width, so it stores none.
+    // The first point carries the path's own width, so it stores none.
     expect(paths()[0].points).toEqual([{ x: 0, y: 0 }, { x: 4, y: 0, width: 2 }, { x: 8, y: 0, width: 2.2 }]);
+    expect(paths()[0].width).toBe(1.5);
+    // The dock width followed the wheel, and the next path starts from it.
+    expect(useStore.getState().tools.settings.path.width).toBe(2.2);
+    click(tool, 0, 9);
+    click(tool, 4, 9);
+    tool.onKeyDown(key('Enter'));
+    expect(paths()[1].width).toBe(2.2);
+    expect(paths()[1].points).toEqual([{ x: 0, y: 9 }, { x: 4, y: 9 }]);
   });
 
   it('Alt makes the segment into the new point straight; Shift holds it to 15° steps', () => {
@@ -154,7 +162,8 @@ describe('PathTool: freehand', () => {
     for (let i = 1; i <= 20; i++) tool.onPointerMove({ x: i * 0.25, y: 0 }, ev(i * 12, 0, { buttons: 1 }));
     for (let i = 1; i <= 20; i++) tool.onPointerMove({ x: 5, y: i * 0.25 }, ev(240, i * 12, { buttons: 1 }));
     tool.onPointerUp({ x: 5, y: 5 });
-    tool.onKeyDown(key('Enter'));
+    // One stroke, one path: no Enter needed.
+    expect(tool.isActive()).toBe(false);
     const pts = paths()[0].points;
     expect(pts.length).toBeLessThanOrEqual(4);
     expect(pts[0]).toEqual({ x: 0, y: 0 });

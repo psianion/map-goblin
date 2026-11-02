@@ -34,6 +34,7 @@ function makeEntry(id: string): LayerEntry {
     sublayers: {
       floor: new Container(),
       paths: new Container(),
+      pathsOver: new Container(),
       shadows: new Container(),
       grid: new Container(),
       walls: new Container(),

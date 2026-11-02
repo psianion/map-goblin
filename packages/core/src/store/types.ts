@@ -280,6 +280,8 @@ export interface PathToolSettings {
   crossingId?: string;
   /** A path's ends snap onto the ends of other paths. */
   snapEnds: boolean;
+  /** The material the lake preset draws in: any material with a fill (water, lava, poison, ice). */
+  lakeMaterialId: string;
 }
 
 export interface ZoneToolSettings {

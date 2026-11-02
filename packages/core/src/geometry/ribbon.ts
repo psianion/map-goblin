@@ -443,19 +443,22 @@ export function buildRibbon(
 
 /**
  * Verge or bank strips laid outward from both edges, `stripWidth` wide.
- * V = 0 where a strip touches the ribbon and 1 at its outer edge, so one
+ * V = 0 where a strip meets the ribbon and 1 at its outer edge, so one
  * fade-outward texture serves both sides.
  */
 export function buildEdgeStrips(
   line: Centreline,
   stripWidth: number,
   options: RibbonOptions = {},
+  inset = 0,
 ): { left: RibbonMesh; right: RibbonMesh } {
   if (line.xy.length < 2 || stripWidth <= 0) return { left: emptyMesh(), right: emptyMesh() };
   const o = stripOptions(line, options, false);
+  // An inset starts each strip that far inside the ribbon's edge, under its soft fade.
+  const inner = (i: number) => Math.max(0, line.width[i] / 2 - inset);
   return {
-    left: buildStrip(line, (i) => [line.width[i] / 2, line.width[i] / 2 + stripWidth], o),
-    right: buildStrip(line, (i) => [-line.width[i] / 2, -line.width[i] / 2 - stripWidth], o),
+    left: buildStrip(line, (i) => [inner(i), line.width[i] / 2 + stripWidth], o),
+    right: buildStrip(line, (i) => [-inner(i), -line.width[i] / 2 - stripWidth], o),
   };
 }
 

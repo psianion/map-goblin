@@ -122,7 +122,7 @@ export function GameRenderer() {
       setupRenderLoop(pixiEngine, sceneGraph, lightManager);
       const unsubStore = subscribeToStore(pixiEngine, sceneGraph, lightManager);
       const unsubAssets = subscribeToAssets();
-      const unsubPaths = subscribeToPaths();
+      const unsubPaths = subscribeToPaths(pixiEngine);
       // Labels: the server sends a player seat only those marked visible to players.
       const unsubLabels = subscribeToTextLabels();
       const unsubBoundLabels = installBoundLabelSync();

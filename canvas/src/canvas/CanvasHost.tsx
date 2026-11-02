@@ -166,7 +166,7 @@ export function CanvasHost() {
 
       // Subscribe to asset/image layer changes → PixiJS sprite sync
       const unsubAssets = subscribeToAssets();
-      const unsubPaths = subscribeToPaths();
+      const unsubPaths = subscribeToPaths(pixiEngine);
 
       // Text labels sync the same way, into the same layer containers
       const unsubLabels = subscribeToTextLabels();
