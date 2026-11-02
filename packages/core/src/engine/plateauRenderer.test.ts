@@ -49,7 +49,7 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { layBandRing } from './caveBandRenderer';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
-import { drawOpening, drawWaterfall, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR } from './plateauRenderer';
+import { drawOpening, drawWaterfall, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
 import { cliffShadowGeometry } from './shadowPass';
 import { CASTER_HEIGHT, casterLook, type ShadowLook } from '../shared/shadows';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -151,6 +151,15 @@ describe('renderPlateaus', () => {
     expect(labels(parent)).not.toContain('plateau-contours');
   });
 
+  it('draws contours inside a one-cell slope, not just its outline', () => {
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), parent, paint);
+    const band = parent.children[0] as Container;
+    const contours = band.children.find((c) => c.label === 'plateau-contours') as Graphics;
+    // The outline runs on the 6-cell ring; the inner lines lie up to 2/3 of a cell out from it.
+    expect(contours.getLocalBounds().width).toBeGreaterThan(6 + 1.2);
+  });
+
   it('orders bands low to high, a pit before the plateau', () => {
     const parent = new Container();
     renderPlateaus(
@@ -191,7 +200,9 @@ describe('light on the rock', () => {
     // The shadow runs +x, so the light is to the west.
     expect(faceShade([-1, 0], look)).toBe(1);
     expect(faceShade([1, 0], look)).toBe(SHADE_FLOOR);
-    expect(faceShade([0, 1], look)).toBe(SHADE_FLOOR);
+    expect(faceShade([0, 1], look)).toBe(SHADE_SIDE);
+    // Far enough apart to read on dark ink rock: the lit face at least twice the shaded one.
+    expect(faceShade([-1, 0], look) / faceShade([1, 0], look)).toBeGreaterThanOrEqual(2);
     expect(faceShade([1, 0], null)).toBe(1);
   });
 
@@ -209,6 +220,22 @@ describe('light on the rock', () => {
     expect(west.every((s) => s.tint > 0xf0f0f0)).toBe(true);
     shadeCliffs('l1', { ...look, dx: -1 });
     expect(east.every((s) => s.tint > 0xf0f0f0)).toBe(true);
+  });
+
+  it('adds light over the face turned to the sun, and none indoors', () => {
+    expect(faceLight([1, 0], { ...look, dx: -1 })).toBeGreaterThan(0.2);
+    expect(faceLight([-1, 0], { ...look, dx: -1 })).toBe(0);
+    expect(faceLight([1, 0], null)).toBe(0);
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, rect('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), parent, paint);
+    const lights = (parent.children[0] as Container).children.find((x) => x.label === 'plateau-cliff-light') as Container;
+    shadeCliffs('l1', { ...look, dx: -1 });
+    const lit = lights.children.filter((g) => g.alpha > 0).map((g) => g.getLocalBounds());
+    // The light is from the east: only the east face takes it.
+    expect(lit).toHaveLength(1);
+    expect(lit[0].minX).toBeGreaterThanOrEqual(11 - 1e-6);
+    shadeCliffs('l1', null);
+    expect(lights.children.every((g) => g.alpha === 0)).toBe(true);
   });
 });
 

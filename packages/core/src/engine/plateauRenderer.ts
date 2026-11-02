@@ -26,7 +26,7 @@ import {
 } from '../shared/plateaus';
 import { buildEdgeStrips, sampleCentreline, type RibbonMesh } from '../geometry/ribbon';
 import { GRID_CELL_PX, getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
-import { CORNER_REACH, LEDGE_WIDTH, splitAtCorners, tileStraight, type LedgePlacement } from './cliffLayout';
+import { CORNER_REACH, LEDGE_OUT, LEDGE_WIDTH, splitAtCorners, tileStraight, type LedgePlacement } from './cliffLayout';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -50,16 +50,34 @@ const INK = 0x2b2420;
 /** Contour and top-edge lines, cells wide. */
 const LINE = 0.04;
 const CONTOUR_ALPHA = 0.35;
+/** The fainter contours between each cell of a slope's drop. */
+const INNER_CONTOUR_ALPHA = 0.2;
+/** Contour lines per cell of drop: one on each whole cell, the rest in between. */
+const CONTOURS_PER_CELL = 3;
 const TOP_LINE_ALPHA = 0.5;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
-/** Lit/shaded faces: a face turned away from the light keeps this much brightness. */
-export const SHADE_FLOOR = 0.6;
+/**
+ * Lit/shaded faces under a sun: a face turned away from the light keeps SHADE_FLOOR of its
+ * brightness, one side-on to it SHADE_SIDE, one square to it all of it. The rock art is dark
+ * ink, so the spread is wide enough to read; with no sun (Indoor) every face is drawn as is.
+ */
+export const SHADE_FLOOR = 0.4;
+export const SHADE_SIDE = 0.72;
+/**
+ * Darkening alone barely moves near-black rock, so a face turned to the sun also takes a warm
+ * wash of light added over it, up to this strength square on.
+ */
+export const LIGHT_WASH = 0.32;
+const WASH_COLOR = 0xfff0d0;
 
 // ─── Lighting the rock ─────────────────────────────────────
 
 interface CliffSprite {
-  sprite: Sprite;
+  /** A piece of rock, tinted by how its face turns to the light… */
+  sprite?: Sprite;
+  /** …or the light added over one face of it. */
+  light?: Graphics;
   /** Unit normal pointing to the low side. */
   normal: Vec;
 }
@@ -67,12 +85,18 @@ interface CliffSprite {
 const cliffSprites = new Map<string, CliffSprite[]>();
 const lastLook = new Map<string, ShadowLook | null>();
 
-/** How bright a face turned to `normal` is under `look`: 0.6 away from the light, 1 facing it. */
+/** How bright a face turned to `normal` is under `look`: SHADE_FLOOR away from the light, 1 facing it. */
 export function faceShade(normal: Vec, look: ShadowLook | null): number {
   if (!look) return 1;
   // The shadow runs along (dx, dy), away from the light; the light is the other way.
-  const facing = -(normal[0] * look.dx + normal[1] * look.dy);
-  return SHADE_FLOOR + (1 - SHADE_FLOOR) * Math.max(0, facing);
+  const facing = Math.max(-1, Math.min(1, -(normal[0] * look.dx + normal[1] * look.dy)));
+  return facing >= 0 ? SHADE_SIDE + (1 - SHADE_SIDE) * facing : SHADE_SIDE + (SHADE_SIDE - SHADE_FLOOR) * facing;
+}
+
+/** How much light is added over a face turned to `normal`: none away from the light or without one. */
+export function faceLight(normal: Vec, look: ShadowLook | null): number {
+  if (!look) return 0;
+  return LIGHT_WASH * Math.max(0, Math.min(1, -(normal[0] * look.dx + normal[1] * look.dy)));
 }
 
 const grey = (k: number): number => {
@@ -83,8 +107,9 @@ const grey = (k: number): number => {
 /** Re-light one layer's cliff rock for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, normal } of cliffSprites.get(layerId) ?? []) {
-    if (!sprite.destroyed) sprite.tint = grey(faceShade(normal, look));
+  for (const { sprite, light, normal } of cliffSprites.get(layerId) ?? []) {
+    if (sprite && !sprite.destroyed) sprite.tint = grey(faceShade(normal, look));
+    if (light && !light.destroyed) light.alpha = faceLight(normal, look);
   }
 }
 
@@ -245,10 +270,18 @@ function drawSlope(parent: Container, run: EdgeRun): void {
     parent.addChild(mesh);
   }
   if (run.owner?.contourLines === false) return;
+  // A line on each whole cell of the drop, stronger, and fainter ones between, so a slope
+  // reads as ground falling away rather than one outline.
   const g = new Graphics();
   g.label = 'plateau-contours';
-  for (let k = 0; k < cells; k++) dashSpine(g, offsetLine(run, k * per, side), 0.25, 0.15);
+  const lines = Math.max(1, Math.round(cells * CONTOURS_PER_CELL));
+  for (let k = 0; k < lines; k += CONTOURS_PER_CELL) dashSpine(g, offsetLine(run, (k * width) / lines, side), 0.25, 0.15);
   g.stroke({ color: INK, width: LINE, alpha: CONTOUR_ALPHA });
+  for (let k = 1; k < lines; k++) {
+    if (k % CONTOURS_PER_CELL === 0) continue;
+    dashSpine(g, offsetLine(run, (k * width) / lines, side), 0.18, 0.18);
+  }
+  g.stroke({ color: INK, width: LINE * 0.75, alpha: INNER_CONTOUR_ALPHA });
   parent.addChild(g);
 }
 
@@ -325,6 +358,29 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
     return [];
   }
   parent.addChild(rock);
+  // The light on each face, added over the rock: a quad from the edge out across the ledge.
+  const lights = new Container();
+  lights.label = 'plateau-cliff-light';
+  // Across the rock itself, not the whole ledge strip: the ink chunks fill about its first half.
+  const reach = LEDGE_OUT + LEDGE_WIDTH / 2;
+  const face = (a: Vec, b: Vec): void => {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-6) return;
+    const normal: Vec = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+    const [ox, oy] = [normal[0] * reach, normal[1] * reach];
+    const g = new Graphics()
+      .poly([a[0], a[1], b[0], b[1], b[0] + ox, b[1] + oy, a[0] + ox, a[1] + oy])
+      .fill({ color: WASH_COLOR });
+    g.blendMode = 'add';
+    g.alpha = 0;
+    lights.addChild(g);
+    sprites.push({ light: g, normal });
+  };
+  for (const r of runs) {
+    for (let i = 0; i + 1 < r.points.length; i++) face(r.points[i] as Vec, r.points[i + 1] as Vec);
+    if (r.closed && r.points.length > 2) face(r.points[r.points.length - 1] as Vec, r.points[0] as Vec);
+  }
+  parent.addChild(lights);
   return sprites;
 }
 
