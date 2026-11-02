@@ -23,6 +23,7 @@ import { kitEdgeUnits, paintedSize, placePieces, type Piece } from './path/kitUn
 import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
 import { placeBand, textureTone } from './caveBandRenderer';
 import type { PathChild } from '../shared/types';
+import { DECK_REACH, deckHeightAt } from '../shared/plateaus';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { SEE_UNDER_ALPHA } from './subscribeToAssets';
@@ -249,6 +250,8 @@ const fades = new Map<string, number>();
 export function overheadPathEntries(): {
   childId: string;
   contains: (x: number, y: number) => boolean;
+  /** Whether a token at `elevation` over (x, y) stands on the deck rather than beneath it. */
+  onDeck: (x: number, y: number, elevation: number) => boolean;
   /** What the path is drawn at now, fade included. */
   alpha: number;
   /** Whether its art has been drawn yet. */
@@ -257,6 +260,10 @@ export function overheadPathEntries(): {
   return [...overhead.values()].map(({ path, container }) => ({
     childId: path.id,
     contains: (x: number, y: number) => pointInPath(path, [x, y]),
+    onDeck: (x: number, y: number, elevation: number) => {
+      const deck = deckHeightAt({ children: [path] }, x, y);
+      return deck !== null && Math.abs(deck - elevation) <= DECK_REACH;
+    },
     alpha: container.alpha,
     drawn: container.children.length > 0,
   }));

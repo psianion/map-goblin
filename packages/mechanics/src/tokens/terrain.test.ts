@@ -93,3 +93,38 @@ describe('crossing refusal', () => {
     expect(r.at().x).toBe(8.5)
   })
 })
+
+describe('a bridge', () => {
+  // A deck 2 cells up over x 20..30: a token that comes from about that height stands on it.
+  const seen: (number | undefined)[] = []
+  const bridged: SceneTerrain = {
+    elevationAt: (x, _y, _level, from) => (x >= 20 && x <= 30 && from !== undefined && Math.abs(from - 2) <= 1 ? 2 : 0),
+    crossingRefusal: (_from, _to, _level, elevation) => {
+      seen.push(elevation)
+      return null
+    },
+  }
+  const bridgeModule = tokensModule(undefined, undefined, (sceneId) => (sceneId === SCENE ? bridged : null))
+  const move = (t: Token, x: number) => {
+    let next: TokensState = stateWith(t)
+    bridgeModule.handler('move', { id: t.id, x, y: 2.5 }, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender: P1,
+      players: [],
+      state: stateWith(t),
+      broadcast: () => {},
+      setState: (s) => {
+        next = s
+      },
+    })
+    return next.byScene[SCENE][t.id]
+  }
+
+  it('hands the ground a moved token’s height before the move, for its height and its crossings', () => {
+    expect(move(token({ x: 18.5, elevation: 2 }), 24.5).elevation).toBe(2)
+    expect(move(token({ x: 18.5, elevation: 0 }), 24.5).elevation).toBe(0)
+    expect(seen).toEqual([2, 0])
+  })
+})

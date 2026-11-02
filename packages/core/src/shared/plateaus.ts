@@ -22,6 +22,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
 import { ringOwner } from './wallLook';
 import { DEFAULT_SIGHT_DROP_CELLS } from './crossingKinds';
+import { pathCentreline } from '../geometry/pathGeometry';
 
 export type EdgeKind = 'wall' | 'cliff' | 'slope' | 'none';
 
@@ -888,8 +889,52 @@ export function cliffOccluders(
 
 // ─── The table: where a token stands, and what it crosses ──
 
-/** How high a point stands: on a stairs, ramp or ladder, part way down it; else its surface. */
-export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number {
+/** How far off a bridge's deck height a token may stand and still be walking on it, cells. */
+export const DECK_REACH = 1;
+
+/**
+ * The deck height at (x, y): of a bridge (an overhead path whose heights are set) whose deck
+ * holds the point, read off its centreline where the point is nearest, to a tenth of a cell.
+ * Null off every bridge.
+ */
+export function deckHeightAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number | null {
+  for (const c of layer.children) {
+    if (c.childType !== 'path' || !c.visible || c.sort !== 'overhead' || c.heightMode !== 'set') continue;
+    const { xy, width, height } = pathCentreline(c);
+    let best: { d: number; h: number; w: number } | null = null;
+    for (let i = 0; i + 1 < xy.length; i++) {
+      const [ax, ay] = xy[i];
+      const dx = xy[i + 1][0] - ax;
+      const dy = xy[i + 1][1] - ay;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1e-12) continue;
+      const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+      const d = Math.hypot(x - ax - dx * u, y - ay - dy * u);
+      if (!best || d < best.d) {
+        best = { d, h: height[i] + (height[i + 1] - height[i]) * u, w: width[i] + (width[i + 1] - width[i]) * u };
+      }
+    }
+    if (best && best.d <= best.w / 2) return Math.round(best.h * 10) / 10;
+  }
+  return null;
+}
+
+/** Whether a token at `elevation` over (x, y) is on a bridge's deck there rather than beneath it. */
+function onDeck(layer: Pick<DungeonLayer, 'children'>, x: number, y: number, elevation: number | undefined): number | null {
+  if (elevation === undefined) return null;
+  const deck = deckHeightAt(layer, x, y);
+  return deck !== null && Math.abs(deck - elevation) <= DECK_REACH ? deck : null;
+}
+
+/**
+ * How high a point stands: on a bridge's deck for a token that walks onto it from about its
+ * height (`from`, the token's height before the move), the deck's height; on a stairs, ramp
+ * or ladder, part way down it; else its surface. A token at ground level walks beneath a
+ * bridge, and one placed with no height before stands on the ground.
+ */
+export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number, from?: number): number {
+  const deck = onDeck(layer, x, y, from);
+  if (deck !== null) return deck;
   if (!hasPlateaus(layer)) return 0;
   const plateaus = layerPlateaus(layer);
   for (const c of layer.children) {
@@ -913,9 +958,9 @@ export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y:
 }
 
 /** The same across a level's layers: the topmost layer that raises or sinks the point decides. */
-export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number): number {
+export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number, from?: number): number {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const h = elevationAt(layers[i], x, y);
+    const h = elevationAt(layers[i], x, y, from);
     if (h !== 0) return h;
   }
   return 0;
@@ -969,7 +1014,8 @@ function segHit(p: Vec, q: Vec, a: Vec, b: Vec): { t: number; u: number } | null
  * Every raised edge (cliff, slope or bare) the straight move `from` → `to` crosses on one
  * layer, in order along the move, with the crossing rule that applies there: an opening's
  * where the move passes through one, else the edge's floor's (its own, a live override, or
- * the edge kind's default). Walls are the walls' business and are not listed.
+ * the edge kind's default). Walls are the walls' business and are not listed. With the
+ * mover's `elevation`, a move on a bridge's deck passes over the edges beneath it.
  */
 export function crossingsAlong(
   layer: Pick<DungeonLayer, 'children'>,
@@ -977,6 +1023,7 @@ export function crossingsAlong(
   to: Vec,
   kinds: readonly CrossingKind[],
   overrides: CrossingOverrides = {},
+  elevation?: number,
 ): Crossing[] {
   if (!hasPlateaus(layer) || (from[0] === to[0] && from[1] === to[1])) return [];
   const gaps = ringGaps(layer);
@@ -993,6 +1040,8 @@ export function crossingsAlong(
         const hit = segHit(from, to, a, b);
         if (!hit) return;
         const position: Vec = [from[0] + (to[0] - from[0]) * hit.t, from[1] + (to[1] - from[1]) * hit.t];
+        // A token on a bridge's deck passes over the edges beneath it.
+        if (onDeck(layer, position[0], position[1], elevation) !== null) return;
         const gap = gaps.find((g) => Math.hypot(position[0] - g.position[0], position[1] - g.position[1]) <= g.width / 2);
         const opening = gap?.id.startsWith('opening:') ? openings.get(gap.id.slice('opening:'.length)) : undefined;
         // Outside is the left of travel along the ring: (dy, -dx). Moving outward on a plateau
@@ -1001,7 +1050,9 @@ export function crossingsAlong(
         const down = e.drop > 0 ? outward : !outward;
         const targetId = opening ? opening.id : e.owner.id;
         const via: Crossing['via'] = opening ? 'opening' : (e.edge as 'cliff' | 'slope' | 'none');
-        if (gap && !opening) return; // a bridge landing: the path's own rule, once paths carry one
+        // A bridge landing is the bridge's: free from its deck (above), the cliff's own rule from
+        // beneath it. A caller that names no height keeps it free.
+        if (gap && !opening && elevation === undefined) return;
         const kindId = overrides.edges?.[targetId] ?? (opening ? opening.crossingId ?? FREE_CROSSING : crossingIdOf(e.owner));
         const kind = kinds.find((k) => k.id === kindId) ?? null;
         const blocks = overrides.blocks?.[kindId] ?? kind?.blocks ?? false;
@@ -1020,8 +1071,9 @@ export function crossingsAlongLayers(
   to: Vec,
   kinds: readonly CrossingKind[],
   overrides: CrossingOverrides = {},
+  elevation?: number,
 ): Crossing[] {
-  return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides)).sort((p, q) => p.at - q.at);
+  return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides, elevation)).sort((p, q) => p.at - q.at);
 }
 
 /** A raised top that hides from below: its height and its outline (outer rings only). */

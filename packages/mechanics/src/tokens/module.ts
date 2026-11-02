@@ -310,13 +310,15 @@ function libraryDelete(p: Payload, ctx: Ctx): void {
 
 /**
  * Where a token stands, as a height: the ground's answer at its centre unless the DM pinned
- * one on its card (plan §7). Unchanged on a scene with no terrain.
+ * one on its card (plan §7). A moved token hands its height before the move (`from`), so one
+ * walking onto a bridge from its landing takes the deck's height and one beneath stays on the
+ * ground. Unchanged on a scene with no terrain.
  */
-function grounded(token: Token, sceneId: string, terrainOf: TerrainOf): Token {
+function grounded(token: Token, sceneId: string, terrainOf: TerrainOf, from?: number): Token {
   if (token.elevationPinned) return token
   const terrain = terrainOf(sceneId)
   if (!terrain) return token
-  const elevation = terrain.elevationAt(token.x, token.y, token.levelId)
+  const elevation = terrain.elevationAt(token.x, token.y, token.levelId, from)
   return elevation === token.elevation ? token : { ...token, elevation }
 }
 
@@ -413,10 +415,10 @@ function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): v
   // A raised edge whose crossing kind refuses (Impassable, or whatever the DM switched on)
   // stops a player's move; the DM's own drags are never refused (plan §7).
   if (ctx.sender.role !== 'dm') {
-    const crossing = terrainOf(sceneId)?.crossingRefusal(token, pos, token.levelId) ?? null
+    const crossing = terrainOf(sceneId)?.crossingRefusal(token, pos, token.levelId, token.elevation) ?? null
     if (crossing) bad(crossing)
   }
-  put(ctx, sceneId, grounded({ ...token, ...pos }, sceneId, terrainOf))
+  put(ctx, sceneId, grounded({ ...token, ...pos }, sceneId, terrainOf, token.elevation))
 }
 
 function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {

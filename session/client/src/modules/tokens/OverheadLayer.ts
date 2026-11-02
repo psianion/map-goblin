@@ -66,9 +66,10 @@ export function mountOverheadLayer(engine: RenderEngine, sceneGraph: SceneGraph)
       else fades.set(childId, next);
       setOverheadFade(childId, next);
     }
-    // Overhead paths (bridges) fade the same way, judged by their outline.
-    for (const { childId, contains } of overheadPathEntries()) {
-      const target = tokens.some((t) => contains(t.x, t.y)) ? OVERHEAD_FADE : 1;
+    // Overhead paths (bridges) fade the same way, judged by their outline, for a token beneath
+    // the deck; one walking on it leaves it be.
+    for (const { childId, contains, onDeck } of overheadPathEntries()) {
+      const target = tokens.some((t) => contains(t.x, t.y) && !onDeck(t.x, t.y, t.elevation)) ? OVERHEAD_FADE : 1;
       const from = fades.get(childId) ?? 1;
       if (from === target) continue;
       const next = approach(from, target, ticker.deltaMS, FADE_MS);

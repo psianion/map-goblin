@@ -22,11 +22,11 @@ export function createTerrain(
     if (!map) return null
     const layersAt = (levelId?: string) => layersOnLevel(map.data, map.data.layers, levelId || firstLevelId(map.data))
     return {
-      elevationAt: (x, y, levelId) => elevationAtLayers(layersAt(levelId), x, y),
-      crossingRefusal: (from, to, levelId) => {
+      elevationAt: (x, y, levelId, from) => elevationAtLayers(layersAt(levelId), x, y, from),
+      crossingRefusal: (from, to, levelId, elevation) => {
         const kinds = map.data.mapSettings.crossingKinds ?? defaultCrossingKinds()
         const live = sceneCrossings(crossingsOf(map.campaignId), sceneId)
-        const blocked = crossingsAlongLayers(layersAt(levelId), [from.x, from.y], [to.x, to.y], kinds, live).find(
+        const blocked = crossingsAlongLayers(layersAt(levelId), [from.x, from.y], [to.x, to.y], kinds, live, elevation).find(
           (c) => c.blocks,
         )
         if (!blocked) return null
