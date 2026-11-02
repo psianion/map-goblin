@@ -10,6 +10,7 @@ import { useStore } from '../store/store';
 import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
+import { openingFrame } from '../shared/plateaus';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -111,7 +112,7 @@ function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
   const lights = reversed.filter((c) => c.childType === 'light');
   const labels = reversed.filter((c) => c.childType === 'text');
   const assets = reversed.filter((c) => c.childType === 'asset');
-  const doors = reversed.filter((c) => c.childType === 'door');
+  const doors = reversed.filter((c) => c.childType === 'door' || c.childType === 'opening');
   // Zones draw as the editor's overlay over the floors: under the props, over the walls.
   const zones = reversed.filter((c) => c.childType === 'zone');
   const rest = reversed.filter(
@@ -119,6 +120,7 @@ function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
       c.childType !== 'text' &&
       c.childType !== 'asset' &&
       c.childType !== 'door' &&
+      c.childType !== 'opening' &&
       c.childType !== 'light' &&
       c.childType !== 'zone',
   );
@@ -203,6 +205,14 @@ function* childHits(
         }
         const pos = doorPositions.get(child.id) ?? child.position;
         const dist = Math.hypot(pos[0] - point[0], pos[1] - point[1]);
+        if (dist <= Math.max(child.width / 2, DOOR_MIN_HIT_RADIUS)) yield child;
+        break;
+      }
+      case 'opening': {
+        // Where it sits on its floor's ring; it answers across its width, like a door.
+        const frame = layer ? openingFrame(layer, child) : null;
+        if (!frame) break;
+        const dist = Math.hypot(frame.position[0] - point[0], frame.position[1] - point[1]);
         if (dist <= Math.max(child.width / 2, DOOR_MIN_HIT_RADIUS)) yield child;
         break;
       }
@@ -726,9 +736,16 @@ export function getChildBounds(child: AnyChild): {
       }
       return { x: minX - half, y: minY - half, width: maxX - minX + half * 2, height: maxY - minY + half * 2 };
     }
-    case 'opening':
-      // Sits on its shape's ring at `t`; nothing places one yet, so it has no extent of its own.
-      return { x: 0, y: 0, width: 0, height: 0 };
+    case 'opening': {
+      // Sits on its floor's ring at `t`: a box its width wide, found through the layer holding it.
+      const layer = useStore
+        .getState()
+        .layers.find((l): l is DungeonLayer => l.type === 'dungeon' && l.children.some((c) => c.id === child.id));
+      const frame = layer ? openingFrame(layer, child) : null;
+      if (!frame) return { x: 0, y: 0, width: 0, height: 0 };
+      const half = child.width / 2;
+      return { x: frame.position[0] - half, y: frame.position[1] - half, width: child.width, height: child.width };
+    }
     case 'zone': {
       const shape = child.shape;
       switch (shape.kind) {

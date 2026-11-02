@@ -248,7 +248,9 @@ export type ToolType =
   /** Draws a polygon floor and the room on it in one gesture. */
   | 'roomPolygon'
   /** Draws a threshold (or a wall) across a floor to split a room. */
-  | 'divide';
+  | 'divide'
+  /** Places stairs, a ramp or a ladder on a cliff ring. */
+  | 'opening';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -282,6 +284,15 @@ export interface PathToolSettings {
   snapEnds: boolean;
   /** The material the lake preset draws in: any material with a fill (water, lava, poison, ice). */
   lakeMaterialId: string;
+}
+
+/** What the next opening the opening tool places is. */
+export interface OpeningToolSettings {
+  kind: 'stairs' | 'ramp' | 'ladder';
+  /** Cells along the ring. */
+  width: number;
+  /** Stairs art; absent = the default flight. */
+  artId?: string;
 }
 
 export interface ZoneToolSettings {
@@ -348,6 +359,8 @@ export interface ToolSettings {
   path: PathToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
+  /** Absent on settings saved before the opening tool: its defaults. */
+  opening?: OpeningToolSettings;
 }
 
 export interface ToolsSlice {

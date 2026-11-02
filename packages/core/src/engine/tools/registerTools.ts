@@ -16,6 +16,7 @@ import { TerrainTool } from './TerrainTool';
 import { ZoneTool } from './ZoneTool';
 import { RoomPolygonTool, RoomRectTool } from './RoomTools';
 import { DivideTool } from './DivideTool';
+import { OpeningTool } from './OpeningTool';
 
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
@@ -39,4 +40,5 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RoomRectTool());
   manager.registerTool(new RoomPolygonTool());
   manager.registerTool(new DivideTool());
+  manager.registerTool(new OpeningTool(previewContainer));
 }

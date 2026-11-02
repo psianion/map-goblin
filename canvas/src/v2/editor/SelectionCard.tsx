@@ -51,6 +51,7 @@ import { wallSetLabel } from './assetStrip';
 import { SlideOver } from './SlideOver';
 import { ZoneSheet } from './ZoneSheet';
 import { PlateauFields } from './PlateauFields';
+import { OpeningFields } from './OpeningFields';
 import {
   MIXED_SWATCH,
   TEXTURE_DEFAULTS,
@@ -298,6 +299,9 @@ function Fields({
   }
   if (child.childType === 'path' && layerId) {
     return <PathFields layerId={layerId} pathId={child.id} />;
+  }
+  if (child.childType === 'opening' && layerId) {
+    return <OpeningFields layerId={layerId} openingId={child.id} />;
   }
   if (child.childType === 'zone') {
     return (

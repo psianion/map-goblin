@@ -17,7 +17,8 @@ export type ToolType =
   | 'zone'
   | 'roomRect'
   | 'roomPolygon'
-  | 'divide';
+  | 'divide'
+  | 'opening';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';
