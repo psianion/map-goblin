@@ -1,9 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { planEdgeBorders, sharedBoundary } from './edgeTransitions';
-import { floorEdgeStrip } from '../assets/packCatalog';
-import { getAssetPackManager, resetAssetPackManager } from './assetPackInstance';
-import type { ManifestEntry, PackManifest } from './assetPackManager';
-import type { ShapeChild } from '../shared/types';
+import { describe, it, expect } from 'vitest';
+import { sharedBoundary } from './edgeTransitions';
 
 const square = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
   [x0, y0],
@@ -11,21 +7,6 @@ const square = (x0: number, y0: number, x1: number, y1: number): [number, number
   [x1, y1],
   [x0, y1],
 ];
-
-const shape = (id: string, ring: [number, number][], textureId?: string): ShapeChild => ({
-  id,
-  name: id,
-  childType: 'shape',
-  visible: true,
-  shapeType: 'polygon',
-  contours: [ring],
-  textureId,
-  textureScale: 1,
-  textureOffsetX: 0,
-  textureOffsetY: 0,
-  textureFillRotation: 0,
-  textureTint: '#ffffff',
-});
 
 /** One run of the top ring, from `a` to `b`, every point on the line between them. */
 function expectRun(chains: [number, number][][], a: [number, number], b: [number, number]) {
@@ -75,61 +56,5 @@ describe('sharedBoundary', () => {
   it('works whichever way the top ring winds', () => {
     const cw = [...square(5, 0, 15, 10)].reverse();
     expect(sharedBoundary(cw, square(0, 0, 10, 10)).chains).toHaveLength(1);
-  });
-});
-
-describe('planEdgeBorders', () => {
-  const a = shape('a', square(0, 0, 10, 10), 'pack:stone');
-  const b = shape('b', square(5, 0, 15, 10), 'pack:cave');
-
-  it('the shape on top lays its texture’s strip along the boundary over the one beneath', () => {
-    const plan = planEdgeBorders([a, b], 0.5, (s) => (s.textureId === 'pack:cave' ? 'pack:cave_edge_2x1' : undefined));
-    expect(plan.blends).toEqual([]);
-    expect(plan.strips).toMatchObject([{ top: 1, bottom: 0, stripId: 'pack:cave_edge_2x1', closed: false }]);
-    expectRun(plan.strips[0].chains, [5, 10], [5, 0]);
-  });
-
-  it('falls back to the colour blend when the top texture has no strip, even if the one beneath does', () => {
-    const plan = planEdgeBorders([b, a], 0.5, (s) => (s.textureId === 'pack:cave' ? 'pack:cave_edge_2x1' : undefined));
-    expect(plan.strips).toEqual([]);
-    expect(plan.blends).toEqual([[b, a]]);
-  });
-
-  it('same textures, and shapes far apart, border nothing', () => {
-    const same = shape('c', square(5, 0, 15, 10), 'pack:stone');
-    const far = shape('d', square(40, 40, 50, 50), 'pack:cave');
-    expect(planEdgeBorders([a, same, far], 0.5, () => 'x')).toEqual({ strips: [], blends: [] });
-  });
-});
-
-describe('floorEdgeStrip', () => {
-  const entry = (material: string, type: string, gridSize: string): ManifestEntry =>
-    ({ type, material, gridSize, pieceType: type, variant: 'A', set: 'S', tags: [] }) as unknown as ManifestEntry;
-  beforeEach(() => {
-    resetAssetPackManager();
-    const manifest: PackManifest = {
-      name: 'gg-forge',
-      description: '',
-      version: '1',
-      bundleSize: 0,
-      atlases: {},
-      files: {},
-      entries: {
-        cave_floor_8x8_floor_A: entry('cave_floor', 'floor', '8x8'),
-        cave_floor_edge_2x1: entry('cave_floor_edge_2x1', 'edge', '2x1'),
-        stone_8x8_floor_A: entry('stone', 'floor', '8x8'),
-      },
-    };
-    const manager = getAssetPackManager();
-    (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set('gg-forge', manifest);
-    manager.catalogVersion++;
-  });
-  afterEach(() => resetAssetPackManager());
-
-  it('finds `<material>_edge_2x1` beside a floor texture, by full or bare id', () => {
-    expect(floorEdgeStrip('gg-forge:cave_floor_8x8_floor_A')?.id).toBe('gg-forge:cave_floor_edge_2x1');
-    expect(floorEdgeStrip('cave_floor_8x8_floor_A')?.id).toBe('gg-forge:cave_floor_edge_2x1');
-    expect(floorEdgeStrip('gg-forge:stone_8x8_floor_A')).toBeUndefined();
-    expect(floorEdgeStrip(undefined)).toBeUndefined();
   });
 });

@@ -6,6 +6,7 @@ import type { DungeonLayer, ShapeChild, ToolType } from '@/store/types';
 import { ToolSettings, ToolSwatches } from './DockControls';
 import { SCATTER_TINT_PALETTE } from './PropsDock';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
+import { resetAssetPackManager, seedPathKits } from '@dnd/core/src/testing/seedCatalog';
 
 // jsdom has no 2D canvas; the thumbnails are not what these tests look at.
 vi.mock('@/editor/PackThumbnailCanvas', () => ({
@@ -557,6 +558,27 @@ describe('path quick settings', () => {
     expect(screen.getByLabelText('Length')).not.toBeNull();
     fireEvent.click(screen.getByRole('switch', { name: 'Snap ends' }));
     expect(useStore.getState().tools.settings.path.snapEnds).toBe(false);
+  });
+
+  it('offers the installed path kits as tiles, and only the kits with a shore for a lake', () => {
+    seedPathKits();
+    try {
+      const swatches = (tool: ToolType) => {
+        cleanup();
+        useStore.getState().setActiveTool(tool);
+        render(<ToolSwatches tool={tool} tab={'tools' as never} onTab={() => {}} onOpenAssets={() => {}} />);
+      };
+      swatches('path');
+      const strip = screen.getByTestId('v2-strip-paths');
+      expect(within(strip).getByTestId('thumb-gg-forge:road-dirt-fill')).not.toBeNull();
+      expect(within(strip).getByTestId('thumb-gg-forge:water-fill')).not.toBeNull();
+      swatches('lake');
+      const lakes = screen.getByTestId('v2-strip-lakes');
+      expect(within(lakes).queryByTestId('thumb-gg-forge:road-dirt-fill')).toBeNull();
+      expect(within(lakes).getByTestId('thumb-gg-forge:water-fill')).not.toBeNull();
+    } finally {
+      resetAssetPackManager();
+    }
   });
 
   it('keeps the lake preset to what a lake can use', () => {

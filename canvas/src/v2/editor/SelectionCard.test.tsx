@@ -946,6 +946,25 @@ describe('SelectionCard: a path', () => {
     expect(p().points[2].height).toBe(2);
   });
 
+  it('lists the installed path kits as its materials, and keeps an id no kit answers', async () => {
+    const { resetAssetPackManager, seedPathKits } = await import('@dnd/core/src/testing/seedCatalog');
+    seedPathKits();
+    try {
+      seed([path()], ['p']);
+      render(<SelectionCard />);
+      const options = [...(screen.getByRole('combobox', { name: 'Material' }) as HTMLSelectElement).options].map((o) => o.value);
+      expect(options).toEqual(['gg-forge:road-dirt', 'gg-forge:water']);
+      fireEvent.change(screen.getByRole('combobox', { name: 'Material' }), { target: { value: 'gg-forge:water' } });
+      expect(p().materialId).toBe('gg-forge:water');
+      cleanup();
+      seed([path({ materialId: 'gg-forge:retired' })], ['p']);
+      render(<SelectionCard />);
+      expect([...(screen.getByRole('combobox', { name: 'Material' }) as HTMLSelectElement).options][0].value).toBe('gg-forge:retired');
+    } finally {
+      resetAssetPackManager();
+    }
+  });
+
   it('shows no heights while the path follows the ground', () => {
     seed([path()], ['p']);
     render(<SelectionCard />);

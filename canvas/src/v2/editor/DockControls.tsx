@@ -11,7 +11,7 @@ import { LayerWallLookCommand, PresetApplyCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES } from '@/store/slices/tools';
-import { familyKeyOf, getCatalogEntry, pathMaterials } from '@dnd/core/src/assets/packCatalog';
+import { familyKeyOf, getCatalogEntry, kitPiece, pathKits } from '@dnd/core/src/assets/packCatalog';
 import { PATH_WIDTH_RANGE, PATH_WIDTH_STEP } from '@dnd/core/src/engine/tools/PathTool';
 import {
   minDoorWidth,
@@ -832,19 +832,22 @@ function ZoneSettings() {
 
 /* ── Paths ──────────────────────────────────────────────── */
 
-/** The path materials installed, as tiles; the next path is drawn in the one picked. */
 /**
- * The path materials installed, as tiles; the next path is drawn in the one picked. For the
- * lake preset, every material with a fill (water, lava, poison, ice), shown by its fill.
+ * The path kits installed, as tiles, each shown by its fill (or its first plank); the next
+ * path is drawn in the one picked. For the lake preset, every kit with a shore band (water,
+ * lava, poison, ice).
  */
 function PathMaterialStrip({ lake = false }: { lake?: boolean }) {
   const key = lake ? 'lakeMaterialId' : 'materialId';
   const materialId = useStore((s) => s.tools.settings.path[key]);
   // Re-read when packs land: the catalog is rebuilt from the installed manifests.
   useStore((s) => s.packs.installedPacks);
-  const tiles: StripTile[] = pathMaterials()
-    .filter((m) => !lake || m.pieces.fill)
-    .map((m) => ({ id: m.id, textureId: (lake ? m.pieces.fill! : m.pieces.strip!).id, label: m.label }));
+  const tiles: StripTile[] = pathKits()
+    .filter((k) => !lake || (k.fill && k.manifest.band))
+    .flatMap((k) => {
+      const face = k.fill ?? (k.manifest.cross?.[0] ? kitPiece(k, k.manifest.cross[0].key) : undefined);
+      return face ? [{ id: k.id, textureId: face.id, label: k.label }] : [];
+    });
   return (
     <AssetStrip
       label={lake ? 'Lake materials' : 'Path materials'}

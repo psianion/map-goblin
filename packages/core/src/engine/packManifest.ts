@@ -30,6 +30,34 @@ export interface ManifestEntry {
   /** Variant family within `set` ('storage_barrel_dark'); absent = a family of one. */
   family?: string
   tags: string[]
+  /** A `kit` entry's manifest: how its path material is built from the pack's pieces. */
+  kit?: KitManifest
+}
+
+// SYNC: mirrors vault-engine's KitManifest (packages/vault-engine/src/types.ts)
+/** A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to `jitter` radians. */
+export interface KitEdgeUnit {
+  key: string
+  weight: number
+  spacing: number
+  jitter: number
+}
+
+/**
+ * How a path material is built from pieces; every key names another entry of the same pack.
+ * surface: the outline filled with `fill`, `edge` units walked along it. planks: `cross`
+ * units across the centreline, `railPost` units both sides with a `rope` between, `end`
+ * pieces at cut ends. band: the cave walk with `band.straight` pieces, bends drawn in code.
+ */
+export interface KitManifest {
+  kind: 'surface' | 'planks' | 'band'
+  fill?: string
+  edge?: KitEdgeUnit[]
+  cross?: { key: string; weight: number }[]
+  railPost?: string
+  rope?: { color: string; width: number }
+  band?: { straight: string[]; bendDrawn: true }
+  end?: string
 }
 
 export interface PackManifest {

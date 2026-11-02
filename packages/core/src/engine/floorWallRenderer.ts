@@ -216,43 +216,68 @@ function renderTexturedShape(
   texture: Texture,
   bleed: number,
 ): void {
-  const rings = fillRings(shape, bleed);
+  const tint = shape.textureTint && shape.textureTint !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
+  paintTiled(parent, fillRings(shape, bleed), texture, {
+    // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
+    scale: shape.textureScale || 1,
+    rotation: shape.textureFillRotation,
+    offsetX: shape.textureOffsetX ?? 0,
+    offsetY: shape.textureOffsetY ?? 0,
+    tint: isNaN(tint) ? undefined : tint,
+  });
+}
+
+/** How a tiled fill lays its texture: cells per 200 px, turn, offset from the world origin, tint. */
+export interface TiledLook {
+  scale: number;
+  rotation?: number;
+  offsetX?: number;
+  offsetY?: number;
+  tint?: number;
+  alpha?: number;
+  /** The rings are Clipper output whose negative rings are holes, cut out of the fill. */
+  holes?: boolean;
+}
+
+/**
+ * Tile `texture` over `rings` the way a floor is painted: a TilingSprite over their bounds,
+ * the pattern anchored to the world origin so neighbouring fills tile as one, masked to the
+ * rings. Floors and path fills both paint through here.
+ */
+export function paintTiled(parent: Container, rings: Polygon[], texture: Texture, look: TiledLook): void {
   const { minX, minY, maxX, maxY } = polygonBounds(rings.flat());
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
 
-  // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
-  const userScale = shape.textureScale || 1;
-  const tileScale = userScale / PX_PER_GRID_CELL;
+  const tileScale = look.scale / PX_PER_GRID_CELL;
 
   const ts = new TilingSprite({
     texture,
     width,
     height,
     tileScale: { x: tileScale, y: tileScale },
-    tileRotation: shape.textureFillRotation,
+    tileRotation: look.rotation ?? 0,
   });
   ts.position.set(minX, minY);
 
   // Anchor tile pattern to world origin so adjacent shapes tile seamlessly
-  const offsetX = shape.textureOffsetX ?? 0;
-  const offsetY = shape.textureOffsetY ?? 0;
   ts.tilePosition.set(
-    (-minX + offsetX) / tileScale,
-    (-minY + offsetY) / tileScale,
+    (-minX + (look.offsetX ?? 0)) / tileScale,
+    (-minY + (look.offsetY ?? 0)) / tileScale,
   );
 
-  // Apply tint (guard against undefined/invalid)
-  if (shape.textureTint && shape.textureTint !== '#ffffff') {
-    const tint = parseColor(shape.textureTint);
-    if (!isNaN(tint)) ts.tint = tint;
-  }
+  if (look.tint !== undefined) ts.tint = look.tint;
+  if (look.alpha !== undefined) ts.alpha = look.alpha;
 
-  // Mask to shape polygon (coordinates in world space, mask relative to parent)
+  // Mask to the rings (coordinates in world space, mask relative to parent)
   const mask = new Graphics();
-  for (const r of rings) traceSinglePolygon(mask, r);
-  mask.fill({ color: 0xffffff });
+  if (look.holes) {
+    fillPolygonsWithHoles(mask, rings, { color: 0xffffff });
+  } else {
+    for (const r of rings) traceSinglePolygon(mask, r);
+    mask.fill({ color: 0xffffff });
+  }
 
   const container = new Container();
   container.addChild(ts);

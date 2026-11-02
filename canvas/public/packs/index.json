@@ -12,19 +12,19 @@
       "manifest": "gg-demo/pack-c546993a.json"
     },
     "gg-forge": {
-      "version": "1.7.0",
-      "bundleSize": 1285128,
-      "entryCount": 114,
+      "version": "1.10.0",
+      "bundleSize": 1663508,
+      "entryCount": 135,
       "themes": [
         "fantasy"
       ],
       "preview": "gg-forge/preview-2d8ce6b3.webp",
-      "manifest": "gg-forge/pack-f12ba34b.json"
+      "manifest": "gg-forge/pack-3f5b3cbb.json"
     }
   },
   "catalog": {
-    "totalEntries": 943,
+    "totalEntries": 964,
     "chunkCount": 0,
-    "lastUpdated": "2026-11-02T10:51:50.161Z"
+    "lastUpdated": "2026-11-02T19:36:29.830Z"
   }
 }

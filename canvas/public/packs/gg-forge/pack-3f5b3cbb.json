@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.7.0",
+  "version": "1.10.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1314,23 +1314,305 @@
         "stone"
       ]
     },
-    "cave_floor_edge_2x1": {
-      "type": "edge",
-      "material": "cave_floor_edge_2x1",
-      "gridSize": "2x1",
-      "pieceType": "edge",
+    "cliff-rubble_1x1_object_A": {
+      "type": "object",
+      "material": "cliff-rubble",
+      "gridSize": "1x1",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 400,
+        "w": 200,
         "h": 200
       },
-      "set": "GG_Cave_Floor",
+      "contentRect": {
+        "x": 10,
+        "y": 12,
+        "w": 180,
+        "h": 176
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "edge",
-        "placeholder"
-      ]
+        "path-prop",
+        "cliff"
+      ],
+      "family": "cliff-rubble"
+    },
+    "cliff-rubble_1x1_object_B": {
+      "type": "object",
+      "material": "cliff-rubble",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 15,
+        "y": 10,
+        "w": 170,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "cliff"
+      ],
+      "family": "cliff-rubble"
+    },
+    "dirt-cobbles_1x1_object_A": {
+      "type": "object",
+      "material": "dirt-cobbles",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 11,
+        "w": 180,
+        "h": 179
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-cobbles"
+    },
+    "dirt-cobbles_1x1_object_B": {
+      "type": "object",
+      "material": "dirt-cobbles",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 14,
+        "y": 10,
+        "w": 172,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-cobbles"
+    },
+    "dirt-flagstone_1x1_object_A": {
+      "type": "object",
+      "material": "dirt-flagstone",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 19,
+        "y": 10,
+        "w": 163,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-flagstone"
+    },
+    "dirt-flagstone_1x1_object_B": {
+      "type": "object",
+      "material": "dirt-flagstone",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 17,
+        "y": 10,
+        "w": 167,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-flagstone"
+    },
+    "dirt-grass-tuft_1x1_object_A": {
+      "type": "object",
+      "material": "dirt-grass-tuft",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 11,
+        "w": 180,
+        "h": 178
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-grass-tuft"
+    },
+    "dirt-grass-tuft_1x1_object_B": {
+      "type": "object",
+      "material": "dirt-grass-tuft",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 13,
+        "w": 180,
+        "h": 174
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-grass-tuft"
+    },
+    "dirt-pebbles_1x1_object_A": {
+      "type": "object",
+      "material": "dirt-pebbles",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 15,
+        "y": 10,
+        "w": 171,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-pebbles"
+    },
+    "dirt-pebbles_1x1_object_B": {
+      "type": "object",
+      "material": "dirt-pebbles",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 13,
+        "w": 180,
+        "h": 175
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-pebbles"
+    },
+    "dirt-puddle_1x1_object_A": {
+      "type": "object",
+      "material": "dirt-puddle",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 14,
+        "y": 10,
+        "w": 172,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-puddle"
+    },
+    "dirt-puddle_1x1_object_B": {
+      "type": "object",
+      "material": "dirt-puddle",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 12,
+        "y": 10,
+        "w": 177,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "dirt"
+      ],
+      "family": "dirt-puddle"
     },
     "doorkit-cave-hinge": {
       "type": "door",
@@ -1856,11 +2138,11 @@
         "cave"
       ]
     },
-    "planks-edge": {
-      "type": "path",
-      "material": "planks-edge",
+    "planks-plank-broken_2x1_object_A": {
+      "type": "object",
+      "material": "planks-plank-broken",
       "gridSize": "2x1",
-      "pieceType": "edge",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -1868,17 +2150,49 @@
         "w": 400,
         "h": 200
       },
-      "set": "planks",
+      "contentRect": {
+        "x": 20,
+        "y": 56,
+        "w": 360,
+        "h": 89
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank-broken"
     },
-    "planks-end": {
-      "type": "path",
-      "material": "planks-end",
+    "planks-plank-broken_2x1_object_B": {
+      "type": "object",
+      "material": "planks-plank-broken",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 20,
+        "y": 48,
+        "w": 360,
+        "h": 104
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank-broken"
+    },
+    "planks-plank-short_1x1_object_A": {
+      "type": "object",
+      "material": "planks-plank-short",
       "gridSize": "1x1",
-      "pieceType": "end",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -1886,35 +2200,49 @@
         "w": 200,
         "h": 200
       },
-      "set": "planks",
+      "contentRect": {
+        "x": 13,
+        "y": 10,
+        "w": 175,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank-short"
     },
-    "planks-strip": {
-      "type": "path",
-      "material": "planks-strip",
-      "gridSize": "4x1",
-      "pieceType": "strip",
-      "variant": "A",
+    "planks-plank-short_1x1_object_B": {
+      "type": "object",
+      "material": "planks-plank-short",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 800,
+        "w": 200,
         "h": 200
       },
-      "set": "planks",
+      "contentRect": {
+        "x": 26,
+        "y": 10,
+        "w": 148,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank-short"
     },
-    "road-cobble-edge": {
-      "type": "path",
-      "material": "road-cobble-edge",
+    "planks-plank_2x1_object_A": {
+      "type": "object",
+      "material": "planks-plank",
       "gridSize": "2x1",
-      "pieceType": "edge",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -1922,71 +2250,49 @@
         "w": 400,
         "h": 200
       },
-      "set": "road-cobble",
-      "tags": [
-        "path",
-        "placeholder"
-      ]
-    },
-    "road-cobble-end": {
-      "type": "path",
-      "material": "road-cobble-end",
-      "gridSize": "1x1",
-      "pieceType": "end",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
+      "contentRect": {
+        "x": 20,
+        "y": 50,
+        "w": 360,
+        "h": 100
       },
-      "set": "road-cobble",
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank"
     },
-    "road-cobble-strip": {
-      "type": "path",
-      "material": "road-cobble-strip",
-      "gridSize": "4x1",
-      "pieceType": "strip",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 800,
-        "h": 200
-      },
-      "set": "road-cobble",
-      "tags": [
-        "path",
-        "placeholder"
-      ]
-    },
-    "road-dirt-edge": {
-      "type": "path",
-      "material": "road-dirt-edge",
+    "planks-plank_2x1_object_B": {
+      "type": "object",
+      "material": "planks-plank",
       "gridSize": "2x1",
-      "pieceType": "edge",
-      "variant": "A",
+      "pieceType": "object",
+      "variant": "B",
       "frame": {
         "x": 0,
         "y": 0,
         "w": 400,
         "h": 200
       },
-      "set": "road-dirt",
+      "contentRect": {
+        "x": 20,
+        "y": 55,
+        "w": 360,
+        "h": 90
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-plank"
     },
-    "road-dirt-end": {
-      "type": "path",
-      "material": "road-dirt-end",
+    "planks-post_1x1_object_A": {
+      "type": "object",
+      "material": "planks-post",
       "gridSize": "1x1",
-      "pieceType": "end",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -1994,83 +2300,43 @@
         "w": 200,
         "h": 200
       },
-      "set": "road-dirt",
-      "tags": [
-        "path",
-        "placeholder"
-      ]
-    },
-    "road-dirt-strip": {
-      "type": "path",
-      "material": "road-dirt-strip",
-      "gridSize": "4x1",
-      "pieceType": "strip",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 800,
-        "h": 200
+      "contentRect": {
+        "x": 10,
+        "y": 16,
+        "w": 180,
+        "h": 169
       },
-      "set": "road-dirt",
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-post"
     },
-    "trail-grass-edge": {
-      "type": "path",
-      "material": "trail-grass-edge",
-      "gridSize": "2x1",
-      "pieceType": "edge",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 400,
-        "h": 200
-      },
-      "set": "trail-grass",
-      "tags": [
-        "path",
-        "placeholder"
-      ]
-    },
-    "trail-grass-end": {
-      "type": "path",
-      "material": "trail-grass-end",
+    "planks-post_1x1_object_B": {
+      "type": "object",
+      "material": "planks-post",
       "gridSize": "1x1",
-      "pieceType": "end",
-      "variant": "A",
+      "pieceType": "object",
+      "variant": "B",
       "frame": {
         "x": 0,
         "y": 0,
         "w": 200,
         "h": 200
       },
-      "set": "trail-grass",
-      "tags": [
-        "path",
-        "placeholder"
-      ]
-    },
-    "trail-grass-strip": {
-      "type": "path",
-      "material": "trail-grass-strip",
-      "gridSize": "4x1",
-      "pieceType": "strip",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 800,
-        "h": 200
+      "contentRect": {
+        "x": 10,
+        "y": 19,
+        "w": 180,
+        "h": 163
       },
-      "set": "trail-grass",
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "planks"
+      ],
+      "family": "planks-post"
     },
     "wall_short_2x2_object_A": {
       "type": "object",
@@ -2126,11 +2392,61 @@
         "cave"
       ]
     },
-    "water-edge": {
-      "type": "path",
-      "material": "water-edge",
+    "water-bank-long_4x1_object_A": {
+      "type": "object",
+      "material": "water-bank-long",
+      "gridSize": "4x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 50,
+        "w": 800,
+        "h": 100
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-bank-long"
+    },
+    "water-bank-long_4x1_object_B": {
+      "type": "object",
+      "material": "water-bank-long",
+      "gridSize": "4x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 52,
+        "w": 800,
+        "h": 98
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-bank-long"
+    },
+    "water-bank_2x1_object_A": {
+      "type": "object",
+      "material": "water-bank",
       "gridSize": "2x1",
-      "pieceType": "edge",
+      "pieceType": "object",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -2138,29 +2454,43 @@
         "w": 400,
         "h": 200
       },
-      "set": "water",
+      "contentRect": {
+        "x": 0,
+        "y": 50,
+        "w": 400,
+        "h": 100
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "water"
+      ],
+      "family": "water-bank"
     },
-    "water-end": {
-      "type": "path",
-      "material": "water-end",
-      "gridSize": "1x1",
-      "pieceType": "end",
-      "variant": "A",
+    "water-bank_2x1_object_B": {
+      "type": "object",
+      "material": "water-bank",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "B",
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 200,
+        "w": 400,
         "h": 200
       },
-      "set": "water",
+      "contentRect": {
+        "x": 0,
+        "y": 50,
+        "w": 400,
+        "h": 100
+      },
+      "set": "GG_Paths_Props",
       "tags": [
-        "path",
-        "placeholder"
-      ]
+        "path-prop",
+        "water"
+      ],
+      "family": "water-bank"
     },
     "water-fall": {
       "type": "path",
@@ -2198,6 +2528,131 @@
         "placeholder"
       ]
     },
+    "water-lily-pads_1x1_object_A": {
+      "type": "object",
+      "material": "water-lily-pads",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 46,
+        "w": 180,
+        "h": 108
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-lily-pads"
+    },
+    "water-lily-pads_1x1_object_B": {
+      "type": "object",
+      "material": "water-lily-pads",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 52,
+        "w": 180,
+        "h": 97
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-lily-pads"
+    },
+    "water-reeds_1x1_object_A": {
+      "type": "object",
+      "material": "water-reeds",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 14,
+        "y": 10,
+        "w": 173,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-reeds"
+    },
+    "water-reeds_1x1_object_B": {
+      "type": "object",
+      "material": "water-reeds",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "B",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 23,
+        "y": 10,
+        "w": 154,
+        "h": 180
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-reeds"
+    },
+    "water-ripple_1x1_object_A": {
+      "type": "object",
+      "material": "water-ripple",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 10,
+        "y": 11,
+        "w": 180,
+        "h": 178
+      },
+      "set": "GG_Paths_Props",
+      "tags": [
+        "path-prop",
+        "water"
+      ],
+      "family": "water-ripple"
+    },
     "water-still-a-01": {
       "type": "water",
       "material": "water-still-a-01",
@@ -2216,11 +2671,11 @@
         "placeholder"
       ]
     },
-    "water-strip": {
+    "road-dirt-fill": {
       "type": "path",
-      "material": "water-strip",
+      "material": "road-dirt-fill",
       "gridSize": "4x1",
-      "pieceType": "strip",
+      "pieceType": "fill",
       "variant": "A",
       "frame": {
         "x": 0,
@@ -2228,11 +2683,275 @@
         "w": 800,
         "h": 200
       },
-      "set": "water",
+      "set": "road-dirt",
+      "tags": [
+        "path",
+        "round4"
+      ]
+    },
+    "road-cobble-fill": {
+      "type": "path",
+      "material": "road-cobble-fill",
+      "gridSize": "4x1",
+      "pieceType": "fill",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "road-cobble",
       "tags": [
         "path",
         "placeholder"
       ]
+    },
+    "trail-grass-fill": {
+      "type": "path",
+      "material": "trail-grass-fill",
+      "gridSize": "4x1",
+      "pieceType": "fill",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "trail-grass",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-dirt-kit": {
+      "type": "kit",
+      "material": "road-dirt",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "road-dirt",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "surface",
+        "fill": "road-dirt-fill",
+        "edge": [
+          {
+            "key": "dirt-grass-tuft_1x1_object_A",
+            "weight": 2,
+            "spacing": 1,
+            "jitter": 0.5
+          },
+          {
+            "key": "dirt-grass-tuft_1x1_object_B",
+            "weight": 2,
+            "spacing": 1,
+            "jitter": 0.5
+          },
+          {
+            "key": "dirt-pebbles_1x1_object_A",
+            "weight": 3,
+            "spacing": 0.7,
+            "jitter": 3.14
+          },
+          {
+            "key": "dirt-pebbles_1x1_object_B",
+            "weight": 3,
+            "spacing": 0.7,
+            "jitter": 3.14
+          },
+          {
+            "key": "dirt-puddle_1x1_object_A",
+            "weight": 0.5,
+            "spacing": 2.5,
+            "jitter": 3.14
+          },
+          {
+            "key": "dirt-puddle_1x1_object_B",
+            "weight": 0.5,
+            "spacing": 2.5,
+            "jitter": 3.14
+          }
+        ]
+      }
+    },
+    "road-cobble-kit": {
+      "type": "kit",
+      "material": "road-cobble",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "road-cobble",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "surface",
+        "fill": "road-cobble-fill",
+        "edge": [
+          {
+            "key": "dirt-cobbles_1x1_object_A",
+            "weight": 3,
+            "spacing": 0.8,
+            "jitter": 3.14
+          },
+          {
+            "key": "dirt-cobbles_1x1_object_B",
+            "weight": 3,
+            "spacing": 0.8,
+            "jitter": 3.14
+          },
+          {
+            "key": "dirt-flagstone_1x1_object_A",
+            "weight": 1,
+            "spacing": 1.2,
+            "jitter": 0.4
+          },
+          {
+            "key": "dirt-flagstone_1x1_object_B",
+            "weight": 1,
+            "spacing": 1.2,
+            "jitter": 0.4
+          }
+        ]
+      }
+    },
+    "trail-grass-kit": {
+      "type": "kit",
+      "material": "trail-grass",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "trail-grass",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "surface",
+        "fill": "trail-grass-fill",
+        "edge": [
+          {
+            "key": "dirt-grass-tuft_1x1_object_A",
+            "weight": 3,
+            "spacing": 0.8,
+            "jitter": 0.6
+          },
+          {
+            "key": "dirt-grass-tuft_1x1_object_B",
+            "weight": 3,
+            "spacing": 0.8,
+            "jitter": 0.6
+          },
+          {
+            "key": "dirt-pebbles_1x1_object_A",
+            "weight": 1,
+            "spacing": 1.5,
+            "jitter": 3.14
+          }
+        ]
+      }
+    },
+    "planks-kit": {
+      "type": "kit",
+      "material": "planks",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "planks",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "planks",
+        "cross": [
+          {
+            "key": "planks-plank_2x1_object_A",
+            "weight": 4
+          },
+          {
+            "key": "planks-plank_2x1_object_B",
+            "weight": 4
+          },
+          {
+            "key": "planks-plank-broken_2x1_object_A",
+            "weight": 1
+          },
+          {
+            "key": "planks-plank-broken_2x1_object_B",
+            "weight": 1
+          }
+        ],
+        "railPost": "planks-post_1x1_object_A",
+        "rope": {
+          "color": "#b08a52",
+          "width": 0.08
+        },
+        "end": "planks-plank-short_1x1_object_A"
+      }
+    },
+    "water-kit": {
+      "type": "kit",
+      "material": "water",
+      "gridSize": "1x1",
+      "pieceType": "kit",
+      "variant": "A",
+      "set": "water",
+      "tags": [
+        "path",
+        "kit"
+      ],
+      "kit": {
+        "kind": "surface",
+        "fill": "water-fill",
+        "edge": [
+          {
+            "key": "water-reeds_1x1_object_A",
+            "weight": 2,
+            "spacing": 1.5,
+            "jitter": 0.5
+          },
+          {
+            "key": "water-reeds_1x1_object_B",
+            "weight": 2,
+            "spacing": 1.5,
+            "jitter": 0.5
+          },
+          {
+            "key": "water-lily-pads_1x1_object_A",
+            "weight": 1,
+            "spacing": 2.5,
+            "jitter": 3.14
+          },
+          {
+            "key": "water-lily-pads_1x1_object_B",
+            "weight": 1,
+            "spacing": 2.5,
+            "jitter": 3.14
+          },
+          {
+            "key": "water-ripple_1x1_object_A",
+            "weight": 1,
+            "spacing": 3,
+            "jitter": 3.14
+          }
+        ],
+        "band": {
+          "straight": [
+            "water-bank_2x1_object_A",
+            "water-bank_2x1_object_B",
+            "water-bank-long_4x1_object_A",
+            "water-bank-long_4x1_object_B"
+          ],
+          "bendDrawn": true
+        }
+      }
     }
   },
   "atlases": {
@@ -2270,9 +2989,53 @@
       "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
       "size": 160988
     },
-    "cave_floor_edge_2x1_2x1_A-5c938fd3.webp": {
-      "checksum": "sha256:5c938fd37463e5381be2631bff56ce3c3d3f8e3d37da3e78348c917a4210d112",
-      "size": 11584
+    "cliff-rubble_1x1_A-1145829e.webp": {
+      "checksum": "sha256:1145829e7ec0da8aa902ce03552c5ad3a1f039f139318e32c6d59cdc6ad87d88",
+      "size": 16020
+    },
+    "cliff-rubble_1x1_B-2a723928.webp": {
+      "checksum": "sha256:2a723928f4d5741e1547d9a489314e02cbad72f248653baa789528d180554d33",
+      "size": 17304
+    },
+    "dirt-cobbles_1x1_A-e323af7c.webp": {
+      "checksum": "sha256:e323af7cf8699f847992cc35c82d63e7f64eab6533a2ec3ace06c692176aa39b",
+      "size": 15788
+    },
+    "dirt-cobbles_1x1_B-8945493d.webp": {
+      "checksum": "sha256:8945493d45a49f34950cfa797a6331e4ca22cd94ce4c7f9d49e50ab3917518db",
+      "size": 13794
+    },
+    "dirt-flagstone_1x1_A-86b4d2be.webp": {
+      "checksum": "sha256:86b4d2bee8473ccf704368140c9796c92d64e9f98de82ee7ec7b71150e73897e",
+      "size": 12818
+    },
+    "dirt-flagstone_1x1_B-88334743.webp": {
+      "checksum": "sha256:88334743e582a5ab1564551483f10681ac37e6798d1ccbaadb9d4f657e496018",
+      "size": 9910
+    },
+    "dirt-grass-tuft_1x1_A-38bbd49b.webp": {
+      "checksum": "sha256:38bbd49bd281cff00fde2e042f6ec6e6f889e8ad387be75e8808bc364e975679",
+      "size": 20506
+    },
+    "dirt-grass-tuft_1x1_B-d02e2667.webp": {
+      "checksum": "sha256:d02e266731fa2943ce0f9fd8722c583e8f81597dbf96efb5ec42866b3709d03e",
+      "size": 19348
+    },
+    "dirt-pebbles_1x1_A-4992c104.webp": {
+      "checksum": "sha256:4992c1047e133fdf80285c8d0e1eeea371d496f82c4f58598b68d9c677081a1b",
+      "size": 14650
+    },
+    "dirt-pebbles_1x1_B-fb1df6b9.webp": {
+      "checksum": "sha256:fb1df6b93a57a66bb1e1d46a43b3dd5e6ea4844d2bd65a9401ba591e76011770",
+      "size": 16066
+    },
+    "dirt-puddle_1x1_A-ac836773.webp": {
+      "checksum": "sha256:ac836773b6bfad062e79199a76000792790454a1148c84060d0abc245e1fd92d",
+      "size": 11284
+    },
+    "dirt-puddle_1x1_B-44cb2859.webp": {
+      "checksum": "sha256:44cb285963a3c83cc835358f1bf8719cab0e14b4ce484f73c25faa73ee28e008",
+      "size": 12308
     },
     "doorkit-cave-hinge-plain_1x1_A-28d2bbd4.webp": {
       "checksum": "sha256:28d2bbd425dc9524567ba27e03d11e58f7d9d58645154363e9c027178ce60697",
@@ -2394,53 +3157,37 @@
       "checksum": "sha256:c96de146500c3e6630fc8f60c4781d9b69f8221c2c0912f39250838d7ea224fd",
       "size": 61122
     },
-    "planks-edge_2x1_A-6181d58e.webp": {
-      "checksum": "sha256:6181d58e7a9b2194095fc9fe6eca0a9e08546db00b834ec492730fe96701eb5b",
-      "size": 14068
+    "planks-plank-broken_2x1_A-ec5a97dd.webp": {
+      "checksum": "sha256:ec5a97dd16254e852c966a5fb952c43c90fbc237664bd332ee88173f6646ec82",
+      "size": 11748
     },
-    "planks-end_1x1_A-16991df9.webp": {
-      "checksum": "sha256:16991df9fbc8f2c5c0e0edd0ebd7371e9d5e2ef4afc2e874e4105723dbfc0796",
-      "size": 5660
+    "planks-plank-broken_2x1_B-9fd9c21b.webp": {
+      "checksum": "sha256:9fd9c21be0732f71382e1e5ffbdfe367a834526d618191dacb776f372c12b294",
+      "size": 13524
     },
-    "planks-strip_4x1_A-0ede5c76.webp": {
-      "checksum": "sha256:0ede5c7633598200223f8ecd9086c7a46c9fc093b6e052471f703afa38ee7129",
-      "size": 7832
+    "planks-plank-short_1x1_A-a76c0b10.webp": {
+      "checksum": "sha256:a76c0b102fcba200ad70b547540bf9ac25fa3f2c47d7f6c8690943c764083773",
+      "size": 14830
     },
-    "road-cobble-edge_2x1_A-b34cd7fa.webp": {
-      "checksum": "sha256:b34cd7faf28cf5649073554c1b4011eff9db2eac181a954e4d4c25e9d1e66650",
-      "size": 13006
+    "planks-plank-short_1x1_B-ecec5b6d.webp": {
+      "checksum": "sha256:ecec5b6d4995cda7f7aa301caed3db1045c714397460bc14da4d7ac1a37fab1a",
+      "size": 11416
     },
-    "road-cobble-end_1x1_A-1c316f05.webp": {
-      "checksum": "sha256:1c316f05ed090ad0d027588cd501bc6cd81c7de93ae4a67448e0c342f237b694",
-      "size": 5384
+    "planks-plank_2x1_A-e4a4716d.webp": {
+      "checksum": "sha256:e4a4716d2cc38a9df274e1b4296a05ad28f9d96ba2eaeba29e04239654aa684e",
+      "size": 14102
     },
-    "road-cobble-strip_4x1_A-41fb0ee8.webp": {
-      "checksum": "sha256:41fb0ee8d6e89b988b7e1498dd114bb7e222ce290b68707b5d4dd1f95ba551e5",
-      "size": 5656
+    "planks-plank_2x1_B-bcffb9c9.webp": {
+      "checksum": "sha256:bcffb9c983e350c3e975c5a64c9c85fcbdb4ae53b894d588d6384502e28c3f10",
+      "size": 12960
     },
-    "road-dirt-edge_2x1_A-7ab170b5.webp": {
-      "checksum": "sha256:7ab170b57a0ded40cbaf924198c78363d669e0542fa5f78b524a885757058ad6",
-      "size": 11782
+    "planks-post_1x1_A-050d4cfc.webp": {
+      "checksum": "sha256:050d4cfc276a160bd8ddd0ea70dfec12599432b1f1b2027cfb0545c7172770e6",
+      "size": 15072
     },
-    "road-dirt-end_1x1_A-e8a06a64.webp": {
-      "checksum": "sha256:e8a06a64540fa302f7039cd76d13c05534e36b625a5be5aba6f5cf7c8e7ddebc",
-      "size": 4770
-    },
-    "road-dirt-strip_4x1_A-543fdf73.webp": {
-      "checksum": "sha256:543fdf73e809af44a2e1229602265e4cf3712d81756bb63ca0e4fd792c45201c",
-      "size": 3532
-    },
-    "trail-grass-edge_2x1_A-f826baf8.webp": {
-      "checksum": "sha256:f826baf8abf0e4bb6d73eb4b37fc0ae610170057fa79a33c48b666237c1857e4",
-      "size": 14950
-    },
-    "trail-grass-end_1x1_A-54bc6c1f.webp": {
-      "checksum": "sha256:54bc6c1fa7dcc05d40acfdf0173c2e9f4bf5c335b1105fda60ef1e8b17e84331",
-      "size": 6022
-    },
-    "trail-grass-strip_4x1_A-6b72db84.webp": {
-      "checksum": "sha256:6b72db848e5725c6f014fe653504e5ec33909ca3f9a39e0f1e6bfb197d72d727",
-      "size": 10082
+    "planks-post_1x1_B-119e3c78.webp": {
+      "checksum": "sha256:119e3c789460d8c8dd3e2f0dfc66329f3bc92e9b51e7a558bd0f05fd77b6054f",
+      "size": 14274
     },
     "wall_short_2x2_A-479bf070.webp": {
       "checksum": "sha256:479bf07087d4be26efa0b0ab6bbd36eb07197913c6b6a597efce5bef59fc74a1",
@@ -2454,13 +3201,21 @@
       "checksum": "sha256:dac3f2b8e21beec51036fe4171c8c41a34b23258c6bd4b6908d3d9aaf31d031d",
       "size": 58820
     },
-    "water-edge_2x1_A-d6eee4aa.webp": {
-      "checksum": "sha256:d6eee4aaa9f59cf4c3fb2d2b5adb2d2a5a9b23e0afc8ba796becfa5c057b7eec",
-      "size": 11150
+    "water-bank-long_4x1_A-1ef822a2.webp": {
+      "checksum": "sha256:1ef822a26bb503bad3c3e79e69ce145d333790da71f6036420dfd8f97b6461a7",
+      "size": 36652
     },
-    "water-end_1x1_A-b173cc73.webp": {
-      "checksum": "sha256:b173cc73a6c644edce8628e5a50d60708492a1ea7eec0b08370142def3771102",
-      "size": 4442
+    "water-bank-long_4x1_B-88e3c05c.webp": {
+      "checksum": "sha256:88e3c05ca55227563f4b55be687684d940b514c70f324d236a2d023bb11eb0e1",
+      "size": 43176
+    },
+    "water-bank_2x1_A-c38660a4.webp": {
+      "checksum": "sha256:c38660a41b8fcf0015b04f6456b71bab67a8eb195ecfca5c70fffc0087ac268f",
+      "size": 21534
+    },
+    "water-bank_2x1_B-60a364a9.webp": {
+      "checksum": "sha256:60a364a9279f1afe90c785aca532d031e7e52811ae855cdc6b8b982b7bd0f6bd",
+      "size": 22868
     },
     "water-fall_2x2_A-f5bf10ce.webp": {
       "checksum": "sha256:f5bf10ceab45f7c49a2daa5963c16dd717eb0c4bbd45d4d2972858338cdb84ca",
@@ -2470,14 +3225,42 @@
       "checksum": "sha256:16455a8cd2b6b012a3ef1ca2f2c82b5c6957ac5d505ea1927e2d32ce4d2a21a3",
       "size": 4552
     },
+    "water-lily-pads_1x1_A-a63d4e11.webp": {
+      "checksum": "sha256:a63d4e11db1a4c9c8a29eaf433b846f7274bc5c585225a557a20fa79bc4b612a",
+      "size": 9522
+    },
+    "water-lily-pads_1x1_B-de478b7e.webp": {
+      "checksum": "sha256:de478b7e1b29820321e20bcb792dc37f8615fed1bd07371fd640abf9cb658f56",
+      "size": 9014
+    },
+    "water-reeds_1x1_A-9330ed9b.webp": {
+      "checksum": "sha256:9330ed9b90d313390540879cf129acc8a68304be3a0e16f4c0e7b701676e5b34",
+      "size": 20776
+    },
+    "water-reeds_1x1_B-96ccfa13.webp": {
+      "checksum": "sha256:96ccfa132902cd30645215fd9731dcee8e9767883ff24248a145588555ed5cfd",
+      "size": 18158
+    },
+    "water-ripple_1x1_A-ebccc34b.webp": {
+      "checksum": "sha256:ebccc34b46bcadc8ca8c5d7c59316b8239afac5ce225e5975e3cf299d9637f4c",
+      "size": 16562
+    },
     "water-still-a-01_2x2_A-69f84bfe.webp": {
       "checksum": "sha256:69f84bfee06eacb3617d230cc50bfb3dddde6a1a3451b971eca0de78ab1e7bbf",
       "size": 1688
     },
-    "water-strip_4x1_A-227e4eee.webp": {
-      "checksum": "sha256:227e4eee4342e3b7b918761e7ba353f06dcdc59196ceb50f920a4325e91d1b6d",
-      "size": 2334
+    "road-dirt-fill_4x1_A-dd34bcc0.webp": {
+      "checksum": "sha256:dd34bcc0b8051598e199dec0b221f1c8cfa1906d3959b6dd5f9c2fbdfd834496",
+      "size": 8912
+    },
+    "road-cobble-fill_4x1_A-41fb0ee8.webp": {
+      "checksum": "sha256:41fb0ee8d6e89b988b7e1498dd114bb7e222ce290b68707b5d4dd1f95ba551e5",
+      "size": 5656
+    },
+    "trail-grass-fill_4x1_A-6b72db84.webp": {
+      "checksum": "sha256:6b72db848e5725c6f014fe653504e5ec33909ca3f9a39e0f1e6bfb197d72d727",
+      "size": 10082
     }
   },
-  "bundleSize": 1285128
+  "bundleSize": 1663508
 }

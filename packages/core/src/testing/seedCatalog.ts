@@ -6,12 +6,13 @@
 
 import { getAssetPackManager, resetAssetPackManager } from '../engine/assetPackInstance';
 import type { EntryRect, ManifestEntry, PackManifest } from '../engine/assetPackManager';
+import type { KitManifest } from '../engine/packManifest';
 import { caveBandPieces, placeOnChord } from '../assets/caveWallKit';
 import type { AssetChild } from '../shared/types';
 
 export { resetAssetPackManager };
 
-function seedPack(packId: string, entries: Record<string, ManifestEntry>): void {
+export function seedPack(packId: string, entries: Record<string, ManifestEntry>): void {
   const manifest: PackManifest = {
     name: packId,
     description: '',
@@ -169,35 +170,36 @@ export function seedTestWallSets(setIds: string[] = ['GG_Test'], packId = 'gg-fo
 }
 
 /**
- * Seed path material sets the way gen-path-placeholders mints them: road-dirt with a strip,
- * an edge and an end, water with a fill and a fall too, and two sets that are not path
- * materials (a wall piece named path, and a path set with no strip).
+ * Seed path kits as a pack ships them: a `kit` entry per material set carrying its
+ * manifest, the pieces it names as entries beside it, and a leftover strip entry that is
+ * not a kit.
  */
-export function seedPathMaterials(packId = 'gg-forge'): void {
-  const entries: Record<string, ManifestEntry> = {};
-  const grid: Record<string, [string, number, number]> = {
-    strip: ['4x1', 800, 200],
-    edge: ['2x1', 400, 200],
-    end: ['1x1', 200, 200],
-    fill: ['4x4', 800, 800],
-    fall: ['2x2', 400, 400],
+export function seedPathKits(packId = 'gg-forge'): void {
+  const piece = (material: string, gridSize: string, type = 'path', set?: string): ManifestEntry => {
+    const [w, h] = gridSize.split('x').map((n) => Number(n) * 200);
+    return { type, material, gridSize, pieceType: type === 'path' ? 'fill' : 'object', variant: 'A', frame: { x: 0, y: 0, w, h }, set, tags: ['path'] };
   };
-  const add = (set: string, piece: string, type = 'path'): void => {
-    const [gridSize, w, h] = grid[piece] ?? ['1x1', 200, 200];
-    entries[`${set}-${piece}`] = {
-      type: type as ManifestEntry['type'],
-      material: `${set}-${piece}`,
-      gridSize,
-      pieceType: piece,
-      variant: 'A',
-      frame: { x: 0, y: 0, w, h },
-      set,
-      tags: ['path', 'placeholder'],
-    };
-  };
-  for (const piece of ['strip', 'edge', 'end']) add('road-dirt', piece);
-  for (const piece of ['strip', 'edge', 'end', 'fill', 'fall']) add('water', piece);
-  add('GG_Test', 'path', 'wall');
-  add('no-strip', 'edge');
-  seedPack(packId, entries);
+  const kit = (set: string, manifest: KitManifest): ManifestEntry => ({
+    type: 'kit',
+    material: set,
+    gridSize: '1x1',
+    pieceType: 'kit',
+    variant: 'A',
+    set,
+    tags: ['path', 'kit'],
+    kit: manifest,
+  });
+  seedPack(packId, {
+    'road-dirt-fill': piece('road-dirt-fill', '4x1', 'path', 'road-dirt'),
+    'dirt-pebbles_1x1_object_A': piece('dirt-pebbles', '1x1', 'object', 'GG_Paths_Props'),
+    'road-dirt-kit': kit('road-dirt', {
+      kind: 'surface',
+      fill: 'road-dirt-fill',
+      edge: [{ key: 'dirt-pebbles_1x1_object_A', weight: 1, spacing: 0.8, jitter: 0.5 }],
+    }),
+    'water-fill': piece('water-fill', '4x4', 'path', 'water'),
+    'water-bank': piece('water-bank', '2x1', 'path', 'water'),
+    'water-kit': kit('water', { kind: 'surface', fill: 'water-fill', band: { straight: ['water-bank'], bendDrawn: true } }),
+    'old-strip': { ...piece('old-strip', '4x1', 'path', 'old-strip'), pieceType: 'strip' },
+  });
 }

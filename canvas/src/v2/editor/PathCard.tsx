@@ -5,7 +5,7 @@ import { UpdateChildCommand } from '@/store/commands';
 import type { DungeonLayer, PathChild } from '@/store/types';
 import { setPathFields, setPathPointHeight, type PathPatch } from '@dnd/core/src/store/pathCommands';
 import { NumBox } from './PropCards';
-import { pathMaterials } from '@dnd/core/src/assets/packCatalog';
+import { pathKits } from '@dnd/core/src/assets/packCatalog';
 import { pathNarrowestWidth } from '@dnd/core/src/geometry/pathGeometry';
 import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { WidthStepper } from './DockControls';
@@ -90,7 +90,7 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
     land(label, before as Partial<PathChild>, after);
   };
 
-  const materials = pathMaterials();
+  const materials = pathKits();
   const materialOptions = materials.map((m) => ({ value: m.id, label: m.label }));
   if (!materials.some((m) => m.id === path.materialId)) materialOptions.unshift({ value: path.materialId, label: path.materialId });
   const handlesOn = pathHandlesOn(path);

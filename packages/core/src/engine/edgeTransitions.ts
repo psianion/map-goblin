@@ -1,21 +1,15 @@
 /**
  * Edge transition detection and rendering.
  *
- * Where two floor shapes of different textures meet, the shape drawn on top lays its
- * texture's edge strip (`<material>_edge_2x1`, see packCatalog.floorEdgeStrip) along the
- * shared boundary, out over the shape beneath. A texture without one falls back to a
- * semi-transparent colour blend strip. Uses AABB pre-filtering to avoid O(n²) Clipper2
- * calls — only tests pairs whose bounding boxes overlap within the transition width.
- * Paths never take part: they carry their own edge strips.
+ * Where two floor shapes of different textures meet, a semi-transparent colour blend strip
+ * lies along the shared boundary. The edge strip texture that stood in for it went with the
+ * other strip textures; units walked along the shared boundary (`sharedBoundary`) replace
+ * the blend next. Uses AABB pre-filtering to avoid O(n²) Clipper2 calls — only tests pairs
+ * whose bounding boxes overlap within the transition width.
  */
 
 import { Container, Graphics } from 'pixi.js';
-import { floorEdgeStrip, getCatalogEntry } from '../assets/packCatalog';
 import { pointInRing } from '../shared/roomUtils';
-import { buildEdgeStrips, sampleCentreline } from '../geometry/ribbon';
-import { getAssetPackManager } from './assetPackInstance';
-import { ribbonMeshObject } from './path/ribbonShader';
-import { armLateTextureRebuild } from './floorWallRenderer';
 import type { ShapeChild, DungeonLayer } from '../store/types';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
@@ -185,48 +179,6 @@ export function sharedBoundary(ring: Polygon, bottom: Polygon, probe = 0.05, ste
   return { chains, closed: false };
 }
 
-/** A border a shape lays with its texture's edge strip, over the shape beneath it. */
-export interface StripBorder {
-  /** Index into the shapes: the shape on top, whose texture's strip it is. */
-  top: number;
-  /** The shape beneath it. */
-  bottom: number;
-  stripId: string;
-  chains: Polygon[];
-  closed: boolean;
-}
-
-/**
- * Who borders whom, and how: for each pair of differently textured shapes that touch, the one
- * drawn later (on top) lays its texture's edge strip along their shared boundary when its pack
- * ships one (`stripOf`); otherwise the pair gets the colour blend.
- */
-export function planEdgeBorders(
-  shapes: ShapeChild[],
-  transitionWidth: number,
-  stripOf: (shape: ShapeChild) => string | undefined,
-): { strips: StripBorder[]; blends: ShapeChild[][] } {
-  const strips: StripBorder[] = [];
-  const blends: ShapeChild[][] = [];
-  const rings: Polygon[] = shapes.map((s) => flattenRing(s.contours[0] ?? [], s.tangents?.[0]));
-  const aabbs = rings.map((r) => computeAABB(r));
-  for (let j = 1; j < shapes.length; j++) {
-    for (let i = 0; i < j; i++) {
-      if (shapeTextureKey(shapes[i]) === shapeTextureKey(shapes[j])) continue;
-      if (!aabbOverlap(aabbs[i], aabbs[j], transitionWidth)) continue;
-      if (rings[i].length < 3 || rings[j].length < 3) continue;
-      const stripId = stripOf(shapes[j]);
-      if (!stripId) {
-        blends.push([shapes[i], shapes[j]]);
-        continue;
-      }
-      const { chains, closed } = sharedBoundary(rings[j], rings[i]);
-      if (chains.length > 0) strips.push({ top: j, bottom: i, stripId, chains, closed });
-    }
-  }
-  return { strips, blends };
-}
-
 /** The colour blend strips for the pairs that have no edge strip. */
 function drawBlends(parent: Container, pairs: ShapeChild[][], width: number): void {
   for (const strip of pairs.flatMap((pair) => detectEdgeTransitions(pair, width))) {
@@ -245,46 +197,13 @@ function drawBlends(parent: Container, pairs: ShapeChild[][], width: number): vo
 }
 
 /**
- * Render the borders between differently textured floor shapes into the floor sublayer: an
- * edge strip ribbon where the top shape's texture has one, the colour blend where not. A
- * strip whose art has not arrived yet draws the blend and asks for a re-bake when it lands.
+ * Render the borders between differently textured floor shapes into the floor sublayer:
+ * the colour blend along every boundary they share.
  */
 export function renderEdgeTransitions(parent: Container, layer: DungeonLayer): void {
   const s = layer.style;
   if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
   const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
   if (shapes.length < 2) return;
-
-  const { strips, blends } = planEdgeBorders(shapes, s.edgeTransitionWidth, (shape) => floorEdgeStrip(shape.textureId)?.id);
-  for (const border of strips) {
-    const texture = getAssetPackManager().getTextureOrNull(border.stripId);
-    const top = shapes[border.top];
-    if (!texture || texture.width <= 1) {
-      armLateTextureRebuild(layer.id, border.stripId);
-      blends.push([shapes[border.bottom], top]);
-      continue;
-    }
-    const outward = signedArea2(flattenRing(top.contours[0] ?? [], top.tangents?.[0])) > 0 ? 'right' : 'left';
-    for (const chain of border.chains) {
-      const line = sampleCentreline(chain.map(([x, y]) => ({ x, y, handles: null })), border.closed, 0);
-      const side = buildEdgeStrips(line, s.edgeTransitionWidth)[outward];
-      side.width.fill(s.edgeTransitionWidth);
-      const fade = border.closed ? 0 : Math.min(0.5, line.length / 4);
-      const mesh = ribbonMeshObject(side, texture, {
-        stripLength: parseInt(getCatalogEntry(border.stripId)?.gridSize.split('x')[0] ?? '2', 10) || 2,
-        tint: parseColor(top.textureTint || '#ffffff'),
-        opacity: 1,
-        soft: false,
-        edgeWidth: 0,
-        fadeStart: fade > 0,
-        fadeEnd: fade > 0,
-        fadeLength: fade,
-        length: line.length,
-        flip: false,
-        water: false,
-      });
-      if (mesh) parent.addChild(mesh);
-    }
-  }
-  drawBlends(parent, blends, s.edgeTransitionWidth);
+  drawBlends(parent, [shapes], s.edgeTransitionWidth);
 }

@@ -5,8 +5,9 @@ import { firePointer, getPixelColor, waitForBoot, waitFrame } from './helpers'
  * The Path tool in /v2, end to end on a blank map (scenario 1 without junctions): a road
  * by clicks and one by a freehand drag, the wheel setting the next point's width,
  * Backspace, closing on the first point, Alt's straight segment, the lake preset and the
- * card's Fill switch, and undo: one entry per path, one per point drag. Paths draw as flat
- * ribbons for now; the textured renderer comes after.
+ * card's Fill switch, and undo: one entry per path, one per point drag. A path draws as its
+ * outline filled with its kit's fill tile, paths of one material unioned into one fill; the
+ * units walked along it come after.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -81,8 +82,8 @@ async function openEditor(page: Page): Promise<void> {
   await waitFrame(page, 2)
 }
 
-/** The flat ribbons' bounds, in world cells. */
-const ribbonBounds = (page: Page) =>
+/** The drawn fills' bounds, in world cells. */
+const fillBounds = (page: Page) =>
   page.evaluate(() => {
     const w = window as Any
     const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
@@ -91,7 +92,7 @@ const ribbonBounds = (page: Page) =>
     return b ? { width: b.width, height: b.height } : null
   })
 
-test('a road drawn by clicks: one path, a ribbon on the canvas, one undo step', async ({ page }) => {
+test('a road drawn by clicks: one path, its fill on the canvas, one undo step', async ({ page }) => {
   await openEditor(page)
   await key(page, 'a')
   await click(page, { x: -4, y: 0 })
@@ -101,7 +102,7 @@ test('a road drawn by clicks: one path, a ribbon on the canvas, one undo step', 
   const [road] = await paths(page)
   expect(road.points).toHaveLength(3)
   expect(road).toMatchObject({ closed: false, materialId: 'gg-forge:road-dirt', width: 1.5 })
-  const b = await ribbonBounds(page)
+  const b = await fillBounds(page)
   expect(b!.width).toBeGreaterThan(8)
   await key(page, 'Control+z')
   expect(await paths(page)).toHaveLength(0)
@@ -219,7 +220,7 @@ async function lum(page: Page, p: Pt): Promise<number> {
   return reads.sort((a, b) => a - b)[1]
 }
 
-/** Waits until the paths sublayer holds drawn ribbons (their art arrives with the pack). */
+/** Waits until the paths sublayer holds `count` drawn fills (their art arrives with the pack). */
 async function drawn(page: Page, count: number) {
   await expect
     .poll(() =>
@@ -248,6 +249,14 @@ async function drawn(page: Page, count: number) {
     .toBe(true)
 }
 
+/** What the paths sublayer holds: one entry per drawn fill, whether it is masked to an outline. */
+const fills = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+    return (find(w.__pixiApp.stage)?.children ?? []).map((c: Any) => ({ masked: !!c.mask }))
+  })
+
 const addRoad = (page: Page, road: unknown) => inPage(page, `(s, layer, w2s, r) => s().addChild(layer().id, r)`, road)
 
 test('two dirt roads crossing show no seam: across the junction the road reads as it does alone', async ({ page }) => {
@@ -260,7 +269,10 @@ test('two dirt roads crossing show no seam: across the junction the road reads a
   for (const p of line) alone.push(await lum(page, p))
   const background = await lum(page, { x: 0, y: 5 })
   await addRoad(page, dirtRoad('b', [{ x: 0, y: -5 }, { x: 0, y: 5 }]))
-  await drawn(page, 2)
+  // One material, one fill: the two outlines are unioned before they are painted.
+  await expect.poll(() => fills(page)).toEqual([{ masked: true }])
+  // From y = -5 to 5 and a half width round each end.
+  await expect.poll(() => fillBounds(page).then((b) => b && Math.round(b.height))).toBe(12)
   for (let i = 0; i < line.length; i++) {
     const now = await lum(page, line[i])
     // Still road, nowhere near the ground showing through, and close to what it was.
@@ -269,58 +281,33 @@ test('two dirt roads crossing show no seam: across the junction the road reads a
   }
 })
 
-test('a road’s edge strip joins its soft edge with no line, alone and in a junction group', async ({ page }) => {
+test('a road is its outline filled: road inside, ground just outside, the end round', async ({ page }) => {
   await openEditor(page)
-  // One road alone (its own soft edge) and two that share a feathered outline.
-  await addRoad(page, { ...dirtRoad('alone', [{ x: -6, y: 8 }, { x: 6, y: 8 }]), edgeStrip: true, sort: 'over' })
-  await addRoad(page, { ...dirtRoad('g1', [{ x: -6, y: 0 }, { x: 6, y: 0 }]), edgeStrip: true })
-  await addRoad(page, { ...dirtRoad('g2', [{ x: -6, y: -8 }, { x: 6, y: -8 }]), edgeStrip: true })
+  // Width 2: the outline runs 1 cell either side of the centreline and round the end at (6, 0).
+  await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
   await drawn(page, 1)
-  await expect.poll(() => page.evaluate(() => {
-    const w = window as Any
-    const find = (c: Any): Any => (c.label === 'sublayer-paths-over' ? c : (c.children ?? []).map(find).find(Boolean))
-    return find(w.__pixiApp.stage)?.children.length ?? 0
-  })).toBeGreaterThan(0)
-  await waitFrame(page, 3)
-  const background = await lum(page, { x: 0, y: 4 })
-  for (const cy of [8, 0]) {
-    for (const x of [-3, 0, 3.3]) {
-      // Across the join: from inside the ribbon (the strip starts under it at 0.5) to past the edge (1.0).
-      const profile: number[] = []
-      for (let i = 0; i <= 24; i++) profile.push(await lum(page, { x, y: cy + 0.55 + i * 0.025 }))
-      const where = `road at y = ${cy}, x = ${x}`
-      // Nowhere does the ground show through: every sample stays road-dark, far from the background.
-      for (const v of profile) expect(Math.abs(background - v), where).toBeGreaterThan(80)
-      // And no step: neighbouring samples a fortieth of a cell apart differ only by the art's own grain.
-      for (let i = 1; i < profile.length; i++) expect(Math.abs(profile[i] - profile[i - 1]), `${where}, step ${i}`).toBeLessThan(12)
-      // Nor a band: the stretch where the ribbon fades (0.8 to 1.0) reads between the road inside
-      // it and the strip outside it, not lighter or darker than both.
-      const mean = (from: number, to: number) => profile.slice(from, to).reduce((t, v) => t + v, 0) / (to - from)
-      const inside = mean(0, 8)
-      const band = mean(10, 18)
-      const strip = mean(18, 24)
-      expect(band, `${where}: band against inside ${inside.toFixed(0)}, strip ${strip.toFixed(0)}`).toBeLessThan(Math.max(inside, strip) + 6)
-      expect(band, where).toBeGreaterThan(Math.min(inside, strip) - 6)
-    }
+  expect(await fills(page)).toEqual([{ masked: true }])
+  // Every sample off the grid lines, which cross road and ground alike.
+  const background = await lum(page, { x: 0.5, y: -2.5 })
+  for (const x of [-3.5, 0.5, 3.5]) {
+    expect(Math.abs((await lum(page, { x, y: 0.8 })) - background), `inside at x = ${x}`).toBeGreaterThan(60)
+    expect(Math.abs((await lum(page, { x, y: 1.3 })) - background), `outside at x = ${x}`).toBeLessThan(12)
+  }
+  const around = (r: number, deg: number) => ({ x: 6 + r * Math.cos((deg * Math.PI) / 180), y: r * Math.sin((deg * Math.PI) / 180) })
+  for (const deg of [-60, -30, 30, 60]) {
+    expect(Math.abs((await lum(page, around(0.8, deg))) - background), `cap at ${deg}°`).toBeGreaterThan(60)
+    expect(Math.abs((await lum(page, around(1.3, deg))) - background), `past the cap at ${deg}°`).toBeLessThan(12)
   }
 })
 
-test('a road’s end is one round outline: the verge wraps the cap and nothing sticks out', async ({ page }) => {
+test('two materials draw two fills, two roads of one material one', async ({ page }) => {
   await openEditor(page)
-  // Width 2 (cap radius 1), verge out to 1.5; the road ends at (6, 0) heading +x.
-  await addRoad(page, { ...dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]), edgeStrip: true })
+  await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
+  await addRoad(page, dirtRoad('b', [{ x: -6, y: 6 }, { x: 6, y: 6 }]))
   await drawn(page, 1)
-  // The ground beside the road, clear of its verge.
-  const background = await lum(page, { x: 0, y: -2.5 })
-  const around = (r: number, deg: number) => ({ x: 6 + r * Math.cos((deg * Math.PI) / 180), y: r * Math.sin((deg * Math.PI) / 180) })
-  for (const deg of [-90, -45, 0, 45, 90]) {
-    // Just past the cap's own edge the verge carries on round the end, as it does along the sides.
-    expect(Math.abs((await lum(page, around(1.15, deg))) - background), `verge at ${deg}°`).toBeGreaterThan(60)
-  }
-  for (const deg of [-90, -60, -30, 0, 30, 60, 90]) {
-    // Past the verge it is ground all the way round: no square corner of body or strip.
-    expect(Math.abs((await lum(page, around(1.8, deg))) - background), `ground at ${deg}°`).toBeLessThan(20)
-  }
+  expect(await fills(page)).toEqual([{ masked: true }])
+  await addRoad(page, { ...dirtRoad('c', [{ x: -6, y: -6 }, { x: 6, y: -6 }]), materialId: 'gg-forge:road-cobble' })
+  await expect.poll(() => fills(page)).toEqual([{ masked: true }, { masked: true }])
 })
 
 test('no ground shows inside a hairpin, sharp or curved', async ({ page }) => {
@@ -363,15 +350,16 @@ test('a lake too tight for its shore band draws it narrower and says so on the c
   await expect(note).toHaveCount(0)
 })
 
-test('twenty roads on a layer: one edit rebuilds their shared outline, and how long it takes', async ({ page }) => {
+test('twenty roads on a layer: one fill, and how long a redraw takes', async ({ page }) => {
   await openEditor(page)
   for (let i = 0; i < 10; i++) {
     const at = i * 3 - 15
-    await addRoad(page, { ...dirtRoad(`h${i}`, [{ x: -20, y: at }, { x: 0, y: at + 2 }, { x: 20, y: at }]), edgeStrip: true })
-    await addRoad(page, { ...dirtRoad(`v${i}`, [{ x: at, y: -20 }, { x: at + 2, y: 0 }, { x: at, y: 20 }]), edgeStrip: true })
+    await addRoad(page, dirtRoad(`h${i}`, [{ x: -20, y: at }, { x: 0, y: at + 2 }, { x: 20, y: at }]))
+    await addRoad(page, dirtRoad(`v${i}`, [{ x: at, y: -20 }, { x: at + 2, y: 0 }, { x: at, y: 20 }]))
   }
   await drawn(page, 1)
-  const times: { mask: number; redraw: number }[] = []
+  expect(await fills(page)).toEqual([{ masked: true }])
+  const times: number[] = []
   for (let k = 0; k < 5; k++) {
     await inPage(
       page,
@@ -379,15 +367,12 @@ test('twenty roads on a layer: one edit rebuilds their shared outline, and how l
       k,
     )
     await waitFrame(page, 2)
-    times.push(await page.evaluate(() => ({ mask: (window as Any).__pathMaskRebuildMs, redraw: (window as Any).__pathRedrawMs })))
+    times.push(await page.evaluate(() => (window as Any).__pathRedrawMs))
   }
-  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
-  const mask = median(times.map((t) => t.mask))
-  const redraw = median(times.map((t) => t.redraw))
-  console.log(`20 roads: mask rebuild ${mask.toFixed(2)} ms, layer redraw ${redraw.toFixed(2)} ms (median of 5)`)
-  expect(mask).toBeGreaterThan(0)
-  // The plan's budget for the rebuild.
-  expect(mask).toBeLessThan(4)
+  const median = [...times].sort((a, b) => a - b)[2]
+  console.log(`20 roads: layer redraw ${median.toFixed(2)} ms (median of 5)`)
+  expect(median).toBeGreaterThan(0)
+  expect(median).toBeLessThan(50)
 })
 
 test('the path card fits its width and every control takes a real click', async ({ page }) => {

@@ -59,3 +59,33 @@ describe('PackManifestSchema', () => {
     expect(PackManifestSchema.safeParse(bad).success).toBe(false);
   });
 });
+
+describe('kit entries', () => {
+  const kitEntry = {
+    type: 'kit',
+    material: 'road-dirt',
+    gridSize: '1x1',
+    pieceType: 'kit',
+    variant: 'A',
+    set: 'road-dirt',
+    tags: ['path', 'kit'],
+    kit: {
+      kind: 'surface',
+      fill: 'road-dirt-fill',
+      edge: [{ key: 'dirt-pebbles_1x1_object_A', weight: 2, spacing: 0.8, jitter: 0.6 }],
+    },
+  };
+
+  it('accepts a kit entry and keeps its manifest', () => {
+    const parsed = PackManifestSchema.parse({ ...VALID_MANIFEST, entries: { 'road-dirt-kit': kitEntry } });
+    expect(parsed.entries['road-dirt-kit']!.kit).toEqual(kitEntry.kit);
+  });
+
+  it('rejects a kit of an unknown kind or a band with no straight', () => {
+    const bad = (kit: unknown) =>
+      PackManifestSchema.safeParse({ ...VALID_MANIFEST, entries: { k: { ...kitEntry, kit } } }).success;
+    expect(bad({ kind: 'ribbon' })).toBe(false);
+    expect(bad({ kind: 'band', band: { straight: [], bendDrawn: true } })).toBe(false);
+    expect(bad({ kind: 'planks', cross: [{ key: 'plank', weight: 1 }], railPost: 'post', rope: { color: '#6b4a2b', width: 0.06 } })).toBe(true);
+  });
+});
