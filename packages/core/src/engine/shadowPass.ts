@@ -30,6 +30,7 @@ import {
   type ShadowLook,
 } from '../shared/shadows';
 import { timeBucket } from '../shared/world';
+import { cliffSunAt } from '../shared/sky';
 import { edgeRuns, hasPlateaus, layerPlateaus } from '../shared/plateaus';
 import { shadeCliffs } from './plateauRenderer';
 import { worldFrame, type WorldFrame } from './worldOverride';
@@ -111,12 +112,18 @@ export function updateShadows(
   frame: WorldFrame,
 ): void {
   const step = timeBucket(frame.minutes);
-  const orientation = useStore.getState().mapSettings.orientation ?? 0;
+  const map = useStore.getState().mapSettings;
+  const orientation = map.orientation ?? 0;
   // Whether anything is casting is free to ask; what it looks like costs an OKLCH mix, so it
   // is asked for once, on the first layer that turns out to need redrawing, and never on an
   // idle frame.
   const casting = frame.sun.kind !== null && frame.sun.intensity > 0;
+  // Cliffs cast under any outdoor sky unless natural shadows are switched off (cliffSunAt):
+  // the same sun as the walls' when those cast, else that sun forced on for cliffs alone.
+  const cliffSun = cliffSunAt(frame, map);
+  const cliffsCast = cliffSun.kind !== null && cliffSun.intensity > 0;
   let look: ShadowLook | null | undefined;
+  let cliffLook: ShadowLook | null | undefined;
 
   const live = new Set(layers.map((l) => l.id));
   for (const [id, state] of byLayer) {
@@ -129,7 +136,8 @@ export function updateShadows(
   for (const layer of layers) {
     // Nothing casting and nothing drawn before is the state every indoor map lives in: no
     // container, no geometry, no cost — the pass simply is not there.
-    const state = casting || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
+    const castsHere = casting || (cliffsCast && hasPlateaus(layer));
+    const state = castsHere || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
     if (!state) continue;
 
     // The ground is part of what is drawn, so it is part of what the memo is keyed on — and it
@@ -138,7 +146,7 @@ export function updateShadows(
     // entry already exists — so the ground lands a notification *later* than the first frame
     // that wants it, moving no shape key, no wall epoch and no clock with it.
     const terrain = useStore.getState().mapSettings.terrain?.bounds ?? null;
-    const signature = shadowSignature(layer.id, wallEpoch, step, orientation, casting, frame);
+    const signature = shadowSignature(layer.id, wallEpoch, step, orientation, castsHere, { ...frame, sun: cliffSun });
     if (
       signature === state.signature &&
       layer.mergedFloor === state.groundRef &&
@@ -150,9 +158,10 @@ export function updateShadows(
     state.groundRef = layer.mergedFloor;
     state.terrainRef = terrain;
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
+    if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
-    drawCliffShadows(state.graphics, layer, look);
-    shadeCliffs(layer.id, look);
+    drawCliffShadows(state.graphics, layer, cliffLook);
+    shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
   }
 }

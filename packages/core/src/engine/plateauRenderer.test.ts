@@ -24,6 +24,8 @@ const manager = {
           outside_bend_2x2_A: object('outside_bend', '2x2', 'GG_Cave_Ink'),
           ledge_1x2_A: object('ledge', '1x2', 'GG_Cave_Ink'),
           ledge_1x4_A: object('ledge', '1x4', 'GG_Cave_Ink'),
+          'cliff-rubble_1x1_object_A': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
+          'cliff-rubble_1x1_object_B': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
         },
       },
     },
@@ -49,8 +51,8 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
-import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
-import { drawOpening, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
+import { cliffArt, cliffArtSetIds, cliffPieces, rubbleArt, rubblePieces } from './plateauKit';
+import { drawOpening, layCliffFoot, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
 import { cliffShadowGeometry } from './shadowPass';
 import { CASTER_HEIGHT, casterLook, type ShadowLook } from '../shared/shadows';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -142,24 +144,54 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  it('draws a slope as a ribbon with a contour line per cell, and none when switched off', () => {
+  it('draws a slope as one ink contour ring per cell of drop, flat shade, no gradient; none when switched off', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), parent, paint);
     const band = parent.children[0] as Container;
-    expect(band.children.some((c) => c instanceof MeshSimple && c.label === 'plateau-slope')).toBe(true);
-    expect(labels(parent)).toContain('plateau-contours');
+    const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
+    expect(contours.children).toHaveLength(3);
+    // Each ring a cell further down the slope: 8, 10 and 12 cells across round the 6-cell top.
+    const widths = contours.children.map((g) => Math.round(g.getLocalBounds().width));
+    expect(widths).toEqual([8, 10, 12]);
+    expect(band.children.some((c) => c.label === 'plateau-slope')).toBe(true);
+    const meshes: Container[] = [];
+    const walk = (c: Container) => {
+      if (c instanceof MeshSimple) meshes.push(c);
+      for (const k of c.children) walk(k as Container);
+    };
+    walk(band);
+    expect(meshes).toEqual([]);
 
     renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', contourLines: false })]), parent, paint);
     expect(labels(parent)).not.toContain('plateau-contours');
   });
 
-  it('draws contours inside a one-cell slope, not just its outline', () => {
+  it('rings a one-cell slope at its foot, not just along its top', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), parent, paint);
     const band = parent.children[0] as Container;
-    const contours = band.children.find((c) => c.label === 'plateau-contours') as Graphics;
-    // The outline runs on the 6-cell ring; the inner lines lie up to 2/3 of a cell out from it.
-    expect(contours.getLocalBounds().width).toBeGreaterThan(6 + 1.2);
+    const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
+    expect(contours.children).toHaveLength(1);
+    expect(contours.getLocalBounds().width).toBeGreaterThan(6 + 1.9);
+  });
+
+  it('shades the slope face turned from the sun and leaves the lit one bare', () => {
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, rect('hill', 5, 5, 11, 11, { height: 2, edge: 'slope' })]), parent, paint);
+    const band = parent.children[0] as Container;
+    const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
+    // The shadow runs +x: the light is in the west, so the east face is turned away.
+    shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
+    // The east and west faces: the north and south ones run side-on to this sun.
+    const faces = shade.children.map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }));
+    const east = faces.filter(({ b }) => b.minX >= 11 - 1e-6);
+    const west = faces.filter(({ b }) => b.maxX <= 5 + 1e-6);
+    expect(east.length).toBeGreaterThan(0);
+    expect(west.length).toBeGreaterThan(0);
+    expect(Math.min(...east.map((f) => f.alpha))).toBeGreaterThan(0.2);
+    expect(Math.max(...west.map((f) => f.alpha))).toBe(0);
+    shadeCliffs('l1', null);
+    expect(shade.children.every((g) => g.alpha === 0)).toBe(true);
   });
 
   it('orders bands low to high, a pit before the plateau', () => {
@@ -243,6 +275,54 @@ describe('every cliff ring is walked', () => {
 
   it('draws the ledge of a lone cave floor raised on void', () => {
     expect(rockOf(layerOf([rect('cave', 0, 0, 8, 7, { height: 1, edge: 'cliff' })])).length).toBeGreaterThan(3);
+  });
+});
+
+describe('the cliff foot', () => {
+  const pieces = () => rubblePieces(rubbleArt());
+  const square: Polygon = [[5, 5], [11, 5], [11, 11], [5, 11]];
+
+  it('builds the foot band from the cliff rubble units', () => {
+    expect(pieces().map((p) => [p.key, p.chordCells, p.turnDeg])).toEqual([
+      ['gg-forge:cliff-rubble_1x1_object_A', 1, 0],
+      ['gg-forge:cliff-rubble_1x1_object_B', 1, 0],
+    ]);
+  });
+
+  it('lays rubble round a plateau and a round one with no holes, out on the void side of the ledge', () => {
+    const round: Polygon = Array.from({ length: 24 }, (_, i) => [20 + 4 * Math.cos((i / 24) * 2 * Math.PI), 20 + 4 * Math.sin((i / 24) * 2 * Math.PI)]);
+    for (const ring of [square, round]) {
+      const placed = layCliffFoot(ring, true, [], pieces());
+      expect(placed.length).toBeGreaterThan(10);
+      expect(bandHoles(placed, true)).toEqual([]);
+    }
+    // Every piece of the square's foot sits outside the square.
+    for (const pl of layCliffFoot(square, true, [], pieces())) {
+      const { x, y } = pl.at.position;
+      expect(x < 5 || x > 11 || y < 5 || y > 11, `${x.toFixed(2)}, ${y.toFixed(2)}`).toBe(true);
+    }
+  });
+
+  it('draws the foot under the rock of every cliff, inside a pit', () => {
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, rect('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), parent, paint);
+    const band = parent.children[0] as Container;
+    const foot = band.children.find((c) => c.label === 'plateau-foot') as Container;
+    const sprites = foot.children.filter((c) => c instanceof Sprite);
+    expect(sprites.length).toBeGreaterThan(10);
+    for (const s of sprites) {
+      expect(s.position.x > 5 && s.position.x < 11 && s.position.y > 5 && s.position.y < 11).toBe(true);
+    }
+    const order = band.children.map((c) => c.label);
+    expect(order.indexOf('plateau-foot')).toBeLessThan(order.indexOf('plateau-cliff'));
+  });
+
+  it('parts the foot where an opening stands', () => {
+    const plain = layCliffFoot(square, true, [], pieces());
+    const cut = layCliffFoot(square, true, [{ wallId: 'opening:s', position: [8, 11], width: 2 }], pieces());
+    const near = (list: typeof plain) => list.filter((pl) => Math.hypot(pl.at.position.x - 8, pl.at.position.y - 11.6) < 0.6).length;
+    expect(near(plain)).toBeGreaterThan(0);
+    expect(near(cut)).toBe(0);
   });
 });
 

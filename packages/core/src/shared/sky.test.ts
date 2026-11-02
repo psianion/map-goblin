@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { FADE_MS, SkyEaser, daylightAt, lerpSky, litFrame, skyFrame, skyKey, skyMinutes, weatherLight } from './sky';
+import { FADE_MS, SkyEaser, cliffSunAt, daylightAt, lerpSky, litFrame, skyFrame, skyKey, skyMinutes, weatherLight } from './sky';
+import { casterLook, shadowLook } from './shadows';
 import { NOON, resolveWorldLight, mapClock, type MapEnvironment } from './world';
 import { WEATHERS } from './prep';
 import { animationTime, clearFreeze, freezeOf, isFrozen } from './freeze';
@@ -178,5 +179,47 @@ describe('freeze mode', () => {
   it('takes a freeze set directly on the window', () => {
     (globalThis as { __GG_FREEZE__?: unknown }).__GG_FREEZE__ = { minutes: 120 };
     expect(freezeOf()).toEqual({ minutes: 120 });
+  });
+});
+
+describe('cliffSunAt: cliffs cast outdoors by default', () => {
+  const OPEN: MapEnvironment = { environment: 'outdoor' };
+  const at = (map: MapEnvironment, hour: number) => {
+    const frame = skyFrame({ ...map, minutes: hour * 60 });
+    return cliffSunAt(frame, map);
+  };
+
+  it('casts under an outdoor sky with natural shadows left unset, not indoors or switched off', () => {
+    expect(skyFrame({ ...OPEN, minutes: NOON }).sun.kind).toBeNull();
+    expect(at(OPEN, 12).kind).toBe('sun');
+    expect(at(OPEN, 12).intensity).toBeCloseTo(1);
+    expect(at({ environment: 'indoor' }, 12).kind).toBeNull();
+    expect(at({ environment: 'outdoor', naturalLight: false }, 12).kind).toBeNull();
+    // With natural shadows on it is simply the sky's own sun.
+    expect(at({ environment: 'outdoor', naturalLight: true }, 15)).toEqual(skyFrame({ environment: 'outdoor', naturalLight: true, minutes: 900 }).sun);
+  });
+
+  it('throws a shadow as long as the drop: twice the drop, twice the reach, past a wall’s from two cells', () => {
+    const look = shadowLook(at(OPEN, 16))!;
+    const one = casterLook(look, 1).length;
+    expect(casterLook(look, 2).length).toBeCloseTo(2 * one, 9);
+    expect(casterLook(look, 3).length).toBeCloseTo(3 * one, 9);
+    expect(casterLook(look, 2).length).toBeGreaterThan(look.length);
+  });
+
+  it('swings with the hour: west in the morning, east late in the day, turning all the while', () => {
+    const angle = (hour: number) => {
+      const l = shadowLook(at(OPEN, hour))!;
+      return Math.atan2(l.dy, l.dx);
+    };
+    const dx = (hour: number) => shadowLook(at(OPEN, hour))!.dx;
+    expect(dx(9)).toBeLessThan(-0.5);
+    expect(dx(17)).toBeGreaterThan(0.5);
+    const unwrap = (a: number) => (a < 0 ? a + 2 * Math.PI : a);
+    const hours = [8, 10, 12, 14, 16];
+    const turns = hours.map((h) => unwrap(angle(h)));
+    for (let i = 1; i < turns.length; i++) expect(turns[i]).toBeGreaterThan(turns[i - 1]);
+    // Longer at the ends of the day than at noon.
+    expect(shadowLook(at(OPEN, 8))!.length).toBeGreaterThan(shadowLook(at(OPEN, 12))!.length);
   });
 });

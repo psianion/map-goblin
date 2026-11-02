@@ -1,13 +1,14 @@
 // Raised and sunken floors, drawn (plan §4.3). One container per band, lowest first, in the
 // layer's `plateaus` sublayer: over the ground, under the shadows that fall on it. Each band
-// is its floor (painted like any floor, lifted 3 % a cell), its slopes as a ribbon running
-// downhill with a contour line per cell, its cliffs laid by the cave walk with the ledge kit
-// (void side = low side, so a pit's rock faces in), and its openings across the gaps they cut.
+// is its floor (painted like any floor, lifted 3 % a cell), its slopes as an ink contour ring
+// per cell of drop over a flat shade on the faces turned from the sun, its cliffs laid by the
+// cave walk with the ledge kit over a foot of rubble walked the same way (void side = low
+// side, so a pit's rock faces in), and its openings across the gaps they cut.
 //
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { BufferImageSource, Container, Graphics, MeshSimple, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
@@ -28,14 +29,15 @@ import {
   type PlateauBand,
   type RingGap,
 } from '../shared/plateaus';
-import { buildEdgeStrips, sampleCentreline, type RibbonMesh } from '../geometry/ribbon';
+import { buildEdgeStrips, sampleCentreline } from '../geometry/ribbon';
 import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
-import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces } from './plateauKit';
-import { dashSpine, type DoorGap } from './wallNodeRenderer';
-import type { WalkPlacement } from './caveWalk';
+import { CURVE_STEP, layBandChain, layBandRing, placeBand } from './caveBandRenderer';
+import { cliffArt, cliffPieces, rubbleArt, rubblePieces } from './plateauKit';
+import type { DoorGap } from './wallNodeRenderer';
+import { offsetCurve, resampleClosed, type Curve, type WalkPlacement } from './caveWalk';
+import type { CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -50,14 +52,16 @@ export interface PlateauRenderOptions {
 }
 
 const INK = 0x2b2420;
-/** Contour and top-edge lines, cells wide. */
+/** The cliff's top-edge line, cells wide. */
 const LINE = 0.04;
-const CONTOUR_ALPHA = 0.35;
-/** The fainter contours between each cell of a slope's drop. */
-const INNER_CONTOUR_ALPHA = 0.2;
-/** Contour lines per cell of drop: one on each whole cell, the rest in between. */
-const CONTOURS_PER_CELL = 3;
 const TOP_LINE_ALPHA = 0.5;
+/** A slope's contour rings: solid ink, heavier than the top line, one per cell of drop. */
+const CONTOUR_LINE = 0.07;
+const CONTOUR_ALPHA = 0.6;
+/** How dark a slope face turned square from the sun is shaded; one facing it, not at all. */
+const SLOPE_SHADE = 0.45;
+/** How far past the cliff edge the foot's rubble rides, cells: out beyond the ledge rock. */
+const FOOT_OUT = 0.7;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
 /** How far the light on a cliff face reaches across the rock from the edge, cells. */
@@ -81,8 +85,10 @@ const WASH_COLOR = 0xfff0d0;
 interface CliffSprite {
   /** A piece of rock, tinted by how its face turns to the light… */
   sprite?: Sprite;
-  /** …or the light added over one face of it. */
+  /** …or the light added over one face of it… */
   light?: Graphics;
+  /** …or one face of a slope, shaded as it turns from the light. */
+  shade?: Graphics;
   /** Unit normal pointing to the low side. */
   normal: Vec;
 }
@@ -109,49 +115,19 @@ const grey = (k: number): number => {
   return (c << 16) | (c << 8) | c;
 };
 
-/** Re-light one layer's cliff rock for the sky's current look. Called by the shadow pass. */
+/** How dark a slope face turned to `normal` is shaded: none facing the light or without one. */
+export function slopeShade(normal: Vec, look: ShadowLook | null): number {
+  return (SLOPE_SHADE * (1 - faceShade(normal, look))) / (1 - SHADE_FLOOR);
+}
+
+/** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, light, normal } of cliffSprites.get(layerId) ?? []) {
+  for (const { sprite, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
     if (sprite && !sprite.destroyed) sprite.tint = grey(faceShade(normal, look));
     if (light && !light.destroyed) light.alpha = faceLight(normal, look);
+    if (shade && !shade.destroyed) shade.alpha = slopeShade(normal, look);
   }
-}
-
-// ─── Placeholder strips ────────────────────────────────────
-
-/**
- * A strip texture painted in code: `rgba(v)` gives the colour at V (0 at the ring, 1 at the
- * far edge). Placeholders until the forge's cliff kit ships its `slope_2x1` and waterfall art.
- */
-function stripTexture(rgba: (v: number) => [number, number, number, number]): Texture {
-  const W = 4;
-  const H = 64;
-  const data = new Uint8Array(W * H * 4);
-  for (let y = 0; y < H; y++) {
-    const [r, g, b, a] = rgba(y / (H - 1));
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      // Premultiplied, as the source declares.
-      data[i] = Math.round(r * a);
-      data[i + 1] = Math.round(g * a);
-      data[i + 2] = Math.round(b * a);
-      data[i + 3] = Math.round(a * 255);
-    }
-  }
-  return new Texture({ source: new BufferImageSource({ resource: data, width: W, height: H, alphaMode: 'premultiplied-alpha' }) });
-}
-
-let slopeTex: Texture | null = null;
-/** Placeholder slope: dark at the top of the slope, gone by its foot. */
-function slopeTexture(): Texture {
-  if (!slopeTex || slopeTex.destroyed) slopeTex = stripTexture((v) => [42, 36, 31, 0.5 * (1 - v) ** 1.4]);
-  return slopeTex;
-}
-
-function meshOf(mesh: RibbonMesh, texture: Texture): MeshSimple | null {
-  if (mesh.positions.length === 0 || mesh.indices.length === 0) return null;
-  return new MeshSimple({ texture, vertices: mesh.positions, uvs: mesh.uvs, indices: Uint32Array.from(mesh.indices) });
 }
 
 // ─── Geometry helpers ──────────────────────────────────────
@@ -226,7 +202,7 @@ export function renderPlateaus(
     holder.label = `plateau-band-${band.height}`;
     drawBandFloor(holder, band, paint);
     const runs = edgeRuns(band);
-    for (const run of runs) if (run.edge === 'slope') drawSlope(holder, run);
+    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
     parent.addChild(holder);
@@ -253,32 +229,67 @@ function drawBandFloor(parent: Container, band: PlateauBand, paint: ShapePainter
   parent.addChild(floor);
 }
 
-/** A slope: a ribbon `slopeWidth × |drop|` wide on the low side, and its contour lines. */
-function drawSlope(parent: Container, run: EdgeRun): void {
+/**
+ * A slope, `slopeWidth × |drop|` wide on its low side: a flat shade on each face of it, dark
+ * as the face turns from the sun (`shadeCliffs`), and an ink contour ring for each cell of
+ * drop, the last at the slope's foot.
+ */
+function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
   const per = run.owner?.slopeWidth ?? 1;
-  const cells = Math.abs(run.drop);
-  const width = per * cells;
+  const drop = Math.abs(run.drop);
+  const width = per * drop;
   const side = lowSide(run.drop);
-  const line = sampleCentreline(sharp(run.points), run.closed, 0);
-  const mesh = meshOf(buildEdgeStrips(line, width)[side], slopeTexture());
-  if (mesh) {
-    mesh.label = 'plateau-slope';
-    parent.addChild(mesh);
+  const strip = buildEdgeStrips(sampleCentreline(sharp(run.points), run.closed, 0), width)[side];
+  const shade = new Container();
+  shade.label = 'plateau-slope';
+  const faces: CliffSprite[] = [];
+  // Each sample is its inner and outer point; one quad per stretch between two samples.
+  const p = strip.positions;
+  for (let k = 0; k + 7 < p.length; k += 4) {
+    const quad = [p[k], p[k + 1], p[k + 4], p[k + 5], p[k + 6], p[k + 7], p[k + 2], p[k + 3]];
+    const nx = (p[k + 2] + p[k + 6] - p[k] - p[k + 4]) / 2;
+    const ny = (p[k + 3] + p[k + 7] - p[k + 1] - p[k + 5]) / 2;
+    const len = Math.hypot(nx, ny);
+    if (len < 1e-6) continue;
+    const g = new Graphics().poly(quad).fill({ color: INK });
+    g.alpha = 0;
+    shade.addChild(g);
+    faces.push({ shade: g, normal: [nx / len, ny / len] });
   }
-  if (run.owner?.contourLines === false) return;
-  // A line on each whole cell of the drop, stronger, and fainter ones between, so a slope
-  // reads as ground falling away rather than one outline.
-  const g = new Graphics();
-  g.label = 'plateau-contours';
-  const lines = Math.max(1, Math.round(cells * CONTOURS_PER_CELL));
-  for (let k = 0; k < lines; k += CONTOURS_PER_CELL) dashSpine(g, offsetLine(run, (k * width) / lines, side), 0.25, 0.15);
-  g.stroke({ color: INK, width: LINE, alpha: CONTOUR_ALPHA });
-  for (let k = 1; k < lines; k++) {
-    if (k % CONTOURS_PER_CELL === 0) continue;
-    dashSpine(g, offsetLine(run, (k * width) / lines, side), 0.18, 0.18);
+  parent.addChild(shade);
+  if (run.owner?.contourLines === false) return faces;
+  const rings = new Container();
+  rings.label = 'plateau-contours';
+  const cells = Math.max(1, Math.round(drop));
+  for (let k = 1; k <= cells; k++) {
+    const line = offsetLine(run, (k * width) / cells, side);
+    rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: CONTOUR_LINE, alpha: CONTOUR_ALPHA }));
   }
-  g.stroke({ color: INK, width: LINE * 0.75, alpha: INNER_CONTOUR_ALPHA });
-  parent.addChild(g);
+  parent.addChild(rings);
+  return faces;
+}
+
+/** `pts` pushed `d` cells to the left of travel, each point along its neighbours' normal. */
+function offsetOpen(pts: Polygon, d: number): Polygon {
+  return pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const t: Vec = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    return [p[0] + t[1] * d, p[1] - t[0] * d];
+  });
+}
+
+/**
+ * The rubble at a cliff's foot: the band walk with the rubble pieces along the cliff's run
+ * pushed FOOT_OUT toward its void (the low side), so it lies out past the ledge rock. Gaps
+ * widen by as much, so an opening or a landing parts the foot as far as it parts the rock.
+ */
+export function layCliffFoot(pts: Polygon, closed: boolean, gaps: DoorGap[], pieces: CaveKitPiece[]): WalkPlacement[] {
+  if (pieces.length === 0 || pts.length < 2) return [];
+  const wide = gaps.map((g) => ({ ...g, width: g.width + 2 * FOOT_OUT }));
+  if (closed) return layBandRing(offsetCurve(resampleClosed(pts as Curve, CURVE_STEP), FOOT_OUT) as Polygon, wide, pieces);
+  return layBandChain(offsetOpen(pts, FOOT_OUT), wide, pieces);
 }
 
 /** Which placements `placeBand` will turn into sprites, in the order it adds them. */
@@ -307,11 +318,28 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
 
+  // The foot first, under the rock: rubble walked out past the ledge on the low side.
+  const sprites: CliffSprite[] = [];
+  const rubble = rubbleArt();
+  for (const e of rubble.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  const footPlaced = drawnPlacements(layCliffFoot(pts, run.closed, gaps, rubblePieces(rubble)), rubble);
+  if (footPlaced.length > 0) {
+    const foot = new Container();
+    foot.label = 'plateau-foot';
+    placeBand(foot, footPlaced, rubble, 0xffffff, 0);
+    footPlaced.forEach((pl, i) => {
+      const dx = pl.Q[0] - pl.P[0];
+      const dy = pl.Q[1] - pl.P[1];
+      const len = Math.hypot(dx, dy) || 1;
+      sprites.push({ sprite: foot.children[i] as Sprite, normal: [dy / len, -dx / len] });
+    });
+    parent.addChild(foot);
+  }
+
   // The whole run, straights and corners alike, is walked with the measured ledge pieces:
   // every stone at its own size, none stretched to fit an edge.
   const rock = new Container();
   rock.label = 'plateau-cliff';
-  const sprites: CliffSprite[] = [];
   const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
   const drawn = drawnPlacements(placed, art);
   placeBand(rock, drawn, art, 0xffffff, 0);
@@ -322,13 +350,13 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
     sprites.push({ sprite: rock.children[i] as Sprite, normal: [dy / len, -dx / len] });
   });
 
-  if (sprites.length === 0) {
+  if (drawn.length === 0) {
     const ink = new Graphics();
     ink.label = 'plateau-cliff-ink';
     ink.poly(path.flat(), false).stroke({ color: INK, width: FALLBACK_EDGE, alpha: 0.85 });
     parent.addChild(ink);
     rock.destroy();
-    return [];
+    return sprites;
   }
   parent.addChild(rock);
   // The light on each face, added over the rock: a quad from the edge out across the ledge.

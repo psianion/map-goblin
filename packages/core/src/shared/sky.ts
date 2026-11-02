@@ -127,6 +127,18 @@ export function skyFrame(input: SkyInput): SkyFrame {
 }
 
 /**
+ * The sun cliffs cast by. Under an outdoor sky a cliff throws its shadow by default: unless
+ * natural shadows are switched off outright, it is the frame's sun with natural light forced
+ * on (weather included). Indoors, or switched off, it is the frame's own sun, which casts
+ * nothing.
+ */
+export function cliffSunAt(frame: SkyFrame, map: MapEnvironment): SunVector {
+  if (frame.sun.kind !== null || environmentOf(map) !== 'outdoor' || map.naturalLight === false) return frame.sun;
+  const base = sunAt(frame.minutes, { ...map, naturalLight: true }, 'outdoor', frame.nightSky);
+  return { ...base, intensity: base.intensity * weatherLight(frame.weather).sun };
+}
+
+/**
  * What a memoized frame keys on: the colour and darkness coarsened, plus the casting sun. A
  * continuous darkness in a cache key would be no cache, so it rounds to 1/50.
  */

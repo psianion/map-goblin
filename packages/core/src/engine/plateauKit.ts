@@ -3,8 +3,9 @@
 // ship in gg-demo (ledge_bend_*), so a set's own ledge bends are used when it has them and
 // gg-demo's otherwise. Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
-import { bandSetArt, getBandSetIds, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import { GRID_CELL_PX, bandSetArt, getBandSetIds, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
+import { bankPieces } from './path/pathKitLayout';
 
 /** The band set a cliff takes when its floor names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
@@ -50,4 +51,24 @@ export function cliffPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
   const pieces = ledgePieces().filter((p) => usable(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
+}
+
+/** The rubble a cliff's foot is laid with: every cliff-rubble unit installed, keyed by its id. */
+export function rubbleArt(): Map<string, CatalogEntry> {
+  const art = new Map<string, CatalogEntry>();
+  for (const e of getEntriesByType('object')) if (e.material === 'cliff-rubble') art.set(e.id, e);
+  return art;
+}
+
+/**
+ * The foot band's pieces: each rubble unit a straight as long as its painted width, walked
+ * like a band kit's straights (pathKitLayout `bankPieces`).
+ */
+export function rubblePieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
+  return bankPieces(
+    [...art.values()].map((e) => ({
+      key: e.id,
+      length: e.contentRect ? e.contentRect.w / GRID_CELL_PX : Number(e.gridSize.split('x')[0]),
+    })),
+  );
 }
