@@ -211,7 +211,8 @@ function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | n
   if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
   const steps = cliffShadowGeometry(layer, look, groundOf(layer));
   const color = parseInt(look.color.replace('#', ''), 16);
-  const alpha = bandAlpha(look);
+  // A cliff is a mass of rock, not a wall's thin band: its pool reads darker at the foot.
+  const alpha = Math.min(CLIFF_SHADOW_MAX, look.alpha * CLIFF_SHADOW_STRENGTH) / SHADOW_STEPS;
   for (let step = SHADOW_STEPS; step >= 1; step--) {
     const polys = steps[step - 1];
     if (polys.length === 0) continue;
@@ -219,6 +220,10 @@ function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | n
     g.fill({ color, alpha });
   }
 }
+
+/** How much darker than a wall's a cliff's shadow pools at its foot, and the most it reaches. */
+const CLIFF_SHADOW_STRENGTH = 1.8;
+const CLIFF_SHADOW_MAX = 0.8;
 
 /**
  * The cliffs' shadow polygons, per step (index `step - 1`), cut to where they land: a

@@ -601,10 +601,20 @@
   padding: 0;
   list-style: none;
 }
+/* Two lines a kind, so it fits the dialog: name and its buttons, then the note under them. */
+.v2-crossing-kind {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+  align-items: center;
+  gap: 4px 6px;
+}
 .v2-crossing-kinds .v2-input {
-  flex: 1;
   min-width: 0;
   width: auto;
+}
+.v2-crossing-kind__note {
+  grid-column: 1 / -1;
+  grid-row: 2;
 }
 .v2-segs--unit {
   flex: none;

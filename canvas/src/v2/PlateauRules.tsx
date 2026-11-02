@@ -57,7 +57,7 @@ export function PlateauRules({ sightDropCells, onSightDropCells, kinds, onKinds,
       <span className="v2-label">Crossing kinds</span>
       <ul className="v2-crossing-kinds" data-testid="v2-map-crossing-kinds">
         {kinds.map((k, i) => (
-          <li key={k.id} className="v2-size-row v2-size-row--flush">
+          <li key={k.id} className="v2-crossing-kind">
             <input
               className="v2-input"
               aria-label="Crossing name"
@@ -65,7 +65,7 @@ export function PlateauRules({ sightDropCells, onSightDropCells, kinds, onKinds,
               onChange={(e) => edit(i, { name: e.target.value })}
             />
             <input
-              className="v2-input"
+              className="v2-input v2-crossing-kind__note"
               aria-label={`${k.name} note`}
               placeholder="Note"
               value={k.note ?? ''}

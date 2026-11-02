@@ -7,7 +7,8 @@
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { BufferImageSource, Container, Graphics, MeshSimple, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, MeshSimple, Rectangle, Sprite, Texture } from 'pixi.js';
+import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
@@ -24,7 +25,8 @@ import {
   type RingGap,
 } from '../shared/plateaus';
 import { buildEdgeStrips, sampleCentreline, type RibbonMesh } from '../geometry/ribbon';
-import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import { GRID_CELL_PX, getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import { CORNER_REACH, LEDGE_WIDTH, splitAtCorners, tileStraight, type LedgePlacement } from './cliffLayout';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -52,7 +54,7 @@ const TOP_LINE_ALPHA = 0.5;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
 /** Lit/shaded faces: a face turned away from the light keeps this much brightness. */
-export const SHADE_FLOOR = 0.75;
+export const SHADE_FLOOR = 0.6;
 
 // ─── Lighting the rock ─────────────────────────────────────
 
@@ -65,7 +67,7 @@ interface CliffSprite {
 const cliffSprites = new Map<string, CliffSprite[]>();
 const lastLook = new Map<string, ShadowLook | null>();
 
-/** How bright a face turned to `normal` is under `look`: 0.75 away from the light, 1 facing it. */
+/** How bright a face turned to `normal` is under `look`: 0.6 away from the light, 1 facing it. */
 export function faceShade(normal: Vec, look: ShadowLook | null): number {
   if (!look) return 1;
   // The shadow runs along (dx, dy), away from the light; the light is the other way.
@@ -275,28 +277,94 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const art = cliffArt(run.owner?.edgeArt);
   for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
-  const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
-  const drawn = drawnPlacements(placed, art);
-  if (drawn.length === 0) {
+  const drawable = (key: string) => {
+    const e = art.get(key);
+    return !!e && resolveTexture(e.id).width > 1;
+  };
+  const straights = pieces.filter((p) => p.turnDeg === 0 && !p.flipY && drawable(p.key));
+
+  const rock = new Container();
+  rock.label = 'plateau-cliff';
+  const sprites: CliffSprite[] = [];
+  const runs = splitAtCorners(pts, run.closed);
+  runs.forEach((r, k) => {
+    if (r.straight) {
+      // An open edge run (part of a ring whose kind changes) stops flush at its own ends;
+      // everywhere else an edge carries on past its corner to meet the next one.
+      const atStart = run.closed || k > 0;
+      const atEnd = run.closed || k < runs.length - 1;
+      const a = r.points[0];
+      const b = r.points[r.points.length - 1];
+      for (const pl of tileStraight(a, b, straights, gaps, [atStart ? CORNER_REACH : 0, atEnd ? CORNER_REACH : 0])) {
+        const sprite = ledgeSprite(art.get(pl.key)!, pl);
+        if (!sprite) continue;
+        rock.addChild(sprite);
+        sprites.push({ sprite, normal: pl.normal });
+      }
+      return;
+    }
+    // A real curve: the cave walk, which is built for exactly that.
+    const placed = pieces.length === 0 ? [] : r.closed ? layBandRing(r.points, gaps, pieces) : layBandChain(r.points, gaps, pieces);
+    const drawn = drawnPlacements(placed, art);
+    const from = rock.children.length;
+    placeBand(rock, drawn, art, 0xffffff, from);
+    drawn.forEach((pl, i) => {
+      const dx = pl.Q[0] - pl.P[0];
+      const dy = pl.Q[1] - pl.P[1];
+      const len = Math.hypot(dx, dy) || 1;
+      sprites.push({ sprite: rock.children[from + i] as Sprite, normal: [dy / len, -dx / len] });
+    });
+  });
+
+  if (sprites.length === 0) {
     const ink = new Graphics();
     ink.label = 'plateau-cliff-ink';
     ink.poly(path.flat(), false).stroke({ color: INK, width: FALLBACK_EDGE, alpha: 0.85 });
     parent.addChild(ink);
+    rock.destroy();
     return [];
   }
-  const rock = new Container();
-  rock.label = 'plateau-cliff';
-  placeBand(rock, drawn, art, 0xffffff, 0);
   parent.addChild(rock);
-  return drawn.map((pl, i) => {
-    const dx = pl.Q[0] - pl.P[0];
-    const dy = pl.Q[1] - pl.P[1];
-    const len = Math.hypot(dx, dy) || 1;
-    return { sprite: rock.children[i] as Sprite, normal: [dy / len, -dx / len] as Vec };
-  });
+  return sprites;
+}
+
+/** One ledge straight as a sprite: centred and turned as laid, stretched along its length only. */
+function ledgeSprite(entry: CatalogEntry, pl: LedgePlacement): Sprite | null {
+  const tex = resolveTexture(entry.id);
+  if (tex.width <= 1) return null;
+  const sprite = new Sprite(tex);
+  const cr = entry.contentRect;
+  if (cr) sprite.anchor.set((entry.naturalWidth / 2 - cr.x) / cr.w, (entry.naturalHeight / 2 - cr.y) / cr.h);
+  else sprite.anchor.set(0.5, 0.5);
+  sprite.position.set(pl.centre[0], pl.centre[1]);
+  sprite.rotation = pl.rotation;
+  // World cells per texture pixel, as the band renderer reckons it (art at GRID_CELL_PX a cell).
+  const px = cr ? cr.w : entry.naturalWidth;
+  const base = px / tex.width / GRID_CELL_PX;
+  sprite.scale.set(base * LEDGE_WIDTH, base * pl.stretch * (pl.flip ? -1 : 1));
+  return sprite;
 }
 
 // ─── Openings ──────────────────────────────────────────────
+
+const stairsCache = new Map<Texture, Texture>();
+
+/** The part of a stairs texture the flight is drawn in (`STAIRS_CONTENT`), as its own texture. */
+function stairsContent(entry: CatalogEntry, tex: Texture): Texture {
+  const rect = STAIRS_CONTENT[`${entry.material}_${entry.gridSize}`];
+  if (!rect) return tex;
+  const hit = stairsCache.get(tex);
+  if (hit && !hit.destroyed) return hit;
+  // The rect is in the art's authored pixels; a texture served at another size scales it.
+  const k = tex.width / entry.naturalWidth;
+  const f = tex.frame;
+  const sub = new Texture({
+    source: tex.source,
+    frame: new Rectangle(f.x + rect.x * k, f.y + rect.y * k, rect.w * k, rect.h * k),
+  });
+  stairsCache.set(tex, sub);
+  return sub;
+}
 
 /** The stairs a new opening shows until one is picked: gg-demo's short stone flight. */
 export function defaultStairsArt(): CatalogEntry | undefined {
@@ -344,11 +412,14 @@ export function drawOpening(
     const entry = (opening.artId && getCatalogEntry(opening.artId)) || defaultStairsArt();
     const tex = entry ? resolveTexture(entry.id) : null;
     if (entry && tex && tex.width > 1) {
-      const sprite = new Sprite(tex);
+      // Only the flight itself, not the empty frame around it: the frames are untrimmed.
+      const art = stairsContent(entry, tex);
+      const sprite = new Sprite(art);
       sprite.label = `opening-${opening.id}`;
       sprite.anchor.set(0.5, 0);
-      const length = opening.width * (entry.naturalHeight / entry.naturalWidth);
-      sprite.scale.set(opening.width / tex.width, length / tex.height);
+      // Across the gap at the opening's width; down the drop at the art's own proportions.
+      const length = opening.width * (art.height / art.width);
+      sprite.scale.set(opening.width / art.width, length / art.height);
       const top = at(0, -lip);
       sprite.position.set(top[0], top[1]);
       // The art's +y (down the image) runs downhill.

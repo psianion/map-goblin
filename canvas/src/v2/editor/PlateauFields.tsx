@@ -4,7 +4,7 @@ import { CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { Command, DungeonLayer, ShapeChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
-import { defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
+import { absoluteHeight, defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
 import { cliffArtSetIds } from '@dnd/core/src/engine/plateauKit';
 import { Ctl, Seg, Select, Switch } from './controls';
 
@@ -54,6 +54,7 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
   const step = (d: number) => apply('Plateau height', ids, { height: height + d === 0 ? undefined : height + d });
 
   const drop = raised ? shapeDrop(layer, head.id) : 0;
+  const standing = raised ? absoluteHeight(layer, head.id) : 0;
   const hides = edgeHides(head, edge, drop, threshold);
   const sight: SightChoice = head.sightOverride ?? 'auto';
   const artIds = cliffArtSetIds();
@@ -73,7 +74,10 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
             </button>
           </span>
         </Ctl>
-        <span className="v2-selc__value v2-selc__value--quiet">{raised ? 'cells' : 'ground'}</span>
+        {/* Where it stands in the stack and how far its edge falls: the stepper is its own height. */}
+        <span className="v2-selc__value v2-selc__value--quiet" data-testid="v2-plateau-standing">
+          {raised ? `${signed(standing)} · drop ${Math.abs(drop)}` : 'ground'}
+        </span>
       </div>
 
       {raised && (
@@ -133,21 +137,11 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
               <Seg
                 label="Sight"
                 value={sight}
-                options={SIGHT_OPTIONS}
+                options={SIGHT_OPTIONS.map((o) => (o.value === 'auto' ? { ...o, label: `Auto (${hides ? 'hides' : 'shows'})` } : o))}
                 onChange={(v) => apply('Blocks sight', ids, { sightOverride: v === 'auto' ? undefined : v })}
               />
             </div>
           )}
-          {edge !== 'wall' && sight === 'auto' && (
-            // Auto's answer on a line of its own: beside the three choices it ran off the card.
-            <div className="v2-sel__row">
-              <span className="v2-selc__label" />
-              <span className="v2-selc__value v2-selc__value--quiet" data-testid="v2-plateau-sight-auto">
-                {hides ? 'Top hidden from below' : 'Top seen from below'} · drop {Math.abs(drop)}
-              </span>
-            </div>
-          )}
-
           {edge !== 'wall' && (
             <div className="v2-sel__row">
               <Select
