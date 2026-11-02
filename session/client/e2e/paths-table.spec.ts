@@ -67,7 +67,6 @@ const BRIDGE = {
   offset: 0,
   flip: false,
   edge: 'soft',
-  edgeStrip: true,
   ends: { start: 'cut', end: 'cut', length: 1 },
   sort: 'overhead',
   under: 'walkable',

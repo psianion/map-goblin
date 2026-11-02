@@ -270,7 +270,6 @@ export class PathTool implements DrawingTool {
       offset: Math.round(Math.random() * 400) / 100,
       flip: false,
       edge: s.edge,
-      edgeStrip: s.edgeStrip,
       ends: { ...s.ends },
       sort: s.sort,
       ...(s.crossingId ? { crossingId: s.crossingId } : {}),

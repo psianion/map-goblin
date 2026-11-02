@@ -1,20 +1,24 @@
 // Paths on the canvas. A path's material is a kit of pieces (assets/packCatalog.ts
-// `pathKits`); for now a path draws as its outline filled with the kit's fill tile, painted
-// the way a floor is (floorWallRenderer `paintTiled`). The walkers that lay the kit's
-// units along the outline come next. Paths of one material and sort on a layer form a
-// group whose outlines are unioned before the fill, so crossing roads are one surface by
-// geometry. Each group draws in its sort's sublayer: `under` over the floor, `over` above
-// the layer's props, `overhead` above the tokens.
+// `pathKits`): its outline filled with the kit's fill tile, painted the way a floor is
+// (floorWallRenderer `paintTiled`), and the kit's units laid along it by the walkers in
+// path/pathKitLayout.ts. Paths of one material and sort on a layer form a group whose
+// outlines are unioned before the fill and the walk, so crossing roads are one surface with
+// one border by geometry. Each group draws in its sort's sublayer: `under` over the floor,
+// `over` above the layer's props, `overhead` above the tokens.
+//
+// The units are pooled sprites, one pool per group kept across redraws, re-laid on every
+// edit the way the cave band is (caveBandRenderer `placeBand`).
 
-import { Container, Graphics, type Texture } from 'pixi.js';
+import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
 import { pathOutline, pointInPath } from '../geometry/pathGeometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { pathKit } from '../assets/packCatalog';
+import { GRID_CELL_PX, kitPiece, pathKit, type CatalogEntry, type PathKit } from '../assets/packCatalog';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { paintTiled } from './floorWallRenderer';
+import { edgeWalk, type EdgeUnit, type UnitPlacement } from './path/pathKitLayout';
 import type { PathChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import { SEE_UNDER_ALPHA } from './subscribeToAssets';
@@ -91,22 +95,112 @@ export function groupOutline(paths: readonly PathChild[]): Polygon[] {
 
 // ─── Drawing ────────────────────────────────────────────────
 
-/** One group into `parent`: its outline, filled with the kit's fill tile like a floor. */
-function drawGroup(parent: Container, group: Group): void {
-  const rings = groupOutline(group.paths);
-  if (rings.length === 0) return;
-  const head = group.paths[0];
-  const kit = pathKit(head.materialId);
+/** The outline filled with the kit's fill tile like a floor; flat grey when the kit is missing. */
+function drawFill(parent: Container, rings: Polygon[], kit: PathKit | undefined, head: PathChild): void {
   const fill = kit?.fill ? textureNow(kit.fill.id) : null;
   if (kit?.fill && !fill) return;
   if (!fill) {
+    // A kit with no fill of its own (planks) is all pieces.
+    if (kit) return;
     const g = new Graphics();
     for (const r of rings) g.poly(r.flat());
     g.fill({ color: MISSING_COLOUR, alpha: 0.6 * head.opacity });
+    g.label = 'path-fill';
     parent.addChild(g);
     return;
   }
   paintTiled(parent, rings, fill, { scale: 1, tint: parseHex(head.tint), alpha: head.opacity, holes: true });
+  parent.children[parent.children.length - 1].label = 'path-fill';
+}
+
+/** A piece to draw: its pack entry, centre, turn, and size against the authored one. */
+interface Piece {
+  entry: CatalogEntry;
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
+
+/** A unit's footprint across, cells: its painted content, else its grid size. */
+function unitSize(entry: CatalogEntry): number {
+  const cr = entry.contentRect;
+  if (cr) return Math.max(cr.w, cr.h) / GRID_CELL_PX;
+  const [w, h] = entry.gridSize.split('x').map(Number);
+  return Math.max(w, h);
+}
+
+/** The kit's edge units the pack has art for, and their entries by key. */
+function edgeUnits(kit: PathKit): { units: EdgeUnit[]; entries: Map<string, CatalogEntry> } {
+  const units: EdgeUnit[] = [];
+  const entries = new Map<string, CatalogEntry>();
+  for (const u of kit.manifest.edge ?? []) {
+    const entry = kitPiece(kit, u.key);
+    if (!entry) continue;
+    entries.set(u.key, entry);
+    units.push({ ...u, size: unitSize(entry) });
+  }
+  return { units, entries };
+}
+
+/** Placements as pieces, at their authored size; art not yet in hand is asked for and skipped. */
+function piecesOf(placed: readonly UnitPlacement[], entries: Map<string, CatalogEntry>): Piece[] {
+  const out: Piece[] = [];
+  for (const p of placed) {
+    const entry = entries.get(p.key);
+    if (!entry || !textureNow(entry.id)) continue;
+    out.push({ entry, x: p.x, y: p.y, rotation: p.rotation, scale: 1 });
+  }
+  return out;
+}
+
+/**
+ * Fill `pool` from index `from` with one sprite per piece, reusing the sprites already there.
+ * The sprite pivots on its tile's centre even when its texture arrived trimmed to the content
+ * rect, as the cave band's do. Returns the next free index.
+ */
+function placePieces(pool: Container, pieces: readonly Piece[], tint: number, from: number): number {
+  let at = from;
+  for (const p of pieces) {
+    const tex = textureLoader.resolveTexture(p.entry.id);
+    if (tex.width <= 1) continue;
+    const slot = pool.children[at];
+    let sprite: Sprite;
+    if (slot instanceof Sprite) {
+      sprite = slot;
+      sprite.texture = tex;
+    } else {
+      sprite = new Sprite(tex);
+      pool.addChildAt(sprite, at);
+    }
+    const cr = p.entry.contentRect;
+    if (cr) sprite.anchor.set((p.entry.naturalWidth / 2 - cr.x) / cr.w, (p.entry.naturalHeight / 2 - cr.y) / cr.h);
+    else sprite.anchor.set(0.5, 0.5);
+    sprite.position.set(p.x, p.y);
+    sprite.rotation = p.rotation;
+    const px = cr ? cr.w : p.entry.naturalWidth;
+    sprite.scale.set(((px / tex.width) * p.scale) / GRID_CELL_PX);
+    sprite.tint = tint;
+    at++;
+  }
+  return at;
+}
+
+/** One group into `parent`: its fill, then its pieces in the group's pool. */
+function drawGroup(parent: Container, group: Group, pool: Container): void {
+  const rings = groupOutline(group.paths);
+  const head = group.paths[0];
+  const kit = pathKit(head.materialId);
+  if (rings.length > 0) drawFill(parent, rings, kit, head);
+  const tint = parseHex(head.tint);
+  let at = 0;
+  if (kit && rings.length > 0) {
+    const { units, entries } = edgeUnits(kit);
+    at = placePieces(pool, piecesOf(edgeWalk(rings, units, head.id, group.paths), entries), tint, at);
+  }
+  for (const c of pool.children.slice(at)) c.destroy();
+  pool.alpha = head.opacity;
+  parent.addChild(pool);
 }
 
 function clear(container: Container): void {
@@ -147,6 +241,8 @@ export function setOverheadPathFade(childId: string, alpha: number): void {
 
 interface Drawn {
   under: Container;
+  /** Each group's pieces, by group key: kept across redraws. */
+  pools: Map<string, Container>;
   paths: PathChild[];
   epoch: number;
   index: number;
@@ -186,6 +282,18 @@ export function subscribeToPaths(): () => void {
         return;
       }
       anyRedrawn = true;
+      // The pools step out before the clear and are put back by their group's draw.
+      for (const pool of prev?.pools.values() ?? []) pool.removeFromParent();
+      const pools = new Map<string, Container>();
+      const poolOf = (key: string): Container => {
+        let pool = prev?.pools.get(key);
+        if (!pool) {
+          pool = new Container();
+          pool.label = 'path-units';
+        }
+        pools.set(key, pool);
+        return pool;
+      };
       clear(sub.paths);
       clear(sub.pathsOver);
       for (const c of prev?.overhead ?? []) c.destroy({ children: true });
@@ -200,19 +308,21 @@ export function subscribeToPaths(): () => void {
           c.zIndex = index * LAYER_Z - 1;
           const base = layer.opacity * (state.ui.seeUnderOverhead ? SEE_UNDER_ALPHA : 1);
           c.alpha = base * (fades.get(group.paths[0].id) ?? 1);
-          drawGroup(c, group);
+          drawGroup(c, group, poolOf(group.key));
           top.addChild(c);
           tops.push(c);
           overhead.set(group.paths[0].id, { container: c, path: group.paths[0], base });
         } else {
-          drawGroup(sort === 'over' ? sub.pathsOver : sub.paths, group);
+          drawGroup(sort === 'over' ? sub.pathsOver : sub.paths, group, poolOf(group.key));
         }
       }
-      drawn.set(layer.id, { under: sub.paths, paths, epoch, index, look, overhead: tops });
+      for (const [key, pool] of prev?.pools ?? []) if (!pools.has(key)) pool.destroy({ children: true });
+      drawn.set(layer.id, { under: sub.paths, pools, paths, epoch, index, look, overhead: tops });
     });
     for (const [id, d] of drawn) {
       if (live.has(id)) continue;
       for (const c of d.overhead) c.destroy({ children: true });
+      for (const pool of d.pools.values()) if (!pool.destroyed) pool.destroy({ children: true });
       drawn.delete(id);
     }
     // Read by the e2e lane: how long the last layer redraw took.

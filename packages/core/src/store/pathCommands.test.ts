@@ -30,7 +30,6 @@ const road = (over: Partial<PathChild> = {}): PathChild => ({
   offset: 0.37,
   flip: false,
   edge: 'soft',
-  edgeStrip: true,
   ends: { start: 'cut', end: 'cut', length: 1 },
   sort: 'under',
   ...over,

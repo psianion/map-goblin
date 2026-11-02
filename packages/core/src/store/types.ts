@@ -276,7 +276,6 @@ export interface PathToolSettings {
   width: number;
   edge: PathChild['edge'];
   ends: PathChild['ends'];
-  edgeStrip: boolean;
   sort: PathChild['sort'];
   heightMode: PathChild['heightMode'];
   crossingId?: string;

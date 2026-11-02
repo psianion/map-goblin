@@ -912,7 +912,6 @@ function PathSettings({ tool }: { tool: ToolType }) {
           )}
         </>
       )}
-      <Switch label="Edge strip" checked={path.edgeStrip} onChange={(edgeStrip) => set({ edgeStrip })} />
       {tool === 'path' && <Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort })} />}
       <Seg label="Height" value={path.heightMode} options={PATH_HEIGHT_CHOICES} onChange={(heightMode) => set({ heightMode })} />
       <Select

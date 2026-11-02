@@ -6,8 +6,8 @@ import { firePointer, getPixelColor, waitForBoot, waitFrame } from './helpers'
  * by clicks and one by a freehand drag, the wheel setting the next point's width,
  * Backspace, closing on the first point, Alt's straight segment, the lake preset and the
  * card's Fill switch, and undo: one entry per path, one per point drag. A path draws as its
- * outline filled with its kit's fill tile, paths of one material unioned into one fill; the
- * units walked along it come after.
+ * outline filled with its kit's fill tile, paths of one material unioned into one fill, and
+ * the kit's edge units walked along that one outline.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -87,8 +87,8 @@ const fillBounds = (page: Page) =>
   page.evaluate(() => {
     const w = window as Any
     const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
-    const sub = find(w.__pixiApp.stage)
-    const b = sub?.getLocalBounds?.()
+    const fill = find(w.__pixiApp.stage)?.children.find((c: Any) => c.label === 'path-fill')
+    const b = fill?.getLocalBounds?.()
     return b ? { width: b.width, height: b.height } : null
   })
 
@@ -202,7 +202,7 @@ test('dragging a selected path’s point is one undo step', async ({ page }) => 
 /** A dirt road through the given points, added straight to the store (the tool is covered above). */
 const dirtRoad = (id: string, points: Pt[]) => ({
   id, name: id, childType: 'path', visible: true, points, closed: false, width: 2, heightMode: 'ground',
-  materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft', edgeStrip: false,
+  materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft',
   ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
 })
 
@@ -254,7 +254,16 @@ const fills = (page: Page) =>
   page.evaluate(() => {
     const w = window as Any
     const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
-    return (find(w.__pixiApp.stage)?.children ?? []).map((c: Any) => ({ masked: !!c.mask }))
+    return (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-fill').map((c: Any) => ({ masked: !!c.mask }))
+  })
+
+/** Where the edge units of the paths sublayer stand, in world cells. */
+const units = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+    const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
+    return pools.flatMap((p: Any) => p.children.map((s: Any) => ({ x: s.position.x, y: s.position.y })))
   })
 
 const addRoad = (page: Page, road: unknown) => inPage(page, `(s, layer, w2s, r) => s().addChild(layer().id, r)`, road)
@@ -264,7 +273,8 @@ test('two dirt roads crossing show no seam: across the junction the road reads a
   await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
   await drawn(page, 1)
   // A line across where the second road's edges will run, inside the first road.
-  const line = Array.from({ length: 17 }, (_, i) => ({ x: -2 + i * 0.25, y: 0.4 }))
+  // Off the edges by more than an edge unit reaches (half its diagonal, 0.64).
+  const line = Array.from({ length: 17 }, (_, i) => ({ x: -2 + i * 0.25, y: 0.2 }))
   const alone: number[] = []
   for (const p of line) alone.push(await lum(page, p))
   const background = await lum(page, { x: 0, y: 5 })
@@ -281,22 +291,57 @@ test('two dirt roads crossing show no seam: across the junction the road reads a
   }
 })
 
+test('two crossing dirt roads wear one border of edge units: round the junction, none inside it', async ({ page }) => {
+  await openEditor(page)
+  await addRoad(page, dirtRoad('a', [{ x: -8, y: 0 }, { x: 8, y: 0 }]))
+  await addRoad(page, dirtRoad('b', [{ x: 0, y: -8 }, { x: 0, y: 8 }]))
+  await expect.poll(async () => (await units(page)).length).toBeGreaterThan(40)
+  const laid = await units(page)
+  // Every unit on the one unioned outline: none where either road's own edge ran across the other.
+  for (const u of laid) {
+    const inA = Math.abs(u.y) < 0.99 && Math.abs(u.x) < 8
+    const inB = Math.abs(u.x) < 0.99 && Math.abs(u.y) < 8
+    expect(inA || inB, `unit at ${u.x.toFixed(2)}, ${u.y.toFixed(2)}`).toBe(false)
+  }
+  // And the border runs on round each inside corner of the junction.
+  for (const [x, y] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    expect(laid.some((u) => Math.hypot(u.x - x, u.y - y) < 1.6), `corner ${x}, ${y}`).toBe(true)
+  }
+  // An edit re-lays the same pool: the units move, the sprites stay.
+  const before = await page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'path-units' ? c : (c.children ?? []).map(find).find(Boolean))
+    ;(w as Any).__unitPool = find(w.__pixiApp.stage)
+    return (w as Any).__unitPool.children.length
+  })
+  expect(before).toBeGreaterThan(0)
+  await inPage(page, `(s, layer) => s().updateChild(layer().id, 'b', { points: [{ x: 0.5, y: -8 }, { x: 0.5, y: 8 }] })`)
+  await waitFrame(page, 3)
+  const same = await page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'path-units' ? c : (c.children ?? []).map(find).find(Boolean))
+    return find(w.__pixiApp.stage) === (w as Any).__unitPool
+  })
+  expect(same).toBe(true)
+})
+
 test('a road is its outline filled: road inside, ground just outside, the end round', async ({ page }) => {
   await openEditor(page)
   // Width 2: the outline runs 1 cell either side of the centreline and round the end at (6, 0).
+  // The edge units straddle the outline, reaching 0.64 either side of it: samples stay clear.
   await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
   await drawn(page, 1)
   expect(await fills(page)).toEqual([{ masked: true }])
   // Every sample off the grid lines, which cross road and ground alike.
   const background = await lum(page, { x: 0.5, y: -2.5 })
   for (const x of [-3.5, 0.5, 3.5]) {
-    expect(Math.abs((await lum(page, { x, y: 0.8 })) - background), `inside at x = ${x}`).toBeGreaterThan(60)
-    expect(Math.abs((await lum(page, { x, y: 1.3 })) - background), `outside at x = ${x}`).toBeLessThan(12)
+    expect(Math.abs((await lum(page, { x, y: 0.3 })) - background), `inside at x = ${x}`).toBeGreaterThan(60)
+    expect(Math.abs((await lum(page, { x, y: 1.75 })) - background), `outside at x = ${x}`).toBeLessThan(12)
   }
   const around = (r: number, deg: number) => ({ x: 6 + r * Math.cos((deg * Math.PI) / 180), y: r * Math.sin((deg * Math.PI) / 180) })
   for (const deg of [-60, -30, 30, 60]) {
-    expect(Math.abs((await lum(page, around(0.8, deg))) - background), `cap at ${deg}°`).toBeGreaterThan(60)
-    expect(Math.abs((await lum(page, around(1.3, deg))) - background), `past the cap at ${deg}°`).toBeLessThan(12)
+    expect(Math.abs((await lum(page, around(0.3, deg))) - background), `cap at ${deg}°`).toBeGreaterThan(60)
+    expect(Math.abs((await lum(page, around(1.75, deg))) - background), `past the cap at ${deg}°`).toBeLessThan(12)
   }
 })
 
@@ -335,7 +380,7 @@ test('a lake too tight for its shore band draws it narrower and says so on the c
   const c = [[-4, 6], [2, 6], [2.4, 7.2], [-2.2, 7.6], [-2.2, 8.4], [2, 8.6], [2, 10], [-4, 10]]
   await addRoad(page, {
     ...dirtRoad('lake', c.map(([x, y]) => ({ x, y }))),
-    materialId: 'gg-forge:water', closed: true, fill: true, width: 1.75, edgeStrip: true,
+    materialId: 'gg-forge:water', closed: true, fill: true, width: 1.75,
   })
   await inPage(page, `(s) => { s().setActiveTool('select'); s().setSelectedIds(['lake']) }`)
   const note = page.getByTestId('v2-path-narrowed')

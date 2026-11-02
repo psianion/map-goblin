@@ -888,7 +888,7 @@ describe('SelectionCard: a path', () => {
   const path = (over: Record<string, unknown> = {}) =>
     ({
       id: 'p', name: 'Road', childType: 'path', visible: true, closed: false, width: 1.5, heightMode: 'ground',
-      materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft', edgeStrip: true,
+      materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft',
       ends: { start: 'cut', end: 'fade', length: 1 }, sort: 'under',
       points: [{ x: 0, y: 0 }, { x: 4, y: 0, handles: null }, { x: 8, y: 2 }],
       ...over,

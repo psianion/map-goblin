@@ -135,7 +135,6 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
             )}
         </>
       )}
-      {row(<Switch label="Edge strip" checked={path.edgeStrip} onChange={(edgeStrip) => set({ edgeStrip }, edgeStrip ? 'Show edge strip' : 'Hide edge strip')} />)}
       {row(<Switch label="Flip" checked={path.flip} onChange={(flip) => set({ flip }, flip ? 'Flip path' : 'Unflip path')} />)}
       {path.closed && row(<Switch label="Fill" checked={!!path.fill} onChange={(fill) => set({ fill }, fill ? 'Fill path' : 'Unfill path')} />)}
       {row(<Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort }, 'Path sort')} />)}

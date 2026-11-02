@@ -352,8 +352,6 @@ export interface PathChild extends LayerChild {
   /** Mirror the strip across the centreline. */
   flip: boolean;
   edge: 'soft' | 'hard';
-  /** Draw the material's edge strip (verge, bank) when it has one. */
-  edgeStrip: boolean;
   /** `length` in cells. */
   ends: { start: PathEndKind; end: PathEndKind; length: number };
   /** under props / over props / above tokens (bridges). */
