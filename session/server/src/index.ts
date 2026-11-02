@@ -9,6 +9,7 @@ import { fogModule } from '@dnd/mechanics/fog'
 import { initiativeModule } from '@dnd/mechanics/initiative'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { tokensModule } from '@dnd/mechanics/tokens'
+import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
 import { ensureAdminPass, verifyToken } from './auth'
@@ -18,6 +19,7 @@ import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
 import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
+import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
@@ -113,7 +115,14 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
   modules.register(initiativeModule)
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf))
+  // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a
+  // player's move may not cross, with the DM's live crossing rules.
+  const terrainOf = createTerrain(
+    vision.sceneMapOf,
+    (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
+  )
+  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf))
+  modules.register(crossingsModule)
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel

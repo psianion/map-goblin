@@ -11,7 +11,11 @@ import {
   shapeDrop,
   tierLift,
   crossingIdOf,
+  crossingsAlong,
+  elevationAt,
+  elevationAtLayers,
 } from './plateaus';
+import { defaultCrossingKinds } from './crossingKinds';
 import { computeMergedFloor } from '../engine/mergedFloor';
 
 beforeAll(async () => {
@@ -194,5 +198,36 @@ describe('sight and crossing', () => {
     expect(tierLift(1)).toBeCloseTo(0.03);
     expect(tierLift(10)).toBeCloseTo(0.12);
     expect(tierLift(-2)).toBeCloseTo(-0.06);
+  });
+});
+
+describe('the table: elevation and crossings', () => {
+  const ground = rect('ground', 0, 0, 30, 30);
+  const top = rect('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' });
+  // Stairs mid west edge: the outline runs (10,10)→(14,10)→(14,14)→(10,14), (10,12) at 14/16.
+  const stairs = { id: 'st', name: 'st', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 14 / 16, width: 2 } as const;
+  const layer = layerOf([ground, top, stairs as unknown as ShapeChild]);
+  const kinds = defaultCrossingKinds();
+
+  it('stands a point on the plateau, the ground, or part way down the stairs', () => {
+    expect(elevationAt(layer, 12, 12)).toBe(3);
+    expect(elevationAt(layer, 5, 5)).toBe(0);
+    // Downhill runs west from (10, 12) over a reach of 3 cells: half way is half the drop.
+    expect(elevationAt(layer, 8.5, 12)).toBeCloseTo(1.5);
+    expect(elevationAtLayers([layerOf([ground]), layer], 12, 12)).toBe(3);
+  });
+
+  it('lists the cliff a move goes over, going up or down', () => {
+    const up = crossingsAlong(layer, [12, 8], [12, 11], kinds);
+    expect(up).toHaveLength(1);
+    expect(up[0]).toMatchObject({ via: 'cliff', targetId: 'top', kindId: 'climb', chip: true, blocks: false, down: false });
+    expect(crossingsAlong(layer, [12, 11], [12, 8], kinds)[0].down).toBe(true);
+  });
+
+  it('takes an opening’s rule through its gap, and a live override over the map', () => {
+    expect(crossingsAlong(layer, [8, 12], [11, 12], kinds)[0]).toMatchObject({ via: 'opening', kindId: 'free', chip: false });
+    const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
+    expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
+    expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);
   });
 });

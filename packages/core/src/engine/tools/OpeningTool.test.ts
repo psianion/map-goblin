@@ -3,6 +3,7 @@ import { Container } from 'pixi.js';
 import { OpeningTool, cliffSnap } from './OpeningTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
+import { createChildRemovalCommand } from '../../store/commands';
 import { setNotify } from '../../store/notify';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { openingFrame } from '../../shared/plateaus';
@@ -111,6 +112,15 @@ describe('OpeningTool', () => {
     expect(moved.position[0]).toBeCloseTo(14.5);
     undoManager.undo();
     expect(openings()[0].t).toBeCloseTo(before);
+  });
+
+  it('takes the openings with the floor they sit on, and undo puts both back', () => {
+    click(tool, 13, 10.2);
+    undoManager.execute(createChildRemovalCommand(layer().id, 'top'));
+    expect(openings()).toHaveLength(0);
+    undoManager.undo();
+    expect(openings()).toHaveLength(1);
+    expect(layer().children.some((c) => c.id === 'top')).toBe(true);
   });
 
   it('deletes the selected opening', () => {

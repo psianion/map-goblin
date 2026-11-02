@@ -109,6 +109,55 @@ function RangeField({
   );
 }
 
+/**
+ * How high the token stands, in cells (plan §7). The server sets it from the ground under the
+ * token on every move — a plateau, a pit, part way down a stair — until the DM types one in,
+ * which pins it there; Auto hands it back to the ground. Committed on blur or Enter, like the
+ * ranges above, and unlike them it may go below zero (a pit).
+ */
+function ElevationRow({ token }: { token: Token }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    const next = Number(draft);
+    if (draft !== null && draft.trim() !== '' && Number.isFinite(next) && next !== token.elevation) {
+      send('update', { id: token.id, elevation: next });
+    }
+    setDraft(null);
+  };
+  return (
+    <div className="flex items-center gap-1.5" data-testid="token-elevation-row">
+      <span className="w-14 shrink-0 text-xs text-text-secondary">Height</span>
+      <input
+        type="number"
+        step={1}
+        aria-label="Height"
+        data-testid="token-elevation"
+        value={draft ?? token.elevation ?? 0}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+        }}
+        className={numberFieldClass}
+      />
+      <span className={unitLabel}>cells</span>
+      {token.elevationPinned ? (
+        <button
+          type="button"
+          data-testid="token-elevation-auto"
+          title="Follow the ground again"
+          onClick={() => send('update', { id: token.id, elevationPinned: false })}
+          className={quietButtonClass}
+        >
+          Pinned · Auto
+        </button>
+      ) : (
+        <span className={unitLabel}>from the ground</span>
+      )}
+    </div>
+  );
+}
+
 function VisionRow({ token, scale }: { token: Token; scale: MapScale }) {
   const sight = token.sight;
   const setSight = (patch: Partial<Sight>) =>
@@ -459,6 +508,7 @@ function OnMapTab() {
                   Linked to <span className="text-text-secondary">{selected.sheet.name}</span>
                 </p>
               )}
+              <ElevationRow token={selected} />
               <VisionRow token={selected} scale={scale} />
               <LightRow token={selected} scale={scale} tokens={tokens} />
             </>

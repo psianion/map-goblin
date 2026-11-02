@@ -10,6 +10,7 @@ import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { migrateToLatest } from '../store/migration';
 import { computeMergedFloor } from './mergedFloor';
+import { hasPlateaus } from '../shared/plateaus';
 import { roomFaces } from './roomDetection';
 
 let fs: { readFileSync(p: string, enc: string): string; readdirSync(p: string): string[] };
@@ -55,9 +56,10 @@ function legacyMergedFloor(layer: DungeonLayer): Polygon[] | null {
   return merged;
 }
 
+/** The old maps' dungeon layers: a fixture authored with plateaus (plateau-table) is not one. */
 function dungeonLayers(file: string): DungeonLayer[] {
   const data = migrateToLatest(JSON.parse(fs.readFileSync(`${root}/${file}`, 'utf8')));
-  return (data.layers as unknown as DungeonLayer[]).filter((l) => l.type === 'dungeon');
+  return (data.layers as unknown as DungeonLayer[]).filter((l) => l.type === 'dungeon' && !hasPlateaus(l));
 }
 
 const faces = (layer: DungeonLayer, floor: Polygon[] | null) =>

@@ -162,13 +162,23 @@ export class RemoveChildCommand implements Command {
     this.originalIndex = dungeonLayer.children.findIndex((c) => c.id === this.childId);
     if (this.originalIndex === -1) return;
     this.snapshot = structuredClone(dungeonLayer.children[this.originalIndex]);
+    // A floor takes the openings on its ring with it: an opening has no place of its own.
+    this.riders =
+      this.snapshot.childType === 'shape'
+        ? dungeonLayer.children.filter((c) => c.childType === 'opening' && c.shapeId === this.childId).map((c) => structuredClone(c))
+        : [];
+    for (const rider of this.riders) state.removeChild(this.layerId, rider.id);
     state.removeChild(this.layerId, this.childId);
   }
+
+  /** Openings removed with the floor they sat on, put back with it. */
+  private riders: AnyChild[] = [];
 
   undo(): void {
     if (!this.snapshot) return;
     const state = useStore.getState();
     state.addChild(this.layerId, structuredClone(this.snapshot));
+    for (const rider of this.riders) state.addChild(this.layerId, structuredClone(rider));
     if (this.originalIndex >= 0) {
       // Re-read: `state` was captured before the add, and the store hands back a
       // NEW layers array on every write. Searching the stale one never found the

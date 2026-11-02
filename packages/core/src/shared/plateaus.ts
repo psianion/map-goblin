@@ -16,7 +16,7 @@
 //   bare edge, and never makes a room.
 
 import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { OpeningChild } from './types';
+import type { CrossingKind, OpeningChild } from './types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
@@ -690,4 +690,142 @@ export function cliffOccluders(
     });
   }
   return out;
+}
+
+// ─── The table: where a token stands, and what it crosses ──
+
+/** How high a point stands: on a stairs, ramp or ladder, part way down it; else its surface. */
+export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number {
+  if (!hasPlateaus(layer)) return 0;
+  const plateaus = layerPlateaus(layer);
+  for (const c of layer.children) {
+    if (c.childType !== 'opening' || !c.visible) continue;
+    const f = openingFrame(layer, c);
+    if (!f) continue;
+    const dx = x - f.position[0];
+    const dy = y - f.position[1];
+    const s = dx * f.along[0] + dy * f.along[1];
+    const t = dx * f.downhill[0] + dy * f.downhill[1];
+    const reach = Math.max(1, f.drop);
+    if (Math.abs(s) > c.width / 2 || t < -0.25 || t > reach) continue;
+    const high = surfaceHeightAt(
+      plateaus.infos,
+      f.position[0] - f.downhill[0] * PROBE,
+      f.position[1] - f.downhill[1] * PROBE,
+    );
+    return high - f.drop * Math.max(0, Math.min(1, t / reach));
+  }
+  return surfaceHeightAt(plateaus.infos, x, y);
+}
+
+/** The same across a level's layers: the topmost layer that raises or sinks the point decides. */
+export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number): number {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const h = elevationAt(layers[i], x, y);
+    if (h !== 0) return h;
+  }
+  return 0;
+}
+
+/**
+ * What the table plays at a raised edge right now: per target (a floor's id or an opening's
+ * id) the crossing kind the DM picked live, and per kind whether it refuses a move. Both
+ * fall back to the map's own.
+ */
+export interface CrossingOverrides {
+  edges?: Readonly<Record<string, string>>;
+  blocks?: Readonly<Record<string, boolean>>;
+}
+
+/** One raised edge a move goes over. */
+export interface Crossing {
+  position: Vec;
+  /** What was crossed: an edge kind, or an opening in one. */
+  via: 'cliff' | 'slope' | 'none' | 'opening';
+  /** The floor (edges) or opening whose crossing rule applies. */
+  targetId: string;
+  kindId: string;
+  /** The kind as the map lists it, or null when the id names none. */
+  kind: CrossingKind | null;
+  /** The kind refuses a player's move (the live switch if the DM flipped it). */
+  blocks: boolean;
+  /** Show the chip: always on a cliff; elsewhere only when the kind is not Free. */
+  chip: boolean;
+  /** The move went from the high side to the low side. */
+  down: boolean;
+  /** 0..1 along the move. */
+  at: number;
+}
+
+export const FREE_CROSSING = 'free';
+
+function segHit(p: Vec, q: Vec, a: Vec, b: Vec): { t: number; u: number } | null {
+  const rx = q[0] - p[0];
+  const ry = q[1] - p[1];
+  const sx = b[0] - a[0];
+  const sy = b[1] - a[1];
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / den;
+  const u = ((a[0] - p[0]) * ry - (a[1] - p[1]) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? { t, u } : null;
+}
+
+/**
+ * Every raised edge (cliff, slope or bare) the straight move `from` → `to` crosses on one
+ * layer, in order along the move, with the crossing rule that applies there: an opening's
+ * where the move passes through one, else the edge's floor's (its own, a live override, or
+ * the edge kind's default). Walls are the walls' business and are not listed.
+ */
+export function crossingsAlong(
+  layer: Pick<DungeonLayer, 'children'>,
+  from: Vec,
+  to: Vec,
+  kinds: readonly CrossingKind[],
+  overrides: CrossingOverrides = {},
+): Crossing[] {
+  if (!hasPlateaus(layer) || (from[0] === to[0] && from[1] === to[1])) return [];
+  const gaps = ringGaps(layer);
+  const openings = new Map<string, OpeningChild>();
+  for (const c of layer.children) if (c.childType === 'opening') openings.set(c.id, c);
+  const out: Crossing[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    band.rings.forEach((ring, ri) => {
+      if (band.ringEdge[ri] === 'wall') return;
+      band.edges[ri].forEach((e, i) => {
+        if (e.drop === 0 || e.edge === 'wall' || !e.owner) return;
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        const hit = segHit(from, to, a, b);
+        if (!hit) return;
+        const position: Vec = [from[0] + (to[0] - from[0]) * hit.t, from[1] + (to[1] - from[1]) * hit.t];
+        const gap = gaps.find((g) => Math.hypot(position[0] - g.position[0], position[1] - g.position[1]) <= g.width / 2);
+        const opening = gap?.id.startsWith('opening:') ? openings.get(gap.id.slice('opening:'.length)) : undefined;
+        // Outside is the left of travel along the ring: (dy, -dx). Moving outward on a plateau
+        // (or inward into a pit) is going down.
+        const outward = (to[0] - from[0]) * (b[1] - a[1]) - (to[1] - from[1]) * (b[0] - a[0]) > 0;
+        const down = e.drop > 0 ? outward : !outward;
+        const targetId = opening ? opening.id : e.owner.id;
+        const via: Crossing['via'] = opening ? 'opening' : (e.edge as 'cliff' | 'slope' | 'none');
+        if (gap && !opening) return; // a bridge landing: the path's own rule, once paths carry one
+        const kindId = overrides.edges?.[targetId] ?? (opening ? opening.crossingId ?? FREE_CROSSING : crossingIdOf(e.owner));
+        const kind = kinds.find((k) => k.id === kindId) ?? null;
+        const blocks = overrides.blocks?.[kindId] ?? kind?.blocks ?? false;
+        if (out.some((o) => o.targetId === targetId && Math.abs(o.at - hit.t) < 1e-6)) return;
+        out.push({ position, via, targetId, kindId, kind, blocks, chip: via === 'cliff' || kindId !== FREE_CROSSING, down, at: hit.t });
+      });
+    });
+  }
+  return out.sort((p, q) => p.at - q.at);
+}
+
+/** `crossingsAlong` over a level's layers. */
+export function crossingsAlongLayers(
+  layers: readonly Pick<DungeonLayer, 'children'>[],
+  from: Vec,
+  to: Vec,
+  kinds: readonly CrossingKind[],
+  overrides: CrossingOverrides = {},
+): Crossing[] {
+  return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides)).sort((p, q) => p.at - q.at);
 }

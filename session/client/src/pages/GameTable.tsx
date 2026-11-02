@@ -7,6 +7,8 @@ import { TriggerPrompts } from '../components/TriggerPrompts';
 import { mountTurnRingWhenReady } from '../modules/initiative/TurnRing';
 import { TokenMenu } from '../modules/tokens/TokenMenu';
 import { DoorMenu } from '../modules/doors/DoorMenu';
+import { CrossingMenu } from '../modules/crossings/CrossingMenu';
+import { CrossingChips } from '../modules/crossings/CrossingChips';
 import { LightPopover } from '../modules/lights/LightPopover';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { TableStatusBar } from '../components/TableStatusBar';
@@ -34,6 +36,7 @@ import '../modules/initiative';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
+import '../modules/crossings';
 import '../modules/fog';
 import '../modules/lights';
 import '../modules/scene';
@@ -117,6 +120,8 @@ export default function GameTable() {
         <LogDrawer />
         <TableStatusBar />
         <DoorMenu />
+        <CrossingMenu />
+        <CrossingChips />
         <TokenMenu />
         <LightPopover />
         <Sidebar />

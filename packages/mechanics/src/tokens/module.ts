@@ -7,7 +7,7 @@
 
 import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { sightPartyIds } from './links'
-import type { LevelFilterOf, SceneVision, Token, TokenDef, TokensState, VisionOf } from './types'
+import type { LevelFilterOf, SceneVision, TerrainOf, Token, TokenDef, TokensState, VisionOf } from './types'
 import {
   DISPOSITIONS,
   ID_MAX,
@@ -56,6 +56,7 @@ const UPDATE_FIELDS = [
   'sight',
   'light',
   'sheet',
+  'elevationPinned',
 ] as const
 
 let minted = 0
@@ -71,6 +72,7 @@ const mintId = (prefix: string): string =>
 export function tokensModule(
   visionOf: VisionOf = () => null,
   levelFilterOf: LevelFilterOf = () => null,
+  terrainOf: TerrainOf = () => null,
 ): GameModule<TokensState> {
   return {
     name: 'tokens',
@@ -91,7 +93,7 @@ export function tokensModule(
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, visionOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, visionOf, terrainOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -181,20 +183,20 @@ function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<stri
   return room !== null && scene.visible.has(room)
 }
 
-function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
+function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
   switch (action) {
     case 'library-upsert':
       return libraryUpsert(p, ctx)
     case 'library-delete':
       return libraryDelete(p, ctx)
     case 'place':
-      return place(p, ctx, visionOf)
+      return place(p, ctx, visionOf, terrainOf)
     case 'spawn':
       return spawn(p, ctx)
     case 'move':
-      return move(p, ctx, visionOf)
+      return move(p, ctx, visionOf, terrainOf)
     case 'update':
-      return update(p, ctx)
+      return update(p, ctx, terrainOf)
     case 'hide':
       return hide(p, ctx)
     case 'delete':
@@ -303,7 +305,19 @@ function libraryDelete(p: Payload, ctx: Ctx): void {
   ctx.setState({ ...state, library })
 }
 
-function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
+/**
+ * Where a token stands, as a height: the ground's answer at its centre unless the DM pinned
+ * one on its card (plan §7). Unchanged on a scene with no terrain.
+ */
+function grounded(token: Token, sceneId: string, terrainOf: TerrainOf): Token {
+  if (token.elevationPinned) return token
+  const terrain = terrainOf(sceneId)
+  if (!terrain) return token
+  const elevation = terrain.elevationAt(token.x, token.y, token.levelId)
+  return elevation === token.elevation ? token : { ...token, elevation }
+}
+
+function place(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
   const { state } = ctx
   const sceneId = sceneOf(p, ctx)
   if (Object.keys(state.byScene[sceneId] ?? {}).length >= SCENE_TOKENS_MAX) bad('this scene is full')
@@ -323,6 +337,8 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
     x: snap(num(p.x, 'x'), fields.size),
     y: snap(num(p.y, 'y'), fields.size),
     elevation: p.elevation === undefined ? 0 : num(p.elevation, 'elevation'),
+    // An elevation named at placement is the DM's word, kept until unpinned.
+    ...(p.elevation === undefined ? {} : { elevationPinned: true }),
     z: p.z === undefined ? 0 : num(p.z, 'z'),
     hidden: p.hidden === undefined ? false : bool(p.hidden, 'hidden'),
     ownerId: null,
@@ -330,7 +346,7 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   const at = { x: token.x, y: token.y }
   const refusal = occupyRefusal(token, at, visionOf(sceneId), ctx.sender.role)
   if (refusal) bad(refusal)
-  put(ctx, sceneId, token)
+  put(ctx, sceneId, grounded(token, sceneId, terrainOf))
 }
 
 /**
@@ -383,7 +399,7 @@ function spawn(p: Payload, ctx: Ctx): void {
   ctx.setState({ ...state, byScene: { ...state.byScene, [sceneId]: existing } })
 }
 
-function move(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
+function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm' && token.ownerId !== ctx.sender.identityId) {
     denied('you may only move a token you own')
@@ -391,10 +407,16 @@ function move(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
   const refusal = occupyRefusal(token, pos, visionOf(sceneId), ctx.sender.role)
   if (refusal) bad(refusal)
-  put(ctx, sceneId, { ...token, ...pos })
+  // A raised edge whose crossing kind refuses (Impassable, or whatever the DM switched on)
+  // stops a player's move; the DM's own drags are never refused (plan §7).
+  if (ctx.sender.role !== 'dm') {
+    const crossing = terrainOf(sceneId)?.crossingRefusal(token, pos, token.levelId) ?? null
+    if (crossing) bad(crossing)
+  }
+  put(ctx, sceneId, grounded({ ...token, ...pos }, sceneId, terrainOf))
 }
 
-function update(p: Payload, ctx: Ctx): void {
+function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm') {
     if (token.ownerId !== ctx.sender.identityId) denied('you may only update a token you own')
@@ -416,7 +438,15 @@ function update(p: Payload, ctx: Ctx): void {
     next.y = snap(next.y, next.size)
   }
   if (p.disposition !== undefined) next.disposition = oneOf(p.disposition, DISPOSITIONS, 'disposition')
-  if (p.elevation !== undefined) next.elevation = num(p.elevation, 'elevation')
+  // A hand-set elevation pins it; unpinning hands it back to the ground under the token.
+  if (p.elevation !== undefined) {
+    next.elevation = num(p.elevation, 'elevation')
+    next.elevationPinned = true
+  }
+  if (p.elevationPinned !== undefined) {
+    if (bool(p.elevationPinned, 'elevationPinned')) next.elevationPinned = true
+    else delete next.elevationPinned
+  }
   if (p.z !== undefined) next.z = num(p.z, 'z')
   // The same two parsers `place` and `library-upsert` already run, so an instance edited at
   // the table and one placed from the library are validated by one rule. `null` clears.
@@ -431,7 +461,7 @@ function update(p: Payload, ctx: Ctx): void {
     if (p.sheet === null) delete next.sheet
     else next.sheet = parseSheet(p.sheet) ?? bad('sheet needs at least a name')
   }
-  put(ctx, sceneId, next)
+  put(ctx, sceneId, grounded(next, sceneId, terrainOf))
 }
 
 /**

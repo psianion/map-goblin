@@ -52,7 +52,13 @@ export interface Token extends TokenDef {
   /** World units == grid cells. */
   x: number
   y: number
+  /**
+   * Height above the map's ground, in cells (1 world unit == 1 cell, D13): the plateau, pit,
+   * stairs or ramp the token stands on, set by the server on every place and move.
+   */
   elevation: number
+  /** The DM set `elevation` by hand on the token card: moves leave it alone until unpinned. */
+  elevationPinned?: boolean
   /** Draw order within the token overlay. */
   z: number
   /** DM-only visibility — redacted out of every non-DM view (D4). */
@@ -169,4 +175,17 @@ export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null
  * scene has one level (or no map), which shows every token. The server answers it from the
  * seat's viewed level (`viewedLevel`, triggers).
  */
+/**
+ * The ground a scene's tokens stand on (plateaus, plan §7): how high a point is, and whether a
+ * straight move from one point to another crosses a raised edge whose crossing kind refuses
+ * it. The server answers it from the scene's map and the live crossing rules; null on a scene
+ * with no map, where every point is level ground and nothing refuses.
+ */
+export interface SceneTerrain {
+  elevationAt(x: number, y: number, levelId?: string): number
+  /** The refusal message for a player's move, or null when it may go. */
+  crossingRefusal(from: { x: number; y: number }, to: { x: number; y: number }, levelId?: string): string | null
+}
+export type TerrainOf = (sceneId: string) => SceneTerrain | null
+
 export type LevelFilterOf = (sceneId: string, viewer: Viewer) => ((levelId: string | undefined) => boolean) | null

@@ -178,8 +178,9 @@ export function createSweeps(): Sweeps {
       doorKey,
       levelId,
       layers,
-      lightSegments: extractWallSegments(layers, 'light'),
-      sightSegments: extractWallSegments(layers, 'sight'),
+      // The map's own drop threshold: cliffs at least that tall hide their tops from below.
+      lightSegments: extractWallSegments(layers, 'light', { sightDropCells: map.data.mapSettings.sightDropCells }),
+      sightSegments: extractWallSegments(layers, 'sight', { sightDropCells: map.data.mapSettings.sightDropCells }),
       polygons: new Map(),
     }
     byLevel.set(levelId, next)

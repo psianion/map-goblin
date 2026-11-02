@@ -25,6 +25,8 @@ import { useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
 import { isToolActive } from '../../session/tools';
 import { doorRefusal, type LiveDoor } from '../doors/doors';
+import { judgeDragHop } from '../crossings/live';
+import { useCrossingChips } from '../crossings/chips';
 
 /** What the renderer exposes to the input layer. */
 export interface TokenLayer {
@@ -303,12 +305,30 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     const x = snap(world.x - drag.dx, drag.size);
     const y = snap(world.y - drag.dy, drag.size);
     if (x === drag.x && y === drag.y) return;
+    // Raised edges on the way (plan §7): a chip for each one worth naming, and a crossing whose
+    // kind blocks ends the gesture where it started — the DM's own drags are never refused.
+    const verdict = judgeDragHop(layer.tokens().find((t) => t.id === drag!.id)?.levelId, [drag.x, drag.y], [x, y]);
+    for (const c of verdict.chips) useCrossingChips.getState().show(c, c === verdict.refused);
+    if (verdict.refused) {
+      refuseDrag(e);
+      return;
+    }
     const id = drag.id;
     drag.x = x;
     drag.y = y;
     drag.moved = true;
     layer.placeAt(id, x, y);
     throttle.run(() => send('move', { id, x, y }));
+  };
+
+  /** A crossing refused the move: let go of the token and put it back where it was picked up. */
+  const refuseDrag = (e: PointerEvent): void => {
+    if (!drag || !gesture) return;
+    layer.setDragging(drag.id, false);
+    useTokenInteraction.getState().setDraggingId(null);
+    drag = null;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    revert();
   };
 
   const onUp = (e: PointerEvent) => {

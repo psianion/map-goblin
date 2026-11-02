@@ -23,6 +23,7 @@ import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
 import { polygonEdges } from '@dnd/core/src/shared/visionGate';
+import { useStore } from '@dnd/core/src/store/store';
 import { SIGHT_REACH, carriedCone, eyeReach, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
 import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
@@ -173,8 +174,11 @@ export function createSightCache(): SightCache {
     // closing until a table actually measures one. The day it matters, the fix is the server
     // sending the mask, not more or fewer walls.
     const dungeon = layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-    quadtree.build(extractWallSegments(dungeon, 'light'));
-    sightTree.build(extractWallSegments(dungeon, 'sight'));
+    // The map's drop threshold, as the server sweeps with: a cliff at least that tall hides its
+    // top from an eye below it, and never from one on top (plateaus, plan §6).
+    const sightDropCells = useStore.getState().mapSettings.sightDropCells;
+    quadtree.build(extractWallSegments(dungeon, 'light', { sightDropCells }));
+    sightTree.build(extractWallSegments(dungeon, 'sight', { sightDropCells }));
     const next: Built = { quadtree, sightTree, polygons: new Map() };
     cache.set(layers, next);
     return next;
