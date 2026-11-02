@@ -47,6 +47,8 @@ import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomAction
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
 import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
+import { removeHoveredPathPoint } from '@dnd/core/src/engine/pathNodeEdit';
+import { pathChainLive } from '@dnd/core/src/engine/tools/PathTool';
 
 /** Set by EditorHost so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -804,6 +806,16 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool.regularPolygon', combo: 'h', group: 'Tools', scope: 'canvas', label: 'Regular polygon',
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
   { id: 'tool.path', combo: 'a', group: 'Tools', scope: 'canvas', label: 'Path', run: () => pickTool('path', 'Path') },
+  { id: 'tool.lake', combo: 'u', group: 'Tools', scope: 'canvas', label: 'Lake', run: () => pickTool('lake', 'Lake') },
+  // While a path is being drawn: Backspace takes the last point back, [ and ] set the next point's width.
+  ...(['path', 'lake'] as const).flatMap((tool, i): Shortcut[] => [
+    { id: `tool.${tool}Back`, combo: 'backspace', group: 'Tools', scope: `tool:${tool}`, label: 'Take the last point back',
+      when: pathChainLive, run: toTool, ...(i > 0 ? { alias: true as const } : {}) },
+    { id: `tool.${tool}Narrower`, combo: '[', group: 'Tools', scope: `tool:${tool}`, label: 'Narrower next point',
+      when: pathChainLive, run: toTool, ...(i > 0 ? { alias: true as const } : {}) },
+    { id: `tool.${tool}Wider`, combo: ']', group: 'Tools', scope: `tool:${tool}`, label: 'Wider next point',
+      when: pathChainLive, run: toTool, ...(i > 0 ? { alias: true as const } : {}) },
+  ]),
   { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
   // Walls.
   { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
@@ -858,10 +870,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'edit.back', combo: 'ctrl+shift+[', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back') },
   { id: 'edit.back', combo: 'ctrl+shift+{', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back'), alias: true },
   // With nothing selected the tool in hand has the key (a hovered door, a selected zone).
+  // A selected path's hovered point goes on its own, not the path.
   { id: 'edit.delete', combo: 'delete', group: 'Selection', scope: 'canvas', label: 'Delete',
-    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+    run: (e) => (removeHoveredPathPoint() ? undefined : deleteSelection() === false ? toTool(e) : undefined) },
   { id: 'edit.delete', combo: 'backspace', group: 'Selection', scope: 'canvas', label: 'Delete',
-    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+    run: (e) => (removeHoveredPathPoint() ? undefined : deleteSelection() === false ? toTool(e) : undefined) },
 
   // Edit.
   { id: 'edit.undo', combo: 'ctrl+z', group: 'Edit', scope: 'canvas', label: 'Undo', run: undo },
@@ -875,7 +888,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => acceptAllSuggestions() },
   { id: 'rooms.dismiss', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Dismiss the suggested rooms', when: suggesting,
     run: () => dismissSuggestions() },
-  { id: 'edit.finish', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Finish the line (wall, polygon, path, lake)', run: toTool },
+  { id: 'edit.finish', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Finish the line (wall, polygon, path)', run: toTool },
   { id: 'edit.cancel', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Cancel the drawing, or leave solo', run: cancelOrLeaveSolo },
 
   // View.

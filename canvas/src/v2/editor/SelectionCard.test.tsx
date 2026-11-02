@@ -879,3 +879,65 @@ describe('SelectionCard: objects locked on their own', () => {
     expect((screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement).disabled).toBe(false);
   });
 });
+
+describe('SelectionCard: a path', () => {
+  beforeEach(() => {
+    cleanup();
+    undoManager.clear();
+  });
+  const path = (over: Record<string, unknown> = {}) =>
+    ({
+      id: 'p', name: 'Road', childType: 'path', visible: true, closed: false, width: 1.5, heightMode: 'ground',
+      materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false, edge: 'soft', edgeStrip: true,
+      ends: { start: 'cut', end: 'fade', length: 1 }, sort: 'under',
+      points: [{ x: 0, y: 0 }, { x: 4, y: 0, handles: null }, { x: 8, y: 2 }],
+      ...over,
+    }) as unknown as AnyChild;
+  const p = () => child('p') as unknown as Record<string, unknown> & { points: Record<string, unknown>[] };
+
+  it('shows the path fields and edits them one undo step at a time', () => {
+    seed([path()], ['p']);
+    render(<SelectionCard />);
+    expect(screen.getByTestId('v2-sel-path')).not.toBeNull();
+    expect(screen.getByTestId('v2-sel-kind').textContent).toBe('Path');
+    fireEvent.click(screen.getByRole('button', { name: 'Width up' }));
+    expect(p().width).toBe(1.75);
+    fireEvent.click(screen.getByRole('button', { name: 'Hard' }));
+    expect(p().edge).toBe('hard');
+    fireEvent.click(screen.getByRole('button', { name: 'Overhead' }));
+    expect(screen.getByRole('button', { name: 'Blocked' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Blocked' }));
+    expect(p().under).toBe('blocked');
+    expect(undoOnce()).toBe(true);
+    expect(p().under).toBeUndefined();
+  });
+
+  it('reverses, closes with a Fill switch, and turns every handle off and on', () => {
+    seed([path()], ['p']);
+    render(<SelectionCard />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reverse' }));
+    expect(p().points.map((q) => q.x)).toEqual([8, 4, 0]);
+    expect(p().ends).toEqual({ start: 'fade', end: 'cut', length: 1 });
+    expect(screen.queryByRole('switch', { name: 'Fill' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(p().closed).toBe(true);
+    fireEvent.click(screen.getByRole('switch', { name: 'Fill' }));
+    expect(p().fill).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Handles off' }));
+    expect(p().points.every((q) => q.handles === null)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Handles on' }));
+    expect(p().points.every((q) => !('handles' in q))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(p().closed).toBe(false);
+    expect(p().fill).toBeUndefined();
+  });
+
+  it('picks a crossing from the map’s kinds', () => {
+    seed([path()], ['p']);
+    render(<SelectionCard />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Crossing' }), { target: { value: 'climb' } });
+    expect(p().crossingId).toBe('climb');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Crossing' }), { target: { value: '' } });
+    expect(p().crossingId).toBeUndefined();
+  });
+});

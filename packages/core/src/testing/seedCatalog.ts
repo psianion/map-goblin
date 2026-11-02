@@ -167,3 +167,37 @@ export function seedTestWallSets(setIds: string[] = ['GG_Test'], packId = 'gg-fo
   }
   seedPack(packId, entries);
 }
+
+/**
+ * Seed path material sets the way gen-path-placeholders mints them: road-dirt with a strip,
+ * an edge and an end, water with a fill and a fall too, and two sets that are not path
+ * materials (a wall piece named path, and a path set with no strip).
+ */
+export function seedPathMaterials(packId = 'gg-forge'): void {
+  const entries: Record<string, ManifestEntry> = {};
+  const grid: Record<string, [string, number, number]> = {
+    strip: ['4x1', 800, 200],
+    edge: ['2x1', 400, 200],
+    end: ['1x1', 200, 200],
+    fill: ['4x4', 800, 800],
+    fall: ['2x2', 400, 400],
+  };
+  const add = (set: string, piece: string, type = 'path'): void => {
+    const [gridSize, w, h] = grid[piece] ?? ['1x1', 200, 200];
+    entries[`${set}-${piece}`] = {
+      type: type as ManifestEntry['type'],
+      material: `${set}-${piece}`,
+      gridSize,
+      pieceType: piece,
+      variant: 'A',
+      frame: { x: 0, y: 0, w, h },
+      set,
+      tags: ['path', 'placeholder'],
+    };
+  };
+  for (const piece of ['strip', 'edge', 'end']) add('road-dirt', piece);
+  for (const piece of ['strip', 'edge', 'end', 'fill', 'fall']) add('water', piece);
+  add('GG_Test', 'path', 'wall');
+  add('no-strip', 'edge');
+  seedPack(packId, entries);
+}

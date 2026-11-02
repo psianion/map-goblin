@@ -99,9 +99,7 @@ async function getSplinePaths(page: import('@playwright/test').Page): Promise<Sp
     const store = (window as StoreWindow).__store
     if (!store) return []
     const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
-    return (layer?.children ?? []).filter(
-      (c) => c.childType === 'shape' && c.shapeType === 'path',
-    ) as unknown as SplinePathRecord[]
+    return (layer?.children ?? []).filter((c) => c.childType === 'path') as unknown as SplinePathRecord[]
   })
 }
 
@@ -218,8 +216,8 @@ test.describe('Spline Paths', () => {
    * Select the tool that draws paths.
    *
    * There is no SplinePathTool any more — the v2.0 store dropped
-   * `SplinePathRecord` and `DungeonLayer.paths`, and a path is now an ordinary
-   * shape child drawn by the path tool on 'a'. The rows below used to look for a
+   * `SplinePathRecord` and `DungeonLayer.paths`, and a path is now a path child
+   * (format 3.2) drawn by the Path tool on 'a'. The rows below used to look for a
    * "Spline" button, not find one, and skip themselves forever; pointed at the
    * tool that replaced it they cover the same three things for real.
    */
@@ -228,14 +226,10 @@ test.describe('Spline Paths', () => {
     await waitFrame(page, 2)
   }
 
-  // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
-  // the old `SplinePathRecord` with `controlPoints` / `closed`: that record type
-  // and `DungeonLayer.paths` went away with the v2.0 store. This drew nothing
-  // before, because it called an `addPath` action that no longer exists through
-  // an optional-call that swallowed its absence — so it asserted a schema on a
-  // layer that never got a path. It now draws one with the
-  // real path tool and checks the shape that actually reaches a save file.
-  test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
+  // A path is a `PathChild`: its authored points, a width and a material. Corridor
+  // floors (`ShapeChild.shapeType: 'path'`) still load but nothing draws them any more.
+  // Drawn with the real Path tool, checking what actually reaches a save file.
+  test('a committed path is a path child with numeric points', async ({ page }) => {
     await gotoApp(page)
 
     const canvas = page.locator('canvas').first()
@@ -264,18 +258,15 @@ test.describe('Spline Paths', () => {
     expect(paths.length).toBeGreaterThan(0)
 
     const path = paths[paths.length - 1] as unknown as {
-      shapeType: string
-      contours: [number, number][][]
+      points: { x: number; y: number }[]
+      closed: boolean
+      width: number
     }
-    expect(path.shapeType).toBe('path')
-    expect(Array.isArray(path.contours)).toBe(true)
-    expect(path.contours.length).toBeGreaterThan(0)
-    const ring = path.contours[0]
-    expect(Array.isArray(ring)).toBe(true)
-    // A corridor offset from a polyline is a closed ring, so at least a triangle.
-    expect(ring.length).toBeGreaterThanOrEqual(3)
-    expect(typeof ring[0][0]).toBe('number')
-    expect(typeof ring[0][1]).toBe('number')
+    expect(path.closed).toBe(false)
+    expect(path.points).toHaveLength(3)
+    expect(typeof path.points[0].x).toBe('number')
+    expect(typeof path.points[0].y).toBe('number')
+    expect(path.width).toBeGreaterThan(0)
   })
 
   test('the path tool activates in store', async ({ page }) => {
@@ -321,12 +312,12 @@ test.describe('Spline Paths', () => {
     const afterPaths = await getSplinePaths(page)
     expect(afterPaths.length).toBeGreaterThan(beforePaths.length)
 
-    // The double-click finalises rather than adding a vertex, so the committed
-    // corridor comes from the clicks before it.
+    // The double-click finalises rather than adding a point, so the committed
+    // path is the clicks before it.
     const newPath = afterPaths[afterPaths.length - 1] as unknown as {
-      contours: [number, number][][]
+      points: { x: number; y: number }[]
     }
-    expect(newPath.contours[0].length).toBeGreaterThanOrEqual(3)
+    expect(newPath.points.length).toBeGreaterThanOrEqual(3)
   })
 
   test('undo removes the last path', async ({ page }) => {

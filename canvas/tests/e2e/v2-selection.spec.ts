@@ -572,7 +572,13 @@ test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide
   await openWarren(page)
   const grab = await onWall(page, 'wall-001', 0.15)
   // Something under the wall, so there is a stack to choose from (the wall's end runs into rock).
-  await addChild(page, { id: 'z', name: 'Ambush', childType: 'zone', visible: true, shape: { kind: 'circle', position: grab, radius: 0.8 } })
+  // A floor, which answers below the walls (a zone's outline would answer above them).
+  const r = 0.8
+  await addChild(page, {
+    id: 'f', name: 'Floor', childType: 'shape', visible: true, shapeType: 'polygon',
+    contours: [[[grab.x - r, grab.y - r], [grab.x + r, grab.y - r], [grab.x + r, grab.y + r], [grab.x - r, grab.y + r]]],
+    textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+  })
   await rightClick(page, await screenOf(page, grab))
   for (const label of ['Duplicate', 'Flip horizontal', 'Rotate 90°', 'Lock', 'Hide', 'Select behind']) {
     await expect(page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).first()).toBeVisible()

@@ -83,7 +83,7 @@ afterEach(cleanup);
 
 describe('dock tabs', () => {
   it('puts Rooms between Walls and Props with Rectangle room, Polygon room and Divide on R, P and X', () => {
-    expect(DOCK_TABS.map((t) => t.id).slice(0, 4)).toEqual(['floors', 'walls', 'rooms', 'props']);
+    expect(DOCK_TABS.map((t) => t.id).slice(0, 5)).toEqual(['floors', 'paths', 'walls', 'rooms', 'props']);
     const rooms = DOCK_TABS.find((t) => t.id === 'rooms')!;
     expect(rooms.tools.map((t) => [t.tool, t.label, t.shortcut])).toEqual([
       ['roomRect', 'Rectangle room', 'R'],

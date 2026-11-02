@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1838,6 +1838,222 @@
         "cave"
       ]
     },
+    "planks-edge": {
+      "type": "path",
+      "material": "planks-edge",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "planks",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "planks-end": {
+      "type": "path",
+      "material": "planks-end",
+      "gridSize": "1x1",
+      "pieceType": "end",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "planks",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "planks-strip": {
+      "type": "path",
+      "material": "planks-strip",
+      "gridSize": "4x1",
+      "pieceType": "strip",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "planks",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-cobble-edge": {
+      "type": "path",
+      "material": "road-cobble-edge",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "road-cobble",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-cobble-end": {
+      "type": "path",
+      "material": "road-cobble-end",
+      "gridSize": "1x1",
+      "pieceType": "end",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "road-cobble",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-cobble-strip": {
+      "type": "path",
+      "material": "road-cobble-strip",
+      "gridSize": "4x1",
+      "pieceType": "strip",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "road-cobble",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-dirt-edge": {
+      "type": "path",
+      "material": "road-dirt-edge",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "road-dirt",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-dirt-end": {
+      "type": "path",
+      "material": "road-dirt-end",
+      "gridSize": "1x1",
+      "pieceType": "end",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "road-dirt",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "road-dirt-strip": {
+      "type": "path",
+      "material": "road-dirt-strip",
+      "gridSize": "4x1",
+      "pieceType": "strip",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "road-dirt",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "trail-grass-edge": {
+      "type": "path",
+      "material": "trail-grass-edge",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "trail-grass",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "trail-grass-end": {
+      "type": "path",
+      "material": "trail-grass-end",
+      "gridSize": "1x1",
+      "pieceType": "end",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "trail-grass",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "trail-grass-strip": {
+      "type": "path",
+      "material": "trail-grass-strip",
+      "gridSize": "4x1",
+      "pieceType": "strip",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "trail-grass",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
     "wall_short_2x2_object_A": {
       "type": "object",
       "material": "wall_short",
@@ -1892,6 +2108,78 @@
         "cave"
       ]
     },
+    "water-edge": {
+      "type": "path",
+      "material": "water-edge",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "water",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "water-end": {
+      "type": "path",
+      "material": "water-end",
+      "gridSize": "1x1",
+      "pieceType": "end",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "water",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "water-fall": {
+      "type": "path",
+      "material": "water-fall",
+      "gridSize": "2x2",
+      "pieceType": "fall",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "water",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
+    "water-fill": {
+      "type": "path",
+      "material": "water-fill",
+      "gridSize": "4x4",
+      "pieceType": "fill",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "water",
+      "tags": [
+        "path",
+        "placeholder"
+      ]
+    },
     "water-still-a-01": {
       "type": "water",
       "material": "water-still-a-01",
@@ -1907,6 +2195,24 @@
       "set": "water",
       "tags": [
         "water",
+        "placeholder"
+      ]
+    },
+    "water-strip": {
+      "type": "path",
+      "material": "water-strip",
+      "gridSize": "4x1",
+      "pieceType": "strip",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "set": "water",
+      "tags": [
+        "path",
         "placeholder"
       ]
     }
@@ -2066,6 +2372,54 @@
       "checksum": "sha256:c96de146500c3e6630fc8f60c4781d9b69f8221c2c0912f39250838d7ea224fd",
       "size": 61122
     },
+    "planks-edge_2x1_A-6181d58e.webp": {
+      "checksum": "sha256:6181d58e7a9b2194095fc9fe6eca0a9e08546db00b834ec492730fe96701eb5b",
+      "size": 14068
+    },
+    "planks-end_1x1_A-16991df9.webp": {
+      "checksum": "sha256:16991df9fbc8f2c5c0e0edd0ebd7371e9d5e2ef4afc2e874e4105723dbfc0796",
+      "size": 5660
+    },
+    "planks-strip_4x1_A-0ede5c76.webp": {
+      "checksum": "sha256:0ede5c7633598200223f8ecd9086c7a46c9fc093b6e052471f703afa38ee7129",
+      "size": 7832
+    },
+    "road-cobble-edge_2x1_A-b34cd7fa.webp": {
+      "checksum": "sha256:b34cd7faf28cf5649073554c1b4011eff9db2eac181a954e4d4c25e9d1e66650",
+      "size": 13006
+    },
+    "road-cobble-end_1x1_A-1c316f05.webp": {
+      "checksum": "sha256:1c316f05ed090ad0d027588cd501bc6cd81c7de93ae4a67448e0c342f237b694",
+      "size": 5384
+    },
+    "road-cobble-strip_4x1_A-41fb0ee8.webp": {
+      "checksum": "sha256:41fb0ee8d6e89b988b7e1498dd114bb7e222ce290b68707b5d4dd1f95ba551e5",
+      "size": 5656
+    },
+    "road-dirt-edge_2x1_A-7ab170b5.webp": {
+      "checksum": "sha256:7ab170b57a0ded40cbaf924198c78363d669e0542fa5f78b524a885757058ad6",
+      "size": 11782
+    },
+    "road-dirt-end_1x1_A-e8a06a64.webp": {
+      "checksum": "sha256:e8a06a64540fa302f7039cd76d13c05534e36b625a5be5aba6f5cf7c8e7ddebc",
+      "size": 4770
+    },
+    "road-dirt-strip_4x1_A-543fdf73.webp": {
+      "checksum": "sha256:543fdf73e809af44a2e1229602265e4cf3712d81756bb63ca0e4fd792c45201c",
+      "size": 3532
+    },
+    "trail-grass-edge_2x1_A-f826baf8.webp": {
+      "checksum": "sha256:f826baf8abf0e4bb6d73eb4b37fc0ae610170057fa79a33c48b666237c1857e4",
+      "size": 14950
+    },
+    "trail-grass-end_1x1_A-54bc6c1f.webp": {
+      "checksum": "sha256:54bc6c1fa7dcc05d40acfdf0173c2e9f4bf5c335b1105fda60ef1e8b17e84331",
+      "size": 6022
+    },
+    "trail-grass-strip_4x1_A-6b72db84.webp": {
+      "checksum": "sha256:6b72db848e5725c6f014fe653504e5ec33909ca3f9a39e0f1e6bfb197d72d727",
+      "size": 10082
+    },
     "wall_short_2x2_A-479bf070.webp": {
       "checksum": "sha256:479bf07087d4be26efa0b0ab6bbd36eb07197913c6b6a597efce5bef59fc74a1",
       "size": 20316
@@ -2078,10 +2432,30 @@
       "checksum": "sha256:dac3f2b8e21beec51036fe4171c8c41a34b23258c6bd4b6908d3d9aaf31d031d",
       "size": 58820
     },
+    "water-edge_2x1_A-d6eee4aa.webp": {
+      "checksum": "sha256:d6eee4aaa9f59cf4c3fb2d2b5adb2d2a5a9b23e0afc8ba796becfa5c057b7eec",
+      "size": 11150
+    },
+    "water-end_1x1_A-b173cc73.webp": {
+      "checksum": "sha256:b173cc73a6c644edce8628e5a50d60708492a1ea7eec0b08370142def3771102",
+      "size": 4442
+    },
+    "water-fall_2x2_A-f5bf10ce.webp": {
+      "checksum": "sha256:f5bf10ceab45f7c49a2daa5963c16dd717eb0c4bbd45d4d2972858338cdb84ca",
+      "size": 2380
+    },
+    "water-fill_4x4_A-16455a8c.webp": {
+      "checksum": "sha256:16455a8cd2b6b012a3ef1ca2f2c82b5c6957ac5d505ea1927e2d32ce4d2a21a3",
+      "size": 4552
+    },
     "water-still-a-01_2x2_A-69f84bfe.webp": {
       "checksum": "sha256:69f84bfee06eacb3617d230cc50bfb3dddde6a1a3451b971eca0de78ab1e7bbf",
       "size": 1688
+    },
+    "water-strip_4x1_A-227e4eee.webp": {
+      "checksum": "sha256:227e4eee4342e3b7b918761e7ba353f06dcdc59196ceb50f920a4325e91d1b6d",
+      "size": 2334
     }
   },
-  "bundleSize": 1145942
+  "bundleSize": 1273544
 }

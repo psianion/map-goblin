@@ -282,6 +282,48 @@ export function bandSetArt(setId: string): Map<string, CatalogEntry> {
   return art;
 }
 
+// ─── Path materials ───────────────────────────────────────
+
+/** The pieces a path material set ships; only `strip` is required (see the pack README). */
+export const PATH_PIECES = ['strip', 'edge', 'end', 'fill', 'fall'] as const;
+export type PathPiece = (typeof PATH_PIECES)[number];
+
+/** One path material: a set of `path` entries, named `<packId>:<set>` like `gg-forge:road-dirt`. */
+export interface PathMaterial {
+  id: string;
+  packId: string;
+  set: string;
+  label: string;
+  pieces: Partial<Record<PathPiece, CatalogEntry>>;
+}
+
+let pathMaterialCache: { state: CatalogState; list: PathMaterial[] } | null = null;
+
+/** Every installed path material that has a strip, by label. */
+export function pathMaterials(): PathMaterial[] {
+  const state = current();
+  if (pathMaterialCache?.state === state) return pathMaterialCache.list;
+  const byId = new Map<string, PathMaterial>();
+  for (const e of state.byType.get('path') ?? []) {
+    if (!e.set || !(PATH_PIECES as readonly string[]).includes(e.pieceType ?? '')) continue;
+    const id = `${e.packId}:${e.set}`;
+    let m = byId.get(id);
+    if (!m) {
+      const words = e.set.replace(/[-_]+/g, ' ');
+      m = { id, packId: e.packId, set: e.set, label: words[0].toUpperCase() + words.slice(1), pieces: {} };
+      byId.set(id, m);
+    }
+    m.pieces[e.pieceType as PathPiece] ??= e;
+  }
+  const list = [...byId.values()].filter((m) => m.pieces.strip).sort((a, b) => a.label.localeCompare(b.label));
+  pathMaterialCache = { state, list };
+  return list;
+}
+
+export function pathMaterial(id: string): PathMaterial | undefined {
+  return pathMaterials().find((m) => m.id === id);
+}
+
 // ─── Variant families ─────────────────────────────────────
 
 /**

@@ -116,7 +116,7 @@ describe('sampleCentreline', () => {
     expect(repeated.length).toBeCloseTo(line.length, 9);
   });
 
-  it('interpolates per-point width and height linearly in arc length between the points that set them', () => {
+  it('interpolates width linearly in arc length between points (absent = the path width), and height between the points that set it', () => {
     const line = sampleCentreline(
       [pt(0, 0, { width: 1, height: 0 }), pt(10, 0), pt(20, 0, { width: 3, height: 2 }), pt(30, 0)],
       false,
@@ -124,10 +124,12 @@ describe('sampleCentreline', () => {
     );
     const at = (x: number) => line.xy.findIndex(([px]) => Math.abs(px - x) < 1e-9);
     expect(line.width[at(0)]).toBe(1);
-    expect(line.width[at(10)]).toBeCloseTo(2, 9);
+    expect(line.width[at(5)]).toBeUndefined();
+    expect(line.width[at(10)]).toBe(5);
     expect(line.width[at(20)]).toBe(3);
-    expect(line.width[at(30)]).toBe(3); // held past the last setter
+    expect(line.width[at(30)]).toBe(5);
     expect(line.height[at(10)]).toBeCloseTo(1, 9);
+    expect(line.height[at(30)]).toBe(2); // held past the last point that sets one
     // No point sets a width: the path default.
     expect(sampleCentreline([pt(0, 0), pt(1, 0)], false, 0.75).width).toEqual([0.75, 0.75]);
   });
@@ -136,11 +138,11 @@ describe('sampleCentreline', () => {
     const line = sampleCentreline(
       [pt(0, 0, { handles: null, width: 1 }), pt(4, 0, { handles: null }), pt(4, 4, { handles: null, width: 3 }), pt(0, 4, { handles: null })],
       true,
-      9,
+      2,
     );
     const at = (x: number, y: number) => line.xy.findIndex(([px, py]) => px === x && py === y);
-    expect(line.width[at(4, 0)]).toBeCloseTo(2, 9);
-    expect(line.width[at(0, 4)]).toBeCloseTo(2, 9);
+    expect(line.width[at(4, 0)]).toBe(2);
+    expect(line.width[line.width.length - 1]).toBe(1);
   });
 
   it('a taper eases the width to 0 over the end length, with samples laid inside it', () => {

@@ -5,7 +5,7 @@
 // is the missing half.
 
 import type { AnyChild } from '../../store/types';
-import type { RingGeometry, ZoneShape } from '../../shared/types';
+import type { PathPoint, RingGeometry, ZoneShape } from '../../shared/types';
 import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
 import { localScaleFor } from './transformMath';
@@ -132,6 +132,8 @@ export type ChildSnapshot =
   | { kind: 'radius'; position: { x: number; y: number }; radius: number }
   /** A zone keeps its shape kind: a point moves, a circle scales its radius uniformly, a rect resizes. */
   | { kind: 'zone'; shape: ZoneShape }
+  /** A path's points; their handles are relative, so only the linear part of a transform reaches them. */
+  | { kind: 'points'; points: PathPoint[] }
   | { kind: 'none' };
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
@@ -153,6 +155,8 @@ export function snapshotChild(child: AnyChild): ChildSnapshot {
       return { kind: 'radius', position: { ...child.position }, radius: child.radius };
     case 'zone':
       return { kind: 'zone', shape: structuredClone(child.shape) };
+    case 'path':
+      return { kind: 'points', points: structuredClone(child.points) };
     // Doors live on a wall; moving one by gizmo would detach it from its host.
     default:
       return { kind: 'none' };
@@ -253,6 +257,18 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
         },
       } as Partial<AnyChild>;
     }
+    case 'points':
+      return {
+        points: snap.points.map((p) => {
+          const [x, y] = mapPoint(p.x, p.y, t);
+          if (!p.handles) return { ...p, x, y };
+          const rel = ([hx, hy]: [number, number]): [number, number] => {
+            const [ax, ay] = mapPoint(p.x + hx, p.y + hy, t);
+            return [ax - x, ay - y];
+          };
+          return { ...p, x, y, handles: { in: rel(p.handles.in), out: rel(p.handles.out) } };
+        }),
+      } as Partial<AnyChild>;
     case 'none':
       return {};
   }

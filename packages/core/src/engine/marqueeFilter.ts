@@ -8,6 +8,7 @@ import type { SelectionKind } from '../store/selectionResolve';
 /** Each dock tab's kinds (decision 0.2.8). */
 export const TAB_KINDS: Record<string, readonly SelectionKind[]> = {
   floors: ['shape'],
+  paths: ['path'],
   walls: ['wall', 'door'],
   rooms: ['room'],
   props: ['asset'],

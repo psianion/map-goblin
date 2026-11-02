@@ -30,6 +30,7 @@ function makeEntry(): LayerEntry {
     container: new Container(),
     sublayers: {
       floor: new Container(),
+      paths: new Container(),
       shadows: new Container(),
       grid: new Container(),
       walls: new Container(),

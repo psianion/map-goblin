@@ -5,6 +5,7 @@ import { buildSceneGraph } from '@/engine/sceneGraph';
 import { setupRenderLoop } from '@/engine/renderLoop';
 import { subscribeToStore } from '@/engine/subscribeToStore';
 import { subscribeToAssets } from '@/engine/subscribeToAssets';
+import { subscribeToPaths } from '@dnd/core/src/engine/pathRenderer';
 import { subscribeToTextLabels } from '@/engine/subscribeToTextLabels';
 import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
@@ -165,6 +166,7 @@ export function CanvasHost() {
 
       // Subscribe to asset/image layer changes → PixiJS sprite sync
       const unsubAssets = subscribeToAssets();
+      const unsubPaths = subscribeToPaths();
 
       // Text labels sync the same way, into the same layer containers
       const unsubLabels = subscribeToTextLabels();
@@ -262,6 +264,7 @@ export function CanvasHost() {
         setTerrainRenderer(null);
         unsubStore();
         unsubAssets();
+        unsubPaths();
         unsubLabels();
         unsubBoundLabels();
         unregSnap();

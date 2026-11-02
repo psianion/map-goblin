@@ -27,6 +27,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new PolygonTool());
   manager.registerTool(new RegularPolygonTool());
   manager.registerTool(new PathTool());
+  manager.registerTool(new PathTool('lake'));
   manager.registerTool(new WallTool());
   manager.registerTool(new RulerTool());
   manager.registerTool(new TextTool(previewContainer));

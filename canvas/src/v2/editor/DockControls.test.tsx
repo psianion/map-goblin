@@ -546,3 +546,23 @@ describe('props quick settings', () => {
     expect(onOpenAssets).toHaveBeenCalledWith('object');
   });
 });
+
+describe('path quick settings', () => {
+  it('steps the next path’s width and sets its look', () => {
+    settings('path');
+    fireEvent.click(screen.getByRole('button', { name: 'Width up' }));
+    expect(useStore.getState().tools.settings.path.width).toBe(1.75);
+    fireEvent.click(screen.getByRole('button', { name: 'Taper' }));
+    expect(useStore.getState().tools.settings.path.ends).toMatchObject({ start: 'taper', end: 'taper' });
+    expect(screen.getByLabelText('Length')).not.toBeNull();
+    fireEvent.click(screen.getByRole('switch', { name: 'Snap ends' }));
+    expect(useStore.getState().tools.settings.path.snapEnds).toBe(false);
+  });
+
+  it('keeps the lake preset to what a lake can use', () => {
+    settings('lake');
+    expect(screen.queryByRole('button', { name: 'Taper' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Overhead' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Width up' })).not.toBeNull();
+  });
+});

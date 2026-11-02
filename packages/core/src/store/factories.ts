@@ -177,6 +177,16 @@ export function createDefaultState(): MapBuilderState {
           tintColor: '#ffffff',
           tintOpacity: 0,
         },
+        path: {
+          materialId: 'gg-forge:road-dirt',
+          width: 1.5,
+          edge: 'soft' as const,
+          ends: { start: 'cut' as const, end: 'cut' as const, length: 1 },
+          edgeStrip: true,
+          sort: 'under' as const,
+          heightMode: 'ground' as const,
+          snapEnds: true,
+        },
         zone: {
           mode: 'point' as const,
         },

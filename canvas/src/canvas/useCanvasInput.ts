@@ -36,6 +36,16 @@ import {
   isDraggingOutline,
   toggleShapeNodeEditAt,
 } from '@/engine/shapeNodeEdit';
+import {
+  cancelPathDrag,
+  endPathDrag,
+  hoverPath,
+  isDraggingPath,
+  movePathDrag,
+  pressPath,
+  togglePathPointAt,
+  wheelPath,
+} from '@dnd/core/src/engine/pathNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -94,8 +104,15 @@ function applyMiddleware(point: Point): Point {
  * already rounded to the grid would put a 1×1 on a cell corner.
  */
 function toolPoint(world: Point): Point {
-  return useStore.getState().tools.activeTool === 'scatterBrush' ? world : applyMiddleware(world);
+  return RAW_POINT_TOOLS.has(useStore.getState().tools.activeTool) ? world : applyMiddleware(world);
 }
+
+/**
+ * Tools handed the raw cursor: the Props tool (above), and the Path tools, which snap a
+ * clicked point themselves (to path ends, then the grid) but must sample a freehand
+ * stroke unsnapped, or it would come out as a staircase.
+ */
+const RAW_POINT_TOOLS = new Set(['scatterBrush', 'path', 'lake']);
 
 /**
  * The room a double-click lands on, where rooms pick: the topmost visible, unlocked
@@ -274,6 +291,12 @@ export function useCanvasInput(
         return;
       }
 
+      // A selected path's own handles (points, curve handles, widths, ±, insert), unsnapped
+      // like the outline handles above. A miss falls through to the Select tool.
+      if (e.button === 0 && pressPath(rawWorld, engine.stage().scale.x, { alt: e.altKey, shift: e.shiftKey })) {
+        return;
+      }
+
       const snapped = toolPoint(rawWorld);
       cursorWorldPosition.current = snapped;
       _toolManager?.onPointerDown(snapped, e);
@@ -319,6 +342,14 @@ export function useCanvasInput(
           { alt: e.altKey },
         );
         return;
+      }
+
+      if (isDraggingPath()) {
+        movePathDrag(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top));
+        return;
+      }
+      if (useStore.getState().tools.activeTool === 'select') {
+        hoverPath(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top), engine.stage().scale.x);
       }
 
       // Process coalesced events for smooth high-DPI/stylus input.
@@ -373,6 +404,10 @@ export function useCanvasInput(
         endOutlineDrag();
         return;
       }
+      if (isDraggingPath()) {
+        endPathDrag();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = toolPoint(world);
@@ -395,6 +430,7 @@ export function useCanvasInput(
         outlineDragStart = null;
         cancelOutlineDrag();
       }
+      if (isDraggingPath()) cancelPathDrag();
       // The tool manager never heard about this gesture ending — without this
       // an active drawing tool (chain, drag, freehand stroke) is left mid-flight,
       // and an unguarded onPointerUp downstream could commit it.
@@ -408,6 +444,11 @@ export function useCanvasInput(
       if (useStore.getState().tools.activeTool !== 'select') return;
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      // On a selected path's point: sharp corner, or back to a smooth curve.
+      if (togglePathPointAt(world, engine.stage().scale.x)) {
+        e.preventDefault();
+        return;
+      }
       // In outline edit mode, double-click on an anchor toggles it between
       // corner and smooth; only a double-click elsewhere exits the mode.
       if (useStore.getState().tools.shapeNodeEditId) {
@@ -521,6 +562,9 @@ export function useCanvasInput(
       // The tool gets the wheel first (the Props tool turns its stamp with it).
       // Ctrl+wheel always zooms, and a trackpad pinch arrives as one.
       if (!e.ctrlKey && _toolManager?.onWheel(e, engine.screenToWorld(mx, my))) return;
+      // Over a selected path's point, the wheel is that point's width.
+      if (!e.ctrlKey && useStore.getState().tools.activeTool === 'select'
+        && wheelPath(engine.screenToWorld(mx, my), engine.stage().scale.x, e.deltaY || e.deltaX, e.shiftKey)) return;
       // Shift+wheel arrives as deltaX on Windows.
       const delta = e.deltaY || e.deltaX;
       if (delta === 0) return;

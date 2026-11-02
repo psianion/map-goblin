@@ -43,6 +43,8 @@ export interface Centreline {
   height: number[];
   length: number;
   closed: boolean;
+  /** Arc length at each input point, indexed like the input (a dropped duplicate shares its twin's). */
+  pointArc: number[];
 }
 
 export interface RibbonMesh {
@@ -100,7 +102,7 @@ const smoothstep = (t: number): number => {
 };
 
 const emptyLine = (closed: boolean): Centreline => ({
-  xy: [], arc: [], width: [], height: [], length: 0, closed,
+  xy: [], arc: [], width: [], height: [], length: 0, closed, pointArc: [],
 });
 
 /**
@@ -118,14 +120,20 @@ export function sampleCentreline(
   const ends = options.ends ?? CUT_ENDS;
 
   const pts: RibbonPoint[] = [];
+  /** Input index → index in `pts`. */
+  const kept: number[] = [];
   for (const p of points) {
     const last = pts[pts.length - 1];
     if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 1e-6) pts.push(p);
+    kept.push(pts.length - 1);
   }
   if (closed && pts.length > 2) {
     const a = pts[0];
     const b = pts[pts.length - 1];
-    if (Math.hypot(a.x - b.x, a.y - b.y) <= 1e-6) pts.pop();
+    if (Math.hypot(a.x - b.x, a.y - b.y) <= 1e-6) {
+      pts.pop();
+      for (let i = 0; i < kept.length; i++) if (kept[i] === pts.length) kept[i] = 0;
+    }
   }
   if (pts.length < 2) return emptyLine(closed);
 
@@ -168,9 +176,11 @@ export function sampleCentreline(
   if (length <= EPS) return emptyLine(closed);
 
   const pointArc = pts.map((_, i) => arc[pointSample[i]]);
+  // Every point has a width (its own, else the path's); heights come from the points that
+  // set one, so a bridge set at its two ends ramps between them.
   const settersOf = (key: 'width' | 'height') => {
     const own = pts
-      .map((p, i) => ({ s: pointArc[i], v: p[key] }))
+      .map((p, i) => ({ s: pointArc[i], v: key === 'width' ? (p.width ?? defaultWidth) : p.height }))
       .filter((e): e is { s: number; v: number } => typeof e.v === 'number' && Number.isFinite(e.v));
     if (!closed || own.length === 0) return own;
     // Closed lines wrap: the setters repeat one lap either side.
@@ -220,7 +230,7 @@ export function sampleCentreline(
     return Math.max(0, w);
   });
   const height = arc.map((s) => interpolate(heightSetters, s, 0));
-  return { xy: samples, arc, width, height, length, closed };
+  return { xy: samples, arc, width, height, length, closed, pointArc: kept.map((k) => pointArc[k]) };
 }
 
 /** Signed lateral offsets of a strip's two sides at sample i (+ = left of travel). */

@@ -5,11 +5,12 @@ import {
   Lightbulb,
   Minus,
   Mountain,
-  Pen,
   Pentagon,
+  Route,
   Square,
   Stamp,
   Type,
+  Waves,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { DivideIcon, RoomPolygonIcon, RoomRectIcon } from './roomIcons';
@@ -23,7 +24,7 @@ export interface ToolEntry {
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 }
 
-export type DockTabId = 'floors' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
+export type DockTabId = 'floors' | 'paths' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
 
 export interface DockTab {
   id: DockTabId;
@@ -41,8 +42,15 @@ export const DOCK_TABS: DockTab[] = [
       { tool: 'rectangle', label: 'Rectangle', shortcut: keyCaption('tool.rectangle'), icon: Square },
       { tool: 'polygon', label: 'Polygon', shortcut: keyCaption('tool.polygon'), icon: Pentagon },
       { tool: 'regularPolygon', label: 'Regular polygon', shortcut: keyCaption('tool.regularPolygon'), icon: Hexagon },
-      { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Pen },
       { tool: 'terrain', label: 'Terrain', shortcut: keyCaption('tool.terrain'), icon: Mountain },
+    ],
+  },
+  {
+    id: 'paths',
+    label: 'Paths',
+    tools: [
+      { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Route },
+      { tool: 'lake', label: 'Lake', shortcut: keyCaption('tool.lake'), icon: Waves },
     ],
   },
   {
@@ -90,15 +98,15 @@ export function tabForTool(tool: ToolType): DockTabId | null {
 }
 
 /** Tools that lay down floor, so a floor texture picked while one is in hand goes on the floors. */
-export const FLOOR_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'path', 'roomRect', 'roomPolygon'];
+export const FLOOR_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'roomRect', 'roomPolygon'];
 
 /** Tools that draw with the layer's style, so the dock offers the style presets for them. */
-export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'path', 'wall'];
+export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'wall'];
 
 /** Whether the tool in hand has a row of presets in the dock. */
 export function hasSwatches(tool: ToolType, tab: DockTabId): boolean {
   // The label style tiles are the Label tool's; the Zone tool on the same tab has none.
-  return tool === 'terrain' || tool === 'scatterBrush' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tool === 'text';
+  return tool === 'terrain' || tool === 'scatterBrush' || tool === 'path' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tool === 'text';
 }
 
 const COLLAPSED_KEY = 'v2-dock-collapsed';

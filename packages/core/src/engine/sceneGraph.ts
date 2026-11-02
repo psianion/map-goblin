@@ -9,6 +9,7 @@ import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
+import { initPathNodeOverlay } from './pathNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 
 export interface SceneGraph {
@@ -46,6 +47,8 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
+  /** Paths (roads, rivers, lakes) over the floor; not masked to it. See `pathRenderer.ts`. */
+  paths: Container;
   /**
    * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
    * per-layer grid as well as the walls, because a shadow falls on the floor and the grid is
@@ -175,6 +178,10 @@ export function buildSceneGraph(
   worldContainer.addChild(shapeNodeOverlay);
   initShapeNodeOverlay(shapeNodeOverlay);
 
+  const pathNodeOverlay = new Graphics();
+  worldContainer.addChild(pathNodeOverlay);
+  initPathNodeOverlay(pathNodeOverlay);
+
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
@@ -224,6 +231,7 @@ export function addLayerToScene(
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const paths = new Container(); paths.label = 'sublayer-paths';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
@@ -235,8 +243,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, paths, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, paths, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;
