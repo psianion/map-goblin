@@ -1594,9 +1594,9 @@
 }
 
 /* ── Toasts ───────────────────────────────────────────── */
-/* Sonner's toasts on this route: the dock's card, small, centred in the band the title card
-   sits in, so they never land on the fitted map. Scoped to the class App gives the toaster
-   when a host draws its own chrome; v1's pill toasts keep their own rules in index.css. */
+/* Sonner's toasts: the dock's card, small, centred in the band the title card sits in, so
+   they never land on the fitted map. Scoped to the class EditorHost gives the toaster, over
+   the pill rules in index.css. */
 .v2-toaster {
   --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { editorShowsLighting } from '@dnd/core/src/engine/editorDesk';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { computeMapWorldBounds, runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
 import { MAX_EXPORT_PX, computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';

@@ -40,7 +40,7 @@ import {
   type PropPatch,
   type ZOrderOp,
 } from '@dnd/core/src/store/propEdits';
-import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
 import { ColorCtl, RangeInput, Slider } from './controls';
 import { EFFECTS, GLOW_STRENGTH_RANGE, SPEED_RANGE, animationFor } from './lightModel';

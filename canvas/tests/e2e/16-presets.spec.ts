@@ -43,7 +43,7 @@ test.describe('16 - Style Presets', () => {
     // The boot overlay eats pointer events until the engine is up.
     await waitForEngine(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -96,7 +96,7 @@ test.describe('16 - Style Presets', () => {
     // The boot overlay eats pointer events until the engine is up.
     await waitForEngine(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

@@ -10,7 +10,7 @@ import { firePointer, waitForBoot, waitFrame } from './helpers'
  * walls, Shift and Alt marquees, the level and whole-face rules, the kind filter chip,
  * per-object locks, the mixed card, the header's verbs, Alt-click cycling and Alt-drag
  * copies, nudges folding into one undo step, undo handing the selection back, the Esc
- * steps, the key guard in the label's text field, no accent colour, and no floating bar.
+ * steps, the key guard in the label's text field, and no accent colour.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -596,31 +596,6 @@ test('no accent colour in the new CSS: every colour it names is a grey', () => {
     }
     expect(css).not.toMatch(/hsla?\(|oklch\(/)
   }
-})
-
-test('the floating action bar is gone on /v2 and stays on /', async ({ page }) => {
-  await openWarren(page)
-  const c = await roomAnchor(page, 'Warren Hall')
-  await addChild(page, prop('crate', c))
-  await select(page, ['crate'])
-  await waitFrame(page, 4)
-  await expect(page.locator('.gg-grain[role="toolbar"]')).toHaveCount(0)
-  await expect(page.getByTestId('v2-sel-actions')).toBeVisible()
-
-  await page.goto('/?e2e=1')
-  await waitForBoot(page)
-  await page.evaluate(() => {
-    const st = (window as Any).__store.getState()
-    const l = st.layers.find((x: Any) => x.type === 'dungeon')
-    st.addChild(l.id, {
-      id: 'v1crate', name: 'crate', childType: 'asset', visible: true, objectType: 'asset', assetId: 'x', position: { x: 4, y: 4 },
-      rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
-    })
-    st.setActiveTool('select')
-    st.setSelectedIds(['v1crate'])
-  })
-  await waitFrame(page, 6)
-  await expect(page.getByRole('toolbar', { name: 'Selection actions' })).toBeVisible()
 })
 
 test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide and Select behind', async ({ page }) => {

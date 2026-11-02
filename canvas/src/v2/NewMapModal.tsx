@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, FileText, FolderOpen, Image as ImageIcon, Layers, Map as MapIcon, Square, Upload, X } from 'lucide-react';
 import { normalizeFixedSize } from '@dnd/core/src/store/slices/mapSettings';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { cn } from '@/lib/utils';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';

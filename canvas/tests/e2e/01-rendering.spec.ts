@@ -4,7 +4,7 @@ import { gotoApp, waitFrame, getPixelColor } from './helpers';
 test.describe('01 - Basic Rendering', () => {
   test('canvas element exists and is visible', async ({ page }) => {
     await gotoApp(page);
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
     const box = await canvas.boundingBox();
     expect(box!.width).toBeGreaterThan(100);
@@ -14,7 +14,7 @@ test.describe('01 - Basic Rendering', () => {
   test('background renders with default color', async ({ page }) => {
     await gotoApp(page);
     await waitFrame(page, 3);
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const dpr = await page.evaluate(() => window.devicePixelRatio);
     const px = Math.round((box!.width / 2) * dpr);

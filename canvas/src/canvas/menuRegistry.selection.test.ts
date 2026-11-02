@@ -6,7 +6,7 @@ vi.mock('sonner', () => ({
 
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { MenuRow } from '@/components/ui/context-menu';
+import type { MenuRow } from '@/ui/context-menu';
 import type { AnyChild, DungeonLayer, SerializedMapData } from '@/store/types';
 import type { WallSegment } from '@/shared/types';
 import { buildChildMenu, buildMultiMenu, buildWallMenu, selectBehindRow } from './menuRegistry';
@@ -49,7 +49,6 @@ describe('menus for the one selection path', () => {
     undoManager.clear();
     useStore.getState().resetToDefault();
     useStore.getState().setActiveTool('select');
-    window.history.replaceState(null, '', '/v2');
   });
 
   it('the wall menu offers Duplicate, flips, Rotate 90°, Lock and Hide', () => {
@@ -142,7 +141,6 @@ describe('the wall menu on the goblin warren', () => {
 
   it('the Chief Door wall’s menu has Select behind with the rooms and the floor under it', () => {
     undoManager.clear();
-    window.history.replaceState(null, '', '/v2');
     useStore.getState().loadFromFile(migrateToLatest(JSON.parse(goblinWarren)) as SerializedMapData);
     refreshRooms();
     setRoomPicking(true);

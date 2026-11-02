@@ -64,7 +64,7 @@ test.describe('Lighting Engine', () => {
     await page.keyboard.press('l')
     await waitFrame(page, 2)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
 
@@ -126,14 +126,6 @@ test.describe('Lighting Engine', () => {
 
     const afterUndo = await getLights(page)
     expect(afterUndo.length).toBe(beforeUndo.length - 1)
-  })
-
-  test('light tool icon appears in toolbar', async ({ page }) => {
-    await gotoApp(page)
-    // Toolbar buttons are icon-only; their accessible name comes from `title`.
-    const lightBtn = page.getByRole('button', { name: 'Light (L)' })
-    await expect(lightBtn).toBeVisible()
-    expect(await page.locator('canvas').isVisible()).toBe(true)
   })
 
   test('ambient light updates store', async ({ page }) => {

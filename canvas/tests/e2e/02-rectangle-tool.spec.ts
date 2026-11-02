@@ -5,7 +5,7 @@ test.describe('02 - Rectangle Tool', () => {
   test('draws a rectangle that changes canvas pixels', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -32,7 +32,7 @@ test.describe('02 - Rectangle Tool', () => {
   test('drawing two overlapping rectangles unions them', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

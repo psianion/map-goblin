@@ -18,7 +18,7 @@ import { ToolSettings, ToolSwatches } from './DockControls';
 import { resolveRoomLook, roomChain } from '@dnd/core/src/shared/lookScope';
 import { initRoomPrefs, loadRoomPrefs, resetViewPrefsForTests, ROOM_PREFS_KEY } from '../viewPrefs';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({
+vi.mock('@/editor/PackThumbnailCanvas', () => ({
   PackThumbnailCanvas: ({ textureId }: { textureId: string }) => <i data-testid={`thumb-${textureId}`} />,
 }));
 vi.mock('./layerThumbRender', () => ({ renderLayerThumb: vi.fn(() => undefined), disposeLayerThumbRenderer: vi.fn() }));

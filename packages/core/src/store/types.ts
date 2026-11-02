@@ -386,19 +386,11 @@ export interface RoomSuggestions {
   rooms: Room[];
 }
 
-export interface ModalState {
-  type: 'shortcutReference' | 'newMap' | 'importMaps';
-  props: Record<string, unknown>;
-}
-
 export interface UISlice {
-  leftPanelOpen: boolean;
-  rightPanelOpen: boolean;
   activeLayerId: string;
   expandedLayerIds: string[];
   canUndo: boolean;
   canRedo: boolean;
-  modalState: ModalState | null;
   clipperReady: boolean;
   focusMode: 'auto' | 'manual' | 'fullscreen';
   /** Room whose boundary is drawn highlighted on the canvas (RoomPanel hover/select). */
@@ -411,8 +403,6 @@ export interface UISlice {
   childGroupOverrides: string[];
   /** One-shot scroll-into-view marker for a layer-panel child row. */
   revealChildId: string | null;
-  /** Child outlined on canvas because its layer-panel row is hovered. */
-  panelHoverChildId: string | null;
   /**
    * Alt-click-eye "solo" state — not persisted, not undoable (same tier as
    * activeLayerId). A render-only override: it never writes a layer's own
@@ -781,15 +771,12 @@ export interface MapBuilderStore {
 
   // ui actions
   setActiveLayerId: (id: string) => void;
-  togglePanel: (panel: 'left' | 'right') => void;
   toggleExpandedLayerId: (layerId: string) => void;
-  showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
   toggleChildGroup: (key: string) => void;
   setRevealChildId: (id: string | null) => void;
-  setPanelHoverChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;

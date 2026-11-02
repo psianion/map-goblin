@@ -6,7 +6,7 @@ import { undoManager } from '@/store/undoManager';
 import { selectChildById } from '@/store/selectors';
 import { familyMembers, getCatalogEntry, propEntries, type CatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { createSwapPropCommand } from '@dnd/core/src/store/propEdits';
-import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
 import { pickAssetForTool } from './assetStrip';
 import { familyTiles, favouriteTiles, propCategories, searchProps, usedOnMap, type FamilyTile } from './propLibrary';

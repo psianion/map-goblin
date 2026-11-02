@@ -22,7 +22,7 @@ test.describe('33 - Lighting Visual', () => {
   test('a placed light visibly brightens its own footprint, not the far corner', async ({ page }) => {
     await gotoApp(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     const dpr = await page.evaluate(() => window.devicePixelRatio)
 

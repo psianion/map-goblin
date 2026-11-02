@@ -8,7 +8,7 @@ import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
 import { measureLabel } from '@dnd/core/src/engine/labelMetrics';
 import { SelectionCard } from './SelectionCard';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => <i /> }));
+vi.mock('@/editor/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => <i /> }));
 
 const dungeon = () => useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon')!;
 const labels = () => dungeon().children.filter((c): c is TextChild => c.childType === 'text');

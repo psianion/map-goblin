@@ -28,7 +28,6 @@ import { registerAllTools } from '@/engine/tools/registerTools';
 import { SnapIndicator } from './snapIndicator';
 import { DimensionHud } from './dimensionHud';
 import { mountZoneOverlay } from './zoneOverlay';
-import { mountRoomConnectorOverlay } from './roomConnectorOverlay';
 import { mountRoomOverlay } from '@/v2/canvas/roomOverlay';
 import { mountPropOverlay } from '@/v2/canvas/propOverlay';
 import { mountSelectionOverlay } from '@/v2/canvas/selectionOverlay';
@@ -49,9 +48,6 @@ import { isCaveBandAsset } from '@dnd/core/src/assets/caveWallKit';
 // second concurrent pack boot — two ensureBundledPack runs could interleave
 // uninstallPack/registerPack and half-install a pack.
 let packBootPromise: Promise<void> | null = null;
-
-/** The v2 editor (`/v2`) draws rooms with its own overlay and lets clicks pick them. */
-const isV2Route = (): boolean => /^\/v2(\/|$)/.test(window.location.pathname);
 
 export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -196,42 +192,37 @@ export function CanvasHost() {
       // Zone markers — editor-only, never present in the session/table bundle
       const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
 
-      // Rooms — same editor-only reasoning as zones. The v2 editor has its own overlay
-      // (outlines, badges, suggestions) and picks rooms on click; v1 keeps the legacy ink.
-      let unmountRoomConnectorOverlay: () => void;
-      if (isV2Route()) {
-        const roomOverlay = mountRoomOverlay(pixiEngine);
-        // Dev builds hand the overlay's counters to the console and the e2e suite.
-        if (import.meta.env.DEV) (window as Window & { __roomOverlay?: typeof roomOverlay }).__roomOverlay = roomOverlay;
-        const unregPress = registerCanvasPressHandler((sx, sy) => roomOverlay.pressAt(sx, sy));
-        setRoomPicking(() => useStore.getState().ui.roomOverlayVisible);
-        setRoomHighlightEnabled(false);
-        // Locks and selected groups, v2 only like the rooms.
-        const propOverlay = mountPropOverlay(pixiEngine);
-        if (import.meta.env.DEV) (window as Window & { __propOverlay?: typeof propOverlay }).__propOverlay = propOverlay;
-        // Locked members of the selection: a dashed outline and a padlock, no handles.
-        const selectionOverlay = mountSelectionOverlay(pixiEngine);
-        if (import.meta.env.DEV) (window as Window & { __selectionOverlay?: typeof selectionOverlay }).__selectionOverlay = selectionOverlay;
-        // The selected light's rings and handles, and the Light tool's ghost rings.
-        const lightOverlay = mountLightOverlay(pixiEngine);
-        if (import.meta.env.DEV) (window as Window & { __lightOverlay?: typeof lightOverlay }).__lightOverlay = lightOverlay;
-        const unregLightPress = registerCanvasPressHandler((sx, sy) => lightOverlay.pressAt(sx, sy));
-        // A canvas drag released over a filmstrip tile moves the selection to that layer.
-        const unmountDropToLayer = mountDropToLayer(sceneGraph.toolManager, pixiEngine.canvas());
-        unmountRoomConnectorOverlay = () => {
-          unmountDropToLayer();
-          unregPress();
-          unregLightPress();
-          lightOverlay.destroy();
-          setRoomPicking(false);
-          setRoomHighlightEnabled(true);
-          roomOverlay.destroy();
-          propOverlay.destroy();
-          selectionOverlay.destroy();
-        };
-      } else {
-        unmountRoomConnectorOverlay = mountRoomConnectorOverlay(sceneGraph.worldContainer);
-      }
+      // Rooms — same editor-only reasoning as zones: the editor's own overlay (outlines,
+      // badges, suggestions), and clicks pick rooms.
+      const roomOverlay = mountRoomOverlay(pixiEngine);
+      // Dev builds hand the overlay's counters to the console and the e2e suite.
+      if (import.meta.env.DEV) (window as Window & { __roomOverlay?: typeof roomOverlay }).__roomOverlay = roomOverlay;
+      const unregPress = registerCanvasPressHandler((sx, sy) => roomOverlay.pressAt(sx, sy));
+      setRoomPicking(() => useStore.getState().ui.roomOverlayVisible);
+      setRoomHighlightEnabled(false);
+      // Locks and selected groups, editor-only like the rooms.
+      const propOverlay = mountPropOverlay(pixiEngine);
+      if (import.meta.env.DEV) (window as Window & { __propOverlay?: typeof propOverlay }).__propOverlay = propOverlay;
+      // Locked members of the selection: a dashed outline and a padlock, no handles.
+      const selectionOverlay = mountSelectionOverlay(pixiEngine);
+      if (import.meta.env.DEV) (window as Window & { __selectionOverlay?: typeof selectionOverlay }).__selectionOverlay = selectionOverlay;
+      // The selected light's rings and handles, and the Light tool's ghost rings.
+      const lightOverlay = mountLightOverlay(pixiEngine);
+      if (import.meta.env.DEV) (window as Window & { __lightOverlay?: typeof lightOverlay }).__lightOverlay = lightOverlay;
+      const unregLightPress = registerCanvasPressHandler((sx, sy) => lightOverlay.pressAt(sx, sy));
+      // A canvas drag released over a filmstrip tile moves the selection to that layer.
+      const unmountDropToLayer = mountDropToLayer(sceneGraph.toolManager, pixiEngine.canvas());
+      const unmountEditorOverlays = () => {
+        unmountDropToLayer();
+        unregPress();
+        unregLightPress();
+        lightOverlay.destroy();
+        setRoomPicking(false);
+        setRoomHighlightEnabled(true);
+        roomOverlay.destroy();
+        propOverlay.destroy();
+        selectionOverlay.destroy();
+      };
 
       // Door marks — same opt-in reasoning: the table draws its own live ones (DoorRenderer),
       // so core only ever has them where a surface asks.
@@ -262,7 +253,7 @@ export function CanvasHost() {
         setDimensionHud(null);
         dimensionHud.destroy();
         unmountZoneOverlay();
-        unmountRoomConnectorOverlay();
+        unmountEditorOverlays();
         unmountDoorIcons();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();

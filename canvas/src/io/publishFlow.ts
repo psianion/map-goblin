@@ -66,7 +66,7 @@ async function currentHashes() {
 }
 
 /**
- * The publish dialog's state machine, shared by the v1 and v2 dialogs: check what changed
+ * The publish dialog's state machine: check what changed
  * since the last publish, connect with the admin pass, pick or create a campaign, publish.
  */
 export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () => void }) {

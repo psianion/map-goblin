@@ -6,7 +6,7 @@ import type { PackSummary, PackUpdateInfo, PackUpdateState } from '@/store/types
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import { refreshAssetTextures } from '@/engine/subscribeToAssets';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { ConfirmDialog } from '@/ui/ConfirmDialog';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { PackFileError, readPackFile } from '@/io/packFile';
@@ -18,7 +18,7 @@ import './packs.css';
 /*
  * The Packs sheet: every installed pack with its version, size and where it came from,
  * Check updates and Update, Uninstall for a pack installed from a file, and Install from
- * file (the picker, or a .zip dropped on the sheet). The v1 panel at / stays as it is.
+ * file (the picker, or a .zip dropped on the sheet).
  */
 
 const MB = 1024 * 1024;

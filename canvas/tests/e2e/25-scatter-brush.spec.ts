@@ -88,7 +88,7 @@ test.describe('Scatter Brush Tool', () => {
   test('clicking canvas creates scattered PlacedObjects', async ({ page }) => {
     await gotoApp(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -118,7 +118,7 @@ test.describe('Scatter Brush Tool', () => {
     // is the scatter-mode behaviour, so turn stamp mode off for this one.
     await setStampMode(page, false)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -143,7 +143,7 @@ test.describe('Scatter Brush Tool', () => {
     await injectScatterAsset(page)
     await setStampMode(page, false)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -175,7 +175,7 @@ test.describe('Scatter Brush Tool', () => {
     // leave the erase click below going to the wrong tool.
     await setStampMode(page, false)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -214,7 +214,7 @@ test.describe('Scatter Brush Tool', () => {
     // stroke below would never reach this tool.
     await setStampMode(page, false)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2

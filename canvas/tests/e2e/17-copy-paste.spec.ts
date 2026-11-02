@@ -53,7 +53,7 @@ test.describe('Select Tool Copy/Paste', () => {
     // (this is a smoke test — if V key caused no crash, tool activated)
     // Draw something to verify the app is still functional
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
   });
@@ -62,7 +62,7 @@ test.describe('Select Tool Copy/Paste', () => {
     await waitForReady(page);
     await page.keyboard.press('r');
 
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -128,7 +128,7 @@ test.describe('Select Tool Copy/Paste', () => {
     await waitForReady(page);
     await page.keyboard.press('r');
 
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -179,7 +179,7 @@ test.describe('Select Tool Copy/Paste', () => {
     await waitForReady(page);
     await page.keyboard.press('r');
 
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

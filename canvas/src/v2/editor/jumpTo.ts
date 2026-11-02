@@ -1,5 +1,5 @@
 import { getEngineSingleton } from '@/engine/engineSingleton';
-import { cancelZoomAnimationRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
+import { cancelZoomAnimationRef, viewportInsetsRef } from '@/editor/zoomToFitRef';
 import { centreStageOn } from './prepModel';
 
 /** Air between the jump target and the sheet beside it. */

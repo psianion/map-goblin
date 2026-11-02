@@ -6,7 +6,7 @@ import type { AnyChild, DungeonLayer, ShapeChild, WaterChild } from '@/store/typ
 import type { DoorChild, WallSegment } from '@/shared/types';
 import { SelectionCard } from './SelectionCard';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({
+vi.mock('@/editor/PackThumbnailCanvas', () => ({
   PackThumbnailCanvas: ({ textureId }: { textureId: string }) => <span data-testid="thumb">{textureId}</span>,
 }));
 

@@ -1,8 +1,8 @@
 import { getEngineSingleton } from '@/engine/engineSingleton'
 import { getChildBounds } from '@dnd/core/src/engine/hitTest'
 import { useStore } from '@/store/store'
-import { cancelZoomAnimationRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef'
-import { MIN_ZOOM, MAX_ZOOM } from '@/components/toolbar/zoomControl'
+import { cancelZoomAnimationRef, viewportInsetsRef } from '@/editor/zoomToFitRef'
+import { MIN_ZOOM, MAX_ZOOM } from '@/editor/zoomControl'
 import type { AnyChild } from '@/store/types'
 
 const DURATION_MS = 150

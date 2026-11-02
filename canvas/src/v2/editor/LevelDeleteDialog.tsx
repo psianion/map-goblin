@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { useStore } from '@/store/store';
 import { layerObjectCount, layersOnLevel } from '@dnd/core/src/store/layerCommands';
 import { cn } from '@/lib/utils';

@@ -5,7 +5,7 @@ test.describe('11 - Undo/Redo', () => {
   test('Ctrl+Z undoes a rectangle draw', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
@@ -35,7 +35,7 @@ test.describe('11 - Undo/Redo', () => {
   test('Ctrl+Shift+Z redoes an undone draw', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

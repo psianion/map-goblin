@@ -1,7 +1,7 @@
-import { StrictMode, Suspense, lazy } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
+import App from './v2/AppV2.tsx'
 import { useStore } from './store/store'
 import { initRecentAssets } from './io/recentAssets'
 import { initFavouriteAssets } from './io/favouriteAssets'
@@ -16,20 +16,14 @@ initRecentAssets()
 initFavouriteAssets()
 initSnapPref()
 
-// `/v2` is the redesign, served beside `/` so the two can be compared on the same data.
-// Picked off the path once at boot: there is no router, and the two shells never swap
-// at runtime. Lazy so the v1 route never downloads the v2 chrome or its stylesheet.
-const AppV2 = lazy(() => import('./v2/AppV2.tsx'))
-const isV2 = /^\/v2(\/|$)/.test(window.location.pathname)
+// The editor used to live at `/v2` beside the old one at `/`. Old links and bookmarks land
+// on `/`, keeping the query (`?e2e=1`) and hash.
+if (/^\/v2(\/|$)/.test(window.location.pathname)) {
+  window.history.replaceState(null, '', `/${window.location.search}${window.location.hash}`)
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isV2 ? (
-      <Suspense fallback={null}>
-        <AppV2 />
-      </Suspense>
-    ) : (
-      <App />
-    )}
+    <App />
   </StrictMode>,
 )

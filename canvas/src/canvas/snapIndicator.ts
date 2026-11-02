@@ -17,14 +17,13 @@ export class SnapIndicator {
   show(screenPoint: Point): void {
     this.graphics.clear();
     const r = 6;
-    // On an editor desk the cross-hair is drawn in the desk's ink, hairline.
-    const desk = getEditorDesk();
-    const ink = desk ? parseInt(desk.ink.replace('#', ''), 16) : null;
+    // The cross-hair is drawn in the desk's ink, hairline.
+    const ink = parseInt((getEditorDesk()?.ink ?? '#1b1b1b').replace('#', ''), 16);
     // A 1px line lands crisp on the half pixel.
-    const x = ink === null ? screenPoint.x : Math.round(screenPoint.x) + 0.5;
-    const y = ink === null ? screenPoint.y : Math.round(screenPoint.y) + 0.5;
+    const x = Math.round(screenPoint.x) + 0.5;
+    const y = Math.round(screenPoint.y) + 0.5;
     this.graphics
-      .setStrokeStyle(ink === null ? { color: 0x44aaff, width: 1.5 } : { color: ink, width: 1 })
+      .setStrokeStyle({ color: ink, width: 1 })
       .moveTo(x - r, y)
       .lineTo(x + r, y)
       .moveTo(x, y - r)

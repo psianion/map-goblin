@@ -5,7 +5,7 @@ test.describe('13 - Select and Move', () => {
   test('box-select then move changes geometry position', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('r');
-    const canvas = page.locator('canvas');
+    const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;

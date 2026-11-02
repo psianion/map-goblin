@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import App from '@/App';
+import { EditorHost } from '@/editor/EditorHost';
 import { useStore } from '@/store/store';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
-import { openNewMapRef } from '@/components/toolbar/toolConstants';
+import { openNewMapRef } from '@/editor/toolConstants';
 import { HomeScreen, type EnterOptions } from './HomeScreen';
 import { NewMapModal } from './NewMapModal';
-import { EditorShell } from './editor/EditorShell';
 import { initTheme, useTheme } from './theme';
 import { readDesk } from './desk';
 import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from './viewPrefs';
@@ -31,11 +30,7 @@ function deskFromTokens(): EditorDesk {
   return readDesk((name) => css.getPropertyValue(name), document.documentElement.classList.contains('dark'));
 }
 
-/**
- * The /v2 route. The canvas, store and dialogs are the v1 app's; v2 swaps the chrome
- * around them for its own shell and puts a home page in front. The two routes share the
- * store and the canvas, so flipping between / and /v2 compares chrome, not data.
- */
+/** The app: the editor with its home page in front of it. */
 export default function AppV2() {
   const [home, setHome] = useState(true);
   // Entered from a card's "Map settings…": the editor comes up with that dialog showing.
@@ -54,8 +49,8 @@ export default function AppV2() {
   }, [theme, lit]);
   useEffect(() => () => setEditorDesk(null), []);
 
-  // Ctrl+Shift+N opens v2's dialog here instead of the v1 one App.tsx mounts. The home
-  // page keeps keys from reaching the shortcuts, so this only fires in the editor.
+  // Ctrl+Shift+N opens the New map dialog here. The home page keeps keys from reaching
+  // the shortcuts, so this only fires in the editor.
   useEffect(() => {
     openNewMapRef.current = () => setNewOpen(true);
     return () => {
@@ -74,15 +69,9 @@ export default function AppV2() {
     setHome(true);
   }, []);
 
-  const renderChrome = useCallback(
-    (actions: Parameters<typeof EditorShell>[0]['actions']) =>
-      home ? null : <EditorShell actions={actions} onHome={goHome} openSettings={settingsOnEnter} />,
-    [home, goHome, settingsOnEnter],
-  );
-
   return (
     <>
-      <App renderChrome={renderChrome} />
+      <EditorHost home={home} onHome={goHome} openSettings={settingsOnEnter} />
       {home && <HomeScreen onEnter={enter} />}
       {!home && <NewMapModal open={newOpen} onOpenChange={setNewOpen} onEnter={enter} />}
     </>

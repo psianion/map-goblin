@@ -5,7 +5,7 @@ import { undoManager } from '@/store/undoManager';
 import type { AssetChild, DungeonLayer } from '@/store/types';
 import { PropBrowser, PropBrowserHead } from './PropBrowser';
 
-vi.mock('@/components/shared/PackThumbnailCanvas', () => ({
+vi.mock('@/editor/PackThumbnailCanvas', () => ({
   PackThumbnailCanvas: ({ textureId }: { textureId: string }) => <i data-testid={`thumb-${textureId}`} />,
 }));
 

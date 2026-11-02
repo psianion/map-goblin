@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
 import { useStore } from '@/store/store';
 import { SplitRoomCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';

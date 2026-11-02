@@ -1,16 +1,13 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ModalState, NightSky, PendingSplit, RoomSuggestions, UISlice, Weather } from '../types';
+import type { MapBuilderStore, NightSky, PendingSplit, RoomSuggestions, UISlice, Weather } from '../types';
 
 export interface UIActions {
   setActiveLayerId: (id: string) => void;
-  togglePanel: (panel: 'left' | 'right') => void;
   toggleExpandedLayerId: (layerId: string) => void;
-  showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
   toggleChildGroup: (key: string) => void;
-  setPanelHoverChildId: (id: string | null) => void;
   setRevealChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   clearSolo: () => void;
@@ -45,11 +42,6 @@ export const createUISlice: StateCreator<
       const layer = state.layers.find((l) => l.id === id);
       if (layer && state.levels.some((l) => l.id === layer.levelId)) state.ui.activeLevelId = layer.levelId;
     }),
-  togglePanel: (panel) =>
-    set((state) => {
-      if (panel === 'left') state.ui.leftPanelOpen = !state.ui.leftPanelOpen;
-      else state.ui.rightPanelOpen = !state.ui.rightPanelOpen;
-    }),
   toggleExpandedLayerId: (layerId) =>
     set((state) => {
       const idx = state.ui.expandedLayerIds.indexOf(layerId);
@@ -58,10 +50,6 @@ export const createUISlice: StateCreator<
       } else {
         state.ui.expandedLayerIds.push(layerId);
       }
-    }),
-  showModal: (modal) =>
-    set((state) => {
-      state.ui.modalState = modal;
     }),
   setClipperReady: (ready) =>
     set((state) => {
@@ -84,13 +72,6 @@ export const createUISlice: StateCreator<
       const idx = state.ui.childGroupOverrides.indexOf(key);
       if (idx >= 0) state.ui.childGroupOverrides.splice(idx, 1);
       else state.ui.childGroupOverrides.push(key);
-    }),
-  // Layer-panel row hover → canvas outline (childHoverHighlight). Separate
-  // from selection.hoveredId on purpose: that one is the canvas pointer's
-  // hover, already drawn by SelectTool — sharing it would double-draw.
-  setPanelHoverChildId: (id) =>
-    set((state) => {
-      state.ui.panelHoverChildId = id;
     }),
   // One-shot "scroll this row into view" marker, consumed (and cleared) by
   // whichever layer-panel list ends up rendering the row. Same tier as solo:

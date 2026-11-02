@@ -15,7 +15,7 @@ docker compose up -d
 
 | What | Where |
 | --- | --- |
-| Editor | http://localhost:5621 (the redesigned editor is at `/v2`) |
+| Editor | http://localhost:5621 |
 | Table (players) | http://localhost:5622 |
 | Game server | http://localhost:5620 (this machine only; the editor and table reach it inside Docker) |
 

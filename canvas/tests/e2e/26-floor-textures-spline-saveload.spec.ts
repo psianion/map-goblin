@@ -112,7 +112,7 @@ test.describe('Floor Textures', () => {
     await gotoApp(page)
 
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -135,7 +135,7 @@ test.describe('Floor Textures', () => {
     await gotoApp(page)
 
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -164,7 +164,7 @@ test.describe('Floor Textures', () => {
     await gotoApp(page)
 
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -190,7 +190,7 @@ test.describe('Floor Textures', () => {
     await gotoApp(page)
 
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -238,7 +238,7 @@ test.describe('Spline Paths', () => {
   test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
     await gotoApp(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -293,7 +293,7 @@ test.describe('Spline Paths', () => {
     await gotoApp(page)
     await activatePathTool(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -334,7 +334,7 @@ test.describe('Spline Paths', () => {
     // Drawn with the tool, so the path goes through AddChildCommand + undoManager.
     await activatePathTool(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -367,14 +367,14 @@ test.describe('Spline Paths', () => {
 // ---------- Save / Load Tests ----------
 
 test.describe('Save / Load Round-trip', () => {
-  test('getSerializableState returns version "1.3"', async ({ page }) => {
+  test('getSerializableState returns the current version, "3.1"', async ({ page }) => {
     await gotoApp(page)
 
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.0')
+    expect(version).toBe('3.1')
   })
 
   test('round-trip: save then loadFromFile restores dungeon layer shapes', async ({ page }) => {
@@ -382,7 +382,7 @@ test.describe('Save / Load Round-trip', () => {
 
     // Draw a shape
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -413,12 +413,12 @@ test.describe('Save / Load Round-trip', () => {
     expect(afterLoad?.shapes.length).toBe(shapeCount)
   })
 
-  test('loading v1.2 file (no texture fields) migrates to 1.3 without crash', async ({ page }) => {
+  test('loading a 2.0 file (no texture fields) migrates to the current version without crash', async ({ page }) => {
     await gotoApp(page)
 
     // Draw a shape so we have real state to serialize
     await page.keyboard.press('r')
-    const canvas = page.locator('canvas')
+    const canvas = page.locator('canvas').first()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const cx = box!.x + box!.width / 2
@@ -468,14 +468,14 @@ test.describe('Save / Load Round-trip', () => {
     await waitFrame(page, 10)
 
     // App must not crash — canvas still visible
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(page.locator('canvas').first()).toBeVisible()
 
     // Migrated state re-serializes at the current version
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.0')
+    expect(version).toBe('3.1')
 
     // Shape children survive the migration
     const layer = await getDungeonLayer(page)

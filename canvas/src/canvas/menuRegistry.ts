@@ -6,7 +6,7 @@
 // never on what the menu is for, so a new child kind means a new builder here
 // and nothing else.
 
-import type { MenuRow, MenuSubmenuRow } from '@/components/ui/context-menu'
+import type { MenuRow, MenuSubmenuRow } from '@/ui/context-menu'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
 import {
@@ -70,7 +70,6 @@ import {
   alignSelection,
   distributeSelection,
   handleShortcut,
-  isV2Route,
   rotateSelection90,
   runSelectionVerb,
 } from '@/shortcuts/defaultShortcuts'
@@ -79,9 +78,9 @@ import { resolveSelection } from '@dnd/core/src/store/selectionResolve'
 import { wallCopyCommands } from '@dnd/core/src/store/duplicateSelection'
 import { getChildBounds, getWallBounds, pickStackAtPoint } from '@dnd/core/src/engine/hitTest'
 import { pickKind, pickName } from '@dnd/core/src/engine/tools/SelectTool'
-import { currentZoom } from '@/components/toolbar/zoomControl'
+import { currentZoom } from '@/editor/zoomControl'
 import type { Command, Layer } from '@/store/types'
-import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef'
+import { zoomToFitRef } from '@/editor/zoomToFitRef'
 import { notify } from '@/lib/toast'
 import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands'
 import {
@@ -183,7 +182,7 @@ function run(cmd: ReturnType<typeof createZOrderCommand>): void {
 }
 
 /**
- * How the menu asks the v2 editor to open the props library in replace mode for these
+ * How the menu asks the editor to open the props library in replace mode for these
  * props. The editor installs it; without one, Replace from library is not offered.
  */
 export const openPropBrowserRef: { current: ((replaceIds: string[]) => void) | null } = { current: null }
@@ -248,15 +247,15 @@ function lockedChildRows(ctx: ChildMenuContext): MenuRow[] {
     if (child.childType === 'asset') run(createSetPropFieldsCommand([child.id], { locked: false }))
     else run(new UpdateChildCommand('Unlock', ctx.layer.id, child.id, { locked: true }, { locked: false }))
   }
-  const behind = isV2Route() ? selectBehindRow(ctx.world) : null
+  const behind = selectBehindRow(ctx.world)
   return [
     { type: 'header', label: child.name || kind, sublabel: `${kind} · locked` },
-    { label: 'Unlock', kbd: isV2Route() ? keyCaption('edit.lock') : undefined, onSelect: unlock },
+    { label: 'Unlock', kbd: keyCaption('edit.lock'), onSelect: unlock },
     ...(behind ? [behind] : []),
   ]
 }
 
-/** Rows a v2 menu offers for any object: lock it, hide it. */
+/** Rows a menu offers for any object: lock it, hide it. */
 function lockHideRows(): MenuRow[] {
   return [
     { label: 'Lock', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
@@ -304,8 +303,8 @@ function sharedVerbs(ctx: ChildMenuContext): MenuRow[] {
       onSelect: () => runSelectionVerb('duplicate'),
     },
   ]
-  // v2: every kind locks and hides on its own (a prop's own Lock sits in its toggles).
-  if (isV2Route()) rows.push(...lockHideRows().filter((r) => !(ctx.child.childType === 'asset' && 'label' in r && r.label === 'Lock')))
+  // Every kind locks and hides on its own (a prop's own Lock sits in its toggles).
+  rows.push(...lockHideRows().filter((r) => !(ctx.child.childType === 'asset' && 'label' in r && r.label === 'Lock')))
   rows.push(moveToLayerRow(ctx.layer.id))
   rows.push({
     separatorBefore: true,
@@ -401,7 +400,6 @@ registerMenu('asset', (ctx) => {
   const child = ctx.child
   if (child.childType !== 'asset') return []
   const rows: MenuRow[] = [headerRow(child)]
-  const v2 = isV2Route()
 
   // Swap strip: the prop's variants, kept in its footprint. Imported images have
   // no catalog entry — the strip simply doesn't appear for them rather than
@@ -428,7 +426,7 @@ registerMenu('asset', (ctx) => {
       })
     }
   }
-  if (v2 && openPropBrowserRef.current) {
+  if (openPropBrowserRef.current) {
     rows.push({
       label: 'Replace from library…',
       onSelect: () => openPropBrowserRef.current?.([child.id]),
@@ -445,33 +443,31 @@ registerMenu('asset', (ctx) => {
     { label: 'Flip vertical', kbd: keyCaption('edit.flipV'), onSelect: () => handleShortcut('shift+v') },
     { label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => rotateSelection90() },
   )
-  if (v2) {
-    rows.push(
-      orderRow([child.id]),
-      {
-        type: 'toggle',
-        label: 'Overhead',
-        look: 'check',
-        checked: propField(child, 'overhead'),
-        onToggle: (next) => run(createSetPropFieldsCommand([child.id], { overhead: next })),
-      },
-      {
-        type: 'toggle',
-        label: 'Glows',
-        look: 'check',
-        checked: propField(child, 'glows'),
-        onToggle: (next) => run(createSetPropFieldsCommand([child.id], { glows: next })),
-      },
-      {
-        type: 'toggle',
-        label: 'Blocks light',
-        look: 'check',
-        checked: propField(child, 'blocksLight'),
-        onToggle: (next) => run(createSetPropFieldsCommand([child.id], { blocksLight: next })),
-      },
-      { label: 'Lock', kbd: keyCaption('edit.lock'), onSelect: () => run(createSetPropFieldsCommand([child.id], { locked: true })) },
-    )
-  }
+  rows.push(
+    orderRow([child.id]),
+    {
+      type: 'toggle',
+      label: 'Overhead',
+      look: 'check',
+      checked: propField(child, 'overhead'),
+      onToggle: (next) => run(createSetPropFieldsCommand([child.id], { overhead: next })),
+    },
+    {
+      type: 'toggle',
+      label: 'Glows',
+      look: 'check',
+      checked: propField(child, 'glows'),
+      onToggle: (next) => run(createSetPropFieldsCommand([child.id], { glows: next })),
+    },
+    {
+      type: 'toggle',
+      label: 'Blocks light',
+      look: 'check',
+      checked: propField(child, 'blocksLight'),
+      onToggle: (next) => run(createSetPropFieldsCommand([child.id], { blocksLight: next })),
+    },
+    { label: 'Lock', kbd: keyCaption('edit.lock'), onSelect: () => run(createSetPropFieldsCommand([child.id], { locked: true })) },
+  )
   return [...rows, ...sharedVerbs(ctx)]
 })
 
@@ -812,9 +808,9 @@ export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   return reason ? lockRows(rows, reason) : rows
 }
 
-/** Puts "Select behind ▸" above the menu's last row (Delete), on v2, when anything is behind. */
+/** Puts "Select behind ▸" above the menu's last row (Delete), when anything is behind. */
 function withSelectBehind(rows: MenuRow[], world: { x: number; y: number } | undefined): MenuRow[] {
-  if (!world || !isV2Route()) return rows
+  if (!world) return rows
   const behind = selectBehindRow(world)
   if (!behind) return rows
   const last = rows.length - 1
@@ -836,7 +832,7 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
   const setId = standaloneWallLook(wall, layer.style).setId
   const sublabel = setId ? wallSetLabel(setId) : 'Wall'
   if (wall.locked) {
-    const behind = world && isV2Route() ? selectBehindRow(world) : null
+    const behind = world ? selectBehindRow(world) : null
     const unlock = (): void => run(new UpdateWallCommand(layer.id, wall.id, { locked: true }, { locked: false }))
     const rows: MenuRow[] = [
       { type: 'header', label: 'Wall', sublabel: `${sublabel} · locked` },
@@ -852,7 +848,7 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
     { label: 'Flip horizontal', kbd: keyCaption('edit.flipH'), onSelect: () => runSelectionVerb('flipH') },
     { label: 'Flip vertical', kbd: keyCaption('edit.flipV'), onSelect: () => runSelectionVerb('flipV') },
     { label: 'Rotate 90°', kbd: keyCaption('edit.rotate90'), onSelect: () => runSelectionVerb('rotate') },
-    ...(isV2Route() ? lockHideRows() : []),
+    ...lockHideRows(),
   )
   rows.push(moveToLayerRow(layer.id, { separatorBefore: true }))
   rows.push({
@@ -920,7 +916,6 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
   const owners = new Set([...sel.children.map((c) => c.layer.id), ...sel.walls.map((w) => w.layer.id)])
   const currentLayerId = owners.size === 1 ? [...owners][0] : null
   const selected = store.selection.selectedIds
-  const v2 = isV2Route()
   // Align and distribute anything with a box: children but doors, and walls; never locked.
   const arrangeable =
     sel.children.filter(({ child }) => child.childType !== 'door' && !child.locked).length +
@@ -929,7 +924,7 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
   const members = sel.children.length + sel.walls.length
   const allLocked = members > 0 && sel.locked.length === members
   const arrangeRows: MenuRow[] =
-    v2 && arrangeable >= 2
+    arrangeable >= 2
       ? [
           {
             type: 'submenu' as const,
@@ -949,19 +944,17 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
         ]
       : []
   const propRows: MenuRow[] =
-    v2 && propCount > 0
+    propCount > 0
       ? [
           orderRow(selected.filter((id) => sel.children.some(({ child }) => child.id === id && child.childType === 'asset'))),
         ]
       : []
-  const lockRow: MenuRow[] = v2
-    ? [
-        allLocked
-          ? { label: 'Unlock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('unlock') }
-          : { label: 'Lock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
-        { label: 'Hide', kbd: keyCaption('edit.hide'), onSelect: () => runSelectionVerb('hide') },
-      ]
-    : []
+  const lockRow: MenuRow[] = [
+    allLocked
+      ? { label: 'Unlock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('unlock') }
+      : { label: 'Lock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
+    { label: 'Hide', kbd: keyCaption('edit.hide'), onSelect: () => runSelectionVerb('hide') },
+  ]
   return withSelectBehind(
     withGroupRows([
       { type: 'header', label: `${count} selected` },

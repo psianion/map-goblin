@@ -118,6 +118,6 @@ export async function migrateAutosave(mapDB: MapDB): Promise<MigrationResult> {
   }
 
   // No old data (or corrupt) — do NOT create a blank map here.
-  // App.tsx bootstrap will call createNewMap() which produces a valid serialized blob.
+  // EditorHost's boot will call createNewMap() which produces a valid serialized blob.
   return { migrated: false, createdBlank: false, warning };
 }

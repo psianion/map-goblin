@@ -10,7 +10,6 @@ import { LightManager } from './lighting';
 import type { GlowProp, RegionFace } from './lighting/LightManager';
 import { renderToolPreview } from './toolPreview';
 import { renderRoomHighlight } from './roomHighlight';
-import { renderChildHoverHighlight } from './childHoverHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { authoredWallMarks } from './wallNodeRenderer';
@@ -381,9 +380,6 @@ export function setupRenderLoop(
 
     // (5c) Room highlight — no-ops unless the highlighted room changed
     renderRoomHighlight();
-
-    // (5c') Layer-panel child hover — no-ops unless the hovered child changed
-    renderChildHoverHighlight();
 
     // (5d) Wall node handles — no-ops unless the edited wall, selection, zoom
     // or camera changed. Zoom matters: handles are drawn at a constant screen

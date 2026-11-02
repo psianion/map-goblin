@@ -25,13 +25,13 @@ import {
 } from './menuRegistry';
 import { getAssetPackManager, resetAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import type { ManifestEntry, PackManifest } from '@dnd/core/src/engine/assetPackManager';
-import type { MenuSliderRow, MenuSubmenuRow, MenuSwatchesRow, MenuThumbStripRow, MenuToggleRow } from '@/components/ui/context-menu';
+import type { MenuSliderRow, MenuSubmenuRow, MenuSwatchesRow, MenuThumbStripRow, MenuToggleRow } from '@/ui/context-menu';
 import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 import { groupSelection, mergeSelection } from './groupActions';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
 import { shortcutById } from '@/shortcuts/defaultShortcuts';
 import { formatCombo } from '@/shortcuts/formatCombo';
-import type { MenuRow, ContextMenuItem } from '@/components/ui/context-menu';
+import type { MenuRow, ContextMenuItem } from '@/ui/context-menu';
 import type { AssetChild, DungeonLayer, LightChild, DoorChild, WallSegment } from '@/store/types';
 
 function layer(): DungeonLayer {
@@ -267,6 +267,10 @@ describe('buildMultiMenu', () => {
     expect(labels(buildMultiMenu(2))).toEqual([
       '2 selected',
       'Duplicate',
+      'Align',
+      'Distribute',
+      'Lock all',
+      'Hide',
       'Move to layer',
       'Group selection',
       'Merge selection',
@@ -299,6 +303,10 @@ describe('buildMultiMenu', () => {
       'Flip horizontal',
       'Flip vertical',
       'Rotate 90°',
+      'Align',
+      'Distribute',
+      'Lock all',
+      'Hide',
       'Move to layer',
       'Group selection',
       'Merge selection',
@@ -589,7 +597,6 @@ describe('prop menus', () => {
   });
 
   afterEach(() => {
-    window.history.pushState({}, '', '/');
     openPropBrowserRef.current = null;
   });
 
@@ -616,16 +623,7 @@ describe('prop menus', () => {
     expect(strip.items.map((i) => i.id)).toEqual(['p:stool', 'p:chair', 'p:bench', 'p:table']);
   });
 
-  it('keeps the v1 menu free of the v2 verbs', () => {
-    const crate = prop('c', 'p:crate_1');
-    useStore.getState().addChild(layer().id, crate);
-    openPropBrowserRef.current = vi.fn();
-    const rows = labels(buildChildMenu(propCtx(crate)));
-    for (const verb of ['Replace from library…', 'Order', 'Overhead', 'Lock']) expect(rows).not.toContain(verb);
-  });
-
-  it('on v2 adds Replace from library, Order, Overhead and Lock', () => {
-    window.history.pushState({}, '', '/v2');
+  it('adds Replace from library, Order, Overhead and Lock', () => {
     const open = vi.fn();
     openPropBrowserRef.current = open;
     useStore.getState().addChild(layer().id, prop('under', 'p:barrel'));
@@ -673,7 +671,6 @@ describe('prop menus', () => {
   });
 
   it('shows the shortcut table key on Rotate 90°, Lock and the Order rows, and none on unbound rows', () => {
-    window.history.pushState({}, '', '/v2');
     openPropBrowserRef.current = vi.fn();
     const crate = prop('c', 'p:crate_1');
     useStore.getState().addChild(layer().id, crate);
@@ -695,7 +692,6 @@ describe('prop menus', () => {
   });
 
   it('draws Overhead as a check that reads the prop: empty when it is not overhead', () => {
-    window.history.pushState({}, '', '/v2');
     const crate = prop('c', 'p:crate_1');
     const web = prop('w', 'p:barrel', { overhead: true });
     useStore.getState().addChild(layer().id, crate);
@@ -748,8 +744,7 @@ describe('prop menus', () => {
     expect(childById('c')?.locked).toBe(false);
   });
 
-  it('adds Align, Distribute, Order and Lock all to a v2 multi menu of props', () => {
-    window.history.pushState({}, '', '/v2');
+  it('adds Align, Distribute, Order and Lock all to a multi menu of props', () => {
     useStore.getState().addChild(layer().id, prop('a', 'p:crate_1', { position: { x: 2, y: 2 } }));
     useStore.getState().addChild(layer().id, prop('b', 'p:crate_1', { position: { x: 6, y: 4 } }));
     useStore.getState().setSelectedIds(['a', 'b']);

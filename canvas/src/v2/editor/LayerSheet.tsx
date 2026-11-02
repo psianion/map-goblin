@@ -3,7 +3,7 @@ import { Copy, FolderInput, Trash2 } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { isOnShownLevel } from '@/store/selectors';
 import { TERRAIN_PANEL_ID, type BackgroundLayer, type DungeonLayer, type Layer, type SublayerVisibility } from '@/store/types';
-import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { LayerStyleChangeCommand, PropertyCommand, TerrainAppearanceCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { cn } from '@/lib/utils';
