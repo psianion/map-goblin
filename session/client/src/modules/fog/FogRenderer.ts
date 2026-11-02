@@ -53,6 +53,7 @@ import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipelin
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
   effectiveFog,
+  revealPartyRooms,
   containedSightOn,
   fogModeOf,
   identityRegion,
@@ -453,7 +454,8 @@ export function roomViews(
     graph.push(entry.door);
   }
 
-  const fog = effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms);
+  // The party's own rooms on a fresh table, as the server reckons them (`revealPartyRooms`).
+  const fog = revealPartyRooms(effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms), partyRooms);
   const visible = visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
   for (const room of rooms) {

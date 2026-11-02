@@ -25,6 +25,7 @@ import {
   nearAuthoredFloor,
   onAuthoredFloor,
   regionFor,
+  revealPartyRooms,
   sceneFogOf,
   setCells,
   sightRangeLimitOn,
@@ -267,7 +268,11 @@ export function createVision(stores: Stores): Vision {
     // emberhold-crypt is the torchlit one, and the fourth browser gate read it at full
     // brightness on a scene the DM's panel called Unrevealed. Withholding it here is the half
     // that matters; the mask is only the half the player can see (PRODUCT principle 2).
-    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party)
+    //
+    // What a fresh table does give a player is the room the party stands in: while the DM has
+    // never revealed a room, in rooms mode, those rooms count as revealed (`revealPartyRooms`), so the first
+    // move inside them is allowed and the ground under their feet is drawn.
+    const fog = revealPartyRooms(effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party), party)
     // S3 P1 — the sweep is taken once per mutation alongside the BFS, and cached with it:
     // token redaction, auto-explore and (P2) the mask all read the same polygons, so the
     // three cannot disagree about where the party's sight ends.
