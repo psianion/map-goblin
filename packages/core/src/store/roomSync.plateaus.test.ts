@@ -137,3 +137,58 @@ describe('the warren cave raised or sunk', () => {
     }
   }
 });
+
+describe('rooms inside rooms on a flat map (ad0e1e9 kept)', () => {
+  const inside = (p: [number, number], ring: [number, number][]) => {
+    let hit = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+
+  it('gives a walled chamber inside a hall its own face and label, and the hall its own', () => {
+    const chamber: WallSegment = {
+      id: 'chamber',
+      points: [[2, 2], [7, 2], [7, 6], [2, 6], [2, 2]],
+      wallType: 'normal',
+      direction: 'both',
+      color: '#000',
+      width: 0.5,
+      roughness: 0,
+    };
+    const layer = {
+      ...layerOf([rect('hall', 0, 0, 24, 16)], [chamber]),
+      rooms: [
+        { id: 'hall', name: 'Hall', anchor: [18, 10] },
+        { id: 'chamber', name: 'Chamber', anchor: [4.5, 4] },
+      ],
+    } as unknown as DungeonLayer;
+    const { rooms } = syncRooms(layer);
+    const hall = rooms.find((r) => r.id === 'hall')!;
+    const room = rooms.find((r) => r.id === 'chamber')!;
+    expect(rooms.filter((r) => r.orphaned)).toHaveLength(0);
+    expect(room.area!).toBeLessThan(20);
+    expect(hall.area!).toBeGreaterThan(300);
+    // Each label sits in its own room: the chamber's inside the walls, the hall's outside them.
+    const walls = chamber.points as [number, number][];
+    expect(inside(room.centroid as [number, number], walls)).toBe(true);
+    expect(inside(hall.centroid as [number, number], walls)).toBe(false);
+    expect(inside(hall.centroid as [number, number], hall.face as [number, number][])).toBe(true);
+  });
+
+  for (const [name, count] of [
+    ['fieldstone-keep', 12],
+    ['emberhold-crypt', 13],
+  ] as const) {
+    it(`keeps all ${count} rooms of ${name}, each placed`, async () => {
+      const layer = await fixtureLayer(name);
+      const { rooms } = syncRooms({ ...layer, mergedFloor: null });
+      expect(rooms).toHaveLength(count);
+      expect(rooms.filter((r) => r.orphaned).map((r) => r.id)).toEqual([]);
+      expect(new Set(rooms.map((r) => JSON.stringify(r.face))).size).toBe(count);
+    });
+  }
+});
