@@ -829,3 +829,31 @@ export function crossingsAlongLayers(
 ): Crossing[] {
   return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides)).sort((p, q) => p.at - q.at);
 }
+
+/** A raised top that hides from below: its height and its outline (outer rings only). */
+export interface HiddenTop {
+  height: number;
+  rings: Polygon[];
+}
+
+/**
+ * The plateau tops on a layer that an eye on lower ground cannot see: every band with an
+ * edge that falls away from it far enough to hide (`edgeHides`, drop > 0; a pit hides nothing
+ * from above). The table's fog keeps these under cover for a seat with no eye up there.
+ */
+export function hiddenTops(
+  layer: Pick<DungeonLayer, 'children'>,
+  sightDropCells: number = DEFAULT_SIGHT_DROP_CELLS,
+): HiddenTop[] {
+  if (!hasPlateaus(layer)) return [];
+  const out: HiddenTop[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    const hides = band.edges.some((ring, ri) =>
+      band.ringEdge[ri] !== 'wall' && ring.some((e) => e.drop > 0 && edgeHides(e.owner, e.edge, e.drop, sightDropCells)),
+    );
+    if (!hides) continue;
+    const rings = band.rings.filter((r) => signedArea(r) > 0);
+    if (rings.length > 0) out.push({ height: band.height, rings });
+  }
+  return out;
+}

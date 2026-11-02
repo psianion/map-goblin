@@ -14,6 +14,7 @@ import {
   crossingsAlong,
   elevationAt,
   elevationAtLayers,
+  hiddenTops,
 } from './plateaus';
 import { defaultCrossingKinds } from './crossingKinds';
 import { computeMergedFloor } from '../engine/mergedFloor';
@@ -229,5 +230,21 @@ describe('the table: elevation and crossings', () => {
     const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
     expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
     expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);
+  });
+});
+
+describe('hidden tops', () => {
+  it('lists a cliff top that hides from below, and no slope, pit or low ledge', () => {
+    const tops = hiddenTops(
+      layerOf([
+        rect('ground', 0, 0, 40, 40),
+        rect('mesa', 2, 2, 8, 8, { height: 3, edge: 'cliff' }),
+        rect('hill', 10, 2, 16, 8, { height: 3, edge: 'slope' }),
+        rect('pit', 20, 2, 26, 8, { height: -3, edge: 'cliff' }),
+        rect('ledge', 30, 2, 36, 8, { height: 1, edge: 'cliff' }),
+      ]),
+      2,
+    );
+    expect(tops.map((t) => t.height)).toEqual([3]);
   });
 });

@@ -85,6 +85,8 @@ import { litFrame, skyFrame } from '@dnd/core/src/shared/sky';
 import { levelGrade, levelMood, regionGrade } from '@dnd/core/src/shared/regionGrade';
 import { tableAllLit } from '@dnd/core/src/engine/worldOverride';
 import { darkTest, layersOnLevel, onLevel } from '@dnd/core/src/shared/visionGate';
+import { hiddenTops } from '@dnd/core/src/shared/plateaus';
+import { pointInRing } from '@dnd/core/src/shared/roomUtils';
 import { shownLevelId } from '@dnd/core/src/store/selectors';
 import { isFrozen } from '@dnd/core/src/shared/freeze';
 import {
@@ -342,6 +344,12 @@ export interface FogScene {
    * reads, and every field below goes unread there: the room path is untouched by any of it.
    */
   mode?: FogMode;
+  /**
+   * Rooms mode: the plateau tops no party token stands high enough to see (plan §6). A room
+   * the DM revealed is clear as a whole, cliffs included; these stay under cover inside it.
+   * Vision mode needs none of this: its clear tier is a sweep, and the cliffs already stop it.
+   */
+  hide?: Polygon[];
   /** Vision only (§1): one sweep polygon per sighted party token — the clear tier. */
   sight?: Polygon[];
   /**
@@ -908,6 +916,7 @@ export function fogScene(): FogScene {
     // The imitation is drawn through the same grade the real composite multiplies by.
     void: voidStyle(true, grade),
     mode,
+    hide: masked && !isVision ? coveredTops(levelLayers, levelTokens, mapSettings.sightDropCells, mine) : undefined,
     // The memory tier the preview draws is the record the token's own seat reads through
     // (`identityRegion`: its owner's in individual share, the party's otherwise) — the DM's
     // copy carries every record, a player's wire only ever their own. A token nobody holds
@@ -1204,6 +1213,26 @@ export interface FogDraw {
   plan: DrawPlan | null;
 }
 
+/** The plateau tops the last rooms-mode draw kept under cover (the probe reads it). */
+let lastHidden: Polygon[] = [];
+
+/**
+ * The hiding plateau tops on this level that no party token can see: a token sees a top when
+ * it stands at least that high (on it, or on higher ground). The party is the claimed tokens,
+ * or in individual share this seat's own.
+ */
+export function coveredTops(
+  layers: readonly Layer[],
+  tokens: readonly Token[],
+  sightDropCells: number | undefined,
+  mine?: (token: Token) => boolean,
+): Polygon[] {
+  const tops = layers.flatMap((l) => (l.type === 'dungeon' ? hiddenTops(l, sightDropCells) : []));
+  if (tops.length === 0) return [];
+  const party = tokens.filter((t) => !t.hidden && t.ownerId !== null && (mine ? mine(t) : true));
+  return tops.filter((top) => !party.some((t) => (t.elevation ?? 0) >= top.height)).flatMap((top) => top.rings);
+}
+
 export function drawFog(
   scrim: Graphics,
   scene: FogScene,
@@ -1254,6 +1283,9 @@ export function drawFog(
   scrim.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
 
   cutLand(scrim, earned, { color: 0x000000, alpha: 1 });
+  // A plateau top no party eye is high enough to see goes back under, inside a lit room too.
+  lastHidden = scene.hide ?? [];
+  for (const ring of lastHidden) scrim.poly(ring.flat()).fill({ color: 0x000000, alpha: 1 });
 
   // The memory wash is the cloud's (`LivingFog.setWash`), read off the same mask as the
   // mist, so it ramps in along live sight's rim with the tiers instead of stepping on it. The
@@ -1270,6 +1302,7 @@ export function drawFog(
     maskPaint.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
     fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
+    for (const ring of lastHidden) maskPaint.poly(ring.flat()).fill({ color: 0x000000, alpha: 1 });
   }
   // The stencil for the overlays that draw above the mask (`SIGHT_MASK`): the token chips
   // and the turn ring.
@@ -1419,6 +1452,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     /** How long the last mask took to *build* — §4's budget is about mutation, not frames. */
     lastRebuildMs: 0,
     memoryCells: (): number => cells,
+    /** Rooms mode: how many plateau-top rings the last draw kept under cover. */
+    hiddenTops: (): number => lastHidden.length,
+    /** Rooms mode: whether a world point lies in a plateau top kept under cover. */
+    hiddenAt: (x: number, y: number): boolean => lastHidden.some((ring) => pointInRing(x, y, ring)),
     /** Whether the greyscale (darkvision-only) tier is drawn on this seat right now. */
     greyTier: (): boolean => greySprite.visible,
     /**

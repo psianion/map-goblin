@@ -123,6 +123,13 @@ export interface SceneVision {
    */
   canSee?(x: number, y: number): boolean
   /**
+   * Rooms mode — is this spot a plateau top no party eye stands high enough to see (plan §6)?
+   * A room the party sees is seen whole, except for these: a cliff hides what is up there
+   * from below. Absent when the scene has no such top (and in vision mode, where `canSee`
+   * already answers it through the cliffs).
+   */
+  coveredAt?(x: number, y: number): boolean
+  /**
    * Vision mode only — is this spot ground the party has already been shown?
    *
    * `roomAt` answers "which authored room is this", and outside every room it answers

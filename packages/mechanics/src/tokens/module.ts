@@ -165,6 +165,9 @@ export function tokensModule(
  */
 function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<string>): boolean {
   if (!scene || mine.has(token.id)) return true
+  // Plateaus: a token up on a top the party cannot see from where it stands is not seen,
+  // whatever the room around it is doing.
+  if (scene.coveredAt?.(token.x, token.y)) return false
   // Issue #94 finding 3 — an unclaimed friendly is meant to be found, not ambushed from. It
   // is in sight on ground the party has already explored, even while that ground is not
   // currently lit: memory of the room (rooms mode) or of the cell itself (vision mode).

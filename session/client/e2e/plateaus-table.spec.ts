@@ -249,3 +249,73 @@ test.describe.serial('@plateaus on plateau-test', () => {
     // elevationAt (builder A).
   })
 })
+
+/**
+ * The tester's case: rooms mode, a fresh player, the DM lights the whole hall. The hall is
+ * clear but the +3 mesa top stays under the fog until the party has an eye up there.
+ */
+test.describe.serial('@plateaus fog in rooms mode', () => {
+  let dmContext: BrowserContext
+  let playerContext: BrowserContext
+  let dm: Page
+  let player: Page
+
+  interface FogProbe {
+    hiddenTops(): number
+    hiddenAt(x: number, y: number): boolean
+  }
+  const probe = (page: Page, fn: (p: FogProbe) => unknown) =>
+    page.evaluate(
+      (src) => {
+        const fog = (window as unknown as { __fogProbe?: FogProbe }).__fogProbe
+        return fog ? new Function('p', `return (${src})(p)`)(fog) : null
+      },
+      fn.toString(),
+    )
+
+  test.beforeAll(async ({ browser }) => {
+    dmContext = await browser.newContext({ viewport: VIEWPORT })
+    dm = await dmContext.newPage()
+    const code = await hostTable(dm, PLATEAU)
+    await dm.getByRole('button', { name: 'Enter table' }).click()
+    await expect(dm.locator('[data-page="table"]')).toBeVisible()
+    await assertMapRendered(dm, PLATEAU)
+    playerContext = await browser.newContext({ viewport: VIEWPORT })
+    player = await playerContext.newPage()
+    await joinTable(player, code, 'Borin')
+    await assertMapLoaded(player, PLATEAU)
+
+    await command(dm, 'tokens', 'place', { name: 'Borin', x: 3.5, y: 2.5, disposition: 'friendly' })
+    await command(dm, 'tokens', 'place', { name: 'Lookout', x: 12.5, y: 7.5, disposition: 'hostile' })
+    await expect.poll(async () => (await held(dm, 'Borin'))?.id).toBeTruthy()
+    const borin = (await held(dm, 'Borin'))!
+    const playerId = await player.evaluate(() => (window as unknown as Tab).__sessionStore!.getState().you!.identityId)
+    await command(dm, 'tokens', 'assign', { id: borin.id, identityId: playerId })
+    await command(dm, 'fog', 'reveal', { roomId: 'mesa-hall' })
+    await expect.poll(async () => (await held(player, 'Borin'))?.id).toBe(borin.id)
+  })
+
+  test.afterAll(async () => {
+    await playerContext?.close()
+    await dmContext?.close()
+  })
+
+  test('a fresh ground token has the hall clear and the mesa top fogged, before any climb', async () => {
+    await expect.poll(() => probe(player, (p) => p.hiddenTops()), { timeout: 15_000 }).toBe(1)
+    expect(await probe(player, (p) => p.hiddenAt(11, 7))).toBe(true)
+    expect(await probe(player, (p) => p.hiddenAt(3, 3))).toBe(false)
+    // …and whoever stands up there is not on this seat's wire, lit hall or not.
+    await player.waitForTimeout(500)
+    expect(await held(player, 'Lookout')).toBeUndefined()
+  })
+
+  test('the top clears once the party has an eye on it, and fogs again when it leaves', async () => {
+    const borin = (await held(dm, 'Borin'))!
+    await command(dm, 'tokens', 'move', { id: borin.id, x: 11.5, y: 7.5 })
+    await expect.poll(async () => (await held(player, 'Borin'))?.elevation).toBe(3)
+    await expect.poll(() => probe(player, (p) => p.hiddenTops())).toBe(0)
+    await expect.poll(async () => (await held(player, 'Lookout'))?.name).toBe('Lookout')
+    await command(dm, 'tokens', 'move', { id: borin.id, x: 3.5, y: 2.5 })
+    await expect.poll(() => probe(player, (p) => p.hiddenTops())).toBe(1)
+  })
+})
