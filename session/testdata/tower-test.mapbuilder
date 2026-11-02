@@ -1,0 +1,448 @@
+{
+  "version": "3.2",
+  "mapSettings": {
+    "name": "Tower Test",
+    "cellScale": {
+      "value": 5,
+      "unit": "ft"
+    },
+    "ambientLight": "#ffffff",
+    "fixedSize": null,
+    "roomsVersion": 2,
+    "sightDropCells": 2,
+    "crossingKinds": [
+      {
+        "id": "free",
+        "name": "Free",
+        "blocks": false
+      },
+      {
+        "id": "difficult",
+        "name": "Difficult",
+        "blocks": false
+      },
+      {
+        "id": "climb",
+        "name": "Climb",
+        "note": "DC 12 Athletics",
+        "blocks": false
+      },
+      {
+        "id": "impassable",
+        "name": "Impassable",
+        "blocks": true
+      }
+    ]
+  },
+  "grid": {
+    "visible": true,
+    "snapDivision": 2
+  },
+  "layers": [
+    {
+      "id": "bg",
+      "name": "Background",
+      "type": "background",
+      "levelId": "level-ground",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "backgroundColor": "#2d2d2d",
+      "backgroundTexture": null,
+      "textureScale": 0.25,
+      "textureTint": "#ffffff",
+      "presetLock": false
+    },
+    {
+      "id": "layer-cellar",
+      "name": "Cellar",
+      "type": "dungeon",
+      "levelId": "level-cellar",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "cellar-floor",
+          "name": "Cellar floor",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                12,
+                8
+              ],
+              [
+                20,
+                8
+              ],
+              [
+                20,
+                16
+              ],
+              [
+                12,
+                16
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "styleOverrides": {
+            "floorColor": "#8f8a80"
+          }
+        },
+        {
+          "id": "cellar-dais",
+          "name": "Cellar dais",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                14,
+                10
+              ],
+              [
+                17,
+                10
+              ],
+              [
+                17,
+                13
+              ],
+              [
+                14,
+                13
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 1,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#a59a83"
+          }
+        }
+      ],
+      "standaloneWalls": [],
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": ""
+      },
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "room-cellar",
+          "name": "Cellar",
+          "anchor": [
+            18.5,
+            14.5
+          ]
+        }
+      ],
+      "mergedFloor": null
+    },
+    {
+      "id": "layer-ground",
+      "name": "Ground",
+      "type": "dungeon",
+      "levelId": "level-ground",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "field",
+          "name": "Field",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                0,
+                0
+              ],
+              [
+                32,
+                0
+              ],
+              [
+                32,
+                24
+              ],
+              [
+                0,
+                24
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "styleOverrides": {
+            "floorColor": "#7d9a5b"
+          }
+        },
+        {
+          "id": "mound",
+          "name": "Tower mound",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                8,
+                4
+              ],
+              [
+                24,
+                4
+              ],
+              [
+                24,
+                20
+              ],
+              [
+                8,
+                20
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 1,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#93a46c"
+          }
+        },
+        {
+          "id": "mound-stairs",
+          "name": "Mound stairs",
+          "childType": "opening",
+          "visible": true,
+          "kind": "stairs",
+          "shapeId": "mound",
+          "t": 0.625,
+          "width": 2
+        },
+        {
+          "id": "tower-door",
+          "name": "Tower door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "tower-walls",
+          "position": [
+            16,
+            16
+          ],
+          "angle": 0,
+          "width": 2,
+          "style": "single",
+          "state": "closed",
+          "isSecret": false
+        },
+        {
+          "id": "torch-door",
+          "name": "Torch by the door",
+          "childType": "light",
+          "visible": true,
+          "color": "#ffb347",
+          "radius": 6,
+          "featherRadius": 1,
+          "intensity": 1,
+          "falloff": "quadratic",
+          "position": {
+            "x": 18,
+            "y": 18
+          }
+        }
+      ],
+      "standaloneWalls": [
+        {
+          "id": "tower-walls",
+          "points": [
+            [
+              12,
+              8
+            ],
+            [
+              20,
+              8
+            ],
+            [
+              20,
+              16
+            ],
+            [
+              12,
+              16
+            ],
+            [
+              12,
+              8
+            ]
+          ],
+          "wallType": "normal",
+          "direction": "both",
+          "color": "#000000",
+          "width": 0.5,
+          "roughness": 0
+        }
+      ],
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": ""
+      },
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "room-field",
+          "name": "Field",
+          "anchor": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "room-tower",
+          "name": "Tower hall",
+          "anchor": [
+            16,
+            12
+          ]
+        }
+      ],
+      "mergedFloor": null
+    },
+    {
+      "id": "layer-first",
+      "name": "First floor",
+      "type": "dungeon",
+      "levelId": "level-first",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "first-floor",
+          "name": "First floor",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                12,
+                8
+              ],
+              [
+                20,
+                8
+              ],
+              [
+                20,
+                16
+              ],
+              [
+                12,
+                16
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "styleOverrides": {
+            "floorColor": "#b8a98c"
+          }
+        }
+      ],
+      "standaloneWalls": [],
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": ""
+      },
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "room-first",
+          "name": "Tower top room",
+          "anchor": [
+            16,
+            12
+          ]
+        }
+      ],
+      "mergedFloor": null
+    }
+  ],
+  "levels": [
+    {
+      "id": "level-cellar",
+      "name": "Cellar"
+    },
+    {
+      "id": "level-ground",
+      "name": "Ground"
+    },
+    {
+      "id": "level-first",
+      "name": "First floor"
+    }
+  ],
+  "customImages": {}
+}

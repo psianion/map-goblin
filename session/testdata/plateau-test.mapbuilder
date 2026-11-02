@@ -1,0 +1,510 @@
+{
+  "version": "3.2",
+  "mapSettings": {
+    "name": "Plateau Test",
+    "cellScale": {
+      "value": 5,
+      "unit": "ft"
+    },
+    "ambientLight": "#ffffff",
+    "fixedSize": null,
+    "roomsVersion": 2,
+    "sightDropCells": 2,
+    "crossingKinds": [
+      {
+        "id": "free",
+        "name": "Free",
+        "blocks": false
+      },
+      {
+        "id": "difficult",
+        "name": "Difficult",
+        "blocks": false
+      },
+      {
+        "id": "climb",
+        "name": "Climb",
+        "note": "DC 12 Athletics",
+        "blocks": false
+      },
+      {
+        "id": "impassable",
+        "name": "Impassable",
+        "blocks": true
+      }
+    ]
+  },
+  "grid": {
+    "visible": true,
+    "snapDivision": 2
+  },
+  "layers": [
+    {
+      "id": "bg",
+      "name": "Background",
+      "type": "background",
+      "levelId": "level-1",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "backgroundColor": "#2d2d2d",
+      "backgroundTexture": null,
+      "textureScale": 0.25,
+      "textureTint": "#ffffff",
+      "presetLock": false
+    },
+    {
+      "id": "layer-outdoors",
+      "name": "Outdoors",
+      "type": "dungeon",
+      "levelId": "level-1",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "ground",
+          "name": "Grass field",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                0,
+                0
+              ],
+              [
+                40,
+                0
+              ],
+              [
+                40,
+                32
+              ],
+              [
+                0,
+                32
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "styleOverrides": {
+            "floorColor": "#7d9a5b"
+          }
+        },
+        {
+          "id": "outcrop",
+          "name": "Rock outcrop",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                4,
+                4
+              ],
+              [
+                12,
+                4
+              ],
+              [
+                12,
+                11
+              ],
+              [
+                4,
+                11
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 2,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#a59a83"
+          }
+        },
+        {
+          "id": "outcrop-stairs",
+          "name": "Outcrop stairs",
+          "childType": "opening",
+          "visible": true,
+          "kind": "stairs",
+          "shapeId": "outcrop",
+          "t": 0.38333333333333336,
+          "width": 2
+        },
+        {
+          "id": "hill",
+          "name": "Hill",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                16,
+                3
+              ],
+              [
+                28,
+                3
+              ],
+              [
+                28,
+                13
+              ],
+              [
+                16,
+                13
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 1,
+          "edge": "slope",
+          "styleOverrides": {
+            "floorColor": "#86a362"
+          }
+        },
+        {
+          "id": "summit",
+          "name": "Hill summit",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                20,
+                6
+              ],
+              [
+                24,
+                6
+              ],
+              [
+                24,
+                10
+              ],
+              [
+                20,
+                10
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 2,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#94ad70"
+          }
+        },
+        {
+          "id": "pit",
+          "name": "Pit",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                5,
+                17
+              ],
+              [
+                11,
+                17
+              ],
+              [
+                11,
+                23
+              ],
+              [
+                5,
+                23
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": -2,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#6f6250"
+          }
+        },
+        {
+          "id": "far-mesa",
+          "name": "Far mesa",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                4,
+                26
+              ],
+              [
+                12,
+                26
+              ],
+              [
+                12,
+                31
+              ],
+              [
+                4,
+                31
+              ]
+            ]
+          ],
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "height": 3,
+          "edge": "cliff",
+          "styleOverrides": {
+            "floorColor": "#a59a83"
+          }
+        },
+        {
+          "id": "cobble-road",
+          "name": "Cobble road",
+          "childType": "path",
+          "visible": true,
+          "points": [
+            {
+              "x": 34,
+              "y": 30
+            },
+            {
+              "x": 34,
+              "y": 16
+            }
+          ],
+          "closed": false,
+          "width": 2,
+          "heightMode": "ground",
+          "materialId": "gg-forge:road-cobble",
+          "tint": "#ffffff",
+          "opacity": 1,
+          "offset": 0,
+          "flip": false,
+          "edge": "soft",
+          "edgeStrip": true,
+          "ends": {
+            "start": "cut",
+            "end": "cut",
+            "length": 1
+          },
+          "sort": "under"
+        },
+        {
+          "id": "dirt-road",
+          "name": "Dirt road",
+          "childType": "path",
+          "visible": true,
+          "points": [
+            {
+              "x": 34,
+              "y": 22
+            },
+            {
+              "x": 29,
+              "y": 18
+            },
+            {
+              "x": 26,
+              "y": 14
+            },
+            {
+              "x": 25,
+              "y": 11.5
+            }
+          ],
+          "closed": false,
+          "width": 2,
+          "heightMode": "ground",
+          "materialId": "gg-forge:road-dirt",
+          "tint": "#ffffff",
+          "opacity": 1,
+          "offset": 0,
+          "flip": false,
+          "edge": "soft",
+          "edgeStrip": true,
+          "ends": {
+            "start": "cut",
+            "end": "cut",
+            "length": 1
+          },
+          "sort": "under"
+        },
+        {
+          "id": "river",
+          "name": "River",
+          "childType": "path",
+          "visible": true,
+          "points": [
+            {
+              "x": 10,
+              "y": 6
+            },
+            {
+              "x": 6,
+              "y": 6.5
+            },
+            {
+              "x": 1.5,
+              "y": 8
+            },
+            {
+              "x": 1.5,
+              "y": 14
+            }
+          ],
+          "closed": false,
+          "width": 1.5,
+          "heightMode": "ground",
+          "materialId": "gg-forge:water",
+          "tint": "#ffffff",
+          "opacity": 1,
+          "offset": 0,
+          "flip": false,
+          "edge": "soft",
+          "edgeStrip": true,
+          "ends": {
+            "start": "cut",
+            "end": "cut",
+            "length": 1
+          },
+          "sort": "under"
+        },
+        {
+          "id": "plank-bridge",
+          "name": "Plank bridge",
+          "childType": "path",
+          "visible": true,
+          "points": [
+            {
+              "x": 7,
+              "y": 11,
+              "height": 2
+            },
+            {
+              "x": 7,
+              "y": 26,
+              "height": 3
+            }
+          ],
+          "closed": false,
+          "width": 2,
+          "heightMode": "set",
+          "materialId": "gg-forge:planks",
+          "tint": "#ffffff",
+          "opacity": 1,
+          "offset": 0,
+          "flip": false,
+          "edge": "soft",
+          "edgeStrip": true,
+          "ends": {
+            "start": "cut",
+            "end": "cut",
+            "length": 1
+          },
+          "sort": "overhead",
+          "under": "walkable"
+        },
+        {
+          "id": "torch-top",
+          "name": "Torch on the outcrop",
+          "childType": "light",
+          "visible": true,
+          "color": "#ffb347",
+          "radius": 7,
+          "featherRadius": 1,
+          "intensity": 1,
+          "falloff": "quadratic",
+          "position": {
+            "x": 8,
+            "y": 7
+          }
+        },
+        {
+          "id": "torch-ground",
+          "name": "Torch on the ground",
+          "childType": "light",
+          "visible": true,
+          "color": "#ffb347",
+          "radius": 7,
+          "featherRadius": 1,
+          "intensity": 1,
+          "falloff": "quadratic",
+          "position": {
+            "x": 20,
+            "y": 20
+          }
+        }
+      ],
+      "standaloneWalls": [],
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": ""
+      },
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "room-field",
+          "name": "Grass field",
+          "anchor": [
+            36,
+            4
+          ]
+        }
+      ],
+      "mergedFloor": null
+    }
+  ],
+  "levels": [
+    {
+      "id": "level-1",
+      "name": "Level 1"
+    }
+  ],
+  "customImages": {}
+}

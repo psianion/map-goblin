@@ -168,3 +168,84 @@ test.describe.serial('@plateaus', () => {
     await expect(player.getByTestId('crossing-chip')).toHaveCount(0)
   })
 })
+
+/**
+ * The same scenario on the authored test map (session/testdata/plateau-test.mapbuilder): a +2
+ * rock outcrop with stairs mid way down its east edge (y 6.5..8.5), a torch on top. This time
+ * the DM changes the rule from the map itself, with a right-click on the cliff.
+ */
+const PLATEAU_TEST: MapUnderTest = {
+  file: join(import.meta.dirname, '../../testdata/plateau-test.mapbuilder'),
+  name: 'Plateau Test',
+}
+
+test.describe.serial('@plateaus on plateau-test', () => {
+  let dmContext: BrowserContext
+  let playerContext: BrowserContext
+  let dm: Page
+  let player: Page
+
+  test.beforeAll(async ({ browser }) => {
+    dmContext = await browser.newContext({ viewport: VIEWPORT })
+    dm = await dmContext.newPage()
+    const code = await hostTable(dm, PLATEAU_TEST)
+    await dm.getByRole('button', { name: 'Enter table' }).click()
+    await expect(dm.locator('[data-page="table"]')).toBeVisible()
+    await assertMapRendered(dm, PLATEAU_TEST)
+
+    playerContext = await browser.newContext({ viewport: VIEWPORT })
+    player = await playerContext.newPage()
+    await joinTable(player, code, 'Borin')
+    await assertMapLoaded(player, PLATEAU_TEST)
+
+    await command(dm, 'fog', 'set-mode', { mode: 'vision' })
+    const sight = { range: 12, angle: 360, visionMode: 'normal' }
+    await command(dm, 'tokens', 'place', { name: 'Borin', x: 14.5, y: 2.5, disposition: 'friendly', sight })
+    await command(dm, 'tokens', 'place', { name: 'Lookout', x: 8.5, y: 7.5, disposition: 'hostile' })
+    await expect.poll(async () => (await held(dm, 'Borin'))?.id).toBeTruthy()
+    const borin = (await held(dm, 'Borin'))!
+    const playerId = await player.evaluate(() => (window as unknown as Tab).__sessionStore!.getState().you!.identityId)
+    await command(dm, 'tokens', 'assign', { id: borin.id, identityId: playerId })
+    await expect.poll(async () => (await held(player, 'Borin'))?.id).toBe(borin.id)
+  })
+
+  test.afterAll(async () => {
+    await playerContext?.close()
+    await dmContext?.close()
+  })
+
+  test('from the ground the outcrop top is fog; up the stairs it reveals, freely', async () => {
+    expect((await held(dm, 'Lookout'))!.elevation).toBe(2)
+    await player.waitForTimeout(1000)
+    expect(await held(player, 'Lookout')).toBeUndefined()
+
+    await drag(player, [14.5, 2.5], [14.5, 7.5])
+    await drag(player, [14.5, 7.5], [10.5, 7.5]) // through the stairs' gap
+    await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(10.5)
+    expect((await held(dm, 'Borin'))!.elevation).toBe(2)
+    await expect(player.getByTestId('crossing-chip')).toHaveCount(0)
+    await expect.poll(async () => (await held(player, 'Lookout'))?.name, { timeout: 10_000 }).toBe('Lookout')
+  })
+
+  test('the DM makes the cliff Impassable with a right-click, and the player is snapped back', async () => {
+    const at = await screenOf(dm, 12, 5)
+    await dm.mouse.click(at.x, at.y, { button: 'right' })
+    const menu = dm.getByTestId('crossing-menu')
+    await expect(menu).toBeVisible()
+    await menu.getByTestId('crossing-menu-kind').selectOption('impassable')
+    await expect(menu).toBeHidden()
+
+    await drag(player, [10.5, 7.5], [10.5, 5.5])
+    await expect.poll(async () => (await held(dm, 'Borin'))?.y).toBe(5.5)
+    await drag(player, [10.5, 5.5], [13.5, 5.5]) // straight over the east cliff
+    await expect(player.locator('[data-testid="crossing-chip"][data-refused]')).toContainText('Impassable')
+    await player.waitForTimeout(800)
+    expect((await held(dm, 'Borin'))!.x).toBe(10.5)
+  })
+
+  test.fixme('scenario 5 (table half): a token beneath the plank bridge sees it fade, one on the bridge crosses the pit at its height', async () => {
+    // "A token on the ground walks under it (planks fade), a token at +2 walks across." Needs
+    // the bridge's landings in the outcrop and far mesa cliffs and the bridge's height in
+    // elevationAt (builder A).
+  })
+})
