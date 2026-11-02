@@ -16,7 +16,11 @@ import {
   elevationAtLayers,
   hiddenTops,
   uncoveredRuns,
+  landingGaps,
+  ringGaps,
+  cliffOccluders,
 } from './plateaus';
+import type { PathChild } from './types';
 import { defaultCrossingKinds } from './crossingKinds';
 import { computeMergedFloor } from '../engine/mergedFloor';
 
@@ -327,5 +331,73 @@ describe('a lone floor at height keeps its band', () => {
     const runs = uncoveredRuns(layer)!;
     expect(runs(0)).not.toBeNull();
     expect(runs(1)).toBeNull();
+  });
+});
+
+describe('bridge landings', () => {
+  // The plateau-test bridge: from the +2 outcrop's south edge to the +3 mesa's north edge.
+  const outcrop = rect('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
+  const mesa = rect('mesa', 4, 26, 12, 31, { height: 3, edge: 'cliff' });
+  const bridge = (over: Partial<PathChild> = {}): PathChild => ({
+    id: 'bridge',
+    name: 'Bridge',
+    childType: 'path',
+    visible: true,
+    points: [{ x: 7, y: 11, height: 2 }, { x: 7, y: 26, height: 3 }],
+    closed: false,
+    width: 2,
+    heightMode: 'set',
+    materialId: 'gg-forge:planks',
+    tint: '#ffffff',
+    opacity: 1,
+    offset: 0,
+    flip: false,
+    edge: 'soft',
+    ends: { start: 'cut', end: 'cut', length: 1 },
+    sort: 'overhead',
+    ...over,
+  });
+  const layerWith = (...children: unknown[]) => ({ children }) as unknown as DungeonLayer;
+
+  it('opens a gap as wide as the bridge where each of its ends rests on a ring', () => {
+    const gaps = landingGaps(layerWith(outcrop, mesa, bridge()));
+    expect(gaps).toHaveLength(2);
+    const [a, b] = gaps;
+    expect(a.id).toBe('landing:bridge:start');
+    expect(a.position[0]).toBeCloseTo(7, 6);
+    expect(a.position[1]).toBeCloseTo(11, 6);
+    expect(a.width).toBe(2);
+    expect(b.id).toBe('landing:bridge:end');
+    expect(b.position[1]).toBeCloseTo(26, 6);
+    // The landing is part of every ring gap, so the ledge rock and the sight lines part there.
+    expect(ringGaps(layerWith(outcrop, mesa, bridge())).map((g) => g.id)).toEqual(['landing:bridge:start', 'landing:bridge:end']);
+  });
+
+  it('takes the width the bridge has at that end, and snaps an end just off the ring onto it', () => {
+    const p = bridge({ points: [{ x: 7.3, y: 11.2, width: 3 }, { x: 7, y: 25.8 }] });
+    const [a, b] = landingGaps(layerWith(outcrop, mesa, p));
+    expect(a.width).toBe(3);
+    expect(a.position[1]).toBeCloseTo(11, 6);
+    expect(a.position[0]).toBeCloseTo(7.3, 6);
+    expect(b.width).toBe(2);
+  });
+
+  it('leaves no cliff occluder across the landing', () => {
+    const layer = layerWith(outcrop, mesa, bridge());
+    for (const o of cliffOccluders(layer, 0)) {
+      // The outcrop's south edge runs y = 11; nothing of it within the bridge's half width of x = 7.
+      if (Math.abs(o.y1 - 11) < 1e-6 && Math.abs(o.y2 - 11) < 1e-6) {
+        const lo = Math.min(o.x1, o.x2);
+        const hi = Math.max(o.x1, o.x2);
+        expect(hi <= 6 + 1e-6 || lo >= 8 - 1e-6, `occluder ${lo}..${hi}`).toBe(true);
+      }
+    }
+  });
+
+  it('opens nothing for a path that is not a bridge, an end away from any ring, or a hidden bridge', () => {
+    expect(landingGaps(layerWith(outcrop, mesa, bridge({ sort: 'under' })))).toEqual([]);
+    expect(landingGaps(layerWith(outcrop, mesa, bridge({ visible: false })))).toEqual([]);
+    const loose = bridge({ points: [{ x: 7, y: 15 }, { x: 7, y: 20 }] });
+    expect(landingGaps(layerWith(outcrop, mesa, loose))).toEqual([]);
   });
 });

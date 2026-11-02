@@ -6,9 +6,9 @@ import { installStubs } from './publishStubs'
 
 /**
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
- * tower-test): plan §0 scenarios 2, 3 and 4, the hill's card readouts, and both maps
- * opening, exporting a PNG and publishing. Bridge landings and waterfalls are builder A's
- * next step and stand here as `fixme` rows with the scenario's words.
+ * tower-test): plan §0 scenarios 2, 3, 4 and the editor half of 5 (bridge landings), the
+ * hill's card readouts, and both maps opening, exporting a PNG and publishing. Waterfalls
+ * are the next step and stand here as a `fixme` row with the scenario's words.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -184,10 +184,44 @@ test.describe('plateau-test in the editor', () => {
     await expect.poll(async () => (await openings()).length).toBe(1)
   })
 
-  test.fixme('scenario 5 (editor half): a bridge from the +2 outcrop to the +3 far mesa opens a landing in each cliff it rests on', async () => {
+  test('scenario 5 (editor half): a bridge from the +2 outcrop to the +3 far mesa opens a landing in each cliff it rests on', async ({ page }) => {
     // "Draw a bridge from a +2 plateau to a +3 plateau across a pit." The plank bridge's ends
     // rest on the outcrop's south edge (7, 11) and the far mesa's north edge (7, 26): each
-    // should part the rock there (landingGaps) and leave no cliff occluder across its width.
+    // parts the rock there (landingGaps), and the bridge is planks, posts and rope.
+    await openMap(page, PLATEAU)
+    const rockNear = (height: number, x: number, y: number) =>
+      page.evaluate(
+        ({ height, x, y }) => {
+          const w = window as Any
+          const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+          const rock = find(find(w.__pixiApp.stage, `plateau-band-${height}`), 'plateau-cliff')
+          return { all: rock.children.length, near: rock.children.filter((s: Any) => Math.hypot(s.position.x - x, s.position.y - y) < 0.6).length }
+        },
+        { height, x, y },
+      )
+    await expect.poll(async () => (await rockNear(2, 7, 11)).all).toBeGreaterThan(4)
+    expect((await rockNear(2, 7, 11)).near, 'rock across the outcrop landing').toBe(0)
+    expect((await rockNear(3, 7, 26)).all).toBeGreaterThan(4)
+    expect((await rockNear(3, 7, 26)).near, 'rock across the mesa landing').toBe(0)
+    // The bridge itself: planks across, posts down both edges with a rope drawn between them.
+    const bridge = () =>
+      page.evaluate(() => {
+        const w = window as Any
+        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+        const pool = find(find(w.__pixiApp.stage, 'path-overhead-plank-bridge'), 'path-units')
+        const kids = pool?.children ?? []
+        return {
+          sprites: kids.filter((k: Any) => k.anchor).length,
+          ropes: kids.filter((k: Any) => !k.anchor).length,
+          left: kids.filter((k: Any) => k.anchor && Math.abs(k.position.x - 6) < 0.05).length,
+          right: kids.filter((k: Any) => k.anchor && Math.abs(k.position.x - 8) < 0.05).length,
+        }
+      })
+    await expect.poll(async () => (await bridge()).sprites).toBeGreaterThan(30)
+    const laid = await bridge()
+    expect(laid.ropes).toBe(1)
+    expect(laid.left).toBeGreaterThan(5)
+    expect(laid.right).toBeGreaterThan(5)
   })
 
   test.fixme('scenario 7: the river shows a waterfall where it runs off the outcrop’s west cliff', async () => {

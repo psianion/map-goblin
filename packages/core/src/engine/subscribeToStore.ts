@@ -100,7 +100,8 @@ function plateauShapeDigest(c: ShapeChild): string {
 
 /**
  * Everything else about plateaus the scene draws or sweeps: each raised floor's cliff art,
- * slope width, contour lines, sight override and crossing, and every opening on a ring.
+ * slope width, contour lines, sight override and crossing, every opening on a ring, and
+ * where each bridge's ends land.
  */
 function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
@@ -109,6 +110,11 @@ function plateauLookKey(children: readonly AnyChild[]): string {
       key += `${c.id}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
     } else if (c.childType === 'opening') {
       key += `${c.id}:${c.visible}:${c.kind}:${c.shapeId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
+    } else if (c.childType === 'path' && c.sort === 'overhead' && c.points.length >= 2) {
+      // A bridge's ends open a landing in the rings they rest on (landingGaps).
+      const a = c.points[0];
+      const b = c.points[c.points.length - 1];
+      key += `${c.id}:${c.visible}:${c.closed}:${c.width}:${a.x},${a.y},${a.width ?? ''}:${b.x},${b.y},${b.width ?? ''},`;
     }
   }
   return key;

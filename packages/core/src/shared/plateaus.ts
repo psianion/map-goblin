@@ -16,7 +16,7 @@
 //   bare edge, and never makes a room.
 
 import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { CrossingKind, OpeningChild } from './types';
+import type { CrossingKind, OpeningChild, PathChild } from './types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
@@ -641,13 +641,54 @@ export function openingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
   return gaps;
 }
 
+/** How far off a raised ring a bridge's end may rest and still land on it, cells. */
+const LANDING_REACH = 0.5;
+
+/** The nearest point of a ring to (x, y), and how far it is. */
+function nearestOnRing(ring: Polygon, x: number, y: number): { p: Vec; dist: number } {
+  let best: { p: Vec; dist: number } = { p: ring[0] as Vec, dist: Infinity };
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    const u = len2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2)) : 0;
+    const p: Vec = [a[0] + dx * u, a[1] + dy * u];
+    const d = Math.hypot(x - p[0], y - p[1]);
+    if (d < best.dist) best = { p, dist: d };
+  }
+  return best;
+}
+
 /**
- * Bridge landings: a path end resting on a cliff ring opens it like an opening does (plan
- * §5.4). Paths own their landings, so this is the seam they plug into; until then a ring has
- * no landing gaps.
+ * Bridge landings (plan §5.4): where an end of a bridge (a visible open path sorted overhead,
+ * the planks kit's place) rests on a raised ring, cliff or wall, within LANDING_REACH, the
+ * ring opens there as wide as the bridge is at that end, the way an opening opens it. In
+ * bridge order, start before end.
  */
-export function landingGaps(_layer: Pick<DungeonLayer, 'children'>): RingGap[] {
-  return [];
+export function landingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
+  const bridges = layer.children.filter(
+    (c): c is PathChild => c.childType === 'path' && c.visible && c.sort === 'overhead' && !c.closed && c.points.length >= 2,
+  );
+  if (bridges.length === 0 || !hasPlateaus(layer)) return [];
+  const rings = layerPlateaus(layer).bands.flatMap((b) => b.rings);
+  const gaps: RingGap[] = [];
+  for (const bridge of bridges) {
+    const ends = [
+      ['start', bridge.points[0]],
+      ['end', bridge.points[bridge.points.length - 1]],
+    ] as const;
+    for (const [name, end] of ends) {
+      let best: { p: Vec; dist: number } | null = null;
+      for (const ring of rings) {
+        const hit = nearestOnRing(ring, end.x, end.y);
+        if (hit.dist <= LANDING_REACH && (!best || hit.dist < best.dist)) best = hit;
+      }
+      if (best) gaps.push({ id: `landing:${bridge.id}:${name}`, position: best.p, width: end.width ?? bridge.width });
+    }
+  }
+  return gaps;
 }
 
 /** Everything that opens a raised ring on this layer: openings and bridge landings. */

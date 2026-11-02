@@ -18,7 +18,7 @@ import { GRID_CELL_PX, kitPiece, pathKit, type CatalogEntry, type PathKit } from
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { paintTiled } from './floorWallRenderer';
-import { edgeWalk, type EdgeUnit, type UnitPlacement } from './path/pathKitLayout';
+import { edgeWalk, layPlanks, type EdgeUnit, type PlanksKit } from './path/pathKitLayout';
 import type { PathChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import { SEE_UNDER_ALPHA } from './subscribeToAssets';
@@ -122,11 +122,17 @@ interface Piece {
   scale: number;
 }
 
-/** A unit's footprint across, cells: its painted content, else its grid size. */
-function unitSize(entry: CatalogEntry): number {
+/** A piece's painted width and height, cells: its content rect, else its grid size. */
+function paintedSize(entry: CatalogEntry): { w: number; h: number } {
   const cr = entry.contentRect;
-  if (cr) return Math.max(cr.w, cr.h) / GRID_CELL_PX;
+  if (cr) return { w: cr.w / GRID_CELL_PX, h: cr.h / GRID_CELL_PX };
   const [w, h] = entry.gridSize.split('x').map(Number);
+  return { w, h };
+}
+
+/** A unit's footprint across, cells. */
+function unitSize(entry: CatalogEntry): number {
+  const { w, h } = paintedSize(entry);
   return Math.max(w, h);
 }
 
@@ -143,15 +149,48 @@ function edgeUnits(kit: PathKit): { units: EdgeUnit[]; entries: Map<string, Cata
   return { units, entries };
 }
 
-/** Placements as pieces, at their authored size; art not yet in hand is asked for and skipped. */
-function piecesOf(placed: readonly UnitPlacement[], entries: Map<string, CatalogEntry>): Piece[] {
+/** The kit's planks, post and end piece the pack has art for, and their entries by key. */
+function planksOf(kit: PathKit): { planks: PlanksKit; entries: Map<string, CatalogEntry> } {
+  const entries = new Map<string, CatalogEntry>();
+  const has = (key: string | undefined): CatalogEntry | undefined => {
+    const entry = key ? kitPiece(kit, key) : undefined;
+    if (entry && key) entries.set(key, entry);
+    return entry;
+  };
+  const planks: PlanksKit = { cross: [] };
+  for (const c of kit.manifest.cross ?? []) {
+    const entry = has(c.key);
+    if (!entry) continue;
+    const { w, h } = paintedSize(entry);
+    planks.cross.push({ key: c.key, weight: c.weight, length: w, thickness: h });
+  }
+  if (has(kit.manifest.railPost)) planks.post = kit.manifest.railPost;
+  const end = has(kit.manifest.end);
+  if (end && kit.manifest.end) planks.end = { key: kit.manifest.end, length: paintedSize(end).w };
+  return { planks, entries };
+}
+
+/** Placements as pieces (authored size unless they carry a scale); art not yet in hand is asked for and skipped. */
+function piecesOf(
+  placed: readonly { key: string; x: number; y: number; rotation: number; scale?: number }[],
+  entries: Map<string, CatalogEntry>,
+): Piece[] {
   const out: Piece[] = [];
   for (const p of placed) {
     const entry = entries.get(p.key);
     if (!entry || !textureNow(entry.id)) continue;
-    out.push({ entry, x: p.x, y: p.y, rotation: p.rotation, scale: 1 });
+    out.push({ entry, x: p.x, y: p.y, rotation: p.rotation, scale: p.scale ?? 1 });
   }
   return out;
+}
+
+/** A pooled Graphics at slot `at` of `pool`, cleared: where the pieces drawn in code go. */
+function graphicsAt(pool: Container, at: number): Graphics {
+  const slot = pool.children[at];
+  if (slot instanceof Graphics) return slot.clear();
+  const g = new Graphics();
+  pool.addChildAt(g, at);
+  return g;
 }
 
 /**
@@ -197,6 +236,20 @@ function drawGroup(parent: Container, group: Group, pool: Container): void {
   if (kit && rings.length > 0) {
     const { units, entries } = edgeUnits(kit);
     at = placePieces(pool, piecesOf(edgeWalk(rings, units, head.id, group.paths), entries), tint, at);
+  }
+  if (kit?.kind === 'planks') {
+    const { planks, entries } = planksOf(kit);
+    const rope = kit.manifest.rope;
+    for (const path of group.paths) {
+      const laid = layPlanks(path, planks, path.id);
+      at = placePieces(pool, piecesOf([...laid.planks, ...laid.ends], entries), tint, at);
+      if (rope && laid.ropes.length > 0) {
+        const g = graphicsAt(pool, at++);
+        for (const [a, b] of laid.ropes) g.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
+        g.stroke({ color: parseHex(rope.color), width: rope.width, cap: 'round' });
+      }
+      at = placePieces(pool, piecesOf(laid.posts, entries), tint, at);
+    }
   }
   for (const c of pool.children.slice(at)) c.destroy();
   pool.alpha = head.opacity;

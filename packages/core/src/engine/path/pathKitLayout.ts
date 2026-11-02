@@ -208,3 +208,184 @@ export function edgeWalk(
   const ends = thinEnds(paths);
   return ends.length === 0 ? out : out.filter((u) => survivesEnds(ends, seed, u.x, u.y));
 }
+
+// ─── Planks: the cross walk, rails and ends ────────────────
+
+/** One plank a planks kit may lay: its painted length (across the path) and thickness, cells. */
+export interface PlankUnit {
+  key: string;
+  weight: number;
+  length: number;
+  thickness: number;
+}
+
+/** What a planks kit lays: planks, a rail post, an end piece (its painted width, cells). */
+export interface PlanksKit {
+  cross: PlankUnit[];
+  post?: string;
+  end?: { key: string; length: number };
+}
+
+/** A piece laid at `scale` times its authored size. */
+export interface PiecePlacement {
+  key: string;
+  x: number;
+  y: number;
+  rotation: number;
+  scale: number;
+}
+
+export interface PlanksLayout {
+  planks: PiecePlacement[];
+  posts: PiecePlacement[];
+  /** A rope from post to post, along each edge. */
+  ropes: [[number, number], [number, number]][];
+  ends: PiecePlacement[];
+}
+
+/** Rail posts stand this far apart along the path, cells. */
+export const POST_SPACING = 2;
+/** A post is laid at this share of its tile: the art is a post top a cell across. */
+export const POST_SCALE = 0.5;
+/** Each plank laps the last by this share of its thickness, so no light shows between them. */
+const PLANK_LAP = 0.1;
+/** Narrower than this a plank is not laid (the very tip of a taper). */
+const MIN_PLANK = 0.25;
+
+interface LineAt {
+  x: number;
+  y: number;
+  /** Unit tangent. */
+  tx: number;
+  ty: number;
+  width: number;
+}
+
+/** A sampler along a path's centreline by arc length. */
+function lineSampler(path: PathChild): { length: number; at: (s: number) => LineAt } | null {
+  const line = pathCentreline(path);
+  const { xy, arc, width } = line;
+  if (xy.length < 2 || line.length <= 0) return null;
+  return {
+    length: line.length,
+    at: (s) => {
+      let lo = 1;
+      let hi = arc.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (arc[mid] < s) lo = mid + 1;
+        else hi = mid;
+      }
+      const i = lo;
+      const a = xy[i - 1];
+      const b = xy[i];
+      const span = arc[i] - arc[i - 1] || 1;
+      const t = Math.max(0, Math.min(1, (s - arc[i - 1]) / span));
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return {
+        x: a[0] + (b[0] - a[0]) * t,
+        y: a[1] + (b[1] - a[1]) * t,
+        tx: (b[0] - a[0]) / len,
+        ty: (b[1] - a[1]) / len,
+        width: width[i - 1] + (width[i] - width[i - 1]) * t,
+      };
+    },
+  };
+}
+
+/**
+ * A planks path (a bridge, a dock): planks laid across the centreline from end to end, each
+ * picked by weight (seeded by the path id), turned square to the tangent and scaled so its
+ * length is the path's width there; each laps the last a little, and round a bend the step
+ * shortens until the outer ends still touch. Rail posts stand on both edges every
+ * POST_SPACING with a rope between neighbours, and end pieces sit across each cut end. A fade
+ * or taper end drops planks and posts toward the end instead of fading them.
+ */
+export function layPlanks(path: PathChild, kit: PlanksKit, seed: string): PlanksLayout {
+  const out: PlanksLayout = { planks: [], posts: [], ropes: [], ends: [] };
+  const line = lineSampler(path);
+  if (!line || kit.cross.length === 0) return out;
+  const ends = thinEnds([path]);
+  const keep = (x: number, y: number) => survivesEnds(ends, seed, x, y);
+  const rand = seededRandom(seed);
+  const L = line.length;
+
+  // Planks, centre to centre. Each next plank is picked before the step, so the step is half
+  // of both thicknesses less the lap.
+  const edgesAt = (p: LineAt): [number, number][] => [
+    [p.x - p.ty * (p.width / 2), p.y + p.tx * (p.width / 2)],
+    [p.x + p.ty * (p.width / 2), p.y - p.tx * (p.width / 2)],
+  ];
+  const thicknessAt = (plank: PlankUnit, s: number) => (plank.thickness * line.at(s).width) / plank.length;
+  let plank = pickWeighted(kit.cross, rand());
+  let s = Math.min(L, thicknessAt(plank, 0) / 2);
+  for (;;) {
+    const c = line.at(s);
+    const t = (plank.thickness * c.width) / plank.length;
+    if (c.width >= MIN_PLANK && keep(c.x, c.y)) {
+      out.planks.push({ key: plank.key, x: c.x, y: c.y, rotation: Math.atan2(c.ty, c.tx) + Math.PI / 2, scale: c.width / plank.length });
+    }
+    if (s + t / 2 >= L - 1e-9) break;
+    const next = pickWeighted(kit.cross, rand());
+    const tn = Math.max(thicknessAt(next, s), MIN_PLANK * 0.1);
+    const reach = ((Math.max(t, MIN_PLANK * 0.1) + tn) / 2) * (1 - PLANK_LAP);
+    let step = reach;
+    // Round a bend the outer edge runs longer than the centreline: shorten the step until the
+    // next plank's ends are no further from this one's than the centres are.
+    for (let k = 0; k < 3; k++) {
+      const [a0, a1] = edgesAt(c);
+      const [b0, b1] = edgesAt(line.at(Math.min(L, s + step)));
+      const outer = Math.max(Math.hypot(b0[0] - a0[0], b0[1] - a0[1]), Math.hypot(b1[0] - a1[0], b1[1] - a1[1]));
+      if (outer <= reach + 1e-9) break;
+      step *= reach / outer;
+    }
+    // The last plank lies flush with the end rather than past it.
+    s = Math.min(s + step, Math.max(s + 1e-6, L - tn / 2));
+    plank = next;
+  }
+
+  // Rails: posts on both edges, evenly spread so one stands at each end.
+  if (kit.post) {
+    const n = Math.max(1, Math.round(L / POST_SPACING));
+    for (const side of [1, -1]) {
+      let last: [number, number] | null = null;
+      for (let k = 0; k <= n; k++) {
+        const p = line.at((k * L) / n);
+        const x = p.x - p.ty * (p.width / 2) * side;
+        const y = p.y + p.tx * (p.width / 2) * side;
+        if (!keep(x, y)) {
+          last = null;
+          continue;
+        }
+        out.posts.push({ key: kit.post, x, y, rotation: Math.atan2(p.ty, p.tx), scale: POST_SCALE });
+        if (last) out.ropes.push([last, [x, y]]);
+        last = [x, y];
+      }
+    }
+  }
+
+  // End pieces across each cut end, side by side, boards running along the path.
+  if (kit.end && !path.closed) {
+    const end = kit.end;
+    for (const [kind, s0] of [
+      [path.ends.start, 0],
+      [path.ends.end, L],
+    ] as const) {
+      if (kind !== 'cut') continue;
+      const p = line.at(s0);
+      const count = Math.max(1, Math.round(p.width / end.length));
+      const each = p.width / count;
+      for (let k = 0; k < count; k++) {
+        const off = -p.width / 2 + each * (k + 0.5);
+        out.ends.push({
+          key: end.key,
+          x: p.x - p.ty * off,
+          y: p.y + p.tx * off,
+          rotation: Math.atan2(p.ty, p.tx) - Math.PI / 2,
+          scale: each / end.length,
+        });
+      }
+    }
+  }
+  return out;
+}

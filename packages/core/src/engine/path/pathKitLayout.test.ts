@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { groupOutline } from '../pathRenderer';
-import { edgeWalk, unitOverlap, type EdgeUnit, type UnitPlacement } from './pathKitLayout';
+import { edgeWalk, layPlanks, unitOverlap, POST_SPACING, type EdgeUnit, type PlanksKit, type UnitPlacement } from './pathKitLayout';
 import type { PathChild } from '../../shared/types';
 import type { Polygon } from '../../types/geometry';
 
@@ -155,5 +155,95 @@ describe('edgeWalk', () => {
     console.log(`20 roads: edge walk ${median.toFixed(2)} ms (median of 9), ${units} units`);
     expect(units).toBeGreaterThan(200);
     expect(median).toBeLessThan(5);
+  });
+});
+
+/** The planks kit as the pack ships it: two plank shapes 1.8 x 0.5 cells, posts, a short end piece. */
+const PLANKS: PlanksKit = {
+  cross: [
+    { key: 'plank-A', weight: 4, length: 1.8, thickness: 0.5 },
+    { key: 'plank-B', weight: 4, length: 1.8, thickness: 0.45 },
+    { key: 'broken-A', weight: 1, length: 1.8, thickness: 0.45 },
+  ],
+  post: 'post-A',
+  end: { key: 'short-A', length: 0.875 },
+};
+
+const bridge = (points: { x: number; y: number; width?: number }[], over: Partial<PathChild> = {}) =>
+  road('bridge', points, { materialId: 'gg-forge:planks', sort: 'overhead', ...over });
+
+/** Where a plank's two ends are, at its laid length. */
+const plankEnds = (p: { x: number; y: number; rotation: number; scale: number; key: string }) => {
+  const half = ((PLANKS.cross.find((c) => c.key === p.key)!.length * p.scale) / 2);
+  const dx = Math.cos(p.rotation) * half;
+  const dy = Math.sin(p.rotation) * half;
+  return [[p.x - dx, p.y - dy], [p.x + dx, p.y + dy]];
+};
+const thick = (p: { key: string; scale: number }) => PLANKS.cross.find((c) => c.key === p.key)!.thickness * p.scale;
+
+describe('layPlanks', () => {
+  it('lays planks across the centreline at the path’s width, turned square to it, end to end with no gap', () => {
+    const { planks } = layPlanks(bridge([{ x: 0, y: 0 }, { x: 10, y: 0 }]), PLANKS, 'bridge');
+    expect(planks.length).toBeGreaterThan(15);
+    for (const p of planks) {
+      // Square across a path running along x.
+      expect(Math.abs(Math.cos(p.rotation))).toBeLessThan(1e-6);
+      const len = PLANKS.cross.find((c) => c.key === p.key)!.length * p.scale;
+      expect(len).toBeCloseTo(2, 6);
+    }
+    const xs = planks.map((p) => p.x);
+    expect(xs[0] - thick(planks[0]) / 2).toBeLessThanOrEqual(1e-6);
+    expect(xs[xs.length - 1] + thick(planks[planks.length - 1]) / 2).toBeGreaterThanOrEqual(10 - 1e-6);
+    for (let i = 1; i < planks.length; i++) {
+      expect(xs[i] - xs[i - 1], `gap after plank ${i - 1}`).toBeLessThanOrEqual((thick(planks[i]) + thick(planks[i - 1])) / 2 + 1e-9);
+    }
+    // Picked by weight, seeded by the id: the same every time, more than one plank shape.
+    expect(layPlanks(bridge([{ x: 0, y: 0 }, { x: 10, y: 0 }]), PLANKS, 'bridge').planks).toEqual(planks);
+    expect(new Set(planks.map((p) => p.key)).size).toBeGreaterThan(1);
+  });
+
+  it('follows the per-point width', () => {
+    const { planks } = layPlanks(bridge([{ x: 0, y: 0, width: 2 }, { x: 10, y: 0, width: 3 }]), PLANKS, 'bridge');
+    const len = (p: (typeof planks)[number]) => PLANKS.cross.find((c) => c.key === p.key)!.length * p.scale;
+    expect(len(planks[0])).toBeLessThan(2.1);
+    expect(len(planks[planks.length - 1])).toBeGreaterThan(2.9);
+  });
+
+  it('keeps the outer ends touching round a bend', () => {
+    const arc = Array.from({ length: 9 }, (_, i) => {
+      const a = (i / 8) * (Math.PI / 2);
+      return { x: 6 * Math.cos(a), y: 6 * Math.sin(a) };
+    });
+    const { planks } = layPlanks(bridge(arc), PLANKS, 'bridge');
+    for (let i = 1; i < planks.length; i++) {
+      const [a0, a1] = plankEnds(planks[i - 1]);
+      const [b0, b1] = plankEnds(planks[i]);
+      const gap = Math.max(Math.hypot(a0[0] - b0[0], a0[1] - b0[1]), Math.hypot(a1[0] - b1[0], a1[1] - b1[1]));
+      expect(gap, `outer gap after plank ${i - 1}`).toBeLessThanOrEqual((thick(planks[i]) + thick(planks[i - 1])) / 2 + 1e-6);
+    }
+  });
+
+  it('stands rail posts on both edges at the kit spacing, a rope between each two', () => {
+    const { posts, ropes } = layPlanks(bridge([{ x: 0, y: 0 }, { x: 10, y: 0 }]), PLANKS, 'bridge');
+    const perSide = Math.round(10 / POST_SPACING) + 1;
+    expect(posts.filter((p) => p.y > 0)).toHaveLength(perSide);
+    expect(posts.filter((p) => p.y < 0)).toHaveLength(perSide);
+    for (const p of posts) expect(Math.abs(p.y)).toBeCloseTo(1, 6);
+    expect(ropes).toHaveLength(2 * (perSide - 1));
+    for (const [a, b] of ropes) expect(Math.hypot(b[0] - a[0], b[1] - a[1])).toBeCloseTo(10 / (perSide - 1), 6);
+  });
+
+  it('sets end pieces across each cut end, none on a fade end, and drops planks toward the fade', () => {
+    const line = [{ x: 0, y: 0 }, { x: 20, y: 0 }];
+    const cut = layPlanks(bridge(line), PLANKS, 'bridge');
+    expect(cut.ends.filter((e) => e.x < 1)).toHaveLength(2);
+    expect(cut.ends.filter((e) => e.x > 19)).toHaveLength(2);
+    // Two pieces side by side fill the 2-cell width.
+    for (const e of cut.ends) expect(0.875 * e.scale).toBeCloseTo(1, 6);
+    const faded = layPlanks(bridge(line, { ends: { start: 'cut', end: 'fade', length: 6 } }), PLANKS, 'bridge');
+    expect(faded.ends.filter((e) => e.x > 19)).toHaveLength(0);
+    expect(faded.ends.filter((e) => e.x < 1)).toHaveLength(2);
+    const nearEnd = (r: typeof cut) => r.planks.filter((p) => p.x > 14).length;
+    expect(nearEnd(faded)).toBeLessThan(nearEnd(cut));
   });
 });
