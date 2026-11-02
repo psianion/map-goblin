@@ -44,6 +44,8 @@ export interface OverheadProbe {
   /** True while core's overhead container is lifted out of the world. False since the Lighting pass. */
   lifted: boolean;
   props: { childId: string; alpha: number; tint: number }[];
+  /** Overhead paths (bridges): their alpha, and whether their art is drawn yet. */
+  paths: { childId: string; alpha: number; drawn: boolean }[];
 }
 
 export function mountOverheadLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
@@ -85,6 +87,7 @@ export function mountOverheadLayer(engine: RenderEngine, sceneGraph: SceneGraph)
       alpha: sprite.alpha,
       tint: Number(sprite.tint),
     })),
+    paths: overheadPathEntries().map(({ childId, alpha, drawn }) => ({ childId, alpha, drawn })),
   });
   const debug = window as Window & { __overheadProbe?: () => OverheadProbe };
   debug.__overheadProbe = probe;

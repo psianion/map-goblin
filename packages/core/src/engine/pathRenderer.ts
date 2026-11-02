@@ -273,10 +273,19 @@ const overhead = new Map<string, { container: Container; path: PathChild; base: 
 const fades = new Map<string, number>();
 
 /** Every overhead path on the map (bridges): what the table fades for a token beneath. */
-export function overheadPathEntries(): { childId: string; contains: (x: number, y: number) => boolean }[] {
-  return [...overhead.values()].map(({ path }) => ({
+export function overheadPathEntries(): {
+  childId: string;
+  contains: (x: number, y: number) => boolean;
+  /** What the path is drawn at now, fade included. */
+  alpha: number;
+  /** Whether its art has been drawn yet. */
+  drawn: boolean;
+}[] {
+  return [...overhead.values()].map(({ path, container }) => ({
     childId: path.id,
     contains: (x: number, y: number) => pointInPath(path, [x, y]),
+    alpha: container.alpha,
+    drawn: container.children.length > 0,
   }));
 }
 
