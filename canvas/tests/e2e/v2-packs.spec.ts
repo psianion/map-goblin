@@ -186,7 +186,7 @@ test('a zip without a manifest, and one named like a bundled pack, are refused w
   await installFixture(page, 'bad-bundled-id.zip')
   await expect(sheet.getByRole('alert')).toContainText('gg-forge is bundled with the app; rename the pack to install it beside it')
   await expect(sheet.getByTestId('v2-pack-row')).toHaveCount(rowsBefore)
-  await expect(row(page, 'gg-forge')).toContainText('1.6.0')
+  await expect(row(page, 'gg-forge')).toContainText('1.7.0')
 })
 
 test('a pack .zip dropped on the sheet installs; the Props header links to the sheet', async ({ page }) => {

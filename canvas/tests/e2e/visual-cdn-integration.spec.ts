@@ -308,7 +308,7 @@ test.describe('CDN Connectivity', () => {
     expect(result.version).toBe(await publishedPackVersion(page))
     expect(result.name).toBe('gg-forge')
     // Pinned regression tripwire — verified against the committed manifest.
-    expect(result.entryCount).toBe(113)
+    expect(result.entryCount).toBe(114)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
@@ -524,14 +524,14 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     )
 
     // Verify known gg-forge composition — pinned regression tripwire,
-    // verified against the committed manifest (gg-forge 1.6.0: two wall sets, the cave
-    // ink pieces and floor, the door kits, the two water textures and the 17 placeholder
-    // path pieces).
-    expect(counts.total).toBe(113)
+    // verified against the committed manifest (gg-forge 1.7.0: two wall sets, the cave
+    // ink pieces and floor, the door kits, the two water textures, the 17 placeholder
+    // path pieces and the cave floor's edge strip).
+    expect(counts.total).toBe(114)
     expect(counts.wall).toBe(58)
     expect(counts.floor).toBe(1)
     expect(counts.object).toBe(19)
-    expect(counts.edge).toBe(0)
+    expect(counts.edge).toBe(1)
     expect(counts.scatter).toBe(0)
     expect(counts.door).toBe(16)
   })

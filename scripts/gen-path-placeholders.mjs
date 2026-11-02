@@ -9,6 +9,9 @@
 // uses. Each material is a set named after it (`road-dirt` → `gg-forge:road-dirt`) and its
 // entry keys are `<material>-<piece>`, so final art integrated later replaces them in place.
 //
+// It also mints an edge strip for a shipped floor texture (`FLOOR_EDGES`), which the floor
+// border renderer lays where that floor sits over another.
+//
 // Every strip loops left to right with no seam: the noise lattice and the plank and cobble
 // patterns use a whole number of periods along the strip. The fill tile wraps both ways.
 
@@ -189,6 +192,21 @@ function fall() {
   return px;
 }
 
+// ─── Floor edge strips ───────────────────────────────────────────────────────
+
+/**
+ * Edge strips for shipped floor textures, in the same format as a path's edge piece and
+ * keyed `<material>_edge_2x1` beside the floor (packCatalog.floorEdgeStrip finds it there).
+ * Where a cave floor sits over another floor, it lays this ragged grey lip across the seam.
+ */
+const FLOOR_EDGES = {
+  cave_floor: {
+    set: 'GG_Cave_Floor',
+    rgb: [128, 126, 120],
+    shade: (u, v, cells) => 0.84 + fbm(u, v, 6 * cells, 6, 97) * 0.26,
+  },
+};
+
 // ─── Mint ────────────────────────────────────────────────────────────────────
 
 async function png(raw, width, height) {
@@ -226,6 +244,17 @@ try {
     }
     writeFileSync(join(setDir, 'manifest.json'), JSON.stringify({ set: name, type: 'path', loose: true, pieces: manifestPieces }));
     setDirs.push(setDir);
+  }
+  for (const [material, mat] of Object.entries(FLOOR_EDGES)) {
+    const setDir = join(work, `${material}-edge`);
+    mkdirSync(setDir);
+    const file = `${material}_edge.png`;
+    const entryKey = `${material}_edge_2x1`;
+    writeFileSync(join(setDir, file), await png(edge(mat), 2 * CELL, CELL));
+    const piece = { file, piece: 'edge', gridSize: '2x1', naturalWidth: 2 * CELL, naturalHeight: CELL, entryKey, tags: ['edge', 'placeholder'] };
+    writeFileSync(join(setDir, 'manifest.json'), JSON.stringify({ set: mat.set, type: 'edge', loose: true, pieces: [piece] }));
+    setDirs.push(setDir);
+    keys.push(entryKey);
   }
 
   const base = join(PACKS, PACK);

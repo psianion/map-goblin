@@ -324,6 +324,15 @@ export function pathMaterial(id: string): PathMaterial | undefined {
   return pathMaterials().find((m) => m.id === id);
 }
 
+/**
+ * A floor texture's edge strip, if its pack ships one: the entry `<material>_edge_2x1` beside
+ * the floor's own (row 0 against the floor, fading outward, like a path's edge piece).
+ */
+export function floorEdgeStrip(textureId: string | undefined): CatalogEntry | undefined {
+  const floor = textureId ? getCatalogEntry(qualifyTextureId(textureId)) : undefined;
+  return floor ? getCatalogEntry(`${floor.packId}:${floor.material}_edge_2x1`) : undefined;
+}
+
 // ─── Variant families ─────────────────────────────────────
 
 /**

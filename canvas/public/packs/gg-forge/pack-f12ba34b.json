@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1314,6 +1314,24 @@
         "stone"
       ]
     },
+    "cave_floor_edge_2x1": {
+      "type": "edge",
+      "material": "cave_floor_edge_2x1",
+      "gridSize": "2x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Floor",
+      "tags": [
+        "edge",
+        "placeholder"
+      ]
+    },
     "doorkit-cave-hinge": {
       "type": "door",
       "material": "doorkit-cave-hinge",
@@ -2252,6 +2270,10 @@
       "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
       "size": 160988
     },
+    "cave_floor_edge_2x1_2x1_A-5c938fd3.webp": {
+      "checksum": "sha256:5c938fd37463e5381be2631bff56ce3c3d3f8e3d37da3e78348c917a4210d112",
+      "size": 11584
+    },
     "doorkit-cave-hinge-plain_1x1_A-28d2bbd4.webp": {
       "checksum": "sha256:28d2bbd425dc9524567ba27e03d11e58f7d9d58645154363e9c027178ce60697",
       "size": 914
@@ -2457,5 +2479,5 @@
       "size": 2334
     }
   },
-  "bundleSize": 1273544
+  "bundleSize": 1285128
 }
