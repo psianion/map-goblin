@@ -13,6 +13,13 @@ import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { SizeFields, type SizeMode } from './SizeFields';
 import { useEscapeToClose } from './useEscapeToClose';
+import { PlateauRules } from './PlateauRules';
+import { crossingIdsInUse } from './plateauRulesModel';
+import type { CrossingKind } from '@dnd/core/src/shared/types';
+import { setCrossingKinds, setSightDropCells } from '@dnd/core/src/store/plateauCommands';
+import { CompositeCommand } from '@/store/commands';
+import { undoManager } from '@/store/undoManager';
+import type { Command } from '@/store/types';
 
 export interface MapSettingsModalProps {
   open: boolean;
@@ -33,6 +40,8 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
   const [scaleText, setScaleText] = useState('5');
   const [unit, setUnit] = useState<CellScaleUnit>('ft');
   const [busy, setBusy] = useState(false);
+  const [sightDrop, setSightDrop] = useState(2);
+  const [kinds, setKinds] = useState<CrossingKind[]>([]);
 
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -55,6 +64,8 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     setHeightText(String(start?.height ?? 20));
     setScaleText(String(settings.cellScale.value));
     setUnit(normalizeCellScale(settings.cellScale)?.unit ?? 'ft');
+    setSightDrop(settings.sightDropCells);
+    setKinds(settings.crossingKinds);
     setBusy(false);
     const id = requestAnimationFrame(() => {
       nameRef.current?.focus();
@@ -73,7 +84,8 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     [scaleText, unit],
   );
   const scaleInvalid = cellScale === null;
-  const canSubmit = !busy && !sizeInvalid && !scaleInvalid;
+  const kindsInvalid = kinds.some((k) => k.name.trim() === '');
+  const canSubmit = !busy && !sizeInvalid && !scaleInvalid && !kindsInvalid;
 
   const submit = useCallback(async () => {
     if (!canSubmit || !cellScale) return;
@@ -86,6 +98,13 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
       if (id && trimmed && trimmed !== originalName) await store.renameMap(id, trimmed);
       store.setFixedSize(sizeMode === 'fixed' ? fixedSize : null);
       store.setCellScale(cellScale);
+      // The plateau rules are undoable like any edit: one step for whatever changed.
+      const trimmedKinds = kinds.map((k) => ({ ...k, name: k.name.trim() }));
+      const rules = [
+        setSightDropCells(sightDrop),
+        JSON.stringify(trimmedKinds) !== JSON.stringify(store.mapSettings.crossingKinds) ? setCrossingKinds(trimmedKinds) : null,
+      ].filter((c): c is Command => c !== null);
+      if (rules.length > 0) undoManager.execute(rules.length === 1 ? rules[0] : new CompositeCommand('Plateau rules', rules));
       await useStore.getState().saveCurrentMap();
       notify.success('Settings saved');
       onOpenChange(false);
@@ -95,7 +114,7 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, cellScale, name, originalName, sizeMode, fixedSize, onOpenChange]);
+  }, [canSubmit, cellScale, name, originalName, sizeMode, fixedSize, onOpenChange, sightDrop, kinds]);
 
   // Escape closes from anywhere in the dialog, a focused field included.
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
@@ -185,6 +204,14 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
                   <p className="v2-hint">Rulers and the status bar measure in this.</p>
                 )}
               </div>
+
+              <PlateauRules
+                sightDropCells={sightDrop}
+                onSightDropCells={setSightDrop}
+                kinds={kinds}
+                onKinds={setKinds}
+                inUse={crossingIdsInUse(useStore.getState().layers)}
+              />
             </div>
 
             <div className="v2-modal__foot">

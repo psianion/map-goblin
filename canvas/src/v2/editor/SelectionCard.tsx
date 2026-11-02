@@ -50,6 +50,7 @@ import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { wallSetLabel } from './assetStrip';
 import { SlideOver } from './SlideOver';
 import { ZoneSheet } from './ZoneSheet';
+import { PlateauFields } from './PlateauFields';
 import {
   MIXED_SWATCH,
   TEXTURE_DEFAULTS,
@@ -787,6 +788,8 @@ function ShapeFields({
           </div>
         </div>
       )}
+
+      <PlateauFields layerId={layerId} ids={ids} />
     </div>
   );
 }

@@ -2,20 +2,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
-
-function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; rotate: number; scale: [number, number] }): Polygon {
-  return pts.map(([x, y]) => {
-    let px = x * t.scale[0];
-    let py = y * t.scale[1];
-    const cos = Math.cos(t.rotate);
-    const sin = Math.sin(t.rotate);
-    const rx = px * cos - py * sin;
-    const ry = px * sin + py * cos;
-    px = rx + t.translate[0];
-    py = ry + t.translate[1];
-    return [px, py] as [number, number];
-  });
-}
+import { applyShapeTransform as applyTransformToPoints, hasPlateaus, layerPlateaus, wallBandRings } from '../shared/plateaus';
 
 /**
  * Recompute mergedFloor from shape children via Clipper2 boolean union.
@@ -35,6 +22,27 @@ export function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
     (c): c is ShapeChild => c.childType === 'shape' && c.visible,
   );
 
+  if (shapeChildren.length === 0) return null;
+  if (hasPlateaus(layer)) return plateauFloor(layer);
+  return unionFloor(shapeChildren);
+}
+
+/**
+ * A layer with raised floors: the ground's union (the floors standing on no plateau),
+ * then the rings of every raised band that keeps its walls (a raised room), appended so
+ * the ground's ring indices, which stone edits key on, stay where they were. Cliffs,
+ * slopes and bare edges are not in it: they make no walls and no rooms
+ * (shared/plateaus.ts).
+ */
+function plateauFloor(layer: DungeonLayer): Polygon[] | null {
+  const plateaus = layerPlateaus(layer);
+  const ground = unionFloor(plateaus.ground) ?? [];
+  const out = [...ground, ...wallBandRings(plateaus)];
+  return out.length > 0 ? out : null;
+}
+
+/** The plain union of floors: every outer ring unioned, every hole subtracted. */
+function unionFloor(shapeChildren: ShapeChild[]): Polygon[] | null {
   if (shapeChildren.length === 0) return null;
 
   // Collect outer rings and hole rings separately, applying transforms

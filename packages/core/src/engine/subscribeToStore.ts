@@ -14,7 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
+import type { AnyChild, DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
 import { isLayerShown } from '../store/selectors';
@@ -93,6 +93,27 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  * digest. Nothing does today — every write goes through useStore.setState. If
  * one appears, key the cache on a version counter instead.
  */
+/** A floor's height and edge kind: they decide which band it joins and whether its ring is a wall. */
+function plateauShapeDigest(c: ShapeChild): string {
+  return c.height || c.edge ? `${c.height ?? 0}/${c.edge ?? ''}` : '';
+}
+
+/**
+ * Everything else about plateaus the scene draws or sweeps: each raised floor's cliff art,
+ * slope width, contour lines, sight override and crossing, and every opening on a ring.
+ */
+function plateauLookKey(children: readonly AnyChild[]): string {
+  let key = '';
+  for (const c of children) {
+    if (c.childType === 'shape' && (c.height || c.edge)) {
+      key += `${c.id}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+    } else if (c.childType === 'opening') {
+      key += `${c.id}:${c.visible}:${c.kind}:${c.shapeId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
+    }
+  }
+  return key;
+}
+
 function geometryDigest(shape: RingGeometry & object): number {
   const cached = digestCache.get(shape);
   if (cached !== undefined) return cached;
@@ -493,7 +514,7 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             // styleOverrides too: a per-shape floor colour is painted by this bake,
             // and leaving it out meant setting one changed the store and nothing else.
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${plateauShapeDigest(c)}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no
@@ -502,7 +523,7 @@ export function subscribeToStore(
           // every room on every pointermove.
           shapeGeometryKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${plateauShapeDigest(c)}`)
             .join(','),
           // Door GEOMETRY (id/visible/width/position/wallId) — a change here
           // still needs the full rebuild below because withoutDoorGaps
@@ -544,11 +565,15 @@ export function subscribeToStore(
           areasRef: refId(l.areas),
           // Props with "Blocks light and sight": moving, turning or resizing one re-sweeps.
           propOccluders: propOccluderKey(l.children),
+          // How plateau edges are drawn and whether they hide (see plateauLookKey), and the
+          // map's sight threshold they are measured against. Render and lighting only: the
+          // union and the rooms read heights and edge kinds, which ride in the shape keys.
+          plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}`,
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -574,11 +599,11 @@ export function subscribeToStore(
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}`;
+          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -697,7 +722,8 @@ export function subscribeToStore(
           item.thresholdKey === b[i].thresholdKey &&
           item.roomsRef === b[i].roomsRef &&
           item.areasRef === b[i].areasRef &&
-          item.propOccluders === b[i].propOccluders,
+          item.propOccluders === b[i].propOccluders &&
+          item.plateauKey === b[i].plateauKey,
         ),
     },
   );

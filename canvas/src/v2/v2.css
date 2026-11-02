@@ -593,6 +593,19 @@
 .v2-size-row--flush {
   margin-top: 0;
 }
+/* Map settings: the crossing kinds, one row each. */
+.v2-crossing-kinds {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.v2-crossing-kinds .v2-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
 .v2-segs--unit {
   flex: none;
 }
