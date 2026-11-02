@@ -4,7 +4,6 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer, ShapeChild, ToolType } from '@/store/types';
 import { ToolSettings, ToolSwatches } from './DockControls';
-import { WATER_BANK_TEXTURE } from './assetStrip';
 import { SCATTER_TINT_PALETTE } from './PropsDock';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
 
@@ -252,28 +251,6 @@ describe('drawing quick settings', () => {
   });
 });
 
-describe('water quick settings', () => {
-  it('turns banks on and off with the two bank ids', () => {
-    useStore.getState().updateWaterSettings({ bankTextureId: '' });
-    settings('water');
-    const banks = screen.getByRole('switch', { name: 'Banks' });
-    expect(banks.getAttribute('aria-checked')).toBe('false');
-
-    fireEvent.click(banks);
-    expect(useStore.getState().tools.settings.water.bankTextureId).toBe(WATER_BANK_TEXTURE);
-    expect(WATER_BANK_TEXTURE).toBe('gg-forge:bank-grassy-01-a1');
-
-    fireEvent.click(screen.getByRole('switch', { name: 'Banks' }));
-    expect(useStore.getState().tools.settings.water.bankTextureId).toBe('');
-  });
-
-  it('has no Flow slider: water is still', () => {
-    settings('water');
-    expect(screen.queryByLabelText('Flow')).toBeNull();
-    expect(screen.queryByText('Flow')).toBeNull();
-  });
-});
-
 describe('wall quick settings', () => {
   it('a cave kit layer keeps its wall tint but has no width: the rock is laid at its drawn size', () => {
     useStore.getState().updateLayer(dungeon().id, { style: { ...dungeon().style, wallTextureSetId: 'GG_Stone' } });
@@ -377,7 +354,7 @@ describe('wall quick settings', () => {
 });
 
 describe('All settings', () => {
-  it.each<ToolType>(['rectangle', 'polygon', 'regularPolygon', 'path', 'terrain', 'water', 'wall', 'door', 'scatterBrush'])(
+  it.each<ToolType>(['rectangle', 'polygon', 'regularPolygon', 'path', 'terrain', 'wall', 'door', 'scatterBrush'])(
     'is gone for %s, whose settings all sit in the row',
     (tool) => {
       settings(tool);

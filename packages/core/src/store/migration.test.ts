@@ -1,6 +1,15 @@
 // src/store/migration.test.ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { migrateToLatest, CURRENT_VERSION, NEUTRAL_TINT, isLegacyTint } from './migration'
+import {
+  migrateToLatest,
+  CURRENT_VERSION,
+  NEUTRAL_TINT,
+  countWaterBodies,
+  dropWaterBodies,
+  isLegacyTint,
+  waterRemovedMessage,
+} from './migration'
+import { defaultCrossingKinds } from '../shared/crossingKinds'
 import { isBandSet } from '../assets/packCatalog'
 import { isCaveBandAsset } from '../assets/caveWallKit'
 import { seedCaveBandPack, caveBandChildren, resetAssetPackManager } from '../testing/seedCatalog'
@@ -19,8 +28,8 @@ const V2_BASE = {
 }
 
 describe('migrateToLatest', () => {
-  it('exports CURRENT_VERSION as 3.1', () => {
-    expect(CURRENT_VERSION).toBe('3.1')
+  it('exports CURRENT_VERSION as 3.2', () => {
+    expect(CURRENT_VERSION).toBe('3.2')
   })
 
   it('migrates v2.0 data to v3.0', () => {
@@ -94,6 +103,8 @@ describe('migrateToLatest', () => {
         name: 'Test',
         cellScale: { value: 5, unit: 'ft' },
         ambientLight: '#ffffff', // Night was a legacy tint: white on load
+        sightDropCells: 2,
+        crossingKinds: defaultCrossingKinds(),
       })
       // The caller's object is left alone.
       expect(saved.mapSettings).toHaveProperty('gridType', 'square')
@@ -177,6 +188,94 @@ describe('migrateToLatest', () => {
       const oldData = { ...V2_BASE, version: ver }
       expect(() => migrateToLatest(oldData)).toThrow(/unknown map format version/i)
     }
+  })
+})
+
+describe('3.2: old water goes, plateau settings arrive', () => {
+  const river = {
+    id: 'river', name: 'River', childType: 'water', visible: true, waterType: 'river',
+    contours: [[[0, 0], [8, 0], [8, 1], [0, 1]]], textureId: 'gg-forge:water-still-a-01', tint: '#ffffff',
+    opacity: 1, bankTextureId: 'gg-forge:bank-grassy-01-a1', bankWidth: 0.5,
+  }
+  const lake = { ...river, id: 'lake', name: 'Lake', waterType: 'lake', contours: [[[2, 2], [6, 2], [6, 6], [2, 6]]] }
+  // A corridor from the retired path tool: a plain floor shape that must keep loading.
+  const corridor = {
+    id: 'corridor', name: 'Corridor', childType: 'shape', visible: true, shapeType: 'path',
+    contours: [[[0, 4], [8, 4], [8, 4.5], [0, 4.5]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0,
+    textureFillRotation: 0, textureTint: '#ffffff',
+  }
+  const torch = { id: 'torch', name: 'Torch', childType: 'light', position: { x: 1, y: 1 } }
+  const dungeon = (id: string, children: unknown[]) => ({
+    type: 'dungeon', id, name: id, visible: true, locked: false, opacity: 1,
+    children, standaloneWalls: [], mergedFloor: null, style: {}, sublayerVisibility: {},
+  })
+  const saved = (version: string) =>
+    ({
+      ...V2_BASE,
+      version,
+      layers: [dungeon('l1', [river, corridor, torch]), dungeon('l2', [lake]), { type: 'background', id: 'bg' }],
+    }) as unknown as Parameters<typeof migrateToLatest>[0]
+  const kids = (data: { layers: unknown[] }, i: number) =>
+    (data.layers[i] as { children: { id: string; childType: string }[] }).children
+
+  it('drops every river and lake from every layer on 2.0, 3.0 and 3.1, and keeps the rest', () => {
+    for (const version of ['2.0', '3.0', '3.1']) {
+      const doc = saved(version)
+      expect(countWaterBodies(doc.layers)).toBe(2)
+      const result = migrateToLatest(doc)
+      // The stamp moves on the next save, as for every 3.x file.
+      expect(result.version).toBe(version === '2.0' ? '3.0' : version)
+      expect(kids(result, 0).map((c) => c.id)).toEqual(['corridor', 'torch'])
+      expect(kids(result, 1)).toEqual([])
+      expect(countWaterBodies(result.layers)).toBe(0)
+      // The caller's document is left alone.
+      expect(kids(doc, 0)).toHaveLength(3)
+    }
+  })
+
+  it('keeps an old path-tool corridor as a plain floor shape', () => {
+    const result = migrateToLatest(saved('3.1'))
+    expect(kids(result, 0)[0]).toMatchObject({ id: 'corridor', childType: 'shape', shapeType: 'path' })
+  })
+
+  it('seeds the sight threshold and the crossing kinds on older files', () => {
+    for (const version of ['2.0', '3.0', '3.1']) {
+      const { mapSettings } = migrateToLatest(saved(version))
+      expect(mapSettings.sightDropCells).toBe(2)
+      expect(mapSettings.crossingKinds.map((k) => [k.name, k.blocks])).toEqual([
+        ['Free', false],
+        ['Difficult', false],
+        ['Climb', false],
+        ['Impassable', true],
+      ])
+      expect(mapSettings.crossingKinds.find((k) => k.id === 'climb')?.note).toBe('e.g. DC 12 Athletics')
+    }
+  })
+
+  it('loads a 3.2 file as it is, its own rules kept', () => {
+    const kinds = [{ id: 'free', name: 'Open', blocks: false }]
+    const doc = {
+      ...V2_BASE,
+      version: '3.2',
+      mapSettings: { ...V2_BASE.mapSettings, ambientLight: '#ffffff', sightDropCells: 3, crossingKinds: kinds },
+      layers: [dungeon('l1', [corridor])],
+    } as unknown as Parameters<typeof migrateToLatest>[0]
+    const result = migrateToLatest(doc)
+    expect(result.version).toBe('3.2')
+    expect(result.mapSettings.sightDropCells).toBe(3)
+    expect(result.mapSettings.crossingKinds).toEqual(kinds)
+    expect(result.layers).toBe(doc.layers)
+  })
+
+  it('hands the layers back untouched when there is no water', () => {
+    const layers = [dungeon('l1', [corridor, torch])] as unknown as Parameters<typeof dropWaterBodies>[0]
+    expect(dropWaterBodies(layers)).toEqual({ layers, removed: 0 })
+    expect(dropWaterBodies(layers).layers).toBe(layers)
+  })
+
+  it('words the load toast for one body and for several', () => {
+    expect(waterRemovedMessage(1)).toBe('1 water body from the old water tool was removed; redraw it with the Path tool.')
+    expect(waterRemovedMessage(3)).toBe('3 water bodies from the old water tool were removed; redraw them with the Path tool.')
   })
 })
 

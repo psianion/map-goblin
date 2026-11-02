@@ -107,7 +107,6 @@ describe('subscribeToTextLabels', () => {
     // access) instead of silently passing because the fake only had `labels`.
     vi.mocked(getLayerEntry).mockReturnValue({
       sublayers: {
-        water: new MockContainer(),
         floor: new MockContainer(),
         grid: new MockContainer(),
         walls: new MockContainer(),

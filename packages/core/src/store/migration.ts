@@ -2,17 +2,19 @@
 import type { SerializedMapData } from './types'
 import type { Level } from '../shared/types'
 import { levelOf } from '../shared/lookScope'
+import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
 
-export const CURRENT_VERSION = '3.1' as const
+export const CURRENT_VERSION = '3.2' as const
 
 /**
  * Every file version a reader must accept, oldest first. THE one list — the
  * editor's load gate, the autosave gate, the `.mapbuilder` decoder and the
  * session server's upload validation all consume it, so widening the format is
  * a one-line change here plus a migration below when the shape actually moved.
- * ('3.0' → '3.1' is purely additive — optional `prep` — so no migration step.)
+ * ('3.0' → '3.1' is purely additive — optional `prep` — so no migration step.
+ * '3.1' → '3.2' drops the old water bodies, see `dropWaterBodies`.)
  */
-export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1']
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2']
 
 export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
   return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
@@ -58,15 +60,19 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
     result = migrateV2ToV3(result as V2Data)
   }
 
-  // '3.0' loads as-is: '3.1' only added the optional `prep` block, and the
-  // version stamp is rewritten to CURRENT_VERSION on the next save.
-  if (result.version !== '3.0' && result.version !== CURRENT_VERSION) {
+  // '3.0' and '3.1' load as-is: '3.1' only added the optional `prep` block, and '3.2' takes
+  // the water tool's bodies away (`dropWaterBodies`) and adds the plateau settings
+  // (`withPlateauSettings`), both below on every load. The version stamp is rewritten to
+  // CURRENT_VERSION on the next save.
+  if (result.version !== '3.0' && result.version !== '3.1' && result.version !== CURRENT_VERSION) {
     throw new Error(
       `Unknown map format version: ${result.version}. Expected ${CURRENT_VERSION}.`,
     )
   }
 
-  const migrated = neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData))
+  const water = dropWaterBodies((result as SerializedMapData).layers)
+  if (water.removed > 0) result = { ...result, layers: water.layers } as SerializedMapData
+  const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData)))
   if (!caveKit) return migrated
   const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
   return layers === migrated.layers ? migrated : { ...migrated, layers }
@@ -116,6 +122,65 @@ function hasPlacedCaveBand(layer: unknown, levels: readonly Level[], caveKit: Ca
   const setId = own === undefined ? levelOf(levels, { levelId: l.levelId ?? '' }).look?.wallTextureSetId : own
   if (typeof setId !== 'string' || !caveKit.isBandSet(setId)) return false
   return l.children.some((child) => isPlacedCaveBandPiece(child, caveKit))
+}
+
+function isWaterBody(child: unknown): boolean {
+  return !!child && typeof child === 'object' && (child as { childType?: unknown }).childType === 'water'
+}
+
+/**
+ * The bodies the retired water tool drew (`childType: 'water'`, rivers and lakes) in a
+ * document's layers. Read before migrating, so a loader can say how many it lost.
+ */
+export function countWaterBodies(layers: unknown): number {
+  if (!Array.isArray(layers)) return 0
+  let n = 0
+  for (const layer of layers) {
+    const children = (layer as { children?: unknown } | null)?.children
+    if (Array.isArray(children)) n += children.filter(isWaterBody).length
+  }
+  return n
+}
+
+/**
+ * Every layer without its water bodies. The user chose to redraw old water with the Path
+ * tool rather than convert it, so 3.2 drops them on load; the editor and the session server
+ * both come through here. Hands back `layers` itself when there is none.
+ */
+export function dropWaterBodies(layers: SerializedMapData['layers']): {
+  layers: SerializedMapData['layers']
+  removed: number
+} {
+  const removed = countWaterBodies(layers)
+  if (removed === 0) return { layers, removed }
+  return {
+    layers: layers.map((layer) => {
+      const children = (layer as unknown as { children?: unknown }).children
+      if (!Array.isArray(children) || !children.some(isWaterBody)) return layer
+      return { ...layer, children: children.filter((c) => !isWaterBody(c)) } as unknown as typeof layer
+    }),
+    removed,
+  }
+}
+
+/** The toast a loader shows when `countWaterBodies` found some. */
+export function waterRemovedMessage(n: number): string {
+  const bodies = n === 1 ? '1 water body' : `${n} water bodies`
+  return `${bodies} from the old water tool ${n === 1 ? 'was' : 'were'} removed; redraw ${n === 1 ? 'it' : 'them'} with the Path tool.`
+}
+
+/** A map from before plateaus gets the sight threshold and the seeded crossing kinds. */
+function withPlateauSettings(data: SerializedMapData): SerializedMapData {
+  const settings = data.mapSettings as Partial<SerializedMapData['mapSettings']> | undefined
+  if (!settings || (typeof settings.sightDropCells === 'number' && Array.isArray(settings.crossingKinds))) return data
+  return {
+    ...data,
+    mapSettings: {
+      ...data.mapSettings,
+      sightDropCells: typeof settings.sightDropCells === 'number' ? settings.sightDropCells : DEFAULT_SIGHT_DROP_CELLS,
+      crossingKinds: Array.isArray(settings.crossingKinds) ? settings.crossingKinds : defaultCrossingKinds(),
+    },
+  }
 }
 
 /** The mood tint that changes nothing: the world in neutral daylight (`shared/world`). */

@@ -6,7 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { createDissolveGroupCommand, createGroupChildrenCommand } from '../../store/commands';
 import { setNotify } from '../../store/notify';
 import type { RenderEngine } from '../RenderEngine';
-import type { AnyChild, DungeonLayer } from '../../store/types';
+import type { DungeonLayer } from '../../store/types';
 import type { AssetChild, LightChild, ShapeChild } from '../../shared/types';
 
 // jsdom has no real <canvas> 2D context (the `canvas` npm package isn't
@@ -247,16 +247,12 @@ describe('SelectTool — shape hover dwell gate', () => {
     expect(drawn()).toBe(false);
   });
 
-  it('a hovered water body hidden from outside the canvas leaves no outline', () => {
-    const water = {
-      id: 'lake', name: 'Lake', childType: 'water', visible: true, waterType: 'lake', textureId: '', tint: '#ffffff',
-      opacity: 1, bankTextureId: '', bankWidth: 0, contours: [[[20, 20], [24, 20], [24, 24], [20, 24]]],
-    } as unknown as AnyChild;
-    useStore.getState().addChild(layer().id, water);
-    tool.onPointerMove({ x: 22, y: 22 });
+  it('a hovered prop hidden from outside the canvas leaves no outline', () => {
+    const a = addAsset({ x: 5, y: 5 });
+    tool.onPointerMove({ x: 5, y: 5 });
     expect(drawn()).toBe(true);
     // The card's Hide button: the store hides it, the pointer does not move.
-    useStore.getState().updateChild(layer().id, 'lake', { visible: false });
+    useStore.getState().updateChild(layer().id, a.id, { visible: false });
     tool.updateGizmo();
     expect(drawn()).toBe(false);
     expect(useStore.getState().selection.hoveredId).toBeNull();

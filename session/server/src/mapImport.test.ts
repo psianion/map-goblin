@@ -21,7 +21,7 @@ function doc(version: unknown): unknown {
 
 describe('validateMapData', () => {
   it('accepts every version SUPPORTED_VERSIONS lists', () => {
-    for (const version of ['2.0', '3.0', '3.1']) {
+    for (const version of ['2.0', '3.0', '3.1', '3.2']) {
       expect(validateMapData(doc(version))).toMatchObject({ ok: true })
     }
   })
@@ -55,6 +55,25 @@ describe('parseMapFile', () => {
   it('leaves a current file that has nothing to migrate as it arrived', () => {
     const result = parseMapFile(JSON.stringify(doc('3.1')))
     expect(result).toMatchObject({ ok: true, migrated: false })
+  })
+
+  it('stores a file that still holds old water bodies without them, the rest kept', () => {
+    const lake = { id: 'lake', name: 'Lake', childType: 'water', visible: true, contours: [[[0, 0], [2, 0], [2, 2]]] }
+    const torch = { id: 'torch', name: 'Torch', childType: 'light', visible: true, position: { x: 1, y: 1 } }
+    const result = parseMapFile(JSON.stringify({ ...(doc('3.1') as object), layers: [{ type: 'dungeon', id: 'l', children: [lake, torch] }] }))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(true)
+    expect((result.data.layers[0] as unknown as { children: { id: string }[] }).children.map((c) => c.id)).toEqual(['torch'])
+  })
+
+  it('takes a 3.2 file with paths and openings as it arrived', () => {
+    const road = { id: 'road', name: 'Road', childType: 'path', visible: true, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }], closed: false, width: 1 }
+    const stairs = { id: 'stairs', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', shapeId: 's', t: 0.5, width: 2 }
+    const file = { ...(doc('3.2') as object), layers: [{ type: 'dungeon', id: 'l', children: [road, stairs] }] }
+    const result = parseMapFile(JSON.stringify(file))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(false)
+    expect(result.data).toEqual(file)
   })
 
   it('refuses a 2.0 file whose layers the migration cannot read, instead of throwing', () => {

@@ -45,7 +45,6 @@ export interface SceneGraphOptions {
 }
 
 export interface DungeonSublayers {
-  water: Container;
   floor: Container;
   /**
    * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
@@ -224,7 +223,6 @@ export function addLayerToScene(
 
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
-    const water = new Container(); water.label = 'sublayer-water';
     const floor = new Container(); floor.label = 'sublayer-floor';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
@@ -237,8 +235,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(water, floor, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { water, floor, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

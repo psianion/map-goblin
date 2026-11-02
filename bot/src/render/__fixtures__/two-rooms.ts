@@ -80,22 +80,6 @@ const vault = {
   ],
 }
 
-const pool = {
-  id: 'water-1',
-  name: 'Cistern pool',
-  childType: 'water',
-  waterType: 'lake',
-  visible: true,
-  contours: [
-    [
-      [1.5, 7],
-      [4.5, 7],
-      [4.5, 9],
-      [1.5, 9],
-    ],
-  ],
-}
-
 const brazier = {
   id: 'light-1',
   name: 'Brazier',
@@ -231,7 +215,7 @@ export const dmMap = {
       name: 'Lower Vaults',
       type: 'dungeon',
       visible: true,
-      children: [westHall, corridor, vault, pool, brazier, westDoor, vaultDoor, secretDoor, vaultLabel],
+      children: [westHall, corridor, vault, brazier, westDoor, vaultDoor, secretDoor, vaultLabel],
       standaloneWalls: [
         {
           id: 'wall-partition',
@@ -267,7 +251,7 @@ export const playerMap = {
       name: 'Lower Vaults',
       type: 'dungeon',
       visible: true,
-      children: [westHall, corridor, pool, brazier, westDoor, vaultDoor],
+      children: [westHall, corridor, brazier, westDoor, vaultDoor],
       standaloneWalls: [],
       mergedFloor: null,
       style,

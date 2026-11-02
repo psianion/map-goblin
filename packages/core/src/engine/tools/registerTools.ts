@@ -13,7 +13,6 @@ import { LightTool } from './LightTool';
 import { StampScatterTool } from './StampScatterTool';
 import { DoorTool } from './DoorTool';
 import { TerrainTool } from './TerrainTool';
-import { WaterTool } from './WaterTool';
 import { ZoneTool } from './ZoneTool';
 import { RoomPolygonTool, RoomRectTool } from './RoomTools';
 import { DivideTool } from './DivideTool';
@@ -35,7 +34,6 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new LightTool());
   manager.registerTool(new StampScatterTool(previewContainer));
   manager.registerTool(new TerrainTool(engine, previewContainer));
-  manager.registerTool(new WaterTool(engine));
   manager.registerTool(new ZoneTool(previewContainer));
   manager.registerTool(new RoomRectTool());
   manager.registerTool(new RoomPolygonTool());

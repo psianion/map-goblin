@@ -155,10 +155,9 @@ describe('delete / ctrl+x — owning-layer validation (X1)', () => {
 });
 
 describe('help list', () => {
-  it('lists the terrain and water tools with their keys', () => {
+  it('lists the terrain tool with its key', () => {
     const tools = SHORTCUTS.filter((s) => s.group === 'Tools');
     expect(tools).toContainEqual(expect.objectContaining({ combo: 't', label: 'Terrain' }));
-    expect(tools).toContainEqual(expect.objectContaining({ combo: 'u', label: 'Water' }));
   });
 
   it('lists the Props tool on B', () => {
@@ -287,7 +286,7 @@ describe('deletedMessage', () => {
   it('names what went by its kind', () => {
     expect(deletedMessage({ shape: 1 })).toBe('Deleted 1 floor');
     expect(deletedMessage({ asset: 3 })).toBe('Deleted 3 props');
-    expect(deletedMessage({ water: 1 })).toBe('Deleted 1 water body');
+    expect(deletedMessage({ path: 1 })).toBe('Deleted 1 path');
   });
 
   it('names the walls and the doors that went with them; a mix is objects', () => {

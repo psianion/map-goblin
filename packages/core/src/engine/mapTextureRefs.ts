@@ -16,8 +16,7 @@ import type { Level, RoomLook, SerializedMapData } from '../store/types';
 export type MapTextureSource = Pick<SerializedMapData, 'mapSettings' | 'layers'> & { levels?: readonly Level[] };
 
 /**
- * Every raw texture id a map references: floor/shape fills, water + water
- * banks, light masks, door portals, the background texture, terrain palette
+ * Every raw texture id a map references: floor/shape fills, light masks, door portals, the background texture, terrain palette
  * slots, and every piece of every wall material family a dungeon layer uses
  * (the layer default plus any per-wall pin).
  *
@@ -73,10 +72,6 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
             if (typeof pinned === 'string') addWallFamily(pinned);
             break;
           }
-          case 'water':
-            add(child.textureId);
-            add(child.bankTextureId);
-            break;
           case 'door':
             add(child.portalTextureId);
             break;
@@ -112,7 +107,7 @@ export function resolveAssetSets(
     let packId: string;
     let entryId: string;
     if (sep === -1) {
-      // A bare id saved before it carried a pack prefix (the water textures):
+      // A bare id saved before it carried a pack prefix:
       // the first pack that has an entry by that name owns it.
       const owner = manifests.find((m) => m.manifest.entries[rawId]);
       if (!owner) continue;

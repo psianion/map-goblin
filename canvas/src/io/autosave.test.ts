@@ -25,7 +25,7 @@ import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
-import type { DungeonLayer, WaterChild } from '@/store/types';
+import type { AssetChild, DungeonLayer } from '@/store/types';
 
 describe('isDocumentChange', () => {
   const base = () => {
@@ -344,14 +344,14 @@ describe('autosave of a hide, wired as App wires it', () => {
     vi.useRealTimers();
   });
 
-  it('saves after Ctrl+Shift+H hides a water body, within the prompt delay', async () => {
+  it('saves after Ctrl+Shift+H hides a prop, within the prompt delay', async () => {
     const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
-    const water = {
-      id: 'lake', name: 'Lake', childType: 'water', visible: true, waterType: 'lake', textureId: '', tint: '#ffffff',
-      opacity: 1, bankTextureId: '', bankWidth: 0, contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
-    } as unknown as WaterChild;
-    useStore.getState().addChild(layer.id, water);
-    useStore.getState().setSelectedIds(['lake']);
+    const crate = {
+      id: 'crate', name: 'Crate', childType: 'asset', visible: true, objectType: 'asset', assetId: 'a', position: { x: 2, y: 2 },
+      rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false,
+    } as AssetChild;
+    useStore.getState().addChild(layer.id, crate);
+    useStore.getState().setSelectedIds(['crate']);
     const saveCurrentMap = vi.fn().mockResolvedValue(undefined);
     const stop = startAutosave(saveCurrentMap, (listener) =>
       useStore.subscribe((s, prev) => {
@@ -360,7 +360,7 @@ describe('autosave of a hide, wired as App wires it', () => {
     );
     handleShortcut('ctrl+shift+h');
     const after = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon')!;
-    expect(after.children.find((c) => c.id === 'lake')!.visible).toBe(false);
+    expect(after.children.find((c) => c.id === 'crate')!.visible).toBe(false);
     await vi.advanceTimersByTimeAsync(AUTOSAVE_PROMPT_DELAY_MS);
     expect(saveCurrentMap).toHaveBeenCalledTimes(1);
     stop();

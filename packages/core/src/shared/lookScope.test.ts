@@ -13,7 +13,7 @@ import { edgeStyles, levelFloorTextureId, levelStyle, ringLook, ringStyles, styl
 import type { DungeonLayer, MapSettings } from '../store/types';
 import type { Level, Room, RoomArea } from './types';
 
-const MAP: MapSettings = { name: 'Map', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#223344' };
+const MAP: MapSettings = { name: 'Map', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#223344', sightDropCells: 2, crossingKinds: [] };
 
 function layer(style: Partial<DungeonLayer['style']> = {}, patch: Partial<DungeonLayer> = {}): DungeonLayer {
   return {

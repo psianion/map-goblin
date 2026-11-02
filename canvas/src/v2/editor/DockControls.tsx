@@ -10,7 +10,7 @@ import { DUNGEON_STYLE_PRESETS, matchPresetId, type MapStylePreset } from '@/sto
 import { LayerWallLookCommand, PresetApplyCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
-import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
+import { TERRAIN_BRUSH_RANGES } from '@/store/slices/tools';
 import { familyKeyOf, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import {
   minDoorWidth,
@@ -30,7 +30,6 @@ import { STYLE_TOOLS, type DockTabId } from './dockTabs';
 import { ColorCtl, Ctl, DockPopover, RangeInput, Seg, Select, Slider, Switch } from './controls';
 import {
   TERRAIN_SLOT_COUNT,
-  WATER_BANK_TEXTURE,
   floorCandidates,
   floorColourGesture,
   floorColourValue,
@@ -525,7 +524,6 @@ export function ToolSwatches({
  *   Rectangle, Polygon, Path   presets · floor colour (tint of textured floors) · wall width
  *   Regular polygon            presets · floor colour · sides · wall width
  *   Terrain                    textures · size · strength · tint · tint opacity
- *   Water                      river/lake · width (river) · banks
  *   Wall                       type · width (not for cave kits) · wall tint (textured walls)
  *   Door                       style · secret · width
  *   Props                      mode · scale, angle, mirror, variant (stamp) or radius, density (scatter) · ⋯
@@ -795,32 +793,6 @@ function TerrainSettings() {
   );
 }
 
-function WaterSettings() {
-  const water = useStore(useShallow((s) => s.tools.settings.water));
-  const set = useStore.getState().updateWaterSettings;
-  return (
-    <>
-      <Seg
-        label="Kind"
-        value={water.mode}
-        options={[
-          { value: 'river', label: 'River' },
-          { value: 'lake', label: 'Lake' },
-        ]}
-        onChange={(v) => set({ mode: v })}
-      />
-      {water.mode === 'river' && (
-        <Slider label="Width" width={56} value={water.width} {...WATER_RANGES.width} format={fixed(1)} onChange={(v) => set({ width: v })} />
-      )}
-      <Switch
-        label="Banks"
-        checked={!!water.bankTextureId}
-        onChange={(on) => set({ bankTextureId: on ? WATER_BANK_TEXTURE : '' })}
-      />
-    </>
-  );
-}
-
 function LabelSettings() {
   const label = useStore(useShallow((s) => s.tools.settings.label));
   const layer = useActiveDungeonLayer();
@@ -865,8 +837,6 @@ function QuickSettings({ tool }: { tool: ToolType }) {
       return <DoorSettings />;
     case 'terrain':
       return <TerrainSettings />;
-    case 'water':
-      return <WaterSettings />;
     case 'scatterBrush':
       return <PropSettings />;
     case 'light':

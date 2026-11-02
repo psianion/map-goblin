@@ -7,6 +7,7 @@ import {
   DoorOpen,
   Eye,
   EyeOff,
+  Footprints,
   GripVertical,
   Lightbulb,
   Lock,
@@ -15,12 +16,12 @@ import {
   MoreHorizontal,
   Mountain,
   Plus,
+  Route,
   Search,
   Settings2,
   Square,
   SquareDashed,
   Type,
-  Waves,
   X,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -72,7 +73,8 @@ const KIND_ICON: Record<RowKind, ReactNode> = {
   text: <Type size={13} strokeWidth={1.75} />,
   zone: <Crosshair size={13} strokeWidth={1.75} />,
   shape: <Square size={13} strokeWidth={1.75} />,
-  water: <Waves size={13} strokeWidth={1.75} />,
+  path: <Route size={13} strokeWidth={1.75} />,
+  opening: <Footprints size={13} strokeWidth={1.75} />,
 };
 
 /** Set by a row click, so the reveal that follows the selection leaves the scroll alone. */

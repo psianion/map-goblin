@@ -480,7 +480,10 @@ function translateChild(c: AnyChild, dx: number, dy: number): void {
         : { ...c.shape, position: { x: c.shape.position.x + dx, y: c.shape.position.y + dy } };
   } else if (c.childType === 'shape' && c.transform) {
     c.transform.translate = [c.transform.translate[0] + dx, c.transform.translate[1] + dy];
-  } else {
+  } else if (c.childType === 'path') {
+    // Handles are relative to their points, so only the points move.
+    c.points = c.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
+  } else if (c.childType === 'shape') {
     c.contours = c.contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
     c.tangents = translateTangents(c.tangents, dx, dy);
   }

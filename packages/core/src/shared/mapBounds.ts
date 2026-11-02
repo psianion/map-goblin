@@ -49,7 +49,7 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
 }
 
 /**
- * The raw extent of everything drawn — floor geometry, water, standalone walls, placed
+ * The raw extent of everything drawn — floor geometry, standalone walls, placed
  * assets, painted terrain — with no allowance yet for how wide a wall is stroked. Null when
  * nothing is drawn.
  */
@@ -75,12 +75,12 @@ function drawnBounds(
         }
       }
     }
-    // Floor shapes and water bodies both extend the map. Shapes are walked as well as
+    // Floor shapes extend the map. Shapes are walked as well as
     // mergedFloor because mergedFloor is a derived cache that ships null in saved files —
     // on the server (which measures frames off raw documents) it is the only geometry
     // there is. `?? []` because documents straight off disk owe nobody a complete shape.
     for (const child of dl.children ?? []) {
-      if ((child.childType !== 'water' && child.childType !== 'shape') || !child.visible) continue;
+      if (child.childType !== 'shape' || !child.visible) continue;
       for (const [x, y] of child.contours?.[0] ?? []) {
         if (x < minX) minX = x;
         if (y < minY) minY = y;
@@ -137,7 +137,7 @@ function strokePad(layers: readonly Layer[]): number {
 }
 
 /**
- * Axis-aligned bounds of everything drawn — floor geometry, water, standalone walls,
+ * Axis-aligned bounds of everything drawn — floor geometry, standalone walls,
  * placed assets, painted terrain — padded for wall strokes. Null when the map
  * has nothing on it at all (callers that want an export-friendly default box add their own).
  */

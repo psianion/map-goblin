@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { AnyChild, DungeonLayer, ShapeChild, WaterChild } from '@/store/types';
+import type { AnyChild, DungeonLayer, ShapeChild } from '@/store/types';
 import type { DoorChild, WallSegment } from '@/shared/types';
 import { SelectionCard } from './SelectionCard';
 
@@ -28,24 +28,6 @@ function shape(id: string, over: Partial<ShapeChild> = {}): ShapeChild {
     ...over,
   };
 }
-
-function water(id: string, over: Partial<WaterChild> = {}): WaterChild {
-  return {
-    id,
-    name: id,
-    childType: 'water',
-    visible: true,
-    waterType: 'river',
-    contours: square(4),
-    textureId: 'w',
-    tint: '#336699',
-    opacity: 0.8,
-    bankTextureId: '',
-    bankWidth: 0.5,
-    ...over,
-  };
-}
-
 
 function seed(children: AnyChild[], selected: string[], rooms: DungeonLayer['rooms'] = []) {
   const layer = {
@@ -285,28 +267,6 @@ describe('SelectionCard', () => {
       fireEvent.change(rotate, { target: { value: '180' } });
       fireEvent.pointerUp(rotate);
       expect((child('a') as ShapeChild).textureFillRotation).toBeCloseTo(Math.PI);
-    });
-  });
-
-  describe('water', () => {
-    it('a lake shows Banks, Tint and Opacity, and no Flow', () => {
-      seed([water('w', { waterType: 'lake' })], ['w']);
-      render(<SelectionCard />);
-      expect(screen.getByRole('switch', { name: 'Banks' })).not.toBeNull();
-      expect(screen.getByText('Tint')).not.toBeNull();
-      expect(screen.getByLabelText('Opacity')).not.toBeNull();
-      expect(screen.queryByLabelText('Flow')).toBeNull();
-      expect(screen.queryByText('Lakes do not flow.')).toBeNull();
-    });
-
-    it('a river has no Flow either, and banks toggle in one step', () => {
-      seed([water('w', { flowSpeed: 0.3, flowAngle: 0 })], ['w']);
-      render(<SelectionCard />);
-      expect(screen.queryByLabelText('Flow')).toBeNull();
-      fireEvent.click(screen.getByRole('switch', { name: 'Banks' }));
-      expect((child('w') as WaterChild).bankTextureId).toBe('gg-forge:bank-grassy-01-a1');
-      expect(undoOnce()).toBe(false);
-      expect((child('w') as WaterChild).bankTextureId).toBe('');
     });
   });
 
@@ -771,9 +731,10 @@ describe('SelectionCard', () => {
   });
 
   it('a mix of kinds keeps the header and shows no shared fields', () => {
-    seed([shape('a'), water('w')], ['a', 'w']);
+    const zone = { id: 'z', name: 'z', childType: 'zone', visible: true, shape: { kind: 'point', position: { x: 1, y: 1 } } } as AnyChild;
+    seed([shape('a'), zone], ['a', 'z']);
     render(<SelectionCard />);
-    expect(screen.getByText('1 floor · 1 water body')).not.toBeNull();
+    expect(screen.getByText('1 floor · 1 zone')).not.toBeNull();
     expect(screen.queryByText('Colour')).toBeNull();
     expect(screen.queryByText('Flow')).toBeNull();
   });
@@ -891,10 +852,10 @@ describe('SelectionCard: objects locked on their own', () => {
     undoManager.clear();
   });
 
-  it('a locked water body’s card says so and greys every field', () => {
-    seed([water('w', { locked: true })], ['w']);
+  it('a locked floor’s card says so and greys every field', () => {
+    seed([shape('a', { locked: true })], ['a']);
     render(<SelectionCard />);
-    expect(screen.getByTestId('v2-sel-kind').textContent).toBe('Water · locked');
+    expect(screen.getByTestId('v2-sel-kind').textContent).toBe('Floor · locked');
     expect(screen.getByTestId('v2-sel-locked-note').textContent).toBe('Locked: unlock to edit');
     const fields = screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement;
     expect(fields.disabled).toBe(true);
@@ -912,7 +873,7 @@ describe('SelectionCard: objects locked on their own', () => {
   });
 
   it('an unlocked object has no lock line and live fields', () => {
-    seed([water('w')], ['w']);
+    seed([shape('a')], ['a']);
     render(<SelectionCard />);
     expect(screen.queryByTestId('v2-sel-locked-note')).toBeNull();
     expect((screen.getByTestId('v2-sel-lockset') as HTMLFieldSetElement).disabled).toBe(false);

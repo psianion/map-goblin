@@ -223,7 +223,7 @@ function nudgeSelection(dx: number, dy: number): void | false {
 
 /**
  * Flip the selection in place, each member about its own centre: props mirror their art,
- * floors, water and drawn walls their outline. Labels, lights and zones have nothing to
+ * floors and drawn walls their outline. Labels, lights and zones have nothing to
  * mirror and pass through unchanged.
  */
 export function flipSelection(axis: 'h' | 'v', anyTool = false): void | false {
@@ -805,7 +805,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
   { id: 'tool.path', combo: 'a', group: 'Tools', scope: 'canvas', label: 'Path', run: () => pickTool('path', 'Path') },
   { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
-  { id: 'tool.water', combo: 'u', group: 'Tools', scope: 'canvas', label: 'Water', run: () => pickTool('water', 'Water') },
   // Walls.
   { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
   { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },

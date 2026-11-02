@@ -10,7 +10,7 @@ import type { AnyChild } from '@/store/types'
  *
  * Cross-childType moves are also rejected here: reorder is only wired up for
  * assets and text (their own sprite pipelines honor array order) — doors,
- * lights, shapes and water draw from separate pipelines that ignore it, so a
+ * lights and shapes draw from separate pipelines that ignore it, so a
  * move between different childTypes wouldn't change anything on screen. No
  * command, no undo entry, snap back.
  */

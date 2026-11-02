@@ -76,7 +76,8 @@ type MarqueeMode = 'replace' | 'add' | 'subtract';
 
 const KIND_NAME: Record<AnyChild['childType'], string> = {
   shape: 'Floor',
-  water: 'Water',
+  path: 'Path',
+  opening: 'Opening',
   asset: 'Prop',
   text: 'Label',
   light: 'Light',
@@ -1586,16 +1587,6 @@ export class SelectTool implements DrawingTool {
           g.circle(center.x, center.y, Math.max(radiusPx, 6));
           return true;
         }
-        case 'water': {
-          const screenPts = flattenRing(child.contours[0] ?? [], child.tangents?.[0]).map(([wx, wy]) =>
-            this.engine.worldToScreen(wx, wy),
-          );
-          if (screenPts.length < 2) return false;
-          g.moveTo(screenPts[0].x, screenPts[0].y);
-          for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
-          g.closePath();
-          return true;
-        }
         case 'zone': {
           const s = child.shape;
           if (s.kind === 'rect') {
@@ -1683,10 +1674,10 @@ export class SelectTool implements DrawingTool {
         // A light by its marker: its radius is light, not the object.
         const bounds = getChildFootprint(child);
         if (!boundsIntersect(bounds, dragRect)) continue;
-        // On v2 a floor or a water body joins only when the box covers it whole, as a room
+        // On v2 a floor joins only when the box covers it whole, as a room
         // does: a box drawn inside a room is about what stands there, not the cave floor
         // under the whole map.
-        if (wholeOnly && (child.childType === 'shape' || child.childType === 'water') && !boundsInside(bounds, dragRect)) continue;
+        if (wholeOnly && child.childType === 'shape' && !boundsInside(bounds, dragRect)) continue;
         if (child.groupId && merged.has(child.groupId)) {
           for (const m of layer.children) if (m.groupId === child.groupId) take(m.id);
         } else {

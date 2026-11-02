@@ -8,7 +8,6 @@ import type {
   LightChild,
   ShapeChild,
   WallSegment,
-  WaterChild,
 } from '../shared/types'
 
 function shape(id: string, textureId: string | undefined): ShapeChild {
@@ -26,22 +25,6 @@ function shape(id: string, textureId: string | undefined): ShapeChild {
     textureOffsetY: 0,
     textureFillRotation: 0,
     textureTint: '#ffffff',
-  }
-}
-
-function water(id: string, textureId: string, bankTextureId: string): WaterChild {
-  return {
-    id,
-    name: id,
-    childType: 'water',
-    visible: true,
-    waterType: 'lake',
-    contours: [[[0, 0], [1, 0], [1, 1], [0, 1]]],
-    textureId,
-    tint: '#ffffff',
-    opacity: 1,
-    bankTextureId,
-    bankWidth: 0.5,
   }
 }
 
@@ -94,7 +77,7 @@ function wall(id: string, textureSetId?: string): WallSegment {
 
 function emptyMap(): MapTextureSource {
   return {
-    mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+    mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000', sightDropCells: 2, crossingKinds: [] },
     layers: [],
   }
 }
@@ -135,14 +118,13 @@ describe('collectMapTextureIds', () => {
     expect(collectMapTextureIds(map)).toEqual([])
   })
 
-  it('collects shape, water (+bank) and door portal ids from children, never a retired light mask', () => {
+  it('collects shape and door portal ids from children, never a retired light mask', () => {
     const layer = createDungeonLayer('L')
     layer.style.defaultTextureId = undefined
     layer.style.wallTextureSetId = undefined
     layer.children = [
       shape('s1', 'large-flagstone-a-01'),
       shape('s2', undefined),
-      water('w1', 'water-still-a-01', 'bank-grassy-01-a1'),
       light('l1', 'some-mask-id'),
       light('l2', undefined),
       door('d1', 'some-portal-id'),
@@ -152,8 +134,6 @@ describe('collectMapTextureIds', () => {
     expect(collectMapTextureIds(map).sort()).toEqual(
       [
         'large-flagstone-a-01',
-        'water-still-a-01',
-        'bank-grassy-01-a1',
         'some-portal-id',
       ].sort(),
     )

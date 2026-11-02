@@ -115,7 +115,6 @@ export function registerMenu(kind: string, builder: ChildMenuBuilder): void {
 
 const KIND_LABEL: Record<string, string> = {
   shape: 'Shape',
-  water: 'Water',
   asset: 'Prop',
   text: 'Label',
   light: 'Light',
@@ -614,7 +613,6 @@ registerMenu('text', (ctx) => [
 ])
 
 registerMenu('shape', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
-registerMenu('water', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 
 // ─── Rooms and areas ───────────────────────────────────────────────────────
@@ -908,8 +906,8 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
     ...sel.children.filter(({ child }) => !child.locked).map(({ child }) => child.childType as string),
     ...(sel.walls.some(({ wall }) => !wall.locked) ? ['wall'] : []),
   ])
-  const flippable = ['asset', 'shape', 'water', 'wall'].some((k) => kinds.has(k))
-  const rotatable = ['asset', 'text', 'shape', 'water', 'wall', 'zone'].some((k) => kinds.has(k))
+  const flippable = ['asset', 'shape', 'wall'].some((k) => kinds.has(k))
+  const rotatable = ['asset', 'text', 'shape', 'wall', 'zone'].some((k) => kinds.has(k))
   const onlyDoors = sel.walls.length === 0 && sel.rooms.length === 0 && sel.children.every(({ child }) => child.childType === 'door')
   // Move-to-layer is most wanted exactly here — herding a mixed selection
   // onto one layer — so the multi menu offers it like every single menu does.

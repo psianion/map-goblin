@@ -12,7 +12,6 @@ export type ToolType =
   | 'ruler'
   | 'scatterBrush'
   | 'terrain'
-  | 'water'
   | 'text'
   | 'zone'
   | 'roomRect'

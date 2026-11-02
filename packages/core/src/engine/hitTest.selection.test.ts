@@ -20,7 +20,7 @@ import { refreshRooms } from '../store/roomRefresh';
 import { SelectTool } from './tools/SelectTool';
 import type { RenderEngine } from './RenderEngine';
 import type { AnyChild, DungeonLayer, SerializedMapData } from '../store/types';
-import type { AssetChild, ShapeChild, WallSegment, WaterChild, ZoneChild } from '../shared/types';
+import type { AssetChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -37,8 +37,6 @@ if (typeof (globalThis as { CanvasRenderingContext2D?: unknown }).CanvasRenderin
 HTMLCanvasElement.prototype.getContext = (() =>
   new Proxy({}, { get: () => () => ({ width: 0, height: 0 }), set: () => true })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
-const water = (id: string, outer: [number, number][], hole?: [number, number][]): WaterChild =>
-  ({ id, name: id, childType: 'water', visible: true, opacity: 1, contours: hole ? [outer, hole] : [outer] }) as unknown as WaterChild;
 const zone = (id: string, shape: ZoneChild['shape']): ZoneChild => ({ id, name: id, childType: 'zone', visible: true, shape });
 const floor = (id: string): ShapeChild =>
   ({ id, name: id, childType: 'shape', visible: true, shapeType: 'polygon', contours: [[[0, 0], [10, 0], [10, 10], [0, 10]]] }) as unknown as ShapeChild;
@@ -59,16 +57,6 @@ describe('hit testing every kind', () => {
     setRoomPicking(false);
   });
   afterEach(() => setRoomPicking(false));
-
-  it('picks water inside its outer ring', () => {
-    expect(hitTestChildren([water('w', [[0, 0], [4, 0], [4, 4], [0, 4]])], [2, 2])?.id).toBe('w');
-  });
-
-  it('does not pick water through its holes', () => {
-    const w = water('w', [[0, 0], [6, 0], [6, 6], [0, 6]], [[2, 2], [4, 2], [4, 4], [2, 4]]);
-    expect(hitTestChildren([w], [3, 3])).toBeNull();
-    expect(hitTestChildren([w], [1, 1])?.id).toBe('w');
-  });
 
   it('picks a circle zone within its radius only', () => {
     const z = zone('z', { kind: 'circle', position: { x: 5, y: 5 }, radius: 2 });
@@ -176,17 +164,6 @@ describe('the stack under a point', () => {
   afterEach(() => setRoomPicking(false));
   const l = () => dungeon();
 
-  it('water over a floor answers before the floor', () => {
-    useStore.getState().addChild(l().id, floor('f'));
-    useStore.getState().addChild(l().id, water('w', [[1, 1], [5, 1], [5, 5], [1, 5]]));
-    expect(pickStackAt(layers(), [2, 2]).map((h) => h.id)).toEqual(['w', 'f']);
-  });
-
-  it('a hidden water body never answers', () => {
-    useStore.getState().addChild(l().id, { ...water('w', [[1, 1], [5, 1], [5, 5], [1, 5]]), visible: false });
-    expect(pickStackAt(layers(), [2, 2])).toEqual([]);
-  });
-
   it('rooms sit between the walls and the floors, where rooms pick', () => {
     setRoomPicking(true);
     useStore.getState().addChild(l().id, floor('f'));
@@ -196,15 +173,13 @@ describe('the stack under a point', () => {
     expect(pickStackAt(layers(), [2, 2]).map((h) => h.id)).toEqual(['r', 'f']);
   });
 
-  it('water in a room answers before the room; a zone inside a room answers by its outline only', () => {
+  it('a zone inside a room answers by its outline only', () => {
     setRoomPicking(true);
     useStore.getState().addChild(l().id, floor('f'));
-    useStore.getState().addChild(l().id, water('w', [[1, 1], [3, 1], [3, 3], [1, 3]]));
     useStore.getState().addChild(l().id, zone('z', { kind: 'circle', position: { x: 7, y: 7 }, radius: 2 }));
     useStore.setState((s) => {
       (s.layers.find((x) => x.type === 'dungeon') as DungeonLayer).rooms = [{ id: 'r', name: 'Hall', anchor: [5, 5], face: [[0, 0], [10, 0], [10, 10], [0, 10]] }];
     });
-    expect(pickAllLayers(layers(), [2, 2], { zoom: 50 })?.id).toBe('w');
     // Inside the circle, away from its line: the room; on the line: the zone.
     expect(pickAllLayers(layers(), [7.5, 7], { zoom: 50 })?.id).toBe('r');
     expect(pickAllLayers(layers(), [9, 7], { zoom: 50 })?.id).toBe('z');

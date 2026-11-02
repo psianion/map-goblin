@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, WaterToolSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings } from '../types';
 
 /** Single source of truth for the clamps below — UI sliders read these too. */
 export const TERRAIN_BRUSH_RANGES = {
@@ -18,10 +18,6 @@ export const PROPS_RANGES = {
 /** How many tints the scatter pool holds. */
 export const MAX_SCATTER_TINTS = 4;
 
-export const WATER_RANGES = {
-  width: { min: 0.5, max: 10, step: 0.5 },
-} as const;
-
 function clamp(v: number, { min, max }: { min: number; max: number }): number {
   return Math.min(Math.max(min, v), max);
 }
@@ -34,7 +30,6 @@ export interface ToolActions {
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
-  updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
   /** Expose a wall's sprite nodes for hand-editing, or null to hide them. */
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
@@ -161,11 +156,5 @@ export const createToolsSlice: StateCreator<
       t.radius = clamp(t.radius, TERRAIN_BRUSH_RANGES.radius);
       t.strength = clamp(t.strength, TERRAIN_BRUSH_RANGES.strength);
       t.tintOpacity = clamp(t.tintOpacity, TERRAIN_BRUSH_RANGES.tintOpacity);
-    }),
-  updateWaterSettings: (patch) =>
-    set((state) => {
-      Object.assign(state.tools.settings.water, patch);
-      const w = state.tools.settings.water;
-      w.width = clamp(w.width, WATER_RANGES.width);
     }),
 });

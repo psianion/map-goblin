@@ -1,7 +1,6 @@
 import {
   Crosshair,
   DoorOpen,
-  Droplets,
   Hexagon,
   Lightbulb,
   Minus,
@@ -44,7 +43,6 @@ export const DOCK_TABS: DockTab[] = [
       { tool: 'regularPolygon', label: 'Regular polygon', shortcut: keyCaption('tool.regularPolygon'), icon: Hexagon },
       { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Pen },
       { tool: 'terrain', label: 'Terrain', shortcut: keyCaption('tool.terrain'), icon: Mountain },
-      { tool: 'water', label: 'Water', shortcut: keyCaption('tool.water'), icon: Droplets },
     ],
   },
   {

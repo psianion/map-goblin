@@ -49,7 +49,6 @@ const FLOOR = '#f5ecda'
 const INK = '#2a2016'
 const ACCENT = '#b08d57'
 const MUTED = '#6b5c46'
-const WATER = '#6f8a93'
 const DISPOSITION: Record<Disposition, string> = {
   friendly: '#4f7043',
   neutral: '#8a7a52',
@@ -111,7 +110,6 @@ interface Scene {
   cellScale: { value: number; unit: string }
   frame: Bounds | null
   floors: Ring[][]
-  waters: Ring[][]
   walls: Wall[]
   doors: Door[]
   labels: Label[]
@@ -176,7 +174,6 @@ export function readScene(doc: unknown, dmView: boolean, doors: MapSvgOptions['d
         }
       : null,
     floors: [],
-    waters: [],
     walls: [],
     doors: [],
     labels: [],
@@ -206,9 +203,6 @@ export function readScene(doc: unknown, dmView: boolean, doors: MapSvgOptions['d
       switch (child.childType) {
         case 'shape':
           scene.floors.push(readRings(child.contours))
-          break
-        case 'water':
-          scene.waters.push(readRings(child.contours))
           break
         case 'door': {
           // A secret door is the DM's alone. The server already cut it from every player
@@ -273,7 +267,7 @@ function boundsOf(scene: Scene, tokens: MapToken[]): Bounds | null {
     box.maxX = Math.max(box.maxX, x)
     box.maxY = Math.max(box.maxY, y)
   }
-  for (const rings of [...scene.floors, ...scene.waters]) for (const ring of rings) for (const [x, y] of ring) add(x, y)
+  for (const rings of scene.floors) for (const ring of rings) for (const [x, y] of ring) add(x, y)
   for (const wall of scene.walls) for (const [x, y] of wall.points) add(x, y)
   for (const door of scene.doors) add(door.x, door.y)
   for (const room of scene.rooms) add(room.x, room.y)
@@ -545,13 +539,6 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       )
     out.push(`<path d="${floorPath}" fill-rule="evenodd" fill="none" stroke="${INK}" stroke-width="0.13"/>`)
   }
-
-  // Water sits on the floor it flooded, so it is drawn over it — and over the grid, which the
-  // references show continuing under the surface rather than on top of it.
-  for (const rings of scene.waters)
-    out.push(
-      `<path d="${ringsPath(rings)}" fill-rule="evenodd" fill="${WATER}" fill-opacity="0.5" stroke="${INK}" stroke-width="0.07"/>`,
-    )
 
   for (const wall of scene.walls)
     out.push(

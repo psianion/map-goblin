@@ -1,6 +1,7 @@
 import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
+import { sampleCentreline } from '../geometry/ribbon';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
@@ -102,7 +103,7 @@ export function pointInLight(
  * draw on top of everything (`LightingRenderer`'s overlay pass), then
  * sublayers stack floor < walls < doors < objects(assets) < labels — so the
  * topmost picks must be lights, then labels, then assets, then doors, then
- * everything else (shapes, water) — the flat children array only reflects
+ * everything else (shapes) — the flat children array only reflects
  * relative order *within* one of those buckets, not across them.
  */
 function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
@@ -173,9 +174,6 @@ function* childHits(
     if (child.locked && !takesLocked(opts)) continue;
     switch (child.childType) {
       case 'shape':
-        if (pointInShape(child, point)) yield child;
-        break;
-      case 'water':
         if (pointInShape(child, point)) yield child;
         break;
       case 'zone':
@@ -489,7 +487,7 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, water, the room the point
+ * labels, props, doors), a zone by its outline, the drawn walls, the room the point
  * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
  * area, then the floors.
  */
@@ -501,8 +499,6 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
   const walls = wallHits(layer, point, opts);
   for (const w of walls) yield wallHit(layer.id, w);
-  const water = layer.children.filter((c) => c.childType === 'water');
-  for (const c of childHits(water, point, layer, opts)) yield childHit(layer.id, c);
   // Where a drawn wall answers, the rooms and floor it stands on are looked for beside it too.
   const beside = walls.flatMap((w) => besideWall(w, layer, point));
   if (opts?.rooms ?? roomPicking()) {
@@ -514,7 +510,7 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
     }
   }
   for (const z of zoneHits) yield childHit(layer.id, z);
-  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'water');
+  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone');
   for (const c of childHits(below, point, layer, opts)) yield childHit(layer.id, c);
   for (const p of beside) for (const c of childHits(below, p, layer, opts)) yield childHit(layer.id, c);
 }
@@ -548,7 +544,7 @@ function besideWall(wall: WallSegment, layer: DungeonLayer, point: [number, numb
 
 /**
  * The pick on one layer, in draw order (see `layerHits`): whatever stands on the walls,
- * a zone by its outline, a drawn wall, water, the room the point is in, a zone by its
+ * a zone by its outline, a drawn wall, the room the point is in, a zone by its
  * area, then the floors.
  * Callers decide which layers may answer (hidden, locked).
  */
@@ -707,21 +703,26 @@ export function getChildBounds(child: AnyChild): {
         height: child.width,
       };
     }
-    case 'water': {
-      const points = flattenRing(child.contours[0] ?? [], child.tangents?.[0]);
-      if (points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
-      let minX = points[0][0];
-      let maxX = points[0][0];
-      let minY = points[0][1];
-      let maxY = points[0][1];
-      for (const [px, py] of points) {
+    case 'path': {
+      // The flattened centreline grown by the widest half-width it reaches.
+      const line = sampleCentreline(child.points, child.closed, child.width);
+      if (line.xy.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+      const half = Math.max(...line.width) / 2;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const [px, py] of line.xy) {
         if (px < minX) minX = px;
         if (px > maxX) maxX = px;
         if (py < minY) minY = py;
         if (py > maxY) maxY = py;
       }
-      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      return { x: minX - half, y: minY - half, width: maxX - minX + half * 2, height: maxY - minY + half * 2 };
     }
+    case 'opening':
+      // Sits on its shape's ring at `t`; nothing places one yet, so it has no extent of its own.
+      return { x: 0, y: 0, width: 0, height: 0 };
     case 'zone': {
       const shape = child.shape;
       switch (shape.kind) {

@@ -11,7 +11,6 @@ import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { ringFloorOf } from './caveBandRenderer';
 import { renderDoors } from './doorRenderer';
-import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
@@ -314,9 +313,6 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
   for (const child of layer.children) {
     if (child.childType === 'shape' && child.textureId) {
       wanted.push(child.textureId);
-    } else if (child.childType === 'water') {
-      wanted.push(child.textureId);
-      if (child.bankTextureId) wanted.push(child.bankTextureId);
     }
   }
   const fallback = layerFloorFallback(layer);
@@ -443,7 +439,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
- * Sublayer order (water → floor → shadows → grid → walls → doors → objects → labels) is
+ * Sublayer order (floor → shadows → grid → walls → doors → objects → labels) is
  * established in sceneGraph.addLayerToScene — we only populate content.
  */
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
@@ -482,11 +478,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   for (const child of doorsSublayer.removeChildren()) child.destroy();
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
-
-  // Water renders independently of floor geometry (a layer can be water-only)
-  if (entry.sublayers.water) {
-    rebuildWaterSublayer(entry.sublayers.water, layer);
-  }
 
   // ── Walls and doors ────────────────────────────────────────────
   // Ahead of the no-floor bail-out below: walls do not depend on the floor

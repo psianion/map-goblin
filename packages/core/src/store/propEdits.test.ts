@@ -22,8 +22,8 @@ import type {
   AssetChild,
   DoorChild,
   LightChild,
+  PathChild,
   ShapeChild,
-  WaterChild,
   WallSegment,
   ZoneChild,
 } from '../shared/types';
@@ -403,7 +403,7 @@ describe('createDuplicateCommand', () => {
     expect(ids(main)).toEqual(['a']);
   });
 
-  it('offsets a door tuple without NaN, zones, and rings with their tangents', () => {
+  it('offsets a door tuple without NaN, zones, rings with their tangents, and path points', () => {
     const door: DoorChild = {
       id: 'door', name: 'door', childType: 'door', visible: true, wallId: '', position: [4, 4], angle: 0,
       width: 1, style: 'single', state: 'closed', isSecret: false,
@@ -415,18 +415,19 @@ describe('createDuplicateCommand', () => {
       contours: [[[0, 0], [2, 0], [2, 2]]], tangents: [[{ tout: [1, 0] }, null, null]],
       textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
     } as unknown as ShapeChild;
-    const water = {
-      id: 'wa', name: 'wa', childType: 'water', visible: true, waterType: 'lake', contours: [[[0, 0], [1, 0], [1, 1]]],
-      textureId: '', tint: '#ffffff', opacity: 1, bankTextureId: '', bankWidth: 0,
-    } as unknown as WaterChild;
-    add(main, door, rect, circle, shape, water);
-    const copies = dup(['door', 'zr', 'zc', 'sh', 'wa']);
+    const path = {
+      id: 'pa', name: 'pa', childType: 'path', visible: true, closed: false, width: 1,
+      points: [{ x: 0, y: 0 }, { x: 1, y: 1, handles: { in: [-1, 0], out: [1, 0] } }],
+    } as unknown as PathChild;
+    add(main, door, rect, circle, shape, path);
+    const copies = dup(['door', 'zr', 'zc', 'sh', 'pa']);
     expect(child<DoorChild>(copies[0]).position).toEqual([5, 5]);
     expect(child<ZoneChild>(copies[1]).shape).toMatchObject({ x: 1, y: 1 });
     expect(child<ZoneChild>(copies[2]).shape).toMatchObject({ position: { x: 2, y: 2 } });
     expect(child<ShapeChild>(copies[3]).contours[0][1]).toEqual([3, 1]);
     expect(child<ShapeChild>(copies[3]).tangents![0][0]).toEqual({ tout: [2, 1] });
-    expect(child<WaterChild>(copies[4]).contours[0][2]).toEqual([2, 2]);
+    // Handles are relative to their point, so they travel unchanged.
+    expect(child<PathChild>(copies[4]).points).toEqual([{ x: 1, y: 1 }, { x: 2, y: 2, handles: { in: [-1, 0], out: [1, 0] } }]);
   });
 
   it('a whole group copies into a new group; part of one stays in it on its own layer', () => {

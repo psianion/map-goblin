@@ -329,6 +329,19 @@ export function centreOf(child: AnyChild): [number, number] {
       return child.shape.kind === 'rect'
         ? [child.shape.x + child.shape.width / 2, child.shape.y + child.shape.height / 2]
         : [child.shape.position.x, child.shape.position.y]
+    case 'path': {
+      let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
+      for (const { x, y } of child.points) {
+        minX = Math.min(minX, x)
+        minY = Math.min(minY, y)
+        maxX = Math.max(maxX, x)
+        maxY = Math.max(maxY, y)
+      }
+      return [(minX + maxX) / 2, (minY + maxY) / 2]
+    }
+    case 'opening':
+      // It rides its shape's ring and has no point of its own: in no room, so withheld.
+      return [NaN, NaN]
     default: {
       let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
       for (const [x, y] of child.contours[0] ?? []) {
@@ -341,7 +354,7 @@ export function centreOf(child: AnyChild): [number, number] {
       // centre. Nothing the editor writes today uses those on a floor shape. Applied to every
       // ring child that has one, not shapes alone: `authoredRing` honours a room's or a
       // joint's transform, and the two answering differently is a bug waiting on the first
-      // unbaked one. (Water rings carry no transform at all, hence the `in`.)
+      // unbaked one.
       const [dx, dy] = ('transform' in child ? child.transform?.translate : null) ?? [0, 0]
       return [(minX + maxX) / 2 + dx, (minY + maxY) / 2 + dy]
     }

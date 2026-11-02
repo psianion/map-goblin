@@ -126,7 +126,6 @@ describe('subscribeToAssets', () => {
     // access) instead of silently passing because the fake only had `objects`.
     vi.mocked(getLayerEntry).mockReturnValue({
       sublayers: {
-        water: new MockContainer(),
         floor: new MockContainer(),
         shadows: new MockContainer(),
         grid: new MockContainer(),

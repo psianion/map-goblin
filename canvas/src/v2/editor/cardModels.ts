@@ -6,8 +6,8 @@ import { isLockedObject, selectionTitle, type ResolvedSelection, type SelectionK
 
 export type CardAction = SelectionVerb | 'more';
 
-const FLIPPABLE = new Set(['asset', 'shape', 'water', 'wall']);
-const ROTATABLE = new Set(['asset', 'text', 'shape', 'water', 'wall', 'zone']);
+const FLIPPABLE = new Set(['asset', 'shape', 'wall']);
+const ROTATABLE = new Set(['asset', 'text', 'shape', 'wall', 'zone']);
 
 /** The buttons the row shows for a selection, in order. Pure. */
 export function cardActions(sel: ResolvedSelection): CardAction[] {
@@ -52,7 +52,8 @@ export const KIND_LABEL: Record<SelectionKind, string> = {
   light: 'Lights',
   text: 'Labels',
   shape: 'Floors',
-  water: 'Water',
+  path: 'Paths',
+  opening: 'Openings',
   wall: 'Walls',
   door: 'Doors',
   zone: 'Zones',

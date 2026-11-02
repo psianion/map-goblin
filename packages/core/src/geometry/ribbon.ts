@@ -4,29 +4,16 @@
 // path looks and picks the same everywhere.
 
 import { flattenCubic } from '../shared/bezier';
+import type { PathChild, PathPoint } from '../shared/types';
 import { clipper2Engine } from './Clipper2Engine';
 import type { Polygon } from './GeometryEngine';
 
 type Vec2 = [number, number];
 
-/** One authored point of a path, in cells. */
-export interface RibbonPoint {
-  x: number;
-  y: number;
-  width?: number;
-  height?: number;
-  /** Relative curve handles. Absent = auto tangent, null = sharp corner. */
-  handles?: { in: [number, number]; out: [number, number] } | null;
-}
+export type RibbonPoint = PathPoint;
 
-export type RibbonEndKind = 'cut' | 'fade' | 'taper';
-
-export interface RibbonEnds {
-  start: RibbonEndKind;
-  end: RibbonEndKind;
-  /** Taper and fade length, cells. */
-  length: number;
-}
+/** Start and end treatments; `length` (taper and fade) in cells. */
+export type RibbonEnds = PathChild['ends'];
 
 export interface RibbonOptions {
   /** Max deviation of the flattened curve from the true one, cells. */

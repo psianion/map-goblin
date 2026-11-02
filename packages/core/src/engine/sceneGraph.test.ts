@@ -9,12 +9,11 @@ function fakeSceneGraph(): SceneGraph {
 }
 
 describe('addLayerToScene', () => {
-  it('orders dungeon sublayers water, floor, shadows, grid, walls, wall marks, doors, objects, labels', () => {
+  it('orders dungeon sublayers floor, shadows, grid, walls, wall marks, doors, objects, labels', () => {
     const sceneGraph = fakeSceneGraph();
     const entry = addLayerToScene({} as RenderEngine, sceneGraph, 'layer-1', 'dungeon');
 
     expect(entry.container.children.map((c) => c.label)).toEqual([
-      'sublayer-water',
       'sublayer-floor',
       'sublayer-shadows',
       'sublayer-grid',

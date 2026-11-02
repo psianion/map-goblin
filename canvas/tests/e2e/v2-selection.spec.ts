@@ -5,7 +5,7 @@ import { firePointer, waitForBoot, waitFrame } from './helpers'
 
 /**
  * Selection and editing in /v2, end to end, on a copy of the goblin warren: every kind
- * through one pick (water, zones, drawn walls with their doors), the one box for walls
+ * through one pick (zones, drawn walls with their doors), the one box for walls
  * (move, rotate, resize, with a pixel check that the band moved), duplicate and copy of
  * walls, Shift and Alt marquees, the level and whole-face rules, the kind filter chip,
  * per-object locks, the mixed card, the header's verbs, Alt-click cycling and Alt-drag
@@ -158,12 +158,6 @@ const light = (id: string, at: Pt) => ({
   id, name: id, childType: 'light', visible: true, color: '#ffcc66', radius: 2, featherRadius: 1, intensity: 0.8,
   falloff: 'linear', position: at,
 })
-const pool = (id: string, c: Pt, r = 1.2) => ({
-  id, name: 'Pool', childType: 'water', visible: true, waterType: 'lake', textureId: 'water-still-a-01', tint: '#9aa0a6',
-  opacity: 0.85, bankTextureId: '', bankWidth: 0.5,
-  contours: [[[c.x - r, c.y - r], [c.x + r, c.y - r], [c.x + r * 1.4, c.y + r], [c.x - r, c.y + r]]],
-})
-
 /** wall-001's point at `t` along its line, world units. */
 async function onWall(page: Page, id: string, t: number): Promise<Pt> {
   const w = await wallOf(page, id)
@@ -194,17 +188,6 @@ const distToLine = (p: Pt, a: number[], b: number[]) => {
 }
 
 // ─── Every kind through one pick ────────────────────────────────────────────
-
-test('a click on water selects it and its card shows Banks', async ({ page }) => {
-  await openWarren(page)
-  const c = await roomAnchor(page, 'Warren Hall')
-  const at = { x: c.x + 1, y: c.y + 1 }
-  await clearAround(page, at, 3)
-  await addChild(page, pool('pool', at))
-  await click(page, await screenOf(page, at))
-  expect(await sel(page)).toEqual(['pool'])
-  await expect(page.getByTestId('v2-selection-card')).toContainText('Banks')
-})
 
 test('a click on a zone’s outline selects it; the corner handle drags its radius and the card follows', async ({ page }) => {
   await openWarren(page)
@@ -417,14 +400,14 @@ test('a lock and a hide save within seconds and survive a reload', async ({ page
   const c = await roomAnchor(page, 'Warren Hall')
   await clearAround(page, c, 4)
   await addChild(page, prop('rug', c))
-  await addChild(page, pool('pool', { x: c.x + 3, y: c.y + 3 }))
+  await addChild(page, prop('crate', { x: c.x + 3, y: c.y + 3 }))
   const savedAt = () => inPage<number>(page, `(s) => s().mapIndex.find((m) => m.id === s().activeMapId)?.updatedAt ?? 0`)
   // Let the adds' own save land first, so the stamp that moves next is the lock and the hide.
   await page.evaluate(() => (window as Any).__store.getState().saveCurrentMap())
   const before = await savedAt()
   await select(page, ['rug'])
   await key(page, 'Control+Shift+l')
-  await select(page, ['pool'])
+  await select(page, ['crate'])
   await key(page, 'Control+Shift+h')
   await page.waitForFunction((t) => {
     const s = (window as Any).__store.getState()
@@ -437,7 +420,7 @@ test('a lock and a hide save within seconds and survive a reload', async ({ page
   const anyChild = (id: string) =>
     inPage<Any>(page, `(s, layer, w2s, id) => s().layers.flatMap((l) => l.children ?? []).find((c) => c.id === id)`, id)
   await expect.poll(async () => (await anyChild('rug'))?.locked).toBe(true)
-  expect((await anyChild('pool')).visible).toBe(false)
+  expect((await anyChild('crate')).visible).toBe(false)
 })
 
 // ─── The mixed card and the header ──────────────────────────────────────────
@@ -454,19 +437,6 @@ test('a light and a wall get the mixed card, and Align left lines them up', asyn
   const t = await child(page, 'torch')
   // The light lines up by its marker square, not its radius.
   expect(t.position.x - 0.5).toBeCloseTo(wallLeft, 1)
-})
-
-test('the header’s Flip H mirrors a water body', async ({ page }) => {
-  await openWarren(page)
-  const c = await roomAnchor(page, 'Warren Hall')
-  await addChild(page, pool('pool', c))
-  await select(page, ['pool'])
-  const before = (await child(page, 'pool')).contours[0].map((p: number[]) => p[0]).sort()
-  await page.getByTestId('v2-sel-act-flipH').click()
-  const after = (await child(page, 'pool')).contours[0].map((p: number[]) => p[0])
-  const xs = before
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
-  expect([...after].sort().map((x: number) => +x.toFixed(6))).toEqual(xs.map((x: number) => +(2 * cx - x).toFixed(6)).sort())
 })
 
 // ─── Alt ────────────────────────────────────────────────────────────────────
@@ -602,7 +572,7 @@ test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide
   await openWarren(page)
   const grab = await onWall(page, 'wall-001', 0.15)
   // Something under the wall, so there is a stack to choose from (the wall's end runs into rock).
-  await addChild(page, pool('pool', grab, 0.8))
+  await addChild(page, { id: 'z', name: 'Ambush', childType: 'zone', visible: true, shape: { kind: 'circle', position: grab, radius: 0.8 } })
   await rightClick(page, await screenOf(page, grab))
   for (const label of ['Duplicate', 'Flip horizontal', 'Rotate 90°', 'Lock', 'Hide', 'Select behind']) {
     await expect(page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).first()).toBeVisible()

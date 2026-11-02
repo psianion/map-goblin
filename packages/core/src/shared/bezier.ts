@@ -1,4 +1,4 @@
-// Cubic bezier math for curved shape/water edges.
+// Cubic bezier math for curved shape edges.
 //
 // Curves live only in authoring: a vertex may carry optional in/out tangent
 // points, and one flatten pass turns the curved ring into the plain point ring

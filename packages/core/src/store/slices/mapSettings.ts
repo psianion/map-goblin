@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { FogLook } from '../../shared/fogLook';
-import type { MapBuilderStore, MapEnvironment, MapSettings, TerrainData } from '../types';
+import type { MapBuilderStore, MapEnvironment, MapRules, MapSettings, TerrainData } from '../types';
 
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
@@ -8,6 +8,7 @@ export interface MapSettingsActions {
   setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
+  setMapRules: (patch: MapRules) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
   /** `undefined` takes the map back to the shipped default (`DEFAULT_FOG_LOOK`) — same
@@ -98,6 +99,11 @@ export const createMapSettingsSlice: StateCreator<
         if (value === undefined) delete (state.mapSettings as Record<string, unknown>)[key];
         else (state.mapSettings as Record<string, unknown>)[key] = value;
       }
+    }),
+  setMapRules: (patch) =>
+    set((state) => {
+      if (patch.sightDropCells !== undefined) state.mapSettings.sightDropCells = patch.sightDropCells;
+      if (patch.crossingKinds !== undefined) state.mapSettings.crossingKinds = patch.crossingKinds;
     }),
   setTerrainData: (patch) =>
     set((state) => {

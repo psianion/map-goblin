@@ -128,7 +128,8 @@ export type ChildType =
   | 'asset'
   | 'light'
   | 'door'
-  | 'water'
+  | 'path'
+  | 'opening'
   | 'text'
   | 'zone';
 
@@ -182,6 +183,26 @@ export interface ShapeChild extends LayerChild {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
+  /**
+   * Plateau height in whole cells, relative to the enclosing plateau. Absent/0 = ground.
+   * The fields below only matter once a shape has a height.
+   */
+  height?: number;
+  /** How the ring meets lower ground. Absent = 'wall' (the ring derives walls, as always). */
+  edge?: 'wall' | 'cliff' | 'slope' | 'none';
+  /** Band set id the cliff is laid with. Absent = the cave ink ledge band. */
+  edgeArt?: string;
+  /** Slope cells per cell of drop. Absent = 1. */
+  slopeWidth?: number;
+  /**
+   * Contour lines drawn on the slope or cliff top. Absent = on when the shape has a height.
+   * (Not `contours`: that name is the shape's rings.)
+   */
+  contourLines?: boolean;
+  /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
+  sightOverride?: 'hide' | 'show';
+  /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */
+  crossingId?: string;
 }
 
 /** Per-ring curve tangents — see shared/bezier.ts. */
@@ -297,27 +318,76 @@ export interface DoorChild extends LayerChild {
   roomB?: string | null;
 }
 
-export interface WaterChild extends LayerChild {
-  childType: 'water';
-  /** 'river' = built from a stroked spline, 'lake' = drawn polygon. Editing UX only — rendering is identical. */
-  waterType: 'river' | 'lake';
-  contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
-  /** Optional curve tangents, indexed like `contours` — see ShapeChild.tangents. */
-  tangents?: import('./bezier').RingTangents[];
-  textureId: string;
+/** One authored point of a path, in cells. Geometry is derived from these (`geometry/ribbon.ts`). */
+export interface PathPoint {
+  x: number;
+  y: number;
+  /** Cells. Absent = interpolated from the points either side that set one, else `path.width`. */
+  width?: number;
+  /** Cells, read when `heightMode` is 'set'. */
+  height?: number;
+  /** Curve handles relative to the point. Absent = auto tangent (centripetal Catmull-Rom). null = sharp corner. */
+  handles?: { in: [number, number]; out: [number, number] } | null;
+}
+
+export type PathEndKind = 'cut' | 'fade' | 'taper';
+
+/** A road, trail, river, bridge or (closed with `fill`) a lake: a ribbon of material along points. */
+export interface PathChild extends LayerChild {
+  childType: 'path';
+  points: PathPoint[];
+  closed: boolean;
+  /** Closed paths only: fill the interior with the material's fill texture (lakes, ponds, lava pools). The ribbon becomes the shoreline band. */
+  fill?: boolean;
+  /** Default width for points without their own, and the base Shift-scales against. Cells. */
+  width: number;
+  /** ground = the height of the band under each point; set = per point. */
+  heightMode: 'ground' | 'set';
+  /** Pack set id of a path material, e.g. 'gg-forge:road-dirt'. */
+  materialId: string;
   tint: string;
   opacity: number;
-  /** Bank edge-strip texture tiled along the shoreline. Empty string = no banks. */
-  bankTextureId: string;
-  /** Bank strip width in world units (grid cells). */
-  bankWidth: number;
-  /**
-   * Legacy: water used to scroll along a flow direction. Water is static now;
-   * these stay optional so older maps still load. New bodies do not write them.
-   */
-  flowSpeed?: number;
-  /** Legacy flow direction in radians. Read by nothing. */
-  flowAngle?: number;
+  /** Texture start along U in cells; written at creation from a random seed so repeats differ. */
+  offset: number;
+  /** Mirror the strip across the centreline. */
+  flip: boolean;
+  edge: 'soft' | 'hard';
+  /** Draw the material's edge strip (verge, bank) when it has one. */
+  edgeStrip: boolean;
+  /** `length` in cells. */
+  ends: { start: PathEndKind; end: PathEndKind; length: number };
+  /** under props / over props / above tokens (bridges). */
+  sort: 'under' | 'over' | 'overhead';
+  /** Bridges: can tokens pass beneath. Only read when sort = 'overhead'. */
+  under?: 'walkable' | 'blocked';
+  /** Map crossing kind. Absent = the material's default. */
+  crossingId?: string;
+  /** Hedges, fences. Absent = false. */
+  blocksSight?: boolean;
+}
+
+/** Stairs, a ramp or a ladder through a cliff ring: to a cliff what a door is to a wall. */
+export interface OpeningChild extends LayerChild {
+  childType: 'opening';
+  kind: 'stairs' | 'ramp' | 'ladder';
+  /** The shape whose ring the opening sits on. */
+  shapeId: string;
+  /** Parameter along that shape's flattened outline, like door placement. */
+  t: number;
+  /** Cells along the ring. */
+  width: number;
+  artId?: string;
+  /** Map crossing kind. Absent = Free. */
+  crossingId?: string;
+}
+
+/** A rule for crossing an edge, named by the DM per map. */
+export interface CrossingKind {
+  id: string;
+  name: string;
+  note?: string;
+  /** Refuse a player's move across it (Impassable). */
+  blocks: boolean;
 }
 
 /**
@@ -450,7 +520,8 @@ export type AnyChild =
   | AssetChild
   | LightChild
   | DoorChild
-  | WaterChild
+  | PathChild
+  | OpeningChild
   | TextChild
   | ZoneChild;
 
