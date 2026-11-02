@@ -773,7 +773,7 @@ test('the library: categories, "barel" finds barrels first, and a star survives 
   const sheet = page.getByTestId('v2-props-sheet')
   await expect(sheet).toBeVisible()
   const cats = await sheet.getByRole('list', { name: 'Categories' }).getByRole('button').allTextContents()
-  expect(cats.slice(0, 4)).toEqual(['All825', 'Furniture142', 'Clutter119', 'Storage106'])
+  expect(cats.slice(0, 4)).toEqual(['All854', 'Furniture142', 'Clutter119', 'Storage106'])
   expect(cats.some((c) => /Cave Ink/.test(c))).toBe(false)
   await expect(sheet.getByRole('button', { name: /^Used on this map \(\d+\)$/ })).toBeVisible()
 
