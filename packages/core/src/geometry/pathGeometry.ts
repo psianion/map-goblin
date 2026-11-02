@@ -3,11 +3,12 @@
 
 import type { PathChild } from '../shared/types';
 import type { Polygon } from './GeometryEngine';
-import { ribbonOutline, sampleCentreline, type Centreline } from './ribbon';
+import { ribbonOutline, sampleCentreline, shoreReach, type Centreline, type ShoreReach } from './ribbon';
 
 interface Derived {
   line: Centreline;
   outline?: Polygon[];
+  shore?: ShoreReach | null;
 }
 
 const cache = new WeakMap<PathChild, Derived>();
@@ -44,4 +45,30 @@ export function pointInPath(path: PathChild, [x, y]: [number, number]): boolean 
     }
   }
   return inside;
+}
+
+/**
+ * For a filled closed path (a lake, a pool): how far its shoreline band may reach to each side
+ * of each sample without crossing another stretch of shore. Null for any other path, which
+ * keeps its width.
+ */
+export function pathShoreReach(path: PathChild): ShoreReach | null {
+  const d = derived(path);
+  if (d.shore === undefined) d.shore = path.closed && path.fill ? shoreReach(d.line) : null;
+  return d.shore;
+}
+
+/** The narrowest the shoreline band is drawn, when the shape is too tight for its width; else null. */
+export function pathNarrowestWidth(path: PathChild): number | null {
+  const reach = pathShoreReach(path);
+  if (!reach) return null;
+  const { width } = pathCentreline(path);
+  let narrowest = Infinity;
+  let clamped = false;
+  width.forEach((w, i) => {
+    const drawn = reach.inward[i] + reach.outward[i];
+    if (drawn < w - 1e-3) clamped = true;
+    narrowest = Math.min(narrowest, drawn);
+  });
+  return clamped ? Math.round(narrowest * 100) / 100 : null;
 }

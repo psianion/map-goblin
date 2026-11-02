@@ -6,6 +6,7 @@ import type { DungeonLayer, PathChild } from '@/store/types';
 import { setPathFields, setPathPointHeight, type PathPatch } from '@dnd/core/src/store/pathCommands';
 import { NumBox } from './PropCards';
 import { pathMaterials } from '@dnd/core/src/assets/packCatalog';
+import { pathNarrowestWidth } from '@dnd/core/src/geometry/pathGeometry';
 import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { WidthStepper } from './DockControls';
 import {
@@ -93,6 +94,8 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
   const materialOptions = materials.map((m) => ({ value: m.id, label: m.label }));
   if (!materials.some((m) => m.id === path.materialId)) materialOptions.unshift({ value: path.materialId, label: path.materialId });
   const handlesOn = pathHandlesOn(path);
+  // A shoreline band too wide for a tight lake is drawn narrower; say how narrow.
+  const narrowest = pathNarrowestWidth(path);
 
   const row = (child: ReactNode) => <div className="v2-sel__row">{child}</div>;
   const last = path.points.length - 1;
@@ -107,6 +110,11 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
       <PathName path={path} />
       {row(<Select label="Material" width={170} value={path.materialId} options={materialOptions} onChange={(materialId) => set({ materialId }, 'Path material')} />)}
       {row(<WidthStepper value={path.width} onChange={(width) => set({ width }, 'Path width')} />)}
+      {narrowest !== null && (
+        <p className="v2-sel__note" data-testid="v2-path-narrowed">
+          Narrowed to {narrowest.toFixed(2)} where the shape is tight
+        </p>
+      )}
       {row(<Seg label="Edge" value={path.edge} options={PATH_EDGE_CHOICES} onChange={(edge) => set({ edge }, 'Path edge')} />)}
       {!path.closed && (
         <>
@@ -128,6 +136,7 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
         </>
       )}
       {row(<Switch label="Edge strip" checked={path.edgeStrip} onChange={(edgeStrip) => set({ edgeStrip }, edgeStrip ? 'Show edge strip' : 'Hide edge strip')} />)}
+      {row(<Switch label="Flip" checked={path.flip} onChange={(flip) => set({ flip }, flip ? 'Flip path' : 'Unflip path')} />)}
       {path.closed && row(<Switch label="Fill" checked={!!path.fill} onChange={(fill) => set({ fill }, fill ? 'Fill path' : 'Unfill path')} />)}
       {row(<Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort }, 'Path sort')} />)}
       {path.sort === 'overhead' &&

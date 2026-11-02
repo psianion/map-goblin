@@ -7,6 +7,7 @@ import {
   buildRibbonMesh,
   ribbonOutline,
   sampleCentreline,
+  shoreReach,
   type RibbonMesh,
   type RibbonPoint,
 } from './ribbon';
@@ -44,6 +45,19 @@ function foldedTriangles(mesh: RibbonMesh): number {
     if (area < -1e-6) folded++;
   }
   return folded;
+}
+
+/** Whether some triangle of the mesh covers point `p`. */
+function covers(mesh: RibbonMesh, p: [number, number]): boolean {
+  const q = mesh.positions;
+  const at = (i: number): [number, number] => [q[i * 2], q[i * 2 + 1]];
+  const side = (a: [number, number], b: [number, number]) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  for (let t = 0; t < mesh.indices.length; t += 3) {
+    const [a, b, c] = [at(mesh.indices[t]), at(mesh.indices[t + 1]), at(mesh.indices[t + 2])];
+    const s = [side(a, b), side(b, c), side(c, a)];
+    if (s.every((v) => v >= -1e-9) || s.every((v) => v <= 1e-9)) return true;
+  }
+  return false;
 }
 
 function area(poly: [number, number][]): number {
@@ -210,6 +224,34 @@ describe('buildRibbonMesh', () => {
     expect(Math.max(...xs)).toBeGreaterThan(6.9);
   });
 
+  it('covers the inside of a sharp bend right into its corner, at any angle', () => {
+    for (const back of [0.5, 2, 4, 8]) {
+      // From a hairpin (legs 0.5 apart at the far end) to a wide-open V, width 2.
+      const mesh = buildRibbon([pt(0, 0), pt(6, 0, { handles: null }), pt(0, back)], false, 2, { ends: FADE });
+      const d = Math.hypot(6, back);
+      const dir: [number, number] = [-6 / d, back / d];
+      // Points inside the bend, within a half width of both legs.
+      for (const t of [0.2, 0.6, 1, 1.5]) {
+        const mid: [number, number] = [6 + (dir[0] - 1) * t * 0.5, dir[1] * t * 0.5];
+        expect(covers(mesh, mid), `back ${back}, t ${t}`).toBe(true);
+      }
+    }
+  });
+
+  it('a closed band too wide for its shape keeps inside it and does not fold', () => {
+    // A C whose arms are 1 thick: a 1.75 band reaches at most half an arm inward.
+    const c = [[-4, 6], [2, 6], [2, 7], [-3, 7], [-3, 9], [2, 9], [2, 10], [-4, 10]].map(([x, y]) => pt(x, y));
+    const line = sampleCentreline(c, true, 1.75);
+    const reach = shoreReach(line);
+    expect(Math.min(...reach.inward)).toBeLessThan(0.75);
+    expect(Math.max(...reach.inward)).toBeLessThanOrEqual(0.875 + 1e-9);
+    const mesh = buildRibbonMesh(line, {}, reach);
+    expect(allFinite(mesh)).toBe(true);
+    // An open shape with room for its width keeps its full band.
+    const square = sampleCentreline([pt(0, 0), pt(10, 0), pt(10, 10), pt(0, 10)], true, 1.75);
+    expect(Math.min(...shoreReach(square).inward)).toBeCloseTo(0.875, 6);
+  });
+
   it('mitres a right angle within the limit and keeps the join to one pair', () => {
     const mesh = buildRibbon([pt(0, 0), pt(4, 0, { handles: null }), pt(4, 4)], false, 2, { ends: FADE });
     expect(mesh.positions.length / 2).toBe(6);
@@ -254,6 +296,23 @@ describe('buildEdgeStrips', () => {
     expect(Array.from(right.positions)).toEqual([0, -1, 0, -1.5, 10, -1, 10, -1.5]);
     expect(Array.from(left.uvs)).toEqual([0, 0, 0, 1, 10, 0, 10, 1]);
     expect(Array.from(right.uvs)).toEqual([0, 0, 0, 1, 10, 0, 10, 1]);
+  });
+
+  it('wraps round a cut end’s cap when asked, out to the same radius as along the sides', () => {
+    const line = sampleCentreline([pt(0, 0), pt(10, 0)], false, 2);
+    const { left, right } = buildEdgeStrips(line, 0.5, {}, 0, true);
+    const xs = [...left.positions, ...right.positions].filter((_, i) => i % 2 === 0);
+    expect(Math.max(...xs)).toBeCloseTo(11.5, 6);
+    expect(Math.min(...xs)).toBeCloseTo(-1.5, 6);
+    const q = left.positions;
+    for (let k = 0; k < q.length; k += 4) {
+      // Every outer vertex sits 1.5 from the line or, round an end, from the end point.
+      const [x, y] = [q[k + 2], q[k + 3]];
+      const dx = x < 0 ? x : x > 10 ? x - 10 : 0;
+      expect(Math.hypot(dx, y)).toBeCloseTo(1.5, 6);
+    }
+    // One winding throughout each strip (the two sides wind opposite ways): the cap turned nothing over.
+    for (const strip of [left, right]) expect([0, strip.indices.length / 3]).toContain(foldedTriangles(strip));
   });
 
   it('follows a curve and its corners without NaN', () => {

@@ -305,6 +305,64 @@ test('a road’s edge strip joins its soft edge with no line, alone and in a jun
   }
 })
 
+test('a road’s end is one round outline: the verge wraps the cap and nothing sticks out', async ({ page }) => {
+  await openEditor(page)
+  // Width 2 (cap radius 1), verge out to 1.5; the road ends at (6, 0) heading +x.
+  await addRoad(page, { ...dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]), edgeStrip: true })
+  await drawn(page, 1)
+  // The ground beside the road, clear of its verge.
+  const background = await lum(page, { x: 0, y: -2.5 })
+  const around = (r: number, deg: number) => ({ x: 6 + r * Math.cos((deg * Math.PI) / 180), y: r * Math.sin((deg * Math.PI) / 180) })
+  for (const deg of [-90, -45, 0, 45, 90]) {
+    // Just past the cap's own edge the verge carries on round the end, as it does along the sides.
+    expect(Math.abs((await lum(page, around(1.15, deg))) - background), `verge at ${deg}°`).toBeGreaterThan(60)
+  }
+  for (const deg of [-90, -60, -30, 0, 30, 60, 90]) {
+    // Past the verge it is ground all the way round: no square corner of body or strip.
+    expect(Math.abs((await lum(page, around(1.8, deg))) - background), `ground at ${deg}°`).toBeLessThan(20)
+  }
+})
+
+test('no ground shows inside a hairpin, sharp or curved', async ({ page }) => {
+  await openEditor(page)
+  // A sharp V (37° inside angle) and a curved U whose legs overlap, bending far tighter than its width.
+  await addRoad(page, dirtRoad('v', [{ x: -6, y: -9 }, { x: 3, y: -6, handles: null }, { x: -6, y: -3 }]))
+  await addRoad(page, dirtRoad('u', [{ x: -6, y: 4.2 }, { x: 2, y: 4.2 }, { x: 3, y: 5 }, { x: 2, y: 5.8 }, { x: -6, y: 5.8 }]))
+  await drawn(page, 1)
+  const background = await lum(page, { x: 8, y: 0 })
+  // Along the V's bisector into the bend, every point within a half width of a leg.
+  for (let t = 0.1; t <= 3; t += 0.15) {
+    expect(Math.abs((await lum(page, { x: 3 - t, y: -6 })) - background), `V, ${t.toFixed(2)} into the bend`).toBeGreaterThan(60)
+  }
+  // Between the U's legs and round its bend: all of it is road.
+  for (const x of [-4, -1, 1, 2, 2.6, 3.1]) {
+    for (const y of [4.5, 5, 5.5]) {
+      expect(Math.abs((await lum(page, { x, y })) - background), `U at ${x}, ${y}`).toBeGreaterThan(60)
+    }
+  }
+})
+
+test('a lake too tight for its shore band draws it narrower and says so on the card', async ({ page }) => {
+  await openEditor(page)
+  // A C whose arms are 1.6 thick, its mouth 0.8 wide, under a 1.75 shore band.
+  const c = [[-4, 6], [2, 6], [2.4, 7.2], [-2.2, 7.6], [-2.2, 8.4], [2, 8.6], [2, 10], [-4, 10]]
+  await addRoad(page, {
+    ...dirtRoad('lake', c.map(([x, y]) => ({ x, y }))),
+    materialId: 'gg-forge:water', closed: true, fill: true, width: 1.75, edgeStrip: true,
+  })
+  await inPage(page, `(s) => { s().setActiveTool('select'); s().setSelectedIds(['lake']) }`)
+  const note = page.getByTestId('v2-path-narrowed')
+  await expect(note).toBeVisible()
+  const shown = Number((await note.textContent())?.match(/[\d.]+/)?.[0])
+  expect(shown).toBeGreaterThan(0)
+  expect(shown).toBeLessThan(1.75)
+  // A road with room for its width says nothing.
+  await addRoad(page, dirtRoad('a', [{ x: -6, y: 0 }, { x: 6, y: 0 }]))
+  await inPage(page, `(s) => s().setSelectedIds(['a'])`)
+  await expect(page.getByTestId('v2-sel-path')).toBeVisible()
+  await expect(note).toHaveCount(0)
+})
+
 test('twenty roads on a layer: one edit rebuilds their shared outline, and how long it takes', async ({ page }) => {
   await openEditor(page)
   for (let i = 0; i < 10; i++) {
@@ -350,8 +408,9 @@ test('the path card fits its width and every control takes a real click', async 
   await card.getByRole('button', { name: 'Overhead' }).click()
   await card.getByRole('button', { name: 'Blocked' }).click()
   await card.getByRole('combobox', { name: 'Crossing' }).selectOption('climb')
+  await card.getByRole('switch', { name: 'Flip' }).click()
   const [road] = await paths(page)
-  expect(road).toMatchObject({ heightMode: 'set', sort: 'overhead', under: 'blocked', crossingId: 'climb' })
+  expect(road).toMatchObject({ heightMode: 'set', sort: 'overhead', under: 'blocked', crossingId: 'climb', flip: true })
   expect(road.ends.start).toBe('taper')
 })
 

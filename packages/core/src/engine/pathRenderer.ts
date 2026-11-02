@@ -10,8 +10,8 @@ import { Container, Graphics, TilingSprite, type Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
-import { pathCentreline, pointInPath } from '../geometry/pathGeometry';
-import { buildEdgeStrips, buildRibbonMesh, type RibbonMesh } from '../geometry/ribbon';
+import { pathCentreline, pathShoreReach, pointInPath } from '../geometry/pathGeometry';
+import { buildEdgeStrips, buildRibbonMesh, signedRingArea, type RibbonMesh } from '../geometry/ribbon';
 import { getCatalogEntry, pathMaterial, type PathMaterial } from '../assets/packCatalog';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
@@ -210,14 +210,17 @@ function drawGroup(
       // Under a soft edge the strip reaches in under the ribbon's feather, solid there, so
       // whatever shows through the fading ribbon is the strip and never the ground.
       const inset = p.edge === 'soft' ? EDGE_STRIP_INSET : 0;
-      const { left, right } = buildEdgeStrips(line, EDGE_STRIP_WIDTH, {}, inset);
+      const { left, right } = buildEdgeStrips(line, EDGE_STRIP_WIDTH, { ends: p.ends }, inset, true);
       const look: RibbonLook = {
         ...pathLook(p, material, material.pieces.edge!.id, line.length),
         soft: false,
         water: false,
         flip: false,
       };
-      for (const side of [left, right]) {
+      // A filled shape (a lake) has its bank on the outside only; inside is water.
+      const insideLeft = p.closed && p.fill ? signedRingArea(line) > 0 : null;
+      const sides = insideLeft === null ? [left, right] : [insideLeft ? right : left];
+      for (const side of sides) {
         tuckEdgeStrip(side, inset, EDGE_STRIP_WIDTH);
         const m = ribbonMeshObject(side, edge, look);
         if (m) parent.addChild(m);
@@ -225,7 +228,9 @@ function drawGroup(
     }
   }
 
-  const meshes: RibbonMesh[] = group.paths.map((p) => buildRibbonMesh(pathCentreline(p), { ends: p.ends, offset: p.offset }));
+  const meshes: RibbonMesh[] = group.paths.map((p) =>
+    buildRibbonMesh(pathCentreline(p), { ends: p.ends, offset: p.offset }, pathShoreReach(p) ?? undefined),
+  );
   let mask: GroupMask | null = null;
   if (engine && group.paths.length >= 2 && head.edge === 'soft') {
     mask = groupMask(engine, masks.get(maskKey), groupSignature(group.paths), meshes, DEFAULT_EDGE_WIDTH);
