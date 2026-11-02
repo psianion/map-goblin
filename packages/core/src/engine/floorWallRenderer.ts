@@ -25,8 +25,16 @@ import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 
-function parseColor(hex: string): number {
-  return parseInt(hex.replace('#', ''), 16);
+/** A '#rrggbb' as a number; NaN for anything else, missing included. */
+function parseColor(hex: string | undefined): number {
+  return typeof hex === 'string' ? parseInt(hex.replace('#', ''), 16) : NaN;
+}
+
+/** The floor colour a style paints with, or the new-layer default when it names none. */
+const DEFAULT_FLOOR_COLOR = 0xf1ecdf;
+function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
+  const n = parseColor(style?.floorColor);
+  return Number.isFinite(n) ? n : DEFAULT_FLOOR_COLOR;
 }
 
 /**
@@ -274,7 +282,9 @@ export function shapeFloorFill(
   fallbackTextureId?: string,
 ): ShapeFloorFill {
   const resolved = resolveStyle(layerStyle, shape.styleOverrides as Partial<DungeonStyle> | undefined);
-  const floorColor = parseColor(resolved.floorColor);
+  // A layer whose style came through empty (a hand-written map, a republished copy) paints
+  // the default floor rather than throwing on the missing colour.
+  const floorColor = floorColorOf(resolved);
   const textureId = shape.textureId || fallbackTextureId;
   if (!textureId || !hasLiveTexture(textureId)) return { kind: 'solid', color: floorColor };
   // unitTexture, not resolveTexture: a variant-sheet source file must fill
@@ -307,7 +317,7 @@ function renderSolidShape(
 /** One floor painted the way the ground's floors are: its texture, or its colour until that lands. */
 export function paintShapeFloor(parent: Container, layer: DungeonLayer, shape: ShapeChild): void {
   if ((shape.contours[0]?.length ?? 0) < 3) return;
-  const style = layer.style;
+  const style = layer.style ?? ({} as DungeonStyle);
   const fill = shapeFloorFill(shape, style, layerFloorFallback(layer));
   const bleed = Math.max(0, resolveStyle(style, shape.styleOverrides as Partial<DungeonStyle> | undefined).floorBleed ?? 0);
   if (fill.kind === 'texture') {
@@ -431,7 +441,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
 
     // Grid lines
     const gridG = new Graphics();
-    gridG.setStrokeStyle({ color: parseColor(color), width: 0.02, alpha: 0.25 });
+    gridG.setStrokeStyle({ color: Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, width: 0.02, alpha: 0.25 });
 
     for (let x = gridMinX; x <= gridMaxX; x++) {
       gridG.moveTo(x, gridMinY);
@@ -541,8 +551,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
 
-  const s = layer.style;
-  const floorColorNum = parseColor(s.floorColor);
+  const s = layer.style ?? ({} as DungeonStyle);
+  const floorColorNum = floorColorOf(s);
   // Paint-only overshoot, per floor: a floor a preset pinned carries its own, so the
   // paint of drawn work stays put. The mask below grows by the widest of them — a fill
   // grown past a mask that was not is just a more expensive way to draw the same edge.

@@ -155,7 +155,17 @@
       ],
       "standaloneWalls": [],
       "mergedFloor": null,
-      "style": {},
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": ""
+      },
       "sublayerVisibility": {
         "floor": true,
         "grid": true,
