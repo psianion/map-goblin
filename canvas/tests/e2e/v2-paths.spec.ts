@@ -269,6 +269,42 @@ test('two dirt roads crossing show no seam: across the junction the road reads a
   }
 })
 
+test('a road’s edge strip joins its soft edge with no line, alone and in a junction group', async ({ page }) => {
+  await openEditor(page)
+  // One road alone (its own soft edge) and two that share a feathered outline.
+  await addRoad(page, { ...dirtRoad('alone', [{ x: -6, y: 8 }, { x: 6, y: 8 }]), edgeStrip: true, sort: 'over' })
+  await addRoad(page, { ...dirtRoad('g1', [{ x: -6, y: 0 }, { x: 6, y: 0 }]), edgeStrip: true })
+  await addRoad(page, { ...dirtRoad('g2', [{ x: -6, y: -8 }, { x: 6, y: -8 }]), edgeStrip: true })
+  await drawn(page, 1)
+  await expect.poll(() => page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-paths-over' ? c : (c.children ?? []).map(find).find(Boolean))
+    return find(w.__pixiApp.stage)?.children.length ?? 0
+  })).toBeGreaterThan(0)
+  await waitFrame(page, 3)
+  const background = await lum(page, { x: 0, y: 4 })
+  for (const cy of [8, 0]) {
+    for (const x of [-3, 0, 3.3]) {
+      // Across the join: from inside the ribbon (the strip starts under it at 0.5) to past the edge (1.0).
+      const profile: number[] = []
+      for (let i = 0; i <= 24; i++) profile.push(await lum(page, { x, y: cy + 0.55 + i * 0.025 }))
+      const where = `road at y = ${cy}, x = ${x}`
+      // Nowhere does the ground show through: every sample stays road-dark, far from the background.
+      for (const v of profile) expect(Math.abs(background - v), where).toBeGreaterThan(80)
+      // And no step: neighbouring samples a fortieth of a cell apart differ only by the art's own grain.
+      for (let i = 1; i < profile.length; i++) expect(Math.abs(profile[i] - profile[i - 1]), `${where}, step ${i}`).toBeLessThan(12)
+      // Nor a band: the stretch where the ribbon fades (0.8 to 1.0) reads between the road inside
+      // it and the strip outside it, not lighter or darker than both.
+      const mean = (from: number, to: number) => profile.slice(from, to).reduce((t, v) => t + v, 0) / (to - from)
+      const inside = mean(0, 8)
+      const band = mean(10, 18)
+      const strip = mean(18, 24)
+      expect(band, `${where}: band against inside ${inside.toFixed(0)}, strip ${strip.toFixed(0)}`).toBeLessThan(Math.max(inside, strip) + 6)
+      expect(band, where).toBeGreaterThan(Math.min(inside, strip) - 6)
+    }
+  }
+})
+
 test('twenty roads on a layer: one edit rebuilds their shared outline, and how long it takes', async ({ page }) => {
   await openEditor(page)
   for (let i = 0; i < 10; i++) {

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { fillMask, groupKey, groupPaths, groupSignature, pathLook } from './pathRenderer';
+import { fillMask, groupKey, groupPaths, groupSignature, pathLook, tuckEdgeStrip } from './pathRenderer';
 import { DEFAULT_EDGE_WIDTH, RIBBON_FRAGMENT_SRC, liquidShade, ribbonUniforms } from './path/ribbonShader';
 import { groupBounds, groupMask, maskResolution, MASK_MAX_PX } from './path/junctionMask';
 import { waterfallSpans } from './path/waterfalls';
-import { buildRibbonMesh, sampleCentreline } from '../geometry/ribbon';
+import { buildEdgeStrips, buildRibbonMesh, sampleCentreline } from '../geometry/ribbon';
 import { pathOutline, pointInPath } from '../geometry/pathGeometry';
 import type { RenderEngine } from './RenderEngine';
 import type { PathMaterial } from '../assets/packCatalog';
@@ -148,6 +148,22 @@ describe('a filled lake', () => {
     expect(pathOutline(moat)).toHaveLength(2);
     expect(pointInPath(moat, [5, 5])).toBe(false);
     expect(pointInPath(moat, [0, 5])).toBe(true);
+  });
+});
+
+describe('an edge strip under a soft edge', () => {
+  it('reaches under the ribbon solid, its art still starting at the ribbon edge', () => {
+    const line = sampleCentreline([{ x: 0, y: 0 }, { x: 8, y: 0 }], false, 2);
+    const { left } = buildEdgeStrips(line, 0.5, {}, 0.5);
+    tuckEdgeStrip(left, 0.5, 0.5);
+    // Inner side at half the width less the tuck; V -1 there, so V 0 falls on the ribbon edge.
+    expect(Array.from(left.positions.slice(0, 4))).toEqual([0, 0.5, 0, 1.5]);
+    expect(Array.from(left.uvs.slice(0, 4))).toEqual([0, -1, 0, 1]);
+    // The inner row is clamped in the shader: what lies under the ribbon is the art's solid edge.
+    expect(RIBBON_FRAGMENT_SRC).toContain('clamp(vUV.y, 0.0, 1.0)');
+    const hard = buildEdgeStrips(line, 0.5).left;
+    tuckEdgeStrip(hard, 0, 0.5);
+    expect(Array.from(hard.uvs.slice(0, 4))).toEqual([0, 0, 0, 1]);
   });
 });
 

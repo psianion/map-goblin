@@ -24,8 +24,18 @@ import { SEE_UNDER_ALPHA } from './subscribeToAssets';
 
 /** An edge strip's width when the material says nothing else, cells. */
 export const EDGE_STRIP_WIDTH = 0.5;
-/** How far an edge strip tucks under a soft-edged ribbon, cells: past the ribbon's feather. */
-export const EDGE_STRIP_INSET = 0.3;
+/** How far an edge strip tucks under a soft-edged ribbon, cells: past the ribbon's whole feather. */
+export const EDGE_STRIP_INSET = 0.5;
+
+/**
+ * Keeps an edge strip's art where it belongs when the strip reaches `inset` under the ribbon:
+ * V = 0 stays at the ribbon's edge, and the tucked-in part takes V below 0, which the shader
+ * clamps to the art's inner row (solid). The inner vertices are the strip's first side.
+ */
+export function tuckEdgeStrip(mesh: RibbonMesh, inset: number, stripWidth: number): void {
+  if (inset <= 0) return;
+  for (let k = 0; k < mesh.uvs.length; k += 4) mesh.uvs[k + 1] = -inset / stripWidth;
+}
 /** The stand-in for a material that is not installed: drawn flat, so the path stays findable. */
 const MISSING_COLOUR = 0x8a8a8a;
 /** Overhead paths sit just under the overhead props of their own layer (see subscribeToAssets). */
@@ -197,20 +207,18 @@ function drawGroup(
     for (const p of group.paths) {
       if (!p.edgeStrip) continue;
       const line = pathCentreline(p);
-      // Under a soft edge the strip starts inside the ribbon and fades in there, so the
-      // ribbon's feather crosses onto it with no line where the strip begins.
+      // Under a soft edge the strip reaches in under the ribbon's feather, solid there, so
+      // whatever shows through the fading ribbon is the strip and never the ground.
       const inset = p.edge === 'soft' ? EDGE_STRIP_INSET : 0;
       const { left, right } = buildEdgeStrips(line, EDGE_STRIP_WIDTH, {}, inset);
       const look: RibbonLook = {
         ...pathLook(p, material, material.pieces.edge!.id, line.length),
-        soft: inset > 0,
-        edgeWidth: inset,
+        soft: false,
         water: false,
         flip: false,
       };
       for (const side of [left, right]) {
-        // The soft fade is measured across the strip itself, not the path it borders.
-        side.width.fill(EDGE_STRIP_WIDTH + inset);
+        tuckEdgeStrip(side, inset, EDGE_STRIP_WIDTH);
         const m = ribbonMeshObject(side, edge, look);
         if (m) parent.addChild(m);
       }
