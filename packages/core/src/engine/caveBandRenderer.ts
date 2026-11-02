@@ -30,7 +30,7 @@ import {
 import type { DoorGap } from './wallNodeRenderer';
 
 /** Sample spacing of the curve the walk rides, in cells — the solver's. */
-const CURVE_STEP = 0.1;
+export const CURVE_STEP = 0.1;
 /** Samples added past each free end of an open run so its end tangents are honest. */
 const END_PAD = 4;
 /**
@@ -79,7 +79,7 @@ const TIP_RUN_ON = 0.3;
  * included, walks with the defaults: a plain drawn run or a door-cut span lays
  * exactly the pieces it always has.
  */
-const LIVE_WALK: WalkOptions = { lap: true, splits: 4, fill: true };
+export const LIVE_WALK: WalkOptions = { lap: true, splits: 4, fill: true };
 
 const add = (p: Vec, q: Vec): Vec => [p[0] + q[0], p[1] + q[1]];
 const sub = (p: Vec, q: Vec): Vec => [p[0] - q[0], p[1] - q[1]];

@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { syncRooms } from './roomSync';
+import { layerFaces, syncRooms } from './roomSync';
+import { computeMergedFloor } from '../engine/mergedFloor';
 import type { DungeonLayer, ShapeChild } from './types';
 import type { WallSegment } from '../shared/types';
 
@@ -67,4 +68,72 @@ describe('rooms inside another face', () => {
     const layer = layerOf([rect('ground', 0, 0, 20, 20), rect('tower', 8, 8, 12, 12, { height: 2 })]);
     expect(area(layer, 'inner')).toBeLessThan(16);
   });
+});
+
+describe('a lone floor at height keeps its rooms', () => {
+  const cave = (height: number, edge: 'cliff' | 'slope' | 'none') =>
+    ({
+      id: 'l1',
+      type: 'dungeon',
+      children: [rect('cave', 0, 0, 8, 7, { height, edge })],
+      standaloneWalls: [
+        {
+          id: 'split',
+          points: [[4, 0], [4, 7]],
+          wallType: 'normal',
+          direction: 'both',
+          color: '#000',
+          width: 0.5,
+          roughness: 0,
+        },
+      ],
+      mergedFloor: null,
+      style: { wallWidth: 0.5 },
+      rooms: [
+        { id: 'west', name: 'West', anchor: [2, 3] },
+        { id: 'east', name: 'East', anchor: [6, 3] },
+      ],
+    }) as unknown as DungeonLayer;
+
+  for (const height of [1, -1]) {
+    for (const edge of ['cliff', 'slope', 'none'] as const) {
+      it(`places every room on a lone floor at ${height} with a ${edge} edge`, () => {
+        const layer = cave(height, edge);
+        expect(layerFaces(layer)).toHaveLength(2);
+        const { rooms } = syncRooms(layer);
+        expect(rooms.filter((r) => r.orphaned)).toHaveLength(0);
+        expect(new Set(rooms.map((r) => r.area!.toFixed(2))).size).toBe(1);
+      });
+    }
+  }
+});
+
+async function fixtureLayer(name: string): Promise<DungeonLayer> {
+  const { readFileSync } = await import('node:fs' as string);
+  const { resolve } = await import('node:path' as string);
+  const { migrateToLatest } = await import('./migration');
+  const { migrateRooms } = await import('./roomMigration');
+  const path = resolve(process.cwd(), '../..', `session/testdata/${name}.mapbuilder`);
+  const data = migrateRooms(migrateToLatest(JSON.parse(readFileSync(path, 'utf8'))));
+  return data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+}
+
+describe('the warren cave raised or sunk', () => {
+  for (const height of [1, -1]) {
+    for (const edge of ['wall', 'cliff', 'slope', 'none'] as const) {
+      it(`keeps 7 faces and no orphan at ${height} with a ${edge} edge`, async () => {
+        const base = await fixtureLayer('goblin-warren');
+        const layer = {
+          ...base,
+          mergedFloor: null,
+          children: base.children.map((c) => (c.id === 'floor-cave-0' ? { ...c, height, edge } : c)),
+        } as DungeonLayer;
+        expect(computeMergedFloor(layer)).toHaveLength(1);
+        expect(layerFaces(layer)).toHaveLength(7);
+        const { rooms } = syncRooms(layer);
+        expect(rooms).toHaveLength(7);
+        expect(rooms.filter((r) => r.orphaned)).toHaveLength(0);
+      });
+    }
+  }
 });

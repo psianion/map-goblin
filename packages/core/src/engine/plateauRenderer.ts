@@ -25,8 +25,7 @@ import {
   type RingGap,
 } from '../shared/plateaus';
 import { buildEdgeStrips, sampleCentreline, type RibbonMesh } from '../geometry/ribbon';
-import { GRID_CELL_PX, getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
-import { CORNER_REACH, LEDGE_OUT, LEDGE_WIDTH, splitAtCorners, tileStraight, type LedgePlacement } from './cliffLayout';
+import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -57,6 +56,8 @@ const CONTOURS_PER_CELL = 3;
 const TOP_LINE_ALPHA = 0.5;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
+/** How far the light on a cliff face reaches across the rock from the edge, cells. */
+const LIGHT_REACH = 0.475;
 /**
  * Lit/shaded faces under a sun: a face turned away from the light keeps SHADE_FLOOR of its
  * brightness, one side-on to it SHADE_SIDE, one square to it all of it. The rock art is dark
@@ -310,43 +311,20 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const art = cliffArt(run.owner?.edgeArt);
   for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
-  const drawable = (key: string) => {
-    const e = art.get(key);
-    return !!e && resolveTexture(e.id).width > 1;
-  };
-  const straights = pieces.filter((p) => p.turnDeg === 0 && !p.flipY && drawable(p.key));
 
+  // The whole run, straights and corners alike, is walked with the measured ledge pieces:
+  // every stone at its own size, none stretched to fit an edge.
   const rock = new Container();
   rock.label = 'plateau-cliff';
   const sprites: CliffSprite[] = [];
-  const runs = splitAtCorners(pts, run.closed);
-  runs.forEach((r, k) => {
-    if (r.straight) {
-      // An open edge run (part of a ring whose kind changes) stops flush at its own ends;
-      // everywhere else an edge carries on past its corner to meet the next one.
-      const atStart = run.closed || k > 0;
-      const atEnd = run.closed || k < runs.length - 1;
-      const a = r.points[0];
-      const b = r.points[r.points.length - 1];
-      for (const pl of tileStraight(a, b, straights, gaps, [atStart ? CORNER_REACH : 0, atEnd ? CORNER_REACH : 0])) {
-        const sprite = ledgeSprite(art.get(pl.key)!, pl);
-        if (!sprite) continue;
-        rock.addChild(sprite);
-        sprites.push({ sprite, normal: pl.normal });
-      }
-      return;
-    }
-    // A real curve: the cave walk, which is built for exactly that.
-    const placed = pieces.length === 0 ? [] : r.closed ? layBandRing(r.points, gaps, pieces) : layBandChain(r.points, gaps, pieces);
-    const drawn = drawnPlacements(placed, art);
-    const from = rock.children.length;
-    placeBand(rock, drawn, art, 0xffffff, from);
-    drawn.forEach((pl, i) => {
-      const dx = pl.Q[0] - pl.P[0];
-      const dy = pl.Q[1] - pl.P[1];
-      const len = Math.hypot(dx, dy) || 1;
-      sprites.push({ sprite: rock.children[from + i] as Sprite, normal: [dy / len, -dx / len] });
-    });
+  const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
+  const drawn = drawnPlacements(placed, art);
+  placeBand(rock, drawn, art, 0xffffff, 0);
+  drawn.forEach((pl, i) => {
+    const dx = pl.Q[0] - pl.P[0];
+    const dy = pl.Q[1] - pl.P[1];
+    const len = Math.hypot(dx, dy) || 1;
+    sprites.push({ sprite: rock.children[i] as Sprite, normal: [dy / len, -dx / len] });
   });
 
   if (sprites.length === 0) {
@@ -362,7 +340,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const lights = new Container();
   lights.label = 'plateau-cliff-light';
   // Across the rock itself, not the whole ledge strip: the ink chunks fill about its first half.
-  const reach = LEDGE_OUT + LEDGE_WIDTH / 2;
+  const reach = LIGHT_REACH;
   const face = (a: Vec, b: Vec): void => {
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     if (len < 1e-6) return;
@@ -376,29 +354,9 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
     lights.addChild(g);
     sprites.push({ light: g, normal });
   };
-  for (const r of runs) {
-    for (let i = 0; i + 1 < r.points.length; i++) face(r.points[i] as Vec, r.points[i + 1] as Vec);
-    if (r.closed && r.points.length > 2) face(r.points[r.points.length - 1] as Vec, r.points[0] as Vec);
-  }
+  for (let i = 0; i + 1 < path.length; i++) face(path[i] as Vec, path[i + 1] as Vec);
   parent.addChild(lights);
   return sprites;
-}
-
-/** One ledge straight as a sprite: centred and turned as laid, stretched along its length only. */
-function ledgeSprite(entry: CatalogEntry, pl: LedgePlacement): Sprite | null {
-  const tex = resolveTexture(entry.id);
-  if (tex.width <= 1) return null;
-  const sprite = new Sprite(tex);
-  const cr = entry.contentRect;
-  if (cr) sprite.anchor.set((entry.naturalWidth / 2 - cr.x) / cr.w, (entry.naturalHeight / 2 - cr.y) / cr.h);
-  else sprite.anchor.set(0.5, 0.5);
-  sprite.position.set(pl.centre[0], pl.centre[1]);
-  sprite.rotation = pl.rotation;
-  // World cells per texture pixel, as the band renderer reckons it (art at GRID_CELL_PX a cell).
-  const px = cr ? cr.w : entry.naturalWidth;
-  const base = px / tex.width / GRID_CELL_PX;
-  sprite.scale.set(base * LEDGE_WIDTH, base * pl.stretch * (pl.flip ? -1 : 1));
-  return sprite;
 }
 
 // ─── Openings ──────────────────────────────────────────────

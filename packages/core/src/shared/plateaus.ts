@@ -313,9 +313,38 @@ export function inBand(band: PlateauBand, x: number, y: number): boolean {
   return inRings(x, y, band.rings);
 }
 
-/** The raised rings that are rooms: band rings whose owner keeps its walls. */
+/**
+ * True when some edge of a band ring has no floor just outside it: the ring stands on void,
+ * as a cave floor raised or sunk with nothing around it does.
+ */
+function standsOnVoid(plateaus: LayerPlateaus, band: PlateauBand, ring: Polygon): boolean {
+  const others = [...plateaus.infos.values()].filter((info) => !band.shapes.includes(info.shape)).map((info) => info.outline);
+  return ring.some((a, i) => {
+    const b = ring[(i + 1) % ring.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-9) return false;
+    const ox = (a[0] + b[0]) / 2 + ((b[1] - a[1]) / len) * PROBE;
+    const oy = (a[1] + b[1]) / 2 - ((b[0] - a[0]) / len) * PROBE;
+    return !others.some((o) => pointInPoly(ox, oy, o));
+  });
+}
+
+/** The band rings the floor union carries, each with its band's height (see `wallBandRings`). */
+function floorBandRings(plateaus: LayerPlateaus): { ring: Polygon; height: number }[] {
+  return plateaus.bands.flatMap((b) =>
+    b.rings
+      .filter((r, i) => b.ringEdge[i] === 'wall' || standsOnVoid(plateaus, b, r))
+      .map((ring) => ({ ring, height: b.height })),
+  );
+}
+
+/**
+ * The raised rings the floor union carries: every ring whose owner keeps its walls (a raised
+ * room), and every ring standing on void whatever its edge (a cave floor raised or sunk keeps
+ * its band and its rooms; a cliff there also gets its ledge, drawn by the plateau renderer).
+ */
 export function wallBandRings(plateaus: LayerPlateaus): Polygon[] {
-  return plateaus.bands.flatMap((b) => b.rings.filter((_, i) => b.ringEdge[i] === 'wall'));
+  return floorBandRings(plateaus).map((r) => r.ring);
 }
 
 /** How far inside a higher floor a stretch of wall must run to be under it: one along its edge stays. */
@@ -371,7 +400,7 @@ export function uncoveredRuns(
   const { bands } = layerPlateaus(layer);
   const raised = bands.filter((b) => b.height > 0);
   if (raised.length === 0) return null;
-  const heights = bands.flatMap((b) => b.rings.filter((_, i) => b.ringEdge[i] === 'wall').map(() => b.height));
+  const heights = floorBandRings(layerPlateaus(layer)).map((r) => r.height);
   const groundCount = rings.length - heights.length;
   const memo = new Map<number, Polygon[] | null>();
   return (ring) => {

@@ -30,9 +30,10 @@ export function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
 /**
  * A layer with raised floors: the ground's union (the floors standing on no plateau),
  * then the rings of every raised band that keeps its walls (a raised room), appended so
- * the ground's ring indices, which stone edits key on, stay where they were. Cliffs,
- * slopes and bare edges are not in it: they make no walls and no rooms
- * (shared/plateaus.ts).
+ * the ground's ring indices, which stone edits key on, stay where they were. A cliff,
+ * slope or bare edge is in it only where its ring stands on void (a cave floor raised or
+ * sunk on its own); standing on lower ground it makes no walls and no rooms
+ * (shared/plateaus.ts `wallBandRings`).
  */
 function plateauFloor(layer: DungeonLayer): Polygon[] | null {
   const plateaus = layerPlateaus(layer);

@@ -276,3 +276,56 @@ describe('hidden tops', () => {
     expect(tops.map((t) => t.height)).toEqual([3]);
   });
 });
+
+describe('a lone floor at height keeps its band', () => {
+  const withFloor = (children: ShapeChild[]) => {
+    const layer = { children, mergedFloor: null } as unknown as DungeonLayer;
+    layer.mergedFloor = computeMergedFloor(layer);
+    return layer;
+  };
+  // Same ring whatever its start or winding: the band ring is wound outside-left.
+  const canon = (ring: readonly (readonly number[])[]) => {
+    const keys = ring.map(([x, y]) => `${x},${y}`).sort();
+    return keys.join(' ');
+  };
+  const flat = withFloor([rect('cave', 0, 0, 8, 7)]);
+
+  for (const height of [1, -1]) {
+    for (const edge of ['cliff', 'slope', 'none'] as const) {
+      it(`keeps the floor of a lone cave at ${height} with a ${edge} edge`, () => {
+        const layer = withFloor([rect('cave', 0, 0, 8, 7, { height, edge })]);
+        expect(layer.mergedFloor).not.toBeNull();
+        expect(layer.mergedFloor).toHaveLength(1);
+        expect(canon(layer.mergedFloor![0])).toBe(canon(flat.mergedFloor![0]));
+      });
+    }
+  }
+
+  it('keeps a cliff plateau standing on the ground out of the floor union', () => {
+    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('mesa', 3, 3, 8, 8, { height: 2, edge: 'cliff' })]);
+    expect(layer.mergedFloor).toHaveLength(1);
+  });
+
+  it('keeps a ledge on a lone cliff floor out of the union, and the floor in it', () => {
+    const layer = withFloor([
+      rect('cave', 0, 0, 20, 16, { height: 1, edge: 'cliff' }),
+      rect('ledge', 3, 3, 8, 8, { height: 1, edge: 'cliff' }),
+    ]);
+    expect(layer.mergedFloor).toHaveLength(1);
+    expect(canon(layer.mergedFloor![0])).toBe(canon(rect('x', 0, 0, 20, 16).contours[0]));
+    // The ledge stands above the cave floor's ring: the cave's ring is covered nowhere.
+    expect(uncoveredRuns(layer)!(0)).toBeNull();
+  });
+
+  it('gives each returned ring its own height for the covering test', () => {
+    // A cliff cave at +1 on void, a raised room at +3 over its east edge.
+    const layer = withFloor([
+      rect('cave', 0, 0, 20, 16, { height: 1, edge: 'cliff' }),
+      rect('over', 16, 4, 24, 10, { height: 2, edge: 'wall' }),
+    ]);
+    expect(layer.mergedFloor).toHaveLength(2);
+    const runs = uncoveredRuns(layer)!;
+    expect(runs(0)).not.toBeNull();
+    expect(runs(1)).toBeNull();
+  });
+});

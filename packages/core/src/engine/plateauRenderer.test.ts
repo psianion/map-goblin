@@ -47,7 +47,8 @@ vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
-import { layBandRing } from './caveBandRenderer';
+import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
+import { resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import { drawOpening, drawWaterfall, faceLight, faceShade, renderPlateaus, shadeCliffs, SHADE_FLOOR, SHADE_SIDE } from './plateauRenderer';
 import { cliffShadowGeometry } from './shadowPass';
@@ -193,6 +194,46 @@ describe('renderPlateaus', () => {
   });
 });
 
+describe('every cliff ring is walked', () => {
+  const rockOf = (layer: DungeonLayer): Sprite[] => {
+    const parent = new Container();
+    renderPlateaus(layer, parent, paint);
+    const band = parent.children[parent.children.length - 1] as Container;
+    const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
+    return rock.children as Sprite[];
+  };
+  const walked = (ring: Polygon): number =>
+    walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true), cliffPieces(cliffArt(undefined)), LIVE_WALK).placed.length;
+
+  it('lays an 8x7 plateau straights included with the walk, piece for piece', () => {
+    const layer = layerOf([ground, rect('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]);
+    const sprites = rockOf(layer);
+    expect(sprites.length).toBe(walked(layerPlateaus(layer).bands[0].rings[0]));
+  });
+
+  it('never stretches a ledge: every sprite keeps its own proportions', () => {
+    for (const layer of [
+      layerOf([ground, rect('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]),
+      layerOf([ground, rect('pit', 5, 5, 13, 12, { height: -2, edge: 'cliff' })]),
+      layerOf([rect('cave', 0, 0, 8, 7, { height: 1, edge: 'cliff' })]),
+    ]) {
+      const sprites = rockOf(layer);
+      expect(sprites.length).toBeGreaterThan(3);
+      for (const s of sprites) expect(Math.abs(s.scale.x)).toBeCloseTo(Math.abs(s.scale.y), 9);
+    }
+  });
+
+  it('walks a pit reversed, so its rock lies inside the rim', () => {
+    const sprites = rockOf(layerOf([ground, rect('pit', 5, 5, 13, 12, { height: -2, edge: 'cliff' })]));
+    const inside = sprites.filter((s) => s.position.x > 5 && s.position.x < 13 && s.position.y > 5 && s.position.y < 12);
+    expect(inside.length / sprites.length).toBeGreaterThan(0.9);
+  });
+
+  it('draws the ledge of a lone cave floor raised on void', () => {
+    expect(rockOf(layerOf([rect('cave', 0, 0, 8, 7, { height: 1, edge: 'cliff' })])).length).toBeGreaterThan(3);
+  });
+});
+
 describe('light on the rock', () => {
   const look: ShadowLook = { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' };
 
@@ -212,8 +253,11 @@ describe('light on the rock', () => {
     renderPlateaus(layer, parent, paint);
     const rock = (parent.children[0] as Container).children.find((x) => x.label === 'plateau-cliff') as Container;
     shadeCliffs('l1', look);
-    const east = rock.children.filter((s) => s.position.x > 11) as Sprite[];
-    const west = rock.children.filter((s) => s.position.x < 5) as Sprite[];
+    // The faces away from the corners: the walk turns each corner with a bend whose chord runs
+    // across it, so the corner stone is side-on to either sun and takes the side shade.
+    const mid = (s: { position: { y: number } }) => s.position.y > 6 && s.position.y < 10;
+    const east = rock.children.filter((s) => s.position.x > 11 && mid(s)) as Sprite[];
+    const west = rock.children.filter((s) => s.position.x < 5 && mid(s)) as Sprite[];
     expect(east.length).toBeGreaterThan(0);
     expect(west.length).toBeGreaterThan(0);
     expect(east.every((s) => s.tint < 0xffffff)).toBe(true);

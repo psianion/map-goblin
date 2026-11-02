@@ -112,9 +112,12 @@ describe('old maps keep their floor and rooms', () => {
           edge: 'cliff' as const,
         };
         const raised = { ...layer, children: [...layer.children, outcrop] } as DungeonLayer;
-        expect(JSON.stringify(faces(raised, computeMergedFloor(raised))), file).toBe(
-          JSON.stringify(faces(layer, before)),
-        );
+        // The outcrop stands on void, so it is a floor of its own now (a lone cave raised keeps
+        // its band and rooms): it adds its own face, out past the map, and moves none of the rest.
+        const inOutcrop = (face: Polygon) => face.every(([px, py]) => px >= x + 4.9 && py >= y + 4.9);
+        const after = faces(raised, computeMergedFloor(raised));
+        expect(after.filter(inOutcrop), file).toHaveLength(1);
+        expect(JSON.stringify(after.filter((f) => !inOutcrop(f))), file).toBe(JSON.stringify(faces(layer, before)));
       }
     }
   });
