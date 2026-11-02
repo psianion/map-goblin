@@ -4,9 +4,9 @@
 //
 // The forge cut each round 4 item as a loose piece on transparency (200 px per cell). This
 // fits them to the path piece format (forge/briefs/paths-and-plateaus.md sections 1 and 2)
-// under the entry keys gen-path-placeholders.mjs minted, so they replace the placeholders in
+// under the placeholders' entry keys (the placeholder script is gone), so they replace them in
 // place, and folds the scatter pieces in as objects under GG_Paths_Props. Same
-// `integrate` + `index` steps as the placeholder script. Rerunnable: every run rebuilds
+// `integrate` + `index` steps as a forge set. Rerunnable: every run rebuilds
 // from the cut art and bumps the pack's minor version.
 //
 // Kept as placeholders: water-strip, water-fill, water-fall (no round 4 art), the cobble

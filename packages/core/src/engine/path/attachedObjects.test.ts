@@ -243,6 +243,21 @@ describe('createAttachedSync', () => {
     expect(attachedOf(h.layer)).toEqual([]);
   });
 
+  it('lays a road’s trees again where a crossing road is drawn over them', () => {
+    const h = harness([]);
+    h.step();
+    h.set([r]);
+    h.step();
+    const cross = road('c', [{ x: 15, y: -12 }, { x: 15, y: 12 }]);
+    h.set([...h.layer.children, cross]);
+    h.step();
+    const trees = attachedOf(h.layer);
+    expect(trees.some((a) => a.attachedTo!.id === 'r')).toBe(true);
+    for (const a of trees) {
+      for (const p of [r, cross]) expect(pointInPath(p, [a.position.x, a.position.y]), `${a.id} on ${p.id}`).toBe(false);
+    }
+  });
+
   it('lets go of a prop a hand moves; an undo of the move keeps it attached', () => {
     const h = harness([]);
     h.step();

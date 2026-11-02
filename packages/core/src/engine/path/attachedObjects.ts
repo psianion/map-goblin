@@ -255,8 +255,9 @@ function sameLaid(a: readonly AssetChild[], b: readonly AssetChild[]): boolean {
  * layer should have now, or nothing:
  * - a map just loaded is taken as it stands (its hosts and attached props remembered, nothing
  *   laid), so a saved map opens unchanged;
- * - a host new or changed since it was last seen has its objects laid again; a host gone takes
- *   its objects with it;
+ * - a host new or changed since it was last seen has its objects laid again, and so does any
+ *   host with an object standing where a new or moved path now runs; a host gone takes its
+ *   objects with it;
  * - an attached prop a hand has moved, turned, resized or swapped becomes a plain prop where it
  *   is; one put back as it was laid (an undo) stays attached.
  */
@@ -283,6 +284,13 @@ export function createAttachedSync(): (layers: readonly Layer[], rev: number) =>
       const changed = new Set<string>();
       for (const [id, child] of now) if (seen.get(id) !== child) changed.add(id);
       const gone = new Set([...seen.keys()].filter((id) => !now.has(id)));
+      // A path drawn or moved over another host's objects has that host's objects laid again,
+      // so none is left standing on the new road.
+      const moved = layer.children.filter((c): c is PathChild => c.childType === 'path' && changed.has(c.id));
+      for (const a of attached) {
+        const host = a.attachedTo!.id;
+        if (!changed.has(host) && moved.some((p) => pointInPath(p, [a.position.x, a.position.y]))) changed.add(host);
+      }
       // A prop a hand moved lets go of its host, unless the host moved too (it is laid again).
       const handled = attached.filter((a) => {
         const was = laid.get(a.id);

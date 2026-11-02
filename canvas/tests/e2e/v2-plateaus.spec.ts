@@ -7,8 +7,8 @@ import { installStubs } from './publishStubs'
 /**
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
  * tower-test): plan §0 scenarios 2, 3, 4, the editor half of 5 (bridge landings) and 7 (the
- * river's waterfall), the hill's card readouts, and both maps opening, exporting a PNG and
- * publishing.
+ * river's waterfall), the hill's card readouts, and both maps and the goblin warren opening,
+ * exporting a PNG and publishing.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -18,6 +18,7 @@ const read = (name: string) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../../../session/testdata/${name}.mapbuilder`, import.meta.url)), 'utf8'))
 const PLATEAU = read('plateau-test')
 const TOWER = read('tower-test')
+const WARREN = read('goblin-warren')
 
 async function inPage<T>(page: Page, fn: string, arg?: unknown): Promise<T> {
   return page.evaluate(
@@ -252,8 +253,8 @@ test.describe('plateau-test in the editor', () => {
   })
 })
 
-test.describe('both test maps export and publish', () => {
-  for (const [name, doc] of [['plateau-test', PLATEAU], ['tower-test', TOWER]] as const) {
+test.describe('the test maps export and publish', () => {
+  for (const [name, doc] of [['plateau-test', PLATEAU], ['tower-test', TOWER], ['goblin-warren', WARREN]] as const) {
     test(`${name} exports a PNG and publishes`, async ({ page }) => {
       const errors = await openMap(page, doc)
       if (name === 'tower-test') {

@@ -8,6 +8,14 @@ import { firePointer, getPixelColor, waitForBoot, waitFrame } from './helpers'
  * card's Fill switch, and undo: one entry per path, one per point drag. A path draws as its
  * outline filled with its kit's fill tile, paths of one material unioned into one fill, and
  * the kit's edge units walked along that one outline.
+ *
+ * The kit model: a material is a kit (pack `kit` entry, KitManifest) of a seamless fill tile
+ * and pieces laid as they are, never stretched, faded or tiled as a strip: edge units walked
+ * along the outline at the kit's scale with spacing, jitter and a collision test; planks laid
+ * across with rail posts and rope; bank straights by the cave walk; fall pieces where water
+ * leaves a cliff; and attached objects, real props placed along the path (trees on a verge,
+ * reeds on a shore) that follow it, go with it and Detach into plain props. Where two floors
+ * of different textures meet, the top floor's kit walks its edge units along the shared edge.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
