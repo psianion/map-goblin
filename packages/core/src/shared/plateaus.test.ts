@@ -15,6 +15,7 @@ import {
   elevationAt,
   elevationAtLayers,
   hiddenTops,
+  uncoveredRuns,
 } from './plateaus';
 import { defaultCrossingKinds } from './crossingKinds';
 import { computeMergedFloor } from '../engine/mergedFloor';
@@ -230,6 +231,33 @@ describe('the table: elevation and crossings', () => {
     const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
     expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
     expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);
+  });
+});
+
+describe('a raised floor covers the wall under it', () => {
+  const withFloor = (children: ShapeChild[]) => {
+    const layer = { children, mergedFloor: null } as unknown as DungeonLayer;
+    layer.mergedFloor = computeMergedFloor(layer);
+    return layer;
+  };
+
+  it("cuts the ground's ring where a raised room stands over it, and leaves the room's own ring whole", () => {
+    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('over', 16, 4, 24, 10, { height: 2, edge: 'wall' })]);
+    const runs = uncoveredRuns(layer)!;
+    expect(layer.mergedFloor).toHaveLength(2);
+    const ground = runs(0)!;
+    expect(ground).toHaveLength(1);
+    // One open run, from where the east wall leaves the room to where it comes back.
+    const ends = [ground[0][0], ground[0][ground[0].length - 1]].map(([x, y]) => [x, y].map((v) => Math.round(v * 100) / 100));
+    expect(ends).toEqual(expect.arrayContaining([[20, 4], [20, 10]]));
+    expect(ground[0].some(([x, y]) => x === 20 && y > 4 && y < 10)).toBe(false);
+    expect(runs(1)).toBeNull();
+  });
+
+  it('leaves every ring alone where nothing higher stands over it', () => {
+    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('inner', 3, 3, 8, 8, { height: 2, edge: 'wall' })]);
+    expect(uncoveredRuns(layer)!(0)).toBeNull();
+    expect(uncoveredRuns(withFloor([rect('ground', 0, 0, 20, 16)]))).toBeNull();
   });
 });
 

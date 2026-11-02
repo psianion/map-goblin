@@ -17,7 +17,7 @@ import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type Re
 import { flattenRing } from '../shared/bezier';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
-import { hasPlateaus, layerPlateaus } from '../shared/plateaus';
+import { hasPlateaus, layerPlateaus, uncoveredRuns } from '../shared/plateaus';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { getEditorDesk } from './editorDesk';
@@ -533,7 +533,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     drawStyle,
     doorGapsFor(doors, resolvedWalls),
     layer.floorWallEdits ?? {},
-    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer) },
+    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer), uncovered: uncoveredRuns(layer) ?? undefined },
   );
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;

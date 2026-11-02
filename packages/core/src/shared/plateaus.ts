@@ -318,6 +318,107 @@ export function wallBandRings(plateaus: LayerPlateaus): Polygon[] {
   return plateaus.bands.flatMap((b) => b.rings.filter((_, i) => b.ringEdge[i] === 'wall'));
 }
 
+/** How far inside a higher floor a stretch of wall must run to be under it: one along its edge stays. */
+const COVER_EPS = 0.05;
+
+function distToRing(x: number, y: number, ring: Polygon): number {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, ay] = ring[i];
+    const [bx, by] = ring[(i + 1) % ring.length];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return best;
+}
+
+/** Where segment a-b crosses the rings' edges, as parameters along a-b strictly inside (0, 1). */
+function crossingsOn(a: readonly number[], b: readonly number[], rings: readonly Polygon[]): number[] {
+  const out: number[] = [];
+  const [rx, ry] = [b[0] - a[0], b[1] - a[1]];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const c = ring[i];
+      const d = ring[(i + 1) % ring.length];
+      const [sx, sy] = [d[0] - c[0], d[1] - c[1]];
+      const den = rx * sy - ry * sx;
+      if (Math.abs(den) < 1e-12) continue;
+      const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den;
+      const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
+      if (t > 1e-9 && t < 1 - 1e-9 && u >= 0 && u <= 1) out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
+ * The raised floor covers what is under it: a merged-floor ring running beneath a band that
+ * stands higher (a raised room or plateau over the ground's wall) keeps only the stretches
+ * outside that band, as open runs that stop on the band's edge, where its own wall stands.
+ *
+ * Ring heights: the ground's rings (the first `mergedFloor.length - wallBandRings.length`)
+ * stand at 0, each raised room's ring at its band's height. The answer per ring is null when
+ * nothing covers it, which is every ring of a flat layer.
+ */
+export function uncoveredRuns(
+  layer: Pick<DungeonLayer, 'children' | 'mergedFloor'>,
+): ((ring: number) => Polygon[] | null) | null {
+  const rings = layer.mergedFloor ?? [];
+  if (rings.length === 0 || !hasPlateaus(layer)) return null;
+  const { bands } = layerPlateaus(layer);
+  const raised = bands.filter((b) => b.height > 0);
+  if (raised.length === 0) return null;
+  const heights = bands.flatMap((b) => b.rings.filter((_, i) => b.ringEdge[i] === 'wall').map(() => b.height));
+  const groundCount = rings.length - heights.length;
+  const memo = new Map<number, Polygon[] | null>();
+  return (ring) => {
+    if (memo.has(ring)) return memo.get(ring)!;
+    const poly = rings[ring];
+    const h = ring < groundCount ? 0 : (heights[ring - groundCount] ?? 0);
+    const over = raised.filter((b) => b.height > h).map((b) => b.rings);
+    const covered = (x: number, y: number) =>
+      over.some((rs) => inRings(x, y, rs) && rs.every((r) => distToRing(x, y, r) > COVER_EPS));
+    // Every stretch between crossings, flagged by whether its middle lies under a higher floor.
+    const pieces: { pts: [number, number][]; under: boolean }[] = [];
+    if (poly && poly.length >= 3 && over.length > 0) {
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const ts = [0, ...over.flatMap((rs) => crossingsOn(a, b, rs)), 1].sort((x, y) => x - y);
+        for (let k = 0; k + 1 < ts.length; k++) {
+          if (ts[k + 1] - ts[k] < 1e-9) continue;
+          const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+          const m = at((ts[k] + ts[k + 1]) / 2);
+          pieces.push({ pts: [at(ts[k]), at(ts[k + 1])], under: covered(m[0], m[1]) });
+        }
+      }
+    }
+    let out: Polygon[] | null = null;
+    if (pieces.some((p) => p.under)) {
+      // Start just after a covered stretch so no run wraps the ring's seam.
+      const first = pieces.findIndex((p, i) => p.under && !pieces[(i + 1) % pieces.length].under);
+      out = [];
+      let run: [number, number][] | null = null;
+      for (let k = 1; k <= pieces.length; k++) {
+        const piece = pieces[(first + k) % pieces.length];
+        if (piece.under) {
+          if (run) out.push(run);
+          run = null;
+          continue;
+        }
+        if (run) run.push(piece.pts[1]);
+        else run = [piece.pts[0], piece.pts[1]];
+      }
+      if (run) out.push(run);
+    }
+    memo.set(ring, out);
+    return out;
+  };
+}
+
 // ─── Edges, sight and crossing ─────────────────────────────
 
 /** One run of consecutive band-ring edges with the same owner, kind and drop sign. */

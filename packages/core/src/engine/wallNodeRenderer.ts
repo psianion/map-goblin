@@ -569,6 +569,12 @@ export interface RenderNodeWallsOptions {
    * ground strip behind its rock (see `ringFloorOf`). The ring's floor colour when absent.
    */
   floorOf?: (ring: number) => BandFloor;
+  /**
+   * A ring a higher floor partly covers (a raised room over the ground's wall): the open runs
+   * of it left in view, laid instead of the ring (see `uncoveredRuns`). Null for an uncovered
+   * ring, which lays out exactly as without this option.
+   */
+  uncovered?: (ring: number) => Polygon[] | null;
 }
 
 /**
@@ -758,6 +764,27 @@ export function renderNodeWalls(
   for (let i = 0; i < polygons.length; i++) {
     const poly = polygons[i];
     if (poly.length < 3) continue;
+    const runs = options.uncovered?.(i);
+    if (runs) {
+      // The stretches in view, each laid open in the ring's look and stopping on the edge of
+      // the floor over the rest, where that floor's own wall stands. Hand edits are keyed on
+      // the whole ring's layout, so they do not apply to a covered ring.
+      const look = styleWallLook(options.ringStyles?.[i] ?? style);
+      const set = bandFor(look.setId) ? null : specsFor(look.setId);
+      if (!set) continue;
+      const gaps = doorGaps.filter((g) => g.ring === i);
+      for (const run of runs) {
+        const auto = layoutWall(run, false, set.specs, { wallWidth: look.width, seed: seedForPoints(run) });
+        place(
+          wallsContainer,
+          withoutDoorGaps(auto, gaps, set.specById, look.width, [run[0], run[run.length - 1]]),
+          set.specById,
+          look.width,
+          tintOf(look.tint),
+        );
+      }
+      continue;
+    }
     const edges = options.edgeStyles?.[i];
     if (edges && edges.length === poly.length) {
       renderRingEdges(i, poly, edges);
