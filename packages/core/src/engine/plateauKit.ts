@@ -32,9 +32,22 @@ export function cliffArt(setId: string | undefined): Map<string, CatalogEntry> {
   return art;
 }
 
+/**
+ * The gg-demo bends a cliff borrows when its set ships none: the one-cell corner only. The
+ * longer ones (2x1, 2x2, 3x3, 4x2) are measured, but they wander as thin S-curves across
+ * whole edges, another look from the forge's thick straights, so they stay out of the walk.
+ */
+const BORROWED_BENDS = new Set(['ledge_bend_1x1']);
+
 /** The kit pieces a cliff can lay with `art`: only those with a picture to show. */
 export function cliffPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
-  const pieces = ledgePieces().filter((p) => art.has(p.key));
+  const usable = (key: string): boolean => {
+    const e = art.get(key);
+    if (!e) return false;
+    // A set's own bends (tagged cave, like its straights) are all laid; borrowed ones are picked.
+    return !key.startsWith('ledge_bend_') || e.tags.includes('cave') || BORROWED_BENDS.has(key);
+  };
+  const pieces = ledgePieces().filter((p) => usable(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
 }

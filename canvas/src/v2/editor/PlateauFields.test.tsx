@@ -75,7 +75,7 @@ describe('plateau rows on a floor card', () => {
     render(<SelectionCard />);
     fireEvent.click(screen.getByRole('button', { name: 'Cliff' }));
     expect(child('top').edge).toBe('cliff');
-    expect(screen.getByTestId('v2-plateau-sight-auto').textContent).toBe('Hides · drop 2');
+    expect(screen.getByTestId('v2-plateau-sight-auto').textContent).toBe('Top hidden from below · drop 2');
     fireEvent.click(screen.getByRole('button', { name: 'Never' }));
     expect(child('top').sightOverride).toBe('show');
   });

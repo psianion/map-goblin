@@ -131,16 +131,20 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
           {edge !== 'wall' && (
             <div className="v2-sel__row" data-testid="v2-plateau-sight">
               <Seg
-                label="Blocks sight from below"
+                label="Sight"
                 value={sight}
                 options={SIGHT_OPTIONS}
                 onChange={(v) => apply('Blocks sight', ids, { sightOverride: v === 'auto' ? undefined : v })}
               />
-              {sight === 'auto' && (
-                <span className="v2-selc__value v2-selc__value--quiet" data-testid="v2-plateau-sight-auto">
-                  {hides ? 'Hides' : 'Shows'} · drop {Math.abs(drop)}
-                </span>
-              )}
+            </div>
+          )}
+          {edge !== 'wall' && sight === 'auto' && (
+            // Auto's answer on a line of its own: beside the three choices it ran off the card.
+            <div className="v2-sel__row">
+              <span className="v2-selc__label" />
+              <span className="v2-selc__value v2-selc__value--quiet" data-testid="v2-plateau-sight-auto">
+                {hides ? 'Top hidden from below' : 'Top seen from below'} · drop {Math.abs(drop)}
+              </span>
             </div>
           )}
 
