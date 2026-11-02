@@ -42,6 +42,13 @@ export const BAND_OVERLAP = 0.3;
 /** How far a piece may sit off the curve it spans, after the sideways nudge. */
 export const BAND_FIT = 0.22;
 
+/** A turn this sharp inside a closing stretch is offered as the place to split it. */
+const SPLIT_CORNER_DEG = 50;
+/** How much a split on that corner is preferred over an even split of the same cost. */
+const CORNER_SPLIT_BONUS = 4;
+/** A joint lapping less than this along travel is a seam: the straight cut shows. */
+export const MIN_LAP = BAND_OVERLAP / 3;
+
 /** Re-sample a closed polyline at an even spacing `h`. */
 export function resampleClosed(pts: Curve, h: number): Curve {
   const out: Curve = [];
@@ -256,9 +263,10 @@ export interface WalkOptions {
   /** The span is a whole ring: the last piece meets the first. */
   ring?: boolean;
   /**
-   * Ring only: run the closing piece BAND_OVERLAP past the first piece's start,
-   * the overlap every other joint already has. Without it the closer butts the
-   * first piece end to end and a turn there opens a sliver of floor.
+   * Run the closing piece BAND_OVERLAP past the first piece's start (a ring), and a
+   * two-piece close's halves past each other by the same, the overlap every other
+   * joint already has. Without it the closer butts its neighbours end to end and a
+   * turn there opens a sliver of floor.
    */
   lap?: boolean;
   /**
@@ -355,38 +363,67 @@ export function walkSpan(
       };
       const one = fit(P, i, home, iHome);
       if (!one || one.s > 1.12 || one.s < 0.88) {
-        let midI = (i + iHome) / 2;
-        let M = curve[Math.round(midI) % n];
-        let a = fit(P, i, M, midI),
-          b = fit(M, midI, home, iHome);
+        // The second half starts BAND_OVERLAP back inside the first, as every walked
+        // joint does: two halves meeting end to end open a seam once each is shoved
+        // off its own chord, worst where the split lands on a turn.
+        // Each half gives up half the overlap: the first runs on past the split, the
+        // second starts short of it.
+        // The plain walk keeps its halves end to end, as the solver fixture expects.
+        const halfLap = opts.lap ? Math.max(1, Math.round(BAND_OVERLAP / spacing / 2)) : 0;
+        const halves = (at: number) => {
+          const mI = Math.min(iHome - 1, at + halfLap);
+          const mP = curve[Math.round(mI) % n];
+          const bI = Math.max(i + 1, at - halfLap);
+          const bP = curve[Math.round(bI) % n];
+          return { mI, mP, bI, bP, a: fit(P, i, mP, mI), b: fit(bP, bI, home, iHome) };
+        };
+        let split = halves((i + iHome) / 2);
+        // A sharp corner in the stretch is a split point of its own: each half then
+        // keeps to one side of it instead of one piece being laid across it.
+        let cornerI = -1;
+        let cornerTurn = 0;
+        const reach = Math.max(2, Math.round(0.5 / spacing));
+        for (let k = Math.ceil(i) + reach; k <= Math.floor(iHome) - reach; k++) {
+          const t = Math.abs(turnDeg(tangentAt(curve, k - reach), tangentAt(curve, k + reach)));
+          if (t > cornerTurn) {
+            cornerTurn = t;
+            cornerI = k;
+          }
+        }
         const splits = opts.splits ?? 1;
+        const candidates: number[] = [];
         if (splits > 1) {
+          for (let k = 1; k < splits; k++) candidates.push(i + ((iHome - i) * k) / splits);
+          // And where each piece of the kit would end laid from P at its own size, so
+          // the first half can be a whole stone and the second takes what is left.
+          for (const c of new Set(set.map((p) => p.chordCells))) {
+            const hit = chordPoint(curve, i, c, Math.ceil((iHome - i) * 1.5));
+            if (hit && hit.i - halfLap > i + 1 && hit.i - halfLap < iHome - 1) candidates.push(hit.i - halfLap);
+          }
+        }
+        if (cornerI >= 0 && cornerTurn >= SPLIT_CORNER_DEG) candidates.push(cornerI);
+        if (candidates.length > 0) {
           // A missing half costs more than any fit, then the shape and stretch of
           // the two halves decide.
-          const cost = (h: typeof a): number => (h ? h.sc + Math.abs(Math.log(h.s)) * 30 : 99);
-          let bestCost = cost(a) + cost(b);
-          for (let k = 1; k < splits; k++) {
-            const mI = i + ((iHome - i) * k) / splits;
-            const mP = curve[Math.round(mI) % n];
-            const ka = fit(P, i, mP, mI),
-              kb = fit(mP, mI, home, iHome);
-            const c = cost(ka) + cost(kb);
+          const cost = (h: ReturnType<typeof fit>): number => (h ? h.sc + Math.abs(Math.log(h.s)) * 30 : 99);
+          let bestCost = cost(split.a) + cost(split.b);
+          for (const mI of candidates) {
+            const k = halves(mI);
+            const c = cost(k.a) + cost(k.b) - (mI === cornerI ? CORNER_SPLIT_BONUS : 0);
             if (c < bestCost) {
               bestCost = c;
-              a = ka;
-              b = kb;
-              midI = mI;
-              M = mP;
+              split = k;
             }
           }
         }
+        let { a, b } = split;
         if (opts.fill && (a || b || !one)) {
-          a ??= fit(P, i, M, midI, true);
-          b ??= fit(M, midI, home, iHome, true);
+          a ??= fit(P, i, split.mP, split.mI, true);
+          b ??= fit(split.bP, split.bI, home, iHome, true);
         }
-        if (a) laid.push({ piece: a.piece, P, Q: M, i, stretch: a.s, nudge: a.nudge, branch: 'close-a' });
+        if (a) laid.push({ piece: a.piece, P, Q: split.mP, i, stretch: a.s, nudge: a.nudge, branch: 'close-a' });
         if (b)
-          laid.push({ piece: b.piece, P: M, Q: home, i: midI, stretch: b.s, nudge: b.nudge, branch: 'close-b' });
+          laid.push({ piece: b.piece, P: split.bP, Q: home, i: split.bI, stretch: b.s, nudge: b.nudge, branch: 'close-b' });
         if (!a && !b && one)
           laid.push({ piece: one.piece, P, Q: home, i, stretch: one.s, nudge: one.nudge, branch: 'close-one' });
       } else {
@@ -499,8 +536,10 @@ export function walkClosed(
   opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill'> = {},
 ): WalkResult {
   const n = curve.length;
+  // The start is judged on open joints and stretch only: a plain close butts the first
+  // piece end to end (a seam on every start alike); the lap below is what closes it.
   const cost = (r: WalkResult): number =>
-    r.holes.length * 100 + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
+    jointHoles(r.placed, true, false).length * 100 + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
   let best: WalkResult | null = null;
   let bestStart = 0;
   let bestCost = Infinity;
@@ -521,7 +560,7 @@ export function walkClosed(
       bestStart = i0;
       bestCost = c;
     }
-    if (r.holes.length === 0 && c <= RING_EVEN) break;
+    if (c <= RING_EVEN) break;
   }
   if (!best) throw new Error('band walk did not close');
   if (!opts.lap && !opts.splits && !opts.fill) return best;
@@ -545,14 +584,29 @@ export function walkClosed(
  * the floor shows through to the void. Reported rather than thrown so a bad walk
  * can still be looked at, but it is a defect. `ring` closes the last piece back
  * onto the first; a span's ends answer to whatever is beside them instead.
+ *
+ * A joint that laps less than MIN_LAP along travel is one too: two pieces butted
+ * end to end (a closer meeting its neighbour on the same point) each get shoved
+ * off their own chord, and on any turn that opens a wedge of floor between them.
+ * Along travel a long lap is fine; across it, the 0.9 gate still holds.
  */
 export function bandHoles(placed: WalkPlacement[], ring: boolean): BandHole[] {
+  return jointHoles(placed, ring, true);
+}
+
+/** The joints open by more than the gate, and with `seams` the ones lapping too little. */
+function jointHoles(placed: WalkPlacement[], ring: boolean, seams: boolean): BandHole[] {
   const holes: BandHole[] = [];
   for (let k = 0; k < placed.length - (ring ? 0 : 1); k++) {
     const a = placed[k],
       b = placed[(k + 1) % placed.length];
     const gap = dist(a.Q, b.P);
-    if (gap > 0.9)
+    const travel = norm(add(norm(sub(a.Q, a.P)), norm(sub(b.Q, b.P))));
+    const lap = dot(sub(a.Q, b.P), travel);
+    // Judged by seams, a joint lapping long (a short side's straight over the bends either
+    // end) is no hole: only one that falls short along travel or misses sideways is.
+    const open = seams ? lap < MIN_LAP || Math.abs(cross(sub(a.Q, b.P), travel)) > 0.9 : gap > 0.9;
+    if (open)
       holes.push({
         k,
         gap: gap.toFixed(2),
@@ -562,4 +616,136 @@ export function bandHoles(placed: WalkPlacement[], ring: boolean): BandHole[] {
       });
   }
   return holes;
+}
+
+/** A corner of a ring with straight sides: its ride index and signed turn, degrees. */
+export interface RingCorner {
+  at: number;
+  turn: number;
+}
+
+/** A small ring laid corner first: the placements, and each side's straight stretch. */
+export interface CornerLayout {
+  placed: WalkPlacement[];
+  /**
+   * Per side (corner k to corner k + 1), the free arc between the two bend groups, in
+   * cells: what the straights there cover, before they lap the bends either end.
+   */
+  sides: number[];
+}
+
+/**
+ * The bends a corner is turned with: the group (one bend, or the same bend repeated) that
+ * turns within CORNER_GROUP_TOL of the corner on the shortest chord, its sign the corner's.
+ * The smallest pair the kit has is what a small ring wants: a long bend there eats the
+ * whole side. Null when the kit has no bend that way.
+ */
+function cornerBends(turn: number, set: CaveKitPiece[]): CaveKitPiece[] | null {
+  let best: { piece: CaveKitPiece; count: number; cost: number } | null = null;
+  for (const piece of set) {
+    if (piece.turnDeg === 0 || Math.sign(piece.turnDeg) !== Math.sign(turn) || piece.flipY) continue;
+    const count = Math.max(1, Math.round(Math.abs(turn) / Math.abs(piece.turnDeg)));
+    const miss = Math.abs(count * Math.abs(piece.turnDeg) - Math.abs(turn));
+    const cost = (miss > CORNER_GROUP_TOL ? 1000 + miss : 0) + count * piece.chordCells;
+    if (!best || cost < best.cost) best = { piece, count, cost };
+  }
+  return best ? Array.from({ length: best.count }, () => best.piece) : null;
+}
+
+/** How far a bend group may turn from its corner, degrees. */
+const CORNER_GROUP_TOL = 20;
+
+/**
+ * Lay a ring with straight sides corner first: each corner gets its bend group centred
+ * on it, then each side is covered between the groups by straights at their own size,
+ * overlapping the bends either end by BAND_OVERLAP, and more where the side is shorter
+ * than the shortest straight. No piece is stretched and no corner is cut across.
+ *
+ * Null when the kit has no straight, or no bend for some corner.
+ */
+export function layCorners(curve: Curve, corners: RingCorner[], set: CaveKitPiece[]): CornerLayout | null {
+  const n = curve.length;
+  const spacing = dist(curve[0], curve[1]) || 0.1;
+  const backOff = Math.max(1, Math.round(BAND_OVERLAP / spacing));
+  const straights = set.filter((p) => p.turnDeg === 0).sort((a, b) => b.chordCells - a.chordCells);
+  if (straights.length === 0 || corners.length < 3) return null;
+  const at = (i: number): Vec => curve[((Math.round(i) % n) + n) % n];
+
+  /** Lay `pieces` one after another from index `from`, each lapping the last. */
+  const layRun = (pieces: CaveKitPiece[], from: number, branch: string): Omit<WalkPlacement, 'at'>[] | null => {
+    const out: Omit<WalkPlacement, 'at'>[] = [];
+    let i = from;
+    for (const piece of pieces) {
+      const P = at(i);
+      const hit = chordPoint(curve, ((i % n) + n) % n, piece.chordCells, Math.ceil((piece.chordCells * 3) / spacing));
+      if (!hit) return null;
+      const end = i + (hit.i - (((i % n) + n) % n));
+      const f = fitArc(curve, ((i % n) + n) % n, hit.i, P, hit.p, piece);
+      out.push({ piece, P, Q: hit.p, i, nudge: f.nudge, branch });
+      i = end - backOff;
+    }
+    return out;
+  };
+  /** Where a run laid from `from` ends, as a curve index. */
+  const endOf = (run: Omit<WalkPlacement, 'at'>[]): number => {
+    const last = run[run.length - 1];
+    const hit = chordPoint(curve, ((last.i % n) + n) % n, last.piece.chordCells, Math.ceil((last.piece.chordCells * 3) / spacing))!;
+    return last.i + (hit.i - (((last.i % n) + n) % n));
+  };
+
+  // Each corner's group, centred on it: laid once from the corner to learn its reach.
+  const groups: { run: Omit<WalkPlacement, 'at'>[]; from: number; to: number }[] = [];
+  for (const c of corners) {
+    const bends = cornerBends(c.turn, set);
+    if (!bends) return null;
+    // The arc a chord takes depends on where it starts on the rounded corner, so the
+    // start is settled over a few passes until the group's ends sit either side alike.
+    let from = c.at;
+    let run: Omit<WalkPlacement, 'at'>[] | null = null;
+    for (let pass = 0; pass < 4; pass++) {
+      run = layRun(bends, from, 'corner');
+      if (!run) return null;
+      from = c.at - (endOf(run) - from) / 2;
+    }
+    run = layRun(bends, from, 'corner');
+    if (!run) return null;
+    groups.push({ run, from, to: endOf(run) });
+  }
+
+  const laid: Omit<WalkPlacement, 'at'>[] = [];
+  const sides: number[] = [];
+  let mirror = 0;
+  groups.forEach((g, k) => {
+    laid.push(...g.run);
+    const next = groups[(k + 1) % groups.length];
+    let nextFrom = next.from;
+    while (nextFrom < g.to - n / 2) nextFrom += n;
+    // From a lap inside this group's last bend to a lap inside the next group's first.
+    const s0 = g.to - backOff;
+    const s1 = nextFrom + backOff;
+    const arc = (s1 - s0) * spacing;
+    sides.push((nextFrom - g.to) * spacing);
+    if (g.to - nextFrom >= backOff) return;
+    // Longest straights that fit, then centred: a stretch under the shortest one takes
+    // that one alone and laps the bends either side by more.
+    const pieces: CaveKitPiece[] = [];
+    // Short by up to half an overlap is fine: centred, each end still laps by more than
+    // MIN_LAP, where one more piece would lap the bends by most of its own length.
+    let left = arc;
+    for (;;) {
+      const piece = straights.find((p) => p.chordCells <= left + BAND_OVERLAP / 2) ?? straights[straights.length - 1];
+      const same = set.filter((p) => p.turnDeg === 0 && p.key === piece.key);
+      pieces.push(same[mirror++ % same.length]);
+      left -= piece.chordCells;
+      if (left <= BAND_OVERLAP / 2) break;
+      // The next piece starts back inside this one.
+      left += BAND_OVERLAP;
+    }
+    const total = pieces.reduce((sum, p) => sum + p.chordCells, 0) - (pieces.length - 1) * BAND_OVERLAP;
+    const run = layRun(pieces, s0 + ((arc - total) / 2) / spacing, 'side');
+    if (run) laid.push(...run);
+  });
+
+  const placed: WalkPlacement[] = laid.map((pl) => ({ ...pl, at: placePiece(pl.piece, pl.P, pl.Q, BAND_OUT, 0, pl.nudge) }));
+  return { placed, sides };
 }

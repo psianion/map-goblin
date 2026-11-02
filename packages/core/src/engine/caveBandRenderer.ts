@@ -17,12 +17,14 @@ import type { DungeonLayer, ShapeChild } from '../store/types';
 import { ringOwner } from '../shared/wallLook';
 import {
   BAND_OUT,
+  layCorners,
   offsetCurve,
   resampleClosed,
   tangentAt,
   walkClosed,
   walkSpan,
   type Curve,
+  type RingCorner,
   type Vec,
   type WalkOptions,
   type WalkPlacement,
@@ -416,13 +418,97 @@ export function layBandRing(
   }
   const ride = bandRide(base, true);
   const spans = openSpans(ride, gaps, true);
-  if (spans) return spans.flatMap(([from, to]) => laySpan(ride, set, from, to));
+  if (spans) return spans.flatMap(([from, to]) => laySpan(ride, set, from, to, { lap: true }));
+  const corners = cornerRing(poly, ride, set);
+  if (corners?.short) return corners.placed;
+  let walked: WalkPlacement[] = [];
   try {
-    return walkClosed(ride, set, LIVE_WALK).placed;
+    walked = walkClosed(ride, set, LIVE_WALK).placed;
   } catch {
-    return [];
+    walked = [];
   }
+  // A ring of straight sides the walk cut a corner of (a straight laid across it, or a
+  // bend the wrong way) is laid corner first after all.
+  if (corners && cutsCorner(walked, corners.turn)) return corners.placed;
+  return walked;
 }
+
+/** The art turns less than the ring's corners do, or a piece stood in where none fit. */
+function cutsCorner(placed: WalkPlacement[], turn: number): boolean {
+  if (placed.length === 0) return true;
+  const turned = placed.reduce((sum, pl) => sum + pl.piece.turnDeg, 0);
+  return placed.some((pl) => pl.branch === 'fallback') || Math.abs(turned - turn) > CUT_CORNER_DEG;
+}
+
+/** How far the art may turn from the ring's own corners before a corner counts as cut. */
+const CUT_CORNER_DEG = 45;
+
+/** A polygon vertex turning less than this is part of a straight side. */
+const SIDE_TURN_DEG = 5;
+/** A vertex turning at least this is a corner; anything between is a curve, left to the walk. */
+const RING_CORNER_DEG = 60;
+
+/**
+ * A ring of straight sides laid corner first (`layCorners`): the smallest bends the kit
+ * has on each corner, then straights at their own size between, lapping the bends. `short`
+ * when some side has room for one straight at most once its corners are turned: the walk
+ * leaves such a side nothing to lay but a piece across a corner. `turn` is the sum of the
+ * ring's corner turns. Null for a ring with a curve in it.
+ */
+function cornerRing(
+  poly: Polygon,
+  ride: Curve,
+  set: CaveKitPiece[],
+): { placed: WalkPlacement[]; short: boolean; turn: number } | null {
+  const pts: Vec[] = [];
+  for (const p of poly) {
+    const last = pts[pts.length - 1];
+    if (!last || dist(last, p as Vec) > 1e-6) pts.push([p[0], p[1]]);
+  }
+  if (pts.length > 2 && dist(pts[0], pts[pts.length - 1]) <= 1e-6) pts.pop();
+  const m = pts.length;
+  if (m < 3) return null;
+  const corners: RingCorner[] = [];
+  for (let k = 0; k < m; k++) {
+    const a = norm(sub(pts[k], pts[(k - 1 + m) % m]));
+    const b = norm(sub(pts[(k + 1) % m], pts[k]));
+    const turn = (Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]) * 180) / Math.PI;
+    if (Math.abs(turn) < SIDE_TURN_DEG) continue;
+    if (Math.abs(turn) < RING_CORNER_DEG) return null;
+    corners.push({ at: cornerOnRide(ride, pts[k]), turn });
+  }
+  const shortest = Math.min(...set.filter((p) => p.turnDeg === 0).map((p) => p.chordCells));
+  const laid = layCorners(ride, corners, set);
+  if (!laid) return null;
+  return {
+    placed: laid.placed,
+    short: Math.min(...laid.sides) < shortest * SHORT_SIDE,
+    turn: corners.reduce((sum, c) => sum + c.turn, 0),
+  };
+}
+
+/**
+ * The ride index a polygon corner turns at: the middle of the stretch of ride within
+ * CORNER_NEAR of it. The ride is rounded there, so the nearest point alone wanders along
+ * the curve; the middle of the near stretch sits on the corner's bisector.
+ */
+function cornerOnRide(ride: Curve, corner: Vec): number {
+  const n = ride.length;
+  let near = 0;
+  for (let i = 1; i < n; i++) if (dist(ride[i], corner) < dist(ride[near], corner)) near = i;
+  const reach = Math.max(CORNER_NEAR, dist(ride[near], corner) + CURVE_STEP);
+  let lo = 0;
+  while (lo < n / 2 && dist(ride[(near - lo - 1 + n) % n], corner) <= reach) lo++;
+  let hi = 0;
+  while (hi < n / 2 && dist(ride[(near + hi + 1) % n], corner) <= reach) hi++;
+  return near + (hi - lo) / 2;
+}
+
+/** How far from a polygon corner the ride counts as turning it, cells. */
+const CORNER_NEAR = 1;
+
+/** A side with less free run than this many shortest straights is short. */
+const SHORT_SIDE = 2;
 
 /** Re-sample an open polyline at an even spacing `h`, keeping its last point. */
 function resampleOpen(pts: Curve, h: number): Curve {
@@ -487,7 +573,7 @@ export function layBandChain(
   gaps: DoorGap[] = [],
   set: CaveKitPiece[] = caveBandPieces(),
 ): WalkPlacement[] {
-  return layChain(points as Curve, gaps, set, {});
+  return layChain(points as Curve, gaps, set, { lap: true });
 }
 
 function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions): WalkPlacement[] {

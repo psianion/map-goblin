@@ -202,13 +202,24 @@ describe('every cliff ring is walked', () => {
     const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
     return rock.children as Sprite[];
   };
-  const walked = (ring: Polygon): number =>
-    walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true), cliffPieces(cliffArt(undefined)), LIVE_WALK).placed.length;
+  it('lays a round plateau with the walk, piece for piece', () => {
+    const round: [number, number][] = Array.from({ length: 64 }, (_, i) => [
+      15 + 5 * Math.cos((i / 64) * 2 * Math.PI),
+      15 + 5 * Math.sin((i / 64) * 2 * Math.PI),
+    ]);
+    const layer = layerOf([ground, { ...rect('top', 0, 0, 1, 1, { height: 2, edge: 'cliff' }), contours: [round] }]);
+    const ring = layerPlateaus(layer).bands[0].rings[0];
+    const walked = walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true), cliffPieces(cliffArt(undefined)), LIVE_WALK);
+    expect(rockOf(layer).length).toBe(walked.placed.length);
+  });
 
-  it('lays an 8x7 plateau straights included with the walk, piece for piece', () => {
+  it('lays an 8x7 plateau piece for piece as the band walk does', () => {
+    // An 8x7 side leaves the walk room for one straight at most once its corners are
+    // turned, so the band lays it corner first (caveWalk `layCorners`): still every piece
+    // at its own size, one sprite each.
     const layer = layerOf([ground, rect('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]);
-    const sprites = rockOf(layer);
-    expect(sprites.length).toBe(walked(layerPlateaus(layer).bands[0].rings[0]));
+    const ring = layerPlateaus(layer).bands[0].rings[0];
+    expect(rockOf(layer).length).toBe(layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length);
   });
 
   it('never stretches a ledge: every sprite keeps its own proportions', () => {
