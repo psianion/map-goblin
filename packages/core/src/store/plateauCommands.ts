@@ -9,7 +9,7 @@ import { useStore } from './store';
 
 /** The fields of a plateau the card edits. */
 export type PlateauPatch = Partial<
-  Pick<PlateauChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'contourLines' | 'footRubble' | 'sightOverride' | 'crossingId'>
+  Pick<PlateauChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'contourLines' | 'sightOverride' | 'crossingId'>
 >;
 
 function findChild<T extends 'plateau' | 'opening'>(

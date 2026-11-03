@@ -202,8 +202,6 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   slopeWidth?: number;
   /** Contour lines drawn on the slope or cliff top. Absent = on. (Not `contours`: those are the rings.) */
   contourLines?: boolean;
-  /** A cliff's foot rubble: the rubble kit laid along its low side. Absent = off. */
-  footRubble?: boolean;
   /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
   sightOverride?: 'hide' | 'show';
   /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */

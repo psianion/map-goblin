@@ -62,22 +62,10 @@ export function isLineKit(set: readonly CaveKitPiece[]): boolean {
   return set.length > 0 && set.every((p) => p.key.startsWith('ledge_') || p.key.startsWith('contour_'));
 }
 
-/** The overlap at a joint of the foot rubble kit: loose stones, so a short lap is enough. */
-export const RUBBLE_OVERLAP = 0.1;
-
-/**
- * True for the foot rubble kit (`rubble_*` band pieces): laid on the ring it is given, which
- * already sits where the rubble belongs, so no shove either.
- */
-export function isRubbleKit(set: readonly CaveKitPiece[]): boolean {
-  return set.length > 0 && set.every((p) => p.key.startsWith('rubble_'));
-}
-
 /** The overlap a kit's joints are walked with. */
-export const kitOverlap = (set: readonly CaveKitPiece[]): number =>
-  isLineKit(set) ? LINE_OVERLAP : isRubbleKit(set) ? RUBBLE_OVERLAP : BAND_OVERLAP;
+export const kitOverlap = (set: readonly CaveKitPiece[]): number => (isLineKit(set) ? LINE_OVERLAP : BAND_OVERLAP);
 /** How far a kit is shoved toward the void past the curve it rides (twice: ride and placement). */
-export const kitOut = (set: readonly CaveKitPiece[]): number => (isLineKit(set) || isRubbleKit(set) ? 0 : BAND_OUT);
+export const kitOut = (set: readonly CaveKitPiece[]): number => (isLineKit(set) ? 0 : BAND_OUT);
 
 /**
  * Which turns a straight may span and which a bend may: a straight up to `straight` degrees,

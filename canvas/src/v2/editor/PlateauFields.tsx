@@ -155,16 +155,6 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
         </div>
       )}
 
-      {edge === 'cliff' && (
-        <div className="v2-sel__row" data-testid="v2-plateau-foot-rubble">
-          <Switch
-            label="Foot rubble"
-            checked={head.footRubble ?? false}
-            onChange={(on) => apply('Foot rubble', ids, { footRubble: on ? true : undefined })}
-          />
-        </div>
-      )}
-
       <div className="v2-sel__row" data-testid="v2-plateau-sight">
         <Seg
           label="Sight"

@@ -9,7 +9,8 @@
 // copied over the core kit, and each ledge piece's drawn ridge (the line's centre, every
 // RIDGE_STEP cell, in cells from the sprite's centre) is written to caveLedgeRidge.json, so
 // the slivers under a cliff root on the line where it wanders. The ink stairs need no
-// STAIRS_CONTENT rect: their manifest entries carry the forge's contentRect.
+// STAIRS_CONTENT rect: their manifest entries carry the forge's contentRect. The rubble band
+// pieces are tagged `prop` on the way in, so they place as plain assets.
 
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -45,7 +46,17 @@ const base = join(PACKS, PACK);
 const work = mkdtempSync(join(tmpdir(), 'cave-ink-'));
 try {
   const out = join(work, 'out');
-  cli('integrate', '-b', base, '-s', SET, '--pack-version', VERSION, '-o', out);
+  // The rubble band pieces are hand-placed props, not walked kit: tagged `prop` so the
+  // catalogue lists them in the library and keeps them out of the band set.
+  const set = join(work, 'GG_Cave_Ink');
+  mkdirSync(set);
+  for (const f of readdirSync(SET)) copyFileSync(join(SET, f), join(set, f));
+  const manifest = JSON.parse(readFileSync(join(set, 'manifest.json'), 'utf8'));
+  for (const p of manifest.pieces) {
+    if (/^rubble(_|$)/.test(p.material) && !p.tags.includes('prop')) p.tags = [...p.tags, 'prop', 'rubble'];
+  }
+  writeFileSync(join(set, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  cli('integrate', '-b', base, '-s', set, '--pack-version', VERSION, '-o', out);
   // Swap the rebuilt pack in, then rebuild the index the app reads at first boot.
   rmSync(base, { recursive: true, force: true });
   mkdirSync(base);

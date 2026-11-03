@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.16.1",
+  "version": "1.16.2",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2198,7 +2198,9 @@
       "set": "GG_Cave_Ink",
       "tags": [
         "structure",
-        "cave"
+        "cave",
+        "prop",
+        "rubble"
       ],
       "family": "rubble"
     },
@@ -2217,7 +2219,9 @@
       "set": "GG_Cave_Ink",
       "tags": [
         "structure",
-        "cave"
+        "cave",
+        "prop",
+        "rubble"
       ],
       "family": "rubble"
     },
@@ -2236,7 +2240,9 @@
       "set": "GG_Cave_Ink",
       "tags": [
         "structure",
-        "cave"
+        "cave",
+        "prop",
+        "rubble"
       ],
       "family": "rubble_bend"
     },
@@ -2255,7 +2261,9 @@
       "set": "GG_Cave_Ink",
       "tags": [
         "structure",
-        "cave"
+        "cave",
+        "prop",
+        "rubble"
       ],
       "family": "rubble_bend"
     },
@@ -2274,7 +2282,9 @@
       "set": "GG_Cave_Ink",
       "tags": [
         "structure",
-        "cave"
+        "cave",
+        "prop",
+        "rubble"
       ],
       "family": "rubble_end"
     },

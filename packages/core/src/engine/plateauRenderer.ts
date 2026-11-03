@@ -57,9 +57,6 @@ import {
   contourArt,
   contourPieces,
   ledgeEndPieces,
-  rubbleArt,
-  rubbleEndPieces,
-  rubblePieces,
   sliverArt,
   sliverPieces,
 } from './plateauKit';
@@ -194,8 +191,7 @@ export function renderPlateaus(
     const runs = edgeRuns(band);
     const soft = drawShade(holder, band, runs, plateaus.bands, ground);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
-    const foot = (outward: boolean): Polygon[] => groundBelow(band, plateaus.bands, ground, outward, SHADE_REACH + RUBBLE_REACH);
-    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options, foot));
+    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
     edges.addChild(holder);
   }
@@ -290,12 +286,6 @@ function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: bo
   return clipper2Engine.difference([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], high);
 }
 
-/** The ground on the side of `band` its edges drop to, out to `reach` past it: where its shade and foot may land. */
-function groundBelow(band: PlateauBand, bands: readonly PlateauBand[], ground: Polygon[], outward: boolean, reach: number): Polygon[] {
-  const low = lowRegion(band, bands, outward, reach);
-  return ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
-}
-
 /**
  * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line, out
  * to `dropShadeWidth`, stacking to DROP_SHADE_ALPHA black at the line and fading out in even
@@ -329,7 +319,8 @@ function drawShade(
     const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || Math.abs(band.height - r.drop) < 1e-9));
     if (mine.length === 0) continue;
     const reach = SHADE_REACH + Math.max(...mine.map((r) => (r.edge === 'slope' ? slopeWidthOf(r.owner?.slopeWidth) : dropShadeWidth(r.drop))));
-    const region = groundBelow(band, bands, ground, outward, reach);
+    const low = lowRegion(band, bands, outward, reach);
+    const region = ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
     if (region.length === 0) continue;
     const g = new Graphics();
     g.label = 'plateau-drop-shade';
@@ -553,16 +544,9 @@ const lowNormal = (pl: WalkPlacement): Vec => {
 /**
  * A cliff: the top-edge ink line, then the ledge line laid by the cave walk with the low side as
  * void (straights, bends either way, an end piece at each tip of an open run), with slivers
- * hanging under it on the low side at a drop of a cell or more, and with the card's Foot rubble on,
- * the rubble kit walked RUBBLE_OFFSET out on the low side over them, cut to `foot`'s ground.
+ * hanging under it on the low side at a drop of a cell or more.
  */
-function drawCliff(
-  parent: Container,
-  run: EdgeRun,
-  gaps: DoorGap[],
-  options: PlateauRenderOptions,
-  foot: (outward: boolean) => Polygon[],
-): CliffSprite[] {
+function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: PlateauRenderOptions): CliffSprite[] {
   // The walk lays rock with the void on its left; band rings run with the outside on the
   // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
   const pts = run.drop > 0 ? run.points : [...run.points].reverse();
@@ -602,13 +586,6 @@ function drawCliff(
     hung.forEach((pl, i) => sprites.push({ sprite: hang.children[i] as Sprite, normal: lowNormal(pl) }));
     parent.addChild(hang);
   }
-  if (run.owner?.footRubble) {
-    const rubble = drawFootRubble(run, gaps, options, foot(run.drop > 0));
-    if (rubble) {
-      sprites.push(...rubble.sprites);
-      parent.addChild(rubble.holder);
-    }
-  }
 
   if (drawn.length === 0) {
     const ink = new Graphics();
@@ -620,47 +597,6 @@ function drawCliff(
   }
   parent.addChild(rock);
   return sprites;
-}
-
-/** How far out on the low side the foot rubble's ring runs, cells. */
-export const RUBBLE_OFFSET = 0.5;
-/** How far past the edge the foot rubble may reach: its ring plus half the widest piece. */
-const RUBBLE_REACH = 1.5;
-
-/**
- * Foot rubble: the set's rubble kit walked round a ring RUBBLE_OFFSET out on the low side of the
- * edge (low side on the left, as the ledge), bends either way, an end piece at each tip of an
- * open run, masked to `region` (the ground there) so it never lands on void or up on the top.
- */
-function drawFootRubble(
-  run: EdgeRun,
-  gaps: DoorGap[],
-  options: PlateauRenderOptions,
-  region: Polygon[],
-): { holder: Container; sprites: CliffSprite[] } | null {
-  const art = rubbleArt(run.owner?.edgeArt);
-  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
-  const pieces = rubblePieces(art);
-  if (pieces.length === 0 || region.length === 0) return null;
-  const lowLeft = run.drop > 0;
-  const line = offsetPath(run.points, run.closed, lowLeft, RUBBLE_OFFSET);
-  if (run.closed && line.length > 1 && vdist(line[0] as Vec, line[line.length - 1] as Vec) < 1e-6) line.pop();
-  const pts = lowLeft ? line : [...line].reverse();
-  const walked = drawnPlacements(run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces), art);
-  const ends = rubbleEndPieces(art);
-  const tips = ledgeRuns(walked, run.closed).filter((r) => r.open).flatMap((r) => runEnds(r.run, ends));
-  const drawn = [...walked, ...drawnPlacements(tips, art)];
-  if (drawn.length === 0) return null;
-  const stones = new Container();
-  placeBand(stones, drawn, art, 0xffffff, 0);
-  const mask = new Graphics();
-  mask.label = 'plateau-foot-mask';
-  fillRings(mask, region, { color: 0xffffff });
-  const holder = new Container();
-  holder.label = 'plateau-foot-rubble';
-  holder.addChild(stones, mask);
-  holder.mask = mask;
-  return { holder, sprites: drawn.map((pl, i) => ({ sprite: stones.children[i] as Sprite, normal: lowNormal(pl) })) };
 }
 
 // ─── Openings ──────────────────────────────────────────────

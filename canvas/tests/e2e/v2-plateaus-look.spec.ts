@@ -29,7 +29,7 @@ const BAND_BEFORE = fileURLToPath(new URL('./fixtures/warren-cave-band.png', imp
 /** Screen pixels a cell while measuring. */
 const ZOOM = 60
 
-const box = (id: string, x0: number, y0: number, x1: number, y1: number, height: number, edge: string, extra: Any = {}) => ({
+const box = (id: string, x0: number, y0: number, x1: number, y1: number, height: number, edge: string) => ({
   id,
   name: id,
   childType: 'plateau',
@@ -37,7 +37,6 @@ const box = (id: string, x0: number, y0: number, x1: number, y1: number, height:
   contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
   height,
   edge,
-  ...extra,
 })
 
 /** One flat field, the grid off, white ambient light, indoors, with `plateaus` on it. */
@@ -257,7 +256,7 @@ test.describe('the plateau look', () => {
   })
 })
 
-// ─── The ink set: ledge, slivers, contours, foot rubble, and the cave band left alone ───
+// ─── The ink set: ledge, slivers, contours, and the cave band left alone ───
 
 type Rgb = [number, number, number]
 const lumOf = ([r, g, b]: Rgb) => 0.299 * r + 0.587 * g + 0.114 * b
@@ -305,7 +304,7 @@ async function grab(page: Page, a: Pt, b: Pt): Promise<(p: Pt) => Rgb> {
   }
 }
 
-const ring = (id: string, pts: [number, number][], height: number, edge: string, extra: Any = {}) => ({
+const ring = (id: string, pts: [number, number][], height: number, edge: string) => ({
   id,
   name: id,
   childType: 'plateau',
@@ -313,7 +312,6 @@ const ring = (id: string, pts: [number, number][], height: number, edge: string,
   contours: [pts],
   height,
   edge,
-  ...extra,
 })
 
 /** Signed distance outside the axis-aligned square x0..x1, y0..y1 (negative inside). */
@@ -538,37 +536,5 @@ test.describe('the ink set', () => {
     console.log(`dark ink within 0.6 cell: +2 out ${(raised.out * 100).toFixed(2)} %, in ${(raised.inside * 100).toFixed(2)} %; -2 out ${(pit.out * 100).toFixed(2)} %, in ${(pit.inside * 100).toFixed(2)} %`)
     expect(raised.out).toBeGreaterThan(raised.inside * 1.3)
     expect(pit.inside).toBeGreaterThan(pit.out * 1.3)
-  })
-
-  test('Foot rubble adds ink on the low side within 1.2 cells of a cliff and nothing on its top', async ({ page }) => {
-    const read = async (footRubble: boolean) => {
-      const errors = await open(page, mapWith([box('p', 10, 10, 18, 18, 2, 'cliff', { footRubble })]))
-      // Lifted clear of the dock along the bottom of the canvas.
-      await lookAt(page, { x: 14, y: 15 }, 36)
-      const at = await grab(page, { x: 8, y: 8 }, { x: 20, y: 20 })
-      if (footRubble) await page.screenshot({ path: test.info().outputPath('foot-rubble.png') })
-      expect(errors).toEqual([])
-      return at
-    }
-    const off = await read(false)
-    const on = await read(true)
-    const zones = { foot: [0, 0, 0], beyond: [0, 0, 0], top: [0, 0, 0] }
-    for (let y = 8.2; y <= 19.8; y += 1 / 36) {
-      for (let x = 8.2; x <= 19.8; x += 1 / 36) {
-        const d = outOfBox({ x, y }, 10, 10, 18, 18)
-        const zone = d > 0.3 && d <= 1.2 ? zones.foot : d > 1.35 && d <= 1.8 ? zones.beyond : d < -0.45 ? zones.top : null
-        if (!zone) continue
-        const a = on({ x, y })
-        const b = off({ x, y })
-        zone[0] += isInk(a) ? 1 : 0
-        zone[1] += isInk(b) ? 1 : 0
-        zone[2]++
-      }
-    }
-    const pct = (z: number[]) => `${((z[0] / z[2]) * 100).toFixed(2)} % on, ${((z[1] / z[2]) * 100).toFixed(2)} % off`
-    console.log(`ink: 0.3 to 1.2 cell out ${pct(zones.foot)}; 1.35 to 1.8 out ${pct(zones.beyond)}; top ${pct(zones.top)}`)
-    expect((zones.foot[0] - zones.foot[1]) / zones.foot[2]).toBeGreaterThan(0.1)
-    expect(Math.abs(zones.beyond[0] - zones.beyond[1]) / zones.beyond[2]).toBeLessThan(0.01)
-    expect(zones.top[0] - zones.top[1]).toBe(0)
   })
 })

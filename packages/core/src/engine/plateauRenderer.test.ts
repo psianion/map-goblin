@@ -32,11 +32,6 @@ const manager = {
           contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
           sliver_2_1x1_A: object('sliver_2', '1x1', 'GG_Cave_Ink'),
           sliver_3_1x1_A: object('sliver_3', '1x1', 'GG_Cave_Ink'),
-          rubble_2x2_A: object('rubble', '2x2', 'GG_Cave_Ink'),
-          rubble_2x4_A: object('rubble', '2x4', 'GG_Cave_Ink'),
-          rubble_bend_90_3x3_A: object('rubble_bend_90', '3x3', 'GG_Cave_Ink'),
-          rubble_end_2x1_A: object('rubble_end', '2x1', 'GG_Cave_Ink'),
-          rubble_small_3x3_A: object('rubble_small', '3x3', 'GG_Cave_Ink', ['cave', 'prop', 'rubble']),
           stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'GG_Cave_Ink', ['cave', 'prop', 'stairs']),
         },
       },
@@ -70,7 +65,6 @@ import {
   renderPlateaus,
   shadeCliffs,
   sliverDensity,
-  RUBBLE_OFFSET,
   stairsArtEntries,
   SHADE_FLOOR,
   SHADE_SIDE,
@@ -416,27 +410,6 @@ describe('a cliff draws its ledge alone', () => {
     expect(sliverDensity(2)).toBe(1.5);
     expect(sliverDensity(-3)).toBe(2);
     expect(sliverDensity(5)).toBe(2);
-  });
-
-  it('lays foot rubble half a cell out on the low side when the card asks, over the slivers and under the ledge', () => {
-    const draw = (footRubble?: boolean) => {
-      const parent = new Container();
-      renderPlateaus(layerOf([ground, plat('top', 5, 5, 13, 12, { height: 2, edge: 'cliff', footRubble })]), new Container(), parent);
-      return parent.children[0] as Container;
-    };
-    expect(labels(draw())).not.toContain('plateau-foot-rubble');
-    const band = draw(true);
-    const foot = band.children.find((c) => c.label === 'plateau-foot-rubble') as Container;
-    expect(foot.mask).toBeInstanceOf(Graphics);
-    const stones = foot.children[0] as Container;
-    expect(stones.children.length).toBeGreaterThan(4);
-    // Straights' centres lie on the ring, half a cell outside the 8 x 7 outline, mid side.
-    const mid = stones.children.filter((c) => Math.abs(c.position.x - 9) <= 1.5 || Math.abs(c.position.y - 8.5) <= 1.5);
-    const out = (p: { x: number; y: number }) => Math.hypot(Math.max(5 - p.x, 0, p.x - 13), Math.max(5 - p.y, 0, p.y - 12));
-    expect(Math.abs(mid.reduce((sum, c) => sum + out(c.position), 0) / mid.length - RUBBLE_OFFSET)).toBeLessThan(0.15);
-    const order = band.children.map((c) => c.label);
-    expect(order.indexOf('plateau-cliff-slivers')).toBeLessThan(order.indexOf('plateau-foot-rubble'));
-    expect(order.indexOf('plateau-foot-rubble')).toBeLessThan(order.indexOf('plateau-cliff'));
   });
 
   it('draws a pit with its ledge line and slivers only', () => {

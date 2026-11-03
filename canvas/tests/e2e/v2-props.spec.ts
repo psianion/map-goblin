@@ -773,9 +773,9 @@ test('the library: categories, "barel" finds barrels first, and a star survives 
   const sheet = page.getByTestId('v2-props-sheet')
   await expect(sheet).toBeVisible()
   const cats = await sheet.getByRole('list', { name: 'Categories' }).getByRole('button').allTextContents()
-  expect(cats.slice(0, 4)).toEqual(['All834', 'Furniture142', 'Clutter119', 'Storage106'])
-  // The cave ink set's props only (rubble, pits, adaptor, stairs), never its walked kit rock.
-  expect(cats.filter((c) => /Cave Ink/.test(c))).toEqual(['Cave Ink9'])
+  expect(cats.slice(0, 4)).toEqual(['All839', 'Furniture142', 'Clutter119', 'Storage106'])
+  // The cave ink set's props only (rubble piles and band pieces, pits, adaptor, stairs), never its walked kit.
+  expect(cats.filter((c) => /Cave Ink/.test(c))).toEqual(['Cave Ink14'])
   await expect(sheet.getByRole('button', { name: /^Used on this map \(\d+\)$/ })).toBeVisible()
 
   await sheet.getByLabel('Search props').fill('barel')
