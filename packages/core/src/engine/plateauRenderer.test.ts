@@ -621,3 +621,48 @@ describe('the ledge on the goblin warren', () => {
     }
   });
 });
+
+describe('the drop shade', () => {
+  const shadeOf = (band: Container) => band.children.filter((c) => c.label === 'plateau-shade') as Container[];
+
+  it('lays a masked, blurred shade on the low side of every edge kind, under its rock', () => {
+    for (const edge of ['none', 'slope', 'cliff'] as const) {
+      const parent = new Container();
+      renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 1, edge })]), new Container(), parent);
+      const band = parent.children[0] as Container;
+      const [shade] = shadeOf(band);
+      expect(shade, edge).toBeTruthy();
+      // First in the band: under the slope's contours and the cliff's rock.
+      expect(band.children[0]).toBe(shade);
+      const mask = shade.mask as Graphics;
+      expect(mask).toBeInstanceOf(Graphics);
+      expect(shade.children).toContain(mask);
+      const soft = shade.children.find((c) => c.label === 'plateau-shade-soft') as Container;
+      expect(soft.filters).toHaveLength(1);
+      expect(labels(soft)).toContain('plateau-drop-shade');
+      // The mask is the ground outside the plateau: a ring round it, holed where the plateau is.
+      const b = mask.getLocalBounds();
+      expect(b.minX).toBeLessThan(5 - 2);
+      expect(b.maxX).toBeGreaterThan(11 + 2);
+    }
+  });
+
+  it('reaches 0.35 + 0.3 a cell of drop out, wider at +3 than at +1, and inward for a pit', () => {
+    const reach = (height: number) => {
+      const parent = new Container();
+      renderPlateaus(layerOf([ground, plat('top', 10, 10, 16, 16, { height, edge: 'none' })]), new Container(), parent);
+      const soft = shadeOf(parent.children[0] as Container)[0].children[0] as Container;
+      const g = soft.children.find((c) => c.label === 'plateau-drop-shade') as Graphics;
+      return g.getLocalBounds();
+    };
+    expect(reach(1).maxX - 16).toBeCloseTo(0.65, 1);
+    expect(reach(3).maxX - 16).toBeCloseTo(1.25, 1);
+    expect(reach(3).maxX).toBeGreaterThan(reach(1).maxX + 0.5);
+    // A pit shades inside its rim: its mask is the pit's own floor.
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, plat('pit', 10, 10, 16, 16, { height: -2, edge: 'none' })]), new Container(), parent);
+    const mask = shadeOf(parent.children[0] as Container)[0].mask as Graphics;
+    const b = mask.getLocalBounds();
+    expect([b.minX, b.minY, b.maxX, b.maxY].map((v) => Math.round(v * 100) / 100)).toEqual([10, 10, 16, 16]);
+  });
+});

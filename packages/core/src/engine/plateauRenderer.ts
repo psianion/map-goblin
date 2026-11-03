@@ -7,10 +7,21 @@
 // side, so a pit's rock faces in), and its openings across the gaps they cut: a road
 // runs under the ledge except where a landing or an opening opens it.
 //
+// Under all of it, every edge lays a drop shade on its low side (`drawShade`): a soft dark band
+// hugging the edge, wider for a taller drop, so a raised edge reads raised whatever its kind.
+//
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { clipper2Engine } from '../geometry/Clipper2Engine';
+import {
+  DROP_SHADE_ALPHA,
+  DROP_SHADE_STEPS,
+  blurStrengthFor,
+  dropShadeWidth,
+  nestedAlphas,
+} from '../shared/plateauShade';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
 import type { OpeningChild } from '../shared/types';
@@ -211,6 +222,7 @@ export function renderPlateaus(
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
     const runs = edgeRuns(band);
+    drawShade(holder, band, runs, plateaus.bands);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
@@ -274,6 +286,84 @@ function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
   }
   parent.addChild(rings);
   return faces;
+}
+
+// ─── The shade below an edge ───────────────────────────────
+
+/** How far the shade's blur fades an edge, cells: from 90 % to 10 % of its darkness. */
+export const SHADE_FADE = 0.2;
+/** How far past a band's outline the outside it shades on is looked for, cells. */
+const SHADE_REACH = 2;
+
+/** The rings of the side of `band` its edges drop to: outside it (`outward`) or, for a pit's rim, inside it. */
+function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: boolean, reach: number): Polygon[] {
+  if (!outward) {
+    const above = bands.filter((b) => b.height > band.height).flatMap((b) => b.rings);
+    return above.length > 0 ? clipper2Engine.difference(band.rings, above) : band.rings;
+  }
+  const xs = band.rings.flatMap((r) => r.map((p) => p[0]));
+  const ys = band.rings.flatMap((r) => r.map((p) => p[1]));
+  const [x0, y0, x1, y1] = [Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach];
+  const high = bands.filter((b) => b.height >= band.height).flatMap((b) => b.rings);
+  return clipper2Engine.difference([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], high);
+}
+
+/**
+ * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line,
+ * `from` cells out (a slope's foot) to `dropShadeWidth` past that, stacking to
+ * DROP_SHADE_ALPHA black at the line and fading out in even steps.
+ */
+function dropShade(g: Graphics, run: EdgeRun, from: number): void {
+  const line = run.closed ? [...run.points, run.points[0]] : run.points;
+  const width = dropShadeWidth(run.drop);
+  const near = from > 0 ? clipper2Engine.inflateOpen([line], from) : [];
+  nestedAlphas(DROP_SHADE_ALPHA, DROP_SHADE_STEPS).forEach((alpha, i) => {
+    const out = clipper2Engine.inflateOpen([line], from + (width * (i + 1)) / DROP_SHADE_STEPS);
+    fillRings(g, near.length > 0 ? clipper2Engine.difference(out, near) : out, { color: 0x000000, alpha });
+  });
+}
+
+/**
+ * The shade a band lays under its rock, per side it drops to: the drop shade along each edge
+ * (from a slope's foot), blurred, then cut by a mask of that side, so it is as dark at the edge
+ * as the shade says and never spills up onto the band. Returns the blurred holder of each side.
+ */
+function drawShade(parent: Container, band: PlateauBand, runs: EdgeRun[], bands: readonly PlateauBand[]): Map<boolean, Container> {
+  const soft = new Map<boolean, Container>();
+  for (const outward of [true, false]) {
+    // A run dropping to a band below shades it from above; one rising to a band above is that
+    // band's to shade, so only a run rising to the ground (a pit's rim) shades its own band.
+    const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || Math.abs(band.height - r.drop) < 1e-9));
+    if (mine.length === 0) continue;
+    const slopeOf = (r: EdgeRun) => (r.edge === 'slope' ? (r.owner?.slopeWidth ?? 1) * Math.abs(r.drop) : 0);
+    const reach = SHADE_REACH + Math.max(...mine.map((r) => slopeOf(r) + dropShadeWidth(r.drop)));
+    const region = lowRegion(band, bands, outward, reach);
+    if (region.length === 0) continue;
+    const g = new Graphics();
+    g.label = 'plateau-drop-shade';
+    for (const run of mine) dropShade(g, run, slopeOf(run));
+    const blur = new BlurFilter({ strength: 1, quality: 3, kernelSize: 5 });
+    blur.resolution = 1;
+    const held = new Container();
+    held.label = 'plateau-shade-soft';
+    held.filters = [blur];
+    held.addChild(g);
+    const mask = new Graphics();
+    mask.label = 'plateau-shade-mask';
+    fillRings(mask, region, { color: 0xffffff });
+    const clip = new Container();
+    clip.label = 'plateau-shade';
+    clip.addChild(held, mask);
+    clip.mask = mask;
+    // The blur is in screen pixels: kept at SHADE_FADE cells at whatever the zoom is.
+    clip.onRender = () => {
+      const m = held.worldTransform;
+      blur.strength = blurStrengthFor(SHADE_FADE, Math.hypot(m.a, m.b) || 1);
+    };
+    parent.addChild(clip);
+    soft.set(outward, held);
+  }
+  return soft;
 }
 
 /** Which placements `placeBand` will turn into sprites, in the order it adds them. */
