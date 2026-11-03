@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { gotoApp, drawRect, waitFrame, getPixelColor, shapeCount } from './helpers';
 
 test.describe('03 - Erase Mode', () => {
-  test('erase mode toggle via E key', async ({ page }) => {
+  test('erase mode toggle via Shift+E', async ({ page }) => {
     await gotoApp(page);
     const eraseMode = () =>
       page.evaluate(
@@ -13,11 +13,11 @@ test.describe('03 - Erase Mode', () => {
 
     expect(await eraseMode()).toBe(false);
 
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await waitFrame(page, 2);
     expect(await eraseMode()).toBe(true);
 
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await waitFrame(page, 2);
     expect(await eraseMode()).toBe(false);
   });
@@ -41,7 +41,7 @@ test.describe('03 - Erase Mode', () => {
     const sampleY = Math.round((box!.height / 2) * dpr);
     const beforeErase = await getPixelColor(page, sampleX, sampleY);
 
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await waitFrame(page, 2);
 
     await drawRect(page, cx - 40, cy - 30, cx + 40, cy + 30);

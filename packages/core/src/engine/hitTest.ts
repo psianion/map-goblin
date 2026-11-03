@@ -176,6 +176,7 @@ function* childHits(
     if (child.locked && !takesLocked(opts)) continue;
     switch (child.childType) {
       case 'shape':
+      case 'plateau':
         if (pointInShape(child, point)) yield child;
         break;
       case 'path':
@@ -500,7 +501,7 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, paths, the room the point
+ * labels, props, doors), a zone by its outline, the drawn walls, paths, plateaus, the room the point
  * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
  * area, then the floors.
  */
@@ -515,6 +516,9 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   // Paths draw over the floors, so they answer before the rooms and floors under them.
   const paths = layer.children.filter((c) => c.childType === 'path');
   for (const c of childHits(paths, point, layer, opts)) yield childHit(layer.id, c);
+  // Plateaus draw over the floors and the rooms on them: next, before either.
+  const plateaus = layer.children.filter((c) => c.childType === 'plateau');
+  for (const c of childHits(plateaus, point, layer, opts)) yield childHit(layer.id, c);
   // Where a drawn wall answers, the rooms and floor it stands on are looked for beside it too.
   const beside = walls.flatMap((w) => besideWall(w, layer, point));
   if (opts?.rooms ?? roomPicking()) {
@@ -526,7 +530,9 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
     }
   }
   for (const z of zoneHits) yield childHit(layer.id, z);
-  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'path');
+  const below = layer.children.filter(
+    (c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'path' && c.childType !== 'plateau',
+  );
   for (const c of childHits(below, point, layer, opts)) yield childHit(layer.id, c);
   for (const p of beside) for (const c of childHits(below, p, layer, opts)) yield childHit(layer.id, c);
 }

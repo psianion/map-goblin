@@ -250,7 +250,9 @@ export type ToolType =
   /** Draws a threshold (or a wall) across a floor to split a room. */
   | 'divide'
   /** Places stairs, a ramp or a ladder on a cliff ring. */
-  | 'opening';
+  | 'opening'
+  /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
+  | 'plateau';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -292,6 +294,13 @@ export interface OpeningToolSettings {
   width: number;
   /** Stairs art; absent = the default flight. */
   artId?: string;
+}
+
+/** What the Plateau tool draws next. */
+export interface PlateauToolSettings {
+  /** Cells, whole, never 0. */
+  height: number;
+  edge: 'none' | 'slope' | 'cliff';
 }
 
 export interface ZoneToolSettings {
@@ -360,6 +369,8 @@ export interface ToolSettings {
   label: LabelToolSettings;
   /** Absent on settings saved before the opening tool: its defaults. */
   opening?: OpeningToolSettings;
+  /** Absent on settings saved before the plateau tool: its defaults. */
+  plateau?: PlateauToolSettings;
 }
 
 export interface ToolsSlice {

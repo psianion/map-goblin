@@ -72,6 +72,7 @@ const KIND_NOUNS: [SelectionKind, string, string][] = [
   ['text', 'label', 'labels'],
   ['shape', 'floor', 'floors'],
   ['path', 'path', 'paths'],
+  ['plateau', 'plateau', 'plateaus'],
   ['wall', 'wall', 'walls'],
   ['door', 'door', 'doors'],
   ['zone', 'zone', 'zones'],

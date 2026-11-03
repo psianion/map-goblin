@@ -493,12 +493,12 @@ function translateChild(c: AnyChild, dx: number, dy: number): void {
       c.shape.kind === 'rect'
         ? { ...c.shape, x: c.shape.x + dx, y: c.shape.y + dy }
         : { ...c.shape, position: { x: c.shape.position.x + dx, y: c.shape.position.y + dy } };
-  } else if (c.childType === 'shape' && c.transform) {
+  } else if ((c.childType === 'shape' || c.childType === 'plateau') && c.transform) {
     c.transform.translate = [c.transform.translate[0] + dx, c.transform.translate[1] + dy];
   } else if (c.childType === 'path') {
     // Handles are relative to their points, so only the points move.
     c.points = c.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
-  } else if (c.childType === 'shape') {
+  } else if (c.childType === 'shape' || c.childType === 'plateau') {
     c.contours = c.contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
     c.tangents = translateTangents(c.tangents, dx, dy);
   }

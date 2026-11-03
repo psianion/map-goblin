@@ -467,7 +467,7 @@ test('an erase stroke takes rubble but spares cave rock and an imported image, a
   )
   await page.keyboard.press('b')
   await setBrush(page, { stampMode: false, brushRadius: 1 })
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   await expect(page.getByTestId('v2-status-hint')).toContainText('images and cave rock are kept')
   const before = new Set(await childIds(page))
 
@@ -485,7 +485,7 @@ test('an erase stroke takes rubble but spares cave rock and an imported image, a
   expect(after.has(rock.id)).toBe(true)
   expect(after.has('e2e-image')).toBe(true)
 
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   await undo(page)
   expect(new Set(await childIds(page))).toEqual(before)
 })
@@ -856,7 +856,7 @@ test('the Props dock at 1920: eight strip tiles, a typed Scale, two tints that d
 
   // Erase is a moment: E, then Select, then B comes back painting, not erasing.
   await blur(page)
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   expect(await inPage(page, `(s) => s().tools.eraseMode`)).toBe(true)
   await page.getByTestId('v2-rail').getByRole('button', { name: /^Select/ }).click()
   await blur(page)

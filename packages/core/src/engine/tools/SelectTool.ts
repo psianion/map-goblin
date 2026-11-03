@@ -52,6 +52,7 @@ import { setAnchorPreview } from '../roomAnchorDrag';
 import { flattenRing } from '../../shared/bezier';
 import { blockedLayerReason } from './layerGuard';
 import { notify } from '../../shared/notify';
+import { keepPlateausOnGround } from '../plateauGround';
 
 // ─── State machine ────────────────────────────────────────
 
@@ -728,6 +729,8 @@ export class SelectTool implements DrawingTool {
         useStore.getState().setSelectedIds(ids);
       } else if (cmd) {
         undoManager.execute(cmd);
+        // A plateau moved off ground is put back.
+        void keepPlateausOnGround(cmd, ids);
       }
       return;
     }
@@ -1678,7 +1681,7 @@ export class SelectTool implements DrawingTool {
         // On v2 a floor joins only when the box covers it whole, as a room
         // does: a box drawn inside a room is about what stands there, not the cave floor
         // under the whole map.
-        if (wholeOnly && child.childType === 'shape' && !boundsInside(bounds, dragRect)) continue;
+        if (wholeOnly && (child.childType === 'shape' || child.childType === 'plateau') && !boundsInside(bounds, dragRect)) continue;
         if (child.groupId && merged.has(child.groupId)) {
           for (const m of layer.children) if (m.groupId === child.groupId) take(m.id);
         } else {

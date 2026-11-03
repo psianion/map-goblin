@@ -1,5 +1,7 @@
 // Editing a selected path on the canvas with the Select tool: its points, their curve
 // handles, a width handle either side of each point and, in Set height mode, a ± per point.
+// A selected plateau's ring is edited through the same calls, overlay and shortcuts, with
+// the point, handle and insert logic both share (ringNodeEdit.ts) and no width or height.
 //
 // Same furniture as the outline editor (overlayDraw.ts), in world space, sized in screen
 // pixels. A drag previews straight into the store and lands as one undo entry when it ends;
@@ -23,6 +25,23 @@ import { pathCentreline } from '../geometry/pathGeometry';
 import { drawInsertPuck, drawNodeHandle, drawTangentArm, strokeRopeDash } from './overlayDraw';
 import { OVERLAY_INK, OVERLAY_WHITE } from './overlayPalette';
 import { PATH_WIDTH_FINE_STEP, PATH_WIDTH_RANGE, PATH_WIDTH_STEP, snapPathPoint } from './tools/PathTool';
+import {
+  cancelPlateauDrag,
+  draggedHandles,
+  editedPlateau,
+  endPlateauDrag,
+  hoveredPlateauPoint,
+  hoverPlateau,
+  insertHitAt,
+  isDraggingPlateau,
+  movePlateauDrag,
+  nodeHitAt,
+  plateauNodes,
+  pressPlateau,
+  removeHoveredPlateauPoint,
+  ringLine,
+  togglePlateauPointAt,
+} from './ringNodeEdit';
 
 const PICK_PX = 10;
 /** The ± markers sit this far above and below their point, screen px. */
@@ -90,40 +109,15 @@ export function pathHitAt(world: Point, zoom: number): PathHit | null {
       if (near(pts[i].x, pts[i].y + off)) return { kind: 'height', index: i, dir: -1 };
     }
   }
-  for (let i = 0; i < pts.length; i++) {
-    const h = pts[i].handles;
-    if (!h) continue;
-    if (near(pts[i].x + h.out[0], pts[i].y + h.out[1])) return { kind: 'handle', index: i, which: 'out' };
-    if (near(pts[i].x + h.in[0], pts[i].y + h.in[1])) return { kind: 'handle', index: i, which: 'in' };
-  }
-  for (let i = 0; i < pts.length; i++) if (near(pts[i].x, pts[i].y)) return { kind: 'point', index: i };
+  const node = nodeHitAt(pts, world, r);
+  if (node) return node;
   for (let i = 0; i < pts.length; i++) {
     const [wx, wy] = widthHandle(path, i);
     if (near(wx, wy)) return { kind: 'width', index: i };
   }
   // On the centreline: a click there adds a point.
   const line = pathCentreline(path);
-  let best = Infinity;
-  let at: { s: number; x: number; y: number } | null = null;
-  for (let k = 0; k < line.xy.length - 1; k++) {
-    const [ax, ay] = line.xy[k];
-    const [bx, by] = line.xy[k + 1];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const l2 = dx * dx + dy * dy || 1;
-    const t = Math.max(0, Math.min(1, ((world.x - ax) * dx + (world.y - ay) * dy) / l2));
-    const x = ax + dx * t;
-    const y = ay + dy * t;
-    const d = Math.hypot(world.x - x, world.y - y);
-    if (d < best) {
-      best = d;
-      at = { s: line.arc[k] + (line.arc[k + 1] - line.arc[k]) * t, x, y };
-    }
-  }
-  if (!at || best > r) return null;
-  let index = line.pointArc.findIndex((s, i) => i > 0 && s > at.s);
-  if (index < 0) index = pts.length;
-  return { kind: 'insert', index, x: at.x, y: at.y };
+  return insertHitAt({ xy: line.xy as [number, number][], arc: line.arc, nodeArc: line.pointArc }, pts.length, world, r);
 }
 
 // ─── Drags ──────────────────────────────────────────────────
@@ -144,7 +138,7 @@ let drag: Drag | null = null;
 let hovered: number | null = null;
 
 export function isDraggingPath(): boolean {
-  return drag !== null;
+  return drag !== null || isDraggingPlateau();
 }
 
 /**
@@ -152,6 +146,7 @@ export function isDraggingPath(): boolean {
  * pulls its handles out); a ± or an insert acts at once. False when nothing was hit.
  */
 export function pressPath(world: Point, zoom: number, mods: { alt: boolean; shift: boolean }): boolean {
+  if (editedPlateau()) return pressPlateau(world, zoom, mods);
   const e = editedPath();
   const hit = pathHitAt(world, zoom);
   if (!e || !hit) return false;
@@ -193,14 +188,7 @@ function dragPatch(d: Drag, world: Point): { points: PathPoint[]; width?: number
     return { points };
   }
   if (d.kind === 'pull' || d.kind === 'handle') {
-    const v: [number, number] = [world.x - p.x, world.y - p.y];
-    const mirrored: [number, number] = [-v[0], -v[1]];
-    const which = d.which ?? 'out';
-    const h = p.handles ?? { in: mirrored, out: v };
-    points[d.index] = {
-      ...p,
-      handles: which === 'out' ? { in: d.kind === 'pull' ? mirrored : h.in, out: v } : { in: v, out: h.out },
-    };
+    points[d.index] = { ...p, handles: draggedHandles(p, world, d.which ?? 'out', d.kind === 'pull').handles };
     return { points };
   }
   // Width: twice the pointer's distance from the point across the path.
@@ -224,12 +212,14 @@ function currentPath(d: Drag): PathChild {
 }
 
 export function movePathDrag(world: Point): void {
+  if (isDraggingPlateau()) return movePlateauDrag(world);
   if (!drag || !currentPath(drag)) return;
   useStore.getState().updateChild(drag.layerId, drag.pathId, dragPatch(drag, world));
 }
 
 /** The drag lands as one undo entry, or none when nothing moved. */
 export function endPathDrag(): void {
+  if (isDraggingPlateau()) return endPlateauDrag();
   const d = drag;
   drag = null;
   const now = d && currentPath(d);
@@ -240,6 +230,7 @@ export function endPathDrag(): void {
 }
 
 export function cancelPathDrag(): void {
+  if (isDraggingPlateau()) return cancelPlateauDrag();
   const d = drag;
   drag = null;
   if (d && currentPath(d)) useStore.getState().updateChild(d.layerId, d.pathId, d.before);
@@ -249,6 +240,7 @@ export function cancelPathDrag(): void {
 
 /** Tracks the point under the pointer, for Delete and the wheel. */
 export function hoverPath(world: Point, zoom: number): void {
+  if (editedPlateau()) return hoverPlateau(world, zoom);
   const hit = pathHitAt(world, zoom);
   hovered = hit && (hit.kind === 'point' || hit.kind === 'width') ? hit.index : null;
 }
@@ -268,6 +260,7 @@ export function wheelPath(world: Point, zoom: number, deltaY: number, fine: bool
 
 /** A double-click on a point turns it sharp, or back to a smooth auto curve. True when taken. */
 export function togglePathPointAt(world: Point, zoom: number): boolean {
+  if (editedPlateau()) return togglePlateauPointAt(world, zoom);
   const e = editedPath();
   const hit = pathHitAt(world, zoom);
   if (!e || hit?.kind !== 'point') return false;
@@ -279,6 +272,7 @@ export function togglePathPointAt(world: Point, zoom: number): boolean {
 
 /** Delete with the pointer on a point removes the point, not the path. True when taken. */
 export function removeHoveredPathPoint(): boolean {
+  if (editedPlateau()) return removeHoveredPlateauPoint();
   const e = editedPath();
   if (!e || hovered === null || hovered >= e.path.points.length) return false;
   const cmd = removePathPoint(e.path.id, hovered);
@@ -298,8 +292,31 @@ export function initPathNodeOverlay(graphics: Graphics): void {
   lastSignature = '';
 }
 
+/** The edited plateau's ring: its line, its curve arms and its points. */
+function renderPlateauNodes(zoom: number): boolean {
+  const p = editedPlateau();
+  const hovered = hoveredPlateauPoint();
+  const signature = p ? `plateau|${p.plateau.id}|${zoom.toFixed(3)}|${hovered}|${JSON.stringify([p.plateau.contours, p.plateau.tangents, p.plateau.transform])}` : '';
+  if (!p) return false;
+  if (signature === lastSignature) return true;
+  lastSignature = signature;
+  overlay!.clear();
+  const nodes = plateauNodes(p.plateau);
+  const line = ringLine(nodes);
+  if (line.xy.length >= 2) strokeRopeDash(overlay!, line.xy, false, zoom);
+  nodes.forEach((n, i) => {
+    if (n.handles) {
+      drawTangentArm(overlay!, n.x, n.y, n.x + n.handles.in[0], n.y + n.handles.in[1], zoom);
+      drawTangentArm(overlay!, n.x, n.y, n.x + n.handles.out[0], n.y + n.handles.out[1], zoom);
+    }
+    drawNodeHandle(overlay!, n.x, n.y, zoom, { selected: hovered === i, circle: n.handles !== null });
+  });
+  return true;
+}
+
 export function renderPathNodeHandles(zoom: number): void {
   if (!overlay) return;
+  if (renderPlateauNodes(zoom)) return;
   const e = editedPath();
   const signature = e ? `${e.path.id}|${zoom.toFixed(3)}|${hovered}|${JSON.stringify(e.path.points)}|${e.path.width}|${e.path.heightMode}|${e.path.closed}` : '';
   if (signature === lastSignature) return;

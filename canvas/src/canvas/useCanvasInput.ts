@@ -108,11 +108,11 @@ function toolPoint(world: Point): Point {
 }
 
 /**
- * Tools handed the raw cursor: the Props tool (above), and the Path tools, which snap a
- * clicked point themselves (to path ends, then the grid) but must sample a freehand
- * stroke unsnapped, or it would come out as a staircase.
+ * Tools handed the raw cursor: the Props tool (above), and the Path and Plateau tools, which
+ * snap a clicked point themselves but must sample a freehand stroke unsnapped, or it would
+ * come out as a staircase.
  */
-const RAW_POINT_TOOLS = new Set(['scatterBrush', 'path', 'lake']);
+const RAW_POINT_TOOLS = new Set(['scatterBrush', 'path', 'lake', 'plateau']);
 
 /**
  * The room a double-click lands on, where rooms pick: the topmost visible, unlocked

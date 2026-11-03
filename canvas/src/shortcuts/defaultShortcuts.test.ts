@@ -182,6 +182,26 @@ describe('b picks the scatter brush', () => {
   });
 });
 
+describe('e picks the Plateau tool, shift+e toggles erase', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  it('switches to the Plateau tool from any tool', () => {
+    for (const tool of ['select', 'rectangle'] as const) {
+      useStore.getState().setActiveTool(tool);
+      expect(handleShortcut('e')).toBe(true);
+      expect(useStore.getState().tools.activeTool).toBe('plateau');
+      expect(useStore.getState().tools.eraseMode).toBe(false);
+    }
+  });
+
+  it('toggles erase mode on shift+e, the tool in hand kept', () => {
+    useStore.getState().setActiveTool('scatterBrush');
+    expect(handleShortcut('shift+e')).toBe(true);
+    expect(useStore.getState().tools.activeTool).toBe('scatterBrush');
+    expect(useStore.getState().tools.eraseMode).toBe(true);
+  });
+});
+
 describe('ctrl+shift+n (new map)', () => {
   beforeEach(() => useStore.getState().resetToDefault());
 

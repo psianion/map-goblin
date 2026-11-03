@@ -37,12 +37,12 @@ export const STAMP_HINT: ToolHint = {
 
 export const SCATTER_HINT: ToolHint = {
   label: 'Scatter',
-  segments: [t('drag to paint · one undo per stroke'), k('E'), t('erase'), k('Esc'), t('cancel stroke')],
+  segments: [t('drag to paint · one undo per stroke'), k('Shift+E'), t('erase'), k('Esc'), t('cancel stroke')],
 };
 
 export const ERASE_HINT: ToolHint = {
   label: 'Erase',
-  segments: [t('drag over props to erase · images and cave rock are kept'), k('E'), t('back to placing')],
+  segments: [t('drag over props to erase · images and cave rock are kept'), k('Shift+E'), t('back to placing')],
 };
 
 /** "12 placed · 4 skipped (overlap 3, off floor 1)", while a scatter stroke runs. */

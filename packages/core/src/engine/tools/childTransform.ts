@@ -139,6 +139,7 @@ export type ChildSnapshot =
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
     case 'shape':
+    case 'plateau':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
     case 'asset':
     case 'text':

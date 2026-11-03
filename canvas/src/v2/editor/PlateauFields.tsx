@@ -6,6 +6,7 @@ import type { Command, DungeonLayer, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { absoluteHeight, defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
 import { cliffArtSetIds } from '@dnd/core/src/engine/plateauKit';
+import { plateauSettings } from '@dnd/core/src/engine/tools/PlateauTool';
 import { Ctl, Seg, Select, Switch } from './controls';
 
 /*
@@ -39,6 +40,32 @@ function apply(label: string, ids: readonly string[], patch: PlateauPatch): void
 
 const signed = (n: number): string => (n > 0 ? `+${n}` : String(n));
 
+/** A plateau is never flat: a step that lands on 0 goes on to the other side. */
+const stepHeight = (height: number, d: number): number => (height + d === 0 ? height + 2 * d : height + d);
+
+/** The Plateau tool's dock settings: the height and edge the next plateau is drawn with. */
+export function PlateauSettings() {
+  const settings = useStore((s) => s.tools.settings.plateau) ?? plateauSettings();
+  const set = (patch: Partial<typeof settings>) =>
+    useStore.getState().updateToolSettings({ plateau: { ...plateauSettings(), ...patch } });
+  return (
+    <>
+      <Ctl label="Height">
+        <span className="v2-stepper" data-testid="v2-plateau-tool-height">
+          <button type="button" aria-label="Lower" onClick={() => set({ height: stepHeight(settings.height, -1) })}>
+            <Minus size={10} />
+          </button>
+          <span className="v2-num">{signed(settings.height)}</span>
+          <button type="button" aria-label="Raise" onClick={() => set({ height: stepHeight(settings.height, 1) })}>
+            <Plus size={10} />
+          </button>
+        </span>
+      </Ctl>
+      <Seg label="Edge" value={settings.edge} options={EDGE_OPTIONS} onChange={(v) => set({ edge: v })} />
+    </>
+  );
+}
+
 export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly string[] }) {
   const layer = useStore((s) => s.layers.find((l) => l.id === layerId)) as DungeonLayer | undefined;
   const kinds = useStore((s) => s.mapSettings.crossingKinds);
@@ -49,8 +76,7 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
 
   const height = ownHeight(head);
   const edge = edgeOf(head);
-  // A plateau is never flat: stepping through 0 goes on to the other side.
-  const step = (d: number) => apply('Plateau height', ids, { height: height + d === 0 ? height + 2 * d : height + d });
+  const step = (d: number) => apply('Plateau height', ids, { height: stepHeight(height, d) });
 
   const drop = shapeDrop(layer, head.id);
   const standing = absoluteHeight(layer, head.id);

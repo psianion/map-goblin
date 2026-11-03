@@ -6,6 +6,7 @@ import {
   Lightbulb,
   Minus,
   Mountain,
+  MountainSnow,
   Pentagon,
   Route,
   Square,
@@ -52,6 +53,7 @@ export const DOCK_TABS: DockTab[] = [
     tools: [
       { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Route },
       { tool: 'lake', label: 'Lake', shortcut: keyCaption('tool.lake'), icon: Waves },
+      { tool: 'plateau', label: 'Plateau', shortcut: keyCaption('tool.plateau'), icon: MountainSnow },
     ],
   },
   {

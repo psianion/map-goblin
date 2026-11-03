@@ -17,6 +17,7 @@ import { ZoneTool } from './ZoneTool';
 import { RoomPolygonTool, RoomRectTool } from './RoomTools';
 import { DivideTool } from './DivideTool';
 import { OpeningTool } from './OpeningTool';
+import { PlateauTool } from './PlateauTool';
 
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
@@ -29,6 +30,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RegularPolygonTool());
   manager.registerTool(new PathTool());
   manager.registerTool(new PathTool('lake'));
+  manager.registerTool(new PlateauTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new RulerTool());
   manager.registerTool(new TextTool(previewContainer));

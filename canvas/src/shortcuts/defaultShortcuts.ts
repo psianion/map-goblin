@@ -771,7 +771,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool.pan', combo: 'g', group: 'Tools', scope: 'canvas', label: 'Pan', run: () => pickTool('pan', 'Pan', false) },
   // No settings: the ruler has nothing to configure.
   { id: 'tool.ruler', combo: 'm', group: 'Tools', scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
-  { id: 'mode.erase', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
+  // Shift+E: E is the Plateau tool.
+  { id: 'mode.erase', combo: 'shift+e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
     run: () => {
       const s = useStore.getState();
       const next = !s.tools.eraseMode;
@@ -807,6 +808,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
   { id: 'tool.path', combo: 'a', group: 'Tools', scope: 'canvas', label: 'Path', run: () => pickTool('path', 'Path') },
   { id: 'tool.lake', combo: 'u', group: 'Tools', scope: 'canvas', label: 'Lake', run: () => pickTool('lake', 'Lake') },
+  { id: 'tool.plateau', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Plateau', run: () => pickTool('plateau', 'Plateau') },
   // While a path is being drawn: Backspace takes the last point back, [ and ] set the next point's width.
   ...(['path', 'lake'] as const).flatMap((tool, i): Shortcut[] => [
     { id: `tool.${tool}Back`, combo: 'backspace', group: 'Tools', scope: `tool:${tool}`, label: 'Take the last point back',

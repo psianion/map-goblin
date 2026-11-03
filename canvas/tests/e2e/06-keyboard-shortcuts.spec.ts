@@ -22,9 +22,9 @@ test.describe('06 - Keyboard Shortcuts', () => {
     });
   }
 
-  test('E toggles erase mode', async ({ page }) => {
+  test('Shift+E toggles erase mode', async ({ page }) => {
     await gotoApp(page);
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await waitFrame(page, 2);
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();

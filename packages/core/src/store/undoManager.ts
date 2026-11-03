@@ -146,6 +146,18 @@ class UndoManager {
     this.notify();
   }
 
+  /**
+   * Takes back the last step when it is `cmd` (an edit found wanting after it landed, such as a
+   * plateau moved off ground), leaving nothing to redo. False when something else is on top.
+   */
+  retract(cmd: Command): boolean {
+    if (this.history[this.history.length - 1]?.cmd !== cmd) return false;
+    this.undo();
+    this.future.pop();
+    this.notify();
+    return true;
+  }
+
   clear(): void {
     this.history = [];
     this.future = [];

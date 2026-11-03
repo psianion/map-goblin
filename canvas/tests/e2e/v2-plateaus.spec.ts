@@ -253,6 +253,170 @@ test.describe('plateau-test in the editor', () => {
   })
 })
 
+/** A fresh map with one 20 x 16 field floor on its layer, the layer active, the view fitted. */
+async function openField(page: Page): Promise<string[]> {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/v2?e2e=1')
+  await waitForBoot(page)
+  await page.getByTestId('v2-new-map-card').click()
+  await page.getByTestId('v2-new-map-submit').click()
+  await expect(page.getByTestId('v2-editor')).toBeVisible()
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const l = st.layers.find((x: Any) => x.type === 'dungeon')
+    st.setActiveLayerId(l.id)
+    st.addChild(l.id, {
+      id: 'field', name: 'Field', childType: 'shape', visible: true, shapeType: 'rectangle',
+      contours: [[[0, 0], [20, 0], [20, 16], [0, 16]]],
+      textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+    })
+    st.setSelectedIds([])
+  })
+  await page.keyboard.press('Control+0')
+  await waitFrame(page, 6)
+  return errors
+}
+
+const plateausOf = (page: Page) => inPage<Any[]>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'plateau')`)
+
+/** A real mouse drag through world points, a few moves per stretch. */
+async function dragThrough(page: Page, pts: Pt[]): Promise<void> {
+  const first = await screenOf(page, pts[0])
+  await page.mouse.move(first.x, first.y)
+  await page.mouse.down()
+  for (const p of pts.slice(1)) {
+    const at = await screenOf(page, p)
+    await page.mouse.move(at.x, at.y, { steps: 6 })
+  }
+  await page.mouse.up()
+  await waitFrame(page, 3)
+}
+
+const rectAround = (x0: number, y0: number, x1: number, y1: number): Pt[] => [
+  { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 },
+]
+
+test.describe('the Plateau tool', () => {
+  test('E, then a dragged rectangle on the field: one plateau at +1 with a cliff ledge, selected', async ({ page }) => {
+    const errors = await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('plateau')
+    await dragThrough(page, rectAround(4, 4, 10, 9))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    const [p] = await plateausOf(page)
+    expect(p).toMatchObject({ height: 1, edge: 'cliff' })
+    expect(await inPage(page, `(s) => s().selection.selectedIds`)).toEqual([p.id])
+    // The floor is untouched: one shape, no new walls, its ring the same.
+    expect(await inPage(page, `(s, layer) => layer().children.filter((c) => c.childType === 'shape').length`)).toBe(1)
+    await expect.poll(async () => (await bandLabels(page, 1)).find((l) => l.label === 'plateau-cliff')?.children ?? 0).toBeGreaterThan(4)
+    expect(errors).toEqual([])
+  })
+
+  test('clicks place the points and a click on the first closes the ring', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    for (const p of [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 7 }, { x: 2, y: 7 }, { x: 2, y: 2 }]) {
+      const at = await screenOf(page, p)
+      await page.mouse.click(at.x, at.y)
+      await page.waitForTimeout(350)
+    }
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    expect((await plateausOf(page))[0].contours[0]).toEqual([[2, 2], [8, 2], [8, 7], [2, 7]])
+  })
+
+  test('a plateau drawn on void is refused with the toast, and nothing is added', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(26, 4, 32, 9))
+    await expect(page.getByLabel('Notifications alt+T').getByText('A plateau needs ground under it')).toBeVisible()
+    expect(await plateausOf(page)).toHaveLength(0)
+  })
+
+  test('a node drag reshapes it, and a move that leaves the ground is put back', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(4, 4, 10, 9))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    await page.keyboard.press('v')
+    const id = (await plateausOf(page))[0].id
+    await select(page, id)
+    // The corner nearest (10, 9), wherever simplifying put it.
+    const corner = await inPage<Pt>(page, `(s, layer, w2s, id) => {
+      const ring = layer().children.find((c) => c.id === id).contours[0]
+      const [x, y] = ring.reduce((b, p) => (Math.hypot(p[0] - 10, p[1] - 9) < Math.hypot(b[0] - 10, b[1] - 9) ? p : b))
+      return { x, y }
+    }`, id)
+    await dragThrough(page, [corner, { x: 14, y: 12 }])
+    await expect
+      .poll(async () => (await child(page, id)).contours[0].some((p: number[]) => Math.hypot(p[0] - 14, p[1] - 12) < 0.3))
+      .toBe(true)
+    // The whole plateau dragged east, most of it past the field's edge.
+    await dragThrough(page, [{ x: 7, y: 6 }, { x: 15, y: 6 }, { x: 25, y: 6 }])
+    await expect(page.getByLabel('Notifications alt+T').getByText('A plateau needs ground under it')).toBeVisible()
+    await expect
+      .poll(async () => (await child(page, id)).contours[0].some((p: number[]) => Math.hypot(p[0] - 14, p[1] - 12) < 0.3))
+      .toBe(true)
+  })
+
+  test('the card changes height, edge and contours; the floor card has no Height or Edge row; the layers panel lists it', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(4, 4, 10, 9))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    const id = (await plateausOf(page))[0].id
+    await page.keyboard.press('v')
+    await select(page, id)
+    const card = page.getByTestId('v2-selection-card')
+    await expect(card.getByTestId('v2-sel-kind')).toHaveText('Plateau')
+    await card.getByRole('button', { name: 'Raise' }).click()
+    await expect.poll(async () => (await child(page, id)).height).toBe(2)
+    await card.getByRole('button', { name: 'Slope' }).click()
+    await expect.poll(async () => (await child(page, id)).edge).toBe('slope')
+    await expect.poll(async () => (await bandLabels(page, 2)).some((l) => l.label === 'plateau-contours')).toBe(true)
+    await card.getByRole('switch', { name: 'Contour lines' }).click()
+    await expect.poll(async () => (await child(page, id)).contourLines).toBe(false)
+    await expect.poll(async () => (await bandLabels(page, 2)).some((l) => l.label === 'plateau-contours')).toBe(false)
+
+    await select(page, 'field')
+    await expect(card.getByTestId('v2-sel-kind')).toHaveText('Floor')
+    await expect(card.getByTestId('v2-plateau-height')).toHaveCount(0)
+    await expect(card.getByRole('group', { name: 'Edge' })).toHaveCount(0)
+
+    await page.getByTestId('v2-open-layers').click()
+    const sheet = page.getByTestId('v2-layers-sheet')
+    const expand = sheet.getByTestId('v2-layers-layer').first().getByRole('button', { name: 'Expand' })
+    if (await expand.count()) await expand.click()
+    await expect(sheet.locator(`[data-object-id="${id}"]`)).toContainText('Plateau 1')
+  })
+
+  test('delete takes its openings with it, and undo brings both back', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(4, 4, 10, 9))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    const id = (await plateausOf(page))[0].id
+    await inPage(page, `(s, layer, w2s, id) => s().addChild(layer().id, {
+      id: 'st', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', hostId: id, t: 0.1, width: 2,
+    })`, id)
+    await page.keyboard.press('v')
+    await select(page, id)
+    await blur(page)
+    await page.keyboard.press('Delete')
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(0)
+    expect(await child(page, 'st')).toBeFalsy()
+    await page.keyboard.press('Control+z')
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    expect(await child(page, 'st')).toBeTruthy()
+  })
+})
+
 test.describe('the test maps export and publish', () => {
   for (const [name, doc] of [['plateau-test', PLATEAU], ['tower-test', TOWER], ['goblin-warren', WARREN]] as const) {
     test(`${name} exports a PNG and publishes`, async ({ page }) => {
