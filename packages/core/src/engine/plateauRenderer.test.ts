@@ -520,7 +520,7 @@ describe('cliff shadows', () => {
     }
   });
 
-  it('casts under every sky: indoors from a fixed top-left sun at 70 %, as long as the drop', () => {
+  it('casts under every sky: indoors from a fixed top-left sun at 70 %, 0.8 + 0.6 a cell of drop long', () => {
     const at = (map: MapEnvironment) => cliffCaster(skyFrame({ ...map, minutes: 12 * 60 }), map);
     for (const map of [{ environment: 'indoor' }, { environment: 'outdoor', naturalLight: false }] as MapEnvironment[]) {
       const { sun, strength } = at(map);
@@ -540,7 +540,8 @@ describe('cliff shadows', () => {
       return Math.max(...pts.map(([x, y]) => (x - 14) * look.dx + (y - 14) * look.dy));
     };
     expect(reach(1)).toBeGreaterThan(1);
-    expect(reach(2) / reach(1)).toBeCloseTo(2, 1);
+    expect(reach(1)).toBeCloseTo(1.4, 1);
+    expect(reach(2)).toBeCloseTo(2.0, 1);
   });
 
   it('slopes cast none: they shade instead', () => {

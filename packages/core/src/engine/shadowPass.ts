@@ -22,7 +22,6 @@ import { useStore } from '../store/store';
 import {
   SHADOW_STEPS,
   bandAlpha,
-  casterLook,
   propShadow,
   shadowBand,
   shadowLook,
@@ -32,6 +31,13 @@ import {
 import { timeBucket, type MapEnvironment, type SunVector } from '../shared/world';
 import { cliffSunAt, type SkyFrame } from '../shared/sky';
 import { edgeRuns, hasPlateaus, layerPlateaus } from '../shared/plateaus';
+import {
+  BLUR_WEIGHTS_5,
+  SUN_SHADOW_ALPHA,
+  blurStrengthFor,
+  leeSweeps,
+  sunShadowLength,
+} from '../shared/plateauShade';
 import { shadeCliffs } from './plateauRenderer';
 import { worldFrame, type WorldFrame } from './worldOverride';
 
@@ -46,8 +52,8 @@ function shadowLookNow(): ShadowLook | null {
 
 interface LayerShadows {
   graphics: Graphics;
-  /** The cliffs' lee shadows: their own Graphics, softened by `blur` (see drawCliffShadows). */
-  cliff: Graphics;
+  /** The cliffs' lee shadows: one part per band and side, each softened by `blur` (see drawCliffShadows). */
+  cliff: Container;
   blur: BlurFilter;
   signature: string;
   /** Identity of the ground the shadows were last clipped against — floor union, terrain bounds. */
@@ -72,17 +78,13 @@ function shadowsOf(layerId: string): LayerShadows | null {
   graphics.blendMode = 'multiply';
   entry.sublayers.shadows.addChild(graphics);
 
-  // The cliffs' shadows lie in a holder of their own, blurred: a soft lee shadow whose edge
-  // fades out across CLIFF_SHADOW_FADE, never a hard-edged band.
-  const cliff = new Graphics();
-  cliff.label = 'cliffShadows';
+  // The cliffs' shadows lie in a holder of their own, one blurred part per band and side: a
+  // soft lee shadow whose far edge fades out across CLIFF_SHADOW_FADE, never a hard band.
+  const cliff = new Container();
+  cliff.label = 'cliffShadowHolder';
   const blur = new BlurFilter({ strength: 1, quality: CLIFF_BLUR_PASSES, kernelSize: CLIFF_BLUR_KERNEL });
   blur.resolution = 1;
-  const holder = new Container();
-  holder.label = 'cliffShadowHolder';
-  holder.filters = [blur];
-  holder.addChild(cliff);
-  entry.sublayers.shadows.addChild(holder);
+  entry.sublayers.shadows.addChild(cliff);
 
   const state: LayerShadows = {
     graphics,
@@ -146,7 +148,7 @@ export function updateShadows(
   for (const [id, state] of byLayer) {
     if (live.has(id)) continue;
     if (!state.graphics.destroyed) state.graphics.destroy();
-    if (!state.cliff.destroyed) (state.cliff.parent ?? state.cliff).destroy({ children: true });
+    if (!state.cliff.destroyed) state.cliff.destroy({ children: true });
     byLayer.delete(id);
     propInputs.delete(id);
   }
@@ -181,7 +183,7 @@ export function updateShadows(
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
-    drawCliffShadows(state.cliff, layer, cliffLook, cliffStrength);
+    drawCliffShadows(state.cliff, state.blur, layer, cliffLook, cliffStrength);
     shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
   }
@@ -232,23 +234,63 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
 }
 
 /**
- * The cliffs' shadows (plan §4.3): every raised edge but a slope casts, as tall as its drop.
- * A plateau's falls outward onto whatever ground is lower than it; a pit's falls inward from
- * its rim onto the pit's own floor. Clipped as geometry, like the walls' (see above), filled
- * flat at CLIFF_SHADOW_ALPHA black and softened by the holder's blur into a lee shadow whose
- * edges fade out over CLIFF_SHADOW_FADE.
+ * The cliffs' shadows (plan §4.3): every raised edge but a slope casts, `sunShadowLength` of
+ * its drop long. A plateau's falls outward onto whatever ground is lower than it; a pit's falls
+ * inward from its rim onto the pit's own floor. Each band and side is its own part: the fill
+ * (reaching back behind the edge) blurred, then cut by a mask of where it lands, so the shadow
+ * starts on the edge itself at full strength and only its far end and sides fade, over
+ * CLIFF_SHADOW_FADE. The masks are new Graphics every redraw, never one redrawn in place.
  */
-function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null, strength: number): void {
-  g.clear();
+function drawCliffShadows(holder: Container, blur: BlurFilter, layer: DungeonLayer, look: ShadowLook | null, strength: number): void {
+  for (const part of holder.removeChildren()) part.destroy({ children: true });
   if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
-  const polys = cliffShadowGeometry(layer, look, groundOf(layer));
-  if (polys.length === 0) return;
-  for (const poly of polys) g.poly(poly.flat());
-  g.fill({ color: 0x000000, alpha: CLIFF_SHADOW_ALPHA * strength });
+  for (const { fill, clip } of cliffShadowParts(layer, look, groundOf(layer))) {
+    if (fill.length === 0 || clip.length === 0) continue;
+    const g = new Graphics();
+    g.label = 'cliffShadows';
+    fillRings(g, fill, { color: 0x000000, alpha: CLIFF_SHADOW_ALPHA * strength });
+    const soft = new Container();
+    soft.filters = [blur];
+    soft.addChild(g);
+    const mask = new Graphics();
+    mask.label = 'cliffShadowMask';
+    fillRings(mask, clip, { color: 0xffffff });
+    const part = new Container();
+    part.label = 'cliffShadowPart';
+    part.addChild(soft, mask);
+    part.mask = mask;
+    holder.addChild(part);
+  }
+}
+
+/** Fill rings with their holes cut: Clipper's outers wind positive, its holes negative. */
+function fillRings(g: Graphics, rings: Polygon[], style: { color: number; alpha?: number }): void {
+  const area = (r: Polygon): number => {
+    let a = 0;
+    for (let i = 0; i < r.length; i++) a += r[i][0] * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * r[i][1];
+    return a / 2;
+  };
+  const inside = ([x, y]: [number, number], poly: Polygon): boolean => {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i];
+      const [xj, yj] = poly[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  for (const r of rings) {
+    if (r.length < 3 || area(r) <= 0) continue;
+    g.poly(r.flat()).fill(style);
+    const holes = rings.filter((h) => h.length >= 3 && area(h) < 0 && inside(h[0], r));
+    if (holes.length === 0) continue;
+    for (const h of holes) g.poly(h.flat());
+    g.cut();
+  }
 }
 
 /** How dark a cliff's lee shadow is: black at this opacity. */
-export const CLIFF_SHADOW_ALPHA = 0.4;
+export const CLIFF_SHADOW_ALPHA = SUN_SHADOW_ALPHA;
 
 /**
  * The sun cliffs cast by when the sky gives them none (an indoor map, natural light off, a
@@ -269,30 +311,22 @@ export const CLIFF_SHADOW_FADE = 0.4;
 /** The blur's passes and kernel taps (Pixi's BlurFilter `quality` and `kernelSize`). */
 export const CLIFF_BLUR_PASSES = 3;
 export const CLIFF_BLUR_KERNEL = 5;
-/** The 5-tap kernel's weights, centre out, as Pixi's BlurFilter ships them (const GAUSSIAN_VALUES[5]). */
-export const BLUR_WEIGHTS_5 = [0.250301, 0.221461, 0.153388];
-/** That kernel's spread, in taps: the standard deviation its weights make. */
-const KERNEL_SIGMA = Math.sqrt(2 * (BLUR_WEIGHTS_5[1] * 1 + BLUR_WEIGHTS_5[2] * 4));
-/** A Gaussian edge falls from 90 % to 10 % over this many standard deviations. */
-const FADE_PER_SIGMA = 2.5631;
+export { BLUR_WEIGHTS_5 };
 
-/**
- * The BlurFilter strength that fades a cliff shadow's edge over CLIFF_SHADOW_FADE cells at
- * `pxPerCell` screen pixels a cell. Pixi spreads its taps `strength` pixels apart (the passes
- * add up to that by variance), so the edge's spread is KERNEL_SIGMA × strength pixels.
- */
+/** The BlurFilter strength that fades a cliff shadow's edge over CLIFF_SHADOW_FADE cells at `pxPerCell` px a cell. */
 export function cliffBlurStrength(pxPerCell: number): number {
-  return (CLIFF_SHADOW_FADE / FADE_PER_SIGMA / KERNEL_SIGMA) * pxPerCell;
+  return blurStrengthFor(CLIFF_SHADOW_FADE, pxPerCell);
 }
 
 /**
- * The cliffs' shadow polygons, cut to where they land: a plateau's on the `ground` and the
- * lower bands outside it, a pit's on its own floor, and never on a band as high as the caster
- * or higher. Each is the casting outline swept along the light by its drop's length. Pure
+ * The cliffs' shadows, per band and side: `fill`, each turned-away stretch of edge swept
+ * `sunShadowLength` of its drop along the light and reaching SUN_SHADOW_BACK behind the
+ * edge, and `clip`, where it may land: for a plateau the `ground` and the lower bands
+ * outside it, for a pit its own floor, never a band as high as the caster or higher. Pure
  * geometry, for the pass and its tests.
  */
-export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): Polygon[] {
-  const out: Polygon[] = [];
+export function cliffShadowParts(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): { fill: Polygon[]; clip: Polygon[] }[] {
+  const out: { fill: Polygon[]; clip: Polygon[] }[] = [];
   const { bands } = layerPlateaus(layer);
   const everywhere = [...ground, ...bands.flatMap((b) => b.rings)];
   for (const band of bands) {
@@ -300,26 +334,22 @@ export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, groun
     for (const pit of [false, true]) {
       const casting = runs.filter((r) => (r.drop < 0) === pit);
       if (casting.length === 0) continue;
+      const sweeps = casting.flatMap((r) => leeSweeps(r.points, r.closed, !pit, look, sunShadowLength(r.drop)));
+      if (sweeps.length === 0) continue;
       const onto = pit ? band.rings : everywhere;
       const above = bands
         .filter((b) => (pit ? b.height > band.height : b.height >= band.height))
         .flatMap((b) => b.rings);
-      const quads: Polygon[] = [];
-      for (const run of casting) {
-        // The whole drop's length, untapered: the blur is what softens it.
-        const cast = { ...casterLook(look, Math.abs(run.drop)), taper: 0 };
-        const pts = run.closed ? [...run.points, run.points[0]] : run.points;
-        for (let i = 0; i + 1 < pts.length; i++) {
-          const q = shadowBand(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], cast, 1, 1);
-          const ring: Polygon = [];
-          for (let k = 0; k < q.length; k += 2) ring.push([q[k]!, q[k + 1]!]);
-          quads.push(ring);
-        }
-      }
-      out.push(...clipper2Engine.difference(clipper2Engine.intersection(quads, onto), above));
+      const clip = clipper2Engine.difference(clipper2Engine.union(onto, []), above);
+      out.push({ fill: clipper2Engine.union(sweeps, []), clip });
     }
   }
   return out;
+}
+
+/** The cliffs' shadow polygons as they show: each part's fill cut to where it lands. */
+export function cliffShadowGeometry(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): Polygon[] {
+  return cliffShadowParts(layer, look, ground).flatMap(({ fill, clip }) => clipper2Engine.intersection(fill, clip));
 }
 
 // ─── Props ────────────────────────────────────────────────

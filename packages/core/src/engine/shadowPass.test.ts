@@ -29,6 +29,9 @@ vi.mock('pixi.js', () => {
       this.children.push(c);
       return c;
     }
+    removeChildren(): MockContainer[] {
+      return this.children.splice(0);
+    }
     removeChild(c: MockContainer): void {
       const i = this.children.indexOf(c);
       if (i >= 0) this.children.splice(i, 1);
