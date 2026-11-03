@@ -8,7 +8,8 @@ import { setClipperModule } from '../../geometry/Clipper2Engine'
 import { extractWallSegments, type Segment } from './raycaster'
 import { cliffOccluders } from '../../shared/plateaus'
 import { clockwiseSweep } from './ClockwiseSweep'
-import type { DungeonLayer, ShapeChild, WallSegment } from '../../store/types'
+import { LightManager } from './LightManager'
+import type { DungeonLayer, LightChild, ShapeChild, WallSegment } from '../../store/types'
 import type { OpeningChild, PlateauChild } from '../../shared/types'
 
 beforeAll(async () => {
@@ -148,5 +149,58 @@ describe('cliffs as one-way occluders', () => {
     expect(sees(segs, [5, 25], [5, 15])).toBe(true)
     const both = extractWallSegments([layerOf([ground], [{ ...wall, direction: 'both' }])], 'sight')
     expect(sees(both, [5, 25], [5, 15])).toBe(false)
+  })
+})
+
+describe('scene lights cast from cliffs, as walls do', () => {
+  const lamp = (x: number, y: number): LightChild => ({
+    id: `lamp-${x}-${y}`,
+    name: 'Lamp',
+    childType: 'light',
+    visible: true,
+    color: '#fff',
+    radius: 20,
+    featherRadius: 2,
+    intensity: 1,
+    falloff: 'quadratic',
+    position: { x, y },
+  })
+  /** The lighting pass's pool for `light` over `children`: what LightManager sweeps. */
+  const pool = (children: unknown[], light: LightChild) => {
+    const lm = new LightManager()
+    lm.rebuildIfDirty([layerOf(children)])
+    return lm.getOrComputePolygon(light).map((v) => v.point)
+  }
+  const wallAt = (points: [number, number][]) =>
+    ({ id: 'w', points, wallType: 'normal', direction: 'both', color: '#000', roughness: 0 }) as unknown as WallSegment
+
+  it('a lamp on the low side of a +1 cliff leaves its top and the ground beyond it in the dark', () => {
+    const light = lamp(5, 12)
+    const flat = pool([ground], light)
+    const raised = pool([ground, plateau({ height: 1 })], light)
+    // The top, and the ground past the far cliff in the lamp's direction.
+    for (const p of [[12, 12], [16, 12], [18, 12.5]] as [number, number][]) {
+      expect(inside(p[0], p[1], flat)).toBe(true)
+      expect(inside(p[0], p[1], raised)).toBe(false)
+    }
+    // The near side, the lamp's own ground, stays lit up to the cliff.
+    expect(inside(9.5, 12, raised)).toBe(true)
+    // Exactly as a wall standing on the near cliff's edge throws it.
+    const lm = new LightManager()
+    lm.rebuildIfDirty([layerOf([ground], [wallAt([[10, 10], [10, 14]])])])
+    const walled = lm.getOrComputePolygon(light).map((v) => v.point)
+    for (const p of [[12, 12], [16, 12], [18, 12.5], [9.5, 12]] as [number, number][]) {
+      expect(inside(p[0], p[1], raised)).toBe(inside(p[0], p[1], walled))
+    }
+  })
+
+  it('a lamp on top lights the ground below as it would with no plateau', () => {
+    const light = lamp(12, 12)
+    const flat = pool([ground], light)
+    const raised = pool([ground, plateau({ height: 1 })], light)
+    for (const p of [[5, 12], [20, 12], [12, 4], [12, 22], [6, 6], [20, 20]] as [number, number][]) {
+      expect(inside(p[0], p[1], flat)).toBe(true)
+      expect(inside(p[0], p[1], raised)).toBe(true)
+    }
   })
 })
