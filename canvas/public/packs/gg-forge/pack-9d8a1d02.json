@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2183,6 +2183,101 @@
       ],
       "family": "pit_collapsed"
     },
+    "rubble_2x2_object_A": {
+      "type": "object",
+      "material": "rubble",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rubble"
+    },
+    "rubble_2x4_object_A": {
+      "type": "object",
+      "material": "rubble",
+      "gridSize": "2x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rubble"
+    },
+    "rubble_bend_45_3x3_object_A": {
+      "type": "object",
+      "material": "rubble_bend_45",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rubble_bend"
+    },
+    "rubble_bend_90_3x3_object_A": {
+      "type": "object",
+      "material": "rubble_bend_90",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rubble_bend"
+    },
+    "rubble_end_2x1_object_A": {
+      "type": "object",
+      "material": "rubble_end",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rubble_end"
+    },
     "rubble_large_7x4_object_A": {
       "type": "object",
       "material": "rubble_large",
@@ -2676,6 +2771,26 @@
       "checksum": "sha256:fe71e7ce9272ae2c0f9895fd0295d1656df2e24227af69149953f3ebd553fb0d",
       "size": 115226
     },
+    "rubble_2x2_A-e9569b1c.webp": {
+      "checksum": "sha256:e9569b1cc0f2ace083a67cc980650c8cb186152cf1c294eacc6d64a46d5ca6c6",
+      "size": 13872
+    },
+    "rubble_2x4_A-b4ac19d8.webp": {
+      "checksum": "sha256:b4ac19d82d2e181d9e628048d54f210f11a4b6a1bfda909e873ac62bc97c0ddb",
+      "size": 27076
+    },
+    "rubble_bend_45_3x3_A-4ce2bd3c.webp": {
+      "checksum": "sha256:4ce2bd3c39945b096390f898e554ed03682dac99ab4e5fe29c5e7b43dd6cbb40",
+      "size": 15250
+    },
+    "rubble_bend_90_3x3_A-86683b7f.webp": {
+      "checksum": "sha256:86683b7f86bdc7c800ebefcc111c90f3fe04c02266ebfd56e0a8147e836f690f",
+      "size": 17464
+    },
+    "rubble_end_2x1_A-0acc7b1b.webp": {
+      "checksum": "sha256:0acc7b1b6d50655ed7f7732be244caeaf84db67a6fe2b1757fe7ba6da85e9511",
+      "size": 5154
+    },
     "rubble_large_7x4_A-d319a34a.webp": {
       "checksum": "sha256:d319a34a73d65d3c647ea9a0c8c0ed5d350ef2941fef5759f2f754a2e251769f",
       "size": 83394
@@ -2725,5 +2840,5 @@
       "size": 58820
     }
   },
-  "bundleSize": 1778938
+  "bundleSize": 1857754
 }

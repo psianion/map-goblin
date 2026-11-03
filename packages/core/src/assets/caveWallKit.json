@@ -1324,5 +1324,200 @@
       0
     ],
     "voidSide": "left"
+  },
+  {
+    "key": "rubble_2x2",
+    "file": "cave__rubble_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        200,
+        400
+      ],
+      [
+        200,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        -1
+      ]
+    ],
+    "chordCells": 2,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_2x4",
+    "file": "cave__rubble_2x4__A.png",
+    "wPx": 400,
+    "hPx": 800,
+    "wCells": 2,
+    "hCells": 4,
+    "joints": [
+      [
+        200,
+        800
+      ],
+      [
+        200,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        -2
+      ]
+    ],
+    "chordCells": 4,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_bend_45_3x3",
+    "file": "cave__rubble_bend_45_3x3__A.png",
+    "wPx": 600,
+    "hPx": 600,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        180,
+        600
+      ],
+      [
+        332.304,
+        232.304
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.6,
+        1.5
+      ],
+      [
+        0.162,
+        -0.338
+      ]
+    ],
+    "chordCells": 1.99,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -1.5,
+      -1.5
+    ],
+    "floorCentroidCells": [
+      1.5,
+      1.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_bend_90_3x3",
+    "file": "cave__rubble_bend_90_3x3__A.png",
+    "wPx": 600,
+    "hPx": 600,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        300,
+        600
+      ],
+      [
+        600,
+        300
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1.5
+      ],
+      [
+        1.5,
+        0
+      ]
+    ],
+    "chordCells": 2.121,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1.5,
+      -1.5
+    ],
+    "floorCentroidCells": [
+      1.5,
+      1.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_end_2x1",
+    "file": "cave__rubble_end_2x1__A.png",
+    "wPx": 400,
+    "hPx": 200,
+    "wCells": 2,
+    "hCells": 1,
+    "joints": [
+      [
+        200,
+        200
+      ],
+      [
+        200,
+        20
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        0.5
+      ],
+      [
+        0,
+        -0.4
+      ]
+    ],
+    "chordCells": 0.9,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
   }
 ]

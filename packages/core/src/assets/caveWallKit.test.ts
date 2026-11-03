@@ -17,8 +17,8 @@ describe('caveWallKit measurements', () => {
     // indoors and its loose pebbles out in the void. The fix is applied once, at
     // measurement time, so this is the assertion that it stayed applied.
     for (const p of RAW) {
-      // A ledge or contour bend paints no void side, so it turns as measured and is reversed in code.
-      if (p.key.startsWith('ledge_bend_') || p.key.startsWith('contour_bend_')) {
+      // A ledge, contour or rubble bend turns as measured and is reversed in code where it may be.
+      if (p.key.startsWith('ledge_bend_') || p.key.startsWith('contour_bend_') || p.key.startsWith('rubble_bend_')) {
         expect(p.turnDeg, p.key).toBeGreaterThan(0);
         continue;
       }

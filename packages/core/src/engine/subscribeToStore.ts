@@ -101,7 +101,7 @@ export function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
   for (const c of children) {
     if (c.childType === 'plateau') {
-      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.footRubble ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
     } else if (c.childType === 'opening') {
       key += `${c.id}:${c.visible}:${c.kind}:${c.hostId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
     }

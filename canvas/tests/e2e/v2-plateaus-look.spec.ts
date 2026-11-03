@@ -23,7 +23,7 @@ const TEMPLATE = JSON.parse(
 /** Screen pixels a cell while measuring. */
 const ZOOM = 60
 
-const box = (id: string, x0: number, y0: number, x1: number, y1: number, height: number, edge: string) => ({
+const box = (id: string, x0: number, y0: number, x1: number, y1: number, height: number, edge: string, extra: Any = {}) => ({
   id,
   name: id,
   childType: 'plateau',
@@ -31,6 +31,7 @@ const box = (id: string, x0: number, y0: number, x1: number, y1: number, height:
   contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
   height,
   edge,
+  ...extra,
 })
 
 /** One flat field, the grid off, white ambient light, indoors, with `plateaus` on it. */
@@ -247,5 +248,91 @@ test.describe('the plateau look', () => {
     const worst = Math.max(...frame.map((_, i) => Math.abs(slope[i + 1] - bare[i + 1])))
     console.log(`outer frame: largest difference from the bare floor ${worst.toFixed(1)}`)
     expect(worst).toBeLessThanOrEqual(3)
+  })
+})
+
+// ─── The ink set ───
+
+type Rgb = [number, number, number]
+const lumOf = ([r, g, b]: Rgb) => 0.299 * r + 0.587 * g + 0.114 * b
+/** Ink: the set's neutral greys. The floor is tan (red well over blue) even under the drop shade. */
+const isInk = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 170
+/** The camera at `zoom` px a cell with world `p` at the canvas centre. */
+async function lookAt(page: Page, p: Pt, zoom: number): Promise<void> {
+  await page.evaluate(
+    ({ p, zoom }) => {
+      const app = (window as Any).__pixiApp
+      const world = app.stage.children[0]
+      const r = app.canvas.getBoundingClientRect()
+      world.scale.set(zoom)
+      world.position.set(r.width / 2 - p.x * zoom, r.height / 2 - p.y * zoom)
+    },
+    { p, zoom },
+  )
+  await waitFrame(page, 10)
+  await page.waitForTimeout(500)
+  await waitFrame(page, 4)
+}
+
+/** One screenshot of the world box a..b, read back as the colour at any world point inside it. */
+async function grab(page: Page, a: Pt, b: Pt): Promise<(p: Pt) => Rgb> {
+  const t = await page.evaluate(() => {
+    const app = (window as Any).__pixiApp
+    const r = app.canvas.getBoundingClientRect()
+    const w = app.stage.children[0]
+    return { left: r.left + w.position.x, top: r.top + w.position.y, k: w.scale.x }
+  })
+  const x0 = Math.floor(t.left + a.x * t.k)
+  const y0 = Math.floor(t.top + a.y * t.k)
+  const x1 = Math.ceil(t.left + b.x * t.k)
+  const y1 = Math.ceil(t.top + b.y * t.k)
+  const png = await page.screenshot({ clip: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } })
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true })
+  return (p: Pt) => {
+    const cx = Math.max(0, Math.min(info.width - 1, Math.round(t.left + p.x * t.k - x0)))
+    const cy = Math.max(0, Math.min(info.height - 1, Math.round(t.top + p.y * t.k - y0)))
+    const i = (cy * info.width + cx) * info.channels
+    return [data[i], data[i + 1], data[i + 2]]
+  }
+}
+
+/** Signed distance outside the axis-aligned square x0..x1, y0..y1 (negative inside). */
+const outOfBox = (p: Pt, x0: number, y0: number, x1: number, y1: number) => {
+  const dx = Math.max(x0 - p.x, p.x - x1)
+  const dy = Math.max(y0 - p.y, p.y - y1)
+  return dx > 0 || dy > 0 ? Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) : Math.max(dx, dy)
+}
+
+test.describe('the ink set', () => {
+  test('Foot rubble adds ink on the low side within 1.2 cells of a cliff and nothing on its top', async ({ page }) => {
+    const read = async (footRubble: boolean) => {
+      const errors = await open(page, mapWith([box('p', 10, 10, 18, 18, 2, 'cliff', { footRubble })]))
+      // Lifted clear of the dock along the bottom of the canvas.
+      await lookAt(page, { x: 14, y: 15 }, 36)
+      const at = await grab(page, { x: 8, y: 8 }, { x: 20, y: 20 })
+      if (footRubble) await page.screenshot({ path: test.info().outputPath('foot-rubble.png') })
+      expect(errors).toEqual([])
+      return at
+    }
+    const off = await read(false)
+    const on = await read(true)
+    const zones = { foot: [0, 0, 0], beyond: [0, 0, 0], top: [0, 0, 0] }
+    for (let y = 8.2; y <= 19.8; y += 1 / 36) {
+      for (let x = 8.2; x <= 19.8; x += 1 / 36) {
+        const d = outOfBox({ x, y }, 10, 10, 18, 18)
+        const zone = d > 0.3 && d <= 1.2 ? zones.foot : d > 1.35 && d <= 1.8 ? zones.beyond : d < -0.45 ? zones.top : null
+        if (!zone) continue
+        const a = on({ x, y })
+        const b = off({ x, y })
+        zone[0] += isInk(a) ? 1 : 0
+        zone[1] += isInk(b) ? 1 : 0
+        zone[2]++
+      }
+    }
+    const pct = (z: number[]) => `${((z[0] / z[2]) * 100).toFixed(2)} % on, ${((z[1] / z[2]) * 100).toFixed(2)} % off`
+    console.log(`ink: 0.3 to 1.2 cell out ${pct(zones.foot)}; 1.35 to 1.8 out ${pct(zones.beyond)}; top ${pct(zones.top)}`)
+    expect((zones.foot[0] - zones.foot[1]) / zones.foot[2]).toBeGreaterThan(0.1)
+    expect(Math.abs(zones.beyond[0] - zones.beyond[1]) / zones.beyond[2]).toBeLessThan(0.01)
+    expect(zones.top[0] - zones.top[1]).toBe(0)
   })
 })

@@ -3,7 +3,7 @@
 // GG_Cave_Ink). Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
 import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
-import { kitPieces, ledgePieces, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
+import { kitPieces, ledgePieces, mirrorPiece, reversePiece, type CaveKitPiece } from '../assets/caveWallKit';
 
 /** The band set a cliff takes when its floor names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
@@ -65,4 +65,27 @@ export function contourPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
   if (straights.length === 0) return [];
   const bends = kitPieces('contour_bend_').filter((p) => art.has(p.key));
   return [...straights, ...straights.map(mirrorPiece), ...bends];
+}
+
+/** The foot rubble art of a set: the `rubble_*` band pieces, not the rubble props. */
+export function rubbleArt(setId: string | undefined): Map<string, CatalogEntry> {
+  const art = new Map<string, CatalogEntry>();
+  for (const [key, e] of bandSetArt(setId || DEFAULT_CLIFF_SET)) if (e.material.startsWith('rubble')) art.set(key, e);
+  return art;
+}
+
+/**
+ * The foot rubble kit with art in `art`: the straights (mirrors included) and the bends, each
+ * also reversed. The end piece is not in it: it is laid only at an open run's tips.
+ */
+export function rubblePieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
+  const straights = kitPieces('rubble_').filter((p) => p.turnDeg === 0 && !p.key.startsWith('rubble_end_') && art.has(p.key));
+  if (straights.length === 0) return [];
+  const bends = kitPieces('rubble_bend_').filter((p) => art.has(p.key));
+  return [...straights, ...straights.map(mirrorPiece), ...bends, ...bends.map(reversePiece)];
+}
+
+/** The pieces that end an open run of foot rubble. */
+export function rubbleEndPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
+  return kitPieces('rubble_end_').filter((p) => art.has(p.key));
 }

@@ -51,9 +51,20 @@ import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces, contourArt, contourPieces, ledgeEndPieces, sliverArt, sliverPieces } from './plateauKit';
+import {
+  cliffArt,
+  cliffPieces,
+  contourArt,
+  contourPieces,
+  ledgeEndPieces,
+  rubbleArt,
+  rubbleEndPieces,
+  rubblePieces,
+  sliverArt,
+  sliverPieces,
+} from './plateauKit';
 import type { DoorGap } from './wallNodeRenderer';
-import { LINE_OVERLAP, type WalkPlacement } from './caveWalk';
+import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { jointsOf, ledgeRidge, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
@@ -183,7 +194,8 @@ export function renderPlateaus(
     const runs = edgeRuns(band);
     const soft = drawShade(holder, band, runs, plateaus.bands, ground);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
-    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
+    const foot = (outward: boolean): Polygon[] => groundBelow(band, plateaus.bands, ground, outward, SHADE_REACH + RUBBLE_REACH);
+    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options, foot));
     drawOpenings(holder, layer, band, options);
     edges.addChild(holder);
   }
@@ -278,6 +290,12 @@ function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: bo
   return clipper2Engine.difference([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], high);
 }
 
+/** The ground on the side of `band` its edges drop to, out to `reach` past it: where its shade and foot may land. */
+function groundBelow(band: PlateauBand, bands: readonly PlateauBand[], ground: Polygon[], outward: boolean, reach: number): Polygon[] {
+  const low = lowRegion(band, bands, outward, reach);
+  return ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
+}
+
 /**
  * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line, out
  * to `dropShadeWidth`, stacking to DROP_SHADE_ALPHA black at the line and fading out in even
@@ -311,8 +329,7 @@ function drawShade(
     const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || Math.abs(band.height - r.drop) < 1e-9));
     if (mine.length === 0) continue;
     const reach = SHADE_REACH + Math.max(...mine.map((r) => (r.edge === 'slope' ? slopeWidthOf(r.owner?.slopeWidth) : dropShadeWidth(r.drop))));
-    const low = lowRegion(band, bands, outward, reach);
-    const region = ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
+    const region = groundBelow(band, bands, ground, outward, reach);
     if (region.length === 0) continue;
     const g = new Graphics();
     g.label = 'plateau-drop-shade';
@@ -353,6 +370,8 @@ function drawnPlacements(placed: WalkPlacement[], art: Map<string, CatalogEntry>
 
 /** A piece whose end lies further than this from the line of the one before it starts a new run, cells. */
 const RUN_BREAK = 0.5;
+/** Two pieces in a row turning more than this at their joint meet at a sharp tip, degrees. */
+const TIP_TURN_DEG = 100;
 /** How far along the line a sliver reads its direction either side of its root, in ridge samples (0.1 cell). */
 const SLIVER_REACH_PTS = 2;
 /** A point of a piece's line this close to the line before it lies on the lap, cells. */
@@ -414,7 +433,18 @@ function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlaceme
   const near = (p: Vec, line: Vec[]): boolean => line.some((q, i) => i > 0 && segDist(p, line[i - 1], q) <= RUN_BREAK);
   // Two pieces meet where either one's end lies on (or near) the other's line: a straight
   // centred on a short side laps the bends either end by far more than its joint.
-  const meets = (a: WalkPlacement, b: WalkPlacement): boolean => near(b.P, lines.get(a)!) || near(a.Q, lines.get(b)!);
+  // Two pieces turning sharper than any bend at their joint are the two runs a sharp tip is
+  // laid as, crossing there (caveBandRenderer's layTipRun): each ends on its own end piece,
+  // which carries the line on to the tip.
+  const sharp = (a: WalkPlacement, b: WalkPlacement): boolean => {
+    const la = lines.get(a)!;
+    const lb = lines.get(b)!;
+    const ta = vunit(vsub(la[la.length - 1], la[Math.max(0, la.length - 3)]));
+    const tb = vunit(vsub(lb[Math.min(lb.length - 1, 2)], lb[0]));
+    return ta[0] * tb[0] + ta[1] * tb[1] < Math.cos((TIP_TURN_DEG * Math.PI) / 180);
+  };
+  const meets = (a: WalkPlacement, b: WalkPlacement): boolean =>
+    !sharp(a, b) && (near(b.P, lines.get(a)!) || near(a.Q, lines.get(b)!));
   const runs: WalkPlacement[][] = [[placed[0]]];
   for (let k = 1; k < placed.length; k++) {
     if (meets(placed[k - 1], placed[k])) runs[runs.length - 1].push(placed[k]);
@@ -439,12 +469,13 @@ const laidAt = (piece: CaveKitPiece, A: Vec, B: Vec, branch: string): WalkPlacem
 
 /**
  * An open run's two tips: one end piece (the tail or the knot, picked per run) lapping each
- * tip's last piece by LINE_OVERLAP and running on along the line's own direction there. At the
+ * tip's last piece by the kit's overlap and running on along the line's own direction there. At the
  * head it is mirrored along its length, so it runs back off the line with its ticks on the
  * same side.
  */
 function runEnds(run: WalkPlacement[], ends: CaveKitPiece[]): WalkPlacement[] {
   if (ends.length === 0) return [];
+  const lap = kitOverlap(ends);
   const end = ends[Math.floor(rng(run[0].P)() * ends.length)];
   const c = end.chordCells;
   const head = worldRidge(run[0]);
@@ -453,9 +484,9 @@ function runEnds(run: WalkPlacement[], ends: CaveKitPiece[]): WalkPlacement[] {
   const tt = vunit(vsub(tail[tail.length - 1], tail[tail.length - 2]));
   const x0 = head[0];
   const x1 = tail[tail.length - 1];
-  const a1 = vsub(x1, vmul(tt, LINE_OVERLAP));
+  const a1 = vsub(x1, vmul(tt, lap));
   return [
-    laidAt(mirrorPiece(end), vsub(x0, vmul(th, c - LINE_OVERLAP)), vadd(x0, vmul(th, LINE_OVERLAP)), 'end'),
+    laidAt(mirrorPiece(end), vsub(x0, vmul(th, c - lap)), vadd(x0, vmul(th, lap)), 'end'),
     laidAt(end, a1, vadd(a1, vmul(tt, c)), 'end'),
   ];
 }
@@ -522,9 +553,16 @@ const lowNormal = (pl: WalkPlacement): Vec => {
 /**
  * A cliff: the top-edge ink line, then the ledge line laid by the cave walk with the low side as
  * void (straights, bends either way, an end piece at each tip of an open run), with slivers
- * hanging under it on the low side at a drop of a cell or more.
+ * hanging under it on the low side at a drop of a cell or more, and with the card's Foot rubble on,
+ * the rubble kit walked RUBBLE_OFFSET out on the low side over them, cut to `foot`'s ground.
  */
-function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: PlateauRenderOptions): CliffSprite[] {
+function drawCliff(
+  parent: Container,
+  run: EdgeRun,
+  gaps: DoorGap[],
+  options: PlateauRenderOptions,
+  foot: (outward: boolean) => Polygon[],
+): CliffSprite[] {
   // The walk lays rock with the void on its left; band rings run with the outside on the
   // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
   const pts = run.drop > 0 ? run.points : [...run.points].reverse();
@@ -564,6 +602,13 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
     hung.forEach((pl, i) => sprites.push({ sprite: hang.children[i] as Sprite, normal: lowNormal(pl) }));
     parent.addChild(hang);
   }
+  if (run.owner?.footRubble) {
+    const rubble = drawFootRubble(run, gaps, options, foot(run.drop > 0));
+    if (rubble) {
+      sprites.push(...rubble.sprites);
+      parent.addChild(rubble.holder);
+    }
+  }
 
   if (drawn.length === 0) {
     const ink = new Graphics();
@@ -575,6 +620,47 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   }
   parent.addChild(rock);
   return sprites;
+}
+
+/** How far out on the low side the foot rubble's ring runs, cells. */
+export const RUBBLE_OFFSET = 0.5;
+/** How far past the edge the foot rubble may reach: its ring plus half the widest piece. */
+const RUBBLE_REACH = 1.5;
+
+/**
+ * Foot rubble: the set's rubble kit walked round a ring RUBBLE_OFFSET out on the low side of the
+ * edge (low side on the left, as the ledge), bends either way, an end piece at each tip of an
+ * open run, masked to `region` (the ground there) so it never lands on void or up on the top.
+ */
+function drawFootRubble(
+  run: EdgeRun,
+  gaps: DoorGap[],
+  options: PlateauRenderOptions,
+  region: Polygon[],
+): { holder: Container; sprites: CliffSprite[] } | null {
+  const art = rubbleArt(run.owner?.edgeArt);
+  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  const pieces = rubblePieces(art);
+  if (pieces.length === 0 || region.length === 0) return null;
+  const lowLeft = run.drop > 0;
+  const line = offsetPath(run.points, run.closed, lowLeft, RUBBLE_OFFSET);
+  if (run.closed && line.length > 1 && vdist(line[0] as Vec, line[line.length - 1] as Vec) < 1e-6) line.pop();
+  const pts = lowLeft ? line : [...line].reverse();
+  const walked = drawnPlacements(run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces), art);
+  const ends = rubbleEndPieces(art);
+  const tips = ledgeRuns(walked, run.closed).filter((r) => r.open).flatMap((r) => runEnds(r.run, ends));
+  const drawn = [...walked, ...drawnPlacements(tips, art)];
+  if (drawn.length === 0) return null;
+  const stones = new Container();
+  placeBand(stones, drawn, art, 0xffffff, 0);
+  const mask = new Graphics();
+  mask.label = 'plateau-foot-mask';
+  fillRings(mask, region, { color: 0xffffff });
+  const holder = new Container();
+  holder.label = 'plateau-foot-rubble';
+  holder.addChild(stones, mask);
+  holder.mask = mask;
+  return { holder, sprites: drawn.map((pl, i) => ({ sprite: stones.children[i] as Sprite, normal: lowNormal(pl) })) };
 }
 
 // ─── Openings ──────────────────────────────────────────────
