@@ -20,6 +20,12 @@ const TEMPLATE = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../session/testdata/plateau-test.mapbuilder', import.meta.url)), 'utf8'),
 )
 
+const WARREN = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../../session/testdata/goblin-warren.mapbuilder', import.meta.url)), 'utf8'),
+)
+/** The warren's band as drawn before the ink set (15bc487), floors and doors only, 16 px a cell, indoors. */
+const BAND_BEFORE = fileURLToPath(new URL('./fixtures/warren-cave-band.png', import.meta.url))
+
 /** Screen pixels a cell while measuring. */
 const ZOOM = 60
 
@@ -251,12 +257,15 @@ test.describe('the plateau look', () => {
   })
 })
 
-// ─── The ink set ───
+// ─── The ink set: ledge, slivers, contours, foot rubble, and the cave band left alone ───
 
 type Rgb = [number, number, number]
 const lumOf = ([r, g, b]: Rgb) => 0.299 * r + 0.587 * g + 0.114 * b
 /** Ink: the set's neutral greys. The floor is tan (red well over blue) even under the drop shade. */
 const isInk = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 170
+/** Dark ink: the slivers' wedges and the line's outline, not the ledge's grey fill. */
+const isDark = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 80
+
 /** The camera at `zoom` px a cell with world `p` at the canvas centre. */
 async function lookAt(page: Page, p: Pt, zoom: number): Promise<void> {
   await page.evaluate(
@@ -296,6 +305,17 @@ async function grab(page: Page, a: Pt, b: Pt): Promise<(p: Pt) => Rgb> {
   }
 }
 
+const ring = (id: string, pts: [number, number][], height: number, edge: string, extra: Any = {}) => ({
+  id,
+  name: id,
+  childType: 'plateau',
+  visible: true,
+  contours: [pts],
+  height,
+  edge,
+  ...extra,
+})
+
 /** Signed distance outside the axis-aligned square x0..x1, y0..y1 (negative inside). */
 const outOfBox = (p: Pt, x0: number, y0: number, x1: number, y1: number) => {
   const dx = Math.max(x0 - p.x, p.x - x1)
@@ -303,7 +323,223 @@ const outOfBox = (p: Pt, x0: number, y0: number, x1: number, y1: number) => {
   return dx > 0 || dy > 0 ? Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) : Math.max(dx, dy)
 }
 
+/** A row's contour crossings: samples darker by 10 than the ramp 3 px either side, as sample indices. */
+const contourDips = (row: number[]) => {
+  const dips: number[] = []
+  for (let i = 3; i < row.length - 3; i++) {
+    if (row[i] < Math.max(row[i - 3], row[i + 3]) - 10 && row[i] <= Math.min(...row.slice(i - 2, i + 3))) {
+      if (dips.length === 0 || i - dips[dips.length - 1] > 3) dips.push(i)
+    }
+  }
+  return dips
+}
+
 test.describe('the ink set', () => {
+  test('the ledge on a +1 cliff is an ink ribbon 0.12 to 0.30 cell wide', async ({ page }) => {
+    const errors = await open(page, mapWith([box('c1', 10, 10, 16, 16, 1, 'cliff')]))
+    await lookAt(page, { x: 10, y: 13 }, ZOOM)
+    const at = await grab(page, { x: 9, y: 10.4 }, { x: 11, y: 15.6 })
+    const step = 1 / ZOOM
+    const widths: number[] = []
+    for (let y = 10.6; y <= 15.4; y += 0.2) {
+      // Runs of ink across the edge; the ribbon is the run nearest the edge.
+      const runs: [number, number][] = []
+      let from = -1
+      for (let x = 9.2; x <= 10.8; x += step) {
+        const ink = isInk(at({ x, y }))
+        if (ink && from < 0) from = x
+        if (!ink && from >= 0) {
+          runs.push([from, x])
+          from = -1
+        }
+      }
+      if (from >= 0) runs.push([from, 10.8])
+      if (runs.length === 0) continue
+      const near = runs.reduce((a, b) => (Math.abs((a[0] + a[1]) / 2 - 10) <= Math.abs((b[0] + b[1]) / 2 - 10) ? a : b))
+      widths.push(near[1] - near[0])
+    }
+    widths.sort((a, b) => a - b)
+    const median = widths[Math.floor(widths.length / 2)]
+    console.log(`ledge ribbon across ${widths.length} transects: median ${median.toFixed(3)} cell, ${widths[0].toFixed(3)} to ${widths[widths.length - 1].toFixed(3)}`)
+    expect(widths.length).toBeGreaterThanOrEqual(20)
+    expect(median).toBeGreaterThanOrEqual(0.12)
+    expect(median).toBeLessThanOrEqual(0.3)
+    expect(errors).toEqual([])
+  })
+
+  /**
+   * The stretches of the ring `pts` with no ink across it, from 0.8 cell in (as far as a bend
+   * cuts a corner: a 90 degree bend bows 0.64 off its chord) to 0.4 out, over 0.05 cell; and the
+   * longest bare stretch. A tip sharper than any bend (the walk lays it as two runs crossing)
+   * is judged apart: the stretch within TIP_NEAR of it is left out, and the tip is bare when no
+   * ink lies within TIP_NEAR of the point.
+   */
+  const TIP_NEAR = 0.45
+  const ledgeHoles = async (page: Page, pts: [number, number][], centre: Pt) => {
+    const at = await grab(page, { x: centre.x - 7, y: centre.y - 7 }, { x: centre.x + 7, y: centre.y + 7 })
+    const STEP = 0.02
+    const holes: string[] = []
+    let open = 0
+    let longest = 0
+    let last: Pt = centre
+    const tips = pts.filter((q, i) => {
+      const a = pts[(i - 1 + pts.length) % pts.length]
+      const b = pts[(i + 1) % pts.length]
+      const u = [q[0] - a[0], q[1] - a[1]]
+      const v = [b[0] - q[0], b[1] - q[1]]
+      const turn = Math.acos((u[0] * v[0] + u[1] * v[1]) / (Math.hypot(u[0], u[1]) * Math.hypot(v[0], v[1])))
+      return (turn * 180) / Math.PI > 110
+    })
+    const nearTip = (p: Pt) => tips.some((t) => Math.hypot(p.x - t[0], p.y - t[1]) < TIP_NEAR)
+    let bareTips = 0
+    for (const t of tips) {
+      let inked = false
+      for (let y = -TIP_NEAR; y <= TIP_NEAR && !inked; y += 0.02)
+        for (let x = -TIP_NEAR; x <= TIP_NEAR && !inked; x += 0.02)
+          if (Math.hypot(x, y) <= TIP_NEAR) inked = isInk(at({ x: t[0] + x, y: t[1] + y }))
+      if (!inked) bareTips++
+    }
+    const closeHole = () => {
+      if (open * STEP > 0.05) holes.push(`${(open * STEP).toFixed(2)} cell ending at ${last.x.toFixed(2)},${last.y.toFixed(2)}`)
+      longest = Math.max(longest, open * STEP)
+      open = 0
+    }
+    for (let i = 0; i < pts.length; i++) {
+      const a = { x: pts[i][0], y: pts[i][1] }
+      const b = { x: pts[(i + 1) % pts.length][0], y: pts[(i + 1) % pts.length][1] }
+      const len = Math.hypot(b.x - a.x, b.y - a.y)
+      let n = { x: (b.y - a.y) / len, y: -(b.x - a.x) / len }
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      if (n.x * (mid.x - centre.x) + n.y * (mid.y - centre.y) < 0) n = { x: -n.x, y: -n.y }
+      for (let s = 0; s < len; s += STEP) {
+        const p = { x: a.x + ((b.x - a.x) * s) / len, y: a.y + ((b.y - a.y) * s) / len }
+        if (nearTip(p)) {
+          closeHole()
+          continue
+        }
+        let hit = false
+        for (let d = -0.8; d <= 0.4 && !hit; d += 0.5 / ZOOM) hit = isInk(at({ x: p.x + n.x * d, y: p.y + n.y * d }))
+        if (hit) closeHole()
+        else open++
+        last = p
+      }
+    }
+    closeHole()
+    return { holes, longest, tips: tips.length, bareTips }
+  }
+
+  test('a 12-gon and a five-point star plateau show no ledge hole over 0.05 cell round the ring', async ({ page }) => {
+    const c = { x: 20, y: 20 }
+    const gon = Array.from({ length: 12 }, (_, k): [number, number] => [c.x + 5 * Math.cos((k * Math.PI) / 6), c.y + 5 * Math.sin((k * Math.PI) / 6)])
+    const star = Array.from({ length: 10 }, (_, k): [number, number] => {
+      const r = k % 2 === 0 ? 5.5 : 2.6
+      const t = -Math.PI / 2 + (k * Math.PI) / 5
+      return [c.x + r * Math.cos(t), c.y + r * Math.sin(t)]
+    })
+    for (const [name, pts] of [['12-gon', gon], ['star', star]] as const) {
+      const errors = await open(page, mapWith([ring(name, pts, 1, 'cliff')]))
+      // Lifted clear of the dock along the bottom of the canvas.
+      await lookAt(page, { x: c.x, y: c.y + 1 }, 40)
+      const { holes, longest, tips, bareTips } = await ledgeHoles(page, pts, c)
+      await page.screenshot({ path: test.info().outputPath(`${name}.png`) })
+      console.log(`${name}: ${holes.length} holes over 0.05 cell, longest bare stretch ${longest.toFixed(2)} cell; ${bareTips} of ${tips} sharp tips bare`)
+      expect(holes, name).toEqual([])
+      expect(bareTips, name).toBe(0)
+      expect(errors).toEqual([])
+    }
+  })
+
+  test("leaves the warren's cave wall band as it was drawn before the ink set", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const map = structuredClone(WARREN)
+    map.grid = { ...map.grid, visible: false }
+    map.mapSettings = { ...map.mapSettings, ambientLight: '#ffffff', environment: 'indoor' }
+    // Floors and doors only: the band, with nothing that flickers or moves over it.
+    for (const l of map.layers) if (l.children) l.children = l.children.filter((c: Any) => c.childType === 'shape' || c.childType === 'door')
+    const errors = await open(page, map)
+    await page.waitForTimeout(1000)
+    await lookAt(page, { x: 30, y: 23.6 }, 16)
+    await page.waitForTimeout(1000)
+    const box = (await page.locator('canvas').first().boundingBox())!
+    const png = await page.screenshot({
+      clip: { x: Math.round(box.x + box.width / 2 - 440), y: Math.round(box.y + box.height / 2 - 360), width: 880, height: 630 },
+    })
+    await sharp(png).toFile(test.info().outputPath('warren-band.png'))
+    const now = await sharp(png).raw().toBuffer({ resolveWithObject: true })
+    const was = await sharp(BAND_BEFORE).raw().toBuffer({ resolveWithObject: true })
+    expect([now.info.width, now.info.height]).toEqual([was.info.width, was.info.height])
+    let off = 0
+    let sum = 0
+    const px = now.info.width * now.info.height
+    for (let i = 0; i < px; i++) {
+      let worst = 0
+      for (let c = 0; c < 3; c++) {
+        const d = Math.abs(now.data[i * now.info.channels + c] - was.data[i * was.info.channels + c])
+        worst = Math.max(worst, d)
+        sum += d
+      }
+      if (worst > 24) off++
+    }
+    console.log(`warren band against the drawing before the ink set: ${off} of ${px} pixels off by more than 24, mean difference ${(sum / px / 3).toFixed(3)}`)
+    expect(off / px).toBeLessThan(0.002)
+    expect(errors).toEqual([])
+  })
+
+  test('a +2 slope shows exactly 2 walked contour rings across its band', async ({ page }) => {
+    const errors = await open(page, mapWith([box('slope', 10, 10, 16, 16, 2, 'slope')]))
+    await lookAt(page, { x: 17, y: 13 }, ZOOM)
+    const at = await grab(page, { x: 15.5, y: 10.5 }, { x: 17.5, y: 15.5 })
+    const counts: number[] = []
+    for (let y = 11; y <= 15; y += 0.2) {
+      const row = ray({ x: 16, y }, { x: 1, y: 0 }, 1 / ZOOM, ZOOM).map((p) => lumOf(at(p)))
+      counts.push(contourDips(row).length)
+    }
+    const tally = new Map<number, number>()
+    for (const n of counts) tally.set(n, (tally.get(n) ?? 0) + 1)
+    const mode = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    console.log(`contours crossed on ${counts.length} rows: ${[...tally.entries()].map(([n, k]) => `${n} rings x${k}`).join(', ')}`)
+    expect(mode).toBe(2)
+    expect((tally.get(2) ?? 0) / counts.length).toBeGreaterThanOrEqual(0.5)
+    expect(Math.max(...counts)).toBeLessThanOrEqual(2)
+    expect(errors).toEqual([])
+  })
+
+  /** Dark ink within 0.6 cell of the 8 x 8 square's edge, outside it and inside it, as fractions of each band. */
+  const sidesOf = async (page: Page, height: number) => {
+    const errors = await open(page, mapWith([box('p', 10, 10, 18, 18, height, 'cliff')]))
+    // Lifted clear of the dock along the bottom of the canvas.
+    await lookAt(page, { x: 14, y: 15 }, 40)
+    const at = await grab(page, { x: 9, y: 9 }, { x: 19, y: 19 })
+    let out = 0
+    let outN = 0
+    let inside = 0
+    let inN = 0
+    for (let y = 9.2; y <= 18.8; y += 1 / 40) {
+      for (let x = 9.2; x <= 18.8; x += 1 / 40) {
+        const d = outOfBox({ x, y }, 10, 10, 18, 18)
+        if (Math.abs(d) > 0.6 || Math.abs(d) < 0.02) continue
+        const dark = isDark(at({ x, y })) ? 1 : 0
+        if (d > 0) {
+          out += dark
+          outN++
+        } else {
+          inside += dark
+          inN++
+        }
+      }
+    }
+    expect(errors).toEqual([])
+    return { out: out / outN, inside: inside / inN }
+  }
+
+  test('slivers hang on the low side only: out of a raised plateau, into a pit', async ({ page }) => {
+    const raised = await sidesOf(page, 2)
+    const pit = await sidesOf(page, -2)
+    console.log(`dark ink within 0.6 cell: +2 out ${(raised.out * 100).toFixed(2)} %, in ${(raised.inside * 100).toFixed(2)} %; -2 out ${(pit.out * 100).toFixed(2)} %, in ${(pit.inside * 100).toFixed(2)} %`)
+    expect(raised.out).toBeGreaterThan(raised.inside * 1.3)
+    expect(pit.inside).toBeGreaterThan(pit.out * 1.3)
+  })
+
   test('Foot rubble adds ink on the low side within 1.2 cells of a cliff and nothing on its top', async ({ page }) => {
     const read = async (footRubble: boolean) => {
       const errors = await open(page, mapWith([box('p', 10, 10, 18, 18, 2, 'cliff', { footRubble })]))
