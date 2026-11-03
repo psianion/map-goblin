@@ -16,6 +16,9 @@ import {
   elevationAtLayers,
   hiddenTops,
   landingGaps,
+  bridgeHeights,
+  bridgeLook,
+  pathMaterialPatch,
   ringGaps,
   cliffOccluders,
 } from './plateaus';
@@ -295,14 +298,14 @@ describe('bridge landings', () => {
   });
   const layerWith = (...children: unknown[]) => ({ children }) as unknown as DungeonLayer;
 
-  it('opens a gap as wide as the bridge where each of its ends rests on a ring', () => {
+  it('opens a gap as wide as the bridge and a quarter cell each side where each of its ends rests on a ring', () => {
     const gaps = landingGaps(layerWith(outcrop, mesa, bridge()));
     expect(gaps).toHaveLength(2);
     const [a, b] = gaps;
     expect(a.id).toBe('landing:bridge:start');
     expect(a.position[0]).toBeCloseTo(7, 6);
     expect(a.position[1]).toBeCloseTo(11, 6);
-    expect(a.width).toBe(2);
+    expect(a.width).toBe(2.5);
     expect(b.id).toBe('landing:bridge:end');
     expect(b.position[1]).toBeCloseTo(26, 6);
     // The landing is part of every ring gap, so the ledge rock and the sight lines part there.
@@ -312,10 +315,10 @@ describe('bridge landings', () => {
   it('takes the width the bridge has at that end, and snaps an end just off the ring onto it', () => {
     const p = bridge({ points: [{ x: 7.3, y: 11.2, width: 3 }, { x: 7, y: 25.8 }] });
     const [a, b] = landingGaps(layerWith(outcrop, mesa, p));
-    expect(a.width).toBe(3);
+    expect(a.width).toBe(3.5);
     expect(a.position[1]).toBeCloseTo(11, 6);
     expect(a.position[0]).toBeCloseTo(7.3, 6);
-    expect(b.width).toBe(2);
+    expect(b.width).toBe(2.5);
   });
 
   it('leaves no cliff occluder across the landing', () => {
@@ -335,5 +338,35 @@ describe('bridge landings', () => {
     expect(landingGaps(layerWith(outcrop, mesa, bridge({ visible: false })))).toEqual([]);
     const loose = bridge({ points: [{ x: 7, y: 15 }, { x: 7, y: 20 }] });
     expect(landingGaps(layerWith(outcrop, mesa, loose))).toEqual([]);
+  });
+});
+
+describe('bridges as they are drawn', () => {
+  const ground = rect('ground', 0, 0, 30, 30);
+  const near = plat('near', 4, 4, 12, 10, { height: 1, edge: 'cliff' });
+  const far = plat('far', 4, 15, 12, 21, { height: 2, edge: 'cliff' });
+  const layer = { children: [ground, near, far] } as unknown as DungeonLayer;
+
+  it('takes a bridge’s sort and height with a planks material, only where the path still has the plain ones', () => {
+    expect(bridgeLook({ sort: 'under', heightMode: 'ground' }, 'gg-forge:planks')).toEqual({ sort: 'overhead', heightMode: 'set' });
+    expect(bridgeLook({ sort: 'over', heightMode: 'ground' }, 'gg-forge:planks')).toEqual({ heightMode: 'set' });
+    expect(bridgeLook({ sort: 'under', heightMode: 'set' }, 'gg-forge:planks')).toEqual({ sort: 'overhead' });
+    expect(bridgeLook({ sort: 'under', heightMode: 'ground' }, 'gg-forge:road-dirt')).toEqual({});
+  });
+
+  it('stands each end at the height of the cliff it rests on, the points between eased', () => {
+    const pts = bridgeHeights(layer, [{ x: 8, y: 10 }, { x: 8, y: 12.5 }, { x: 8, y: 15 }]);
+    expect(pts.map((p) => p.height)).toEqual([1, 1.5, 2]);
+  });
+
+  it('switches a road to planks as a bridge, heights and all, and a road back leaves them be', () => {
+    const road = { sort: 'under' as const, heightMode: 'ground' as const, points: [{ x: 8, y: 10 }, { x: 8, y: 15 }] };
+    expect(pathMaterialPatch(layer, road, 'gg-forge:planks')).toEqual({
+      materialId: 'gg-forge:planks',
+      sort: 'overhead',
+      heightMode: 'set',
+      points: [{ x: 8, y: 10, height: 1 }, { x: 8, y: 15, height: 2 }],
+    });
+    expect(pathMaterialPatch(layer, { ...road, sort: 'overhead', heightMode: 'set' }, 'gg-forge:road-dirt')).toEqual({ materialId: 'gg-forge:road-dirt' });
   });
 });

@@ -6,7 +6,7 @@ import type { DungeonLayer, ShapeChild, ToolType } from '@/store/types';
 import { ToolSettings, ToolSwatches } from './DockControls';
 import { SCATTER_TINT_PALETTE } from './PropsDock';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
-import { resetAssetPackManager, seedPathKits } from '@dnd/core/src/testing/seedCatalog';
+import { resetAssetPackManager, seedPack, seedPathKits } from '@dnd/core/src/testing/seedCatalog';
 
 // jsdom has no 2D canvas; the thumbnails are not what these tests look at.
 vi.mock('@/editor/PackThumbnailCanvas', () => ({
@@ -576,6 +576,22 @@ describe('path quick settings', () => {
       const lakes = screen.getByTestId('v2-strip-lakes');
       expect(within(lakes).queryByTestId('thumb-gg-forge:road-dirt-fill')).toBeNull();
       expect(within(lakes).getByTestId('thumb-gg-forge:water-fill')).not.toBeNull();
+    } finally {
+      resetAssetPackManager();
+    }
+  });
+
+  it('draws the next path as a bridge once the planks are picked: overhead, heights set', () => {
+    seedPack('gg-forge', {
+      'planks-plank_2x1_object_A': { type: 'object', material: 'planks-plank', gridSize: '2x1', pieceType: 'object', variant: 'A', frame: { x: 0, y: 0, w: 400, h: 200 }, set: 'GG_Paths_Props', tags: [] },
+      'planks-kit': { type: 'kit', material: 'planks', gridSize: '1x1', pieceType: 'kit', variant: 'A', set: 'planks', tags: ['path', 'kit'], kit: { kind: 'planks', cross: [{ key: 'planks-plank_2x1_object_A', weight: 1 }] } },
+    });
+    try {
+      useStore.getState().setActiveTool('path');
+      render(<ToolSwatches tool="path" tab={'tools' as never} onTab={() => {}} onOpenAssets={() => {}} />);
+      expect(useStore.getState().tools.settings.path).toMatchObject({ sort: 'under', heightMode: 'ground' });
+      fireEvent.click(within(screen.getByTestId('v2-strip-paths')).getByRole('button', { name: /planks/i }));
+      expect(useStore.getState().tools.settings.path).toMatchObject({ materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' });
     } finally {
       resetAssetPackManager();
     }

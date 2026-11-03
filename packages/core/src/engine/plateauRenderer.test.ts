@@ -459,6 +459,64 @@ describe('each cell of height shows', () => {
   });
 });
 
+describe('a bridge landing', () => {
+  const bridge = (over: Partial<PathChild> = {}): PathChild => ({
+    id: 'bridge',
+    name: 'Bridge',
+    childType: 'path',
+    visible: true,
+    points: [{ x: 8, y: 10, height: 1 }, { x: 8, y: 15, height: 1 }],
+    closed: false,
+    width: 1,
+    heightMode: 'set',
+    materialId: 'gg-forge:planks',
+    tint: '#ffffff',
+    opacity: 1,
+    offset: 0,
+    flip: false,
+    edge: 'soft',
+    ends: { start: 'cut', end: 'cut', length: 1 },
+    sort: 'overhead',
+    ...over,
+  });
+  // Two +1 cliffs 5 cells apart; the near one's south edge, y = 10, is 8 cells long.
+  const near = plat('near', 4, 4, 12, 10);
+  const far = plat('far', 4, 15, 12, 21);
+  const southEdge = (layer: DungeonLayer): number => {
+    const ring = layerPlateaus(layer).bands[0].rings.find((r) => r.some(([, y]) => Math.abs(y - 4) < 1e-6))!;
+    const gaps = ringGaps(layer).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
+    const [row] = cliffRows(ring, true, 1, gaps, cliffPieces(cliffArt(undefined)));
+    return row.filter((p) => Math.abs(p.P[1] - 10) < 0.5 && Math.abs(p.Q[1] - 10) < 0.5).length;
+  };
+
+  it('opens only the bridge’s end width and a quarter cell each side, where its centreline crosses the ring', () => {
+    const gaps = ringGaps(layerOf([ground, near, far, bridge({ points: [{ x: 8, y: 9.7, height: 1 }, { x: 8, y: 15.3, height: 1 }] })]));
+    expect(gaps.map((g) => [g.id, g.width])).toEqual([
+      ['landing:bridge:start', 1.5],
+      ['landing:bridge:end', 1.5],
+    ]);
+    expect(gaps[0].position[0]).toBeCloseTo(8, 6);
+    expect(gaps[0].position[1]).toBeCloseTo(10, 6);
+    expect(gaps[1].position[1]).toBeCloseTo(15, 6);
+  });
+
+  it('takes at most 2 of an 8-cell edge’s ledge pieces for a 1-cell bridge, and leaves the rest', () => {
+    const plain = southEdge(layerOf([ground, near, far]));
+    const landed = southEdge(layerOf([ground, near, far, bridge()]));
+    expect(plain).toBeGreaterThan(2);
+    expect(landed).toBeLessThan(plain);
+    expect(plain - landed).toBeLessThanOrEqual(2);
+  });
+
+  it('opens nothing for a road touching a cliff, or a bridge drawn over or under', () => {
+    for (const over of [{ materialId: 'gg-forge:road-dirt' }, { sort: 'over' as const }, { sort: 'under' as const }, { closed: true }, { visible: false }]) {
+      expect(ringGaps(layerOf([ground, near, far, bridge(over)])), JSON.stringify(over)).toEqual([]);
+    }
+    const plain = southEdge(layerOf([ground, near, far]));
+    expect(southEdge(layerOf([ground, near, far, bridge({ materialId: 'gg-forge:road-dirt' })]))).toBe(plain);
+  });
+});
+
 describe('light on the rock', () => {
   const look: ShadowLook = { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' };
 

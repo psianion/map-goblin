@@ -10,7 +10,7 @@
 //   surface just outside: positive faces outward (a plateau), negative inward (a pit).
 
 import type { DungeonLayer } from '../store/types';
-import type { CrossingKind, OpeningChild, PathChild, PlateauChild, RingGeometry } from './types';
+import type { CrossingKind, OpeningChild, PathChild, PathPoint, PlateauChild, RingGeometry } from './types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
@@ -494,6 +494,33 @@ export function openingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
 
 /** How far off a raised ring a bridge's end may rest and still land on it, cells. */
 const LANDING_REACH = 0.5;
+/** How far past each side of a bridge's end its landing opens the ring, cells. */
+export const LANDING_MARGIN = 0.25;
+
+/**
+ * Whether a path material is a bridge's: its kit is the planks kind. The catalogue answers
+ * once the engine installs it (`setBridgeMaterial`); until then, and where there is no
+ * catalogue (the server), a material whose set is `planks`.
+ */
+export const planksByName = (materialId: string): boolean => materialId.split(':').pop() === 'planks';
+let bridgeMaterial = planksByName;
+export function setBridgeMaterial(fn: (materialId: string) => boolean): void {
+  bridgeMaterial = fn;
+}
+export const isBridgeMaterial = (materialId: string): boolean => bridgeMaterial(materialId);
+
+/** Where segment a→b crosses segment c→d, as a point, or null. */
+function crossing(a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[]): Vec | null {
+  const rx = b[0] - a[0];
+  const ry = b[1] - a[1];
+  const sx = d[0] - c[0];
+  const sy = d[1] - c[1];
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den;
+  const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + rx * t, a[1] + ry * t] : null;
+}
 
 /** The nearest point of a ring to (x, y), and how far it is. */
 function nearestOnRing(ring: Polygon, x: number, y: number): { p: Vec; dist: number } {
@@ -513,19 +540,22 @@ function nearestOnRing(ring: Polygon, x: number, y: number): { p: Vec; dist: num
 }
 
 /**
- * Bridge landings (plan §5.4): where an end of a bridge (a visible open path sorted overhead,
- * the planks kit's place) rests on a raised ring within LANDING_REACH, the
- * ring opens there as wide as the bridge is at that end, the way an opening opens it. In
- * bridge order, start before end.
+ * Bridge landings (plan §5.4): where an end of a bridge (a visible open path of a planks
+ * material, sorted overhead) rests on a raised ring within LANDING_REACH, the ring opens
+ * there, centred where the bridge's centreline crosses it (the nearest point of the ring when
+ * the end stops short of it), as wide as the bridge is at that end and LANDING_MARGIN more
+ * each side, the way an opening opens it. In bridge order, start before end.
  */
 export function landingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
   const bridges = layer.children.filter(
-    (c): c is PathChild => c.childType === 'path' && c.visible && c.sort === 'overhead' && !c.closed && c.points.length >= 2,
+    (c): c is PathChild =>
+      c.childType === 'path' && c.visible && c.sort === 'overhead' && !c.closed && c.points.length >= 2 && isBridgeMaterial(c.materialId),
   );
   if (bridges.length === 0 || !hasPlateaus(layer)) return [];
   const rings = layerPlateaus(layer).bands.flatMap((b) => b.rings);
   const gaps: RingGap[] = [];
   for (const bridge of bridges) {
+    const line = pathCentreline(bridge).xy;
     const ends = [
       ['start', bridge.points[0]],
       ['end', bridge.points[bridge.points.length - 1]],
@@ -533,10 +563,24 @@ export function landingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
     for (const [name, end] of ends) {
       let best: { p: Vec; dist: number } | null = null;
       for (const ring of rings) {
-        const hit = nearestOnRing(ring, end.x, end.y);
-        if (hit.dist <= LANDING_REACH && (!best || hit.dist < best.dist)) best = hit;
+        const near = nearestOnRing(ring, end.x, end.y);
+        if (near.dist > LANDING_REACH) continue;
+        // Centred where the centreline crosses this ring nearest the end, when it does within reach.
+        let at = near.p;
+        let atDist = Infinity;
+        for (let i = 0; i + 1 < line.length; i++) {
+          for (let k = 0; k < ring.length; k++) {
+            const p = crossing(line[i], line[i + 1], ring[k], ring[(k + 1) % ring.length]);
+            const d = p ? Math.hypot(p[0] - end.x, p[1] - end.y) : Infinity;
+            if (p && d <= LANDING_REACH && d < atDist) {
+              at = p;
+              atDist = d;
+            }
+          }
+        }
+        if (!best || near.dist < best.dist) best = { p: at, dist: near.dist };
       }
-      if (best) gaps.push({ id: `landing:${bridge.id}:${name}`, position: best.p, width: end.width ?? bridge.width });
+      if (best) gaps.push({ id: `landing:${bridge.id}:${name}`, position: best.p, width: (end.width ?? bridge.width) + 2 * LANDING_MARGIN });
     }
   }
   return gaps;
@@ -814,6 +858,54 @@ export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'
     if (h !== 0) return h;
   }
   return 0;
+}
+
+// ─── Bridges as they are drawn ─────────────────────────────
+
+/**
+ * The sort and height a path takes when its material becomes `materialId`: a bridge's
+ * (overhead, heights set) for a planks material, each only where the path still has the plain
+ * one (under, ground), so a choice made on the path stands.
+ */
+export function bridgeLook(
+  path: Pick<PathChild, 'sort' | 'heightMode'>,
+  materialId: string,
+): Partial<Pick<PathChild, 'sort' | 'heightMode'>> {
+  if (!isBridgeMaterial(materialId)) return {};
+  return { ...(path.sort === 'under' ? { sort: 'overhead' as const } : {}), ...(path.heightMode === 'ground' ? { heightMode: 'set' as const } : {}) };
+}
+
+/**
+ * A bridge's points with heights set: each end at the height it rests on (the highest ground
+ * within LANDING_REACH of it, so an end on a cliff's edge takes the top), the points between
+ * eased from one end's height to the other's along the way.
+ */
+export function bridgeHeights(layer: Pick<DungeonLayer, 'children'>, points: readonly PathPoint[]): PathPoint[] {
+  if (points.length < 2) return [...points];
+  const restsAt = (p: PathPoint): number => {
+    let h = elevationAt(layer, p.x, p.y);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * 2 * Math.PI;
+      h = Math.max(h, elevationAt(layer, p.x + LANDING_REACH * Math.cos(a), p.y + LANDING_REACH * Math.sin(a)));
+    }
+    return h;
+  };
+  const from = restsAt(points[0]);
+  const to = restsAt(points[points.length - 1]);
+  const along = [0];
+  for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
+  const total = along[along.length - 1] || 1;
+  return points.map((p, i) => ({ ...p, height: Math.round((from + (to - from) * (along[i] / total)) * 10) / 10 }));
+}
+
+/** Everything a path's material switch changes: the material, a bridge's sort and height where still plain, and its heights when they turn on. */
+export function pathMaterialPatch(
+  layer: Pick<DungeonLayer, 'children'>,
+  path: Pick<PathChild, 'sort' | 'heightMode' | 'points'>,
+  materialId: string,
+): Partial<Pick<PathChild, 'materialId' | 'sort' | 'heightMode' | 'points'>> {
+  const look = bridgeLook(path, materialId);
+  return { materialId, ...look, ...(look.heightMode === 'set' ? { points: bridgeHeights(layer, path.points) } : {}) };
 }
 
 /**

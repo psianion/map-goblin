@@ -371,6 +371,55 @@ const rectAround = (x0: number, y0: number, x1: number, y1: number): Pt[] => [
   { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 },
 ]
 
+test.describe('a bridge drawn with the defaults', () => {
+  test('picking planks draws the bridge overhead between two +1 cliffs, and both landings open', async ({ page }) => {
+    const errors = await openField(page)
+    for (const [y0, y1] of [[2, 7], [10, 15]]) {
+      await blur(page)
+      await page.keyboard.press('e')
+      await dragThrough(page, rectAround(4, y0, 12, y1))
+    }
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(2)
+    await blur(page)
+    await page.keyboard.press('a')
+    await page.getByTestId('v2-strip-paths').getByRole('button', { name: /planks/i }).click()
+    for (const p of [{ x: 8, y: 7 }, { x: 8, y: 10 }]) {
+      const at = await screenOf(page, p)
+      await page.mouse.click(at.x, at.y)
+      await page.waitForTimeout(400)
+    }
+    await blur(page)
+    await page.keyboard.press('Enter')
+    await expect.poll(async () => inPage<number>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'path').length`)).toBe(1)
+    const bridge = await inPage<Any>(page, `(s, layer) => layer().children.find((c) => c.childType === 'path')`)
+    expect(bridge).toMatchObject({ materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' })
+    expect(bridge.points.map((p: Any) => p.height)).toEqual([1, 1])
+    // Its sprites are in its overhead container, over the ledge.
+    const overhead = () =>
+      page.evaluate((id) => {
+        const w = window as Any
+        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+        const pool = find(find(w.__pixiApp.stage, `path-overhead-${id}`), 'path-units')
+        return (pool?.children ?? []).filter((k: Any) => k.anchor).length
+      }, bridge.id)
+    await expect.poll(overhead).toBeGreaterThan(5)
+    // Both cliffs part where it lands, and keep their rock either side.
+    const rock = () =>
+      page.evaluate(() => {
+        const w = window as Any
+        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+        const kids = find(find(w.__pixiApp.stage, 'plateau-band-1'), 'plateau-cliff')?.children ?? []
+        const near = (x: number, y: number) => kids.filter((s: Any) => Math.hypot(s.position.x - x, s.position.y - y) < 0.6).length
+        return { all: kids.length, a: near(8, 7), b: near(8, 10) }
+      })
+    await expect.poll(async () => (await rock()).a).toBe(0)
+    const r = await rock()
+    expect(r.b).toBe(0)
+    expect(r.all).toBeGreaterThan(10)
+    expect(errors).toEqual([])
+  })
+})
+
 test.describe('the Plateau tool', () => {
   test('E, then a dragged rectangle on the field: one plateau at +1 with a cliff ledge, selected', async ({ page }) => {
     const errors = await openField(page)

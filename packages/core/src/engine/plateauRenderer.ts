@@ -26,13 +26,15 @@ import {
   layerPlateaus,
   openingFrame,
   ringGaps,
+  planksByName,
+  setBridgeMaterial,
   tierLift,
   type EdgeRun,
   type PlateauBand,
   type RingGap,
 } from '../shared/plateaus';
 import { buildEdgeStrips, sampleCentreline } from '../geometry/ribbon';
-import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import { getCatalogEntry, getEntriesByType, pathKit, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -605,3 +607,9 @@ export function plateauCliffCrossings(layer: Pick<DungeonLayer, 'children'>, pat
 
 // The water paths ask the plateaus where they fall.
 setCliffCrossings(plateauCliffCrossings);
+
+// A bridge is a path whose kit is the planks kind, once the catalogue knows the material.
+setBridgeMaterial((id) => {
+  const kit = pathKit(id);
+  return kit ? kit.kind === 'planks' : planksByName(id);
+});

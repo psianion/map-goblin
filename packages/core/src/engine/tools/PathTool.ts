@@ -8,6 +8,7 @@ import { undoManager } from '../../store/undoManager';
 import { addPath } from '../../store/pathCommands';
 import type { PathChild, PathPoint } from '../../shared/types';
 import { resolveEditableLayer } from './layerGuard';
+import { bridgeHeights, isBridgeMaterial } from '../../shared/plateaus';
 
 /** The material a lake is drawn in. */
 export const LAKE_MATERIAL_ID = 'gg-forge:water';
@@ -253,17 +254,20 @@ export class PathTool implements DrawingTool {
     if (!layer) return;
     const s = this.settings();
     const count = layer.children.filter((c) => c.childType === 'path').length + 1;
+    const materialId = lake ? s.lakeMaterialId : s.materialId;
+    // A bridge's ends stand at the height of the ground they rest on.
+    const bridge = !closed && s.heightMode === 'set' && isBridgeMaterial(materialId);
     const path: PathChild = {
       id: crypto.randomUUID(),
       name: `${lake ? 'Lake' : 'Path'} ${count}`,
       childType: 'path',
       visible: true,
-      points,
+      points: bridge ? bridgeHeights(layer, points) : points,
       closed,
       ...(lake ? { fill: true } : {}),
       width,
       heightMode: s.heightMode,
-      materialId: lake ? s.lakeMaterialId : s.materialId,
+      materialId,
       tint: '#ffffff',
       opacity: 1,
       // The strip is four cells long; a random start keeps two paths from repeating in step.

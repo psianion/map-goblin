@@ -7,6 +7,7 @@ import { setPathFields, setPathPointHeight, type PathPatch } from '@dnd/core/src
 import { NumBox } from './PropCards';
 import { pathKits } from '@dnd/core/src/assets/packCatalog';
 import { pathNarrowestWidth } from '@dnd/core/src/geometry/pathGeometry';
+import { pathMaterialPatch } from '@dnd/core/src/shared/plateaus';
 import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { WidthStepper } from './DockControls';
 import {
@@ -108,7 +109,19 @@ export function PathFields({ layerId, pathId }: { layerId: string; pathId: strin
   return (
     <div className="v2-sel__rows v2-selc v2-selc--path" data-testid="v2-sel-path">
       <PathName path={path} />
-      {row(<Select label="Material" width={170} value={path.materialId} options={materialOptions} onChange={(materialId) => set({ materialId }, 'Path material')} />)}
+      {row(
+        <Select
+          label="Material"
+          width={170}
+          value={path.materialId}
+          options={materialOptions}
+          onChange={(materialId) => {
+            // A bridge's material brings a bridge's sort and heights with it (pathMaterialPatch).
+            const layer = useStore.getState().layers.find((l) => l.id === layerId) as DungeonLayer;
+            reshape('Path material', pathMaterialPatch(layer, path, materialId));
+          }}
+        />,
+      )}
       {row(<WidthStepper value={path.width} onChange={(width) => set({ width }, 'Path width')} />)}
       {narrowest !== null && (
         <p className="v2-sel__note" data-testid="v2-path-narrowed">

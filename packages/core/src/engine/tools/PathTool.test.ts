@@ -206,3 +206,22 @@ describe('PathTool: lake preset', () => {
     expect(preview!.points.length).toBeGreaterThan(6);
   });
 });
+
+describe('PathTool: bridges', () => {
+  it('draws a planks path as a bridge whose ends stand on the cliffs they rest on', () => {
+    const l = layer();
+    useStore.getState().addChild(l.id, { id: 'g', name: 'g', childType: 'shape', visible: true, shapeType: 'rectangle', contours: [[[0, 0], [30, 0], [30, 30], [0, 30]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff' } as never);
+    for (const [id, y0, y1, height] of [['a', 4, 10, 1], ['b', 15, 21, 2]] as const) {
+      useStore.getState().addChild(l.id, { id, name: id, childType: 'plateau', visible: true, contours: [[[4, y0], [12, y0], [12, y1], [4, y1]]], height, edge: 'cliff' } as never);
+    }
+    const s = useStore.getState().tools.settings.path;
+    useStore.getState().updateToolSettings({ path: { ...s, materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' } });
+    const tool = new PathTool();
+    click(tool, 8, 10);
+    click(tool, 8, 15);
+    tool.onKeyDown(key('Enter'));
+    const p = paths()[0];
+    expect(p).toMatchObject({ materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' });
+    expect(p.points.map((q) => q.height)).toEqual([1, 2]);
+  });
+});

@@ -12,6 +12,7 @@ import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES } from '@/store/slices/tools';
 import { familyKeyOf, getCatalogEntry, kitPiece, pathKits } from '@dnd/core/src/assets/packCatalog';
+import { bridgeLook } from '@dnd/core/src/shared/plateaus';
 import { PATH_WIDTH_RANGE, PATH_WIDTH_STEP } from '@dnd/core/src/engine/tools/PathTool';
 import {
   minDoorWidth,
@@ -858,7 +859,8 @@ function PathMaterialStrip({ lake = false }: { lake?: boolean }) {
       isOn={(id) => id === materialId}
       onPick={(id) => {
         const path = useStore.getState().tools.settings.path;
-        useStore.getState().updateToolSettings({ path: { ...path, [key]: id } });
+        // A bridge's material draws the next path as a bridge: overhead, heights set.
+        useStore.getState().updateToolSettings({ path: { ...path, [key]: id, ...(lake ? {} : bridgeLook(path, id)) } });
       }}
     />
   );
