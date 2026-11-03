@@ -24,6 +24,15 @@ const manager = {
           outside_bend_2x2_A: object('outside_bend', '2x2', 'GG_Cave_Ink'),
           ledge_1x2_A: object('ledge', '1x2', 'GG_Cave_Ink'),
           ledge_1x4_A: object('ledge', '1x4', 'GG_Cave_Ink'),
+          ledge_bend_45_1x1_A: object('ledge_bend_45', '1x1', 'GG_Cave_Ink'),
+          ledge_bend_90_2x2_A: object('ledge_bend_90', '2x2', 'GG_Cave_Ink'),
+          ledge_end_tail_1x1_A: object('ledge_end_tail', '1x1', 'GG_Cave_Ink'),
+          contour_1x2_A: object('contour', '1x2', 'GG_Cave_Ink'),
+          contour_1x4_A: object('contour', '1x4', 'GG_Cave_Ink'),
+          contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
+          sliver_2_1x1_A: object('sliver_2', '1x1', 'GG_Cave_Ink'),
+          sliver_3_1x1_A: object('sliver_3', '1x1', 'GG_Cave_Ink'),
+          stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'GG_Cave_Ink', ['cave', 'prop', 'stairs']),
         },
       },
     },
@@ -31,8 +40,6 @@ const manager = {
       packId: 'gg-demo',
       manifest: {
         entries: {
-          ledge_bend_1x1_A: object('ledge_bend', '1x1', 'demo-structures', ['structure']),
-          ledge_bend_2x2_A: object('ledge_bend', '2x2', 'demo-structures', ['structure']),
           stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'demo-structures', ['structure']),
         },
       },
@@ -129,10 +136,10 @@ function labels(c: Container, out: string[] = []): string[] {
 }
 
 describe('the cliff kit', () => {
-  it('offers the band sets that carry ledges, and lays forge straights with gg-demo bends', () => {
+  it('offers the band sets that carry ledges, and lays their straights with their own bends', () => {
     expect(cliffArtSetIds()).toEqual(['GG_Cave_Ink']);
     const kit = cliffArt(undefined);
-    expect([...kit.keys()].sort()).toEqual(['ledge_1x2', 'ledge_1x4', 'ledge_bend_1x1', 'ledge_bend_2x2']);
+    expect([...kit.keys()].sort()).toEqual(['ledge_1x2', 'ledge_1x4', 'ledge_bend_45_1x1', 'ledge_bend_90_2x2', 'ledge_end_tail_1x1']);
     const pieces = cliffPieces(kit);
     expect(pieces.some((p) => p.turnDeg > 0)).toBe(true);
     expect(pieces.some((p) => p.turnDeg < 0)).toBe(true);

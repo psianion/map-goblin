@@ -222,11 +222,10 @@ describe('seams and small rings', () => {
     ['circle 3', circle(3)],
     ['circle 6', circle(6)],
   ];
-  // The rock band, the whole ledge kit, and the ledge a cliff lays (straights and the one-cell bend).
+  // The rock band and the ledge kit a cliff lays.
   const KITS: [string, () => CaveKitPiece[]][] = [
     ['band', caveBandPieces],
     ['ledge', ledgePieces],
-    ['cliff', () => ledgePieces().filter((p) => p.turnDeg === 0 || p.key === 'ledge_bend_1x1')],
   ];
   const lay = (ring: Polygon, kit: () => CaveKitPiece[]) => layBandRing(orientRings([ring])[0], [], kit());
 

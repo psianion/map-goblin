@@ -421,7 +421,8 @@ const stairsCache = new Map<Texture, Texture>();
 
 /** The part of a stairs texture the flight is drawn in (`STAIRS_CONTENT`), as its own texture. */
 function stairsContent(entry: CatalogEntry, tex: Texture): Texture {
-  const rect = STAIRS_CONTENT[`${entry.material}_${entry.gridSize}`];
+  const key = `${entry.material}_${entry.gridSize}`;
+  const rect = STAIRS_CONTENT[`${entry.set}:${key}`] ?? STAIRS_CONTENT[key];
   if (!rect) return tex;
   const hit = stairsCache.get(tex);
   if (hit && !hit.destroyed) return hit;

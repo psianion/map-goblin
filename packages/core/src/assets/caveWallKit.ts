@@ -122,15 +122,16 @@ export function reversePiece(p: CaveKitPiece): CaveKitPiece {
 }
 
 /**
- * The cliff kit: the ledge straights (forge, mirrors included) and the ledge bends (gg-demo),
- * each bend also reversed. The bends were measured by their two line ends and the turn
- * between the line's directions there, since a thin ledge line never fills a frame edge
- * (see caveWallKit.json's ledge_bend entries).
+ * The cliff kit: the ledge straights (mirrors included) and the ledge bends, each bend also
+ * reversed. All drawn by the forge, which writes their joints from its own geometry. The run
+ * ends (`ledge_end_*`) are not in it: they are laid only at an open run's tips.
  */
 let ledgePool: CaveKitPiece[] | null = null;
 export function ledgePieces(): CaveKitPiece[] {
   if (!ledgePool) {
-    const straights = [...BY_KEY.values()].filter((p) => p.key.startsWith('ledge_') && p.turnDeg === 0);
+    const straights = [...BY_KEY.values()].filter(
+      (p) => p.key.startsWith('ledge_') && !p.key.startsWith('ledge_end_') && p.turnDeg === 0,
+    );
     const bends = [...BY_KEY.values()].filter((p) => p.key.startsWith('ledge_bend_'));
     ledgePool = [...straights, ...straights.map(mirrorPiece), ...bends, ...bends.map(reversePiece)];
   }
