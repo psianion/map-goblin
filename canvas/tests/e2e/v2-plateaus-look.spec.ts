@@ -256,14 +256,12 @@ test.describe('the plateau look', () => {
   })
 })
 
-// ─── The ink set: ledge, slivers, contours, and the cave band left alone ───
+// ─── The ink set: ledge, contours, and the cave band left alone ───
 
 type Rgb = [number, number, number]
 const lumOf = ([r, g, b]: Rgb) => 0.299 * r + 0.587 * g + 0.114 * b
 /** Ink: the set's neutral greys. The floor is tan (red well over blue) even under the drop shade. */
 const isInk = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 170
-/** Dark ink: the slivers' wedges and the line's outline, not the ledge's grey fill. */
-const isDark = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 80
 
 /** The camera at `zoom` px a cell with world `p` at the canvas centre. */
 async function lookAt(page: Page, p: Pt, zoom: number): Promise<void> {
@@ -313,13 +311,6 @@ const ring = (id: string, pts: [number, number][], height: number, edge: string)
   height,
   edge,
 })
-
-/** Signed distance outside the axis-aligned square x0..x1, y0..y1 (negative inside). */
-const outOfBox = (p: Pt, x0: number, y0: number, x1: number, y1: number) => {
-  const dx = Math.max(x0 - p.x, p.x - x1)
-  const dy = Math.max(y0 - p.y, p.y - y1)
-  return dx > 0 || dy > 0 ? Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) : Math.max(dx, dy)
-}
 
 /** A row's contour crossings: samples darker by 10 than the ramp 3 px either side, as sample indices. */
 const contourDips = (row: number[]) => {
@@ -500,41 +491,5 @@ test.describe('the ink set', () => {
     expect((tally.get(2) ?? 0) / counts.length).toBeGreaterThanOrEqual(0.5)
     expect(Math.max(...counts)).toBeLessThanOrEqual(2)
     expect(errors).toEqual([])
-  })
-
-  /** Dark ink within 0.6 cell of the 8 x 8 square's edge, outside it and inside it, as fractions of each band. */
-  const sidesOf = async (page: Page, height: number) => {
-    const errors = await open(page, mapWith([box('p', 10, 10, 18, 18, height, 'cliff')]))
-    // Lifted clear of the dock along the bottom of the canvas.
-    await lookAt(page, { x: 14, y: 15 }, 40)
-    const at = await grab(page, { x: 9, y: 9 }, { x: 19, y: 19 })
-    let out = 0
-    let outN = 0
-    let inside = 0
-    let inN = 0
-    for (let y = 9.2; y <= 18.8; y += 1 / 40) {
-      for (let x = 9.2; x <= 18.8; x += 1 / 40) {
-        const d = outOfBox({ x, y }, 10, 10, 18, 18)
-        if (Math.abs(d) > 0.6 || Math.abs(d) < 0.02) continue
-        const dark = isDark(at({ x, y })) ? 1 : 0
-        if (d > 0) {
-          out += dark
-          outN++
-        } else {
-          inside += dark
-          inN++
-        }
-      }
-    }
-    expect(errors).toEqual([])
-    return { out: out / outN, inside: inside / inN }
-  }
-
-  test('slivers hang on the low side only: out of a raised plateau, into a pit', async ({ page }) => {
-    const raised = await sidesOf(page, 2)
-    const pit = await sidesOf(page, -2)
-    console.log(`dark ink within 0.6 cell: +2 out ${(raised.out * 100).toFixed(2)} %, in ${(raised.inside * 100).toFixed(2)} %; -2 out ${(pit.out * 100).toFixed(2)} %, in ${(pit.inside * 100).toFixed(2)} %`)
-    expect(raised.out).toBeGreaterThan(raised.inside * 1.3)
-    expect(pit.inside).toBeGreaterThan(pit.out * 1.3)
   })
 })

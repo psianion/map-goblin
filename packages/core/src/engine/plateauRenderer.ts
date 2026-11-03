@@ -57,12 +57,10 @@ import {
   contourArt,
   contourPieces,
   ledgeEndPieces,
-  sliverArt,
-  sliverPieces,
 } from './plateauKit';
 import type { DoorGap } from './wallNodeRenderer';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
-import { jointsOf, ledgeRidge, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
+import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -357,22 +355,12 @@ function drawnPlacements(placed: WalkPlacement[], art: Map<string, CatalogEntry>
   });
 }
 
-// ─── Ledge ends and slivers ────────────────────────────────
+// ─── Ledge ends ────────────────────────────────────────────
 
-/** A piece whose end lies further than this from the line of the one before it starts a new run, cells. */
+/** A piece whose end lies further than this from the chord of the one before it starts a new run, cells. */
 const RUN_BREAK = 0.5;
 /** Two pieces in a row turning more than this at their joint meet at a sharp tip, degrees. */
 const TIP_TURN_DEG = 100;
-/** How far along the line a sliver reads its direction either side of its root, in ridge samples (0.1 cell). */
-const SLIVER_REACH_PTS = 2;
-/** A point of a piece's line this close to the line before it lies on the lap, cells. */
-const LAP_NEAR = 0.12;
-
-/** Slivers a cell of edge: 1 at a drop of 1, rising to 2 at 3 and past; none under 1. */
-export function sliverDensity(drop: number): number {
-  const d = Math.abs(drop);
-  return d < 1 ? 0 : 1 + (Math.min(3, d) - 1) / 2;
-}
 
 /** A small random stream seeded from a point, so a redraw lays the same art. */
 function rng(seed: Vec): () => number {
@@ -390,7 +378,6 @@ const vsub = (a: Vec, b: Vec): Vec => [a[0] - b[0], a[1] - b[1]];
 const vadd = (a: Vec, b: Vec): Vec => [a[0] + b[0], a[1] + b[1]];
 const vmul = (a: Vec, k: number): Vec => [a[0] * k, a[1] * k];
 const vdist = (a: Vec, b: Vec): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
-const vunit = (a: Vec): Vec => vmul(a, 1 / (Math.hypot(a[0], a[1]) || 1));
 /** Distance from `p` to the segment a–b. */
 const segDist = (p: Vec, a: Vec, b: Vec): number => {
   const ab = vsub(b, a);
@@ -399,19 +386,15 @@ const segDist = (p: Vec, a: Vec, b: Vec): number => {
   return vdist(p, vadd(a, vmul(ab, t)));
 };
 
-/** A laid ledge piece's drawn line in world units, from its first joint to its second. */
-function worldRidge(pl: WalkPlacement): Vec[] {
-  const [j0, j1] = jointsOf(pl.piece, pl.at);
-  const ridge = ledgeRidge(pl.piece.key);
-  if (!ridge) return [j0, j1];
-  const { position, rotation, scale, flipY } = pl.at;
-  const c = Math.cos(rotation);
-  const s = Math.sin(rotation);
-  const pts = ridge.map(([x, y]): Vec => {
-    const ly = flipY ? -y : y;
-    return [position.x + (x * c - ly * s) * scale, position.y + (x * s + ly * c) * scale];
-  });
-  return vdist(pts[0], j0) <= vdist(pts[pts.length - 1], j0) ? pts : pts.reverse();
+/**
+ * A laid piece's two joints in world units, and its direction of travel at each: its chord
+ * turned back by half its turn at the first joint and on by half at the second, as an arc does.
+ */
+function jointFrame(pl: WalkPlacement): { joints: [Vec, Vec]; tangents: [Vec, Vec] } {
+  const joints = jointsOf(pl.piece, pl.at);
+  const a = Math.atan2(joints[1][1] - joints[0][1], joints[1][0] - joints[0][0]);
+  const h = (pl.piece.turnDeg * Math.PI) / 360;
+  return { joints, tangents: [[Math.cos(a - h), Math.sin(a - h)], [Math.cos(a + h), Math.sin(a + h)]] };
 }
 
 /**
@@ -420,22 +403,19 @@ function worldRidge(pl: WalkPlacement): Vec[] {
  */
 function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlacement[]; open: boolean }[] {
   if (placed.length === 0) return [];
-  const lines = new Map(placed.map((pl) => [pl, worldRidge(pl)]));
-  const near = (p: Vec, line: Vec[]): boolean => line.some((q, i) => i > 0 && segDist(p, line[i - 1], q) <= RUN_BREAK);
-  // Two pieces meet where either one's end lies on (or near) the other's line: a straight
+  const frames = new Map(placed.map((pl) => [pl, jointFrame(pl)]));
+  const near = (p: Vec, pl: WalkPlacement): boolean => segDist(p, ...frames.get(pl)!.joints) <= RUN_BREAK;
+  // Two pieces meet where either one's end lies on (or near) the other's chord: a straight
   // centred on a short side laps the bends either end by far more than its joint.
   // Two pieces turning sharper than any bend at their joint are the two runs a sharp tip is
   // laid as, crossing there (caveBandRenderer's layTipRun): each ends on its own end piece,
   // which carries the line on to the tip.
   const sharp = (a: WalkPlacement, b: WalkPlacement): boolean => {
-    const la = lines.get(a)!;
-    const lb = lines.get(b)!;
-    const ta = vunit(vsub(la[la.length - 1], la[Math.max(0, la.length - 3)]));
-    const tb = vunit(vsub(lb[Math.min(lb.length - 1, 2)], lb[0]));
+    const ta = frames.get(a)!.tangents[1];
+    const tb = frames.get(b)!.tangents[0];
     return ta[0] * tb[0] + ta[1] * tb[1] < Math.cos((TIP_TURN_DEG * Math.PI) / 180);
   };
-  const meets = (a: WalkPlacement, b: WalkPlacement): boolean =>
-    !sharp(a, b) && (near(b.P, lines.get(a)!) || near(a.Q, lines.get(b)!));
+  const meets = (a: WalkPlacement, b: WalkPlacement): boolean => !sharp(a, b) && (near(b.P, a) || near(a.Q, b));
   const runs: WalkPlacement[][] = [[placed[0]]];
   for (let k = 1; k < placed.length; k++) {
     if (meets(placed[k - 1], placed[k])) runs[runs.length - 1].push(placed[k]);
@@ -459,78 +439,24 @@ const laidAt = (piece: CaveKitPiece, A: Vec, B: Vec, branch: string): WalkPlacem
 });
 
 /**
- * An open run's two tips: one end piece (the tail or the knot, picked per run) lapping each
- * tip's last piece by the kit's overlap and running on along the line's own direction there. At the
- * head it is mirrored along its length, so it runs back off the line with its ticks on the
- * same side.
+ * An open run's two tips: one end piece (picked per run) lapping each tip's last piece by the
+ * kit's overlap and running on along the line's direction there. At the head it is mirrored
+ * along its length, so it runs back off the line with the same side to the low side.
  */
 function runEnds(run: WalkPlacement[], ends: CaveKitPiece[]): WalkPlacement[] {
   if (ends.length === 0) return [];
   const lap = kitOverlap(ends);
   const end = ends[Math.floor(rng(run[0].P)() * ends.length)];
   const c = end.chordCells;
-  const head = worldRidge(run[0]);
-  const tail = worldRidge(run[run.length - 1]);
-  const th = vunit(vsub(head[1], head[0]));
-  const tt = vunit(vsub(tail[tail.length - 1], tail[tail.length - 2]));
-  const x0 = head[0];
-  const x1 = tail[tail.length - 1];
+  const head = jointFrame(run[0]);
+  const tail = jointFrame(run[run.length - 1]);
+  const [x0, th] = [head.joints[0], head.tangents[0]];
+  const [x1, tt] = [tail.joints[1], tail.tangents[1]];
   const a1 = vsub(x1, vmul(tt, lap));
   return [
     laidAt(mirrorPiece(end), vsub(x0, vmul(th, c - lap)), vadd(x0, vmul(th, lap)), 'end'),
     laidAt(end, a1, vadd(a1, vmul(tt, c)), 'end'),
   ];
-}
-
-/**
- * The slivers under a ledge: `density` a cell along each run's drawn line, each a random pick
- * of the sliver pieces (mirrored along its length half the time), its root on the line and its
- * length along the line's direction there. The pieces are drawn with their wedges on the left
- * of travel, which is the low side the ledge was walked with.
- */
-function laySlivers(runs: { run: WalkPlacement[]; open: boolean }[], pieces: CaveKitPiece[], density: number): WalkPlacement[] {
-  if (pieces.length === 0 || density <= 0) return [];
-  const out: WalkPlacement[] = [];
-  for (const { run } of runs) {
-    // The run's line: each piece's drawn line from where it leaves the one before it. A piece
-    // laps its neighbour, by far more on a short side laid corner first.
-    // Each point keeps its own piece's direction there: the joined line steps back a little
-    // where one piece laps the next, and a direction read across that step would turn round.
-    const line: Vec[] = [];
-    const dirs: Vec[] = [];
-    let prev: Vec[] | null = null;
-    for (const pl of run) {
-      const pts = worldRidge(pl);
-      let i = 0;
-      const last = prev;
-      if (last) {
-        while (i < pts.length - 1 && last.some((q, j) => j > 0 && segDist(pts[i], last[j - 1], q) <= LAP_NEAR)) i++;
-      }
-      for (; i < pts.length; i++) {
-        line.push(pts[i]);
-        dirs.push(vunit(vsub(pts[Math.min(pts.length - 1, i + SLIVER_REACH_PTS)], pts[Math.max(0, i - SLIVER_REACH_PTS)])));
-      }
-      prev = pts;
-    }
-    if (line.length < 2) continue;
-    const cum = [0];
-    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + vdist(line[i - 1], line[i]));
-    const total = cum[cum.length - 1];
-    const rand = rng(line[0]);
-    const step = 1 / density;
-    for (let s = step * (0.3 + 0.4 * rand()); s < total; s += step * (0.8 + 0.4 * rand())) {
-      let i = 1;
-      while (i < cum.length - 1 && cum[i] < s) i++;
-      const f = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
-      const root = vadd(line[i - 1], vmul(vsub(line[i], line[i - 1]), f));
-      const t = dirs[f < 0.5 ? i - 1 : i];
-      const pick = pieces[Math.floor(rand() * pieces.length)];
-      const piece = rand() < 0.5 ? pick : mirrorPiece(pick);
-      const half = piece.chordCells / 2;
-      out.push(laidAt(piece, vsub(root, vmul(t, half)), vadd(root, vmul(t, half)), 'sliver'));
-    }
-  }
-  return out;
 }
 
 /** The low-side normal of a placement: the left of its chord. */
@@ -543,8 +469,7 @@ const lowNormal = (pl: WalkPlacement): Vec => {
 
 /**
  * A cliff: the top-edge ink line, then the ledge line laid by the cave walk with the low side as
- * void (straights, bends either way, an end piece at each tip of an open run), with slivers
- * hanging under it on the low side at a drop of a cell or more.
+ * void (straights, bends either way, an end piece at each tip of an open run).
  */
 function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: PlateauRenderOptions): CliffSprite[] {
   // The walk lays rock with the void on its left; band rings run with the outside on the
@@ -560,8 +485,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   }
 
   const art = cliffArt(run.owner?.edgeArt);
-  const slivers = sliverArt(run.owner?.edgeArt);
-  for (const e of [...art.values(), ...slivers.values()]) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
   const sprites: CliffSprite[] = [];
 
@@ -576,16 +500,6 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const drawn = [...walked, ...drawnPlacements(runs.filter((r) => r.open).flatMap((r) => runEnds(r.run, ends)), art)];
   placeBand(rock, drawn, art, 0xffffff, 0);
   drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));
-
-  // Under the ledge, over the drop shade: the slivers on the low side.
-  const hung = drawnPlacements(laySlivers(runs, sliverPieces(slivers), sliverDensity(run.drop)), slivers);
-  if (hung.length > 0) {
-    const hang = new Container();
-    hang.label = 'plateau-cliff-slivers';
-    placeBand(hang, hung, slivers, 0xffffff, 0);
-    hung.forEach((pl, i) => sprites.push({ sprite: hang.children[i] as Sprite, normal: lowNormal(pl) }));
-    parent.addChild(hang);
-  }
 
   if (drawn.length === 0) {
     const ink = new Graphics();

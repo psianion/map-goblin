@@ -36,18 +36,6 @@ export function ledgeEndPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
   return kitPieces('ledge_end_').filter((p) => art.has(p.key));
 }
 
-/** The sliver art of a cliff set: short dark ink wedges that hang under its ledge. */
-export function sliverArt(setId: string | undefined): Map<string, CatalogEntry> {
-  const art = new Map<string, CatalogEntry>();
-  for (const [key, e] of bandSetArt(setId || DEFAULT_CLIFF_SET)) if (e.material.startsWith('sliver')) art.set(key, e);
-  return art;
-}
-
-/** The sliver pieces with art in `art`. */
-export function sliverPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
-  return kitPieces('sliver_').filter((p) => art.has(p.key));
-}
-
 /** The contour art of a set: the ledge line at half weight, broken, ticked on its low side. */
 export function contourArt(setId: string | undefined): Map<string, CatalogEntry> {
   const art = new Map<string, CatalogEntry>();

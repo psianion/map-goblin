@@ -30,8 +30,6 @@ const manager = {
           contour_1x2_A: object('contour', '1x2', 'GG_Cave_Ink'),
           contour_1x4_A: object('contour', '1x4', 'GG_Cave_Ink'),
           contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
-          sliver_2_1x1_A: object('sliver_2', '1x1', 'GG_Cave_Ink'),
-          sliver_3_1x1_A: object('sliver_3', '1x1', 'GG_Cave_Ink'),
           stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'GG_Cave_Ink', ['cave', 'prop', 'stairs']),
         },
       },
@@ -64,7 +62,6 @@ import {
   faceShade,
   renderPlateaus,
   shadeCliffs,
-  sliverDensity,
   stairsArtEntries,
   SHADE_FLOOR,
   SHADE_SIDE,
@@ -360,7 +357,7 @@ describe('a cliff draws its ledge alone', () => {
   const partOf = (parent: Container, label: string): Sprite[] =>
     ((parent.children[0] as Container).children.find((c) => c.label === label) as Container | undefined)?.children as Sprite[] ?? [];
 
-  it('lays one sprite per ledge placement, the slivers apart, and nothing else past it', () => {
+  it('lays one sprite per ledge placement and nothing else past it', () => {
     const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
     const parent = new Container();
     renderPlateaus(layer, new Container(), parent);
@@ -369,7 +366,7 @@ describe('a cliff draws its ledge alone', () => {
     expect(placements).toBeGreaterThan(3);
     // A closed ring has no tips, so no end pieces.
     expect(partOf(parent, 'plateau-cliff')).toHaveLength(placements);
-    expect(spritesIn(parent)).toBe(placements + partOf(parent, 'plateau-cliff-slivers').length);
+    expect(spritesIn(parent)).toBe(placements);
   });
 
   it('ends a ledge run cut by a gap with an end piece at each tip', () => {
@@ -382,42 +379,12 @@ describe('a cliff draws its ledge alone', () => {
     expect(partOf(parent, 'plateau-cliff')).toHaveLength(walked.length + 2);
   });
 
-  it('hangs slivers at 1 a cell at +1 and 2 a cell at +3, wedges on the low side only', () => {
-    for (const [height, density] of [[1, 1], [3, 2], [-2, 1.5]] as const) {
-      const parent = new Container();
-      renderPlateaus(layerOf([ground, plat('p', 5, 5, 13, 12, { height, edge: 'cliff' })]), new Container(), parent);
-      const slivers = partOf(parent, 'plateau-cliff-slivers');
-      const perimeter = 2 * (8 + 7);
-      expect(slivers.length / perimeter, `+${height}`).toBeGreaterThan(density * 0.8);
-      expect(slivers.length / perimeter, `+${height}`).toBeLessThan(density * 1.25);
-      const bad: string[] = [];
-      for (const s of slivers) {
-        // The wedges hang off the art's -x side: out of a raised plateau, into a pit.
-        const wedge = [-Math.cos(s.rotation), -Math.sin(s.rotation)];
-        const { x, y } = s.position;
-        // Outward: away from the rectangle 1.5 cells inside the outline, so diagonal at a corner.
-        const [cx, cy] = [Math.max(6.5, Math.min(11.5, x)), Math.max(6.5, Math.min(10.5, y))];
-        const dot = (wedge[0] * (x - cx) + wedge[1] * (y - cy)) / (Math.hypot(x - cx, y - cy) || 1);
-        if ((height > 0 ? dot : -dot) < 0.3) bad.push(`+${height} sliver at ${x.toFixed(2)},${y.toFixed(2)}`);
-      }
-      expect(bad).toEqual([]);
-    }
-  });
-
-  it('hangs no slivers under a drop of less than a cell', () => {
-    expect(sliverDensity(0.5)).toBe(0);
-    expect(sliverDensity(1)).toBe(1);
-    expect(sliverDensity(2)).toBe(1.5);
-    expect(sliverDensity(-3)).toBe(2);
-    expect(sliverDensity(5)).toBe(2);
-  });
-
-  it('draws a pit with its ledge line and slivers only', () => {
+  it('draws a pit with its ledge line only', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), new Container(), parent);
     const rock = partOf(parent, 'plateau-cliff');
     expect(rock.length).toBeGreaterThan(3);
-    expect(spritesIn(parent)).toBe(rock.length + partOf(parent, 'plateau-cliff-slivers').length);
+    expect(spritesIn(parent)).toBe(rock.length);
   });
 });
 
