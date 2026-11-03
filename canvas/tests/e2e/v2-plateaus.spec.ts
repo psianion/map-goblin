@@ -9,7 +9,9 @@ import { installStubs } from './publishStubs'
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
  * tower-test): plan §0 scenarios 2, 3, 4, the editor half of 5 (bridge landings) and 7 (the
  * river's waterfall), the hill's card readouts, and both maps and the goblin warren opening,
- * exporting a PNG and publishing.
+ * exporting a PNG and publishing. Every map's plateaus are taken off it on open and drawn
+ * again with the Plateau tool (`openMap`). Then the tool itself, its card, its ring editing,
+ * and how a plateau draws over terrain paint and a road.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -59,7 +61,53 @@ const bandLabels = (page: Page, height: number) =>
     return out
   }, height)
 
-async function openMap(page: Page, doc: Any): Promise<string[]> {
+/** The fields of a plateau the tool's dock does not set: the card's, written after. */
+const CARD_FIELDS = ['name', 'edgeArt', 'slopeWidth', 'contourLines', 'sightOverride', 'crossingId'] as const
+
+/**
+ * Draws `plateau` with the Plateau tool on its own layer, as a hand would: its level and layer
+ * active, its height and edge in the dock, E, a click on each corner and one on the first to
+ * close. The card's fields follow, and its openings are pointed at the new plateau. Resolves
+ * to the new plateau's id.
+ */
+async function drawWithTool(page: Page, plateau: Any, layer: { id: string; levelId?: string }): Promise<string> {
+  await page.evaluate(({ layer, plateau }) => {
+    const st = (window as Any).__store.getState()
+    if (layer.levelId) st.setActiveLevelId(layer.levelId)
+    st.setActiveLayerId(layer.id)
+    st.updateToolSettings({ plateau: { height: plateau.height, edge: plateau.edge } })
+    st.setSelectedIds([])
+  }, { layer, plateau })
+  await page.keyboard.press('Control+0')
+  await waitFrame(page, 4)
+  await blur(page)
+  await page.keyboard.press('e')
+  const count = () => inPage<number>(page, `(s) => s().layers.flatMap((l) => l.children ?? []).filter((c) => c.childType === 'plateau').length`)
+  const before = await count()
+  const ring: [number, number][] = plateau.contours[0]
+  for (const [x, y] of [...ring, ring[0]]) {
+    const at = await screenOf(page, { x, y })
+    await page.mouse.click(at.x, at.y)
+    await page.waitForTimeout(350)
+  }
+  await expect.poll(count).toBe(before + 1)
+  return page.evaluate(({ old, layerId, plateau, fields }) => {
+    const st = (window as Any).__store.getState()
+    const made = st.selection.selectedIds[0]
+    const patch: Any = {}
+    for (const k of fields) if (plateau[k] !== undefined) patch[k] = plateau[k]
+    st.updateChild(layerId, made, patch)
+    const l = st.layers.find((x: Any) => x.id === layerId)
+    for (const c of l.children) if (c.childType === 'opening' && c.hostId === old) st.updateChild(layerId, c.id, { hostId: made })
+    return made
+  }, { old: plateau.id, layerId: layer.id, plateau, fields: CARD_FIELDS })
+}
+
+/**
+ * Opens `doc` with its plateaus taken off, then draws every one of them again with the tool.
+ * `ids` maps each plateau's id in the file to the one the tool gave it.
+ */
+async function openMap(page: Page, doc: Any): Promise<{ errors: string[]; ids: Record<string, string> }> {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/v2?e2e=1')
@@ -67,21 +115,33 @@ async function openMap(page: Page, doc: Any): Promise<string[]> {
   await page.getByTestId('v2-new-map-card').click()
   await page.getByTestId('v2-new-map-submit').click()
   await expect(page.getByTestId('v2-editor')).toBeVisible()
+  const bare = structuredClone(doc)
+  const drawn: { plateau: Any; layer: { id: string; levelId?: string } }[] = []
+  for (const l of bare.layers) {
+    if (l.type !== 'dungeon') continue
+    for (const c of l.children) if (c.childType === 'plateau') drawn.push({ plateau: c, layer: { id: l.id, levelId: l.levelId } })
+    l.children = l.children.filter((c: Any) => c.childType !== 'plateau')
+  }
   await page.evaluate(async (data) => {
     const st = (window as Any).__store.getState()
     st.loadFromFile(structuredClone(data))
     st.setRoomsSheetOpen?.(false)
     st.setSelectedIds([])
     await st.saveCurrentMap()
-  }, doc)
+  }, bare)
+  const ids: Record<string, string> = {}
+  for (const { plateau, layer } of drawn) ids[plateau.id] = await drawWithTool(page, plateau, layer)
   await page.evaluate(() => {
     const st = (window as Any).__store.getState()
     const l = st.layers.find((x: Any) => x.type === 'dungeon' && x.children.some((c: Any) => c.childType === 'shape'))
+    if (l.levelId) st.setActiveLevelId(l.levelId)
     st.setActiveLayerId(l.id)
+    st.setActiveTool('select')
+    st.setSelectedIds([])
   })
   await page.keyboard.press('Control+0')
   await waitFrame(page, 6)
-  return errors
+  return { errors, ids }
 }
 
 /** The canvas luminance at world `p`: the median of three reads a frame apart. */
@@ -129,7 +189,7 @@ async function select(page: Page, id: string): Promise<void> {
 
 test.describe('plateau-test in the editor', () => {
   test('opens with every named object and draws every band without an error', async ({ page }) => {
-    const errors = await openMap(page, PLATEAU)
+    const { errors } = await openMap(page, PLATEAU)
     for (const id of ['ground', 'outcrop', 'outcrop-stairs', 'hill', 'summit', 'pit', 'far-mesa', 'cobble-road', 'dirt-road', 'river', 'plank-bridge', 'torch-top', 'torch-ground']) {
       expect(await child(page, id), id).toBeTruthy()
     }
@@ -156,23 +216,23 @@ test.describe('plateau-test in the editor', () => {
   })
 
   test('scenario 3: the hill reads 1 and the summit 3, with contours on the slope and a 2-cell drop', async ({ page }) => {
-    await openMap(page, PLATEAU)
+    const { ids } = await openMap(page, PLATEAU)
     const hill = await bandLabels(page, 1)
     expect(hill.some((l) => l.label === 'plateau-slope')).toBe(true)
     expect(hill.some((l) => l.label === 'plateau-contours')).toBe(true)
     expect((await bandLabels(page, 3)).some((l) => l.label === 'plateau-cliff')).toBe(true)
 
-    await select(page, 'hill-plateau')
+    await select(page, ids['hill-plateau'])
     await expect(page.getByTestId('v2-plateau-height')).toContainText('+1')
     await expect(page.getByTestId('v2-plateau-standing')).toHaveText('+1 · drop 1')
-    await select(page, 'summit-plateau')
+    await select(page, ids['summit-plateau'])
     await expect(page.getByTestId('v2-plateau-height')).toContainText('+2')
     await expect(page.getByTestId('v2-plateau-standing')).toHaveText('+3 · drop 2')
     await expect(page.getByRole('button', { name: 'Auto (hides)' })).toBeVisible()
   })
 
   test('scenario 4: the stairs part the rock, and the Opening tool places more in one undo step', async ({ page }) => {
-    await openMap(page, PLATEAU)
+    const { ids } = await openMap(page, PLATEAU)
     const outcrop = await bandLabels(page, 2)
     expect(outcrop.some((l) => l.label === 'opening-outcrop-stairs')).toBe(true)
     // No rock sprite sits over the stairs' gap at (12, 7.5).
@@ -194,7 +254,7 @@ test.describe('plateau-test in the editor', () => {
     await waitFrame(page, 2)
     const openings = () => inPage<Any[]>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'opening')`)
     await expect.poll(async () => (await openings()).length).toBe(2)
-    expect((await openings()).find((o) => o.id !== 'outcrop-stairs').hostId).toBe('far-mesa-plateau')
+    expect((await openings()).find((o) => o.id !== 'outcrop-stairs').hostId).toBe(ids['far-mesa-plateau'])
     await page.keyboard.press('Control+z')
     await expect.poll(async () => (await openings()).length).toBe(1)
   })
@@ -497,7 +557,7 @@ test.describe('how a plateau draws', () => {
 test.describe('the test maps export and publish', () => {
   for (const [name, doc] of [['plateau-test', PLATEAU], ['tower-test', TOWER], ['goblin-warren', WARREN]] as const) {
     test(`${name} exports a PNG and publishes`, async ({ page }) => {
-      const errors = await openMap(page, doc)
+      const { errors } = await openMap(page, doc)
       if (name === 'tower-test') {
         expect(await page.evaluate(() => (window as Any).__store.getState().levels.map((l: Any) => l.name))).toEqual([
           'Cellar',
