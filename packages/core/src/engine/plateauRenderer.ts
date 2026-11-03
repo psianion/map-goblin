@@ -486,7 +486,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
 
   const art = cliffArt(run.owner?.edgeArt);
   for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
-  const pieces = cliffPieces(art);
+  const pieces = cliffPieces(art, run.owner?.edgeArt);
   const sprites: CliffSprite[] = [];
 
   // The whole run, straights and corners alike, is walked with the measured ledge pieces:
@@ -496,7 +496,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
   const walked = drawnPlacements(placed, art);
   const runs = ledgeRuns(walked, run.closed);
-  const ends = ledgeEndPieces(art);
+  const ends = ledgeEndPieces(art, run.owner?.edgeArt);
   const drawn = [...walked, ...drawnPlacements(runs.filter((r) => r.open).flatMap((r) => runEnds(r.run, ends)), art)];
   placeBand(rock, drawn, art, 0xffffff, 0);
   drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));

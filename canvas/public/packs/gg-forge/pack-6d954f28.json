@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.16.2",
+  "version": "1.16.3",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2183,6 +2183,158 @@
       ],
       "family": "pit_collapsed"
     },
+    "rockledge_1x2_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_1x4_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_1x6_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_bend_45_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_45",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend"
+    },
+    "rockledge_bend_90_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend"
+    },
+    "rockledge_bend_n45_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_n45",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend_n45"
+    },
+    "rockledge_bend_n90_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_n90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend_n90"
+    },
+    "rockledge_end_1x1_object_A": {
+      "type": "object",
+      "material": "rockledge_end",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_end"
+    },
     "rubble_2x2_object_A": {
       "type": "object",
       "material": "rubble",
@@ -2368,63 +2520,6 @@
         "debris"
       ],
       "family": "rubble_small"
-    },
-    "sliver_2_1x1_object_A": {
-      "type": "object",
-      "material": "sliver_2",
-      "gridSize": "1x1",
-      "pieceType": "object",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "set": "GG_Cave_Ink",
-      "tags": [
-        "structure",
-        "cave"
-      ],
-      "family": "sliver"
-    },
-    "sliver_3_1x1_object_A": {
-      "type": "object",
-      "material": "sliver_3",
-      "gridSize": "1x1",
-      "pieceType": "object",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "set": "GG_Cave_Ink",
-      "tags": [
-        "structure",
-        "cave"
-      ],
-      "family": "sliver"
-    },
-    "sliver_4_1x1_object_A": {
-      "type": "object",
-      "material": "sliver_4",
-      "gridSize": "1x1",
-      "pieceType": "object",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "set": "GG_Cave_Ink",
-      "tags": [
-        "structure",
-        "cave"
-      ],
-      "family": "sliver"
     },
     "stairs_stone_long_2x4_object_A": {
       "type": "object",
@@ -2781,6 +2876,38 @@
       "checksum": "sha256:fe71e7ce9272ae2c0f9895fd0295d1656df2e24227af69149953f3ebd553fb0d",
       "size": 115226
     },
+    "rockledge_1x2_A-1eedd3bb.webp": {
+      "checksum": "sha256:1eedd3bbfc8d002be40aaae4648539a4dd0f71f752aee3ea86a3244266e297f9",
+      "size": 16958
+    },
+    "rockledge_1x4_A-e509301e.webp": {
+      "checksum": "sha256:e509301e2e777f20dd9b9e073a552890ced39370293bead30e3621b38cc81259",
+      "size": 29988
+    },
+    "rockledge_1x6_A-ba67ef5b.webp": {
+      "checksum": "sha256:ba67ef5b326ce275dbf970d537d1f534e7eecdfcb6220a35ba1f00ebc0b5cef2",
+      "size": 40008
+    },
+    "rockledge_bend_45_2x2_A-39d508e9.webp": {
+      "checksum": "sha256:39d508e9a3d5758d2252cc14161eba4fac8bbf77bb3890e91301ed8b26301f61",
+      "size": 11330
+    },
+    "rockledge_bend_90_2x2_A-3d5fb003.webp": {
+      "checksum": "sha256:3d5fb003a692ca4b5092720ea3b84b726947d34b3fa88e4dadbbbdb539a29943",
+      "size": 18244
+    },
+    "rockledge_bend_n45_2x2_A-2c006069.webp": {
+      "checksum": "sha256:2c00606949a348688eac0e82f421bf7bd87d97c87b004d5165f1c3c87c9f69c5",
+      "size": 9340
+    },
+    "rockledge_bend_n90_2x2_A-9f5b3a27.webp": {
+      "checksum": "sha256:9f5b3a27df632bbaf619feb7cd815c801b1433f7faea8c2657ef160752eff6b7",
+      "size": 16696
+    },
+    "rockledge_end_1x1_A-a979d3b2.webp": {
+      "checksum": "sha256:a979d3b270c42afa9d005f1d243d8cca588ab7878a730588992aeb3e7b57c44e",
+      "size": 8842
+    },
     "rubble_2x2_A-e9569b1c.webp": {
       "checksum": "sha256:e9569b1cc0f2ace083a67cc980650c8cb186152cf1c294eacc6d64a46d5ca6c6",
       "size": 13872
@@ -2813,18 +2940,6 @@
       "checksum": "sha256:d0d01e5207ad87c029ad2e705bb881ff278c625f2afc9d8a046b3951537ad1c0",
       "size": 19446
     },
-    "sliver_2_1x1_A-6e80f0a3.webp": {
-      "checksum": "sha256:6e80f0a377fd3349ccd620617556b0d3393736799a58d494a474bf079ddeb251",
-      "size": 810
-    },
-    "sliver_3_1x1_A-9c4de0e0.webp": {
-      "checksum": "sha256:9c4de0e0b9e1acb26bad1e695809661e979155dfcee56981e0bc58cc7fd179d1",
-      "size": 1020
-    },
-    "sliver_4_1x1_A-a4750dc2.webp": {
-      "checksum": "sha256:a4750dc26298729f3de63ec9b3352b8db909d6b37bb484a19fa48216313560a4",
-      "size": 1384
-    },
     "stairs_stone_long_2x4_A-521ef446.webp": {
       "checksum": "sha256:521ef446cf15d505955844e499953347749c53064a5778ad9e100aa7faba19e9",
       "size": 87258
@@ -2850,5 +2965,5 @@
       "size": 58820
     }
   },
-  "bundleSize": 1857754
+  "bundleSize": 2005946
 }

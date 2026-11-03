@@ -122,20 +122,26 @@ export function reversePiece(p: CaveKitPiece): CaveKitPiece {
 }
 
 /**
- * The cliff kit: the ledge straights (mirrors included) and the ledge bends, each bend also
- * reversed. All drawn by the forge, which writes their joints from its own geometry. The run
- * ends (`ledge_end_*`) are not in it: they are laid only at an open run's tips.
+ * A cliff kit: one ledge family's straights (mirrors included) and bends. `family` is the key
+ * prefix: `ledge` (the cave ink line) or `rockledge` (the cave rock row). A family that ships
+ * bends of one hand only (the ink line, which paints no side) has each also reversed; one that
+ * ships both hands (the rock row, which has a void side) is laid as measured. All drawn by the
+ * forge, which writes their joints from its own geometry. The run ends (`<family>_end_*`) are
+ * not in it: they are laid only at an open run's tips.
  */
-let ledgePool: CaveKitPiece[] | null = null;
-export function ledgePieces(): CaveKitPiece[] {
-  if (!ledgePool) {
+const ledgePools = new Map<string, CaveKitPiece[]>();
+export function ledgePieces(family = 'ledge'): CaveKitPiece[] {
+  let pool = ledgePools.get(family);
+  if (!pool) {
     const straights = [...BY_KEY.values()].filter(
-      (p) => p.key.startsWith('ledge_') && !p.key.startsWith('ledge_end_') && p.turnDeg === 0,
+      (p) => p.key.startsWith(`${family}_`) && !p.key.startsWith(`${family}_end_`) && p.turnDeg === 0,
     );
-    const bends = [...BY_KEY.values()].filter((p) => p.key.startsWith('ledge_bend_'));
-    ledgePool = [...straights, ...straights.map(mirrorPiece), ...bends, ...bends.map(reversePiece)];
+    const bends = [...BY_KEY.values()].filter((p) => p.key.startsWith(`${family}_bend_`));
+    const bothHands = bends.some((p) => p.turnDeg > 0) && bends.some((p) => p.turnDeg < 0);
+    pool = [...straights, ...straights.map(mirrorPiece), ...bends, ...(bothHands ? [] : bends.map(reversePiece))];
+    ledgePools.set(family, pool);
   }
-  return ledgePool;
+  return pool;
 }
 
 /** Every measured piece whose key starts with `prefix` (`ledge_end_`, `sliver_`, `contour`). */

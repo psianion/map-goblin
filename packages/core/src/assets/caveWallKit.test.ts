@@ -22,6 +22,12 @@ describe('caveWallKit measurements', () => {
         expect(p.turnDeg, p.key).toBeGreaterThan(0);
         continue;
       }
+      // The rock row ships both hands, named by their turn: rockledge_bend_n90 turns -90.
+      if (p.key.startsWith('rockledge_bend_')) {
+        const turn = Number(/^rockledge_bend_(n?)(\d+)_/.exec(p.key)!.slice(1).join('').replace('n', '-'));
+        expect(`${p.key}:${p.turnDeg}`).toBe(`${p.key}:${turn}`);
+        continue;
+      }
       const want = p.key.startsWith('inside_bend')
         ? 90
         : p.key.startsWith('outside_bend')

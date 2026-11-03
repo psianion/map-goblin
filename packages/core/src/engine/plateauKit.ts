@@ -1,45 +1,60 @@
-// Which art a cliff is laid with. A cliff walks the cave ink LEDGE family, not the rock band:
-// straights, bends at 15° steps and two run ends, all shipped in a band set (gg-forge's
-// GG_Cave_Ink). Joined by `material` + `gridSize`, the kit's key, like the rock band.
+// Which art a cliff is laid with: one of two ledge families of a band set (gg-forge's
+// GG_Cave_Ink), walked like the rock band. "Cave rock" is the stone row (`rockledge_*`), laid
+// with the rock band's laps; "Cave ink line" is the thin ink ledge (`ledge_*`), laid on the edge
+// itself. Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
-import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, type CatalogEntry } from '../assets/packCatalog';
 import { kitPieces, ledgePieces, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
 
-/** The band set a cliff takes when its floor names none. */
+/** The band set a cliff takes when its plateau names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
+/** The ledge family a cliff takes when its plateau names none: the cave rock row. */
+export const DEFAULT_CLIFF_FAMILY = 'rockledge';
 
-/** Band sets that carry ledge straights: what the card's Cliff art picker offers. */
-export function cliffArtSetIds(): string[] {
-  return getBandSetIds().filter((id) => getEntriesForSet(id).some((e) => e.material === 'ledge'));
+/** What a plateau's `edgeArt` asks for: `<set>:<family>`, a bare set (its rock row), or nothing. */
+export interface CliffChoice {
+  setId: string;
+  family: string;
 }
 
-function getEntriesForSet(setId: string): CatalogEntry[] {
-  return [...bandSetArt(setId).values()];
+/** The set and ledge family `edgeArt` names. Absent, or a bare set id from before the choice, is Cave rock. */
+export function cliffChoice(edgeArt: string | undefined): CliffChoice {
+  const [setId, family] = (edgeArt ?? '').split(':');
+  return { setId: setId || DEFAULT_CLIFF_SET, family: family || DEFAULT_CLIFF_FAMILY };
 }
 
-/** The ledge art for a cliff set, keyed `material_gridSize`. Empty when nothing is installed. */
-export function cliffArt(setId: string | undefined): Map<string, CatalogEntry> {
+/** The two cliff looks the card offers, as `edgeArt` values: Cave rock is the default, stored as nothing. */
+export const CLIFF_ART_CHOICES: readonly { value: string | undefined; label: string }[] = [
+  { value: undefined, label: 'Cave rock' },
+  { value: `${DEFAULT_CLIFF_SET}:ledge`, label: 'Cave ink line' },
+];
+
+/** The ledge art a cliff's `edgeArt` names, keyed `material_gridSize`. Empty when nothing is installed. */
+export function cliffArt(edgeArt: string | undefined): Map<string, CatalogEntry> {
+  const { setId, family } = cliffChoice(edgeArt);
   const art = new Map<string, CatalogEntry>();
-  for (const [key, e] of bandSetArt(setId || DEFAULT_CLIFF_SET)) if (e.material.startsWith('ledge')) art.set(key, e);
+  for (const [key, e] of bandSetArt(setId)) {
+    if (e.material === family || e.material.startsWith(`${family}_`)) art.set(key, e);
+  }
   return art;
 }
 
-/** The kit pieces a cliff can lay with `art`: only those with a picture to show. */
-export function cliffPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
-  const pieces = ledgePieces().filter((p) => art.has(p.key));
+/** The kit pieces a cliff can lay with `art`: its family's, only those with a picture to show. */
+export function cliffPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {
+  const pieces = ledgePieces(cliffChoice(edgeArt).family).filter((p) => art.has(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
 }
 
-/** The pieces that end an open ledge run, with art in `art`: a tapering tail and a knot. */
-export function ledgeEndPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
-  return kitPieces('ledge_end_').filter((p) => art.has(p.key));
+/** The pieces that end an open ledge run of the family `edgeArt` names, with art in `art`. */
+export function ledgeEndPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {
+  return kitPieces(`${cliffChoice(edgeArt).family}_end_`).filter((p) => art.has(p.key));
 }
 
 /** The contour art of a set: the ledge line at half weight, broken, ticked on its low side. */
-export function contourArt(setId: string | undefined): Map<string, CatalogEntry> {
+export function contourArt(edgeArt: string | undefined): Map<string, CatalogEntry> {
   const art = new Map<string, CatalogEntry>();
-  for (const [key, e] of bandSetArt(setId || DEFAULT_CLIFF_SET)) if (e.material.startsWith('contour')) art.set(key, e);
+  for (const [key, e] of bandSetArt(cliffChoice(edgeArt).setId)) if (e.material.startsWith('contour')) art.set(key, e);
   return art;
 }
 

@@ -51,7 +51,25 @@ try {
     if (/^rubble(_|$)/.test(p.material) && !p.tags.includes('prop')) p.tags = [...p.tags, 'prop', 'rubble'];
   }
   writeFileSync(join(set, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  cli('integrate', '-b', base, '-s', set, '--pack-version', VERSION, '-o', out);
+  // `integrate` only adds and replaces, so a piece the forge dropped from the set would stay in
+  // the pack: integrate onto a copy of the pack without the set's pieces the build no longer has.
+  const kept = new Set(manifest.pieces.map((p) => `${p.material}_${p.gridSize}_${p.variant}`));
+  const pruned = join(work, 'base');
+  mkdirSync(pruned);
+  const baseFile = readdirSync(base).find((f) => /^pack-[0-9a-f]+\.json$/.test(f));
+  const pack = JSON.parse(readFileSync(join(base, baseFile), 'utf8'));
+  const gone = new Set();
+  for (const [key, e] of Object.entries(pack.entries)) {
+    const id = `${e.material}_${e.gridSize}_${e.variant}`;
+    if (e.set !== 'GG_Cave_Ink' || kept.has(id)) continue;
+    delete pack.entries[key];
+    for (const f of Object.keys(pack.files)) if (f.startsWith(`${id}-`)) gone.add(f);
+  }
+  for (const f of gone) delete pack.files[f];
+  for (const f of readdirSync(base)) if (f !== baseFile && !gone.has(f)) copyFileSync(join(base, f), join(pruned, f));
+  writeFileSync(join(pruned, baseFile), JSON.stringify(pack, null, 2));
+  if (gone.size > 0) console.log(`dropped from the pack: ${[...gone].join(', ')}`);
+  cli('integrate', '-b', pruned, '-s', set, '--pack-version', VERSION, '-o', out);
   // Swap the rebuilt pack in, then rebuild the index the app reads at first boot.
   rmSync(base, { recursive: true, force: true });
   mkdirSync(base);
@@ -62,5 +80,10 @@ try {
 }
 
 const ASSETS = join(ROOT, 'packages', 'core', 'src', 'assets');
-copyFileSync(KIT, join(ASSETS, 'caveWallKit.json'));
+// Only the kit entries the set ships art for: a measurement with no picture is a piece the forge dropped.
+const shipped = new Set(
+  JSON.parse(readFileSync(join(SET, 'manifest.json'), 'utf8')).pieces.map((p) => `${p.material}_${p.gridSize}`),
+);
+const kit = JSON.parse(readFileSync(KIT, 'utf8')).filter((p) => shipped.has(p.key));
+writeFileSync(join(ASSETS, 'caveWallKit.json'), JSON.stringify(kit, null, 2) + '\n');
 console.log(`${PACK} ${VERSION}: GG_Cave_Ink integrated, caveWallKit.json copied`);

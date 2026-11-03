@@ -5,7 +5,7 @@ import { undoManager } from '@/store/undoManager';
 import type { Command, DungeonLayer, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { absoluteHeight, defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
-import { cliffArtSetIds } from '@dnd/core/src/engine/plateauKit';
+import { CLIFF_ART_CHOICES, cliffChoice, DEFAULT_CLIFF_FAMILY } from '@dnd/core/src/engine/plateauKit';
 import { plateauSettings } from '@dnd/core/src/engine/tools/PlateauTool';
 import { Ctl, Seg, Select, Switch } from './controls';
 
@@ -82,7 +82,6 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
   const standing = absoluteHeight(layer, head.id);
   const hides = edgeHides(head, edge, drop, threshold);
   const sight: SightChoice = head.sightOverride ?? 'auto';
-  const artIds = cliffArtSetIds();
   const crossingDefault = kinds.find((k) => k.id === defaultCrossingId(edge));
 
   return (
@@ -113,11 +112,8 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
         <div className="v2-sel__row">
           <Select
             label="Cliff art"
-            value={head.edgeArt ?? DEFAULT_ART}
-            options={[
-              { value: DEFAULT_ART, label: 'Cave ink ledge' },
-              ...artIds.map((id) => ({ value: id, label: id.replace(/_/g, ' ') })),
-            ]}
+            value={cliffChoice(head.edgeArt).family === DEFAULT_CLIFF_FAMILY ? DEFAULT_ART : (head.edgeArt ?? DEFAULT_ART)}
+            options={CLIFF_ART_CHOICES.map((c) => ({ value: c.value ?? DEFAULT_ART, label: c.label }))}
             onChange={(v) => apply('Cliff art', ids, { edgeArt: v === DEFAULT_ART ? undefined : v })}
           />
         </div>

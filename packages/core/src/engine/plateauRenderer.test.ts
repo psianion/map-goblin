@@ -22,6 +22,13 @@ const manager = {
           wall_short_2x2_A: object('wall_short', '2x2', 'GG_Cave_Ink'),
           inside_bend_2x2_A: object('inside_bend', '2x2', 'GG_Cave_Ink'),
           outside_bend_2x2_A: object('outside_bend', '2x2', 'GG_Cave_Ink'),
+          rockledge_1x2_A: object('rockledge', '1x2', 'GG_Cave_Ink'),
+          rockledge_1x4_A: object('rockledge', '1x4', 'GG_Cave_Ink'),
+          rockledge_bend_90_2x2_A: object('rockledge_bend_90', '2x2', 'GG_Cave_Ink'),
+          rockledge_bend_n90_2x2_A: object('rockledge_bend_n90', '2x2', 'GG_Cave_Ink'),
+          rockledge_bend_45_2x2_A: object('rockledge_bend_45', '2x2', 'GG_Cave_Ink'),
+          rockledge_bend_n45_2x2_A: object('rockledge_bend_n45', '2x2', 'GG_Cave_Ink'),
+          rockledge_end_1x1_A: object('rockledge_end', '1x1', 'GG_Cave_Ink'),
           ledge_1x2_A: object('ledge', '1x2', 'GG_Cave_Ink'),
           ledge_1x4_A: object('ledge', '1x4', 'GG_Cave_Ink'),
           ledge_bend_45_1x1_A: object('ledge_bend_45', '1x1', 'GG_Cave_Ink'),
@@ -55,7 +62,7 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { kitOut, resampleClosed, walkClosed } from './caveWalk';
-import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
+import { CLIFF_ART_CHOICES, cliffArt, cliffChoice, cliffPieces } from './plateauKit';
 import {
   defaultStairsArt,
   drawOpening,
@@ -135,11 +142,39 @@ function labels(c: Container, out: string[] = []): string[] {
 }
 
 describe('the cliff kit', () => {
-  it('offers the band sets that carry ledges, and lays their straights with their own bends', () => {
-    expect(cliffArtSetIds()).toEqual(['GG_Cave_Ink']);
+  it('offers Cave rock (the default, stored as nothing) and Cave ink line', () => {
+    expect(CLIFF_ART_CHOICES.map((c) => [c.value, c.label])).toEqual([
+      [undefined, 'Cave rock'],
+      ['GG_Cave_Ink:ledge', 'Cave ink line'],
+    ]);
+    // A bare set id from before the choice is that set's rock row.
+    expect(cliffChoice(undefined)).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
+    expect(cliffChoice('GG_Cave_Ink')).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
+    expect(cliffChoice('GG_Cave_Ink:ledge')).toEqual({ setId: 'GG_Cave_Ink', family: 'ledge' });
+  });
+
+  it('lays Cave rock with its bends of both hands as drawn, never reversed', () => {
     const kit = cliffArt(undefined);
-    expect([...kit.keys()].sort()).toEqual(['ledge_1x2', 'ledge_1x4', 'ledge_bend_45_1x1', 'ledge_bend_90_2x2', 'ledge_end_tail_1x1']);
+    expect([...kit.keys()].sort()).toEqual([
+      'rockledge_1x2',
+      'rockledge_1x4',
+      'rockledge_bend_45_2x2',
+      'rockledge_bend_90_2x2',
+      'rockledge_bend_n45_2x2',
+      'rockledge_bend_n90_2x2',
+      'rockledge_end_1x1',
+    ]);
     const pieces = cliffPieces(kit);
+    expect(pieces.every((p) => p.key.startsWith('rockledge_') && !p.key.startsWith('rockledge_end_'))).toBe(true);
+    // Each bend once, at its own measured turn: n90 turns -90, 90 turns +90.
+    const bends = pieces.filter((p) => p.turnDeg !== 0).map((p) => `${p.key}:${p.turnDeg}`).sort();
+    expect(bends).toEqual(['rockledge_bend_45_2x2:45', 'rockledge_bend_90_2x2:90', 'rockledge_bend_n45_2x2:-45', 'rockledge_bend_n90_2x2:-90']);
+  });
+
+  it('lays Cave ink line with its own straights and bends, each bend also reversed', () => {
+    const kit = cliffArt('GG_Cave_Ink:ledge');
+    expect([...kit.keys()].sort()).toEqual(['ledge_1x2', 'ledge_1x4', 'ledge_bend_45_1x1', 'ledge_bend_90_2x2', 'ledge_end_tail_1x1']);
+    const pieces = cliffPieces(kit, 'GG_Cave_Ink:ledge');
     expect(pieces.some((p) => p.turnDeg > 0)).toBe(true);
     expect(pieces.some((p) => p.turnDeg < 0)).toBe(true);
   });
