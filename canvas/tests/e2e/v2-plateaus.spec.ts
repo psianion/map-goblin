@@ -144,6 +144,31 @@ async function openMap(page: Page, doc: Any): Promise<{ errors: string[]; ids: R
   return { errors, ids }
 }
 
+/** Every fall the paths draw: its box's centre, size (cells, across and down) and the way it falls. */
+const falls = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+    const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
+    return pools
+      .flatMap((p: Any) => p.children.filter((k: Any) => k.label === 'water-fall'))
+      .map((g: Any) => {
+        const b = g.getLocalBounds()
+        // The box's own +y runs down the fall.
+        const a = g.rotation + Math.PI / 2
+        return { x: g.position.x, y: g.position.y, width: b.maxX - b.minX, length: b.maxY - b.minY, dx: Math.cos(a), dy: Math.sin(a) }
+      })
+  })
+
+/** The bank's straights: laid by the cave walk, they keep Pixi's own label; the units carry their names. */
+const bankPieces = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as Any
+    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
+    const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
+    return pools.flatMap((p: Any) => p.children.filter((k: Any) => k.anchor && (!k.label || k.label === 'Sprite'))).length
+  })
+
 /** The canvas luminance at world `p`: the median of three reads a frame apart. */
 async function lum(page: Page, p: Pt): Promise<number> {
   const at = await screenOf(page, p)
@@ -301,29 +326,47 @@ test.describe('plateau-test in the editor', () => {
 
   test('scenario 7: the river shows a waterfall where it runs off the outcrop’s west cliff', async ({ page }) => {
     // "Draw a river with banks; where it crosses a cliff downhill a waterfall shows." The
-    // river leaves the +2 outcrop over its west edge (x = 4) near y = 6.8: the plateau code
-    // finds that crossing and the water kit's fall pieces hang from it, west of the lip.
+    // river (1.5 cells wide) leaves the +2 outcrop over its west edge (x = 4) near y = 6.8:
+    // the plateau code finds that crossing and one fall hangs from it, west of the lip, as
+    // wide as the river and two cells down.
     await openMap(page, PLATEAU)
-    const water = () =>
-      page.evaluate(() => {
-        const w = window as Any
-        const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
-        const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
-        const sprites = pools.flatMap((p: Any) => p.children.filter((k: Any) => k.anchor))
-        return {
-          falls: sprites.filter((s: Any) => s.label === 'water-fall').map((s: Any) => ({ x: s.position.x, y: s.position.y })),
-          // The bank's straights are laid by the cave walk and keep Pixi's own label; the units carry their names.
-          bank: sprites.filter((s: Any) => !s.label || s.label === 'Sprite').length,
-        }
+    await expect.poll(async () => (await falls(page)).length).toBe(1)
+    await expect.poll(async () => (await bankPieces(page)), 'bank pieces along both banks').toBeGreaterThan(10)
+    const [f] = await falls(page)
+    expect(Math.abs(f.width - 1.5), 'width').toBeLessThan(0.1)
+    expect(Math.abs(f.length - 2), 'length').toBeLessThan(0.1)
+    expect(f.dx, 'falling west').toBeLessThan(-0.9)
+    expect(f.x, 'the fall hangs west of the lip').toBeCloseTo(3, 0)
+    expect(Math.abs(f.y - 6.8), 'at the crossing').toBeLessThan(1)
+  })
+
+  test('a lake on a +1 top spills one fall over the shore it shares with the cliff, and the ground past it is untouched', async ({ page }) => {
+    await openField(page)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(4, 4, 12, 10))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    await waitFrame(page, 6)
+    // 1.5 cells down the west cliff, in the lee of nothing.
+    const probe = { x: 2.5, y: 6.25 }
+    const before = await lum(page, probe)
+    await page.evaluate(() => {
+      const st = (window as Any).__store.getState()
+      const corner = (x: number, y: number) => ({ x, y, handles: null })
+      st.addChild(st.ui.activeLayerId, {
+        id: 'pond', name: 'Pond', childType: 'path', visible: true, closed: true, fill: true, width: 0.4, heightMode: 'ground',
+        points: [corner(4, 5), corner(7, 5), corner(7, 7.5), corner(4, 7.5)], materialId: 'gg-forge:water', tint: '#ffffff',
+        opacity: 1, offset: 0, flip: false, edge: 'soft', ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
       })
-    await expect.poll(async () => (await water()).falls.length).toBeGreaterThan(0)
-    await expect.poll(async () => (await water()).bank, 'bank pieces along both banks').toBeGreaterThan(10)
-    const { falls } = await water()
-    for (const f of falls) {
-      expect(f.x, 'the fall hangs west of the lip').toBeLessThan(4)
-      expect(f.x).toBeGreaterThan(1.5)
-      expect(Math.abs(f.y - 6.8), 'at the crossing').toBeLessThan(1.5)
-    }
+    })
+    await expect.poll(async () => (await falls(page)).length).toBe(1)
+    const [f] = await falls(page)
+    expect(Math.abs(f.width - 2.5), 'width').toBeLessThan(0.1)
+    expect(Math.abs(f.length - 1), 'length').toBeLessThan(0.1)
+    expect(Math.abs(f.x - 3.5), 'x').toBeLessThan(0.1)
+    expect(Math.abs(f.y - 6.25), 'y').toBeLessThan(0.1)
+    await waitFrame(page, 6)
+    expect(Math.abs((await lum(page, probe)) - before), 'the ground 1.5 cells down is as it was').toBeLessThan(3)
   })
 })
 

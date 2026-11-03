@@ -689,7 +689,8 @@ export function cliffSpansNear(layer: Pick<DungeonLayer, 'children'>, outline: P
   const out: FallSpan[] = [];
   for (const e of fallEdges(layer)) {
     const len = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
-    const n = Math.max(1, Math.ceil(len / SPILL_STEP));
+    // Less a hair, so an edge a float off a whole number of steps keeps its samples on the step.
+    const n = Math.max(1, Math.ceil(len / SPILL_STEP - 1e-3));
     const at = (k: number): Vec => [e.a[0] + ((e.b[0] - e.a[0]) * k) / n, e.a[1] + ((e.b[1] - e.a[1]) * k) / n];
     let from = -1;
     for (let k = 0; k <= n + 1; k++) {

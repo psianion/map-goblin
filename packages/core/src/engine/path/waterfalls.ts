@@ -1,103 +1,60 @@
-// Waterfalls: where a liquid path meets a drop, its kit's `fall` piece hangs over the edge.
-// Which spans of a path cross a cliff is the plateau code's to say (it knows the rings and
-// their heights, and installs itself with `setCliffCrossings`); this turns those spans into
-// placements, and each placement into square fall pieces of one size.
+// Waterfalls: where a liquid path leaves a drop, a fall hangs over the edge. Which stretches
+// of edge a path's water leaves by is the plateau code's to say (it knows the rings and their
+// heights, and installs itself with `setCliffCrossings`); this turns each stretch into the box
+// its fall fills, and draws the fall in code until the ink kit ships one.
 
+import type { Graphics } from 'pixi.js';
 import type { DungeonLayer } from '../../store/types';
 import type { PathChild } from '../../shared/types';
-import { pathCentreline } from '../../geometry/pathGeometry';
-import type { Centreline } from '../../geometry/ribbon';
+
+type Vec = [number, number];
 
 /**
- * A stretch of a path's centreline that crosses a cliff, by arc length (cells). A river
- * crossing a ring is a point (`start === end`); a lake whose shore runs along a cliff is a
- * span. `down` says which way the drop falls: for a point, +1 = in the path's direction of
- * travel; for a span, +1 = out of the closed path (to its outside). `drop` is the height
- * fallen, cells.
+ * A stretch of raised edge a path's water leaves by: from `a` to `b` along the edge (a
+ * river's is as wide as the river where it crosses; a lake's is the run of shore along the
+ * cliff), `downhill` the unit direction it falls, `drop` the cells fallen.
  */
 export interface CliffCrossing {
-  start: number;
-  end: number;
-  down: 1 | -1;
+  a: Vec;
+  b: Vec;
+  downhill: Vec;
   drop: number;
 }
 
-/** One fall sprite: its centre, the direction it falls (radians), and its size in cells. */
+/** One fall: the centre of its box, the direction it falls (radians), and its size in cells. */
 export interface FallPlacement {
   x: number;
   y: number;
-  /** Direction of the fall, radians: the sprite's top (the lip) faces the other way. */
+  /** Direction of the fall, radians: the box's lip faces the other way. */
   angle: number;
-  /** Across the fall. */
+  /** Across the fall: the stretch's length along the edge. */
   width: number;
   /** Down the fall. */
   length: number;
 }
 
-/** The fall art is 2x2: a lake's span is laid with pieces about this wide. */
-const FALL_PIECE = 2;
-
-function sampleAt(line: Centreline, s: number): { x: number; y: number; dx: number; dy: number; width: number } {
-  const { xy, arc, width } = line;
-  let i = 1;
-  while (i < arc.length - 1 && arc[i] < s) i++;
-  const a = xy[i - 1];
-  const b = xy[i];
-  const span = arc[i] - arc[i - 1] || 1;
-  const t = Math.min(1, Math.max(0, (s - arc[i - 1]) / span));
-  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-  return {
-    x: a[0] + (b[0] - a[0]) * t,
-    y: a[1] + (b[1] - a[1]) * t,
-    dx: (b[0] - a[0]) / len,
-    dy: (b[1] - a[1]) / len,
-    width: width[i - 1] + (width[i] - width[i - 1]) * t,
-  };
-}
-
-/** Signed area of the centreline ring: its sign says which side of travel is inside. */
-function signedArea(line: Centreline): number {
-  let s = 0;
-  for (let i = 0; i < line.xy.length - 1; i++) {
-    const [x0, y0] = line.xy[i];
-    const [x1, y1] = line.xy[i + 1];
-    s += x0 * y1 - x1 * y0;
-  }
-  return s / 2;
-}
+/** The longest a fall hangs, cells, however far the water drops. */
+export const MAX_FALL = 3;
 
 /**
- * Where the fall sprites go for `crossings` of `path`. A point crossing gets one sprite as
- * wide as the path there, hanging past the crossing; a span gets pieces about two cells
- * wide laid along it at the outer edge of the shoreline ribbon, falling outward or inward.
+ * The box each crossing's fall fills: hung from the edge stretch, as wide as the stretch is
+ * long, down the drop for min(drop, MAX_FALL) cells. A crossing that drops nothing has none.
  */
-export function waterfallSpans(path: PathChild, crossings: readonly CliffCrossing[]): FallPlacement[] {
-  const line = pathCentreline(path);
-  if (line.xy.length < 2) return [];
+export function waterfallSpans(crossings: readonly CliffCrossing[]): FallPlacement[] {
   const out: FallPlacement[] = [];
-  // Left of travel ((-dy, dx)) is inside a ring of positive signed area.
-  const outward = signedArea(line) > 0 ? -1 : 1;
   for (const c of crossings) {
-    const length = Math.max(1, c.drop);
-    const start = Math.max(0, Math.min(c.start, c.end));
-    const end = Math.min(line.length, Math.max(c.start, c.end));
-    if (end - start < 1e-6) {
-      const p = sampleAt(line, start);
-      const fx = p.dx * c.down;
-      const fy = p.dy * c.down;
-      out.push({ x: p.x + (fx * length) / 2, y: p.y + (fy * length) / 2, angle: Math.atan2(fy, fx), width: p.width, length });
-      continue;
-    }
-    const pieces = Math.max(1, Math.round((end - start) / FALL_PIECE));
-    const piece = (end - start) / pieces;
-    for (let k = 0; k < pieces; k++) {
-      const p = sampleAt(line, start + piece * (k + 0.5));
-      const side = outward * c.down;
-      const nx = -p.dy * side;
-      const ny = p.dx * side;
-      const reach = p.width / 2 + length / 2;
-      out.push({ x: p.x + nx * reach, y: p.y + ny * reach, angle: Math.atan2(ny, nx), width: piece, length });
-    }
+    const width = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]);
+    if (c.drop <= 0 || width < 1e-6) continue;
+    const length = Math.min(c.drop, MAX_FALL);
+    const mx = (c.a[0] + c.b[0]) / 2;
+    const my = (c.a[1] + c.b[1]) / 2;
+    out.push({
+      x: mx + (c.downhill[0] * length) / 2,
+      y: my + (c.downhill[1] * length) / 2,
+      angle: Math.atan2(c.downhill[1], c.downhill[0]),
+      width,
+      length,
+    });
   }
   return out;
 }
@@ -118,43 +75,36 @@ export function cliffCrossingsOf(layer: Pick<DungeonLayer, 'children'>, path: Pa
   return crossingsOf(layer, path);
 }
 
-/** One square fall piece: its centre, turn (radians) and scale against its `art`-cell tile. */
-export interface FallPiece {
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
+const INK = 0x2b2420;
+/** The pale band of foam at a fall's foot, cells deep. */
+const FOAM = 0.12;
+
+/** `colour` taken `k` of the way to white. */
+function lighten(colour: number, k: number): number {
+  const ch = (shift: number) => {
+    const c = (colour >> shift) & 255;
+    return Math.round(c + (255 - c) * k);
+  };
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 }
 
 /**
- * Square pieces of one size covering each placement: as many across the lip as fit the art's
- * size best, each scaled alike, then rows of them down the drop from the lip, the last row
- * running past the foot rather than leaving it bare. The art's top edge is the lip.
+ * One fall drawn into `g`, in the box's own frame (x across, y down the fall) turned onto the
+ * fall: the strip in the water's `colour` at 70 %, four to six lighter streaks down it, an ink
+ * line down each side, and a thin band of pale foam at its foot.
  */
-export function fallPieces(placements: readonly FallPlacement[], art: number): FallPiece[] {
-  const out: FallPiece[] = [];
-  for (const f of placements) {
-    const across = Math.max(1, Math.round(f.width / art));
-    const size = f.width / across;
-    const rows = Math.max(1, Math.ceil(f.length / size - 1e-6));
-    const dx = Math.cos(f.angle);
-    const dy = Math.sin(f.angle);
-    // Across the fall: the direction's left normal.
-    const ax = -dy;
-    const ay = dx;
-    for (let r = 0; r < rows; r++) {
-      const down = -f.length / 2 + size * (r + 0.5);
-      for (let k = 0; k < across; k++) {
-        const side = -f.width / 2 + size * (k + 0.5);
-        out.push({
-          x: f.x + dx * down + ax * side,
-          y: f.y + dy * down + ay * side,
-          // The art runs top to bottom; turn its +y onto the fall's direction.
-          rotation: f.angle - Math.PI / 2,
-          scale: size / art,
-        });
-      }
-    }
+export function drawFall(g: Graphics, f: FallPlacement, colour: number): void {
+  const w = f.width / 2;
+  const l = f.length / 2;
+  g.position.set(f.x, f.y);
+  g.rotation = f.angle - Math.PI / 2;
+  g.rect(-w, -l, f.width, f.length).fill({ color: colour, alpha: 0.7 });
+  const streaks = Math.max(4, Math.min(6, Math.round(f.width / 0.3)));
+  for (let k = 0; k < streaks; k++) {
+    const x = -w + (f.width * (k + 0.5)) / streaks;
+    g.moveTo(x, -l).lineTo(x, l - FOAM);
   }
-  return out;
+  g.stroke({ color: lighten(colour, 0.5), width: 0.035, alpha: 0.55 });
+  g.rect(-w, l - FOAM, f.width, FOAM).fill({ color: 0xf2f8fa, alpha: 0.75 });
+  g.moveTo(-w, -l).lineTo(-w, l).moveTo(w, -l).lineTo(w, l).stroke({ color: INK, width: 0.04, alpha: 0.8 });
 }

@@ -20,7 +20,7 @@ import * as textureLoader from '../assets/textureLoader';
 import { paintTiled } from './floorWallRenderer';
 import { bankPieces, edgeWalk, layBank, layPlanks, type PlanksKit } from './path/pathKitLayout';
 import { kitEdgeUnits, paintedSize, placePieces, type Piece } from './path/kitUnits';
-import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
+import { cliffCrossingsOf, drawFall, waterfallSpans } from './path/waterfalls';
 import { placeBand, textureTone } from './caveBandRenderer';
 import type { PathChild } from '../shared/types';
 import { DECK_REACH, deckHeightAt } from '../shared/plateaus';
@@ -32,6 +32,8 @@ import { SEE_UNDER_ALPHA } from './subscribeToAssets';
 const MISSING_COLOUR = 0x8a8a8a;
 /** The bank's ground colour when its art cannot be read for one (tests, a worker). */
 const BANK_FALLBACK = 0x6f6a60;
+/** The colour a fall is drawn in while its water's fill art is still on its way. */
+const FALL_FALLBACK = 0x4a86a8;
 /** Overhead paths sit just under the overhead props of their own layer (see subscribeToAssets). */
 const LAYER_Z = 1e5;
 
@@ -180,7 +182,12 @@ function bankOf(
 /** A pooled Graphics at slot `at` of `pool`, cleared: where the pieces drawn in code go. */
 function graphicsAt(pool: Container, at: number): Graphics {
   const slot = pool.children[at];
-  if (slot instanceof Graphics) return slot.clear();
+  if (slot instanceof Graphics) {
+    // A fall turns its Graphics onto the fall; whatever takes the slot next starts square.
+    slot.position.set(0, 0);
+    slot.rotation = 0;
+    return slot.clear();
+  }
   const g = new Graphics();
   pool.addChildAt(g, at);
   return g;
@@ -222,14 +229,16 @@ function drawGroup(parent: Container, layer: DungeonLayer, group: Group, pool: C
       at = placePieces(pool, piecesOf(laid.posts, entries), tint, at);
     }
   }
-  const fall = kit?.manifest.fall ? kitPiece(kit, kit.manifest.fall) : undefined;
-  if (fall && textureNow(fall.id)) {
-    const art = paintedSize(fall).w;
+  // A kit that names a fall falls where its water leaves a drop, drawn in code until the ink
+  // kit's fall art lands: the strip in the colour of the water's fill.
+  if (kit?.manifest.fall) {
+    const colour = (kit.fill && textureTone(kit.fill.id)) ?? FALL_FALLBACK;
     for (const path of group.paths) {
-      const crossings = cliffCrossingsOf(layer, path);
-      if (crossings.length === 0) continue;
-      const pieces = fallPieces(waterfallSpans(path, crossings), art).map((p) => ({ ...p, entry: fall }));
-      at = placePieces(pool, pieces, tint, at);
+      for (const f of waterfallSpans(cliffCrossingsOf(layer, path))) {
+        const g = graphicsAt(pool, at++);
+        g.label = 'water-fall';
+        drawFall(g, f, colour);
+      }
     }
   }
   for (const c of pool.children.slice(at)) c.destroy();

@@ -116,36 +116,20 @@ describe('the fill outline', () => {
 });
 
 describe('waterfallSpans', () => {
-  it('hangs one fall across a river where it crosses a cliff, falling the way given', () => {
-    const river = road({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], width: 2 });
-    const [f] = waterfallSpans(river, [{ start: 4, end: 4, down: 1, drop: 2 }]);
+  it('hangs each fall from its stretch of edge: as wide as the stretch, down the drop, never past 3 cells', () => {
+    const [f] = waterfallSpans([{ a: [4, 6], b: [4, 8], downhill: [1, 0], drop: 2 }]);
     expect(f).toMatchObject({ width: 2, length: 2 });
     expect(f.x).toBeCloseTo(5, 6);
-    expect(f.y).toBeCloseTo(0, 6);
+    expect(f.y).toBeCloseTo(7, 6);
     expect(f.angle).toBeCloseTo(0, 6);
-    const [back] = waterfallSpans(river, [{ start: 4, end: 4, down: -1, drop: 1 }]);
-    expect(back.x).toBeCloseTo(3.5, 6);
-    expect(Math.abs(back.angle)).toBeCloseTo(Math.PI, 6);
+    const [deep] = waterfallSpans([{ a: [0, 0], b: [2.5, 0], downhill: [0, -1], drop: 6 }]);
+    expect(deep).toMatchObject({ width: 2.5, length: 3 });
+    expect(deep.y).toBeCloseTo(-1.5, 6);
+    expect(deep.angle).toBeCloseTo(-Math.PI / 2, 6);
   });
 
-  it('lays pieces along a lake’s shore span, outside the shoreline, falling outward', () => {
-    const lake = road({
-      closed: true,
-      fill: true,
-      width: 1,
-      points: [{ x: 0, y: 0, handles: null }, { x: 8, y: 0, handles: null }, { x: 8, y: 8, handles: null }, { x: 0, y: 8, handles: null }],
-    });
-    const falls = waterfallSpans(lake, [{ start: 0, end: 8, down: 1, drop: 3 }]);
-    expect(falls).toHaveLength(4);
-    for (const f of falls) {
-      expect(f.y).toBeCloseTo(-(0.5 + 1.5), 6); // the top edge is the outside: half the band, then half the fall
-      expect(f.width).toBeCloseTo(2, 6);
-      expect(f.angle).toBeCloseTo(-Math.PI / 2, 6);
-    }
-    expect(falls.map((f) => f.x)).toEqual([1, 3, 5, 7]);
-  });
-
-  it('places nothing without crossings', () => {
-    expect(waterfallSpans(road(), [])).toEqual([]);
+  it('places nothing without crossings, or for a stretch that drops nothing', () => {
+    expect(waterfallSpans([])).toEqual([]);
+    expect(waterfallSpans([{ a: [0, 0], b: [1, 0], downhill: [0, 1], drop: 0 }])).toEqual([]);
   });
 });

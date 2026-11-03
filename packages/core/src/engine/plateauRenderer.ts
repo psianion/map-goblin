@@ -14,7 +14,7 @@ import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
-import { pathCentreline } from '../geometry/pathGeometry';
+import { pathCentreline, pointInPath } from '../geometry/pathGeometry';
 import { setCliffCrossings, type CliffCrossing } from './path/waterfalls';
 import type { Polygon } from '../types/geometry';
 import {
@@ -571,13 +571,16 @@ function arcOn(xy: readonly Vec[], x: number, y: number): { s: number; dir: Vec 
   return { s: best.s, dir: best.dir };
 }
 
+/** How far onto the high side of a stretch of edge water must lie for it to fall there, cells. */
+const FALL_SOURCE = 0.3;
+
 /**
- * Where a water path meets a drop, as arc-length crossings of its centreline (waterfalls.ts
- * `CliffCrossing`). A river, or any open or unfilled path, falls where its centreline crosses a
- * raised edge (`cliffCrossings`), `down` +1 when it was drawn downhill there and -1 when
- * drawn up it, so the fall always hangs off the low side. A raised pool (a closed, filled
- * path) spills over the stretch of cliff its shore runs along (`cliffSpansNear`), `down` +1
- * when the drop falls out of the pool.
+ * Where a water path leaves a drop, as stretches of edge (waterfalls.ts `CliffCrossing`). A
+ * river, or any open or unfilled path, falls where its centreline runs downhill across a raised
+ * edge (`cliffCrossings`), the stretch as wide as the river is there; one drawn up the edge
+ * falls nowhere. A pool (a closed, filled path) spills over the stretch of cliff its shore runs
+ * along (`cliffSpansNear`) only when its water lies on the high side, within FALL_SOURCE of
+ * the edge, and the drop falls away out of it: a pool at a cliff's foot falls nowhere.
  */
 export function plateauCliffCrossings(layer: Pick<DungeonLayer, 'children'>, path: PathChild): CliffCrossing[] {
   if (!hasPlateaus(layer)) return [];
@@ -588,19 +591,29 @@ export function plateauCliffCrossings(layer: Pick<DungeonLayer, 'children'>, pat
     const ring = line.xy.slice(0, -1) as Polygon;
     const reach = Math.max(...line.width) / 2;
     for (const span of cliffSpansNear(layer, ring, reach)) {
+      if (span.drop <= 0) continue;
       const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
-      const half = Math.hypot(span.b[0] - span.a[0], span.b[1] - span.a[1]) / 2;
-      const { s } = arcOn(line.xy, mid[0], mid[1]);
-      const outward = !pointInPoly(mid[0] + span.downhill[0] * 0.3, mid[1] + span.downhill[1] * 0.3, ring);
-      out.push({ start: s - half, end: s + half, down: outward ? 1 : -1, drop: span.drop });
+      const [dx, dy] = span.downhill;
+      const high = pointInPath(path, [mid[0] - dx * FALL_SOURCE, mid[1] - dy * FALL_SOURCE]);
+      const away = !pointInPoly(mid[0] + dx * FALL_SOURCE, mid[1] + dy * FALL_SOURCE, ring);
+      if (high && away) out.push(span);
     }
     return out;
   }
   for (const span of cliffCrossings(layer, line.xy, 1)) {
+    if (span.drop <= 0) continue;
     const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
     const { s, dir } = arcOn(line.xy, mid[0], mid[1]);
-    const down = dir[0] * span.downhill[0] + dir[1] * span.downhill[1] >= 0 ? 1 : -1;
-    out.push({ start: s, end: s, down, drop: span.drop });
+    if (dir[0] * span.downhill[0] + dir[1] * span.downhill[1] < 0) continue;
+    // As wide along the edge as the river is where it crosses.
+    let i = 1;
+    while (i < line.arc.length - 1 && line.arc[i] < s) i++;
+    const t = Math.max(0, Math.min(1, (s - line.arc[i - 1]) / (line.arc[i] - line.arc[i - 1] || 1)));
+    const half = (line.width[i - 1] + (line.width[i] - line.width[i - 1]) * t) / 2;
+    const ex = (span.b[0] - span.a[0]) / 2;
+    const ey = (span.b[1] - span.a[1]) / 2;
+    const k = half / (Math.hypot(ex, ey) || 1);
+    out.push({ ...span, a: [mid[0] - ex * k, mid[1] - ey * k], b: [mid[0] + ex * k, mid[1] + ey * k] });
   }
   return out;
 }

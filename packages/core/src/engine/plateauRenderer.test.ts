@@ -75,7 +75,7 @@ import { skyFrame } from '../shared/sky';
 import type { MapEnvironment } from '../shared/world';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
-import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
+import { cliffCrossingsOf, drawFall, waterfallSpans } from './path/waterfalls';
 import type { Polygon } from '../types/geometry';
 import { layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
 
@@ -697,55 +697,63 @@ describe('waterfalls at cliff crossings', () => {
     ...over,
   });
 
-  it('finds where a river runs off a cliff, and hangs the fall on the low side', () => {
-    const river = water('river', [{ x: 10, y: 6.5 }, { x: 1, y: 6.5 }]);
-    const layer = layerOf([ground, outcrop, river]);
-    const crossings = cliffCrossingsOf(layer, river);
-    expect(crossings).toHaveLength(1);
-    expect(crossings[0]).toMatchObject({ down: 1, drop: 2 });
-    expect(crossings[0].start).toBeCloseTo(6, 6);
-    const [fall] = waterfallSpans(river, crossings);
-    // From the lip at x = 4, half the 2-cell drop on, falling west.
-    expect(fall.x).toBeCloseTo(3, 6);
-    expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
-  });
+  /** The fall boxes a water path hangs on `layer`, sizes rounded to a hundredth. */
+  const boxes = (layer: DungeonLayer, path: PathChild) =>
+    waterfallSpans(cliffCrossingsOf(layer, path)).map((f) => ({ ...f, width: +f.width.toFixed(2), length: +f.length.toFixed(2) }));
+  const cliff = (height: number) => plat('outcrop', 4, 4, 12, 11, { height, edge: 'cliff' });
 
-  it('honours the drop when the river is drawn uphill: the fall still hangs off the low side', () => {
-    const river = water('river', [{ x: 1, y: 6.5 }, { x: 10, y: 6.5 }]);
-    const crossings = cliffCrossingsOf(layerOf([ground, outcrop, river]), river);
-    expect(crossings).toHaveLength(1);
-    expect(crossings[0].down).toBe(-1);
-    const [fall] = waterfallSpans(river, crossings);
-    expect(fall.x).toBeCloseTo(3, 6);
-    expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
-  });
-
-  it('spills a raised pool over the stretch of its shore that runs along the cliff', () => {
-    const corner = (x: number, y: number) => ({ x, y, handles: null });
-    const pool = water('pool', [corner(4, 5), corner(8, 5), corner(8, 9), corner(4, 9)], { closed: true, fill: true, width: 1 });
-    const crossings = cliffCrossingsOf(layerOf([ground, outcrop, pool]), pool);
-    expect(crossings).toHaveLength(1);
-    const falls = waterfallSpans(pool, crossings);
-    expect(falls).toHaveLength(2);
-    for (const f of falls) {
-      expect(f.x).toBeLessThan(4);
-      expect(Math.abs(f.angle)).toBeCloseTo(Math.PI, 6);
-      expect(f.y).toBeGreaterThan(5 - 1e-6);
-      expect(f.y).toBeLessThan(9 + 1e-6);
+  it('hangs a 1-cell river’s fall 1 cell wide off the lip, as long as the drop up to 3', () => {
+    const river = water('river', [{ x: 10, y: 6.5 }, { x: 1, y: 6.5 }], { width: 1 });
+    for (const [height, length] of [[1, 1], [2, 2], [3, 3], [5, 3]]) {
+      const [fall, more] = boxes(layerOf([ground, cliff(height), river]), river);
+      expect(more).toBeUndefined();
+      expect(fall).toMatchObject({ width: 1, length });
+      // From the lip at x = 4, half its length on, falling west.
+      expect(fall.x).toBeCloseTo(4 - length / 2, 6);
+      expect(fall.y).toBeCloseTo(6.5, 6);
+      expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
     }
   });
 
-  it('finds none on flat ground', () => {
-    const river = water('river', [{ x: 10, y: 20 }, { x: 1, y: 20 }]);
+  it('falls nowhere for a river drawn up the cliff', () => {
+    const river = water('river', [{ x: 1, y: 6.5 }, { x: 10, y: 6.5 }], { width: 1 });
     expect(cliffCrossingsOf(layerOf([ground, outcrop, river]), river)).toEqual([]);
   });
 
-  it('tiles a fall with square pieces of one size, none stretched', () => {
-    const pieces = fallPieces([{ x: 0, y: 0, angle: Math.PI / 2, width: 3, length: 2 }], 2);
-    expect(pieces).toHaveLength(4);
-    for (const p of pieces) expect(p.scale).toBeCloseTo(0.75, 6);
-    // Two across, two down, the first row at the lip (y = -1).
-    expect([...new Set(pieces.map((p) => p.x.toFixed(3)))]).toEqual(['0.750', '-0.750']);
-    expect(Math.min(...pieces.map((p) => p.y))).toBeCloseTo(-0.25, 6);
+  it('spills a lake on the top over the 2.5 cells of shore it shares with the cliff, 1 cell down a +1 drop', () => {
+    const corner = (x: number, y: number) => ({ x, y, handles: null });
+    const pool = water('pool', [corner(4, 5), corner(7, 5), corner(7, 7.5), corner(4, 7.5)], { closed: true, fill: true, width: 0.4 });
+    const [fall, more] = boxes(layerOf([ground, cliff(1), pool]), pool);
+    expect(more).toBeUndefined();
+    expect(fall).toMatchObject({ width: 2.5, length: 1 });
+    expect(fall.x).toBeCloseTo(3.5, 6);
+    expect(fall.y).toBeCloseTo(6.25, 6);
+  });
+
+  it('falls nowhere from a lake at a cliff’s foot, on its low side', () => {
+    const corner = (x: number, y: number) => ({ x, y, handles: null });
+    const pool = water('pool', [corner(1, 5), corner(4, 5), corner(4, 7.5), corner(1, 7.5)], { closed: true, fill: true, width: 0.4 });
+    expect(cliffCrossingsOf(layerOf([ground, cliff(1), pool]), pool)).toEqual([]);
+  });
+
+  it('finds none on flat ground, and draws none for no drop', () => {
+    const river = water('river', [{ x: 10, y: 20 }, { x: 1, y: 20 }]);
+    expect(cliffCrossingsOf(layerOf([ground, outcrop, river]), river)).toEqual([]);
+    expect(waterfallSpans([{ a: [4, 6], b: [4, 7], downhill: [-1, 0], drop: 0 }])).toEqual([]);
+  });
+
+  it('draws a fall in code inside its box: the water strip, streaks, ink sides and foam, no sprite', () => {
+    const g = new Graphics();
+    drawFall(g, { x: 3.5, y: 6.25, angle: Math.PI, width: 2.5, length: 1 }, 0x4a86a8);
+    expect(g.children).toHaveLength(0);
+    const b = g.getLocalBounds();
+    expect(b.width).toBeCloseTo(2.5, 1);
+    expect(b.height).toBeCloseTo(1, 1);
+    expect(g.position.x).toBeCloseTo(3.5, 6);
+    const fills = g.context.instructions.filter((i) => i.action === 'fill');
+    const strokes = g.context.instructions.filter((i) => i.action === 'stroke');
+    expect(fills).toHaveLength(2);
+    expect((fills[0].data as { style: { alpha: number } }).style.alpha).toBeCloseTo(0.7);
+    expect(strokes).toHaveLength(2);
   });
 });
