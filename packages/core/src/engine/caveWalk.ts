@@ -48,6 +48,41 @@ const SPLIT_CORNER_DEG = 50;
 const CORNER_SPLIT_BONUS = 4;
 /** A joint lapping less than this along travel is a seam: the straight cut shows. */
 export const MIN_LAP = BAND_OVERLAP / 3;
+/**
+ * The overlap at a joint of a thin ink line kit (the ledge and contour pieces). Their joints
+ * are a flat zone of 0.2 cell plus a ramp, so a lap past that doubles the ink.
+ */
+export const LINE_OVERLAP = 0.15;
+
+/**
+ * True for a kit of thin ink lines (ledge, contour): no rock band, no side to it. It is laid
+ * on the curve itself (no shove toward the void) and laps LINE_OVERLAP.
+ */
+export function isLineKit(set: readonly CaveKitPiece[]): boolean {
+  return set.length > 0 && set.every((p) => p.key.startsWith('ledge_') || p.key.startsWith('contour_'));
+}
+
+/** The overlap a kit's joints are walked with. */
+export const kitOverlap = (set: readonly CaveKitPiece[]): number => (isLineKit(set) ? LINE_OVERLAP : BAND_OVERLAP);
+/** How far a kit is shoved toward the void past the curve it rides (twice: ride and placement). */
+export const kitOut = (set: readonly CaveKitPiece[]): number => (isLineKit(set) ? 0 : BAND_OUT);
+
+/**
+ * Which turns a straight may span and which a bend may: a straight up to `straight` degrees,
+ * a bend from `bend`. Scaled to the kit's smallest bend: 35 and 45 for the rock band, whose
+ * smallest bend is 90, so a 15 degree ledge bend gets its own 6 and 7.5.
+ */
+export function bendGate(set: readonly CaveKitPiece[]): { straight: number; bend: number } {
+  const turns = set.filter((p) => p.turnDeg !== 0).map((p) => Math.abs(p.turnDeg));
+  const smallest = turns.length > 0 ? Math.min(...turns) : 90;
+  return { straight: (35 * smallest) / 90, bend: (45 * smallest) / 90 };
+}
+
+/** True when `piece` is the wrong family for a stretch turning `turn` degrees under `gate`. */
+const wrongFamilyFor = (piece: CaveKitPiece, turn: number, gate: { straight: number; bend: number }): boolean =>
+  piece.turnDeg === 0
+    ? Math.abs(turn) > gate.straight
+    : Math.abs(turn) < gate.bend || Math.sign(turn) !== Math.sign(piece.turnDeg);
 
 /** Re-sample a closed polyline at an even spacing `h`. */
 export function resampleClosed(pts: Curve, h: number): Curve {
@@ -298,8 +333,11 @@ export function walkSpan(
   const straights = set.filter((p) => p.turnDeg === 0);
   const spacing = dist(curve[0], curve[1]) || 0.1;
   const maxChord = Math.max(...set.map((p) => p.chordCells));
+  const overlap = kitOverlap(set);
+  const out = kitOut(set);
+  const gate = bendGate(set);
   // A lapped ring closes onto a point a little way INTO its first piece.
-  const lapBy = opts.lap && opts.ring ? Math.max(1, Math.round(BAND_OVERLAP / spacing)) : 0;
+  const lapBy = opts.lap && opts.ring ? Math.max(1, Math.round(overlap / spacing)) : 0;
   const iHome = i1 + lapBy;
   const home = curve[Math.round(iHome) % n];
   const laid: Omit<WalkPlacement, 'at'>[] = [];
@@ -342,10 +380,7 @@ export function walkSpan(
         // the solver's fixture expects the shape gate alone to decide.
         const family = !!opts.fill && !opts.ring;
         const turn = family ? turnDeg(tangentAt(curve, iA), tangentAt(curve, iB)) : 0;
-        const wrongFamily = (p: CaveKitPiece): boolean =>
-          p.turnDeg === 0
-            ? Math.abs(turn) > 35
-            : Math.abs(turn) < 45 || Math.sign(turn) !== Math.sign(p.turnDeg);
+        const wrongFamily = (p: CaveKitPiece): boolean => wrongFamilyFor(p, turn, gate);
         let bestC: { piece: CaveKitPiece; sc: number; s: number; nudge: number } | null = null;
         for (const piece of set) {
           const f = fitArc(curve, iA, iB, A, B, piece);
@@ -369,7 +404,7 @@ export function walkSpan(
         // Each half gives up half the overlap: the first runs on past the split, the
         // second starts short of it.
         // The plain walk keeps its halves end to end, as the solver fixture expects.
-        const halfLap = opts.lap ? Math.max(1, Math.round(BAND_OVERLAP / spacing / 2)) : 0;
+        const halfLap = opts.lap ? Math.max(1, Math.round(overlap / spacing / 2)) : 0;
         const halves = (at: number) => {
           const mI = Math.min(iHome - 1, at + halfLap);
           const mP = curve[Math.round(mI) % n];
@@ -449,12 +484,7 @@ export function walkSpan(
       // it reads as a hinge. A bend is for a real corner; a straight is for a
       // run that barely turns; the band in between belongs to neither.
       const turn = turnDeg(tangentAt(curve, i), tangentAt(curve, hit.i));
-      if (
-        piece.turnDeg === 0
-          ? Math.abs(turn) > 35
-          : Math.abs(turn) < 45 || Math.sign(turn) !== Math.sign(piece.turnDeg)
-      )
-        continue;
+      if (wrongFamilyFor(piece, turn, gate)) continue;
       const f = fitArc(curve, i, hit.i, P, hit.p, piece);
       if (f.miss > BAND_FIT) continue;
       // longest acceptable piece wins (a run of 2s where a 4 fits reads chopped);
@@ -495,14 +525,14 @@ export function walkSpan(
     // previous one's end joint, and the band tore open a two-cell hole with the
     // floor showing through to the void. Walking back from `hit.i` keeps the
     // overlap an overlap whatever the curve is doing.
-    const backOff = Math.max(1, Math.round(BAND_OVERLAP / spacing));
+    const backOff = Math.max(1, Math.round(overlap / spacing));
     const step = { i: Math.max(i + 1, best.hit.i - backOff) };
     laid.push({ piece: best.piece, P, Q: best.hit.p, i, nudge: best.nudge, branch: best.branch ?? 'walk' });
     i = step.i;
   }
   const placed: WalkPlacement[] = laid.map((pl) => ({
     ...pl,
-    at: placePiece(pl.piece, pl.P, pl.Q, BAND_OUT, 0, pl.nudge ?? 0),
+    at: placePiece(pl.piece, pl.P, pl.Q, out, 0, pl.nudge ?? 0),
   }));
 
   return {
@@ -597,6 +627,8 @@ export function bandHoles(placed: WalkPlacement[], ring: boolean): BandHole[] {
 /** The joints open by more than the gate, and with `seams` the ones lapping too little. */
 function jointHoles(placed: WalkPlacement[], ring: boolean, seams: boolean): BandHole[] {
   const holes: BandHole[] = [];
+  // A third of the kit's own overlap: MIN_LAP for the rock band.
+  const minLap = kitOverlap(placed.map((pl) => pl.piece)) / 3;
   for (let k = 0; k < placed.length - (ring ? 0 : 1); k++) {
     const a = placed[k],
       b = placed[(k + 1) % placed.length];
@@ -605,7 +637,7 @@ function jointHoles(placed: WalkPlacement[], ring: boolean, seams: boolean): Ban
     const lap = dot(sub(a.Q, b.P), travel);
     // Judged by seams, a joint lapping long (a short side's straight over the bends either
     // end) is no hole: only one that falls short along travel or misses sideways is.
-    const open = seams ? lap < MIN_LAP || Math.abs(cross(sub(a.Q, b.P), travel)) > 0.9 : gap > 0.9;
+    const open = seams ? lap < minLap || Math.abs(cross(sub(a.Q, b.P), travel)) > 0.9 : gap > 0.9;
     if (open)
       holes.push({
         k,
@@ -666,7 +698,8 @@ const CORNER_GROUP_TOL = 20;
 export function layCorners(curve: Curve, corners: RingCorner[], set: CaveKitPiece[]): CornerLayout | null {
   const n = curve.length;
   const spacing = dist(curve[0], curve[1]) || 0.1;
-  const backOff = Math.max(1, Math.round(BAND_OVERLAP / spacing));
+  const overlap = kitOverlap(set);
+  const backOff = Math.max(1, Math.round(overlap / spacing));
   const straights = set.filter((p) => p.turnDeg === 0).sort((a, b) => b.chordCells - a.chordCells);
   if (straights.length === 0 || corners.length < 3) return null;
   const at = (i: number): Vec => curve[((Math.round(i) % n) + n) % n];
@@ -733,19 +766,20 @@ export function layCorners(curve: Curve, corners: RingCorner[], set: CaveKitPiec
     // MIN_LAP, where one more piece would lap the bends by most of its own length.
     let left = arc;
     for (;;) {
-      const piece = straights.find((p) => p.chordCells <= left + BAND_OVERLAP / 2) ?? straights[straights.length - 1];
+      const piece = straights.find((p) => p.chordCells <= left + overlap / 2) ?? straights[straights.length - 1];
       const same = set.filter((p) => p.turnDeg === 0 && p.key === piece.key);
       pieces.push(same[mirror++ % same.length]);
       left -= piece.chordCells;
-      if (left <= BAND_OVERLAP / 2) break;
+      if (left <= overlap / 2) break;
       // The next piece starts back inside this one.
-      left += BAND_OVERLAP;
+      left += overlap;
     }
-    const total = pieces.reduce((sum, p) => sum + p.chordCells, 0) - (pieces.length - 1) * BAND_OVERLAP;
+    const total = pieces.reduce((sum, p) => sum + p.chordCells, 0) - (pieces.length - 1) * overlap;
     const run = layRun(pieces, s0 + ((arc - total) / 2) / spacing, 'side');
     if (run) laid.push(...run);
   });
 
-  const placed: WalkPlacement[] = laid.map((pl) => ({ ...pl, at: placePiece(pl.piece, pl.P, pl.Q, BAND_OUT, 0, pl.nudge) }));
+  const out = kitOut(set);
+  const placed: WalkPlacement[] = laid.map((pl) => ({ ...pl, at: placePiece(pl.piece, pl.P, pl.Q, out, 0, pl.nudge) }));
   return { placed, sides };
 }

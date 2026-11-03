@@ -4,9 +4,12 @@
 //   node scripts/integrate-cave-ink.mjs [--pack-version <semver>] [--forge <forge dir>]
 //
 // --pack-version defaults to 1.16.0 for the first run; pass the next patch on a re-run.
-// --forge defaults to ../map-goblin-forge/forge. Reads dist/GG_Cave_Ink and
-// staging/cave/kit-A/caveWallKit.json from it. STAIRS_CONTENT (stairsArt.ts) is copied by
-// hand from staging/cave-props/stairs-content.json when the stairs change.
+// --forge defaults to ../map-goblin-forge/forge. Reads dist/GG_Cave_Ink,
+// staging/cave/kit-A/caveWallKit.json and staging/cave/geometry.json from it: the kit is
+// copied over the core kit, and each ledge piece's drawn ridge (the line's centre, every
+// RIDGE_STEP cell, in cells from the sprite's centre) is written to caveLedgeRidge.json, so
+// the slivers under a cliff root on the line where it wanders. STAIRS_CONTENT (stairsArt.ts)
+// is copied by hand from staging/cave-props/stairs-content.json when the stairs change.
 
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,7 +28,9 @@ const FORGE = arg('--forge', join(ROOT, '..', 'map-goblin-forge', 'forge'));
 const VERSION = arg('--pack-version', '1.16.0');
 const SET = join(FORGE, 'dist', 'GG_Cave_Ink');
 const KIT = join(FORGE, 'staging', 'cave', 'kit-A', 'caveWallKit.json');
-for (const p of [SET, KIT]) if (!existsSync(p)) throw new Error(`missing ${p}`);
+const GEOMETRY = join(FORGE, 'staging', 'cave', 'geometry.json');
+const RIDGE_STEP = 0.1;
+for (const p of [SET, KIT, GEOMETRY]) if (!existsSync(p)) throw new Error(`missing ${p}`);
 
 // One command string through the shell: pnpm is a .cmd shim on Windows.
 const quote = (a) => JSON.stringify(a.split('\\').join('/'));
@@ -46,5 +51,22 @@ try {
   rmSync(work, { recursive: true, force: true });
 }
 
-copyFileSync(KIT, join(ROOT, 'packages', 'core', 'src', 'assets', 'caveWallKit.json'));
-console.log(`${PACK} ${VERSION}: GG_Cave_Ink integrated, caveWallKit.json copied`);
+const ASSETS = join(ROOT, 'packages', 'core', 'src', 'assets');
+copyFileSync(KIT, join(ASSETS, 'caveWallKit.json'));
+const ridges = {};
+for (const [id, g] of Object.entries(JSON.parse(readFileSync(GEOMETRY, 'utf8')))) {
+  const key = g.kit?.key;
+  if (!key || !Array.isArray(g.ridge) || !/^ledge_(?!end_)/.test(key)) continue;
+  const pts = [];
+  let next = 0;
+  for (const r of g.ridge) {
+    if (r.s + 1e-9 < next && r !== g.ridge[g.ridge.length - 1]) continue;
+    pts.push(r.p.map((v) => Math.round(v * 1000) / 1000));
+    next = r.s + RIDGE_STEP;
+  }
+  ridges[key] = pts;
+  if (!id.endsWith('/A')) throw new Error(`unexpected variant ${id}`);
+}
+const lines = Object.entries(ridges).map(([key, pts]) => `  ${JSON.stringify(key)}: ${JSON.stringify(pts)}`);
+writeFileSync(join(ASSETS, 'caveLedgeRidge.json'), `{\n${lines.join(',\n')}\n}\n`);
+console.log(`${PACK} ${VERSION}: GG_Cave_Ink integrated, caveWallKit.json copied, ${Object.keys(ridges).length} ledge ridges written`);

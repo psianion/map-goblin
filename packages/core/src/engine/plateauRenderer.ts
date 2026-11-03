@@ -51,9 +51,10 @@ import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces } from './plateauKit';
+import { cliffArt, cliffPieces, ledgeEndPieces, sliverArt, sliverPieces } from './plateauKit';
 import type { DoorGap } from './wallNodeRenderer';
-import type { WalkPlacement } from './caveWalk';
+import { LINE_OVERLAP, type WalkPlacement } from './caveWalk';
+import { jointsOf, ledgeRidge, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -68,33 +69,21 @@ const INK = 0x2b2420;
 /** The cliff's top-edge line, cells wide. */
 const LINE = 0.04;
 const TOP_LINE_ALPHA = 0.5;
-/** How far past the cliff edge the ledge rock reaches on the low side, cells. */
-export const LEDGE_DEPTH = 0.475;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
-/** How far the light on a cliff face reaches across the rock from the edge, cells: the ledge rock's depth. */
-const LIGHT_REACH = LEDGE_DEPTH;
 /**
  * Lit/shaded faces under a sun: a face turned away from the light keeps SHADE_FLOOR of its
- * brightness, one side-on to it SHADE_SIDE, one square to it all of it. The rock art is dark
- * ink, so the spread is wide enough to read; with no sun (Indoor) every face is drawn as is.
+ * brightness, one side-on to it SHADE_SIDE, one square to it all of it. The ledge is a thin ink
+ * line with no rock face, so it takes no wash of light: with no sun (Indoor) it is drawn as is.
  */
 export const SHADE_FLOOR = 0.4;
 export const SHADE_SIDE = 0.72;
-/**
- * Darkening alone barely moves near-black rock, so a face turned to the sun also takes a warm
- * wash of light added over it, up to this strength square on.
- */
-export const LIGHT_WASH = 0.32;
-const WASH_COLOR = 0xfff0d0;
 
 // ─── Lighting the rock ─────────────────────────────────────
 
 interface CliffSprite {
-  /** A piece of rock, tinted by how its face turns to the light… */
+  /** A piece of the ledge, tinted by how its face turns to the light… */
   sprite?: Sprite;
-  /** …or the light added over one face of it… */
-  light?: Graphics;
   /** …or one face of a slope, shaded as it turns from the light. */
   shade?: Graphics;
   /** Unit normal pointing to the low side. */
@@ -112,12 +101,6 @@ export function faceShade(normal: Vec, look: ShadowLook | null): number {
   return facing >= 0 ? SHADE_SIDE + (1 - SHADE_SIDE) * facing : SHADE_SIDE + (SHADE_SIDE - SHADE_FLOOR) * facing;
 }
 
-/** How much light is added over a face turned to `normal`: none away from the light or without one. */
-export function faceLight(normal: Vec, look: ShadowLook | null): number {
-  if (!look) return 0;
-  return LIGHT_WASH * Math.max(0, Math.min(1, -(normal[0] * look.dx + normal[1] * look.dy)));
-}
-
 const grey = (k: number): number => {
   const c = Math.round(Math.max(0, Math.min(1, k)) * 255);
   return (c << 16) | (c << 8) | c;
@@ -126,9 +109,8 @@ const grey = (k: number): number => {
 /** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
+  for (const { sprite, shade, normal } of cliffSprites.get(layerId) ?? []) {
     if (sprite && !sprite.destroyed) sprite.tint = mulColour(0xffffff, faceShade(normal, look));
-    if (light && !light.destroyed) light.alpha = faceLight(normal, look);
     if (shade && !shade.destroyed) shade.alpha = slopeSunFactor(normal, look);
   }
 }
@@ -350,7 +332,181 @@ function drawnPlacements(placed: WalkPlacement[], art: Map<string, CatalogEntry>
   });
 }
 
-/** A cliff: the top-edge ink line, then the ledge rock laid by the cave walk with the low side as void. */
+// ─── Ledge ends and slivers ────────────────────────────────
+
+/** A piece whose end lies further than this from the line of the one before it starts a new run, cells. */
+const RUN_BREAK = 0.5;
+/** How far along the line a sliver reads its direction either side of its root, in ridge samples (0.1 cell). */
+const SLIVER_REACH_PTS = 2;
+/** A point of a piece's line this close to the line before it lies on the lap, cells. */
+const LAP_NEAR = 0.12;
+
+/** Slivers a cell of edge: 1 at a drop of 1, rising to 2 at 3 and past; none under 1. */
+export function sliverDensity(drop: number): number {
+  const d = Math.abs(drop);
+  return d < 1 ? 0 : 1 + (Math.min(3, d) - 1) / 2;
+}
+
+/** A small random stream seeded from a point, so a redraw lays the same art. */
+function rng(seed: Vec): () => number {
+  let h = (Math.imul(Math.round(seed[0] * 100), 73856093) ^ Math.imul(Math.round(seed[1] * 100), 19349663)) >>> 0 || 1;
+  return () => {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    h >>>= 0;
+    return h / 4294967296;
+  };
+}
+
+const vsub = (a: Vec, b: Vec): Vec => [a[0] - b[0], a[1] - b[1]];
+const vadd = (a: Vec, b: Vec): Vec => [a[0] + b[0], a[1] + b[1]];
+const vmul = (a: Vec, k: number): Vec => [a[0] * k, a[1] * k];
+const vdist = (a: Vec, b: Vec): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const vunit = (a: Vec): Vec => vmul(a, 1 / (Math.hypot(a[0], a[1]) || 1));
+/** Distance from `p` to the segment a–b. */
+const segDist = (p: Vec, a: Vec, b: Vec): number => {
+  const ab = vsub(b, a);
+  const l2 = ab[0] * ab[0] + ab[1] * ab[1];
+  const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / l2));
+  return vdist(p, vadd(a, vmul(ab, t)));
+};
+
+/** A laid ledge piece's drawn line in world units, from its first joint to its second. */
+function worldRidge(pl: WalkPlacement): Vec[] {
+  const [j0, j1] = jointsOf(pl.piece, pl.at);
+  const ridge = ledgeRidge(pl.piece.key);
+  if (!ridge) return [j0, j1];
+  const { position, rotation, scale, flipY } = pl.at;
+  const c = Math.cos(rotation);
+  const s = Math.sin(rotation);
+  const pts = ridge.map(([x, y]): Vec => {
+    const ly = flipY ? -y : y;
+    return [position.x + (x * c - ly * s) * scale, position.y + (x * s + ly * c) * scale];
+  });
+  return vdist(pts[0], j0) <= vdist(pts[pts.length - 1], j0) ? pts : pts.reverse();
+}
+
+/**
+ * The laid ledge split into runs where two pieces in a row do not meet (an opening, a
+ * landing, the end of an open edge). A ring with no break is one closed run.
+ */
+function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlacement[]; open: boolean }[] {
+  if (placed.length === 0) return [];
+  const lines = new Map(placed.map((pl) => [pl, worldRidge(pl)]));
+  const near = (p: Vec, line: Vec[]): boolean => line.some((q, i) => i > 0 && segDist(p, line[i - 1], q) <= RUN_BREAK);
+  // Two pieces meet where either one's end lies on (or near) the other's line: a straight
+  // centred on a short side laps the bends either end by far more than its joint.
+  const meets = (a: WalkPlacement, b: WalkPlacement): boolean => near(b.P, lines.get(a)!) || near(a.Q, lines.get(b)!);
+  const runs: WalkPlacement[][] = [[placed[0]]];
+  for (let k = 1; k < placed.length; k++) {
+    if (meets(placed[k - 1], placed[k])) runs[runs.length - 1].push(placed[k]);
+    else runs.push([placed[k]]);
+  }
+  if (closed && meets(placed[placed.length - 1], placed[0])) {
+    if (runs.length === 1) return [{ run: runs[0], open: false }];
+    runs[0] = [...runs.pop()!, ...runs[0]];
+  }
+  return runs.map((run) => ({ run, open: true }));
+}
+
+const laidAt = (piece: CaveKitPiece, A: Vec, B: Vec, branch: string): WalkPlacement => ({
+  piece,
+  P: A,
+  Q: B,
+  i: 0,
+  nudge: 0,
+  branch,
+  at: placeOnChord(piece, A, B),
+});
+
+/**
+ * An open run's two tips: one end piece (the tail or the knot, picked per run) lapping each
+ * tip's last piece by LINE_OVERLAP and running on along the line's own direction there. At the
+ * head it is mirrored along its length, so it runs back off the line with its ticks on the
+ * same side.
+ */
+function runEnds(run: WalkPlacement[], ends: CaveKitPiece[]): WalkPlacement[] {
+  if (ends.length === 0) return [];
+  const end = ends[Math.floor(rng(run[0].P)() * ends.length)];
+  const c = end.chordCells;
+  const head = worldRidge(run[0]);
+  const tail = worldRidge(run[run.length - 1]);
+  const th = vunit(vsub(head[1], head[0]));
+  const tt = vunit(vsub(tail[tail.length - 1], tail[tail.length - 2]));
+  const x0 = head[0];
+  const x1 = tail[tail.length - 1];
+  const a1 = vsub(x1, vmul(tt, LINE_OVERLAP));
+  return [
+    laidAt(mirrorPiece(end), vsub(x0, vmul(th, c - LINE_OVERLAP)), vadd(x0, vmul(th, LINE_OVERLAP)), 'end'),
+    laidAt(end, a1, vadd(a1, vmul(tt, c)), 'end'),
+  ];
+}
+
+/**
+ * The slivers under a ledge: `density` a cell along each run's drawn line, each a random pick
+ * of the sliver pieces (mirrored along its length half the time), its root on the line and its
+ * length along the line's direction there. The pieces are drawn with their wedges on the left
+ * of travel, which is the low side the ledge was walked with.
+ */
+function laySlivers(runs: { run: WalkPlacement[]; open: boolean }[], pieces: CaveKitPiece[], density: number): WalkPlacement[] {
+  if (pieces.length === 0 || density <= 0) return [];
+  const out: WalkPlacement[] = [];
+  for (const { run } of runs) {
+    // The run's line: each piece's drawn line from where it leaves the one before it. A piece
+    // laps its neighbour, by far more on a short side laid corner first.
+    // Each point keeps its own piece's direction there: the joined line steps back a little
+    // where one piece laps the next, and a direction read across that step would turn round.
+    const line: Vec[] = [];
+    const dirs: Vec[] = [];
+    let prev: Vec[] | null = null;
+    for (const pl of run) {
+      const pts = worldRidge(pl);
+      let i = 0;
+      const last = prev;
+      if (last) {
+        while (i < pts.length - 1 && last.some((q, j) => j > 0 && segDist(pts[i], last[j - 1], q) <= LAP_NEAR)) i++;
+      }
+      for (; i < pts.length; i++) {
+        line.push(pts[i]);
+        dirs.push(vunit(vsub(pts[Math.min(pts.length - 1, i + SLIVER_REACH_PTS)], pts[Math.max(0, i - SLIVER_REACH_PTS)])));
+      }
+      prev = pts;
+    }
+    if (line.length < 2) continue;
+    const cum = [0];
+    for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + vdist(line[i - 1], line[i]));
+    const total = cum[cum.length - 1];
+    const rand = rng(line[0]);
+    const step = 1 / density;
+    for (let s = step * (0.3 + 0.4 * rand()); s < total; s += step * (0.8 + 0.4 * rand())) {
+      let i = 1;
+      while (i < cum.length - 1 && cum[i] < s) i++;
+      const f = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+      const root = vadd(line[i - 1], vmul(vsub(line[i], line[i - 1]), f));
+      const t = dirs[f < 0.5 ? i - 1 : i];
+      const pick = pieces[Math.floor(rand() * pieces.length)];
+      const piece = rand() < 0.5 ? pick : mirrorPiece(pick);
+      const half = piece.chordCells / 2;
+      out.push(laidAt(piece, vsub(root, vmul(t, half)), vadd(root, vmul(t, half)), 'sliver'));
+    }
+  }
+  return out;
+}
+
+/** The low-side normal of a placement: the left of its chord. */
+const lowNormal = (pl: WalkPlacement): Vec => {
+  const dx = pl.Q[0] - pl.P[0];
+  const dy = pl.Q[1] - pl.P[1];
+  const len = Math.hypot(dx, dy) || 1;
+  return [dy / len, -dx / len];
+};
+
+/**
+ * A cliff: the top-edge ink line, then the ledge line laid by the cave walk with the low side as
+ * void (straights, bends either way, an end piece at each tip of an open run), with slivers
+ * hanging under it on the low side at a drop of a cell or more.
+ */
 function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: PlateauRenderOptions): CliffSprite[] {
   // The walk lays rock with the void on its left; band rings run with the outside on the
   // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
@@ -365,23 +521,32 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   }
 
   const art = cliffArt(run.owner?.edgeArt);
-  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  const slivers = sliverArt(run.owner?.edgeArt);
+  for (const e of [...art.values(), ...slivers.values()]) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
   const pieces = cliffPieces(art);
   const sprites: CliffSprite[] = [];
 
   // The whole run, straights and corners alike, is walked with the measured ledge pieces:
-  // every stone at its own size, none stretched to fit an edge. One ring of it at any drop.
+  // every piece at its own size, none stretched to fit an edge. One ring of it at any drop.
   const rock = new Container();
   rock.label = 'plateau-cliff';
   const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
-  const drawn = drawnPlacements(placed, art);
+  const walked = drawnPlacements(placed, art);
+  const runs = ledgeRuns(walked, run.closed);
+  const ends = ledgeEndPieces(art);
+  const drawn = [...walked, ...drawnPlacements(runs.filter((r) => r.open).flatMap((r) => runEnds(r.run, ends)), art)];
   placeBand(rock, drawn, art, 0xffffff, 0);
-  drawn.forEach((pl, i) => {
-    const dx = pl.Q[0] - pl.P[0];
-    const dy = pl.Q[1] - pl.P[1];
-    const len = Math.hypot(dx, dy) || 1;
-    sprites.push({ sprite: rock.children[i] as Sprite, normal: [dy / len, -dx / len] });
-  });
+  drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));
+
+  // Under the ledge, over the drop shade: the slivers on the low side.
+  const hung = drawnPlacements(laySlivers(runs, sliverPieces(slivers), sliverDensity(run.drop)), slivers);
+  if (hung.length > 0) {
+    const hang = new Container();
+    hang.label = 'plateau-cliff-slivers';
+    placeBand(hang, hung, slivers, 0xffffff, 0);
+    hung.forEach((pl, i) => sprites.push({ sprite: hang.children[i] as Sprite, normal: lowNormal(pl) }));
+    parent.addChild(hang);
+  }
 
   if (drawn.length === 0) {
     const ink = new Graphics();
@@ -392,26 +557,6 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
     return sprites;
   }
   parent.addChild(rock);
-  // The light on each face, added over the rock: a quad from the edge out across the ledge.
-  const lights = new Container();
-  lights.label = 'plateau-cliff-light';
-  // Across the rock itself, not the whole ledge strip: the ink chunks fill about its first half.
-  const reach = LIGHT_REACH;
-  const face = (a: Vec, b: Vec): void => {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (len < 1e-6) return;
-    const normal: Vec = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
-    const [ox, oy] = [normal[0] * reach, normal[1] * reach];
-    const g = new Graphics()
-      .poly([a[0], a[1], b[0], b[1], b[0] + ox, b[1] + oy, a[0] + ox, a[1] + oy])
-      .fill({ color: WASH_COLOR });
-    g.blendMode = 'add';
-    g.alpha = 0;
-    lights.addChild(g);
-    sprites.push({ light: g, normal });
-  };
-  for (let i = 0; i + 1 < path.length; i++) face(path[i] as Vec, path[i + 1] as Vec);
-  parent.addChild(lights);
   return sprites;
 }
 

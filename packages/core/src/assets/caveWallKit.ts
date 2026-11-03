@@ -20,6 +20,7 @@
 // never laid on these numbers (see bandSetArt in packCatalog.ts).
 
 import kit from './caveWallKit.json';
+import ridges from './caveLedgeRidge.json';
 import { getCatalogEntry } from './packCatalog';
 
 /** One measured kit piece. Lengths are in grid cells, angles in degrees. */
@@ -136,6 +137,22 @@ export function ledgePieces(): CaveKitPiece[] {
     ledgePool = [...straights, ...straights.map(mirrorPiece), ...bends, ...bends.map(reversePiece)];
   }
   return ledgePool;
+}
+
+/** Every measured piece whose key starts with `prefix` (`ledge_end_`, `sliver_`, `contour`). */
+export function kitPieces(prefix: string): CaveKitPiece[] {
+  return [...BY_KEY.values()].filter((p) => p.key.startsWith(prefix));
+}
+
+const RIDGES = ridges as unknown as Record<string, [number, number][]>;
+
+/**
+ * Where a ledge piece's drawn line runs, as the forge drew it: its centre every 0.1 cell from
+ * joint 0 to joint 1, in cells from the sprite's centre (unmirrored). The line wanders up to
+ * 0.4 cell off its chord, so what hangs under it is rooted on this, not on the chord.
+ */
+export function ledgeRidge(key: string): readonly [number, number][] | undefined {
+  return RIDGES[key];
 }
 
 /**

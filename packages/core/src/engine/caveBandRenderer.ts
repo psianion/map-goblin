@@ -17,6 +17,7 @@ import type { DungeonLayer, ShapeChild } from '../store/types';
 import { ringOwner } from '../shared/wallLook';
 import {
   BAND_OUT,
+  kitOut,
   layCorners,
   offsetCurve,
   resampleClosed,
@@ -211,19 +212,20 @@ function resampleCarrying(
 /**
  * The curve the walk rides for a floor edge sampled at CURVE_STEP: BAND_OUT
  * toward the void, corners rounded to a radius the kit's bends can lay, each
- * corner lifted by {@link liftField} before rounding and put back after.
+ * corner lifted by {@link liftField} before rounding and put back after. `out` is the kit's
+ * shove (`kitOut`): a thin line kit rides the edge itself.
  */
-export function bandRide(base: Curve, closed: boolean): Curve {
+export function bandRide(base: Curve, closed: boolean, out = BAND_OUT): Curve {
   const lift = liftField(base, closed);
   // Every corner an ordinary one (no tip past a right angle, nothing turning
   // toward the void): the ride the band has always had, step for step, so a
   // plain ring or run lays exactly the pieces it did before.
   if (lift.every((l) => Math.abs(l - CORNER_LIFT) < 1e-9)) {
-    if (closed) return offsetCurve(roundCorners(offsetCurve(base, BAND_OUT + CORNER_LIFT), true), -CORNER_LIFT);
-    return shoveOpen(roundCorners(shoveOpen(base, BAND_OUT + CORNER_LIFT), false), -CORNER_LIFT);
+    if (closed) return offsetCurve(roundCorners(offsetCurve(base, out + CORNER_LIFT), true), -CORNER_LIFT);
+    return shoveOpen(roundCorners(shoveOpen(base, out + CORNER_LIFT), false), -CORNER_LIFT);
   }
   const lifted = resampleCarrying(
-    shoveEach(base, lift.map((l) => BAND_OUT + l), closed),
+    shoveEach(base, lift.map((l) => out + l), closed),
     lift,
     CURVE_STEP,
     closed,
@@ -416,7 +418,7 @@ export function layBandRing(
       return layTipRun(run, true, true, gaps, set);
     });
   }
-  const ride = bandRide(base, true);
+  const ride = bandRide(base, true, kitOut(set));
   const spans = openSpans(ride, gaps, true);
   if (spans) return spans.flatMap(([from, to]) => laySpan(ride, set, from, to, { lap: true }));
   const corners = cornerRing(poly, ride, set);
@@ -589,7 +591,7 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
       return layTipRun(base.slice(from, cuts[k + 1] + 1), k > 0, k + 1 < cuts.length - 1, gaps, set);
     });
   }
-  const ride = padEnds(bandRide(base, false));
+  const ride = padEnds(bandRide(base, false, kitOut(set)));
   const first = END_PAD;
   const last = ride.length - 1 - END_PAD;
   const spans = openSpans(ride, gaps, false) ?? [[first, last]];

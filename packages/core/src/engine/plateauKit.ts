@@ -3,7 +3,7 @@
 // GG_Cave_Ink). Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
 import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
-import { ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
+import { kitPieces, ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
 
 /** The band set a cliff takes when its floor names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
@@ -29,4 +29,21 @@ export function cliffPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
   const pieces = ledgePieces().filter((p) => art.has(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
+}
+
+/** The pieces that end an open ledge run, with art in `art`: a tapering tail and a knot. */
+export function ledgeEndPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
+  return kitPieces('ledge_end_').filter((p) => art.has(p.key));
+}
+
+/** The sliver art of a cliff set: short dark ink wedges that hang under its ledge. */
+export function sliverArt(setId: string | undefined): Map<string, CatalogEntry> {
+  const art = new Map<string, CatalogEntry>();
+  for (const [key, e] of bandSetArt(setId || DEFAULT_CLIFF_SET)) if (e.material.startsWith('sliver')) art.set(key, e);
+  return art;
+}
+
+/** The sliver pieces with art in `art`. */
+export function sliverPieces(art: Map<string, CatalogEntry>): CaveKitPiece[] {
+  return kitPieces('sliver_').filter((p) => art.has(p.key));
 }

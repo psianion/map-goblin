@@ -56,14 +56,14 @@ import { SLOPE_CONTOUR_ALPHA, SLOPE_CONTOUR_WIDTH } from '../shared/plateauShade
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
-import { resampleClosed, walkClosed } from './caveWalk';
+import { kitOut, resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
   drawOpening,
-  faceLight,
   faceShade,
   renderPlateaus,
   shadeCliffs,
+  sliverDensity,
   SHADE_FLOOR,
   SHADE_SIDE,
 } from './plateauRenderer';
@@ -300,7 +300,8 @@ describe('every cliff ring is walked', () => {
     ]);
     const layer = layerOf([ground, { ...plat('top', 0, 0, 1, 1, { height: 1, edge: 'cliff' }), contours: [round] }]);
     const ring = layerPlateaus(layer).bands[0].rings[0];
-    const walked = walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true), cliffPieces(cliffArt(undefined)), LIVE_WALK);
+    const kit = cliffPieces(cliffArt(undefined));
+    const walked = walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true, kitOut(kit)), kit, LIVE_WALK);
     expect(rockOf(layer).length).toBe(walked.placed.length);
   });
 
@@ -325,10 +326,13 @@ describe('every cliff ring is walked', () => {
     }
   });
 
-  it('walks a pit reversed, so its rock lies inside the rim', () => {
+  it('lays the ledge line of a pit on its rim', () => {
     const sprites = rockOf(layerOf([ground, plat('pit', 5, 5, 13, 12, { height: -1, edge: 'cliff' })]));
-    const inside = sprites.filter((s) => s.position.x > 5 && s.position.x < 13 && s.position.y > 5 && s.position.y < 12);
-    expect(inside.length / sprites.length).toBeGreaterThan(0.9);
+    // A thin line kit rides the edge itself: every piece's centre within a bend's bow of it.
+    const off = (x: number, y: number) =>
+      Math.max(5 - x, x - 13, 5 - y, y - 12) > 0 ? Math.max(5 - x, x - 13, 5 - y, y - 12) : Math.min(x - 5, 13 - x, y - 5, 12 - y);
+    expect(sprites.length).toBeGreaterThan(3);
+    for (const s of sprites) expect(off(s.position.x, s.position.y)).toBeLessThan(0.7);
   });
 
   it('draws the ledge of a lone cave floor raised on void', () => {
@@ -340,23 +344,67 @@ describe('a cliff draws its ledge alone', () => {
   const spritesIn = (c: Container): number =>
     c.children.reduce((n, ch) => n + (ch instanceof Sprite ? 1 : ch instanceof Container ? spritesIn(ch) : 0), 0);
 
-  it('lays one sprite per ledge placement and nothing else past it', () => {
+  const partOf = (parent: Container, label: string): Sprite[] =>
+    ((parent.children[0] as Container).children.find((c) => c.label === label) as Container | undefined)?.children as Sprite[] ?? [];
+
+  it('lays one sprite per ledge placement, the slivers apart, and nothing else past it', () => {
     const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
     const parent = new Container();
     renderPlateaus(layer, new Container(), parent);
     const ring = layerPlateaus(layer).bands[0].rings[0];
     const placements = layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length;
     expect(placements).toBeGreaterThan(3);
-    expect(spritesIn(parent)).toBe(placements);
+    // A closed ring has no tips, so no end pieces.
+    expect(partOf(parent, 'plateau-cliff')).toHaveLength(placements);
+    expect(spritesIn(parent)).toBe(placements + partOf(parent, 'plateau-cliff-slivers').length);
   });
 
-  it('draws a pit with its ledge rock only, inside the rim', () => {
+  it('ends a ledge run cut by a gap with an end piece at each tip', () => {
+    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
+    const gaps = [{ id: 'opening:o', position: [9, 5] as [number, number], width: 1.5 }];
+    const parent = new Container();
+    renderPlateaus(layer, new Container(), parent, { gaps });
+    const ring = layerPlateaus(layer).bands[0].rings[0];
+    const walked = layBandRing(ring, gaps.map((g) => ({ wallId: g.id, position: g.position, width: g.width })), cliffPieces(cliffArt(undefined)));
+    expect(partOf(parent, 'plateau-cliff')).toHaveLength(walked.length + 2);
+  });
+
+  it('hangs slivers at 1 a cell at +1 and 2 a cell at +3, wedges on the low side only', () => {
+    for (const [height, density] of [[1, 1], [3, 2], [-2, 1.5]] as const) {
+      const parent = new Container();
+      renderPlateaus(layerOf([ground, plat('p', 5, 5, 13, 12, { height, edge: 'cliff' })]), new Container(), parent);
+      const slivers = partOf(parent, 'plateau-cliff-slivers');
+      const perimeter = 2 * (8 + 7);
+      expect(slivers.length / perimeter, `+${height}`).toBeGreaterThan(density * 0.8);
+      expect(slivers.length / perimeter, `+${height}`).toBeLessThan(density * 1.25);
+      const bad: string[] = [];
+      for (const s of slivers) {
+        // The wedges hang off the art's -x side: out of a raised plateau, into a pit.
+        const wedge = [-Math.cos(s.rotation), -Math.sin(s.rotation)];
+        const { x, y } = s.position;
+        // Outward: away from the rectangle 1.5 cells inside the outline, so diagonal at a corner.
+        const [cx, cy] = [Math.max(6.5, Math.min(11.5, x)), Math.max(6.5, Math.min(10.5, y))];
+        const dot = (wedge[0] * (x - cx) + wedge[1] * (y - cy)) / (Math.hypot(x - cx, y - cy) || 1);
+        if ((height > 0 ? dot : -dot) < 0.3) bad.push(`+${height} sliver at ${x.toFixed(2)},${y.toFixed(2)}`);
+      }
+      expect(bad).toEqual([]);
+    }
+  });
+
+  it('hangs no slivers under a drop of less than a cell', () => {
+    expect(sliverDensity(0.5)).toBe(0);
+    expect(sliverDensity(1)).toBe(1);
+    expect(sliverDensity(2)).toBe(1.5);
+    expect(sliverDensity(-3)).toBe(2);
+    expect(sliverDensity(5)).toBe(2);
+  });
+
+  it('draws a pit with its ledge line and slivers only', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), new Container(), parent);
-    const band = parent.children[0] as Container;
-    const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
-    expect(rock.children.length).toBeGreaterThan(3);
-    expect(spritesIn(parent)).toBe(rock.children.length);
+    const rock = partOf(parent, 'plateau-cliff');
+    expect(rock.length).toBeGreaterThan(3);
+    expect(spritesIn(parent)).toBe(rock.length + partOf(parent, 'plateau-cliff-slivers').length);
   });
 });
 
@@ -430,8 +478,8 @@ describe('light on the rock', () => {
     // The faces away from the corners: the walk turns each corner with a bend whose chord runs
     // across it, so the corner stone is side-on to either sun and takes the side shade.
     const mid = (s: { position: { y: number } }) => s.position.y > 6 && s.position.y < 10;
-    const east = rock.children.filter((s) => s.position.x > 11 && mid(s)) as Sprite[];
-    const west = rock.children.filter((s) => s.position.x < 5 && mid(s)) as Sprite[];
+    const east = rock.children.filter((s) => s.position.x > 10.5 && mid(s)) as Sprite[];
+    const west = rock.children.filter((s) => s.position.x < 5.5 && mid(s)) as Sprite[];
     expect(east.length).toBeGreaterThan(0);
     expect(west.length).toBeGreaterThan(0);
     expect(east.every((s) => s.tint < 0xffffff)).toBe(true);
@@ -440,20 +488,10 @@ describe('light on the rock', () => {
     expect(east.every((s) => s.tint > 0xf0f0f0)).toBe(true);
   });
 
-  it('adds light over the face turned to the sun, and none indoors', () => {
-    expect(faceLight([1, 0], { ...look, dx: -1 })).toBeGreaterThan(0.2);
-    expect(faceLight([-1, 0], { ...look, dx: -1 })).toBe(0);
-    expect(faceLight([1, 0], null)).toBe(0);
+  it('adds no wash of light over the ledge line, which has no rock face to light', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), new Container(), parent);
-    const lights = (parent.children[0] as Container).children.find((x) => x.label === 'plateau-cliff-light') as Container;
-    shadeCliffs('l1', { ...look, dx: -1 });
-    const lit = lights.children.filter((g) => g.alpha > 0).map((g) => g.getLocalBounds());
-    // The light is from the east: only the east face takes it.
-    expect(lit).toHaveLength(1);
-    expect(lit[0].minX).toBeGreaterThanOrEqual(11 - 1e-6);
-    shadeCliffs('l1', null);
-    expect(lights.children.every((g) => g.alpha === 0)).toBe(true);
+    expect(labels(parent)).not.toContain('plateau-cliff-light');
   });
 });
 

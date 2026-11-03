@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { caveBandPieces, jointsOf } from '../assets/caveWallKit';
-import { resampleClosed, walkClosed, type Curve, type Vec } from './caveWalk';
+import { caveBandPieces, jointsOf, ledgePieces } from '../assets/caveWallKit';
+import { bendGate, kitOut, kitOverlap, resampleClosed, walkClosed, BAND_OUT, BAND_OVERLAP, LINE_OVERLAP, type Curve, type Vec } from './caveWalk';
 
 const dist = (a: Vec, b: Vec): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
@@ -81,5 +81,28 @@ describe('walkClosed options the live band uses', () => {
     const r = walkClosed(curve, caveBandPieces(), { lap: true, splits: 4, fill: true });
     expect(r.holes).toEqual([]);
     for (const pl of r.placed) expect(Math.abs(pl.at.scale - 1)).toBeLessThanOrEqual(0.12);
+  });
+});
+
+describe('the bend gate and laps follow the kit', () => {
+  it('keeps the rock band at 35 and 45 degrees, a 0.3 lap and its shove', () => {
+    expect(bendGate(caveBandPieces())).toEqual({ straight: 35, bend: 45 });
+    expect(kitOverlap(caveBandPieces())).toBe(BAND_OVERLAP);
+    expect(kitOut(caveBandPieces())).toBe(BAND_OUT);
+  });
+
+  it('scales the gate to the ledge kit’s 15 degree bend, laps short and rides the edge itself', () => {
+    const gate = bendGate(ledgePieces());
+    expect(gate.straight).toBeCloseTo(35 / 6, 9);
+    expect(gate.bend).toBeCloseTo(7.5, 9);
+    expect(kitOverlap(ledgePieces())).toBe(LINE_OVERLAP);
+    expect(kitOut(ledgePieces())).toBe(0);
+  });
+
+  it('lays the 15 and 30 degree ledge bends round a wide circle', () => {
+    const r = walkClosed(circle(8), ledgePieces(), { lap: true, splits: 4, fill: true });
+    expect(r.holes).toEqual([]);
+    const keys = new Set(r.placed.map((pl) => pl.piece.key));
+    expect([...keys].some((k) => k === 'ledge_bend_15_2x1' || k === 'ledge_bend_30_2x1')).toBe(true);
   });
 });
