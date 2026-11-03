@@ -4,8 +4,9 @@
 
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
 import { shapeRing } from './plateaus';
+import { dropShadeWidth, slopeWidthOf } from './plateauShade';
 
-/** How far past its ring a raised cliff's ledge reaches, cells. */
+/** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
 const CLIFF_REACH = 1.2;
 
 export interface WorldBounds {
@@ -92,12 +93,18 @@ function drawnBounds(
         if (y > maxY) maxY = y;
       }
     }
-    // A plateau is map too, out to where its edge falls: a slope's width per cell of drop, a
-    // cliff's ledge and foot. A pit's edge falls inward and reaches no further than its ring.
+    // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
+    // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and
+    // reaches no further than its ring.
     for (const child of dl.children ?? []) {
       if (child.childType !== 'plateau' || !child.visible || (child.contours?.[0]?.length ?? 0) < 3) continue;
       const rise = child.height > 0 ? child.height : 0;
-      const pad = rise === 0 ? 0 : child.edge === 'slope' ? (child.slopeWidth ?? 1) * rise : child.edge === 'cliff' ? CLIFF_REACH : 0;
+      const pad =
+        rise === 0
+          ? 0
+          : child.edge === 'slope'
+            ? slopeWidthOf(child.slopeWidth)
+            : Math.max(dropShadeWidth(rise), child.edge === 'cliff' ? CLIFF_REACH : 0);
       for (const [x, y] of shapeRing(child, 0)) {
         minX = Math.min(minX, x - pad);
         minY = Math.min(minY, y - pad);
