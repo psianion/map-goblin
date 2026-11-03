@@ -1,6 +1,6 @@
 // A kit's units as the walkers see them (sizes, cells) and as the canvas draws them (pooled
-// sprites). Shared by the path renderer and the cliff foot, so both lay the same units the
-// same way.
+// sprites). Shared by the path renderer and the edge transitions, so both lay the same units
+// the same way.
 
 import { Sprite, type Container } from 'pixi.js';
 import { GRID_CELL_PX, kitPiece, type CatalogEntry, type PathKit } from '../../assets/packCatalog';

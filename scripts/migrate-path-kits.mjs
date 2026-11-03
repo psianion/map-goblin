@@ -14,11 +14,9 @@
 //   GG_Paths_Props (scripts/install-paths-round4.mjs installs them);
 // - names the water fall as the water kit's `fall` piece;
 // - lays edge units at half their painted size (the kit's `scale`), spaced to cover about a
-//   third of their verge, the water bank at its own size, and adds the `cliff-foot` kit whose
-//   edge units are the rubble walked along a cliff's foot;
+//   third of their verge, and the water bank at its own size;
 // - gives kits their attached objects: trees (gg-demo's) along the dirt road's verge, reeds
-//   on a shore and lily pads on the water (moved off the water's edge units), rubble out past
-//   a cliff's foot;
+//   on a shore and lily pads on the water (moved off the water's edge units);
 // - removes every strip, edge and end entry, and the files only they used.
 //
 // Rerunnable: a pack with nothing left to migrate is left alone. Then rebuilds the pack
@@ -62,13 +60,6 @@ const KITS = {
     fill: 'trail-grass-fill',
     scale: 0.5,
     edge: [...both('dirt-grass-tuft', '1x1', 3, 0.65, 0.6), { key: unit('dirt-pebbles', 'A', '1x1'), weight: 1, spacing: 1, jitter: PI }],
-  },
-  // No fill: the outline is a cliff's foot line, walked with rubble.
-  'cliff-foot': {
-    kind: 'surface',
-    scale: 0.5,
-    edge: both('cliff-rubble', '1x1', 1, 0.7, PI),
-    objects: objects('cliff-rubble', '1x1', 1, 4, PI, 1),
   },
   planks: {
     kind: 'planks',

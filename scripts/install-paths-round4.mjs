@@ -247,7 +247,6 @@ const PATH_PIECES = [
 // [item, variants]. water-ripple B is left out: the gate passed it but it is nearly empty.
 // cliff-rock-flat failed the side-view check and is not here.
 const PROPS = [
-  ['cliff-rubble', ['A', 'B']],
   ['water-reeds', ['A', 'B']],
   ['water-lily-pads', ['A', 'B']],
   ['water-ripple', ['A']],

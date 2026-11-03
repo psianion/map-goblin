@@ -47,12 +47,11 @@ async function shippedPack(): Promise<PackManifest> {
 }
 
 describe('the shipped gg-forge pack', () => {
-  it('carries six kits and no strip, edge or end piece', async () => {
+  it('carries five kits and no strip, edge or end piece', async () => {
     const manifest = await shippedPack();
     resetAssetPackManager();
     seedPack('gg-forge', manifest.entries);
     expect(pathKits().map((k) => [k.set, k.kind])).toEqual([
-      ['cliff-foot', 'surface'],
       ['planks', 'planks'],
       ['road-cobble', 'surface'],
       ['road-dirt', 'surface'],
@@ -72,9 +71,9 @@ describe('the shipped gg-forge pack', () => {
     expect(Object.values(manifest.entries).filter((e) => ['strip', 'edge', 'end'].includes(e.pieceType))).toEqual([]);
   });
 
-  it('names the waterfall in the water kit, a minor version on from 1.12', async () => {
+  it('names the waterfall in the water kit, a minor version on from 1.13', async () => {
     const manifest = await shippedPack();
-    expect(manifest.version).toBe('1.13.0');
+    expect(manifest.version).toBe('1.14.0');
     resetAssetPackManager();
     seedPack('gg-forge', manifest.entries);
     const water = pathKit('gg-forge:water')!;

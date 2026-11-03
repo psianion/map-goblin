@@ -24,20 +24,6 @@ const manager = {
           outside_bend_2x2_A: object('outside_bend', '2x2', 'GG_Cave_Ink'),
           ledge_1x2_A: object('ledge', '1x2', 'GG_Cave_Ink'),
           ledge_1x4_A: object('ledge', '1x4', 'GG_Cave_Ink'),
-          'cliff-rubble_1x1_object_A': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
-          'cliff-rubble_1x1_object_B': object('cliff-rubble', '1x1', 'GG_Paths_Props', ['object']),
-          'cliff-foot-kit': {
-            type: 'kit',
-            material: 'cliff-foot',
-            gridSize: '1x1',
-            set: 'cliff-foot',
-            tags: ['path', 'kit'],
-            kit: {
-              kind: 'surface',
-              scale: 0.5,
-              edge: ['A', 'B'].map((v) => ({ key: `cliff-rubble_1x1_object_${v}`, weight: 1, spacing: 0.7, jitter: 3.14 })),
-            },
-          },
         },
       },
     },
@@ -63,13 +49,10 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
-import { cliffArt, cliffArtSetIds, cliffPieces, footUnits } from './plateauKit';
+import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
   CONTOUR_LINE,
-  FOOT_OUT,
-  FOOT_SPREAD,
   drawOpening,
-  layCliffFoot,
   faceLight,
   faceShade,
   renderPlateaus,
@@ -343,52 +326,27 @@ describe('every cliff ring is walked', () => {
   });
 });
 
-describe('the cliff foot', () => {
-  const units = () => footUnits().units;
-  const square: Polygon = [[5, 5], [11, 5], [11, 11], [5, 11]];
+describe('a cliff draws its ledge alone', () => {
+  const spritesIn = (c: Container): number =>
+    c.children.reduce((n, ch) => n + (ch instanceof Sprite ? 1 : ch instanceof Container ? spritesIn(ch) : 0), 0);
 
-  it('walks the foot kit’s rubble units at half their size', () => {
-    expect(units().map((u) => [u.key, u.size, u.scale])).toEqual([
-      ['cliff-rubble_1x1_object_A', 0.5, 0.5],
-      ['cliff-rubble_1x1_object_B', 0.5, 0.5],
-    ]);
+  it('lays one sprite per ledge placement and nothing else past it', () => {
+    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]);
+    const parent = new Container();
+    renderPlateaus(layer, new Container(), parent);
+    const ring = layerPlateaus(layer).bands[0].rings[0];
+    const placements = layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length;
+    expect(placements).toBeGreaterThan(3);
+    expect(spritesIn(parent)).toBe(placements);
   });
 
-  it('scatters rubble round a plateau and a round one, out on the void side of the ledge', () => {
-    const round: Polygon = Array.from({ length: 24 }, (_, i) => [20 + 4 * Math.cos((i / 24) * 2 * Math.PI), 20 + 4 * Math.sin((i / 24) * 2 * Math.PI)]);
-    expect(layCliffFoot(round, true, [], units(), 'r').length).toBeGreaterThan(20);
-    const placed = layCliffFoot(square, true, [], units(), 's');
-    expect(placed.length).toBeGreaterThan(20);
-    // Every unit of the square's foot sits outside the square, FOOT_OUT out give or take its spread.
-    for (const u of placed) {
-      const d = Math.hypot(Math.max(5 - u.x, 0, u.x - 11), Math.max(5 - u.y, 0, u.y - 11));
-      expect(d, `${u.x.toFixed(2)}, ${u.y.toFixed(2)}`).toBeGreaterThan(FOOT_OUT - FOOT_SPREAD - 0.15);
-      expect(d).toBeLessThan(FOOT_OUT + FOOT_SPREAD + 0.15);
-    }
-    // The same run lays the same rubble: seeded, so an unrelated edit leaves it be.
-    expect(layCliffFoot(square, true, [], units(), 's')).toEqual(placed);
-  });
-
-  it('draws the foot under the rock of every cliff, inside a pit', () => {
+  it('draws a pit with its ledge rock only, inside the rim', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), new Container(), parent);
     const band = parent.children[0] as Container;
-    const foot = band.children.find((c) => c.label === 'plateau-foot') as Container;
-    const sprites = foot.children.filter((c) => c instanceof Sprite);
-    expect(sprites.length).toBeGreaterThan(10);
-    for (const s of sprites) {
-      expect(s.position.x > 5 && s.position.x < 11 && s.position.y > 5 && s.position.y < 11).toBe(true);
-    }
-    const order = band.children.map((c) => c.label);
-    expect(order.indexOf('plateau-foot')).toBeLessThan(order.indexOf('plateau-cliff'));
-  });
-
-  it('parts the foot where an opening stands', () => {
-    const plain = layCliffFoot(square, true, [], units(), 's');
-    const cut = layCliffFoot(square, true, [{ wallId: 'opening:s', position: [8, 11], width: 2 }], units(), 's');
-    const near = (list: typeof plain) => list.filter((u) => Math.hypot(u.x - 8, u.y - 11.7) < 0.6).length;
-    expect(near(plain)).toBeGreaterThan(0);
-    expect(near(cut)).toBe(0);
+    const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
+    expect(rock.children.length).toBeGreaterThan(3);
+    expect(spritesIn(parent)).toBe(rock.children.length);
   });
 });
 

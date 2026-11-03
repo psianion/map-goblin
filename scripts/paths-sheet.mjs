@@ -45,7 +45,7 @@ const SCENARIOS = [
   { name: 'bridge-pit', map: 'plateau', title: 'Plank bridge over the pit, outcrop to far mesa', box: [1, 9, 13, 32], ref: 'canvasofkings-02-plot-tool-has-cliffs.jpg' },
   { name: 'river-fall', map: 'plateau', title: 'River off the outcrop: bank and fall', box: [0, 3, 11, 17], ref: 'canvasofkings-02-plot-tool-has-cliffs.jpg' },
   { name: 'lake', map: 'plateau', title: 'Lake: fill, bank, reeds and lily pads', box: [41, 17, 59, 32], ref: 'dungeondraft-02-smoothness-min.png' },
-  { name: 'outcrop', map: 'plateau', title: 'The +2 outcrop: rock, foot, lee shadow', box: [0.5, 1.5, 15.5, 13.5], ref: 'dungeondraft-03-cliff-grow-shrink.png' },
+  { name: 'outcrop', map: 'plateau', title: 'The +2 outcrop: rock and lee shadow', box: [0.5, 1.5, 15.5, 13.5], ref: 'dungeondraft-03-cliff-grow-shrink.png' },
   { name: 'hill', map: 'plateau', title: 'The +1 hill and +2 summit', box: [14, 1, 30, 15], ref: 'dungeondraft-04-stacked-cliffs.png' },
   { name: 'pit', map: 'plateau', title: 'The -2 pit: its rock falls inward', box: [2, 14, 14, 26], ref: 'dungeondraft-03-cliff-grow-shrink.png' },
   { name: 'terrain', map: 'plateau', title: 'A +1 plateau on terrain paint, the paint through its top', box: [18, 32, 36, 44], ref: 'canvasofkings-02-plot-tool-has-cliffs.jpg' },

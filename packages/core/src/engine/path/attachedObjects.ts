@@ -1,8 +1,7 @@
-// Attached objects: props a kit places along a path or a plot (a plateau's cliff), as
-// Canvas of Kings does: trees along a road's verge, reeds on a shore and lily pads on the
-// water, rubble out past a cliff's foot. They are real props (AssetChild with `attachedTo`),
-// laid by the same edge walk as a kit's units (pathKitLayout `edgeWalk`), seeded by the host's
-// id, kept clear of every edge unit, foot unit and other prop on the layer, and laid again
+// Attached objects: props a kit places along a path, as Canvas of Kings does: trees along a
+// road's verge, reeds on a shore and lily pads on the water. They are real props (AssetChild
+// with `attachedTo`), laid by the same edge walk as a kit's units (pathKitLayout `edgeWalk`),
+// seeded by the host's id, kept clear of every edge unit and other prop on the layer, and laid again
 // whenever the host is drawn or edited. Moving the host moves them, deleting it removes them,
 // and Detach turns them into plain props that stay where they are.
 //
@@ -12,19 +11,15 @@
 // (`subscribeToAttachedObjects`).
 
 import type { AssetChild, PathChild } from '../../shared/types';
-import type { DungeonLayer, Layer, PlateauChild } from '../../store/types';
+import type { DungeonLayer, Layer } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { useStore } from '../../store/store';
-import { GRID_CELL_PX, getCatalogEntry, pathKit, pathKits, type PathKit } from '../../assets/packCatalog';
+import { GRID_CELL_PX, getCatalogEntry, pathKit, type PathKit } from '../../assets/packCatalog';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import { pathOutline, pointInPath } from '../../geometry/pathGeometry';
-import { flattenRing } from '../../shared/bezier';
-import { pointInRing } from '../../shared/roomUtils';
 import { edgeWalk, type EdgeUnit, type UnitPlacement } from './pathKitLayout';
 import { kitEdgeUnits, paintedSize } from './kitUnits';
 import { groupOutline, groupPaths } from '../pathRenderer';
-import { CLIFF_FOOT_KIT } from '../plateauKit';
-import { FOOT_OUT, FOOT_SPREAD, layerFootUnits } from '../plateauRenderer';
 
 type Side = -1 | 0 | 1;
 
@@ -40,8 +35,6 @@ export interface ObjectUnit extends EdgeUnit {
 
 /** How far past a path's outline its objects stand clear of the edge units, cells. */
 const PATH_CLEAR = 0.3;
-/** How far past a cliff's foot band its objects stand, cells. */
-const FOOT_CLEAR = FOOT_OUT + FOOT_SPREAD + 0.3;
 
 /** The kit's objects the catalogue has art for. A key with a `pack:` prefix names another pack's entry. */
 export function kitObjects(kit: PathKit): ObjectUnit[] {
@@ -68,45 +61,34 @@ export function kitObjects(kit: PathKit): ObjectUnit[] {
   return out;
 }
 
-/** A host: a path, or a plateau whose cliffs take the cliff foot kit's objects. */
-type Host = { kind: 'path'; child: PathChild } | { kind: 'plateau'; child: PlateauChild };
+/** A host: a path whose kit names objects. */
+type Host = { kind: 'path'; child: PathChild };
 
-/** Whether a plateau is a plot whose cliff takes objects: raised or sunk, with a cliff edge. */
-const isPlot = (s: PlateauChild): boolean => !!s.height && s.edge === 'cliff';
-
-/** Every host on a layer, paths first, in child order. */
+/** Every host on a layer, in child order. */
 export function hostsOf(layer: DungeonLayer): Host[] {
   const out: Host[] = [];
   for (const c of layer.children) if (c.childType === 'path' && c.visible) out.push({ kind: 'path', child: c });
-  for (const c of layer.children) if (c.childType === 'plateau' && c.visible && isPlot(c)) out.push({ kind: 'plateau', child: c });
   return out;
 }
 
 function hostKit(host: Host): PathKit | undefined {
-  return host.kind === 'path' ? pathKit(host.child.materialId) : pathKits().find((k) => k.set === CLIFF_FOOT_KIT);
+  return pathKit(host.child.materialId);
 }
 
 /**
  * The lines a host's objects on `side` are walked along: the host's outline pushed `d` cells
- * away from it (out of a path, down off a plot), into it for side -1, the outline itself for
- * side 0. Each ring is pushed both ways and the way that lands on the asked side is kept, so
- * a moat's inner bank and a pit's rim come out right.
+ * out of it, into it for side -1, the outline itself for side 0. Each ring is pushed both
+ * ways and the way that lands on the asked side is kept, so a moat's inner bank comes out right.
  */
 function hostLines(host: Host, side: Side, d: number): Polygon[] {
-  const rings: Polygon[] =
-    host.kind === 'path'
-      ? pathOutline(host.child).filter((r) => r.length >= 3)
-      : [flattenRing(host.child.contours[0] ?? [], host.child.tangents?.[0])];
+  const rings: Polygon[] = pathOutline(host.child).filter((r) => r.length >= 3);
   if (side === 0) return rings;
-  // "Away" from a plot is its low side: out of a plateau, into a pit.
-  const outward = host.kind === 'path' || host.child.height > 0 ? side : -side;
-  const inside = (p: [number, number]) =>
-    host.kind === 'path' ? pointInPath(host.child, p) : pointInRing(p[0], p[1], rings[0]);
+  const inside = (p: [number, number]) => pointInPath(host.child, p);
   const out: Polygon[] = [];
   for (const ring of rings) {
     for (const sign of [1, -1]) {
       const pushed = clipper2Engine.inflate([ring], sign * d).filter((r) => r.length >= 3);
-      if (pushed.length > 0 && inside(pushed[0][0]) === outward < 0) {
+      if (pushed.length > 0 && inside(pushed[0][0]) === side < 0) {
         out.push(...pushed);
         break;
       }
@@ -145,7 +127,7 @@ function tOn(lines: readonly Polygon[], x: number, y: number): number {
   return best.t;
 }
 
-/** What stands on a layer before any objects: every path's edge units and every cliff's foot units. */
+/** What stands on a layer before any objects: every path's edge units. */
 export function layerUnits(layer: DungeonLayer): UnitPlacement[] {
   const out: UnitPlacement[] = [];
   const paths = layer.children.filter((c): c is PathChild => c.childType === 'path');
@@ -155,7 +137,6 @@ export function layerUnits(layer: DungeonLayer): UnitPlacement[] {
     const rings = groupOutline(group.paths);
     if (rings.length > 0) out.push(...edgeWalk(rings, kitEdgeUnits(kit).units, group.paths[0].id, group.paths));
   }
-  out.push(...layerFootUnits(layer));
   return out;
 }
 
@@ -186,8 +167,7 @@ export function layAttached(
     for (const side of [1, 0, -1] as const) {
       const units = objects.filter((o) => o.side === side);
       if (units.length === 0) continue;
-      const clear = host.kind === 'path' ? PATH_CLEAR : FOOT_CLEAR;
-      const d = side === 0 ? 0 : clear + Math.max(...units.map((u) => u.size)) / 2;
+      const d = side === 0 ? 0 : PATH_CLEAR + Math.max(...units.map((u) => u.size)) / 2;
       const lines = hostLines(host, side, d);
       const laid = edgeWalk(lines, units, `${host.child.id}|${side}`, [], { avoid });
       for (const u of laid) {

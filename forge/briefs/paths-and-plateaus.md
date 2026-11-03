@@ -52,7 +52,6 @@ between them: paint a unit as a single cluster, not a carpet.
 | `trail-grass` | fill `trail-grass-fill`; edge grass tufts, pebbles |
 | `planks` | cross planks and broken planks (2x1); rail post; rope; end short plank |
 | `water` | fill `water-fill`; band bank stones (2x1, 4x1); edge ripples; objects reeds (on the shore), lily pads (on the water); fall `water-fall` |
-| `cliff-foot` | edge cliff rubble (laid half a cell across past a cliff's ledge, tinted to the ledge's grey); objects larger rubble further out |
 
 ## 2. What to paint next
 
@@ -64,11 +63,9 @@ between them: paint a unit as a single cluster, not a carpet.
    pebbles, puddles and ripples, which read too dark at half a cell.
 3. **Bank straights** for water, 2x1 and 4x1: a narrow band (under one cell) of stones and
    gravel whose two short ends cut cleanly so straights chain end to end.
-4. **Cliff foot rubble**, 1x1, 4 variants: loose stones in the ledge's own grey (no blue or
-   purple cast), small enough to read at half a cell.
-5. **Objects**: bushes and small trees in the forge's own style for the road verge (gg-demo's
+4. **Objects**: bushes and small trees in the forge's own style for the road verge (gg-demo's
    stand in), reeds and lily pads (round 4 stand in).
-6. Later kits follow the same table: `lava`, `poison`, `ice`, `mud`. A material without
+5. Later kits follow the same table: `lava`, `poison`, `ice`, `mud`. A material without
    `fill` cannot be a pool; without `fall` it ends at a cliff with a cut.
 
 ## 3. Floors
@@ -96,8 +93,8 @@ chord between them and the turn. **The joints must sit where the band's edge mee
 edge**, the same distance from the void side on every piece, so pieces meet without a step,
 and the band's thickness must be the same on every piece.
 
-Past the ledge the engine walks the `cliff-foot` kit's rubble, casts a soft lee shadow as long
-as the drop, and shades each rock face from the sun. A slope is drawn, not painted: an ink
+Past the ledge the engine casts a soft lee shadow as long as the drop, and shades each rock
+face from the sun. A slope is drawn, not painted: an ink
 contour ring per cell of drop and a shade that deepens ring by ring away from the sun.
 
 ## 5. Openings: stairs, ramps, ladders
@@ -120,7 +117,7 @@ bottom at the low side**. The art's width runs along the cliff edge.
 ## 6. Order of work
 
 1. Fill tiles for `road-dirt`, `road-cobble`, `trail-grass`, `water`.
-2. Edge units for the three roads, water bank straights, cliff foot rubble.
+2. Edge units for the three roads, water bank straights.
 3. Verge and shore objects.
 4. Openings.
 5. `lava`, `poison`, `ice`, `mud`.

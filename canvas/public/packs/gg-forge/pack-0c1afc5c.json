@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1313,56 +1313,6 @@
         "cave",
         "stone"
       ]
-    },
-    "cliff-rubble_1x1_object_A": {
-      "type": "object",
-      "material": "cliff-rubble",
-      "gridSize": "1x1",
-      "pieceType": "object",
-      "variant": "A",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "contentRect": {
-        "x": 10,
-        "y": 12,
-        "w": 180,
-        "h": 176
-      },
-      "set": "GG_Paths_Props",
-      "tags": [
-        "path-prop",
-        "cliff"
-      ],
-      "family": "cliff-rubble"
-    },
-    "cliff-rubble_1x1_object_B": {
-      "type": "object",
-      "material": "cliff-rubble",
-      "gridSize": "1x1",
-      "pieceType": "object",
-      "variant": "B",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "contentRect": {
-        "x": 15,
-        "y": 10,
-        "w": 170,
-        "h": 180
-      },
-      "set": "GG_Paths_Props",
-      "tags": [
-        "path-prop",
-        "cliff"
-      ],
-      "family": "cliff-rubble"
     },
     "dirt-cobbles_1x1_object_A": {
       "type": "object",
@@ -2980,52 +2930,6 @@
           }
         ]
       }
-    },
-    "cliff-foot-kit": {
-      "type": "kit",
-      "material": "cliff-foot",
-      "gridSize": "1x1",
-      "pieceType": "kit",
-      "variant": "A",
-      "set": "cliff-foot",
-      "tags": [
-        "path",
-        "kit"
-      ],
-      "kit": {
-        "kind": "surface",
-        "edge": [
-          {
-            "key": "cliff-rubble_1x1_object_A",
-            "weight": 1,
-            "spacing": 0.7,
-            "jitter": 3.14
-          },
-          {
-            "key": "cliff-rubble_1x1_object_B",
-            "weight": 1,
-            "spacing": 0.7,
-            "jitter": 3.14
-          }
-        ],
-        "scale": 0.5,
-        "objects": [
-          {
-            "key": "cliff-rubble_1x1_object_A",
-            "weight": 1,
-            "spacing": 4,
-            "jitter": 3.14,
-            "side": 1
-          },
-          {
-            "key": "cliff-rubble_1x1_object_B",
-            "weight": 1,
-            "spacing": 4,
-            "jitter": 3.14,
-            "side": 1
-          }
-        ]
-      }
     }
   },
   "atlases": {
@@ -3062,14 +2966,6 @@
     "cave_floor_8x8_A-2afd5eb3.webp": {
       "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
       "size": 160988
-    },
-    "cliff-rubble_1x1_A-1145829e.webp": {
-      "checksum": "sha256:1145829e7ec0da8aa902ce03552c5ad3a1f039f139318e32c6d59cdc6ad87d88",
-      "size": 16020
-    },
-    "cliff-rubble_1x1_B-2a723928.webp": {
-      "checksum": "sha256:2a723928f4d5741e1547d9a489314e02cbad72f248653baa789528d180554d33",
-      "size": 17304
     },
     "dirt-cobbles_1x1_A-e323af7c.webp": {
       "checksum": "sha256:e323af7cf8699f847992cc35c82d63e7f64eab6533a2ec3ace06c692176aa39b",
@@ -3336,5 +3232,5 @@
       "size": 10082
     }
   },
-  "bundleSize": 1663508
+  "bundleSize": 1630184
 }

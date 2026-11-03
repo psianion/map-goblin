@@ -1,6 +1,5 @@
 // The look of the units the shipped pack lays, measured on the pack itself: the road verge
-// and the cliff foot are laid at half a cell, spaced to cover a third or so of their band,
-// and the foot stays a narrow band just out past the ledge, tinted the ledge's own grey.
+// is laid at half a cell, spaced to cover a third or so of its band.
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,8 +20,6 @@ vi.mock('../assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 import { pathKits } from '../../assets/packCatalog';
 import { kitEdgeUnits } from './kitUnits';
 import { edgeWalk, type UnitPlacement } from './pathKitLayout';
-import { footUnits } from '../plateauKit';
-import { FOOT_OUT, LEDGE_DEPTH, greyMatch, layCliffFoot } from '../plateauRenderer';
 import type { Polygon } from '../../types/geometry';
 
 /** How much of a band the units' footprints (discs `size` across) cover, sampled on a fine grid. */
@@ -49,8 +46,8 @@ const kitOf = (set: string) => {
 };
 
 describe('unit scale', () => {
-  it('lays every road verge unit and every foot rubble unit at 0.4 to 0.6 of a cell', () => {
-    for (const set of [...ROADS, 'cliff-foot']) {
+  it('lays every road verge unit at 0.4 to 0.6 of a cell', () => {
+    for (const set of ROADS) {
       const { units } = kitEdgeUnits(kitOf(set));
       expect(units.length, set).toBeGreaterThan(0);
       for (const u of units) {
@@ -75,55 +72,5 @@ describe('the road verge', () => {
     const c = coverage(laid, band, [3, -0.3, 37, 3.3]);
     expect(c).toBeGreaterThanOrEqual(0.3);
     expect(c).toBeLessThanOrEqual(0.45);
-  });
-});
-
-describe('the cliff foot', () => {
-  // A 20-cell square plateau; the walk runs with the void (outside) on its left.
-  const square: Polygon = [[0, 0], [20, 0], [20, 20], [0, 20]];
-  const outside = (x: number, y: number) => {
-    const dx = Math.max(0 - x, 0, x - 20);
-    const dy = Math.max(0 - y, 0, y - 20);
-    return Math.hypot(dx, dy);
-  };
-
-  it('covers 30 to 45 % of a band just out past the ledge, and reaches under 0.7 cell past it', () => {
-    const laid = layCliffFoot(square, true, [], footUnits().units, 'foot');
-    expect(laid.length).toBeGreaterThan(40);
-    // The band: from the ledge rock's edge out 0.6 cell, along the four sides away from the corners.
-    const inBand = (x: number, y: number) => {
-      const d = outside(x, y);
-      const corner = (x < 1 || x > 19) && (y < 1 || y > 19);
-      return !corner && d >= LEDGE_DEPTH && d <= LEDGE_DEPTH + 0.6;
-    };
-    const c = coverage(laid, inBand, [-1.2, -1.2, 21.2, 21.2]);
-    expect(c).toBeGreaterThanOrEqual(0.3);
-    expect(c).toBeLessThanOrEqual(0.45);
-    const reach = Math.max(...laid.map((u) => outside(u.x, u.y) + u.size / 2));
-    expect(reach - LEDGE_DEPTH).toBeLessThan(0.7);
-    // Every unit lies out on the void side, centred near FOOT_OUT.
-    for (const u of laid) expect(outside(u.x, u.y)).toBeGreaterThan(FOOT_OUT - 0.2);
-  });
-});
-
-describe('the foot tint', () => {
-  const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-  const tinted = (art: number, tint: number) => rgb(art).map((v, i) => (v * rgb(tint)[i]) / 255);
-
-  it('brings bluish rubble to the ledge grey: no blue or purple cast left', () => {
-    // The shipped art's mean colours: ledge (65, 65, 65), rubble B (94, 95, 102).
-    const ledge = 0x414141;
-    for (const rubble of [0x5e5f66, 0x5b5c5e, 0x6a5a78]) {
-      const [r, g, b] = tinted(rubble, greyMatch(ledge, rubble));
-      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThanOrEqual(2);
-      expect(b - r).toBeLessThanOrEqual(1);
-      expect((r + g + b) / 3).toBeGreaterThan(55);
-      expect((r + g + b) / 3).toBeLessThanOrEqual(66);
-    }
-  });
-
-  it('leaves the art alone when a colour is unknown', () => {
-    expect(greyMatch(null, 0x5e5f66)).toBe(0xffffff);
-    expect(greyMatch(0x414141, null)).toBe(0xffffff);
   });
 });

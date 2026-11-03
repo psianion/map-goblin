@@ -5,7 +5,7 @@
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
 import { shapeRing } from './plateaus';
 
-/** How far past its ring a raised cliff's ledge and foot rubble reach, cells. */
+/** How far past its ring a raised cliff's ledge reaches, cells. */
 const CLIFF_REACH = 1.2;
 
 export interface WorldBounds {

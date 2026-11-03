@@ -1,4 +1,4 @@
-// Side-by-side sheet of the cliff look: plateau-test's scenario 2 (the +2 outcrop, rock, foot
+// Side-by-side sheet of the cliff look: plateau-test's scenario 2 (the +2 outcrop, rock
 // and lee shadow) and scenario 3 (the +1 hill's contoured slope round the +2 summit), each
 // next to a reference picture of the look it is held to.
 //

@@ -1,4 +1,4 @@
-// Attached objects: props a kit places along a path or a plot, laid on draw, laid again on
+// Attached objects: props a kit places along a path, laid on draw, laid again on
 // every edit of the host, gone with it, and let go of by Detach or by a hand that moves one.
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { BufferImageSource, Texture } from 'pixi.js';
@@ -33,13 +33,6 @@ const manager = {
               { key: 'water-reeds_1x1_object_A', weight: 1, spacing: 2.5, jitter: 0.5, side: 0 },
               { key: 'water-lily-pads_1x1_object_A', weight: 1, spacing: 3, jitter: 3.14, side: -1 },
             ],
-          }),
-          'cliff-rubble_1x1_object_A': obj('cliff-rubble', '1x1', 'GG_Paths_Props'),
-          'cliff-foot-kit': kit('cliff-foot', {
-            kind: 'surface',
-            scale: 0.5,
-            edge: [{ key: 'cliff-rubble_1x1_object_A', weight: 1, spacing: 0.7, jitter: 3.14 }],
-            objects: [{ key: 'cliff-rubble_1x1_object_A', weight: 1, spacing: 3, jitter: 3.14, side: 1 }],
           }),
         },
       },
@@ -188,16 +181,10 @@ describe('layAttached', () => {
     }
   });
 
-  it('scatters rubble past a plateau’s cliff foot, on its low side', () => {
-    const laid = layAttached(layerOf([plateau('p')]), new Set(['p']), []);
-    expect(laid.length).toBeGreaterThan(5);
-    for (const a of laid) {
-      expect(a.attachedTo).toMatchObject({ kind: 'plateau', id: 'p', side: 1 });
-      const { x, y } = a.position;
-      const out = Math.hypot(Math.max(0 - x, 0, x - 12), Math.max(20 - y, 0, y - 30));
-      // Beyond the foot band (it reaches about 1.05 cells out).
-      expect(out).toBeGreaterThan(1.2);
-    }
+  it('lays nothing along a plateau: only paths host objects', () => {
+    const layer = layerOf([plateau('p')]);
+    expect(layAttached(layer, new Set(['p']), [])).toEqual([]);
+    expect(layerUnits(layer)).toEqual([]);
   });
 });
 
