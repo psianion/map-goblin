@@ -93,23 +93,18 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  * digest. Nothing does today — every write goes through useStore.setState. If
  * one appears, key the cache on a version counter instead.
  */
-/** A floor's height and edge kind: they decide which band it joins and whether its ring is a wall. */
-function plateauShapeDigest(c: ShapeChild): string {
-  return c.height || c.edge ? `${c.height ?? 0}/${c.edge ?? ''}` : '';
-}
-
 /**
- * Everything else about plateaus the scene draws or sweeps: each raised floor's cliff art,
- * slope width, contour lines, sight override and crossing, every opening on a ring, and
- * where each bridge's ends land.
+ * Everything about plateaus the scene draws or sweeps: each plateau's rings, height, edge,
+ * cliff art, slope width, contour lines, sight override and crossing, every opening on a ring,
+ * and where each bridge's ends land.
  */
 function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
   for (const c of children) {
-    if (c.childType === 'shape' && (c.height || c.edge)) {
-      key += `${c.id}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+    if (c.childType === 'plateau') {
+      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
     } else if (c.childType === 'opening') {
-      key += `${c.id}:${c.visible}:${c.kind}:${c.shapeId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
+      key += `${c.id}:${c.visible}:${c.kind}:${c.hostId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
     } else if (c.childType === 'path' && c.sort === 'overhead' && c.points.length >= 2) {
       // A bridge's ends open a landing in the rings they rest on (landingGaps).
       const a = c.points[0];
@@ -520,7 +515,7 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             // styleOverrides too: a per-shape floor colour is painted by this bake,
             // and leaving it out meant setting one changed the store and nothing else.
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${plateauShapeDigest(c)}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no
@@ -529,7 +524,7 @@ export function subscribeToStore(
           // every room on every pointermove.
           shapeGeometryKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${plateauShapeDigest(c)}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}`)
             .join(','),
           // Door GEOMETRY (id/visible/width/position/wallId) — a change here
           // still needs the full rebuild below because withoutDoorGaps

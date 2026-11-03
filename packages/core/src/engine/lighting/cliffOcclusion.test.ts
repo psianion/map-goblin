@@ -7,7 +7,7 @@ import { setClipperModule } from '../../geometry/Clipper2Engine'
 import { extractWallSegments, type Segment } from './raycaster'
 import { clockwiseSweep } from './ClockwiseSweep'
 import type { DungeonLayer, ShapeChild, WallSegment } from '../../store/types'
-import type { OpeningChild } from '../../shared/types'
+import type { OpeningChild, PlateauChild } from '../../shared/types'
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string)
@@ -35,6 +35,19 @@ function rect(id: string, x0: number, y0: number, x1: number, y1: number, extra:
   }
 }
 
+function plat(id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<PlateauChild> = {}): PlateauChild {
+  return {
+    id,
+    name: id,
+    childType: 'plateau',
+    visible: true,
+    contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+    height: 1,
+    edge: 'cliff',
+    ...extra,
+  };
+}
+
 const layerOf = (children: unknown[], walls: WallSegment[] = []): DungeonLayer =>
   ({ type: 'dungeon', children, standaloneWalls: walls, mergedFloor: null }) as unknown as DungeonLayer
 
@@ -52,7 +65,7 @@ const sees = (segs: Segment[], from: [number, number], to: [number, number]) =>
   inside(to[0], to[1], clockwiseSweep(from, 30, segs).map((v) => v.point))
 
 const ground = rect('ground', 0, 0, 30, 30)
-const plateau = (extra: Partial<ShapeChild> = {}) => rect('top', 10, 10, 14, 14, { height: 2, edge: 'cliff', ...extra })
+const plateau = (extra: Partial<PlateauChild> = {}) => plat('top', 10, 10, 14, 14, { height: 2, edge: 'cliff', ...extra })
 
 describe('cliffs as one-way occluders', () => {
   it('a ray from the low side stops at the cliff; from the high side it passes', () => {
@@ -66,7 +79,7 @@ describe('cliffs as one-way occluders', () => {
   })
 
   it('a pit hides from its own floor, not from the rim above', () => {
-    const pit = rect('pit', 10, 10, 14, 14, { height: -2, edge: 'cliff' })
+    const pit = plat('pit', 10, 10, 14, 14, { height: -2, edge: 'cliff' })
     const segs = extractWallSegments([layerOf([ground, pit])], 'sight')
     expect(sees(segs, [12, 12], [20, 12])).toBe(false)
     expect(sees(segs, [20, 12], [12, 12])).toBe(true)
@@ -88,7 +101,7 @@ describe('cliffs as one-way occluders', () => {
   it('never blocks through an opening', () => {
     // Stairs on the west edge, centred at (10, 12): the outline runs (10,10)→(14,10)→(14,14)→(10,14),
     // so (10, 12) sits at 14/16 of the way round.
-    const stairs: OpeningChild = { id: 's', name: 's', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 14 / 16, width: 2 }
+    const stairs: OpeningChild = { id: 's', name: 's', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 }
     const segs = extractWallSegments([layerOf([ground, plateau(), stairs])], 'sight')
     expect(sees(segs, [5, 12], [12, 12])).toBe(true)
     expect(sees(segs, [5, 12], [12, 10.5])).toBe(false)

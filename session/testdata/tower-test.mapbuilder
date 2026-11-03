@@ -1,5 +1,5 @@
 {
-  "version": "3.2",
+  "version": "3.3",
   "mapSettings": {
     "name": "Tower Test",
     "cellScale": {
@@ -128,11 +128,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 1,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#a59a83"
           }
+        },
+        {
+          "id": "cellar-dais-plateau",
+          "name": "Cellar dais",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                14,
+                10
+              ],
+              [
+                17,
+                10
+              ],
+              [
+                17,
+                13
+              ],
+              [
+                14,
+                13
+              ]
+            ]
+          ],
+          "height": 1,
+          "edge": "cliff"
         }
       ],
       "standaloneWalls": [],
@@ -239,11 +265,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 1,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#93a46c"
           }
+        },
+        {
+          "id": "mound-plateau",
+          "name": "Tower mound",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                8,
+                4
+              ],
+              [
+                24,
+                4
+              ],
+              [
+                24,
+                20
+              ],
+              [
+                8,
+                20
+              ]
+            ]
+          ],
+          "height": 1,
+          "edge": "cliff"
         },
         {
           "id": "mound-stairs",
@@ -251,9 +303,9 @@
           "childType": "opening",
           "visible": true,
           "kind": "stairs",
-          "shapeId": "mound",
           "t": 0.625,
-          "width": 2
+          "width": 2,
+          "hostId": "mound-plateau"
         },
         {
           "id": "tower-door",
@@ -315,7 +367,6 @@
           "wallType": "normal",
           "direction": "both",
           "color": "#000000",
-          "width": 0.5,
           "roughness": 0
         }
       ],

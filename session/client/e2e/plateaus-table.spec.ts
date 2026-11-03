@@ -153,7 +153,7 @@ test.describe.serial('@plateaus', () => {
   })
 
   test('the DM changes the cliff’s rule live, and the stairs are a free way down', async () => {
-    await command(dm, 'crossings', 'set-edge', { targetId: 'floor-mesa', crossingId: 'free' })
+    await command(dm, 'crossings', 'set-edge', { targetId: 'floor-mesa-plateau', crossingId: 'free' })
     await player.waitForTimeout(500)
     await drag(player, [10.5, 5.5], [4.5, 5.5])
     await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(4.5)

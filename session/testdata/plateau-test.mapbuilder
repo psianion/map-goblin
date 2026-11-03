@@ -1,5 +1,5 @@
 {
-  "version": "3.2",
+  "version": "3.3",
   "mapSettings": {
     "name": "Plateau Test",
     "cellScale": {
@@ -128,11 +128,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 2,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#a59a83"
           }
+        },
+        {
+          "id": "outcrop-plateau",
+          "name": "Rock outcrop",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                4,
+                4
+              ],
+              [
+                12,
+                4
+              ],
+              [
+                12,
+                11
+              ],
+              [
+                4,
+                11
+              ]
+            ]
+          ],
+          "height": 2,
+          "edge": "cliff"
         },
         {
           "id": "outcrop-stairs",
@@ -140,9 +166,9 @@
           "childType": "opening",
           "visible": true,
           "kind": "stairs",
-          "shapeId": "outcrop",
           "t": 0.38333333333333336,
-          "width": 2
+          "width": 2,
+          "hostId": "outcrop-plateau"
         },
         {
           "id": "hill",
@@ -175,11 +201,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 1,
-          "edge": "slope",
           "styleOverrides": {
             "floorColor": "#86a362"
           }
+        },
+        {
+          "id": "hill-plateau",
+          "name": "Hill",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                16,
+                3
+              ],
+              [
+                28,
+                3
+              ],
+              [
+                28,
+                13
+              ],
+              [
+                16,
+                13
+              ]
+            ]
+          ],
+          "height": 1,
+          "edge": "slope"
         },
         {
           "id": "summit",
@@ -212,11 +264,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 2,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#94ad70"
           }
+        },
+        {
+          "id": "summit-plateau",
+          "name": "Hill summit",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                20,
+                6
+              ],
+              [
+                24,
+                6
+              ],
+              [
+                24,
+                10
+              ],
+              [
+                20,
+                10
+              ]
+            ]
+          ],
+          "height": 2,
+          "edge": "cliff"
         },
         {
           "id": "pit",
@@ -249,11 +327,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": -2,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#6f6250"
           }
+        },
+        {
+          "id": "pit-plateau",
+          "name": "Pit",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                5,
+                17
+              ],
+              [
+                11,
+                17
+              ],
+              [
+                11,
+                23
+              ],
+              [
+                5,
+                23
+              ]
+            ]
+          ],
+          "height": -2,
+          "edge": "cliff"
         },
         {
           "id": "far-mesa",
@@ -286,11 +390,37 @@
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "height": 3,
-          "edge": "cliff",
           "styleOverrides": {
             "floorColor": "#a59a83"
           }
+        },
+        {
+          "id": "far-mesa-plateau",
+          "name": "Far mesa",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                4,
+                26
+              ],
+              [
+                12,
+                26
+              ],
+              [
+                12,
+                31
+              ],
+              [
+                4,
+                31
+              ]
+            ]
+          ],
+          "height": 3,
+          "edge": "cliff"
         },
         {
           "id": "cobble-road",

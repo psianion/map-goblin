@@ -1,4 +1,4 @@
-// Format 3.2 at the table: a map with a plateau, stairs and the DM's own crossing kinds goes up,
+// Format 3.3 at the table: a map with a plateau, stairs and the DM's own crossing kinds goes up,
 // comes back whole to the DM and to a player (the note included: the chip shows it), and the
 // tokens module's ground reads its heights and blocking edges.
 import { describe, expect, it } from 'vitest'
@@ -22,6 +22,17 @@ const rect = (id: string, x0: number, y0: number, x1: number, y1: number, extra:
   ...extra,
 })
 
+const plat = (id: string, x0: number, y0: number, x1: number, y1: number, extra: Record<string, unknown> = {}) => ({
+  id,
+  name: id,
+  childType: 'plateau',
+  visible: true,
+  contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+  height: 1,
+  edge: 'cliff',
+  ...extra,
+})
+
 const KINDS = [
   { id: 'free', name: 'Free', blocks: false },
   { id: 'climb', name: 'Climb', note: 'DC 15 Athletics', blocks: false },
@@ -29,7 +40,7 @@ const KINDS = [
 ]
 
 const MAP = {
-  version: '3.2',
+  version: '3.3',
   mapSettings: {
     name: 'Mesa',
     cellScale: { value: 5, unit: 'ft' },
@@ -48,8 +59,8 @@ const MAP = {
       opacity: 1,
       children: [
         rect('ground', 0, 0, 30, 30),
-        rect('mesa', 10, 10, 14, 14, { height: 3, edge: 'cliff', crossingId: 'rope', sightOverride: 'hide' }),
-        { id: 'st', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'mesa', t: 0.875, width: 2 },
+        plat('mesa', 10, 10, 14, 14, { height: 3, edge: 'cliff', crossingId: 'rope', sightOverride: 'hide' }),
+        { id: 'st', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'mesa', t: 0.875, width: 2 },
       ],
       standaloneWalls: [],
       rooms: [],
@@ -74,7 +85,7 @@ async function api(base: string, method: string, path: string, token?: string, r
 
 type Doc = typeof MAP
 
-describe('format 3.2 round trip', () => {
+describe('format 3.3 round trip', () => {
   it('keeps plateaus, openings, the sight threshold and the crossing kinds for the DM and the players', async () => {
     const server = await startServer({ port: 0, trustedPort: 0, heartbeatMs: 60_000, dbPath: ':memory:' })
     try {
@@ -88,12 +99,12 @@ describe('format 3.2 round trip', () => {
       const sceneId = uploaded.body.sceneId as string
 
       const dmMap = JSON.parse((await api(base, 'GET', `/api/maps/${sceneId}`, dmToken)).text) as Doc
-      expect(dmMap.version).toBe('3.2')
+      expect(dmMap.version).toBe('3.3')
       expect(dmMap.mapSettings.sightDropCells).toBe(3)
       expect(dmMap.mapSettings.crossingKinds).toEqual(KINDS)
       const dmChildren = dmMap.layers[0].children
       expect(dmChildren.find((c) => c.id === 'mesa')).toMatchObject({ height: 3, edge: 'cliff', crossingId: 'rope' })
-      expect(dmChildren.find((c) => c.id === 'st')).toMatchObject({ childType: 'opening', shapeId: 'mesa', t: 0.875 })
+      expect(dmChildren.find((c) => c.id === 'st')).toMatchObject({ childType: 'opening', hostId: 'mesa', t: 0.875 })
 
       await api(base, 'PATCH', `/api/scenes/${sceneId}`, dmToken, JSON.stringify({ visibleToPlayers: true }))
       const started = await api(base, 'POST', '/api/sessions', dmToken, JSON.stringify({ campaignId, sceneId }))
@@ -102,6 +113,8 @@ describe('format 3.2 round trip', () => {
       // The chip a player's drag shows names the kind and the DM's note, so both travel.
       expect(playerMap.mapSettings.crossingKinds).toEqual(KINDS)
       expect(playerMap.layers[0].children.some((c) => c.id === 'st')).toBe(true)
+      // Plateaus are relief: they ship whole, so a player reads the heights the DM does.
+      expect(playerMap.layers[0].children.find((c) => c.id === 'mesa')).toMatchObject({ childType: 'plateau', height: 3 })
     } finally {
       await server.close()
     }
@@ -165,9 +178,9 @@ describe('a bridge at the table', () => {
         ...MAP.layers[0],
         children: [
           rect('ground', 0, 0, 40, 40),
-          rect('outcrop', 4, 4, 12, 11, { height: 2, ...cliff }),
-          rect('pit', 5, 17, 11, 23, { height: -2, ...cliff }),
-          rect('far-mesa', 4, 26, 12, 31, { height: 3, ...cliff }),
+          plat('outcrop', 4, 4, 12, 11, { height: 2, ...cliff }),
+          plat('pit', 5, 17, 11, 23, { height: -2, ...cliff }),
+          plat('far-mesa', 4, 26, 12, 31, { height: 3, ...cliff }),
           bridge,
         ],
       },

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import type { DungeonLayer, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import {
   edgeHides,
   edgeRuns,
@@ -15,7 +15,6 @@ import {
   elevationAt,
   elevationAtLayers,
   hiddenTops,
-  uncoveredRuns,
   landingGaps,
   ringGaps,
   cliffOccluders,
@@ -50,13 +49,26 @@ function rect(id: string, x0: number, y0: number, x1: number, y1: number, extra:
   };
 }
 
-const layerOf = (children: ShapeChild[]) => ({ children }) as unknown as DungeonLayer;
+function plat(id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<PlateauChild> = {}): PlateauChild {
+  return {
+    id,
+    name: id,
+    childType: 'plateau',
+    visible: true,
+    contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+    height: 1,
+    edge: 'cliff',
+    ...extra,
+  };
+}
+
+const layerOf = (children: readonly unknown[]) => ({ children }) as unknown as DungeonLayer;
 
 describe('plateau chains', () => {
-  it('nests a raised floor inside the smallest raised floor holding its centroid', () => {
-    const hill = rect('hill', 0, 0, 20, 20, { height: 1, edge: 'slope' });
-    const big = rect('big', -5, -5, 30, 30, { height: 1, edge: 'cliff' });
-    const summit = rect('summit', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
+  it('nests a plateau inside the smallest raised plateau holding its centroid', () => {
+    const hill = plat('hill', 0, 0, 20, 20, { height: 1, edge: 'slope' });
+    const big = plat('big', -5, -5, 30, 30, { height: 1, edge: 'cliff' });
+    const summit = plat('summit', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
     const infos = plateauChains([big, hill, summit]);
     expect(infos.get('summit')!.parent?.id).toBe('hill');
     expect(infos.get('hill')!.parent?.id).toBe('big');
@@ -65,34 +77,34 @@ describe('plateau chains', () => {
   });
 
   it('adds heights along the chain: +2 on +1 reads 3', () => {
-    const hill = rect('hill', 0, 0, 20, 20, { height: 1, edge: 'slope' });
-    const summit = rect('summit', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
+    const hill = plat('hill', 0, 0, 20, 20, { height: 1, edge: 'slope' });
+    const summit = plat('summit', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
     const infos = plateauChains([hill, summit]);
     expect(infos.get('hill')!.height).toBe(1);
     expect(infos.get('summit')!.height).toBe(3);
   });
 
-  it('carries a floor with no height of its own up to its plateau', () => {
-    const top = rect('top', 0, 0, 10, 10, { height: 2, edge: 'cliff' });
-    const patch = rect('patch', 2, 2, 4, 4);
-    const ground = rect('ground', -10, -10, 30, 30);
+  it('carries a plateau with no height of its own up to its parent', () => {
+    const top = plat('top', 0, 0, 10, 10, { height: 2, edge: 'cliff' });
+    const patch = plat('patch', 2, 2, 4, 4, { height: 0 });
+    const ground = plat('ground', -10, -10, 30, 30, { height: 0 });
     const infos = plateauChains([ground, top, patch]);
     expect(infos.get('patch')!.height).toBe(2);
     expect(infos.get('ground')!.height).toBe(0);
     expect(infos.get('ground')!.chain).toEqual([]);
   });
 
-  it('never takes a smaller floor, or a floor with no height, as a parent', () => {
-    const small = rect('small', 4, 4, 6, 6, { height: 3 });
-    const big = rect('big', 0, 0, 10, 10);
+  it('never takes a smaller plateau, or one with no height, as a parent', () => {
+    const small = plat('small', 4, 4, 6, 6, { height: 3 });
+    const big = plat('big', 0, 0, 10, 10, { height: 0 });
     const infos = plateauChains([small, big]);
     expect(infos.get('big')!.parent).toBeNull();
     expect(infos.get('small')!.parent).toBeNull();
   });
 
   it('breaks an equal-area tie by draw order, so two copies never parent each other', () => {
-    const a = rect('a', 0, 0, 4, 4, { height: 1 });
-    const b = rect('b', 0, 0, 4, 4, { height: 1 });
+    const a = plat('a', 0, 0, 4, 4, { height: 1 });
+    const b = plat('b', 0, 0, 4, 4, { height: 1 });
     const infos = plateauChains([a, b]);
     expect(infos.get('a')!.parent).toBeNull();
     expect(infos.get('b')!.parent?.id).toBe('a');
@@ -103,20 +115,20 @@ describe('plateau chains', () => {
 describe('bands and drops', () => {
   const ground = rect('ground', 0, 0, 30, 30);
 
-  it('merges floors of equal absolute height into one band and keeps the ground apart', () => {
-    const a = rect('a', 2, 2, 8, 8, { height: 2, edge: 'cliff' });
-    const b = rect('b', 6, 2, 12, 8, { height: 2, edge: 'cliff' });
-    const c = rect('c', 20, 20, 24, 24, { height: 1, edge: 'cliff' });
+  it('merges plateaus of equal absolute height into one band and leaves floors out', () => {
+    const a = plat('a', 2, 2, 8, 8, { height: 2, edge: 'cliff' });
+    const b = plat('b', 6, 2, 12, 8, { height: 2, edge: 'cliff' });
+    const c = plat('c', 20, 20, 24, 24, { height: 1, edge: 'cliff' });
     const p = layerPlateaus(layerOf([ground, a, b, c]));
-    expect(p.ground.map((s) => s.id)).toEqual(['ground']);
+    expect(p.infos.has('ground')).toBe(false);
     expect(p.bands.map((band) => band.height)).toEqual([1, 2]);
     expect(p.bands[1].rings).toHaveLength(1);
     expect(p.bands[1].shapes.map((s) => s.id)).toEqual(['a', 'b']);
   });
 
   it('a plateau drops outward (positive), a pit inward (negative)', () => {
-    const top = rect('top', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
-    const pit = rect('pit', 15, 15, 20, 20, { height: -3, edge: 'cliff' });
+    const top = plat('top', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
+    const pit = plat('pit', 15, 15, 20, 20, { height: -3, edge: 'cliff' });
     const p = layerPlateaus(layerOf([ground, top, pit]));
     const drops = (h: number) => p.bands.find((b) => b.height === h)!.edges.flat().map((e) => e.drop);
     expect(new Set(drops(2))).toEqual(new Set([2]));
@@ -124,23 +136,23 @@ describe('bands and drops', () => {
   });
 
   it('measures a nested summit against the slope it stands on, not the ground', () => {
-    const hill = rect('hill', 2, 2, 20, 20, { height: 1, edge: 'slope' });
-    const summit = rect('summit', 6, 6, 12, 12, { height: 2, edge: 'cliff' });
+    const hill = plat('hill', 2, 2, 20, 20, { height: 1, edge: 'slope' });
+    const summit = plat('summit', 6, 6, 12, 12, { height: 2, edge: 'cliff' });
     const layer = layerOf([ground, hill, summit]);
     expect(shapeDrop(layer, 'summit')).toBe(2);
     expect(shapeDrop(layer, 'hill')).toBe(1);
   });
 
   it('measures a pillar in a pit as rising out of the pit', () => {
-    const pit = rect('pit', 2, 2, 20, 20, { height: -3, edge: 'cliff' });
-    const pillar = rect('pillar', 8, 8, 12, 12, { height: 2, edge: 'cliff' });
+    const pit = plat('pit', 2, 2, 20, 20, { height: -3, edge: 'cliff' });
+    const pillar = plat('pillar', 8, 8, 12, 12, { height: 2, edge: 'cliff' });
     const layer = layerOf([ground, pit, pillar]);
     expect(layerPlateaus(layer).infos.get('pillar')!.height).toBe(-1);
     expect(shapeDrop(layer, 'pillar')).toBe(2);
   });
 
   it('winds every band ring with the low side on the left of travel', () => {
-    const top = rect('top', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
+    const top = plat('top', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
     const [band] = layerPlateaus(layerOf([ground, top])).bands;
     const ring = band.rings[0];
     // Walk the first edge; a point a hair to its left must be off the band.
@@ -152,8 +164,8 @@ describe('bands and drops', () => {
   });
 
   it('cuts a mixed ring into runs by owner and edge kind', () => {
-    const a = rect('a', 2, 2, 8, 8, { height: 2, edge: 'cliff' });
-    const b = rect('b', 8, 2, 14, 8, { height: 2, edge: 'slope' });
+    const a = plat('a', 2, 2, 8, 8, { height: 2, edge: 'cliff' });
+    const b = plat('b', 8, 2, 14, 8, { height: 2, edge: 'slope' });
     const [band] = layerPlateaus(layerOf([ground, a, b])).bands;
     const runs = edgeRuns(band);
     expect(new Set(runs.map((r) => r.edge))).toEqual(new Set(['cliff', 'slope']));
@@ -161,7 +173,7 @@ describe('bands and drops', () => {
   });
 });
 
-describe('the merged floor and rooms', () => {
+describe('the merged floor', () => {
   const ground = rect('ground', 0, 0, 30, 30);
 
   it('is unchanged on a flat layer', () => {
@@ -169,16 +181,16 @@ describe('the merged floor and rooms', () => {
     expect(computeMergedFloor(layerOf([ground]))).toEqual([ground.contours[0]]);
   });
 
-  it('leaves cliffs, slopes and bare edges out, and keeps a raised room', () => {
-    const cliff = rect('cliff', 2, 2, 6, 6, { height: 2, edge: 'cliff' });
-    const slope = rect('slope', 8, 8, 12, 12, { height: 1, edge: 'slope' });
-    const tower = rect('tower', 20, 20, 25, 25, { height: 3 });
-    const floor = computeMergedFloor(layerOf([ground, cliff, slope, tower]))!;
-    expect(floor).toHaveLength(2);
-    expect(floor[0]).toEqual(ground.contours[0]);
-    const xs = floor[1].map(([x]) => x);
-    expect(Math.min(...xs)).toBe(20);
-    expect(Math.max(...xs)).toBe(25);
+  it('never takes a plateau in, whatever its edge, height or place', () => {
+    const flat = computeMergedFloor(layerOf([ground]));
+    const cliff = plat('cliff', 2, 2, 6, 6, { height: 2, edge: 'cliff' });
+    const slope = plat('slope', 8, 8, 12, 12, { height: 1, edge: 'slope' });
+    const pit = plat('pit', 14, 14, 18, 18, { height: -2, edge: 'none' });
+    const straddle = plat('straddle', 25, 25, 40, 40, { height: 3 });
+    const layer = layerOf([ground, cliff, slope, pit, straddle]);
+    expect(hasPlateaus(layer)).toBe(true);
+    expect(computeMergedFloor(layer)).toEqual(flat);
+    expect(computeMergedFloor(layerOf([cliff]))).toBeNull();
   });
 });
 
@@ -190,7 +202,6 @@ describe('sight and crossing', () => {
     expect(edgeHides(null, 'slope', 5, 2)).toBe(false);
     expect(edgeHides({ sightOverride: 'hide' }, 'slope', 1, 2)).toBe(true);
     expect(edgeHides({ sightOverride: 'show' }, 'cliff', 5, 2)).toBe(false);
-    expect(edgeHides({ sightOverride: 'hide' }, 'wall', 5, 2)).toBe(false);
   });
 
   it('defaults the crossing by edge kind', () => {
@@ -209,10 +220,10 @@ describe('sight and crossing', () => {
 
 describe('the table: elevation and crossings', () => {
   const ground = rect('ground', 0, 0, 30, 30);
-  const top = rect('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' });
+  const top = plat('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' });
   // Stairs mid west edge: the outline runs (10,10)→(14,10)→(14,14)→(10,14), (10,12) at 14/16.
-  const stairs = { id: 'st', name: 'st', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 14 / 16, width: 2 } as const;
-  const layer = layerOf([ground, top, stairs as unknown as ShapeChild]);
+  const stairs = { id: 'st', name: 'st', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 } as const;
+  const layer = layerOf([ground, top, stairs]);
   const kinds = defaultCrossingKinds();
 
   it('stands a point on the plateau, the ground, or part way down the stairs', () => {
@@ -238,42 +249,15 @@ describe('the table: elevation and crossings', () => {
   });
 });
 
-describe('a raised floor covers the wall under it', () => {
-  const withFloor = (children: ShapeChild[]) => {
-    const layer = { children, mergedFloor: null } as unknown as DungeonLayer;
-    layer.mergedFloor = computeMergedFloor(layer);
-    return layer;
-  };
-
-  it("cuts the ground's ring where a raised room stands over it, and leaves the room's own ring whole", () => {
-    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('over', 16, 4, 24, 10, { height: 2, edge: 'wall' })]);
-    const runs = uncoveredRuns(layer)!;
-    expect(layer.mergedFloor).toHaveLength(2);
-    const ground = runs(0)!;
-    expect(ground).toHaveLength(1);
-    // One open run, from where the east wall leaves the room to where it comes back.
-    const ends = [ground[0][0], ground[0][ground[0].length - 1]].map(([x, y]) => [x, y].map((v) => Math.round(v * 100) / 100));
-    expect(ends).toEqual(expect.arrayContaining([[20, 4], [20, 10]]));
-    expect(ground[0].some(([x, y]) => x === 20 && y > 4 && y < 10)).toBe(false);
-    expect(runs(1)).toBeNull();
-  });
-
-  it('leaves every ring alone where nothing higher stands over it', () => {
-    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('inner', 3, 3, 8, 8, { height: 2, edge: 'wall' })]);
-    expect(uncoveredRuns(layer)!(0)).toBeNull();
-    expect(uncoveredRuns(withFloor([rect('ground', 0, 0, 20, 16)]))).toBeNull();
-  });
-});
-
 describe('hidden tops', () => {
   it('lists a cliff top that hides from below, and no slope, pit or low ledge', () => {
     const tops = hiddenTops(
       layerOf([
         rect('ground', 0, 0, 40, 40),
-        rect('mesa', 2, 2, 8, 8, { height: 3, edge: 'cliff' }),
-        rect('hill', 10, 2, 16, 8, { height: 3, edge: 'slope' }),
-        rect('pit', 20, 2, 26, 8, { height: -3, edge: 'cliff' }),
-        rect('ledge', 30, 2, 36, 8, { height: 1, edge: 'cliff' }),
+        plat('mesa', 2, 2, 8, 8, { height: 3, edge: 'cliff' }),
+        plat('hill', 10, 2, 16, 8, { height: 3, edge: 'slope' }),
+        plat('pit', 20, 2, 26, 8, { height: -3, edge: 'cliff' }),
+        plat('ledge', 30, 2, 36, 8, { height: 1, edge: 'cliff' }),
       ]),
       2,
     );
@@ -281,63 +265,10 @@ describe('hidden tops', () => {
   });
 });
 
-describe('a lone floor at height keeps its band', () => {
-  const withFloor = (children: ShapeChild[]) => {
-    const layer = { children, mergedFloor: null } as unknown as DungeonLayer;
-    layer.mergedFloor = computeMergedFloor(layer);
-    return layer;
-  };
-  // Same ring whatever its start or winding: the band ring is wound outside-left.
-  const canon = (ring: readonly (readonly number[])[]) => {
-    const keys = ring.map(([x, y]) => `${x},${y}`).sort();
-    return keys.join(' ');
-  };
-  const flat = withFloor([rect('cave', 0, 0, 8, 7)]);
-
-  for (const height of [1, -1]) {
-    for (const edge of ['cliff', 'slope', 'none'] as const) {
-      it(`keeps the floor of a lone cave at ${height} with a ${edge} edge`, () => {
-        const layer = withFloor([rect('cave', 0, 0, 8, 7, { height, edge })]);
-        expect(layer.mergedFloor).not.toBeNull();
-        expect(layer.mergedFloor).toHaveLength(1);
-        expect(canon(layer.mergedFloor![0])).toBe(canon(flat.mergedFloor![0]));
-      });
-    }
-  }
-
-  it('keeps a cliff plateau standing on the ground out of the floor union', () => {
-    const layer = withFloor([rect('ground', 0, 0, 20, 16), rect('mesa', 3, 3, 8, 8, { height: 2, edge: 'cliff' })]);
-    expect(layer.mergedFloor).toHaveLength(1);
-  });
-
-  it('keeps a ledge on a lone cliff floor out of the union, and the floor in it', () => {
-    const layer = withFloor([
-      rect('cave', 0, 0, 20, 16, { height: 1, edge: 'cliff' }),
-      rect('ledge', 3, 3, 8, 8, { height: 1, edge: 'cliff' }),
-    ]);
-    expect(layer.mergedFloor).toHaveLength(1);
-    expect(canon(layer.mergedFloor![0])).toBe(canon(rect('x', 0, 0, 20, 16).contours[0]));
-    // The ledge stands above the cave floor's ring: the cave's ring is covered nowhere.
-    expect(uncoveredRuns(layer)!(0)).toBeNull();
-  });
-
-  it('gives each returned ring its own height for the covering test', () => {
-    // A cliff cave at +1 on void, a raised room at +3 over its east edge.
-    const layer = withFloor([
-      rect('cave', 0, 0, 20, 16, { height: 1, edge: 'cliff' }),
-      rect('over', 16, 4, 24, 10, { height: 2, edge: 'wall' }),
-    ]);
-    expect(layer.mergedFloor).toHaveLength(2);
-    const runs = uncoveredRuns(layer)!;
-    expect(runs(0)).not.toBeNull();
-    expect(runs(1)).toBeNull();
-  });
-});
-
 describe('bridge landings', () => {
   // The plateau-test bridge: from the +2 outcrop's south edge to the +3 mesa's north edge.
-  const outcrop = rect('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
-  const mesa = rect('mesa', 4, 26, 12, 31, { height: 3, edge: 'cliff' });
+  const outcrop = plat('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
+  const mesa = plat('mesa', 4, 26, 12, 31, { height: 3, edge: 'cliff' });
   const bridge = (over: Partial<PathChild> = {}): PathChild => ({
     id: 'bridge',
     name: 'Bridge',

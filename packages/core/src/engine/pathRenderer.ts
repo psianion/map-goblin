@@ -24,7 +24,7 @@ import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls'
 import { placeBand, textureTone } from './caveBandRenderer';
 import type { PathChild } from '../shared/types';
 import { DECK_REACH, deckHeightAt } from '../shared/plateaus';
-import type { DungeonLayer, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { SEE_UNDER_ALPHA } from './subscribeToAssets';
 
@@ -284,8 +284,8 @@ interface Drawn {
   /** Each group's pieces, by group key: kept across redraws. */
   pools: Map<string, Container>;
   paths: PathChild[];
-  /** The raised floors: where the water falls is theirs to say. */
-  raised: ShapeChild[];
+  /** The plateaus: where the water falls is theirs to say. */
+  raised: PlateauChild[];
   epoch: number;
   index: number;
   look: string;
@@ -293,7 +293,7 @@ interface Drawn {
 }
 
 /**
- * Keeps every dungeon layer's paths drawn. A layer redraws when its paths or its raised floors
+ * Keeps every dungeon layer's paths drawn. A layer redraws when its paths or its plateaus
  * change (the store hands back new child objects on any edit), when its scene entry is new,
  * or when art it was waiting for arrives.
  */
@@ -310,7 +310,7 @@ export function subscribeToPaths(): () => void {
       const sub = getLayerEntry(layer.id)?.sublayers;
       if (!sub) return;
       const paths = layer.children.filter((c): c is PathChild => c.childType === 'path');
-      const raised = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !!(c.height || c.edge));
+      const raised = layer.children.filter((c): c is PlateauChild => c.childType === 'plateau');
       const look = `${layer.opacity}|${state.ui.seeUnderOverhead}`;
       const prev = drawn.get(layer.id);
       if (

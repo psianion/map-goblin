@@ -17,7 +17,6 @@ import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type Re
 import { flattenRing } from '../shared/bezier';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
-import { hasPlateaus, layerPlateaus, uncoveredRuns } from '../shared/plateaus';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { getEditorDesk } from './editorDesk';
@@ -339,20 +338,6 @@ function renderSolidShape(
   parent.addChild(g);
 }
 
-/** One floor painted the way the ground's floors are: its texture, or its colour until that lands. */
-export function paintShapeFloor(parent: Container, layer: DungeonLayer, shape: ShapeChild): void {
-  if ((shape.contours[0]?.length ?? 0) < 3) return;
-  const style = layer.style ?? ({} as DungeonStyle);
-  const fill = shapeFloorFill(shape, style, layerFloorFallback(layer));
-  const bleed = Math.max(0, resolveStyle(style, shape.styleOverrides as Partial<DungeonStyle> | undefined).floorBleed ?? 0);
-  if (fill.kind === 'texture') {
-    renderTexturedShape(parent, shape, fill.texture, bleed);
-  } else {
-    if (fill.waitFor) armLateTextureRebuild(layer.id, fill.waitFor);
-    renderSolidShape(parent, shape, fill.color, bleed);
-  }
-}
-
 /**
  * Preload textures for all textured shapes and paths in a layer.
  * Returns a Promise<boolean> that resolves to true if any NEW textures
@@ -558,16 +543,16 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     drawStyle,
     doorGapsFor(doors, resolvedWalls),
     layer.floorWallEdits ?? {},
-    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer), uncovered: uncoveredRuns(layer) ?? undefined },
+    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer) },
   );
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
     renderDoors(doorsSublayer, doors, drawStyle, gridCellSize, rings, edges);
   }
 
-  // Raised and sunken floors, band by band, over the ground (plateauRenderer.ts). Ahead of
-  // the no-floor bail-out: an outcrop needs no ground under it to be drawn.
-  renderPlateaus(layer, entry.sublayers.plateaus, (parent, shape) => paintShapeFloor(parent, layer, shape), {
+  // Plateaus, band by band, over the ground (plateauRenderer.ts). Ahead of the no-floor
+  // bail-out: a plateau over painted terrain has no floor under it.
+  renderPlateaus(layer, entry.sublayers.plateaus, {
     waitFor: (id) => armLateTextureRebuild(layer.id, id),
   });
 
@@ -590,11 +575,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // A mergedFloor mask on the floor container clips everything to handle
   // erase holes automatically.
 
-  // Raised floors paint in their band, over this (plateauRenderer.ts); the ground paints here.
-  const raised = hasPlateaus(layer) ? layerPlateaus(layer).bands.flatMap((b) => b.shapes) : [];
-  const shapeChildren = layer.children.filter(
-    (c): c is ShapeChild => c.childType === 'shape' && !raised.includes(c),
-  );
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
   // A texture id no installed pack lists (a retired pack's art) never loads, so
   // such a shape counts as untextured and paints its floor colour.
   // A floor with no texture of its own takes its level's, on a layer that names none.

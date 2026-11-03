@@ -4,7 +4,7 @@ import type { Level } from '../shared/types'
 import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
 
-export const CURRENT_VERSION = '3.2' as const
+export const CURRENT_VERSION = '3.3' as const
 
 /**
  * Every file version a reader must accept, oldest first. THE one list — the
@@ -12,9 +12,10 @@ export const CURRENT_VERSION = '3.2' as const
  * session server's upload validation all consume it, so widening the format is
  * a one-line change here plus a migration below when the shape actually moved.
  * ('3.0' → '3.1' is purely additive — optional `prep` — so no migration step.
- * '3.1' → '3.2' drops the old water bodies, see `dropWaterBodies`.)
+ * '3.1' → '3.2' drops the old water bodies, see `dropWaterBodies`. '3.2' → '3.3' moves
+ * height off floors onto plateau children, see `plateausFromShapes`.)
  */
-export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2']
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3']
 
 export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
   return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
@@ -64,7 +65,7 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
   // the water tool's bodies away (`dropWaterBodies`) and adds the plateau settings
   // (`withPlateauSettings`), both below on every load. The version stamp is rewritten to
   // CURRENT_VERSION on the next save.
-  if (result.version !== '3.0' && result.version !== '3.1' && result.version !== CURRENT_VERSION) {
+  if (result.version !== '3.0' && result.version !== '3.1' && result.version !== '3.2' && result.version !== CURRENT_VERSION) {
     throw new Error(
       `Unknown map format version: ${result.version}. Expected ${CURRENT_VERSION}.`,
     )
@@ -72,6 +73,8 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
 
   const water = dropWaterBodies((result as SerializedMapData).layers)
   if (water.removed > 0) result = { ...result, layers: water.layers } as SerializedMapData
+  const plateaus = plateausFromShapes((result as SerializedMapData).layers)
+  if (plateaus !== (result as SerializedMapData).layers) result = { ...result, layers: plateaus } as SerializedMapData
   const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData)))
   if (!caveKit) return migrated
   const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
@@ -167,6 +170,99 @@ export function dropWaterBodies(layers: SerializedMapData['layers']): {
 export function waterRemovedMessage(n: number): string {
   const bodies = n === 1 ? '1 water body' : `${n} water bodies`
   return `${bodies} from the old water tool ${n === 1 ? 'was' : 'were'} removed; redraw ${n === 1 ? 'it' : 'them'} with the Path tool.`
+}
+
+/** The plateau fields a 3.2 floor shape carried. */
+const SHAPE_PLATEAU_KEYS = ['height', 'edge', 'edgeArt', 'slopeWidth', 'contourLines', 'sightOverride', 'crossingId'] as const
+
+type Loose = Record<string, unknown>
+
+function hasShapePlateauKey(child: unknown): boolean {
+  if (!child || typeof child !== 'object' || (child as Loose).childType !== 'shape') return false
+  return SHAPE_PLATEAU_KEYS.some((key) => key in (child as Loose))
+}
+
+/** The id a 3.2 floor's height moves to. */
+export const plateauIdFor = (shapeId: string): string => `${shapeId}-plateau`
+
+/**
+ * 3.2 → 3.3: height lived on floor shapes; it lives on plateau children now. Every shape with a
+ * height stays where it is, at ground, and gains a plateau child right after it with its rings,
+ * height and edge (`wall` and absent read as `cliff`; a plateau never makes walls). Openings
+ * re-point to the new plateau (`shapeId` → `hostId`), and so do props a shape's cliff placed.
+ * Every shape loses the plateau fields. Hands back `layers` itself when nothing moved.
+ */
+export function plateausFromShapes(layers: SerializedMapData['layers']): SerializedMapData['layers'] {
+  const moves = (layer: unknown): boolean => {
+    const children = (layer as { children?: unknown } | null)?.children
+    return (
+      Array.isArray(children) &&
+      children.some((c) => {
+        const o = c as Loose | null
+        return (
+          hasShapePlateauKey(c) ||
+          (o?.childType === 'opening' && 'shapeId' in o) ||
+          (o?.childType === 'asset' && (o.attachedTo as Loose | undefined)?.kind === 'shape')
+        )
+      })
+    )
+  }
+  if (!Array.isArray(layers) || !layers.some(moves)) return layers
+  return layers.map((layer) => {
+    if (!moves(layer)) return layer
+    const children = (layer as unknown as { children: Loose[] }).children
+    const raised = new Set(
+      children
+        .filter((c) => c.childType === 'shape' && typeof c.height === 'number' && Math.round(c.height) !== 0)
+        .map((c) => c.id as string),
+    )
+    const out: Loose[] = []
+    for (const child of children) {
+      if (child.childType === 'shape' && hasShapePlateauKey(child)) {
+        const shape: Loose = { ...child }
+        for (const key of SHAPE_PLATEAU_KEYS) delete shape[key]
+        out.push(shape)
+        if (!raised.has(child.id as string)) continue
+        const plateau: Loose = {
+          id: plateauIdFor(child.id as string),
+          name: child.name ?? 'Plateau',
+          childType: 'plateau',
+          visible: child.visible ?? true,
+          contours: child.contours,
+          height: Math.round(child.height as number),
+          edge: child.edge === 'slope' || child.edge === 'none' ? child.edge : 'cliff',
+        }
+        if (child.locked) plateau.locked = true
+        if (child.tangents) plateau.tangents = child.tangents
+        if (child.transform) plateau.transform = child.transform
+        for (const key of ['edgeArt', 'slopeWidth', 'contourLines', 'sightOverride', 'crossingId'] as const) {
+          if (child[key] !== undefined) plateau[key] = child[key]
+        }
+        out.push(plateau)
+        continue
+      }
+      if (child.childType === 'opening' && 'shapeId' in child) {
+        const { shapeId, ...rest } = child
+        const id = shapeId as string
+        out.push({ ...rest, hostId: raised.has(id) ? plateauIdFor(id) : id })
+        continue
+      }
+      const at = child.attachedTo as { kind?: unknown; id?: unknown } | undefined
+      if (child.childType === 'asset' && at?.kind === 'shape') {
+        if (raised.has(at.id as string)) {
+          out.push({ ...child, attachedTo: { ...at, kind: 'plateau', id: plateauIdFor(at.id as string) } })
+        } else {
+          // Its host was no plot: a plain prop where it stands.
+          const rest = { ...child }
+          delete rest.attachedTo
+          out.push(rest)
+        }
+        continue
+      }
+      out.push(child)
+    }
+    return { ...layer, children: out } as unknown as typeof layer
+  })
 }
 
 /** A map from before plateaus gets the sight threshold and the seeded crossing kinds. */

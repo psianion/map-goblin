@@ -2,26 +2,26 @@
 // `undoManager.execute()` on the result; null means there is no such target or nothing to
 // change.
 
-import type { CrossingKind, OpeningChild, ShapeChild } from '../shared/types';
+import type { CrossingKind, OpeningChild, PlateauChild } from '../shared/types';
 import type { Command, Layer, MapRules } from './types';
 import { AddChildCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
 import { useStore } from './store';
 
-/** The plateau fields a floor shape carries (`ShapeChild.height` and the rest). */
+/** The fields of a plateau the card edits. */
 export type PlateauPatch = Partial<
-  Pick<ShapeChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'contourLines' | 'sightOverride' | 'crossingId'>
+  Pick<PlateauChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'contourLines' | 'sightOverride' | 'crossingId'>
 >;
 
-function findChild<T extends 'shape' | 'opening'>(
+function findChild<T extends 'plateau' | 'opening'>(
   layers: readonly Layer[],
   id: string,
   kind: T,
-): { layerId: string; child: Extract<ShapeChild | OpeningChild, { childType: T }> } | null {
+): { layerId: string; child: Extract<PlateauChild | OpeningChild, { childType: T }> } | null {
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     for (const c of layer.children) {
       if (c.id === id && c.childType === kind) {
-        return { layerId: layer.id, child: c as Extract<ShapeChild | OpeningChild, { childType: T }> };
+        return { layerId: layer.id, child: c as Extract<PlateauChild | OpeningChild, { childType: T }> };
       }
     }
   }
@@ -29,11 +29,11 @@ function findChild<T extends 'shape' | 'opening'>(
 }
 
 /**
- * One entry for the plateau fields of floor shape `id`. Heights are whole cells (rounded);
+ * One entry for the fields of plateau `id`. Heights are whole cells (rounded);
  * a slope width must be positive. `undefined` on a key removes it, back to its default.
  */
 export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit plateau'): Command | null {
-  const found = findChild(useStore.getState().layers, id, 'shape');
+  const found = findChild(useStore.getState().layers, id, 'plateau');
   if (!found || Object.keys(patch).length === 0) return null;
   const after: PlateauPatch = { ...patch };
   if (after.height !== undefined) {

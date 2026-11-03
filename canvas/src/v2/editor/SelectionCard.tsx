@@ -99,6 +99,7 @@ const KIND_LABEL: Record<AnyChild['childType'], string> = {
   door: 'Door',
   path: 'Path',
   opening: 'Opening',
+  plateau: 'Plateau',
   zone: 'Zone',
 };
 
@@ -231,6 +232,8 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
       <MixedCard dims={dims}>
         {group?.kind === 'shape' ? (
           <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
+        ) : group?.kind === 'plateau' ? (
+          <PlateauFields layerId={group.layerId} ids={group.ids} />
         ) : walls.length === 0 && roomCount === 0 && children.every((c) => c.childType === 'text') ? (
           <LabelGroupFields entries={children.map((c, i) => ({ id: c.id, layerId: layerIds[i] ?? '' }))} />
         ) : null}
@@ -256,6 +259,8 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
 
           {group?.kind === 'shape' ? (
             <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
+          ) : group?.kind === 'plateau' ? (
+            <PlateauFields layerId={group.layerId} ids={group.ids} />
           ) : soleWall && soleWallLayerId ? (
             <WallFields layerId={soleWallLayerId} wallId={soleWall.id} />
           ) : (
@@ -792,8 +797,6 @@ function ShapeFields({
           </div>
         </div>
       )}
-
-      <PlateauFields layerId={layerId} ids={ids} />
     </div>
   );
 }

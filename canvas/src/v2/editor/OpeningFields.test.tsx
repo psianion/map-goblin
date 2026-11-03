@@ -2,28 +2,22 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { AnyChild, DungeonLayer, ShapeChild } from '@/store/types';
+import type { AnyChild, DungeonLayer, PlateauChild } from '@/store/types';
 import type { OpeningChild } from '@dnd/core/src/shared/types';
 import { SelectionCard } from './SelectionCard';
 
 vi.mock('@/editor/PackThumbnailCanvas', () => ({ PackThumbnailCanvas: () => null }));
 
-const top: ShapeChild = {
+const top: PlateauChild = {
   id: 'top',
   name: 'top',
-  childType: 'shape',
+  childType: 'plateau',
   visible: true,
-  shapeType: 'rectangle',
   contours: [[[4, 4], [8, 4], [8, 8], [4, 8]]],
-  textureScale: 1,
-  textureOffsetX: 0,
-  textureOffsetY: 0,
-  textureFillRotation: 0,
-  textureTint: '#ffffff',
   height: 2,
   edge: 'cliff',
 };
-const stairs: OpeningChild = { id: 'o1', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 0.1, width: 2 };
+const stairs: OpeningChild = { id: 'o1', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 0.1, width: 2 };
 
 function seed(children: AnyChild[]) {
   const layer = {

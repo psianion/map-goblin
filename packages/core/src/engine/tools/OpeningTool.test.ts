@@ -8,7 +8,7 @@ import { setNotify } from '../../store/notify';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { openingFrame } from '../../shared/plateaus';
 import type { OpeningChild } from '../../shared/types';
-import type { DungeonLayer, ShapeChild } from '../../store/types';
+import type { DungeonLayer, PlateauChild, ShapeChild } from '../../store/types';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -50,6 +50,19 @@ function click(tool: OpeningTool, x: number, y: number): void {
   tool.onPointerUp();
 }
 
+function plat(id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<PlateauChild> = {}): PlateauChild {
+  return {
+    id,
+    name: id,
+    childType: 'plateau',
+    visible: true,
+    contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+    height: 1,
+    edge: 'cliff',
+    ...extra,
+  };
+}
+
 describe('OpeningTool', () => {
   let tool: OpeningTool;
   let ghost: Container;
@@ -60,8 +73,8 @@ describe('OpeningTool', () => {
     const id = layer().id;
     for (const s of [
       rect('ground', 0, 0, 30, 30),
-      rect('top', 10, 10, 16, 16, { height: 2, edge: 'cliff' }),
-      rect('tower', 20, 20, 24, 24, { height: 2 }),
+      plat('top', 10, 10, 16, 16, { height: 2, edge: 'cliff' }),
+      rect('tower', 20, 20, 24, 24),
     ]) {
       useStore.getState().addChild(id, s);
     }
@@ -70,8 +83,8 @@ describe('OpeningTool', () => {
     ghost = preview.children[0] as Container;
   });
 
-  it('snaps to a cliff edge, never to a raised room or the ground', () => {
-    expect(cliffSnap(layer(), 13, 10.3)?.shapeId).toBe('top');
+  it('snaps to a plateau edge, never to a floor or the ground', () => {
+    expect(cliffSnap(layer(), 13, 10.3)?.hostId).toBe('top');
     expect(cliffSnap(layer(), 22, 20.2)).toBeNull();
     expect(cliffSnap(layer(), 0.1, 15)).toBeNull();
   });
@@ -83,7 +96,7 @@ describe('OpeningTool', () => {
     expect(openings()).toHaveLength(1);
     const [o] = openings();
     expect(o.kind).toBe('stairs');
-    expect(o.shapeId).toBe('top');
+    expect(o.hostId).toBe('top');
     const frame = openingFrame(layer(), o)!;
     expect(frame.position[0]).toBeCloseTo(13);
     expect(frame.position[1]).toBeCloseTo(10);

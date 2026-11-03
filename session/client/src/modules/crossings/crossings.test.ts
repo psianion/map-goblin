@@ -4,7 +4,7 @@ import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
-import type { Layer, ShapeChild } from '@dnd/core/src/store/types';
+import type { Layer, PlateauChild, ShapeChild } from '@dnd/core/src/store/types';
 import type { OpeningChild } from '@dnd/core/src/shared/types';
 import { defaultCrossingKinds } from '@dnd/core/src/shared/crossingKinds';
 import { useStore } from '@dnd/core/src/store/store';
@@ -32,11 +32,11 @@ function rect(id: string, x0: number, y0: number, x1: number, y1: number, extra:
 }
 
 // A +3 cliff (10..14 square) with stairs mid west edge, and a +1 slope east of it.
-const stairs: OpeningChild = { id: 'st', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'top', t: 14 / 16, width: 2 };
+const stairs: OpeningChild = { id: 'st', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 };
 const children = [
   rect('ground', 0, 0, 30, 30),
-  rect('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' }),
-  rect('hill', 20, 10, 24, 14, { height: 1, edge: 'slope' }),
+  plat('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' }),
+  plat('hill', 20, 10, 24, 14, { height: 1, edge: 'slope' }),
   stairs,
 ];
 const kinds = defaultCrossingKinds();
@@ -45,6 +45,19 @@ const map = (over: Partial<ReturnType<typeof defaultCrossingKinds>[number]>[] = 
   mapSettings: { crossingKinds: kinds.map((k, i) => ({ ...k, ...(over[i] ?? {}) })) },
 });
 const NONE = { edges: {}, blocks: {} };
+
+function plat(id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<PlateauChild> = {}): PlateauChild {
+  return {
+    id,
+    name: id,
+    childType: 'plateau',
+    visible: true,
+    contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+    height: 1,
+    edge: 'cliff',
+    ...extra,
+  };
+}
 
 describe('judgeHop', () => {
   it('names a cliff crossed straight on, and lets the move stand while Climb does not block', () => {

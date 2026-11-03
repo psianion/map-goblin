@@ -3,21 +3,18 @@ import { useStore } from './store';
 import { undoManager } from './undoManager';
 import { addOpening, removeOpening, setCrossingKinds, setPlateauFields, setSightDropCells } from './plateauCommands';
 import { defaultCrossingKinds } from '../shared/crossingKinds';
-import type { OpeningChild, ShapeChild } from '../shared/types';
+import { createChildRemovalCommand } from './commands';
+import type { OpeningChild, PlateauChild } from '../shared/types';
 import type { Command, DungeonLayer } from './types';
 
-const outcrop: ShapeChild = {
+const outcrop: PlateauChild = {
   id: 'outcrop',
   name: 'Outcrop',
-  childType: 'shape',
+  childType: 'plateau',
   visible: true,
-  shapeType: 'polygon',
   contours: [[[0, 0], [6, 0], [6, 4], [0, 4]]],
-  textureScale: 1,
-  textureOffsetX: 0,
-  textureOffsetY: 0,
-  textureFillRotation: 0,
-  textureTint: '#ffffff',
+  height: 1,
+  edge: 'none',
 };
 
 const stairs: OpeningChild = {
@@ -26,7 +23,7 @@ const stairs: OpeningChild = {
   childType: 'opening',
   visible: true,
   kind: 'stairs',
-  shapeId: 'outcrop',
+  hostId: 'outcrop',
   t: 0.25,
   width: 2,
 };
@@ -48,20 +45,21 @@ beforeEach(() => {
 describe('setPlateauFields', () => {
   beforeEach(() => useStore.getState().addChild(layerId, outcrop));
 
-  it('raises a floor with a cliff edge and undoes back to plain ground', () => {
+  it('raises a plateau with a cliff edge and undoes back to how it was', () => {
     exec(setPlateauFields('outcrop', { height: 2, edge: 'cliff', crossingId: 'climb', sightOverride: 'hide' }));
-    expect(find<ShapeChild>('outcrop')).toMatchObject({ height: 2, edge: 'cliff', crossingId: 'climb', sightOverride: 'hide' });
+    expect(find<PlateauChild>('outcrop')).toMatchObject({ height: 2, edge: 'cliff', crossingId: 'climb', sightOverride: 'hide' });
     undoManager.undo();
-    const back = find<ShapeChild>('outcrop')!;
-    expect(back.height).toBeUndefined();
-    expect(back.edge).toBeUndefined();
+    const back = find<PlateauChild>('outcrop')!;
+    expect(back.height).toBe(1);
+    expect(back.edge).toBe('none');
+    expect(back.crossingId).toBeUndefined();
     undoManager.redo();
-    expect(find<ShapeChild>('outcrop')!.height).toBe(2);
+    expect(find<PlateauChild>('outcrop')!.height).toBe(2);
   });
 
   it('keeps heights whole and refuses a slope width that is not positive', () => {
     exec(setPlateauFields('outcrop', { height: -1.4, edge: 'slope', slopeWidth: 1.5, contourLines: false }));
-    expect(find<ShapeChild>('outcrop')).toMatchObject({ height: -1, edge: 'slope', slopeWidth: 1.5, contourLines: false });
+    expect(find<PlateauChild>('outcrop')).toMatchObject({ height: -1, edge: 'slope', slopeWidth: 1.5, contourLines: false });
     expect(setPlateauFields('outcrop', { slopeWidth: 0 })).toBeNull();
     expect(setPlateauFields('outcrop', { height: Number.NaN })).toBeNull();
     expect(setPlateauFields('outcrop', {})).toBeNull();
@@ -81,6 +79,17 @@ describe('openings', () => {
     undoManager.undo();
     expect(find('stairs')).toBeUndefined();
     expect(removeOpening('stairs')).toBeNull();
+  });
+
+  it('go with the plateau they sit on, and come back with it', () => {
+    useStore.getState().addChild(layerId, outcrop);
+    exec(addOpening(layerId, stairs));
+    exec(createChildRemovalCommand(layerId, 'outcrop', 'Delete plateau'));
+    expect(find('outcrop')).toBeUndefined();
+    expect(find('stairs')).toBeUndefined();
+    undoManager.undo();
+    expect(find<PlateauChild>('outcrop')).toEqual(outcrop);
+    expect(find<OpeningChild>('stairs')).toEqual(stairs);
   });
 });
 

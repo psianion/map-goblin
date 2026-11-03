@@ -130,6 +130,7 @@ export type ChildType =
   | 'door'
   | 'path'
   | 'opening'
+  | 'plateau'
   | 'text'
   | 'zone';
 
@@ -183,21 +184,24 @@ export interface ShapeChild extends LayerChild {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
-  /**
-   * Plateau height in whole cells, relative to the enclosing plateau. Absent/0 = ground.
-   * The fields below only matter once a shape has a height.
-   */
-  height?: number;
-  /** How the ring meets lower ground. Absent = 'wall' (the ring derives walls, as always). */
-  edge?: 'wall' | 'cliff' | 'slope' | 'none';
+}
+
+/**
+ * Relief drawn over floors or painted terrain: a ring raised (or sunk) by whole cells. Never
+ * part of the floor union, walls, rooms or doors; walls come only from floors. Its parent is
+ * the innermost plateau of the layer holding its centroid, and heights add along that chain.
+ */
+export interface PlateauChild extends LayerChild, RingGeometry {
+  childType: 'plateau';
+  /** Cells, relative to the enclosing plateau. Negative = a pit. */
+  height: number;
+  /** How the ring meets lower ground. */
+  edge: 'none' | 'slope' | 'cliff';
   /** Band set id the cliff is laid with. Absent = the cave ink ledge band. */
   edgeArt?: string;
   /** Slope cells per cell of drop. Absent = 1. */
   slopeWidth?: number;
-  /**
-   * Contour lines drawn on the slope or cliff top. Absent = on when the shape has a height.
-   * (Not `contours`: that name is the shape's rings.)
-   */
+  /** Contour lines drawn on the slope or cliff top. Absent = on. (Not `contours`: those are the rings.) */
   contourLines?: boolean;
   /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
   sightOverride?: 'hide' | 'show';
@@ -244,7 +248,7 @@ export interface AssetChild extends LayerChild {
    * again on every edit of the host and gone with it. Absent = a plain prop (one placed by
    * hand, or detached).
    */
-  attachedTo?: { kind: 'path' | 'shape'; id: string; t: number; side: -1 | 0 | 1 };
+  attachedTo?: { kind: 'path' | 'plateau'; id: string; t: number; side: -1 | 0 | 1 };
 }
 
 /** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */
@@ -375,9 +379,9 @@ export interface PathChild extends LayerChild {
 export interface OpeningChild extends LayerChild {
   childType: 'opening';
   kind: 'stairs' | 'ramp' | 'ladder';
-  /** The shape whose ring the opening sits on. */
-  shapeId: string;
-  /** Parameter along that shape's flattened outline, like door placement. */
+  /** The plateau whose ring the opening sits on. */
+  hostId: string;
+  /** Parameter along that plateau's flattened outline, like door placement. */
   t: number;
   /** Cells along the ring. */
   width: number;
@@ -527,6 +531,7 @@ export type AnyChild =
   | DoorChild
   | PathChild
   | OpeningChild
+  | PlateauChild
   | TextChild
   | ZoneChild;
 

@@ -78,6 +78,7 @@ const KIND_NAME: Record<AnyChild['childType'], string> = {
   shape: 'Floor',
   path: 'Path',
   opening: 'Opening',
+  plateau: 'Plateau',
   asset: 'Prop',
   text: 'Label',
   light: 'Light',

@@ -3,6 +3,10 @@
 // drags pixi in with it.
 
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
+import { shapeRing } from './plateaus';
+
+/** How far past its ring a raised cliff's ledge and foot rubble reach, cells. */
+const CLIFF_REACH = 1.2;
 
 export interface WorldBounds {
   minX: number;
@@ -86,6 +90,19 @@ function drawnBounds(
         if (y < minY) minY = y;
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
+      }
+    }
+    // A plateau is map too, out to where its edge falls: a slope's width per cell of drop, a
+    // cliff's ledge and foot. A pit's edge falls inward and reaches no further than its ring.
+    for (const child of dl.children ?? []) {
+      if (child.childType !== 'plateau' || !child.visible || (child.contours?.[0]?.length ?? 0) < 3) continue;
+      const rise = child.height > 0 ? child.height : 0;
+      const pad = rise === 0 ? 0 : child.edge === 'slope' ? (child.slopeWidth ?? 1) * rise : child.edge === 'cliff' ? CLIFF_REACH : 0;
+      for (const [x, y] of shapeRing(child, 0)) {
+        minX = Math.min(minX, x - pad);
+        minY = Math.min(minY, y - pad);
+        maxX = Math.max(maxX, x + pad);
+        maxY = Math.max(maxY, y + pad);
       }
     }
     // A path is map too: its points and curve handles, grown by the widest half-width it

@@ -6,8 +6,6 @@ import { bindDoorToRooms } from '../shared/roomBinding';
 import { faceMetrics, pointInRing } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
-import { hasPlateaus, layerPlateaus, wallBandRings } from '../shared/plateaus';
-import type { WallSegment } from '../shared/types';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -77,20 +75,7 @@ export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Poly
   // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
   // the server never has one. Union it here rather than reading "no floor".
   const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  // A raised room's ring is a wall like a drawn one: it cuts the ground's face around it,
-  // or the union would swallow the room whole (shared/plateaus.ts).
-  const raised: WallSegment[] = hasPlateaus(layer)
-    ? wallBandRings(layerPlateaus(layer)).map((ring, i) => ({
-        id: `raised-ring-${i}`,
-        points: [...ring, ring[0]],
-        wallType: 'normal',
-        direction: 'both',
-        color: '',
-        roughness: 0,
-      }))
-    : [];
-  const walls = raised.length > 0 ? [...layer.standaloneWalls, ...raised] : layer.standaloneWalls;
-  return roomFaces(floor, walls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
+  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
 }
 
 /**

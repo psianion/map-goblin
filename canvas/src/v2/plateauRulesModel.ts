@@ -7,8 +7,8 @@ export function crossingIdsInUse(layers: readonly Layer[]): Set<string> {
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     for (const c of layer.children) {
-      // A raised edge or an opening with no kind of its own uses its default, which counts.
-      if (c.childType === 'shape' && c.height && c.edge && c.edge !== 'wall') used.add(crossingIdOf(c));
+      // A plateau's edge or an opening with no kind of its own uses its default, which counts.
+      if (c.childType === 'plateau') used.add(crossingIdOf(c));
       else if (c.childType === 'opening') used.add(c.crossingId ?? 'free');
       else if ((c as { crossingId?: string }).crossingId) used.add((c as { crossingId: string }).crossingId);
     }

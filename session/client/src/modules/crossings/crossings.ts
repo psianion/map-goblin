@@ -62,7 +62,7 @@ export function chipWords(c: Crossing, refused: boolean): { title: string; note:
 
 /** A raised edge or an opening the DM pointed at, and what it is played as. */
 export interface CrossingTarget {
-  /** The floor's id (its whole raised edge) or the opening's. */
+  /** The plateau's id (its whole raised edge) or the opening's. */
   targetId: string;
   what: 'opening' | 'cliff' | 'slope' | 'none';
   /** Where the menu opens, world cells. */
@@ -101,9 +101,8 @@ export function crossingTargetAt(map: CrossingMap, levelId: string | undefined, 
   for (const layer of layers) {
     for (const band of layerPlateaus(layer).bands) {
       band.rings.forEach((ring, ri) => {
-        if (band.ringEdge[ri] === 'wall') return;
         band.edges[ri].forEach((e, i) => {
-          if (!e.owner || e.edge === 'wall' || e.drop === 0) return;
+          if (!e.owner || e.drop === 0) return;
           const d = segDistance(x, y, ring[i], ring[(i + 1) % ring.length]);
           if (d > PICK_REACH || (best && best.d <= d)) return;
           best = { targetId: e.owner.id, what: e.edge as 'cliff' | 'slope' | 'none', x, y, mapKindId: crossingIdOf(e.owner), d };

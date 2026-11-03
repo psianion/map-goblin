@@ -2,7 +2,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
-import { applyShapeTransform as applyTransformToPoints, hasPlateaus, layerPlateaus, wallBandRings } from '../shared/plateaus';
+import { applyShapeTransform as applyTransformToPoints } from '../shared/plateaus';
 
 /**
  * Recompute mergedFloor from shape children via Clipper2 boolean union.
@@ -22,24 +22,7 @@ export function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
     (c): c is ShapeChild => c.childType === 'shape' && c.visible,
   );
 
-  if (shapeChildren.length === 0) return null;
-  if (hasPlateaus(layer)) return plateauFloor(layer);
   return unionFloor(shapeChildren);
-}
-
-/**
- * A layer with raised floors: the ground's union (the floors standing on no plateau),
- * then the rings of every raised band that keeps its walls (a raised room), appended so
- * the ground's ring indices, which stone edits key on, stay where they were. A cliff,
- * slope or bare edge is in it only where its ring stands on void (a cave floor raised or
- * sunk on its own); standing on lower ground it makes no walls and no rooms
- * (shared/plateaus.ts `wallBandRings`).
- */
-function plateauFloor(layer: DungeonLayer): Polygon[] | null {
-  const plateaus = layerPlateaus(layer);
-  const ground = unionFloor(plateaus.ground) ?? [];
-  const out = [...ground, ...wallBandRings(plateaus)];
-  return out.length > 0 ? out : null;
 }
 
 /** The plain union of floors: every outer ring unioned, every hole subtracted. */

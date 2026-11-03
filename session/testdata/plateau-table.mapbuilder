@@ -1,13 +1,12 @@
 {
-  "version": "3.2",
+  "version": "3.3",
   "mapSettings": {
     "name": "Plateau Table",
-    "gridType": "square",
     "cellScale": {
       "value": 5,
       "unit": "ft"
     },
-    "ambientLight": "#1a1a2e",
+    "ambientLight": "#ffffff",
     "sightDropCells": 2,
     "crossingKinds": [
       {
@@ -123,7 +122,33 @@
           "textureOffsetX": 0,
           "textureOffsetY": 0,
           "textureFillRotation": 0,
-          "textureTint": "#ffffff",
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "floor-mesa-plateau",
+          "name": "Mesa",
+          "childType": "plateau",
+          "visible": true,
+          "contours": [
+            [
+              [
+                8,
+                4
+              ],
+              [
+                14,
+                4
+              ],
+              [
+                14,
+                10
+              ],
+              [
+                8,
+                10
+              ]
+            ]
+          ],
           "height": 3,
           "edge": "cliff"
         },
@@ -133,9 +158,9 @@
           "childType": "opening",
           "visible": true,
           "kind": "stairs",
-          "shapeId": "floor-mesa",
           "t": 0.875,
-          "width": 2
+          "width": 2,
+          "hostId": "floor-mesa-plateau"
         },
         {
           "id": "torch-mesa",

@@ -1,16 +1,15 @@
-// Old maps' rooms are untouched by the plateau bands: for every saved test map, the merged
-// floor and the room faces cut from it come out identical to the union the floor used to
-// be (copied below as it stood before bands), and adding a cliff plateau beside a map's
+// Old maps' rooms are untouched by plateaus: for every saved test map, the merged floor and
+// the room faces cut from it come out identical to the plain union of its floors (copied
+// below as it stood before plateaus), and adding a plateau over, across or beside a map's
 // floor moves none of its rooms.
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { clipper2Engine, setClipperModule } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
-import type { DungeonLayer, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { migrateToLatest } from '../store/migration';
 import { computeMergedFloor } from './mergedFloor';
-import { hasPlateaus } from '../shared/plateaus';
 import { roomFaces } from './roomDetection';
 
 let fs: { readFileSync(p: string, enc: string): string; readdirSync(p: string): string[] };
@@ -29,7 +28,7 @@ beforeAll(async () => {
   setClipperModule(clipper);
 }, 30_000);
 
-/** The merged floor as it was computed before plateau bands. */
+/** The merged floor as it was computed before plateaus. */
 function legacyMergedFloor(layer: DungeonLayer): Polygon[] | null {
   const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible);
   if (shapes.length === 0) return null;
@@ -56,10 +55,10 @@ function legacyMergedFloor(layer: DungeonLayer): Polygon[] | null {
   return merged;
 }
 
-/** The old maps' dungeon layers: a fixture authored with plateaus (plateau-table) is not one. */
+/** Every test map's dungeon layers, migrated. */
 function dungeonLayers(file: string): DungeonLayer[] {
   const data = migrateToLatest(JSON.parse(fs.readFileSync(`${root}/${file}`, 'utf8')));
-  return (data.layers as unknown as DungeonLayer[]).filter((l) => l.type === 'dungeon' && !hasPlateaus(l));
+  return (data.layers as unknown as DungeonLayer[]).filter((l) => l.type === 'dungeon');
 }
 
 const faces = (layer: DungeonLayer, floor: Polygon[] | null) =>
@@ -95,29 +94,23 @@ describe('old maps keep their floor and rooms', () => {
     expect(layers).toBeGreaterThan(3);
   });
 
-  it('a cliff plateau beside the floor moves none of its rooms', () => {
+  it('a plateau over, across or beside the floor moves none of its rooms', () => {
     for (const file of fs.readdirSync(root).filter((f) => f.endsWith('.mapbuilder'))) {
       for (const layer of dungeonLayers(file)) {
         const before = legacyMergedFloor(layer);
         if (!before) continue;
         const [x, y] = bounds(layer);
-        const outcrop = {
-          ...(layer.children.find((c) => c.childType === 'shape') as ShapeChild),
-          id: 'outcrop',
-          contours: [[[x + 5, y + 5], [x + 9, y + 5], [x + 9, y + 9], [x + 5, y + 9]]],
-          tangents: undefined,
-          transform: undefined,
-          visible: true,
-          height: 2,
-          edge: 'cliff' as const,
-        };
-        const raised = { ...layer, children: [...layer.children, outcrop] } as DungeonLayer;
-        // The outcrop stands on void, so it is a floor of its own now (a lone cave raised keeps
-        // its band and rooms): it adds its own face, out past the map, and moves none of the rest.
-        const inOutcrop = (face: Polygon) => face.every(([px, py]) => px >= x + 4.9 && py >= y + 4.9);
-        const after = faces(raised, computeMergedFloor(raised));
-        expect(after.filter(inOutcrop), file).toHaveLength(1);
-        expect(JSON.stringify(after.filter((f) => !inOutcrop(f))), file).toBe(JSON.stringify(faces(layer, before)));
+        const ring = (x0: number, y0: number, x1: number, y1: number): [number, number][][] => [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]];
+        const plateaus: PlateauChild[] = [
+          // Over the whole floor, across half of it, and out past it on void.
+          { id: 'over', name: 'over', childType: 'plateau', visible: true, contours: ring(-1, -1, x + 1, y + 1), height: 2, edge: 'cliff' },
+          { id: 'across', name: 'across', childType: 'plateau', visible: true, contours: ring(x / 2, -1, x + 4, y / 2), height: -1, edge: 'slope' },
+          { id: 'beside', name: 'beside', childType: 'plateau', visible: true, contours: ring(x + 5, y + 5, x + 9, y + 9), height: 3, edge: 'none' },
+        ];
+        const raised = { ...layer, children: [...layer.children, ...plateaus] } as DungeonLayer;
+        const after = computeMergedFloor(raised);
+        expect(after, file).toEqual(before);
+        expect(JSON.stringify(faces(raised, after)), file).toBe(JSON.stringify(faces(layer, before)));
       }
     }
   });

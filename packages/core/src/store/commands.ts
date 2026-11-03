@@ -162,16 +162,16 @@ export class RemoveChildCommand implements Command {
     this.originalIndex = dungeonLayer.children.findIndex((c) => c.id === this.childId);
     if (this.originalIndex === -1) return;
     this.snapshot = structuredClone(dungeonLayer.children[this.originalIndex]);
-    // A floor takes the openings on its ring with it: an opening has no place of its own.
+    // A plateau takes the openings on its ring with it: an opening has no place of its own.
     this.riders =
-      this.snapshot.childType === 'shape'
-        ? dungeonLayer.children.filter((c) => c.childType === 'opening' && c.shapeId === this.childId).map((c) => structuredClone(c))
+      this.snapshot.childType === 'plateau'
+        ? dungeonLayer.children.filter((c) => c.childType === 'opening' && c.hostId === this.childId).map((c) => structuredClone(c))
         : [];
     for (const rider of this.riders) state.removeChild(this.layerId, rider.id);
     state.removeChild(this.layerId, this.childId);
   }
 
-  /** Openings removed with the floor they sat on, put back with it. */
+  /** Openings removed with the plateau they sat on, put back with it. */
   private riders: AnyChild[] = [];
 
   undo(): void {

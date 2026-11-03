@@ -57,7 +57,7 @@ import { pointInPath } from '../../geometry/pathGeometry';
 import { createAttachedSync, layAttached, layerUnits } from './attachedObjects';
 import { MAX_OVERLAP, unitOverlap } from './pathKitLayout';
 import type { AssetChild, PathChild } from '../../shared/types';
-import type { DungeonLayer, Layer, ShapeChild } from '../../store/types';
+import type { DungeonLayer, Layer, PlateauChild } from '../../store/types';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -97,22 +97,15 @@ const ring = (x0: number, y0: number, x1: number, y1: number) => [
 
 const lake = (id: string) => road(id, ring(40, 0, 52, 10), { materialId: 'gg-forge:water', closed: true, fill: true, width: 1 });
 
-const plateau = (id: string): ShapeChild =>
-  ({
-    id,
-    name: id,
-    childType: 'shape',
-    visible: true,
-    shapeType: 'rectangle',
-    contours: [[[0, 20], [12, 20], [12, 30], [0, 30]]],
-    textureScale: 1,
-    textureOffsetX: 0,
-    textureOffsetY: 0,
-    textureFillRotation: 0,
-    textureTint: '#ffffff',
-    height: 2,
-    edge: 'cliff',
-  }) as ShapeChild;
+const plateau = (id: string): PlateauChild => ({
+  id,
+  name: id,
+  childType: 'plateau',
+  visible: true,
+  contours: [[[0, 20], [12, 20], [12, 30], [0, 30]]],
+  height: 2,
+  edge: 'cliff',
+});
 
 const layerOf = (children: DungeonLayer['children']) =>
   ({ id: 'l1', type: 'dungeon', children, style: { floorColor: '#808080' } }) as unknown as DungeonLayer;
@@ -199,7 +192,7 @@ describe('layAttached', () => {
     const laid = layAttached(layerOf([plateau('p')]), new Set(['p']), []);
     expect(laid.length).toBeGreaterThan(5);
     for (const a of laid) {
-      expect(a.attachedTo).toMatchObject({ kind: 'shape', id: 'p', side: 1 });
+      expect(a.attachedTo).toMatchObject({ kind: 'plateau', id: 'p', side: 1 });
       const { x, y } = a.position;
       const out = Math.hypot(Math.max(0 - x, 0, x - 12), Math.max(20 - y, 0, y - 30));
       // Beyond the foot band (it reaches about 1.05 cells out).

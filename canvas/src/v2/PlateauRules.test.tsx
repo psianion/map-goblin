@@ -8,13 +8,13 @@ import { crossingIdsInUse } from './plateauRulesModel';
 describe('PlateauRules', () => {
   beforeEach(() => cleanup());
 
-  it('counts a raised edge with no kind of its own as using its default', () => {
+  it('counts a plateau edge with no kind of its own as using its default', () => {
     const layers = [
       {
         type: 'dungeon',
         children: [
-          { childType: 'shape', height: 2, edge: 'cliff' },
-          { childType: 'shape', height: 1, edge: 'slope', crossingId: 'impassable' },
+          { childType: 'plateau', height: 2, edge: 'cliff' },
+          { childType: 'plateau', height: 1, edge: 'slope', crossingId: 'impassable' },
           { childType: 'opening' },
           { childType: 'shape' },
         ],

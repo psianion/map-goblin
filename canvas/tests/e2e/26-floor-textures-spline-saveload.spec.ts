@@ -358,14 +358,14 @@ test.describe('Spline Paths', () => {
 // ---------- Save / Load Tests ----------
 
 test.describe('Save / Load Round-trip', () => {
-  test('getSerializableState returns the current version, "3.2"', async ({ page }) => {
+  test('getSerializableState returns the current version, "3.3"', async ({ page }) => {
     await gotoApp(page)
 
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.2')
+    expect(version).toBe('3.3')
   })
 
   test('round-trip: save then loadFromFile restores dungeon layer shapes', async ({ page }) => {
@@ -466,7 +466,7 @@ test.describe('Save / Load Round-trip', () => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.2')
+    expect(version).toBe('3.3')
 
     // Shape children survive the migration
     const layer = await getDungeonLayer(page)

@@ -1,6 +1,6 @@
-// Raised and sunken floors, drawn (plan §4.3). One container per band, lowest first, in the
-// layer's `plateaus` sublayer: over the ground, under the shadows that fall on it. Each band
-// is its floor (painted like any floor, lifted 3 % a cell), its slopes as an ink contour ring
+// Plateaus, drawn (plan §4.3). One container per band, lowest first, in the layer's
+// `plateaus` sublayer: over the ground, under the shadows that fall on it. Each band is a
+// translucent lift over whatever lies beneath (3 % a cell), its slopes as an ink contour ring
 // per cell of drop over a flat shade on the faces turned from the sun, its cliffs laid by the
 // cave walk with the ledge kit over a foot of rubble walked the same way (void side = low
 // side, so a pit's rock faces in), and its openings across the gaps they cut.
@@ -10,7 +10,7 @@
 
 import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
-import type { DungeonLayer, ShapeChild } from '../store/types';
+import type { DungeonLayer } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
 import { pathCentreline } from '../geometry/pathGeometry';
 import { setCliffCrossings, type CliffCrossing } from './path/waterfalls';
@@ -41,9 +41,6 @@ import { edgeWalk, type EdgeUnit, type UnitPlacement } from './path/pathKitLayou
 import { placePieces, type Piece } from './path/kitUnits';
 
 type Vec = [number, number];
-
-/** Paints one floor shape into a container: the floor renderer's own per-shape fill. */
-export type ShapePainter = (parent: Container, shape: ShapeChild) => void;
 
 export interface PlateauRenderOptions {
   /** Ask for a re-bake when a pack texture this draw needed lands later. */
@@ -223,7 +220,6 @@ const lowSide = (drop: number): 'left' | 'right' => (drop > 0 ? 'right' : 'left'
 export function renderPlateaus(
   layer: DungeonLayer,
   parent: Container,
-  paint: ShapePainter,
   options: PlateauRenderOptions = {},
 ): void {
   for (const child of parent.removeChildren()) child.destroy({ children: true });
@@ -236,7 +232,7 @@ export function renderPlateaus(
   for (const band of plateaus.bands) {
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
-    drawBandFloor(holder, band, paint);
+    drawBandTop(holder, band);
     const runs = edgeRuns(band);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
@@ -247,22 +243,14 @@ export function renderPlateaus(
   shadeCliffs(layer.id, lastLook.get(layer.id) ?? null);
 }
 
-/** The band's floors, each painted as the ground paints it, lifted by height and clipped to the band. */
-function drawBandFloor(parent: Container, band: PlateauBand, paint: ShapePainter): void {
-  const floor = new Container();
-  floor.label = 'plateau-floor';
-  for (const shape of band.shapes) paint(floor, shape);
+/** The band's top: a translucent lift tint over whatever is beneath it, nothing else. */
+function drawBandTop(parent: Container, band: PlateauBand): void {
   const lift = tierLift(band.height);
-  if (lift !== 0) {
-    const tier = new Graphics();
-    fillRings(tier, band.rings, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
-    floor.addChild(tier);
-  }
-  const mask = new Graphics();
-  fillRings(mask, band.rings, { color: 0xffffff });
-  floor.addChild(mask);
-  floor.mask = mask;
-  parent.addChild(floor);
+  if (lift === 0) return;
+  const tier = new Graphics();
+  tier.label = 'plateau-top';
+  fillRings(tier, band.rings, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
+  parent.addChild(tier);
 }
 
 /**
@@ -518,7 +506,7 @@ export function stairsArtEntries(): CatalogEntry[] {
 function drawOpenings(parent: Container, layer: DungeonLayer, band: PlateauBand, options: PlateauRenderOptions): void {
   const ids = new Set(band.shapes.map((s) => s.id));
   for (const c of layer.children) {
-    if (c.childType !== 'opening' || !c.visible || !ids.has(c.shapeId)) continue;
+    if (c.childType !== 'opening' || !c.visible || !ids.has(c.hostId)) continue;
     const frame = openingFrame(layer, c);
     if (!frame) continue;
     const g = drawOpening(c, frame, options);

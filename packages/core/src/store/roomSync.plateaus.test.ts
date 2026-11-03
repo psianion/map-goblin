@@ -1,12 +1,13 @@
-// Rooms that sit inside another face: a tower walled off in a field, and a raised room on the
-// ground. Each anchor takes the face it is actually in, not the field around it.
+// Rooms that sit inside another face: a tower walled off in a field. Each anchor takes the face
+// it is actually in, not the field around it. And plateaus, which are relief, never touch a room.
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { layerFaces, syncRooms } from './roomSync';
 import { computeMergedFloor } from '../engine/mergedFloor';
-import type { DungeonLayer, ShapeChild } from './types';
+import type { DungeonLayer, PlateauChild, ShapeChild } from './types';
 import type { WallSegment } from '../shared/types';
+import { layBandRing, orientRings } from '../engine/caveBandRenderer';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -32,7 +33,18 @@ const rect = (id: string, x0: number, y0: number, x1: number, y1: number, extra:
   ...extra,
 });
 
-const layerOf = (children: ShapeChild[], walls: WallSegment[] = []) =>
+const plat = (id: string, x0: number, y0: number, x1: number, y1: number, extra: Partial<PlateauChild> = {}): PlateauChild => ({
+  id,
+  name: id,
+  childType: 'plateau',
+  visible: true,
+  contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+  height: 1,
+  edge: 'cliff',
+  ...extra,
+});
+
+const layerOf = (children: (ShapeChild | PlateauChild)[], walls: WallSegment[] = []) =>
   ({
     id: 'l1',
     type: 'dungeon',
@@ -64,45 +76,33 @@ describe('rooms inside another face', () => {
     expect(area(layer, 'field')).toBeGreaterThan(300);
   });
 
-  it('gives a raised room on the ground its own face', () => {
-    const layer = layerOf([rect('ground', 0, 0, 20, 20), rect('tower', 8, 8, 12, 12, { height: 2 })]);
-    expect(area(layer, 'inner')).toBeLessThan(16);
+  it('gives a plateau on the ground no face of its own', () => {
+    const layer = layerOf([rect('ground', 0, 0, 20, 20), plat('mesa', 8, 8, 12, 12, { height: 2 })]);
+    expect(layerFaces(layer)).toHaveLength(1);
+    expect(area(layer, 'inner')).toBeCloseTo(area(layer, 'field'));
   });
 });
 
-describe('a lone floor at height keeps its rooms', () => {
-  const cave = (height: number, edge: 'cliff' | 'slope' | 'none') =>
-    ({
-      id: 'l1',
-      type: 'dungeon',
-      children: [rect('cave', 0, 0, 8, 7, { height, edge })],
-      standaloneWalls: [
-        {
-          id: 'split',
-          points: [[4, 0], [4, 7]],
-          wallType: 'normal',
-          direction: 'both',
-          color: '#000',
-          width: 0.5,
-          roughness: 0,
-        },
-      ],
-      mergedFloor: null,
-      style: { wallWidth: 0.5 },
-      rooms: [
-        { id: 'west', name: 'West', anchor: [2, 3] },
-        { id: 'east', name: 'East', anchor: [6, 3] },
-      ],
-    }) as unknown as DungeonLayer;
+describe('a plateau partly over a room', () => {
+  const tower: WallSegment = {
+    id: 'tower',
+    points: [[8, 8], [12, 8], [12, 12], [8, 12], [8, 8]],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000',
+    width: 0.5,
+    roughness: 0,
+  };
 
-  for (const height of [1, -1]) {
-    for (const edge of ['cliff', 'slope', 'none'] as const) {
-      it(`places every room on a lone floor at ${height} with a ${edge} edge`, () => {
-        const layer = cave(height, edge);
-        expect(layerFaces(layer)).toHaveLength(2);
-        const { rooms } = syncRooms(layer);
-        expect(rooms.filter((r) => r.orphaned)).toHaveLength(0);
-        expect(new Set(rooms.map((r) => r.area!.toFixed(2))).size).toBe(1);
+  for (const edge of ['cliff', 'slope', 'none'] as const) {
+    for (const height of [2, -1]) {
+      it(`leaves every face as it was under a ${edge} at ${height}`, () => {
+        const flat = layerOf([rect('ground', 0, 0, 20, 20)], [tower]);
+        // Straddling the tower's east wall and running off the floor's edge.
+        const layer = layerOf([rect('ground', 0, 0, 20, 20), plat('ridge', 10, 6, 24, 14, { height, edge })], [tower]);
+        expect(computeMergedFloor(layer)).toEqual(computeMergedFloor(flat));
+        expect(JSON.stringify(layerFaces(layer))).toBe(JSON.stringify(layerFaces(flat)));
+        expect(JSON.stringify(syncRooms(layer).rooms)).toBe(JSON.stringify(syncRooms(flat).rooms));
       });
     }
   }
@@ -118,21 +118,40 @@ async function fixtureLayer(name: string): Promise<DungeonLayer> {
   return data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
 }
 
-describe('the warren cave raised or sunk', () => {
-  for (const height of [1, -1]) {
-    for (const edge of ['wall', 'cliff', 'slope', 'none'] as const) {
-      it(`keeps 7 faces and no orphan at ${height} with a ${edge} edge`, async () => {
+describe('a plateau on the warren floor (W-12)', () => {
+  // The cave band the walls lay along each ring of the merged floor, as the renderer lays it.
+  const band = (floor: ReturnType<typeof computeMergedFloor>) =>
+    JSON.stringify(orientRings(floor ?? []).map((ring) => layBandRing(ring)));
+
+  for (const height of [1, -1, 3]) {
+    for (const edge of ['cliff', 'slope', 'none'] as const) {
+      it(`keeps the floor, the cave band and the 7 faces at ${height} with a ${edge} edge`, async () => {
         const base = await fixtureLayer('goblin-warren');
-        const layer = {
-          ...base,
-          mergedFloor: null,
-          children: base.children.map((c) => (c.id === 'floor-cave-0' ? { ...c, height, edge } : c)),
-        } as DungeonLayer;
-        expect(computeMergedFloor(layer)).toHaveLength(1);
+        const flat = { ...base, mergedFloor: null } as DungeonLayer;
+        const floor = base.children.find((c): c is ShapeChild => c.id === 'floor-cave-0')!;
+        const plateau: PlateauChild = {
+          id: 'cave-plateau',
+          name: 'Cave plateau',
+          childType: 'plateau',
+          visible: true,
+          contours: floor.contours,
+          tangents: floor.tangents,
+          transform: floor.transform,
+          height,
+          edge,
+        };
+        const layer = { ...flat, children: [...flat.children, plateau] } as DungeonLayer;
+        const before = computeMergedFloor(flat);
+        const after = computeMergedFloor(layer);
+        expect(after).toEqual(before);
+        expect(after).toHaveLength(1);
+        expect(band(after)).toBe(band(before));
         expect(layerFaces(layer)).toHaveLength(7);
+        expect(JSON.stringify(layerFaces(layer))).toBe(JSON.stringify(layerFaces(flat)));
         const { rooms } = syncRooms(layer);
         expect(rooms).toHaveLength(7);
         expect(rooms.filter((r) => r.orphaned)).toHaveLength(0);
+        expect(JSON.stringify(rooms)).toBe(JSON.stringify(syncRooms(flat).rooms));
       });
     }
   }

@@ -255,6 +255,28 @@ describe('computeMapFrame', () => {
     expect(computeMapFrame([layer], null)).toEqual({ minX: 0, minY: 0, maxX: 9, maxY: 7 });
   });
 
+  it('measures a plateau outside the floors, out to where its edge falls', () => {
+    const floor = [[[0, 0], [4, 0], [4, 4], [0, 4]]] as [number, number][][];
+    const plateau = (edge: string, height: number) => ({
+      id: 'p',
+      name: 'Mesa',
+      childType: 'plateau',
+      visible: true,
+      contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]],
+      height,
+      edge,
+      slopeWidth: 2,
+    });
+    const frame = (edge: string, height: number) =>
+      computeContentBounds([{ ...layerWith(floor), children: [plateau(edge, height)] } as unknown as Layer], null)!;
+    expect(frame('none', 2).maxX).toBeGreaterThanOrEqual(14);
+    expect(frame('none', 2).maxY).toBeGreaterThanOrEqual(14);
+    // A +3 slope two cells a cell wide falls six cells past its ring; a pit's falls inward.
+    expect(frame('slope', 3).maxX).toBeGreaterThanOrEqual(20);
+    expect(frame('slope', -3).maxX).toBeLessThan(frame('slope', 3).maxX);
+    expect(frame('cliff', 1).maxX).toBeGreaterThan(frame('none', 1).maxX);
+  });
+
   it('includes painted terrain in the frame', () => {
     const frame = computeMapFrame(
       [layerWith([[[0, 0], [2, 0], [2, 2], [0, 2]]])],

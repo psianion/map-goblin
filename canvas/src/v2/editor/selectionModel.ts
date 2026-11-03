@@ -208,16 +208,16 @@ export function cleanRoomName(raw: string): string | null {
 
 /* ── Which fields the card shows ───────────────────────── */
 
-export type FieldsGroup = { kind: 'shape'; layerId: string; ids: string[] };
+export type FieldsGroup = { kind: 'shape' | 'plateau'; layerId: string; ids: string[] };
 
 /**
- * Floors the card can edit together: every item a floor, all on one layer.
+ * Floors (or plateaus) the card can edit together: every item of that kind, all on one layer.
  * Anything else (a mix of kinds, two layers) gets no shared fields.
  */
 export function fieldsGroup(children: readonly AnyChild[], layerIds: readonly (string | null)[]): FieldsGroup | null {
   if (children.length === 0) return null;
   const kind = children[0].childType;
-  if (kind !== 'shape') return null;
+  if (kind !== 'shape' && kind !== 'plateau') return null;
   const layerId = layerIds[0];
   if (!layerId) return null;
   if (!children.every((c, i) => c.childType === kind && layerIds[i] === layerId)) return null;

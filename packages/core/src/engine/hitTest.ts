@@ -647,7 +647,8 @@ export function getChildBounds(child: AnyChild): {
   height: number;
 } {
   switch (child.childType) {
-    case 'shape': {
+    case 'shape':
+    case 'plateau': {
       // Flattened: a curve can bow past its anchors, and the gizmo/selection
       // box must wrap what is actually drawn.
       let points = flattenRing(child.contours[0], child.tangents?.[0]);

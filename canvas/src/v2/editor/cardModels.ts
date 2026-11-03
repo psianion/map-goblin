@@ -52,6 +52,7 @@ export const KIND_LABEL: Record<SelectionKind, string> = {
   light: 'Lights',
   text: 'Labels',
   shape: 'Floors',
+  plateau: 'Plateaus',
   path: 'Paths',
   opening: 'Openings',
   wall: 'Walls',

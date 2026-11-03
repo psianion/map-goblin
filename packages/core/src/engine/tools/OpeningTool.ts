@@ -1,5 +1,5 @@
 // The Opening tool (S): stairs, ramps and ladders through a cliff, placed the way the door
-// tool hangs doors on walls. Hover a raised floor's edge (anything but a wall) and a ghost of
+// tool hangs doors on walls. Hover a plateau's edge and a ghost of
 // the next opening rides it; click places it there, selected. Over a placed opening a click
 // selects it and a drag slides it along the ring, one undo step per gesture. Delete removes
 // the selected (or hovered) opening.
@@ -9,7 +9,7 @@ import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { DungeonLayer, OpeningToolSettings } from '../../store/types';
 import type { OpeningChild } from '../../shared/types';
-import { edgeOf, layerPlateaus, openingFrame, ownHeight, ringParamAt } from '../../shared/plateaus';
+import { layerPlateaus, openingFrame, ownHeight, ringParamAt } from '../../shared/plateaus';
 import { addOpening, removeOpening } from '../../store/plateauCommands';
 import { UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
@@ -35,20 +35,20 @@ export function openingSettings(): OpeningToolSettings {
 export const OPENING_LABEL: Record<OpeningChild['kind'], string> = { stairs: 'Stairs', ramp: 'Ramp', ladder: 'Ladder' };
 
 /**
- * The raised floor edge nearest (x, y) within `reach`: the floor's id and the fraction of its
- * outline there. Only floors with a height and an edge other than a wall take openings.
+ * The plateau edge nearest (x, y) within `reach`: the plateau's id and the fraction of its
+ * outline there. Only plateaus with a height take openings.
  */
 export function cliffSnap(
   layer: Pick<DungeonLayer, 'children'>,
   x: number,
   y: number,
   reach = OPENING_SNAP,
-): { shapeId: string; t: number; dist: number } | null {
-  let best: { shapeId: string; t: number; dist: number } | null = null;
+): { hostId: string; t: number; dist: number } | null {
+  let best: { hostId: string; t: number; dist: number } | null = null;
   for (const info of layerPlateaus(layer).infos.values()) {
-    if (ownHeight(info.shape) === 0 || edgeOf(info.shape) === 'wall' || info.outline.length < 3) continue;
+    if (ownHeight(info.shape) === 0 || info.outline.length < 3) continue;
     const hit = ringParamAt(info.outline, x, y);
-    if (hit.dist <= reach && (!best || hit.dist < best.dist)) best = { shapeId: info.shape.id, t: hit.t, dist: hit.dist };
+    if (hit.dist <= reach && (!best || hit.dist < best.dist)) best = { hostId: info.shape.id, t: hit.t, dist: hit.dist };
   }
   return best;
 }
@@ -83,7 +83,7 @@ export class OpeningTool implements DrawingTool {
 
   private ghost: Container;
   private ghostKey: string | null = null;
-  private snap: { shapeId: string; t: number } | null = null;
+  private snap: { hostId: string; t: number } | null = null;
   /** The opening a press landed on, where it was, and whether the press became a slide. */
   private pressed: { id: string; layerId: string; from: number; at: Point; sliding: boolean } | null = null;
 
@@ -114,7 +114,7 @@ export class OpeningTool implements DrawingTool {
     }
     const snap = cliffSnap(layer, point.x, point.y);
     if (!snap) {
-      notify.info('Openings go on the edge of a raised floor with a cliff, slope or no edge');
+      notify.info('Openings go on the edge of a plateau');
       return;
     }
     const settings = openingSettings();
@@ -124,7 +124,7 @@ export class OpeningTool implements DrawingTool {
       childType: 'opening',
       visible: true,
       kind: settings.kind,
-      shapeId: snap.shapeId,
+      hostId: snap.hostId,
       t: snap.t,
       width: settings.width,
       ...(settings.kind === 'stairs' && settings.artId ? { artId: settings.artId } : {}),
@@ -148,14 +148,14 @@ export class OpeningTool implements DrawingTool {
         return;
       }
       p.sliding = true;
-      // Slide along the opening's own floor: the nearest point of that ring, however far.
-      const info = layerPlateaus(layer).infos.get(opening.shapeId);
+      // Slide along the opening's own plateau: the nearest point of that ring, however far.
+      const info = layerPlateaus(layer).infos.get(opening.hostId);
       if (info) useStore.getState().updateChild(layer.id, p.id, { t: ringParamAt(info.outline, point.x, point.y).t });
       return;
     }
     this.hoveredId = openingAt(layer, point.x, point.y)?.id ?? null;
     const snap = this.hoveredId || layer.locked ? null : cliffSnap(layer, point.x, point.y);
-    this.snap = snap ? { shapeId: snap.shapeId, t: snap.t } : null;
+    this.snap = snap ? { hostId: snap.hostId, t: snap.t } : null;
     this.updateGhost(layer);
   }
 
@@ -178,7 +178,7 @@ export class OpeningTool implements DrawingTool {
       return;
     }
     const s = openingSettings();
-    const key = `${this.snap.shapeId}:${this.snap.t.toFixed(3)}:${s.kind}:${s.width}:${s.artId ?? ''}`;
+    const key = `${this.snap.hostId}:${this.snap.t.toFixed(3)}:${s.kind}:${s.width}:${s.artId ?? ''}`;
     if (key === this.ghostKey) return;
     this.clearGhost();
     const frame = openingFrame(layer, this.snap);

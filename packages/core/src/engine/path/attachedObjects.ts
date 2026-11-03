@@ -1,4 +1,4 @@
-// Attached objects: props a kit places along a path or a plot (a raised floor's cliff), as
+// Attached objects: props a kit places along a path or a plot (a plateau's cliff), as
 // Canvas of Kings does: trees along a road's verge, reeds on a shore and lily pads on the
 // water, rubble out past a cliff's foot. They are real props (AssetChild with `attachedTo`),
 // laid by the same edge walk as a kit's units (pathKitLayout `edgeWalk`), seeded by the host's
@@ -12,7 +12,7 @@
 // (`subscribeToAttachedObjects`).
 
 import type { AssetChild, PathChild } from '../../shared/types';
-import type { DungeonLayer, Layer, ShapeChild } from '../../store/types';
+import type { DungeonLayer, Layer, PlateauChild } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { useStore } from '../../store/store';
 import { GRID_CELL_PX, getCatalogEntry, pathKit, pathKits, type PathKit } from '../../assets/packCatalog';
@@ -68,17 +68,17 @@ export function kitObjects(kit: PathKit): ObjectUnit[] {
   return out;
 }
 
-/** A host: a path, or a raised floor whose cliffs take the cliff foot kit's objects. */
-type Host = { kind: 'path'; child: PathChild } | { kind: 'shape'; child: ShapeChild };
+/** A host: a path, or a plateau whose cliffs take the cliff foot kit's objects. */
+type Host = { kind: 'path'; child: PathChild } | { kind: 'plateau'; child: PlateauChild };
 
-/** Whether a shape is a plot whose cliff takes objects: raised or sunk, with a cliff edge. */
-const isPlot = (s: ShapeChild): boolean => !!s.height && s.edge === 'cliff';
+/** Whether a plateau is a plot whose cliff takes objects: raised or sunk, with a cliff edge. */
+const isPlot = (s: PlateauChild): boolean => !!s.height && s.edge === 'cliff';
 
 /** Every host on a layer, paths first, in child order. */
 export function hostsOf(layer: DungeonLayer): Host[] {
   const out: Host[] = [];
   for (const c of layer.children) if (c.childType === 'path' && c.visible) out.push({ kind: 'path', child: c });
-  for (const c of layer.children) if (c.childType === 'shape' && c.visible && isPlot(c)) out.push({ kind: 'shape', child: c });
+  for (const c of layer.children) if (c.childType === 'plateau' && c.visible && isPlot(c)) out.push({ kind: 'plateau', child: c });
   return out;
 }
 
@@ -99,7 +99,7 @@ function hostLines(host: Host, side: Side, d: number): Polygon[] {
       : [flattenRing(host.child.contours[0] ?? [], host.child.tangents?.[0])];
   if (side === 0) return rings;
   // "Away" from a plot is its low side: out of a plateau, into a pit.
-  const outward = host.kind === 'path' || (host.child.height ?? 0) > 0 ? side : -side;
+  const outward = host.kind === 'path' || host.child.height > 0 ? side : -side;
   const inside = (p: [number, number]) =>
     host.kind === 'path' ? pointInPath(host.child, p) : pointInRing(p[0], p[1], rings[0]);
   const out: Polygon[] = [];

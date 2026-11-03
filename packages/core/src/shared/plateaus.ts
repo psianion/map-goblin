@@ -1,22 +1,16 @@
-// Plateaus: floor shapes with a height, stacked inside one another, and the bands of
-// equal height they merge into. Pure: the floor union, the renderer, the lights and the
-// card all read the same answers from here.
+// Plateaus: relief drawn over floors or terrain, stacked inside one another, and the bands
+// of equal height they merge into. Pure: the renderer, the lights, the table and the card
+// all read the same answers from here. Plateaus never touch the floor union, walls or rooms.
 //
-// The rules (plan §3.2):
-// - A shape's parent is the innermost floor shape on the same layer that has a height and
-//   whose outline holds the shape's centroid (ties: the smallest area). Heights add up
-//   along that chain: the absolute height.
-// - Shapes merge only with shapes of the same absolute height: one band per height. Shapes
-//   with no height and no raised parent are the ground, which is the layer's merged floor
-//   exactly as it always was.
+// The rules:
+// - A plateau's parent is the innermost plateau on the same layer whose outline holds its
+//   centroid (ties: the smallest area). Heights add up along that chain: the absolute height.
+// - Plateaus merge only with plateaus of the same absolute height: one band per height.
 // - The drop at a point of a band's edge is the band's height minus the height of the
 //   surface just outside: positive faces outward (a plateau), negative inward (a pit).
-// - A band ring whose owning shape has edge 'wall' (the default) is a raised room: its
-//   walls, rooms and doors work as on the ground. Every other ring is a cliff, a slope or a
-//   bare edge, and never makes a room.
 
-import type { DungeonLayer, ShapeChild } from '../store/types';
-import type { CrossingKind, OpeningChild, PathChild } from './types';
+import type { DungeonLayer } from '../store/types';
+import type { CrossingKind, OpeningChild, PathChild, PlateauChild, RingGeometry } from './types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
@@ -24,7 +18,7 @@ import { ringOwner } from './wallLook';
 import { DEFAULT_SIGHT_DROP_CELLS } from './crossingKinds';
 import { pathCentreline } from '../geometry/pathGeometry';
 
-export type EdgeKind = 'wall' | 'cliff' | 'slope' | 'none';
+export type EdgeKind = PlateauChild['edge'];
 
 /** Brightness added to a band's floor per cell of height, and the most it adds. */
 export const TIER_STEP = 0.03;
@@ -33,7 +27,7 @@ export const TIER_CAP = 0.12;
 /** How far outside an edge the surface below it is probed, in cells. */
 const PROBE = 0.05;
 
-type Transform = NonNullable<ShapeChild['transform']>;
+type Transform = NonNullable<RingGeometry['transform']>;
 
 /** A shape's transform applied to ring points: scale, then rotate, then translate. */
 export function applyShapeTransform(pts: Polygon, t: Transform): Polygon {
@@ -50,23 +44,28 @@ export function applyShapeTransform(pts: Polygon, t: Transform): Polygon {
   });
 }
 
-/** Ring `i` of a shape as the floor union sees it: curves flattened, transform applied. */
-export function shapeRing(shape: ShapeChild, i = 0): Polygon {
+/** Ring `i` of a ring child in world space: curves flattened, transform applied. */
+export function shapeRing(shape: RingGeometry, i = 0): Polygon {
   let pts = flattenRing(shape.contours[i], shape.tangents?.[i]);
   if (shape.transform) pts = applyShapeTransform(pts, shape.transform);
   return pts;
 }
 
-/** The edge a shape's ring meets lower ground with. */
-export const edgeOf = (shape: Pick<ShapeChild, 'edge'>): EdgeKind => shape.edge ?? 'wall';
+/** The edge a plateau's ring meets lower ground with. */
+export const edgeOf = (plateau: Pick<PlateauChild, 'edge'>): EdgeKind => plateau.edge ?? 'cliff';
 
-/** A shape's own height in whole cells; 0 when it has none. */
-export const ownHeight = (shape: Pick<ShapeChild, 'height'>): number =>
-  Number.isFinite(shape.height) ? Math.round(shape.height as number) : 0;
+/** A plateau's own height in whole cells; 0 when it has none. */
+export const ownHeight = (plateau: Pick<PlateauChild, 'height'>): number =>
+  Number.isFinite(plateau.height) ? Math.round(plateau.height) : 0;
 
-/** True when any visible floor on the layer has a height: the only case anything here changes. */
+/** The layer's visible plateaus. */
+export function plateausOf(layer: Pick<DungeonLayer, 'children'>): PlateauChild[] {
+  return layer.children.filter((c): c is PlateauChild => c.childType === 'plateau' && c.visible);
+}
+
+/** True when any visible plateau on the layer has a height: the only case anything here changes. */
 export function hasPlateaus(layer: Pick<DungeonLayer, 'children'>): boolean {
-  return layer.children.some((c) => c.childType === 'shape' && c.visible && ownHeight(c as ShapeChild) !== 0);
+  return layer.children.some((c) => c.childType === 'plateau' && c.visible && ownHeight(c) !== 0);
 }
 
 function signedArea(poly: Polygon): number {
@@ -122,23 +121,23 @@ function inRings(x: number, y: number, rings: readonly Polygon[]): boolean {
 // ─── Nesting ───────────────────────────────────────────────
 
 export interface PlateauInfo {
-  shape: ShapeChild;
-  /** The raised shape this one stands on, or null on the ground. */
-  parent: ShapeChild | null;
-  /** The raised shapes from the outermost down to this one (itself included when it has a height). */
-  chain: ShapeChild[];
+  shape: PlateauChild;
+  /** The raised plateau this one stands on, or null on the ground. */
+  parent: PlateauChild | null;
+  /** The raised plateaus from the outermost down to this one (itself included when it has a height). */
+  chain: PlateauChild[];
   /** Absolute height in cells: the sum of `height` along the chain. */
   height: number;
-  /** The shape's outline, flattened and transformed. */
+  /** The plateau's outline, flattened and transformed. */
   outline: Polygon;
   area: number;
 }
 
 /**
- * Each visible floor's place in the stack: parent, chain and absolute height. A shape only
+ * Each visible plateau's place in the stack: parent, chain and absolute height. A plateau only
  * ever stands on a larger one (or an equal one drawn before it), so a chain always ends.
  */
-export function plateauChains(shapes: readonly ShapeChild[]): Map<string, PlateauInfo> {
+export function plateauChains(shapes: readonly PlateauChild[]): Map<string, PlateauInfo> {
   const live = shapes.filter((s) => s.visible !== false && (s.contours[0]?.length ?? 0) >= 3);
   const geo = live.map((s) => {
     const outline = shapeRing(s, 0);
@@ -146,7 +145,7 @@ export function plateauChains(shapes: readonly ShapeChild[]): Map<string, Platea
   });
   const raised = geo.map((g, i) => ({ ...g, i })).filter((g) => ownHeight(g.s) !== 0);
 
-  const parentOf = new Map<string, ShapeChild | null>();
+  const parentOf = new Map<string, PlateauChild | null>();
   geo.forEach((g, i) => {
     let best: (typeof raised)[number] | null = null;
     for (const h of raised) {
@@ -181,16 +180,16 @@ export function plateauChains(shapes: readonly ShapeChild[]): Map<string, Platea
   return out;
 }
 
-/** The absolute height of floor `shapeId` on its layer (0 for ground or an unknown id). */
-export function absoluteHeight(layer: Pick<DungeonLayer, 'children'>, shapeId: string): number {
-  return layerPlateaus(layer).infos.get(shapeId)?.height ?? 0;
+/** The absolute height of plateau `id` on its layer (0 for an unknown id). */
+export function absoluteHeight(layer: Pick<DungeonLayer, 'children'>, id: string): number {
+  return layerPlateaus(layer).infos.get(id)?.height ?? 0;
 }
 
 // ─── Bands ─────────────────────────────────────────────────
 
 export interface BandEdge {
-  /** The band's shape this edge belongs to. */
-  owner: ShapeChild | null;
+  /** The band's plateau this edge belongs to. */
+  owner: PlateauChild | null;
   edge: EdgeKind;
   /** Band height minus the surface just outside, in cells. */
   drop: number;
@@ -199,30 +198,26 @@ export interface BandEdge {
 export interface PlateauBand {
   /** Absolute height, cells. */
   height: number;
-  /** Longest raised chain among its shapes: bands draw in this order, then by height. */
+  /** Longest raised chain among its plateaus: bands draw in this order, then by height. */
   depth: number;
-  shapes: ShapeChild[];
+  shapes: PlateauChild[];
   /**
-   * The union of the band's shapes, holes subtracted. Wound so the band's outside is on the
+   * The union of the band's plateaus, holes subtracted. Wound so the band's outside is on the
    * LEFT of travel (outer rings positive, holes negative): the cave kit's void side.
    */
   rings: Polygon[];
-  /** Per ring, the edge kind of its owning shape (the whole ring's): 'wall' rings are raised rooms. */
-  ringEdge: EdgeKind[];
   /** Per ring, per edge (vertex i to i + 1, wrapping). */
   edges: BandEdge[][];
 }
 
 export interface LayerPlateaus {
   infos: Map<string, PlateauInfo>;
-  /** Floors with no raised chain: the ground, the layer's merged floor. */
-  ground: ShapeChild[];
   /** Raised bands in draw order (depth, then height). Empty on a flat layer. */
   bands: PlateauBand[];
 }
 
-/** Union of rings the way the merged floor does it: outers unioned, holes subtracted. */
-export function unionShapes(shapes: readonly ShapeChild[]): Polygon[] {
+/** Union of rings: outers unioned, holes subtracted. */
+export function unionShapes(shapes: readonly RingGeometry[]): Polygon[] {
   const outer: Polygon[] = [];
   const holes: Polygon[] = [];
   for (const s of shapes) {
@@ -246,8 +241,8 @@ function orient(rings: Polygon[]): Polygon[] {
 }
 
 /**
- * The surface height at a point: the deepest raised floor holding it (the one drawn last on
- * a tie), else the ground, 0. Void outside every floor reads as 0 too.
+ * The surface height at a point: the deepest raised plateau holding it (the one drawn last on
+ * a tie), else the ground, 0.
  */
 export function surfaceHeightAt(infos: Map<string, PlateauInfo>, x: number, y: number): number {
   let best: PlateauInfo | null = null;
@@ -261,20 +256,16 @@ export function surfaceHeightAt(infos: Map<string, PlateauInfo>, x: number, y: n
 
 const memo = new WeakMap<readonly unknown[], LayerPlateaus>();
 
-/** The layer's nesting and bands, cached on its children array. */
+/** The layer's nesting and bands, built from its plateau children, cached on its children array. */
 export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlateaus {
   const hit = memo.get(layer.children);
   if (hit) return hit;
-  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible);
+  const shapes = plateausOf(layer);
   const infos = plateauChains(shapes);
-  const ground: ShapeChild[] = [];
-  const byHeight = new Map<number, ShapeChild[]>();
+  const byHeight = new Map<number, PlateauChild[]>();
   for (const s of shapes) {
     const info = infos.get(s.id);
-    if (!info || info.chain.length === 0) {
-      ground.push(s);
-      continue;
-    }
+    if (!info || info.chain.length === 0) continue;
     const list = byHeight.get(info.height);
     if (list) list.push(s);
     else byHeight.set(info.height, [s]);
@@ -284,10 +275,6 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
   for (const [height, members] of byHeight) {
     const rings = orient(unionShapes(members).filter((r) => r.length >= 3));
     const depth = Math.max(...members.map((s) => infos.get(s.id)?.chain.length ?? 1));
-    const ringEdge = rings.map((r) => {
-      const owner = members.length === 1 ? members[0] : ringOwner(r, members);
-      return owner ? edgeOf(owner) : 'wall';
-    });
     const edges = rings.map((r) =>
       r.map((a, i) => {
         const b = r[(i + 1) % r.length];
@@ -297,14 +284,14 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
         // Outside is on the left of travel: (dy, -dx) in screen space, y down.
         const ox = mid[0] + ((b[1] - a[1]) / len) * PROBE;
         const oy = mid[1] - ((b[0] - a[0]) / len) * PROBE;
-        return { owner, edge: owner ? edgeOf(owner) : 'wall', drop: height - surfaceHeightAt(infos, ox, oy) } as BandEdge;
+        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop: height - surfaceHeightAt(infos, ox, oy) } as BandEdge;
       }),
     );
-    bands.push({ height, depth, shapes: members, rings, ringEdge, edges });
+    bands.push({ height, depth, shapes: members, rings, edges });
   }
   bands.sort((a, b) => a.depth - b.depth || a.height - b.height);
 
-  const out: LayerPlateaus = { infos, ground, bands };
+  const out: LayerPlateaus = { infos, bands };
   memo.set(layer.children, out);
   return out;
 }
@@ -314,148 +301,13 @@ export function inBand(band: PlateauBand, x: number, y: number): boolean {
   return inRings(x, y, band.rings);
 }
 
-/**
- * True when some edge of a band ring has no floor just outside it: the ring stands on void,
- * as a cave floor raised or sunk with nothing around it does.
- */
-function standsOnVoid(plateaus: LayerPlateaus, band: PlateauBand, ring: Polygon): boolean {
-  const others = [...plateaus.infos.values()].filter((info) => !band.shapes.includes(info.shape)).map((info) => info.outline);
-  return ring.some((a, i) => {
-    const b = ring[(i + 1) % ring.length];
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (len < 1e-9) return false;
-    const ox = (a[0] + b[0]) / 2 + ((b[1] - a[1]) / len) * PROBE;
-    const oy = (a[1] + b[1]) / 2 - ((b[0] - a[0]) / len) * PROBE;
-    return !others.some((o) => pointInPoly(ox, oy, o));
-  });
-}
-
-/** The band rings the floor union carries, each with its band's height (see `wallBandRings`). */
-function floorBandRings(plateaus: LayerPlateaus): { ring: Polygon; height: number }[] {
-  return plateaus.bands.flatMap((b) =>
-    b.rings
-      .filter((r, i) => b.ringEdge[i] === 'wall' || standsOnVoid(plateaus, b, r))
-      .map((ring) => ({ ring, height: b.height })),
-  );
-}
-
-/**
- * The raised rings the floor union carries: every ring whose owner keeps its walls (a raised
- * room), and every ring standing on void whatever its edge (a cave floor raised or sunk keeps
- * its band and its rooms; a cliff there also gets its ledge, drawn by the plateau renderer).
- */
-export function wallBandRings(plateaus: LayerPlateaus): Polygon[] {
-  return floorBandRings(plateaus).map((r) => r.ring);
-}
-
-/** How far inside a higher floor a stretch of wall must run to be under it: one along its edge stays. */
-const COVER_EPS = 0.05;
-
-function distToRing(x: number, y: number, ring: Polygon): number {
-  let best = Infinity;
-  for (let i = 0; i < ring.length; i++) {
-    const [ax, ay] = ring[i];
-    const [bx, by] = ring[(i + 1) % ring.length];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const l2 = dx * dx + dy * dy;
-    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
-    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
-  }
-  return best;
-}
-
-/** Where segment a-b crosses the rings' edges, as parameters along a-b strictly inside (0, 1). */
-function crossingsOn(a: readonly number[], b: readonly number[], rings: readonly Polygon[]): number[] {
-  const out: number[] = [];
-  const [rx, ry] = [b[0] - a[0], b[1] - a[1]];
-  for (const ring of rings) {
-    for (let i = 0; i < ring.length; i++) {
-      const c = ring[i];
-      const d = ring[(i + 1) % ring.length];
-      const [sx, sy] = [d[0] - c[0], d[1] - c[1]];
-      const den = rx * sy - ry * sx;
-      if (Math.abs(den) < 1e-12) continue;
-      const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den;
-      const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
-      if (t > 1e-9 && t < 1 - 1e-9 && u >= 0 && u <= 1) out.push(t);
-    }
-  }
-  return out;
-}
-
-/**
- * The raised floor covers what is under it: a merged-floor ring running beneath a band that
- * stands higher (a raised room or plateau over the ground's wall) keeps only the stretches
- * outside that band, as open runs that stop on the band's edge, where its own wall stands.
- *
- * Ring heights: the ground's rings (the first `mergedFloor.length - wallBandRings.length`)
- * stand at 0, each raised room's ring at its band's height. The answer per ring is null when
- * nothing covers it, which is every ring of a flat layer.
- */
-export function uncoveredRuns(
-  layer: Pick<DungeonLayer, 'children' | 'mergedFloor'>,
-): ((ring: number) => Polygon[] | null) | null {
-  const rings = layer.mergedFloor ?? [];
-  if (rings.length === 0 || !hasPlateaus(layer)) return null;
-  const { bands } = layerPlateaus(layer);
-  const raised = bands.filter((b) => b.height > 0);
-  if (raised.length === 0) return null;
-  const heights = floorBandRings(layerPlateaus(layer)).map((r) => r.height);
-  const groundCount = rings.length - heights.length;
-  const memo = new Map<number, Polygon[] | null>();
-  return (ring) => {
-    if (memo.has(ring)) return memo.get(ring)!;
-    const poly = rings[ring];
-    const h = ring < groundCount ? 0 : (heights[ring - groundCount] ?? 0);
-    const over = raised.filter((b) => b.height > h).map((b) => b.rings);
-    const covered = (x: number, y: number) =>
-      over.some((rs) => inRings(x, y, rs) && rs.every((r) => distToRing(x, y, r) > COVER_EPS));
-    // Every stretch between crossings, flagged by whether its middle lies under a higher floor.
-    const pieces: { pts: [number, number][]; under: boolean }[] = [];
-    if (poly && poly.length >= 3 && over.length > 0) {
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        const ts = [0, ...over.flatMap((rs) => crossingsOn(a, b, rs)), 1].sort((x, y) => x - y);
-        for (let k = 0; k + 1 < ts.length; k++) {
-          if (ts[k + 1] - ts[k] < 1e-9) continue;
-          const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-          const m = at((ts[k] + ts[k + 1]) / 2);
-          pieces.push({ pts: [at(ts[k]), at(ts[k + 1])], under: covered(m[0], m[1]) });
-        }
-      }
-    }
-    let out: Polygon[] | null = null;
-    if (pieces.some((p) => p.under)) {
-      // Start just after a covered stretch so no run wraps the ring's seam.
-      const first = pieces.findIndex((p, i) => p.under && !pieces[(i + 1) % pieces.length].under);
-      out = [];
-      let run: [number, number][] | null = null;
-      for (let k = 1; k <= pieces.length; k++) {
-        const piece = pieces[(first + k) % pieces.length];
-        if (piece.under) {
-          if (run) out.push(run);
-          run = null;
-          continue;
-        }
-        if (run) run.push(piece.pts[1]);
-        else run = [piece.pts[0], piece.pts[1]];
-      }
-      if (run) out.push(run);
-    }
-    memo.set(ring, out);
-    return out;
-  };
-}
-
 // ─── Edges, sight and crossing ─────────────────────────────
 
 /** One run of consecutive band-ring edges with the same owner, kind and drop sign. */
 export interface EdgeRun {
   band: PlateauBand;
   ring: number;
-  owner: ShapeChild | null;
+  owner: PlateauChild | null;
   edge: EdgeKind;
   /** Largest |drop| along the run, signed by the run's side (all its edges share a sign). */
   drop: number;
@@ -466,16 +318,15 @@ export interface EdgeRun {
 }
 
 /**
- * A band's non-wall rings cut into runs where the owner, the edge kind or the side of the
- * drop changes. Edges with no drop (flush with the ground outside) are left out.
+ * A band's rings cut into runs where the owner, the edge kind or the side of the drop
+ * changes. Edges with no drop (flush with the ground outside) are left out.
  */
 export function edgeRuns(band: PlateauBand): EdgeRun[] {
   const runs: EdgeRun[] = [];
   band.rings.forEach((ring, ri) => {
-    if (band.ringEdge[ri] === 'wall') return;
     const edges = band.edges[ri];
     const n = ring.length;
-    const keyOf = (e: BandEdge) => (e.drop === 0 || e.edge === 'wall' ? null : `${e.owner?.id}|${e.edge}|${Math.sign(e.drop)}`);
+    const keyOf = (e: BandEdge) => (e.drop === 0 ? null : `${e.owner?.id}|${e.edge}|${Math.sign(e.drop)}`);
     const keys = edges.map(keyOf);
     if (keys.every((k) => k !== null && k === keys[0])) {
       const drop = edges.reduce((m, e) => (Math.abs(e.drop) > Math.abs(m) ? e.drop : m), 0);
@@ -512,23 +363,22 @@ export function edgeRuns(band: PlateauBand): EdgeRun[] {
  * slopes and bare edges never do.
  */
 export function edgeHides(
-  owner: Pick<ShapeChild, 'sightOverride'> | null,
+  owner: Pick<PlateauChild, 'sightOverride'> | null,
   edge: EdgeKind,
   drop: number,
   sightDropCells: number = DEFAULT_SIGHT_DROP_CELLS,
 ): boolean {
-  if (edge === 'wall') return false;
   if (owner?.sightOverride === 'hide') return true;
   if (owner?.sightOverride === 'show') return false;
   return edge === 'cliff' && Math.abs(drop) >= Math.max(1, sightDropCells);
 }
 
 /** The largest |drop| along the edges a shape owns, for the card's Auto answer. */
-export function shapeDrop(layer: Pick<DungeonLayer, 'children'>, shapeId: string): number {
+export function shapeDrop(layer: Pick<DungeonLayer, 'children'>, plateauId: string): number {
   let most = 0;
   for (const band of layerPlateaus(layer).bands) {
     for (const ring of band.edges) {
-      for (const e of ring) if (e.owner?.id === shapeId && Math.abs(e.drop) > Math.abs(most)) most = e.drop;
+      for (const e of ring) if (e.owner?.id === plateauId && Math.abs(e.drop) > Math.abs(most)) most = e.drop;
     }
   }
   return most;
@@ -540,7 +390,7 @@ export function defaultCrossingId(edge: EdgeKind): string {
 }
 
 /** A shape's crossing kind id: its own, else its edge kind's default. */
-export function crossingIdOf(shape: Pick<ShapeChild, 'crossingId' | 'edge'>): string {
+export function crossingIdOf(shape: Pick<PlateauChild, 'crossingId' | 'edge'>): string {
   return shape.crossingId ?? defaultCrossingId(edgeOf(shape));
 }
 
@@ -607,10 +457,10 @@ export interface OpeningFrame {
 
 export function openingFrame(
   layer: Pick<DungeonLayer, 'children'>,
-  opening: Pick<OpeningChild, 'shapeId' | 't'>,
+  opening: Pick<OpeningChild, 'hostId' | 't'>,
 ): OpeningFrame | null {
   const plateaus = layerPlateaus(layer);
-  const info = plateaus.infos.get(opening.shapeId);
+  const info = plateaus.infos.get(opening.hostId);
   if (!info || info.outline.length < 3) return null;
   const at = pointAlongRing(info.outline, opening.t);
   if (!at) return null;
@@ -664,7 +514,7 @@ function nearestOnRing(ring: Polygon, x: number, y: number): { p: Vec; dist: num
 
 /**
  * Bridge landings (plan §5.4): where an end of a bridge (a visible open path sorted overhead,
- * the planks kit's place) rests on a raised ring, cliff or wall, within LANDING_REACH, the
+ * the planks kit's place) rests on a raised ring within LANDING_REACH, the
  * ring opens there as wide as the bridge is at that end, the way an opening opens it. In
  * bridge order, start before end.
  */
@@ -715,14 +565,13 @@ export interface FallSpan {
   drop: number;
 }
 
-/** Each raised (non-wall) edge of the layer with its downhill direction. */
+/** Each raised edge of the layer with its downhill direction. */
 function fallEdges(layer: Pick<DungeonLayer, 'children'>): FallSpan[] {
   const out: FallSpan[] = [];
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
-      if (band.ringEdge[ri] === 'wall') return;
       band.edges[ri].forEach((e, i) => {
-        if (e.drop === 0 || e.edge === 'wall') return;
+        if (e.drop === 0) return;
         const a = ring[i];
         const b = ring[(i + 1) % ring.length];
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -867,7 +716,6 @@ export function cliffOccluders(
   const out: CliffOccluder[] = [];
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
-      if (band.ringEdge[ri] === 'wall') return;
       band.edges[ri].forEach((e, i) => {
         if (e.drop === 0 || !edgeHides(e.owner, e.edge, e.drop, sightDropCells)) return;
         const a = ring[i];
@@ -967,7 +815,7 @@ export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'
 }
 
 /**
- * What the table plays at a raised edge right now: per target (a floor's id or an opening's
+ * What the table plays at a raised edge right now: per target (a plateau's id or an opening's
  * id) the crossing kind the DM picked live, and per kind whether it refuses a move. Both
  * fall back to the map's own.
  */
@@ -981,7 +829,7 @@ export interface Crossing {
   position: Vec;
   /** What was crossed: an edge kind, or an opening in one. */
   via: 'cliff' | 'slope' | 'none' | 'opening';
-  /** The floor (edges) or opening whose crossing rule applies. */
+  /** The plateau (edges) or opening whose crossing rule applies. */
   targetId: string;
   kindId: string;
   /** The kind as the map lists it, or null when the id names none. */
@@ -1013,7 +861,7 @@ function segHit(p: Vec, q: Vec, a: Vec, b: Vec): { t: number; u: number } | null
 /**
  * Every raised edge (cliff, slope or bare) the straight move `from` → `to` crosses on one
  * layer, in order along the move, with the crossing rule that applies there: an opening's
- * where the move passes through one, else the edge's floor's (its own, a live override, or
+ * where the move passes through one, else the edge's plateau's (its own, a live override, or
  * the edge kind's default). Walls are the walls' business and are not listed. With the
  * mover's `elevation`, a move on a bridge's deck passes over the edges beneath it.
  */
@@ -1032,9 +880,8 @@ export function crossingsAlong(
   const out: Crossing[] = [];
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
-      if (band.ringEdge[ri] === 'wall') return;
       band.edges[ri].forEach((e, i) => {
-        if (e.drop === 0 || e.edge === 'wall' || !e.owner) return;
+        if (e.drop === 0 || !e.owner) return;
         const a = ring[i];
         const b = ring[(i + 1) % ring.length];
         const hit = segHit(from, to, a, b);
@@ -1094,8 +941,8 @@ export function hiddenTops(
   if (!hasPlateaus(layer)) return [];
   const out: HiddenTop[] = [];
   for (const band of layerPlateaus(layer).bands) {
-    const hides = band.edges.some((ring, ri) =>
-      band.ringEdge[ri] !== 'wall' && ring.some((e) => e.drop > 0 && edgeHides(e.owner, e.edge, e.drop, sightDropCells)),
+    const hides = band.edges.some((ring) =>
+      ring.some((e) => e.drop > 0 && edgeHides(e.owner, e.edge, e.drop, sightDropCells)),
     );
     if (!hides) continue;
     const rings = band.rings.filter((r) => signedArea(r) > 0);

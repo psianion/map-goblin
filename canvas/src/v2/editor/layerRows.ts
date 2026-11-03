@@ -8,9 +8,9 @@ import { layerObjectCount } from '@dnd/core/src/store/layerCommands';
  */
 
 /** A kind group, in the sheet's fixed order. */
-export type RowKind = 'room' | 'wall' | 'door' | 'asset' | 'light' | 'text' | 'zone' | 'shape' | 'path' | 'opening';
+export type RowKind = 'room' | 'wall' | 'door' | 'asset' | 'light' | 'text' | 'zone' | 'shape' | 'plateau' | 'path' | 'opening';
 
-export const KIND_ORDER: readonly RowKind[] = ['room', 'wall', 'door', 'asset', 'light', 'text', 'zone', 'shape', 'path', 'opening'];
+export const KIND_ORDER: readonly RowKind[] = ['room', 'wall', 'door', 'asset', 'light', 'text', 'zone', 'shape', 'plateau', 'path', 'opening'];
 
 export const KIND_LABEL: Record<RowKind, string> = {
   room: 'Rooms',
@@ -21,6 +21,7 @@ export const KIND_LABEL: Record<RowKind, string> = {
   text: 'Labels',
   zone: 'Zones',
   shape: 'Floors',
+  plateau: 'Plateaus',
   path: 'Paths',
   opening: 'Openings',
 };
@@ -34,6 +35,7 @@ const KIND_NOUN: Record<RowKind, string> = {
   text: 'Label',
   zone: 'Zone',
   shape: 'Floor',
+  plateau: 'Plateau',
   path: 'Path',
   opening: 'Opening',
 };

@@ -2,24 +2,23 @@ import { Minus, Plus } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import type { Command, DungeonLayer, ShapeChild } from '@/store/types';
+import type { Command, DungeonLayer, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { absoluteHeight, defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
 import { cliffArtSetIds } from '@dnd/core/src/engine/plateauKit';
 import { Ctl, Seg, Select, Switch } from './controls';
 
 /*
- * The plateau rows of a floor's card (plan §5.3): Height first, and once a floor stands
- * above or below its ground, how its edge meets the lower ground, the art and slope of
- * that edge, its contour lines, whether it hides its top from below and how it is crossed.
- * Every row writes every selected floor as one undo step; the rows show the first one.
+ * The rows of a plateau's card (plan §5.3): Height first, then how its edge meets the lower
+ * ground, the art and slope of that edge, its contour lines, whether it hides its top from
+ * below and how it is crossed. Every row writes every selected plateau as one undo step; the
+ * rows show the first one.
  */
 
 const EDGE_OPTIONS: { value: EdgeKind; label: string; tip: string }[] = [
-  { value: 'wall', label: 'Wall', tip: 'Walls round it, like any room' },
+  { value: 'none', label: 'None', tip: 'No edge drawn' },
   { value: 'slope', label: 'Slope', tip: 'A slope down to the ground around it' },
   { value: 'cliff', label: 'Cliff', tip: 'A rock edge, laid along the ring' },
-  { value: 'none', label: 'None', tip: 'No edge drawn' },
 ];
 
 type SightChoice = 'auto' | 'hide' | 'show';
@@ -45,16 +44,16 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
   const kinds = useStore((s) => s.mapSettings.crossingKinds);
   const threshold = useStore((s) => s.mapSettings.sightDropCells);
   useStore((s) => s.packs.installedPacks);
-  const head = layer?.children.find((c): c is ShapeChild => c.childType === 'shape' && c.id === ids[0]);
+  const head = layer?.children.find((c): c is PlateauChild => c.childType === 'plateau' && c.id === ids[0]);
   if (!layer || !head) return null;
 
   const height = ownHeight(head);
   const edge = edgeOf(head);
-  const raised = height !== 0;
-  const step = (d: number) => apply('Plateau height', ids, { height: height + d === 0 ? undefined : height + d });
+  // A plateau is never flat: stepping through 0 goes on to the other side.
+  const step = (d: number) => apply('Plateau height', ids, { height: height + d === 0 ? height + 2 * d : height + d });
 
-  const drop = raised ? shapeDrop(layer, head.id) : 0;
-  const standing = raised ? absoluteHeight(layer, head.id) : 0;
+  const drop = shapeDrop(layer, head.id);
+  const standing = absoluteHeight(layer, head.id);
   const hides = edgeHides(head, edge, drop, threshold);
   const sight: SightChoice = head.sightOverride ?? 'auto';
   const artIds = cliffArtSetIds();
@@ -76,87 +75,79 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
         </Ctl>
         {/* Where it stands in the stack and how far its edge falls: the stepper is its own height. */}
         <span className="v2-selc__value v2-selc__value--quiet" data-testid="v2-plateau-standing">
-          {raised ? `${signed(standing)} · drop ${Math.abs(drop)}` : 'ground'}
+          {`${signed(standing)} · drop ${Math.abs(drop)}`}
         </span>
       </div>
 
-      {raised && (
-        <>
-          <div className="v2-sel__row">
-            <Seg label="Edge" value={edge} options={EDGE_OPTIONS} onChange={(v) => apply('Plateau edge', ids, { edge: v === 'wall' ? undefined : v })} />
-          </div>
+      <div className="v2-sel__row">
+        <Seg label="Edge" value={edge} options={EDGE_OPTIONS} onChange={(v) => apply('Plateau edge', ids, { edge: v })} />
+      </div>
 
-          {edge === 'cliff' && (
-            <div className="v2-sel__row">
-              <Select
-                label="Cliff art"
-                value={head.edgeArt ?? DEFAULT_ART}
-                options={[
-                  { value: DEFAULT_ART, label: 'Cave ink ledge' },
-                  ...artIds.map((id) => ({ value: id, label: id.replace(/_/g, ' ') })),
-                ]}
-                onChange={(v) => apply('Cliff art', ids, { edgeArt: v === DEFAULT_ART ? undefined : v })}
-              />
-            </div>
-          )}
-
-          {edge === 'slope' && (
-            <div className="v2-sel__row">
-              <Ctl label="Slope width" wide>
-                <span className="v2-stepper" data-testid="v2-plateau-slope">
-                  <button
-                    type="button"
-                    aria-label="Steeper"
-                    disabled={(head.slopeWidth ?? 1) <= SLOPE_STEP}
-                    onClick={() => apply('Slope width', ids, { slopeWidth: (head.slopeWidth ?? 1) - SLOPE_STEP })}
-                  >
-                    <Minus size={10} />
-                  </button>
-                  <span className="v2-num">{head.slopeWidth ?? 1}</span>
-                  <button type="button" aria-label="Gentler" onClick={() => apply('Slope width', ids, { slopeWidth: (head.slopeWidth ?? 1) + SLOPE_STEP })}>
-                    <Plus size={10} />
-                  </button>
-                </span>
-              </Ctl>
-              <span className="v2-selc__value v2-selc__value--quiet">cells a cell</span>
-            </div>
-          )}
-
-          {(edge === 'slope' || edge === 'cliff') && (
-            <div className="v2-sel__row">
-              <Switch
-                label="Contour lines"
-                checked={head.contourLines ?? true}
-                onChange={(on) => apply('Contour lines', ids, { contourLines: on ? undefined : false })}
-              />
-            </div>
-          )}
-
-          {edge !== 'wall' && (
-            <div className="v2-sel__row" data-testid="v2-plateau-sight">
-              <Seg
-                label="Sight"
-                value={sight}
-                options={SIGHT_OPTIONS.map((o) => (o.value === 'auto' ? { ...o, label: `Auto (${hides ? 'hides' : 'shows'})` } : o))}
-                onChange={(v) => apply('Blocks sight', ids, { sightOverride: v === 'auto' ? undefined : v })}
-              />
-            </div>
-          )}
-          {edge !== 'wall' && (
-            <div className="v2-sel__row">
-              <Select
-                label="Crossing"
-                value={head.crossingId ?? ''}
-                options={[
-                  { value: '', label: `Default (${crossingDefault?.name ?? 'none'})` },
-                  ...kinds.map((k) => ({ value: k.id, label: k.name })),
-                ]}
-                onChange={(v) => apply('Crossing', ids, { crossingId: v === '' ? undefined : v })}
-              />
-            </div>
-          )}
-        </>
+      {edge === 'cliff' && (
+        <div className="v2-sel__row">
+          <Select
+            label="Cliff art"
+            value={head.edgeArt ?? DEFAULT_ART}
+            options={[
+              { value: DEFAULT_ART, label: 'Cave ink ledge' },
+              ...artIds.map((id) => ({ value: id, label: id.replace(/_/g, ' ') })),
+            ]}
+            onChange={(v) => apply('Cliff art', ids, { edgeArt: v === DEFAULT_ART ? undefined : v })}
+          />
+        </div>
       )}
+
+      {edge === 'slope' && (
+        <div className="v2-sel__row">
+          <Ctl label="Slope width" wide>
+            <span className="v2-stepper" data-testid="v2-plateau-slope">
+              <button
+                type="button"
+                aria-label="Steeper"
+                disabled={(head.slopeWidth ?? 1) <= SLOPE_STEP}
+                onClick={() => apply('Slope width', ids, { slopeWidth: (head.slopeWidth ?? 1) - SLOPE_STEP })}
+              >
+                <Minus size={10} />
+              </button>
+              <span className="v2-num">{head.slopeWidth ?? 1}</span>
+              <button type="button" aria-label="Gentler" onClick={() => apply('Slope width', ids, { slopeWidth: (head.slopeWidth ?? 1) + SLOPE_STEP })}>
+                <Plus size={10} />
+              </button>
+            </span>
+          </Ctl>
+          <span className="v2-selc__value v2-selc__value--quiet">cells a cell</span>
+        </div>
+      )}
+
+      {(edge === 'slope' || edge === 'cliff') && (
+        <div className="v2-sel__row">
+          <Switch
+            label="Contour lines"
+            checked={head.contourLines ?? true}
+            onChange={(on) => apply('Contour lines', ids, { contourLines: on ? undefined : false })}
+          />
+        </div>
+      )}
+
+      <div className="v2-sel__row" data-testid="v2-plateau-sight">
+        <Seg
+          label="Sight"
+          value={sight}
+          options={SIGHT_OPTIONS.map((o) => (o.value === 'auto' ? { ...o, label: `Auto (${hides ? 'hides' : 'shows'})` } : o))}
+          onChange={(v) => apply('Blocks sight', ids, { sightOverride: v === 'auto' ? undefined : v })}
+        />
+      </div>
+      <div className="v2-sel__row">
+        <Select
+          label="Crossing"
+          value={head.crossingId ?? ''}
+          options={[
+            { value: '', label: `Default (${crossingDefault?.name ?? 'none'})` },
+            ...kinds.map((k) => ({ value: k.id, label: k.name })),
+          ]}
+          onChange={(v) => apply('Crossing', ids, { crossingId: v === '' ? undefined : v })}
+        />
+      </div>
     </div>
   );
 }
