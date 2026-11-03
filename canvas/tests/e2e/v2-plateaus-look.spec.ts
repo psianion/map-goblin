@@ -256,12 +256,20 @@ test.describe('the plateau look', () => {
   })
 })
 
-// ─── The ink set: ledge, contours, and the cave band left alone ───
+// ─── The ink set: both cliff arts, the contours, and the cave band left alone ───
 
 type Rgb = [number, number, number]
 const lumOf = ([r, g, b]: Rgb) => 0.299 * r + 0.587 * g + 0.114 * b
 /** Ink: the set's neutral greys. The floor is tan (red well over blue) even under the drop shade. */
 const isInk = (c: Rgb) => c[0] - c[2] < 12 && lumOf(c) < 170
+/**
+ * Cave rock: its stones and the half-clear grounds round them, greyer than the floor at the same
+ * darkness. The drop shade keeps the floor's red-over-blue in step with its darkness (about a
+ * quarter of it), the rock row falls well under that.
+ */
+const isRock = (c: Rgb) => c[0] - c[2] < 0.15 * lumOf(c) + 4 && lumOf(c) < 170
+/** What a cliff art's pixels are, by its `edgeArt`: the rock row or the ink line. */
+const artTest = (edgeArt: string | undefined) => (edgeArt ? isInk : isRock)
 
 /** The camera at `zoom` px a cell with world `p` at the canvas centre. */
 async function lookAt(page: Page, p: Pt, zoom: number): Promise<void> {
@@ -324,21 +332,26 @@ const contourDips = (row: number[]) => {
 }
 
 test.describe('the ink set', () => {
-  test('the ledge on a +1 cliff is an ink ribbon 0.12 to 0.30 cell wide', async ({ page }) => {
-    const errors = await open(page, mapWith([box('c1', 10, 10, 16, 16, 1, 'cliff')]))
+  /**
+   * The width of the ledge across 25 transects of a +1 cliff's west edge, cells: on each, the run
+   * of the art nearest the edge, runs closer than `mergeGap` taken as one (the gaps between stones).
+   */
+  const ledgeWidths = async (page: Page, edgeArt: string | undefined, mergeGap = 0, isArt = artTest(edgeArt)) => {
+    const errors = await open(page, mapWith([{ ...box('c1', 10, 10, 16, 16, 1, 'cliff'), edgeArt }]))
     await lookAt(page, { x: 10, y: 13 }, ZOOM)
     const at = await grab(page, { x: 9, y: 10.4 }, { x: 11, y: 15.6 })
     const step = 1 / ZOOM
     const widths: number[] = []
     for (let y = 10.6; y <= 15.4; y += 0.2) {
-      // Runs of ink across the edge; the ribbon is the run nearest the edge.
       const runs: [number, number][] = []
       let from = -1
       for (let x = 9.2; x <= 10.8; x += step) {
-        const ink = isInk(at({ x, y }))
+        const ink = isArt(at({ x, y }))
         if (ink && from < 0) from = x
         if (!ink && from >= 0) {
-          runs.push([from, x])
+          const last = runs[runs.length - 1]
+          if (last && from - last[1] < mergeGap) last[1] = x
+          else runs.push([from, x])
           from = -1
         }
       }
@@ -348,12 +361,24 @@ test.describe('the ink set', () => {
       widths.push(near[1] - near[0])
     }
     widths.sort((a, b) => a - b)
-    const median = widths[Math.floor(widths.length / 2)]
-    console.log(`ledge ribbon across ${widths.length} transects: median ${median.toFixed(3)} cell, ${widths[0].toFixed(3)} to ${widths[widths.length - 1].toFixed(3)}`)
-    expect(widths.length).toBeGreaterThanOrEqual(20)
-    expect(median).toBeGreaterThanOrEqual(0.12)
-    expect(median).toBeLessThanOrEqual(0.3)
     expect(errors).toEqual([])
+    expect(widths.length).toBeGreaterThanOrEqual(20)
+    return { median: widths[Math.floor(widths.length / 2)], min: widths[0], max: widths[widths.length - 1], n: widths.length }
+  }
+
+  test('Cave rock, the default, lays a stone row 0.3 to 0.5 cell wide on a +1 cliff', async ({ page }) => {
+    // The stones themselves (ink and grey fill), not the half-clear grounds round them.
+    const w = await ledgeWidths(page, undefined, 0.08, isInk)
+    console.log(`Cave rock across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
+    expect(w.median).toBeGreaterThanOrEqual(0.3)
+    expect(w.median).toBeLessThanOrEqual(0.5)
+  })
+
+  test('Cave ink line lays an ink ribbon 0.12 to 0.30 cell wide on a +1 cliff', async ({ page }) => {
+    const w = await ledgeWidths(page, 'GG_Cave_Ink:ledge')
+    console.log(`Cave ink line across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
+    expect(w.median).toBeGreaterThanOrEqual(0.12)
+    expect(w.median).toBeLessThanOrEqual(0.3)
   })
 
   /**
@@ -364,7 +389,8 @@ test.describe('the ink set', () => {
    * ink lies within TIP_NEAR of the point.
    */
   const TIP_NEAR = 0.45
-  const ledgeHoles = async (page: Page, pts: [number, number][], centre: Pt) => {
+  const ledgeHoles = async (page: Page, pts: [number, number][], centre: Pt, edgeArt: string | undefined) => {
+    const isArt = artTest(edgeArt)
     const at = await grab(page, { x: centre.x - 7, y: centre.y - 7 }, { x: centre.x + 7, y: centre.y + 7 })
     const STEP = 0.02
     const holes: string[] = []
@@ -385,7 +411,7 @@ test.describe('the ink set', () => {
       let inked = false
       for (let y = -TIP_NEAR; y <= TIP_NEAR && !inked; y += 0.02)
         for (let x = -TIP_NEAR; x <= TIP_NEAR && !inked; x += 0.02)
-          if (Math.hypot(x, y) <= TIP_NEAR) inked = isInk(at({ x: t[0] + x, y: t[1] + y }))
+          if (Math.hypot(x, y) <= TIP_NEAR) inked = isArt(at({ x: t[0] + x, y: t[1] + y }))
       if (!inked) bareTips++
     }
     const closeHole = () => {
@@ -407,7 +433,7 @@ test.describe('the ink set', () => {
           continue
         }
         let hit = false
-        for (let d = -0.8; d <= 0.4 && !hit; d += 0.5 / ZOOM) hit = isInk(at({ x: p.x + n.x * d, y: p.y + n.y * d }))
+        for (let d = -0.8; d <= 0.4 && !hit; d += 0.5 / ZOOM) hit = isArt(at({ x: p.x + n.x * d, y: p.y + n.y * d }))
         if (hit) closeHole()
         else open++
         last = p
@@ -417,7 +443,7 @@ test.describe('the ink set', () => {
     return { holes, longest, tips: tips.length, bareTips }
   }
 
-  test('a 12-gon and a five-point star plateau show no ledge hole over 0.05 cell round the ring', async ({ page }) => {
+  test('a 12-gon and a five-point star plateau show no ledge hole over 0.05 cell round the ring, in either cliff art', async ({ page }) => {
     const c = { x: 20, y: 20 }
     const gon = Array.from({ length: 12 }, (_, k): [number, number] => [c.x + 5 * Math.cos((k * Math.PI) / 6), c.y + 5 * Math.sin((k * Math.PI) / 6)])
     const star = Array.from({ length: 10 }, (_, k): [number, number] => {
@@ -425,12 +451,17 @@ test.describe('the ink set', () => {
       const t = -Math.PI / 2 + (k * Math.PI) / 5
       return [c.x + r * Math.cos(t), c.y + r * Math.sin(t)]
     })
-    for (const [name, pts] of [['12-gon', gon], ['star', star]] as const) {
-      const errors = await open(page, mapWith([ring(name, pts, 1, 'cliff')]))
+    for (const [name, pts, edgeArt] of [
+      ['12-gon Cave rock', gon, undefined],
+      ['star Cave rock', star, undefined],
+      ['12-gon Cave ink line', gon, 'GG_Cave_Ink:ledge'],
+      ['star Cave ink line', star, 'GG_Cave_Ink:ledge'],
+    ] as const) {
+      const errors = await open(page, mapWith([{ ...ring(name, [...pts], 1, 'cliff'), edgeArt }]))
       // Lifted clear of the dock along the bottom of the canvas.
       await lookAt(page, { x: c.x, y: c.y + 1 }, 40)
-      const { holes, longest, tips, bareTips } = await ledgeHoles(page, pts, c)
-      await page.screenshot({ path: test.info().outputPath(`${name}.png`) })
+      const { holes, longest, tips, bareTips } = await ledgeHoles(page, [...pts], c, edgeArt)
+      await page.screenshot({ path: test.info().outputPath(`${name.replace(/ /g, '-')}.png`) })
       console.log(`${name}: ${holes.length} holes over 0.05 cell, longest bare stretch ${longest.toFixed(2)} cell; ${bareTips} of ${tips} sharp tips bare`)
       expect(holes, name).toEqual([])
       expect(bareTips, name).toBe(0)
