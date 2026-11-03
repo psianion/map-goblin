@@ -15,14 +15,7 @@ import {
   elevationAt,
   elevationAtLayers,
   hiddenTops,
-  landingGaps,
-  bridgeHeights,
-  bridgeLook,
-  pathMaterialPatch,
-  ringGaps,
-  cliffOccluders,
 } from './plateaus';
-import type { PathChild } from './types';
 import { defaultCrossingKinds } from './crossingKinds';
 import { computeMergedFloor } from '../engine/mergedFloor';
 
@@ -270,103 +263,5 @@ describe('hidden tops', () => {
       2,
     );
     expect(tops.map((t) => t.height)).toEqual([3]);
-  });
-});
-
-describe('bridge landings', () => {
-  // The plateau-test bridge: from the +2 outcrop's south edge to the +3 mesa's north edge.
-  const outcrop = plat('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
-  const mesa = plat('mesa', 4, 26, 12, 31, { height: 3, edge: 'cliff' });
-  const bridge = (over: Partial<PathChild> = {}): PathChild => ({
-    id: 'bridge',
-    name: 'Bridge',
-    childType: 'path',
-    visible: true,
-    points: [{ x: 7, y: 11, height: 2 }, { x: 7, y: 26, height: 3 }],
-    closed: false,
-    width: 2,
-    heightMode: 'set',
-    materialId: 'gg-forge:planks',
-    tint: '#ffffff',
-    opacity: 1,
-    offset: 0,
-    flip: false,
-    edge: 'soft',
-    ends: { start: 'cut', end: 'cut', length: 1 },
-    sort: 'overhead',
-    ...over,
-  });
-  const layerWith = (...children: unknown[]) => ({ children }) as unknown as DungeonLayer;
-
-  it('opens a gap as wide as the bridge and a quarter cell each side where each of its ends rests on a ring', () => {
-    const gaps = landingGaps(layerWith(outcrop, mesa, bridge()));
-    expect(gaps).toHaveLength(2);
-    const [a, b] = gaps;
-    expect(a.id).toBe('landing:bridge:start');
-    expect(a.position[0]).toBeCloseTo(7, 6);
-    expect(a.position[1]).toBeCloseTo(11, 6);
-    expect(a.width).toBe(2.5);
-    expect(b.id).toBe('landing:bridge:end');
-    expect(b.position[1]).toBeCloseTo(26, 6);
-    // The landing is part of every ring gap, so the ledge rock and the sight lines part there.
-    expect(ringGaps(layerWith(outcrop, mesa, bridge())).map((g) => g.id)).toEqual(['landing:bridge:start', 'landing:bridge:end']);
-  });
-
-  it('takes the width the bridge has at that end, and snaps an end just off the ring onto it', () => {
-    const p = bridge({ points: [{ x: 7.3, y: 11.2, width: 3 }, { x: 7, y: 25.8 }] });
-    const [a, b] = landingGaps(layerWith(outcrop, mesa, p));
-    expect(a.width).toBe(3.5);
-    expect(a.position[1]).toBeCloseTo(11, 6);
-    expect(a.position[0]).toBeCloseTo(7.3, 6);
-    expect(b.width).toBe(2.5);
-  });
-
-  it('leaves no cliff occluder across the landing', () => {
-    const layer = layerWith(outcrop, mesa, bridge());
-    for (const o of cliffOccluders(layer, 0)) {
-      // The outcrop's south edge runs y = 11; nothing of it within the bridge's half width of x = 7.
-      if (Math.abs(o.y1 - 11) < 1e-6 && Math.abs(o.y2 - 11) < 1e-6) {
-        const lo = Math.min(o.x1, o.x2);
-        const hi = Math.max(o.x1, o.x2);
-        expect(hi <= 6 + 1e-6 || lo >= 8 - 1e-6, `occluder ${lo}..${hi}`).toBe(true);
-      }
-    }
-  });
-
-  it('opens nothing for a path that is not a bridge, an end away from any ring, or a hidden bridge', () => {
-    expect(landingGaps(layerWith(outcrop, mesa, bridge({ sort: 'under' })))).toEqual([]);
-    expect(landingGaps(layerWith(outcrop, mesa, bridge({ visible: false })))).toEqual([]);
-    const loose = bridge({ points: [{ x: 7, y: 15 }, { x: 7, y: 20 }] });
-    expect(landingGaps(layerWith(outcrop, mesa, loose))).toEqual([]);
-  });
-});
-
-describe('bridges as they are drawn', () => {
-  const ground = rect('ground', 0, 0, 30, 30);
-  const near = plat('near', 4, 4, 12, 10, { height: 1, edge: 'cliff' });
-  const far = plat('far', 4, 15, 12, 21, { height: 2, edge: 'cliff' });
-  const layer = { children: [ground, near, far] } as unknown as DungeonLayer;
-
-  it('takes a bridge’s sort and height with a planks material, only where the path still has the plain ones', () => {
-    expect(bridgeLook({ sort: 'under', heightMode: 'ground' }, 'gg-forge:planks')).toEqual({ sort: 'overhead', heightMode: 'set' });
-    expect(bridgeLook({ sort: 'over', heightMode: 'ground' }, 'gg-forge:planks')).toEqual({ heightMode: 'set' });
-    expect(bridgeLook({ sort: 'under', heightMode: 'set' }, 'gg-forge:planks')).toEqual({ sort: 'overhead' });
-    expect(bridgeLook({ sort: 'under', heightMode: 'ground' }, 'gg-forge:road-dirt')).toEqual({});
-  });
-
-  it('stands each end at the height of the cliff it rests on, the points between eased', () => {
-    const pts = bridgeHeights(layer, [{ x: 8, y: 10 }, { x: 8, y: 12.5 }, { x: 8, y: 15 }]);
-    expect(pts.map((p) => p.height)).toEqual([1, 1.5, 2]);
-  });
-
-  it('switches a road to planks as a bridge, heights and all, and a road back leaves them be', () => {
-    const road = { sort: 'under' as const, heightMode: 'ground' as const, points: [{ x: 8, y: 10 }, { x: 8, y: 15 }] };
-    expect(pathMaterialPatch(layer, road, 'gg-forge:planks')).toEqual({
-      materialId: 'gg-forge:planks',
-      sort: 'overhead',
-      heightMode: 'set',
-      points: [{ x: 8, y: 10, height: 1 }, { x: 8, y: 15, height: 2 }],
-    });
-    expect(pathMaterialPatch(layer, { ...road, sort: 'overhead', heightMode: 'set' }, 'gg-forge:road-dirt')).toEqual({ materialId: 'gg-forge:road-dirt' });
   });
 });

@@ -6,7 +6,6 @@ import { buildSceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { setupRenderLoop } from '@dnd/core/src/engine/renderLoop';
 import { subscribeToStore } from '@dnd/core/src/engine/subscribeToStore';
 import { subscribeToAssets } from '@dnd/core/src/engine/subscribeToAssets';
-import { subscribeToPaths } from '@dnd/core/src/engine/pathRenderer';
 import { subscribeToTextLabels } from '@dnd/core/src/engine/subscribeToTextLabels';
 import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
@@ -122,7 +121,6 @@ export function GameRenderer() {
       setupRenderLoop(pixiEngine, sceneGraph, lightManager);
       const unsubStore = subscribeToStore(pixiEngine, sceneGraph, lightManager);
       const unsubAssets = subscribeToAssets();
-      const unsubPaths = subscribeToPaths();
       // Labels: the server sends a player seat only those marked visible to players.
       const unsubLabels = subscribeToTextLabels();
       const unsubBoundLabels = installBoundLabelSync();
@@ -142,7 +140,6 @@ export function GameRenderer() {
         setTerrainRenderer(null);
         unsubStore();
         unsubAssets();
-        unsubPaths();
         unsubLabels();
         unsubBoundLabels();
         unregFogResize();

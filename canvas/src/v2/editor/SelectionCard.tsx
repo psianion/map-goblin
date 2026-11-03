@@ -88,7 +88,6 @@ import {
   type Mixed,
   type TextureNumberKey,
 } from './selectionModel';
-import { PathFields } from './PathCard';
 import './selection-card.css';
 
 const KIND_LABEL: Record<AnyChild['childType'], string> = {
@@ -97,7 +96,6 @@ const KIND_LABEL: Record<AnyChild['childType'], string> = {
   text: 'Label',
   light: 'Light',
   door: 'Door',
-  path: 'Path',
   opening: 'Opening',
   plateau: 'Plateau',
   zone: 'Zone',
@@ -301,9 +299,6 @@ function Fields({
 
   if (child.childType === 'door' && layerId) {
     return <DoorFields layerId={layerId} doorId={child.id} />;
-  }
-  if (child.childType === 'path' && layerId) {
-    return <PathFields layerId={layerId} pathId={child.id} />;
   }
   if (child.childType === 'opening' && layerId) {
     return <OpeningFields layerId={layerId} openingId={child.id} />;

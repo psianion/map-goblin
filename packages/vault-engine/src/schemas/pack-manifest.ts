@@ -8,46 +8,8 @@ const SemverSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Must be semver (N.N.N)
 // surface and bank textures the water tool samples.
 const AssetTypeEnum = z.enum([
   'floor', 'wall', 'pattern', 'edge', 'object',
-  'scatter', 'path', 'portal', 'light-mask', 'door', 'water', 'kit',
+  'scatter', 'path', 'portal', 'light-mask', 'door', 'water',
 ]);
-
-// A path material's kit (types.ts `KitManifest`): carried by a `kit` entry, which has no
-// image of its own; every key names another entry of the pack.
-const KitManifestSchema = z.object({
-  kind: z.enum(['surface', 'planks', 'band']),
-  fill: z.string().min(1).optional(),
-  edge: z
-    .array(
-      z.object({
-        key: z.string().min(1),
-        weight: z.number().positive(),
-        spacing: z.number().positive(),
-        jitter: z.number().nonnegative(),
-        scale: z.number().positive().optional(),
-      }),
-    )
-    .optional(),
-  cross: z.array(z.object({ key: z.string().min(1), weight: z.number().positive() })).optional(),
-  railPost: z.string().min(1).optional(),
-  rope: z.object({ color: z.string().min(1), width: z.number().positive() }).optional(),
-  band: z
-    .object({ straight: z.array(z.string().min(1)).min(1), bendDrawn: z.literal(true), scale: z.number().positive().optional() })
-    .optional(),
-  end: z.string().min(1).optional(),
-  fall: z.string().min(1).optional(),
-  scale: z.number().positive().optional(),
-  objects: z
-    .array(
-      z.object({
-        key: z.string().min(1),
-        weight: z.number().positive(),
-        spacing: z.number().positive(),
-        jitter: z.number().nonnegative(),
-        side: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
-      }),
-    )
-    .optional(),
-});
 
 const FrameSchema = z.object({
   x: z.number().int().nonnegative(),
@@ -73,7 +35,6 @@ const ManifestEntrySchema = z.object({
   // Variant family within its set (vault-cli `families` writes it on object entries).
   // Last so a re-parse keeps the key order and the manifest hash stable.
   family: z.string().min(1).optional(),
-  kit: KitManifestSchema.optional(),
 });
 
 const FileRefSchema = z.object({

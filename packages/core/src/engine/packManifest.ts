@@ -30,58 +30,6 @@ export interface ManifestEntry {
   /** Variant family within `set` ('storage_barrel_dark'); absent = a family of one. */
   family?: string
   tags: string[]
-  /** A `kit` entry's manifest: how its path material is built from the pack's pieces. */
-  kit?: KitManifest
-}
-
-// SYNC: mirrors vault-engine's KitManifest (packages/vault-engine/src/types.ts)
-/**
- * A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to
- * `jitter` radians, laid at `scale` times its painted size (the kit's `scale` when absent).
- */
-export interface KitEdgeUnit {
-  key: string
-  weight: number
-  spacing: number
-  jitter: number
-  scale?: number
-}
-
-/**
- * How a path material is built from pieces; every key names another entry of the same pack.
- * surface: the outline filled with `fill`, `edge` units walked along it. planks: `cross`
- * units across the centreline, `railPost` units both sides with a `rope` between, `end`
- * pieces at cut ends. band: the cave walk with `band.straight` pieces, bends drawn in code.
- */
-export interface KitManifest {
-  kind: 'surface' | 'planks' | 'band'
-  fill?: string
-  edge?: KitEdgeUnit[]
-  cross?: { key: string; weight: number }[]
-  railPost?: string
-  rope?: { color: string; width: number }
-  /** The band's straights, laid at `scale` times their painted size (1 when absent). */
-  band?: { straight: string[]; bendDrawn: true; scale?: number }
-  end?: string
-  /** Liquids: the piece that hangs where the path runs off a cliff. */
-  fall?: string
-  /** What edge units naming no scale of their own are laid at against their painted size: 0.5 when absent. */
-  scale?: number
-  /** Props placed along the outline as attached objects (engine/path/attachedObjects.ts). */
-  objects?: KitObject[]
-}
-
-/**
- * A prop a kit places along its outline: picked by weight, `spacing` cells apart, turned up
- * to `jitter` radians, on `side` of the outline (1 out, -1 in, 0 on it). `key` names an entry
- * of the kit's pack, or of another pack as `<packId>:<entry>`.
- */
-export interface KitObject {
-  key: string
-  weight: number
-  spacing: number
-  jitter: number
-  side: -1 | 0 | 1
 }
 
 export interface PackManifest {

@@ -8,11 +8,9 @@ import {
   Mountain,
   MountainSnow,
   Pentagon,
-  Route,
   Square,
   Stamp,
   Type,
-  Waves,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { DivideIcon, RoomPolygonIcon, RoomRectIcon } from './roomIcons';
@@ -26,7 +24,7 @@ export interface ToolEntry {
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 }
 
-export type DockTabId = 'floors' | 'paths' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
+export type DockTabId = 'floors' | 'plateaus' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
 
 export interface DockTab {
   id: DockTabId;
@@ -48,13 +46,9 @@ export const DOCK_TABS: DockTab[] = [
     ],
   },
   {
-    id: 'paths',
-    label: 'Paths',
-    tools: [
-      { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Route },
-      { tool: 'lake', label: 'Lake', shortcut: keyCaption('tool.lake'), icon: Waves },
-      { tool: 'plateau', label: 'Plateau', shortcut: keyCaption('tool.plateau'), icon: MountainSnow },
-    ],
+    id: 'plateaus',
+    label: 'Plateaus',
+    tools: [{ tool: 'plateau', label: 'Plateau', shortcut: keyCaption('tool.plateau'), icon: MountainSnow }],
   },
   {
     id: 'walls',
@@ -110,7 +104,7 @@ export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon'
 /** Whether the tool in hand has a row of presets in the dock. */
 export function hasSwatches(tool: ToolType, tab: DockTabId): boolean {
   // The label style tiles are the Label tool's; the Zone tool on the same tab has none.
-  return tool === 'terrain' || tool === 'scatterBrush' || tool === 'path' || tool === 'lake' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tool === 'text';
+  return tool === 'terrain' || tool === 'scatterBrush' || STYLE_TOOLS.includes(tool) || tab === 'lights' || tool === 'text';
 }
 
 const COLLAPSED_KEY = 'v2-dock-collapsed';

@@ -4,7 +4,6 @@ import { undoManager } from './undoManager';
 import { createDungeonLayer } from './factories';
 import {
   createAlignCommand,
-  createDetachCommand,
   createDistributeCommand,
   createDuplicateCommand,
   createMoveToLayerCommand,
@@ -23,7 +22,6 @@ import type {
   AssetChild,
   DoorChild,
   LightChild,
-  PathChild,
   ShapeChild,
   WallSegment,
   ZoneChild,
@@ -143,19 +141,6 @@ describe('createPlacePropsCommand', () => {
     expect(ids(main)).toEqual(['l', 'u1', 'u2', 'a', 'b', 'top']);
     undoManager.undo();
     expect(ids(main)).toEqual(['l', 'a', 'b', 'top']);
-  });
-});
-
-describe('createDetachCommand', () => {
-  it('lets attached props go of their host where they stand, one undo puts them back', () => {
-    const host = { kind: 'path' as const, id: 'road', t: 0.25, side: 1 as const };
-    add(main, prop('tree', { position: { x: 4, y: 2 }, attachedTo: host }), prop('crate'));
-    expect(createDetachCommand(['crate'])).toBeNull();
-    run(createDetachCommand(['tree', 'crate']));
-    expect(child('tree').attachedTo).toBeUndefined();
-    close(child('tree').position, 4, 2);
-    undoManager.undo();
-    expect(child('tree').attachedTo).toEqual(host);
   });
 });
 
@@ -417,7 +402,7 @@ describe('createDuplicateCommand', () => {
     expect(ids(main)).toEqual(['a']);
   });
 
-  it('offsets a door tuple without NaN, zones, rings with their tangents, and path points', () => {
+  it('offsets a door tuple without NaN, zones, and rings with their tangents', () => {
     const door: DoorChild = {
       id: 'door', name: 'door', childType: 'door', visible: true, wallId: '', position: [4, 4], angle: 0,
       width: 1, style: 'single', state: 'closed', isSecret: false,
@@ -429,19 +414,13 @@ describe('createDuplicateCommand', () => {
       contours: [[[0, 0], [2, 0], [2, 2]]], tangents: [[{ tout: [1, 0] }, null, null]],
       textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
     } as unknown as ShapeChild;
-    const path = {
-      id: 'pa', name: 'pa', childType: 'path', visible: true, closed: false, width: 1,
-      points: [{ x: 0, y: 0 }, { x: 1, y: 1, handles: { in: [-1, 0], out: [1, 0] } }],
-    } as unknown as PathChild;
-    add(main, door, rect, circle, shape, path);
-    const copies = dup(['door', 'zr', 'zc', 'sh', 'pa']);
+    add(main, door, rect, circle, shape);
+    const copies = dup(['door', 'zr', 'zc', 'sh']);
     expect(child<DoorChild>(copies[0]).position).toEqual([5, 5]);
     expect(child<ZoneChild>(copies[1]).shape).toMatchObject({ x: 1, y: 1 });
     expect(child<ZoneChild>(copies[2]).shape).toMatchObject({ position: { x: 2, y: 2 } });
     expect(child<ShapeChild>(copies[3]).contours[0][1]).toEqual([3, 1]);
     expect(child<ShapeChild>(copies[3]).tangents![0][0]).toEqual({ tout: [2, 1] });
-    // Handles are relative to their point, so they travel unchanged.
-    expect(child<PathChild>(copies[4]).points).toEqual([{ x: 1, y: 1 }, { x: 2, y: 2, handles: { in: [-1, 0], out: [1, 0] } }]);
   });
 
   it('a whole group copies into a new group; part of one stays in it on its own layer', () => {

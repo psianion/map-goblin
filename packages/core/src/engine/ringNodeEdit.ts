@@ -1,12 +1,13 @@
-// The node editor paths and plateaus share: what the pointer is over among a chain's points,
-// their curve handles and the line between them, and what a drag of a point or a handle does.
-// Pure: pathNodeEdit.ts drives it for a path's points, and below for a plateau's ring.
+// The node editor for a plateau's ring: what the pointer is over among its points, their
+// curve handles and the line between them, what a drag of a point or a handle does, and the
+// overlay that draws them.
 //
 // A plateau's ring is edited with the Select tool, one plateau selected: drag a point or a
 // handle, click the edge to insert a point, Delete with the pointer on one removes it (a ring
 // keeps three), double-click turns a point sharp or smooth. A drag that would leave the ring
 // off ground is put back (engine/plateauGround.ts).
 
+import type { Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import { undoManager } from '../store/undoManager';
 import { UpdateChildCommand } from '../store/commands';
@@ -17,6 +18,7 @@ import { notify } from '../shared/notify';
 import { GROUND_MESSAGE, SMALL_MESSAGE } from '../shared/plateauGround';
 import { effectiveContours, effectiveTangents } from './tools/childTransform';
 import { plateauGround } from './plateauGround';
+import { drawNodeHandle, drawTangentArm, strokeRopeDash } from './overlayDraw';
 
 /** A point of a chain and its curve handles, relative to it; null or absent = none drawn. */
 export interface RingNode {
@@ -311,10 +313,6 @@ export function hoverPlateau(world: Point, zoom: number): void {
   ringHovered = hit?.kind === 'point' ? hit.index : null;
 }
 
-export function hoveredPlateauPoint(): number | null {
-  return ringHovered;
-}
-
 /** A double-click on a point turns it sharp, or smooth with handles along its neighbours. True when taken. */
 export function togglePlateauPointAt(world: Point, zoom: number): boolean {
   const e = editedPlateau();
@@ -346,4 +344,37 @@ export function removeHoveredPlateauPoint(): boolean {
   nodes.splice(index, 1);
   void commitPlateauRing(e.layerId, e.plateau.id, 'Remove point', ringFields(e.plateau), nodesToRing(nodes));
   return true;
+}
+
+// ─── Overlay ────────────────────────────────────────────────
+
+let overlay: Graphics | null = null;
+let lastSignature = '';
+
+export function initRingNodeOverlay(graphics: Graphics): void {
+  overlay = graphics;
+  overlay.label = 'ringNodeOverlay';
+  lastSignature = '';
+}
+
+/** The edited plateau's ring: its line, its curve arms and its points. */
+export function renderRingNodeHandles(zoom: number): void {
+  if (!overlay) return;
+  const p = editedPlateau();
+  const hovered = ringHovered;
+  const signature = p ? `${p.plateau.id}|${zoom.toFixed(3)}|${hovered}|${JSON.stringify([p.plateau.contours, p.plateau.tangents, p.plateau.transform])}` : '';
+  if (signature === lastSignature) return;
+  lastSignature = signature;
+  overlay.clear();
+  if (!p) return;
+  const nodes = plateauNodes(p.plateau);
+  const line = ringLine(nodes);
+  if (line.xy.length >= 2) strokeRopeDash(overlay, line.xy, false, zoom);
+  nodes.forEach((n, i) => {
+    if (n.handles) {
+      drawTangentArm(overlay!, n.x, n.y, n.x + n.handles.in[0], n.y + n.handles.in[1], zoom);
+      drawTangentArm(overlay!, n.x, n.y, n.x + n.handles.out[0], n.y + n.handles.out[1], zoom);
+    }
+    drawNodeHandle(overlay!, n.x, n.y, zoom, { selected: hovered === i, circle: n.handles !== null });
+  });
 }

@@ -37,66 +37,7 @@ export type FloorPieceType = 'base' | 'border' | 'accent';
 /** Path piece types */
 export type PathPieceType = 'straight' | 'curve' | 'intersection' | 'ending';
 
-export type PieceType = WallPieceType | FloorPieceType | PathPieceType | 'floor' | 'wall' | 'edge' | 'path' | 'object' | 'scatter' | 'portal' | 'light-mask' | 'pattern' | 'edge-transition' | 'kit';
-
-/**
- * How a path material is built from pieces. A pack ships one `kit` entry per material set
- * (no image of its own) carrying this; every key names another entry of the same pack.
- * - surface: the outline filled with the seamless `fill` tile, `edge` units walked along it.
- * - planks: `cross` units laid across the centreline, `railPost` units on both sides with a
- *   `rope` drawn between them, `end` pieces at cut ends.
- * - band: the cave walk along the outline with `band.straight` pieces, bends drawn in code.
- */
-export type KitKind = 'surface' | 'planks' | 'band';
-
-/**
- * A unit walked along an outline: picked by weight, `spacing` cells apart, turned up to
- * `jitter` radians, laid at `scale` times its painted size (the kit's `scale` when absent).
- */
-export interface KitEdgeUnit {
-  key: string;
-  weight: number;
-  spacing: number;
-  jitter: number;
-  scale?: number;
-}
-
-/** A unit laid across a path, picked by weight. */
-export interface KitCrossUnit {
-  key: string;
-  weight: number;
-}
-
-export interface KitManifest {
-  kind: KitKind;
-  fill?: string;
-  edge?: KitEdgeUnit[];
-  cross?: KitCrossUnit[];
-  railPost?: string;
-  rope?: { color: string; width: number };
-  /** The band's straights, laid at `scale` times their painted size (1 when absent). */
-  band?: { straight: string[]; bendDrawn: true; scale?: number };
-  end?: string;
-  /** Liquids: the piece that hangs where the path runs off a cliff. */
-  fall?: string;
-  /** What edge units naming no scale of their own are laid at against their painted size: 0.5 when absent. */
-  scale?: number;
-  /** Props placed along the outline as attached objects. */
-  objects?: KitObject[];
-}
-
-/**
- * A prop a kit places along its outline: picked by weight, `spacing` cells apart, turned up
- * to `jitter` radians, on `side` of the outline (1 out, -1 in, 0 on it). `key` names an entry
- * of the kit's pack, or of another pack as `<packId>:<entry>`.
- */
-export interface KitObject {
-  key: string;
-  weight: number;
-  spacing: number;
-  jitter: number;
-  side: -1 | 0 | 1;
-}
+export type PieceType = WallPieceType | FloorPieceType | PathPieceType | 'floor' | 'wall' | 'edge' | 'path' | 'object' | 'scatter' | 'portal' | 'light-mask' | 'pattern' | 'edge-transition';
 
 /** Grid size notation (e.g., "1x1", "2x1", "3x1") */
 export type GridSize = `${number}x${number}`;

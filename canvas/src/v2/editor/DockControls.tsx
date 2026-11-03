@@ -11,9 +11,7 @@ import { LayerWallLookCommand, PresetApplyCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES } from '@/store/slices/tools';
-import { familyKeyOf, getCatalogEntry, kitPiece, pathKits } from '@dnd/core/src/assets/packCatalog';
-import { bridgeLook } from '@dnd/core/src/shared/plateaus';
-import { PATH_WIDTH_RANGE, PATH_WIDTH_STEP } from '@dnd/core/src/engine/tools/PathTool';
+import { familyKeyOf, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import {
   minDoorWidth,
   doorAngleValue,
@@ -29,7 +27,6 @@ import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import type { AssetTypeFilter } from '@/editor/AssetBrowserPanel';
 import { STYLE_TOOLS, type DockTabId } from './dockTabs';
-import { PATH_EDGE_CHOICES, PATH_END_CHOICES, PATH_HEIGHT_CHOICES, PATH_SORT_CHOICES, crossingOptions } from './pathControls';
 import { ColorCtl, Ctl, DockPopover, RangeInput, Seg, Select, Slider, Switch } from './controls';
 import {
   TERRAIN_SLOT_COUNT,
@@ -505,8 +502,6 @@ export function ToolSwatches({
   onOpenAssets: (type?: AssetTypeFilter) => void;
 }) {
   if (tool === 'terrain') return <TerrainSlots onAssign={() => onOpenAssets('floor')} />;
-  if (tool === 'path') return <PathMaterialStrip />;
-  if (tool === 'lake') return <PathMaterialStrip lake />;
   if (STYLE_TOOLS.includes(tool)) {
     return (
       <>
@@ -529,7 +524,6 @@ export function ToolSwatches({
  * "⋯" card (PropsDock, LightsDock); every other tool carries all its settings here.
  *
  *   Rectangle, Polygon         presets · floor colour (tint of textured floors) · wall width
- *   Path, Lake                 materials (path) · width · edge, ends (path) · edge strip · sort (path) · height · crossing · snap ends
  *   Regular polygon            presets · floor colour · sides · wall width
  *   Terrain                    textures · size · strength · tint · tint opacity
  *   Wall                       type · width (not for cave kits) · wall tint (textured walls)
@@ -832,112 +826,12 @@ function ZoneSettings() {
   );
 }
 
-/* ── Paths ──────────────────────────────────────────────── */
-
-/**
- * The path kits installed, as tiles, each shown by its fill (or its first plank); the next
- * path is drawn in the one picked. For the lake preset, every kit with a shore band (water,
- * lava, poison, ice).
- */
-function PathMaterialStrip({ lake = false }: { lake?: boolean }) {
-  const key = lake ? 'lakeMaterialId' : 'materialId';
-  const materialId = useStore((s) => s.tools.settings.path[key]);
-  // Re-read when packs land: the catalog is rebuilt from the installed manifests.
-  useStore((s) => s.packs.installedPacks);
-  const tiles: StripTile[] = pathKits()
-    .filter((k) => !lake || (k.fill && k.manifest.band))
-    .flatMap((k) => {
-      const face = k.fill ?? (k.manifest.cross?.[0] ? kitPiece(k, k.manifest.cross[0].key) : undefined);
-      return face ? [{ id: k.id, textureId: face.id, label: k.label }] : [];
-    });
-  return (
-    <AssetStrip
-      label={lake ? 'Lake materials' : 'Path materials'}
-      testId={lake ? 'v2-strip-lakes' : 'v2-strip-paths'}
-      tiles={tiles}
-      fit="cover"
-      isOn={(id) => id === materialId}
-      onPick={(id) => {
-        const path = useStore.getState().tools.settings.path;
-        // A bridge's material draws the next path as a bridge: overhead, heights set.
-        useStore.getState().updateToolSettings({ path: { ...path, [key]: id, ...(lake ? {} : bridgeLook(path, id)) } });
-      }}
-    />
-  );
-}
-
-/** − width + : the next path's width in quarter cells. */
-export function WidthStepper({ value, onChange, label = 'Width' }: { value: number; onChange: (v: number) => void; label?: string }) {
-  const step = (dir: 1 | -1) =>
-    onChange(Math.min(PATH_WIDTH_RANGE.max, Math.max(PATH_WIDTH_RANGE.min, Math.round((value + dir * PATH_WIDTH_STEP) * 100) / 100)));
-  return (
-    <Ctl label={label} value={value.toFixed(2)} width={72}>
-      <span className="v2-stepper">
-        <button type="button" className="v2-rbtn" aria-label={`${label} down`} onClick={() => step(-1)}>
-          <Minus size={12} />
-        </button>
-        <button type="button" className="v2-rbtn" aria-label={`${label} up`} onClick={() => step(1)}>
-          <Plus size={12} />
-        </button>
-      </span>
-    </Ctl>
-  );
-}
-
-function PathSettings({ tool }: { tool: ToolType }) {
-  const path = useStore(useShallow((s) => s.tools.settings.path));
-  const kinds = useStore((s) => s.mapSettings.crossingKinds);
-  const set = (patch: Partial<typeof path>) => useStore.getState().updateToolSettings({ path: { ...path, ...patch } });
-  const end = path.ends.start;
-  return (
-    <>
-      <WidthStepper value={path.width} onChange={(width) => set({ width })} />
-      {tool === 'path' && (
-        <>
-          <Seg
-            label="Edge"
-            value={path.edge}
-            options={PATH_EDGE_CHOICES}
-            onChange={(edge) => set({ edge })}
-          />
-          <Seg label="Ends" value={end} options={PATH_END_CHOICES} onChange={(v) => set({ ends: { ...path.ends, start: v, end: v } })} />
-          {end !== 'cut' && (
-            <Slider
-              label="Length"
-              width={56}
-              value={path.ends.length}
-              min={0.25}
-              max={6}
-              step={0.25}
-              format={fixed(2)}
-              onChange={(length) => set({ ends: { ...path.ends, length } })}
-            />
-          )}
-        </>
-      )}
-      {tool === 'path' && <Seg label="Sort" value={path.sort} options={PATH_SORT_CHOICES} onChange={(sort) => set({ sort })} />}
-      <Seg label="Height" value={path.heightMode} options={PATH_HEIGHT_CHOICES} onChange={(heightMode) => set({ heightMode })} />
-      <Select
-        label="Crossing"
-        width={88}
-        value={path.crossingId ?? ''}
-        options={crossingOptions(kinds)}
-        onChange={(v) => set({ crossingId: v || undefined })}
-      />
-      <Switch label="Snap ends" checked={path.snapEnds} onChange={(snapEnds) => set({ snapEnds })} />
-    </>
-  );
-}
-
 function QuickSettings({ tool }: { tool: ToolType }) {
   switch (tool) {
     case 'rectangle':
     case 'polygon':
     case 'regularPolygon':
       return <DrawingSettings tool={tool} />;
-    case 'path':
-    case 'lake':
-      return <PathSettings tool={tool} />;
     case 'wall':
       return <WallSettings />;
     case 'door':

@@ -11,7 +11,6 @@ export function judgeDragHop(
   levelId: string | undefined,
   from: readonly [number, number],
   to: readonly [number, number],
-  elevation?: number,
 ): HopVerdict {
   const map = useStore.getState();
   const session = useSessionStore.getState();
@@ -19,5 +18,5 @@ export function judgeDragHop(
     session.session?.modules.crossings as CrossingsState | undefined,
     session.session?.activeSceneId ?? null,
   );
-  return judgeHop(map, levelId, from, to, live, session.you?.role, elevation);
+  return judgeHop(map, levelId, from, to, live, session.you?.role);
 }

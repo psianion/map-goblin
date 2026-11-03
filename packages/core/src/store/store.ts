@@ -6,7 +6,7 @@ import { ROOM_RUNTIME_KEYS } from '../shared/types';
 import { migrateRooms } from './roomMigration';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
-import { CURRENT_VERSION, countWaterBodies, isSupportedVersion, migrateToLatest, waterRemovedMessage } from './migration';
+import { CURRENT_VERSION, countRetiredBodies, isSupportedVersion, migrateToLatest, retiredRemovedMessage } from './migration';
 import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
 import { getCatalogEntry, isBandSet, nextAssetName } from '../assets/packCatalog';
@@ -79,10 +79,10 @@ export const useStore = create<MapBuilderStore>()(
         // Every supported version goes through the migration: 2.0 is upgraded, and all of
         // them lose the fields the format no longer carries (retired fields have no bump),
         // and a band-kit layer loses its placed cave band (see dropPlacedCaveBand).
-        // Water bodies are dropped on the way to 3.2; the DM is told how many.
-        const waterRemoved = countWaterBodies(data.layers);
+        // Water bodies and paths are dropped (3.2, 3.4); the DM is told how many.
+        const retiredRemoved = countRetiredBodies(data.layers);
         data = migrateToLatest(data, { isBandSet, isCaveBandAsset });
-        if (waterRemoved > 0) getNotify().warning(waterRemovedMessage(waterRemoved));
+        if (retiredRemoved > 0) getNotify().warning(retiredRemovedMessage(retiredRemoved));
         // Rooms became anchored places and maps gained levels: every path that opens
         // a map (v1 sidebar, v2 home page, file import, the table) comes through here,
         // so this is the one place the room migration runs.

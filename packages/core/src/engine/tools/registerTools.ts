@@ -4,7 +4,6 @@ import type { ToolManager } from './ToolManager';
 import { RectangleTool } from './RectangleTool';
 import { PolygonTool } from './PolygonTool';
 import { RegularPolygonTool } from './RegularPolygonTool';
-import { PathTool } from './PathTool';
 import { WallTool } from './WallTool';
 import { RulerTool } from './RulerTool';
 import { TextTool } from './TextTool';
@@ -28,8 +27,6 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RectangleTool());
   manager.registerTool(new PolygonTool());
   manager.registerTool(new RegularPolygonTool());
-  manager.registerTool(new PathTool());
-  manager.registerTool(new PathTool('lake'));
   manager.registerTool(new PlateauTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new RulerTool());

@@ -189,10 +189,9 @@ export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null
  * with no map, where every point is level ground and nothing refuses.
  */
 export interface SceneTerrain {
-  /** `from`: the mover's height before the move, so one walking off a landing stays on a bridge's deck. */
-  elevationAt(x: number, y: number, levelId?: string, from?: number): number
-  /** The refusal message for a player's move from `elevation` (on a bridge, over the edges beneath), or null when it may go. */
-  crossingRefusal(from: { x: number; y: number }, to: { x: number; y: number }, levelId?: string, elevation?: number): string | null
+  elevationAt(x: number, y: number, levelId?: string): number
+  /** The refusal message for a player's move, or null when it may go. */
+  crossingRefusal(from: { x: number; y: number }, to: { x: number; y: number }, levelId?: string): string | null
 }
 export type TerrainOf = (sceneId: string) => SceneTerrain | null
 

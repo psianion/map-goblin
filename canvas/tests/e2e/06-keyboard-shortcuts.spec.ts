@@ -7,7 +7,7 @@ test.describe('06 - Keyboard Shortcuts', () => {
     { key: 'r', tool: 'rectangle' },
     { key: 'p', tool: 'polygon' },
     { key: 'h', tool: 'regularPolygon' },
-    { key: 'd', tool: 'path' },
+    { key: 'd', tool: 'door' },
     { key: 'w', tool: 'wall' },
     { key: 'l', tool: 'light' },
   ];

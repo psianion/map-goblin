@@ -1,4 +1,4 @@
-// The node editor paths and plateaus share, and a plateau's ring edited with it.
+// The node editor for a plateau's ring, and a ring edited with it.
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { setNotify } from '../store/notify';
@@ -13,16 +13,14 @@ import {
   plateauNodes,
   ringLine,
   type RingNode,
+  endPlateauDrag,
+  hoverPlateau,
+  isDraggingPlateau,
+  movePlateauDrag,
+  pressPlateau,
+  removeHoveredPlateauPoint,
+  togglePlateauPointAt,
 } from './ringNodeEdit';
-import {
-  endPathDrag,
-  hoverPath,
-  isDraggingPath,
-  movePathDrag,
-  pressPath,
-  removeHoveredPathPoint,
-  togglePathPointAt,
-} from './pathNodeEdit';
 
 const warning = vi.fn();
 
@@ -105,11 +103,11 @@ describe("a plateau's ring under the Select tool", () => {
   });
 
   it('drags a point to reshape it, as one undo step', async () => {
-    expect(pressPath({ x: 8, y: 8 }, 20, { alt: false, shift: false })).toBe(true);
-    expect(isDraggingPath()).toBe(true);
-    movePathDrag({ x: 10, y: 11 });
+    expect(pressPlateau({ x: 8, y: 8 }, 20, { alt: false })).toBe(true);
+    expect(isDraggingPlateau()).toBe(true);
+    movePlateauDrag({ x: 10, y: 11 });
     expect(mesa().contours[0][2]).toEqual([10, 11]);
-    endPathDrag();
+    endPlateauDrag();
     await settle();
     expect(mesa().contours[0][2]).toEqual([10, 11]);
     undoManager.undo();
@@ -117,9 +115,9 @@ describe("a plateau's ring under the Select tool", () => {
   });
 
   it('puts a drag that leaves the ground back, with the toast', async () => {
-    pressPath({ x: 8, y: 8 }, 20, { alt: false, shift: false });
-    movePathDrag({ x: 60, y: 60 });
-    endPathDrag();
+    pressPlateau({ x: 8, y: 8 }, 20, { alt: false });
+    movePlateauDrag({ x: 60, y: 60 });
+    endPlateauDrag();
     await settle();
     expect(mesa().contours[0][2]).toEqual([8, 8]);
     expect(warning).toHaveBeenCalledWith('A plateau needs ground under it');
@@ -127,20 +125,20 @@ describe("a plateau's ring under the Select tool", () => {
   });
 
   it('inserts a point on its edge, removes a hovered one, and turns one smooth', async () => {
-    pressPath({ x: 6, y: 4 }, 20, { alt: false, shift: false });
+    pressPlateau({ x: 6, y: 4 }, 20, { alt: false });
     await settle();
     expect(mesa().contours[0]).toHaveLength(5);
-    hoverPath({ x: 6, y: 4 }, 20);
-    expect(removeHoveredPathPoint()).toBe(true);
+    hoverPlateau({ x: 6, y: 4 }, 20);
+    expect(removeHoveredPlateauPoint()).toBe(true);
     await settle();
     expect(mesa().contours[0]).toHaveLength(4);
-    expect(togglePathPointAt({ x: 8, y: 4 }, 20)).toBe(true);
+    expect(togglePlateauPointAt({ x: 8, y: 4 }, 20)).toBe(true);
     await settle();
     expect(mesa().tangents?.[0][1]).toBeTruthy();
     // A ring keeps three points.
     useStore.getState().updateChild(layer().id, 'mesa', { contours: [[[4, 4], [8, 4], [8, 8]]], tangents: undefined });
-    hoverPath({ x: 8, y: 8 }, 20);
-    removeHoveredPathPoint();
+    hoverPlateau({ x: 8, y: 8 }, 20);
+    removeHoveredPlateauPoint();
     await settle();
     expect(mesa().contours[0]).toHaveLength(3);
   });

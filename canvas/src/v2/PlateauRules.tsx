@@ -4,8 +4,8 @@ import { cn } from '@/lib/utils';
 
 /*
  * The map's plateau rules in Map settings (plan §5.3): the drop at which a plateau's top
- * hides from below, and the crossing kinds the DM names for cliffs, slopes, openings and
- * bridges. Edited here as a draft; the dialog's Save writes them as undo steps.
+ * hides from below, and the crossing kinds the DM names for cliffs, slopes and openings.
+ * Edited here as a draft; the dialog's Save writes them as undo steps.
  */
 
 /** A fresh id for a new kind, unlike any in `kinds`. */

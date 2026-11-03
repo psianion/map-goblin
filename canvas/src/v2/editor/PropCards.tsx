@@ -29,7 +29,6 @@ import { familyMembers, familyPosition, getCatalogEntry } from '@dnd/core/src/as
 import { GLOW_DEFAULT, propField, type PropFieldKey } from '@dnd/core/src/shared/propFields';
 import {
   createAlignCommand,
-  createDetachCommand,
   createDistributeCommand,
   createPropBoxCommand,
   createPropPatchCommand,
@@ -606,20 +605,6 @@ function PropCard({ child, layer }: { child: AssetChild; layer: DungeonLayer }) 
       </header>
       <CardActions />
       {locked && <LockedNote />}
-      {child.attachedTo && (
-        <div className="v2-rrow" data-testid="v2-prop-attached">
-          <span className="v2-rquiet">Placed along its {child.attachedTo.kind === 'path' ? 'path' : 'cliff'}</span>
-          <button
-            type="button"
-            className="v2-link v2-rend"
-            disabled={locked}
-            data-testid="v2-prop-detach"
-            onClick={() => run(createDetachCommand(ids))}
-          >
-            Detach
-          </button>
-        </div>
-      )}
 
       <Section title="Transform" testId="v2-prop-transform">
         <TransformFields children={[child]} disabled={locked} flips={{ onFlip: flip }} />
@@ -760,14 +745,6 @@ function PropsCard({ children, layerIds }: { children: AssetChild[]; layerIds: s
         <span className="v2-sel__kind">Props</span>
       </header>
       <CardActions />
-      {children.some((c) => c.attachedTo) && (
-        <div className="v2-rrow" data-testid="v2-props-attached">
-          <span className="v2-rquiet">{children.filter((c) => c.attachedTo).length} placed along a path or cliff</span>
-          <button type="button" className="v2-link v2-rend" data-testid="v2-props-detach" onClick={() => run(createDetachCommand(editIds))}>
-            Detach
-          </button>
-        </div>
-      )}
 
       <Section title="Transform" quiet="One box" testId="v2-props-transform">
         <TransformFields children={allLocked ? children : editable} disabled={allLocked} />

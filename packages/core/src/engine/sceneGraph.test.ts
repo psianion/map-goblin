@@ -9,14 +9,13 @@ function fakeSceneGraph(): SceneGraph {
 }
 
 describe('addLayerToScene', () => {
-  it('orders dungeon sublayers floor, plateau tops, paths, plateau edges, shadows, grid, walls, wall marks, doors, objects, paths over, labels', () => {
+  it('orders dungeon sublayers floor, plateau tops, plateau edges, shadows, grid, walls, wall marks, doors, objects, labels', () => {
     const sceneGraph = fakeSceneGraph();
     const entry = addLayerToScene({} as RenderEngine, sceneGraph, 'layer-1', 'dungeon');
 
     expect(entry.container.children.map((c) => c.label)).toEqual([
       'sublayer-floor',
       'sublayer-plateau-tops',
-      'sublayer-paths',
       'sublayer-plateau-edges',
       'sublayer-shadows',
       'sublayer-grid',
@@ -24,7 +23,6 @@ describe('addLayerToScene', () => {
       'sublayer-wall-marks',
       'sublayer-doors',
       'sublayer-objects',
-      'sublayer-paths-over',
       'sublayer-labels',
     ]);
   });

@@ -308,7 +308,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // Raised edges on the way (plan §7): a chip for each one worth naming, and a crossing whose
     // kind blocks ends the gesture where it started — the DM's own drags are never refused.
     const held = layer.tokens().find((t) => t.id === drag!.id);
-    const verdict = judgeDragHop(held?.levelId, [drag.x, drag.y], [x, y], held?.elevation);
+    const verdict = judgeDragHop(held?.levelId, [drag.x, drag.y], [x, y]);
     for (const c of verdict.chips) useCrossingChips.getState().show(c, c === verdict.refused);
     if (verdict.refused) {
       refuseDrag(e);

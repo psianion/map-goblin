@@ -13,28 +13,21 @@
 import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
-import type { OpeningChild, PathChild } from '../shared/types';
-import { pathCentreline, pointInPath } from '../geometry/pathGeometry';
-import { setCliffCrossings, type CliffCrossing } from './path/waterfalls';
+import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import {
-  cliffCrossings,
-  cliffSpansNear,
-  pointInPoly,
   edgeRuns,
   hasPlateaus,
   layerPlateaus,
   openingFrame,
   ringGaps,
-  planksByName,
-  setBridgeMaterial,
   tierLift,
   type EdgeRun,
   type PlateauBand,
   type RingGap,
 } from '../shared/plateaus';
-import { buildEdgeStrips, sampleCentreline } from '../geometry/ribbon';
-import { getCatalogEntry, getEntriesByType, pathKit, type CatalogEntry } from '../assets/packCatalog';
+import { buildEdgeStrips, sampleCentreline } from '../geometry/edgeStrips';
+import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -195,7 +188,7 @@ function offsetLine(run: EdgeRun, width: number, side: 'left' | 'right'): Polygo
   return out;
 }
 
-/** Which of the ribbon's strips lies on the low side: outside (its right) for a plateau, inside for a pit. */
+/** Which of the edge strips lies on the low side: outside (its right) for a plateau, inside for a pit. */
 const lowSide = (drop: number): 'left' | 'right' => (drop > 0 ? 'right' : 'left');
 
 // ─── The pass ──────────────────────────────────────────────
@@ -550,79 +543,3 @@ export function drawOpening(
   g.stroke({ color: 0x6b4f33, width: 0.07 });
   return g;
 }
-
-// ─── Waterfalls ────────────────────────────────────────────
-
-/** The point of a polyline nearest (x, y), as an arc length along it, and its travel direction there. */
-function arcOn(xy: readonly Vec[], x: number, y: number): { s: number; dir: Vec } {
-  let best = { d: Infinity, s: 0, dir: [1, 0] as Vec };
-  let total = 0;
-  for (let i = 0; i + 1 < xy.length; i++) {
-    const [ax, ay] = xy[i];
-    const dx = xy[i + 1][0] - ax;
-    const dy = xy[i + 1][1] - ay;
-    const len = Math.hypot(dx, dy);
-    if (len < 1e-9) continue;
-    const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (len * len)));
-    const d = Math.hypot(x - ax - dx * u, y - ay - dy * u);
-    if (d < best.d) best = { d, s: total + len * u, dir: [dx / len, dy / len] };
-    total += len;
-  }
-  return { s: best.s, dir: best.dir };
-}
-
-/** How far onto the high side of a stretch of edge water must lie for it to fall there, cells. */
-const FALL_SOURCE = 0.3;
-
-/**
- * Where a water path leaves a drop, as stretches of edge (waterfalls.ts `CliffCrossing`). A
- * river, or any open or unfilled path, falls where its centreline runs downhill across a raised
- * edge (`cliffCrossings`), the stretch as wide as the river is there; one drawn up the edge
- * falls nowhere. A pool (a closed, filled path) spills over the stretch of cliff its shore runs
- * along (`cliffSpansNear`) only when its water lies on the high side, within FALL_SOURCE of
- * the edge, and the drop falls away out of it: a pool at a cliff's foot falls nowhere.
- */
-export function plateauCliffCrossings(layer: Pick<DungeonLayer, 'children'>, path: PathChild): CliffCrossing[] {
-  if (!hasPlateaus(layer)) return [];
-  const line = pathCentreline(path);
-  if (line.xy.length < 2) return [];
-  const out: CliffCrossing[] = [];
-  if (path.closed && path.fill) {
-    const ring = line.xy.slice(0, -1) as Polygon;
-    const reach = Math.max(...line.width) / 2;
-    for (const span of cliffSpansNear(layer, ring, reach)) {
-      if (span.drop <= 0) continue;
-      const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
-      const [dx, dy] = span.downhill;
-      const high = pointInPath(path, [mid[0] - dx * FALL_SOURCE, mid[1] - dy * FALL_SOURCE]);
-      const away = !pointInPoly(mid[0] + dx * FALL_SOURCE, mid[1] + dy * FALL_SOURCE, ring);
-      if (high && away) out.push(span);
-    }
-    return out;
-  }
-  for (const span of cliffCrossings(layer, line.xy, 1)) {
-    if (span.drop <= 0) continue;
-    const mid: Vec = [(span.a[0] + span.b[0]) / 2, (span.a[1] + span.b[1]) / 2];
-    const { s, dir } = arcOn(line.xy, mid[0], mid[1]);
-    if (dir[0] * span.downhill[0] + dir[1] * span.downhill[1] < 0) continue;
-    // As wide along the edge as the river is where it crosses.
-    let i = 1;
-    while (i < line.arc.length - 1 && line.arc[i] < s) i++;
-    const t = Math.max(0, Math.min(1, (s - line.arc[i - 1]) / (line.arc[i] - line.arc[i - 1] || 1)));
-    const half = (line.width[i - 1] + (line.width[i] - line.width[i - 1]) * t) / 2;
-    const ex = (span.b[0] - span.a[0]) / 2;
-    const ey = (span.b[1] - span.a[1]) / 2;
-    const k = half / (Math.hypot(ex, ey) || 1);
-    out.push({ ...span, a: [mid[0] - ex * k, mid[1] - ey * k], b: [mid[0] + ex * k, mid[1] + ey * k] });
-  }
-  return out;
-}
-
-// The water paths ask the plateaus where they fall.
-setCliffCrossings(plateauCliffCrossings);
-
-// A bridge is a path whose kit is the planks kind, once the catalogue knows the material.
-setBridgeMaterial((id) => {
-  const kit = pathKit(id);
-  return kit ? kit.kind === 'planks' : planksByName(id);
-});

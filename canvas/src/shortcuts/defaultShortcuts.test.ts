@@ -306,7 +306,6 @@ describe('deletedMessage', () => {
   it('names what went by its kind', () => {
     expect(deletedMessage({ shape: 1 })).toBe('Deleted 1 floor');
     expect(deletedMessage({ asset: 3 })).toBe('Deleted 3 props');
-    expect(deletedMessage({ path: 1 })).toBe('Deleted 1 path');
   });
 
   it('names the walls and the doors that went with them; a mix is objects', () => {

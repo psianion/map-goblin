@@ -35,8 +35,6 @@ function makeEntry(id: string): LayerEntry {
       floor: new Container(),
       plateauTops: new Container(),
       plateauEdges: new Container(),
-      paths: new Container(),
-      pathsOver: new Container(),
       shadows: new Container(),
       grid: new Container(),
       walls: new Container(),

@@ -74,8 +74,7 @@ import { CASTER_HEIGHT, casterLook, shadowLook, type ShadowLook } from '../share
 import { skyFrame } from '../shared/sky';
 import type { MapEnvironment } from '../shared/world';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
-import type { OpeningChild, PathChild } from '../shared/types';
-import { cliffCrossingsOf, drawFall, waterfallSpans } from './path/waterfalls';
+import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import { layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
 
@@ -459,64 +458,6 @@ describe('each cell of height shows', () => {
   });
 });
 
-describe('a bridge landing', () => {
-  const bridge = (over: Partial<PathChild> = {}): PathChild => ({
-    id: 'bridge',
-    name: 'Bridge',
-    childType: 'path',
-    visible: true,
-    points: [{ x: 8, y: 10, height: 1 }, { x: 8, y: 15, height: 1 }],
-    closed: false,
-    width: 1,
-    heightMode: 'set',
-    materialId: 'gg-forge:planks',
-    tint: '#ffffff',
-    opacity: 1,
-    offset: 0,
-    flip: false,
-    edge: 'soft',
-    ends: { start: 'cut', end: 'cut', length: 1 },
-    sort: 'overhead',
-    ...over,
-  });
-  // Two +1 cliffs 5 cells apart; the near one's south edge, y = 10, is 8 cells long.
-  const near = plat('near', 4, 4, 12, 10);
-  const far = plat('far', 4, 15, 12, 21);
-  const southEdge = (layer: DungeonLayer): number => {
-    const ring = layerPlateaus(layer).bands[0].rings.find((r) => r.some(([, y]) => Math.abs(y - 4) < 1e-6))!;
-    const gaps = ringGaps(layer).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
-    const [row] = cliffRows(ring, true, 1, gaps, cliffPieces(cliffArt(undefined)));
-    return row.filter((p) => Math.abs(p.P[1] - 10) < 0.5 && Math.abs(p.Q[1] - 10) < 0.5).length;
-  };
-
-  it('opens only the bridge’s end width and a quarter cell each side, where its centreline crosses the ring', () => {
-    const gaps = ringGaps(layerOf([ground, near, far, bridge({ points: [{ x: 8, y: 9.7, height: 1 }, { x: 8, y: 15.3, height: 1 }] })]));
-    expect(gaps.map((g) => [g.id, g.width])).toEqual([
-      ['landing:bridge:start', 1.5],
-      ['landing:bridge:end', 1.5],
-    ]);
-    expect(gaps[0].position[0]).toBeCloseTo(8, 6);
-    expect(gaps[0].position[1]).toBeCloseTo(10, 6);
-    expect(gaps[1].position[1]).toBeCloseTo(15, 6);
-  });
-
-  it('takes at most 2 of an 8-cell edge’s ledge pieces for a 1-cell bridge, and leaves the rest', () => {
-    const plain = southEdge(layerOf([ground, near, far]));
-    const landed = southEdge(layerOf([ground, near, far, bridge()]));
-    expect(plain).toBeGreaterThan(2);
-    expect(landed).toBeLessThan(plain);
-    expect(plain - landed).toBeLessThanOrEqual(2);
-  });
-
-  it('opens nothing for a road touching a cliff, or a bridge drawn over or under', () => {
-    for (const over of [{ materialId: 'gg-forge:road-dirt' }, { sort: 'over' as const }, { sort: 'under' as const }, { closed: true }, { visible: false }]) {
-      expect(ringGaps(layerOf([ground, near, far, bridge(over)])), JSON.stringify(over)).toEqual([]);
-    }
-    const plain = southEdge(layerOf([ground, near, far]));
-    expect(southEdge(layerOf([ground, near, far, bridge({ materialId: 'gg-forge:road-dirt' })]))).toBe(plain);
-  });
-});
-
 describe('light on the rock', () => {
   const look: ShadowLook = { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' };
 
@@ -660,7 +601,7 @@ describe('cliff shadows', () => {
   });
 });
 
-describe('openings and waterfalls', () => {
+describe('openings', () => {
   const frame = { position: [0, 0] as [number, number], along: [1, 0] as [number, number], downhill: [0, 1] as [number, number], drop: 2 };
 
   it('draws stairs from the art, and placeholder ramps and ladders', () => {
@@ -672,88 +613,4 @@ describe('openings and waterfalls', () => {
     expect(drawOpening({ id: 'c', kind: 'ladder', width: 1 }, frame)).toBeInstanceOf(Graphics);
   });
 
-});
-
-describe('waterfalls at cliff crossings', () => {
-  // The plateau-test outcrop: +2, cliff all round, its west edge at x = 4.
-  const outcrop = plat('outcrop', 4, 4, 12, 11, { height: 2, edge: 'cliff' });
-  const water = (id: string, points: PathChild['points'], over: Partial<PathChild> = {}): PathChild => ({
-    id,
-    name: id,
-    childType: 'path',
-    visible: true,
-    points,
-    closed: false,
-    width: 1.5,
-    heightMode: 'ground',
-    materialId: 'gg-forge:water',
-    tint: '#ffffff',
-    opacity: 1,
-    offset: 0,
-    flip: false,
-    edge: 'soft',
-    ends: { start: 'cut', end: 'cut', length: 1 },
-    sort: 'under',
-    ...over,
-  });
-
-  /** The fall boxes a water path hangs on `layer`, sizes rounded to a hundredth. */
-  const boxes = (layer: DungeonLayer, path: PathChild) =>
-    waterfallSpans(cliffCrossingsOf(layer, path)).map((f) => ({ ...f, width: +f.width.toFixed(2), length: +f.length.toFixed(2) }));
-  const cliff = (height: number) => plat('outcrop', 4, 4, 12, 11, { height, edge: 'cliff' });
-
-  it('hangs a 1-cell river’s fall 1 cell wide off the lip, as long as the drop up to 3', () => {
-    const river = water('river', [{ x: 10, y: 6.5 }, { x: 1, y: 6.5 }], { width: 1 });
-    for (const [height, length] of [[1, 1], [2, 2], [3, 3], [5, 3]]) {
-      const [fall, more] = boxes(layerOf([ground, cliff(height), river]), river);
-      expect(more).toBeUndefined();
-      expect(fall).toMatchObject({ width: 1, length });
-      // From the lip at x = 4, half its length on, falling west.
-      expect(fall.x).toBeCloseTo(4 - length / 2, 6);
-      expect(fall.y).toBeCloseTo(6.5, 6);
-      expect(Math.abs(fall.angle)).toBeCloseTo(Math.PI, 6);
-    }
-  });
-
-  it('falls nowhere for a river drawn up the cliff', () => {
-    const river = water('river', [{ x: 1, y: 6.5 }, { x: 10, y: 6.5 }], { width: 1 });
-    expect(cliffCrossingsOf(layerOf([ground, outcrop, river]), river)).toEqual([]);
-  });
-
-  it('spills a lake on the top over the 2.5 cells of shore it shares with the cliff, 1 cell down a +1 drop', () => {
-    const corner = (x: number, y: number) => ({ x, y, handles: null });
-    const pool = water('pool', [corner(4, 5), corner(7, 5), corner(7, 7.5), corner(4, 7.5)], { closed: true, fill: true, width: 0.4 });
-    const [fall, more] = boxes(layerOf([ground, cliff(1), pool]), pool);
-    expect(more).toBeUndefined();
-    expect(fall).toMatchObject({ width: 2.5, length: 1 });
-    expect(fall.x).toBeCloseTo(3.5, 6);
-    expect(fall.y).toBeCloseTo(6.25, 6);
-  });
-
-  it('falls nowhere from a lake at a cliff’s foot, on its low side', () => {
-    const corner = (x: number, y: number) => ({ x, y, handles: null });
-    const pool = water('pool', [corner(1, 5), corner(4, 5), corner(4, 7.5), corner(1, 7.5)], { closed: true, fill: true, width: 0.4 });
-    expect(cliffCrossingsOf(layerOf([ground, cliff(1), pool]), pool)).toEqual([]);
-  });
-
-  it('finds none on flat ground, and draws none for no drop', () => {
-    const river = water('river', [{ x: 10, y: 20 }, { x: 1, y: 20 }]);
-    expect(cliffCrossingsOf(layerOf([ground, outcrop, river]), river)).toEqual([]);
-    expect(waterfallSpans([{ a: [4, 6], b: [4, 7], downhill: [-1, 0], drop: 0 }])).toEqual([]);
-  });
-
-  it('draws a fall in code inside its box: the water strip, streaks, ink sides and foam, no sprite', () => {
-    const g = new Graphics();
-    drawFall(g, { x: 3.5, y: 6.25, angle: Math.PI, width: 2.5, length: 1 }, 0x4a86a8);
-    expect(g.children).toHaveLength(0);
-    const b = g.getLocalBounds();
-    expect(b.width).toBeCloseTo(2.5, 1);
-    expect(b.height).toBeCloseTo(1, 1);
-    expect(g.position.x).toBeCloseTo(3.5, 6);
-    const fills = g.context.instructions.filter((i) => i.action === 'fill');
-    const strokes = g.context.instructions.filter((i) => i.action === 'stroke');
-    expect(fills).toHaveLength(2);
-    expect((fills[0].data as { style: { alpha: number } }).style.alpha).toBeCloseTo(0.7);
-    expect(strokes).toHaveLength(2);
-  });
 });

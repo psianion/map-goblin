@@ -53,8 +53,7 @@ describe('plateaus on the player’s copy of the map', () => {
         }
       }
       expect(probed).toBeGreaterThan(2000)
-      // Moves across the map cross the same edges for both. (Away from bridges: a bridge is a
-      // path, and goes over with its room, so an unseen one's landing is not the player's yet.)
+      // Moves across the map cross the same edges for both.
       const strip = (ls: DungeonLayer[]) =>
         [
           ...crossingsAlongLayers(ls, [0.5, 7.5], [39.5, 7.5], kinds),

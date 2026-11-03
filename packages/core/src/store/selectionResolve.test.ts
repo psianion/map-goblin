@@ -83,7 +83,7 @@ describe('selectionNoun', () => {
   it('names one kind by its own noun, singular and plural', () => {
     expect(selectionNoun({ wall: 1 })).toBe('1 wall');
     expect(selectionNoun({ asset: 4 })).toBe('4 props');
-    expect(selectionNoun({ path: 2 })).toBe('2 paths');
+    expect(selectionNoun({ plateau: 2 })).toBe('2 plateaus');
     expect(selectionNoun({ shape: 1 })).toBe('1 floor');
   });
 

@@ -9,7 +9,7 @@ import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
-import { initPathNodeOverlay } from './pathNodeEdit';
+import { initRingNodeOverlay } from './ringNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 
 export interface SceneGraph {
@@ -47,17 +47,13 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
-  /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor, under the paths. */
+  /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
   plateauTops: Container;
-  /** Paths sorted `under` (roads, rivers, lakes): over the floor, under props; not masked to the floor. See `pathRenderer.ts`. */
-  paths: Container;
   /**
    * Plateau edges (plateauRenderer.ts): each band's slopes, cliff rock, foot and openings, lowest
-   * band first, over the paths (a road runs under the ledge) and under the shadows on them.
+   * band first, over the tops and under the shadows on them.
    */
   plateauEdges: Container;
-  /** Paths sorted `over`: above the layer's props, under its labels. */
-  pathsOver: Container;
   /**
    * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
    * per-layer grid as well as the walls, because a shadow falls on the floor and the grid is
@@ -187,9 +183,9 @@ export function buildSceneGraph(
   worldContainer.addChild(shapeNodeOverlay);
   initShapeNodeOverlay(shapeNodeOverlay);
 
-  const pathNodeOverlay = new Graphics();
-  worldContainer.addChild(pathNodeOverlay);
-  initPathNodeOverlay(pathNodeOverlay);
+  const ringNodeOverlay = new Graphics();
+  worldContainer.addChild(ringNodeOverlay);
+  initRingNodeOverlay(ringNodeOverlay);
 
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();
@@ -241,9 +237,7 @@ export function addLayerToScene(
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
     const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
-    const paths = new Container(); paths.label = 'sublayer-paths';
     const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
-    const pathsOver = new Container(); pathsOver.label = 'sublayer-paths-over';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
@@ -255,8 +249,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, plateauTops, paths, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
-    sublayers = { floor, plateauTops, paths, plateauEdges, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

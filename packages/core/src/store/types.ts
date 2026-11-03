@@ -5,7 +5,6 @@ export * from '../shared/fogLook';
 import type {
   AnyChild,
   CrossingKind,
-  PathChild,
   WallSegment,
   WallEdits,
   WallType,
@@ -232,9 +231,6 @@ export type ToolType =
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'
-  | 'path'
-  /** The Path tool preset to water, closed and filled: a lake, pond or pool. */
-  | 'lake'
   | 'wall'
   | 'door'
   | 'light'
@@ -268,23 +264,6 @@ export interface TerrainBrushSettings {
   tintColor: string;
   /** How strongly the tint colours the stroke, 0-1. 0 paints untinted. */
   tintOpacity: number;
-}
-
-/** What the next path drawn with the Path tool looks like (the lake preset overrides material, closed and fill). */
-export interface PathToolSettings {
-  /** A path material set id, `<packId>:<set>`. */
-  materialId: string;
-  /** Cells. */
-  width: number;
-  edge: PathChild['edge'];
-  ends: PathChild['ends'];
-  sort: PathChild['sort'];
-  heightMode: PathChild['heightMode'];
-  crossingId?: string;
-  /** A path's ends snap onto the ends of other paths. */
-  snapEnds: boolean;
-  /** The material the lake preset draws in: any material with a fill (water, lava, poison, ice). */
-  lakeMaterialId: string;
 }
 
 /** What the next opening the opening tool places is. */
@@ -364,7 +343,6 @@ export interface ToolSettings {
   /** A free-standing door's angle, degrees: 0 runs along x, 90 along y. Doors on a wall take the wall's. */
   doorAngle: number;
   terrainBrush: TerrainBrushSettings;
-  path: PathToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
   /** Absent on settings saved before the opening tool: its defaults. */
@@ -666,7 +644,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];

@@ -46,9 +46,8 @@ describe('toolToTypeFilter', () => {
     expect(toolToTypeFilter('scatterBrush')).toBe('object');
   });
 
-  it('keeps floors, paths and walls on their own tabs and everything else on All', () => {
+  it('keeps floors and walls on their own tabs and everything else on All', () => {
     expect(toolToTypeFilter('rectangle')).toBe('floor');
-    expect(toolToTypeFilter('path')).toBe('path');
     expect(toolToTypeFilter('door')).toBe('wall');
     expect(toolToTypeFilter('select')).toBe('all');
   });

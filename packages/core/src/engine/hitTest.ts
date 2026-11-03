@@ -1,7 +1,6 @@
 import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
-import { pathCentreline, pointInPath } from '../geometry/pathGeometry';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
@@ -178,9 +177,6 @@ function* childHits(
       case 'shape':
       case 'plateau':
         if (pointInShape(child, point)) yield child;
-        break;
-      case 'path':
-        if (pointInPath(child, point)) yield child;
         break;
       case 'zone':
         if (pointInZone(child, point)) yield child;
@@ -501,7 +497,7 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, paths, plateaus, the room the point
+ * labels, props, doors), a zone by its outline, the drawn walls, plateaus, the room the point
  * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
  * area, then the floors.
  */
@@ -513,9 +509,6 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
   const walls = wallHits(layer, point, opts);
   for (const w of walls) yield wallHit(layer.id, w);
-  // Paths draw over the floors, so they answer before the rooms and floors under them.
-  const paths = layer.children.filter((c) => c.childType === 'path');
-  for (const c of childHits(paths, point, layer, opts)) yield childHit(layer.id, c);
   // Plateaus draw over the floors and the rooms on them: next, before either.
   const plateaus = layer.children.filter((c) => c.childType === 'plateau');
   for (const c of childHits(plateaus, point, layer, opts)) yield childHit(layer.id, c);
@@ -531,7 +524,7 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   }
   for (const z of zoneHits) yield childHit(layer.id, z);
   const below = layer.children.filter(
-    (c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'path' && c.childType !== 'plateau',
+    (c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'plateau',
   );
   for (const c of childHits(below, point, layer, opts)) yield childHit(layer.id, c);
   for (const p of beside) for (const c of childHits(below, p, layer, opts)) yield childHit(layer.id, c);
@@ -725,23 +718,6 @@ export function getChildBounds(child: AnyChild): {
         width: child.width,
         height: child.width,
       };
-    }
-    case 'path': {
-      // The flattened centreline grown by the widest half-width it reaches.
-      const line = pathCentreline(child);
-      if (line.xy.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
-      const half = Math.max(...line.width) / 2;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-      for (const [px, py] of line.xy) {
-        if (px < minX) minX = px;
-        if (px > maxX) maxX = px;
-        if (py < minY) minY = py;
-        if (py > maxY) maxY = py;
-      }
-      return { x: minX - half, y: minY - half, width: maxX - minX + half * 2, height: maxY - minY + half * 2 };
     }
     case 'opening': {
       // Sits on its floor's ring at `t`: a box its width wide, found through the layer holding it.

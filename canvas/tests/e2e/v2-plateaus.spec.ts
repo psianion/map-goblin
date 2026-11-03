@@ -7,11 +7,10 @@ import { installStubs } from './publishStubs'
 
 /**
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
- * tower-test): plan §0 scenarios 2, 3, 4, the editor half of 5 (bridge landings) and 7 (the
- * river's waterfall), the hill's card readouts, and both maps and the goblin warren opening,
- * exporting a PNG and publishing. Every map's plateaus are taken off it on open and drawn
- * again with the Plateau tool (`openMap`). Then the tool itself, its card, its ring editing,
- * and how a plateau draws over terrain paint and a road.
+ * tower-test): plan §0 scenarios 2, 3 and 4, the hill's card readouts, and both maps and the
+ * goblin warren opening, exporting a PNG and publishing. Every map's plateaus are taken off it
+ * on open and drawn again with the Plateau tool (`openMap`). Then the tool itself, its card,
+ * its ring editing, and how a plateau draws over terrain paint.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -144,31 +143,6 @@ async function openMap(page: Page, doc: Any): Promise<{ errors: string[]; ids: R
   return { errors, ids }
 }
 
-/** Every fall the paths draw: its box's centre, size (cells, across and down) and the way it falls. */
-const falls = (page: Page) =>
-  page.evaluate(() => {
-    const w = window as Any
-    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
-    const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
-    return pools
-      .flatMap((p: Any) => p.children.filter((k: Any) => k.label === 'water-fall'))
-      .map((g: Any) => {
-        const b = g.getLocalBounds()
-        // The box's own +y runs down the fall.
-        const a = g.rotation + Math.PI / 2
-        return { x: g.position.x, y: g.position.y, width: b.maxX - b.minX, length: b.maxY - b.minY, dx: Math.cos(a), dy: Math.sin(a) }
-      })
-  })
-
-/** The bank's straights: laid by the cave walk, they keep Pixi's own label; the units carry their names. */
-const bankPieces = (page: Page) =>
-  page.evaluate(() => {
-    const w = window as Any
-    const find = (c: Any): Any => (c.label === 'sublayer-paths' ? c : (c.children ?? []).map(find).find(Boolean))
-    const pools = (find(w.__pixiApp.stage)?.children ?? []).filter((c: Any) => c.label === 'path-units')
-    return pools.flatMap((p: Any) => p.children.filter((k: Any) => k.anchor && (!k.label || k.label === 'Sprite'))).length
-  })
-
 /** The canvas luminance at world `p`: the median of three reads a frame apart. */
 async function lum(page: Page, p: Pt): Promise<number> {
   const at = await screenOf(page, p)
@@ -215,7 +189,7 @@ async function select(page: Page, id: string): Promise<void> {
 test.describe('plateau-test in the editor', () => {
   test('opens with every named object and draws every band without an error', async ({ page }) => {
     const { errors } = await openMap(page, PLATEAU)
-    for (const id of ['ground', 'outcrop', 'outcrop-stairs', 'hill', 'summit', 'pit', 'far-mesa', 'cobble-road', 'dirt-road', 'river', 'plank-bridge', 'torch-top', 'torch-ground']) {
+    for (const id of ['ground', 'outcrop', 'outcrop-stairs', 'hill', 'summit', 'pit', 'far-mesa', 'torch-top', 'torch-ground']) {
       expect(await child(page, id), id).toBeTruthy()
     }
     await expect.poll(async () => (await bandLabels(page, 2)).length).toBeGreaterThan(0)
@@ -283,91 +257,6 @@ test.describe('plateau-test in the editor', () => {
     await page.keyboard.press('Control+z')
     await expect.poll(async () => (await openings()).length).toBe(1)
   })
-
-  test('scenario 5 (editor half): a bridge from the +2 outcrop to the +3 far mesa opens a landing in each cliff it rests on', async ({ page }) => {
-    // "Draw a bridge from a +2 plateau to a +3 plateau across a pit." The plank bridge's ends
-    // rest on the outcrop's south edge (7, 11) and the far mesa's north edge (7, 26): each
-    // parts the rock there (landingGaps), and the bridge is planks, posts and rope.
-    await openMap(page, PLATEAU)
-    const rockNear = (height: number, x: number, y: number) =>
-      page.evaluate(
-        ({ height, x, y }) => {
-          const w = window as Any
-          const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-          const rock = find(find(w.__pixiApp.stage, `plateau-band-${height}`), 'plateau-cliff')
-          return { all: rock.children.length, near: rock.children.filter((s: Any) => Math.hypot(s.position.x - x, s.position.y - y) < 0.6).length }
-        },
-        { height, x, y },
-      )
-    await expect.poll(async () => (await rockNear(2, 7, 11)).all).toBeGreaterThan(4)
-    expect((await rockNear(2, 7, 11)).near, 'rock across the outcrop landing').toBe(0)
-    expect((await rockNear(3, 7, 26)).all).toBeGreaterThan(4)
-    expect((await rockNear(3, 7, 26)).near, 'rock across the mesa landing').toBe(0)
-    // The bridge itself: planks across, posts down both edges with a rope drawn between them.
-    const bridge = () =>
-      page.evaluate(() => {
-        const w = window as Any
-        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-        const pool = find(find(w.__pixiApp.stage, 'path-overhead-plank-bridge'), 'path-units')
-        const kids = pool?.children ?? []
-        return {
-          sprites: kids.filter((k: Any) => k.anchor).length,
-          ropes: kids.filter((k: Any) => !k.anchor).length,
-          left: kids.filter((k: Any) => k.anchor && Math.abs(k.position.x - 6) < 0.05).length,
-          right: kids.filter((k: Any) => k.anchor && Math.abs(k.position.x - 8) < 0.05).length,
-        }
-      })
-    await expect.poll(async () => (await bridge()).sprites).toBeGreaterThan(30)
-    const laid = await bridge()
-    expect(laid.ropes).toBe(1)
-    expect(laid.left).toBeGreaterThan(5)
-    expect(laid.right).toBeGreaterThan(5)
-  })
-
-  test('scenario 7: the river shows a waterfall where it runs off the outcrop’s west cliff', async ({ page }) => {
-    // "Draw a river with banks; where it crosses a cliff downhill a waterfall shows." The
-    // river (1.5 cells wide) leaves the +2 outcrop over its west edge (x = 4) near y = 6.8:
-    // the plateau code finds that crossing and one fall hangs from it, west of the lip, as
-    // wide as the river and two cells down.
-    await openMap(page, PLATEAU)
-    await expect.poll(async () => (await falls(page)).length).toBe(1)
-    await expect.poll(async () => (await bankPieces(page)), 'bank pieces along both banks').toBeGreaterThan(10)
-    const [f] = await falls(page)
-    expect(Math.abs(f.width - 1.5), 'width').toBeLessThan(0.1)
-    expect(Math.abs(f.length - 2), 'length').toBeLessThan(0.1)
-    expect(f.dx, 'falling west').toBeLessThan(-0.9)
-    expect(f.x, 'the fall hangs west of the lip').toBeCloseTo(3, 0)
-    expect(Math.abs(f.y - 6.8), 'at the crossing').toBeLessThan(1)
-  })
-
-  test('a lake on a +1 top spills one fall over the shore it shares with the cliff, and the ground past it is untouched', async ({ page }) => {
-    await openField(page)
-    await blur(page)
-    await page.keyboard.press('e')
-    await dragThrough(page, rectAround(4, 4, 12, 10))
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
-    await waitFrame(page, 6)
-    // 1.5 cells down the west cliff, in the lee of nothing.
-    const probe = { x: 2.5, y: 6.25 }
-    const before = await lum(page, probe)
-    await page.evaluate(() => {
-      const st = (window as Any).__store.getState()
-      const corner = (x: number, y: number) => ({ x, y, handles: null })
-      st.addChild(st.ui.activeLayerId, {
-        id: 'pond', name: 'Pond', childType: 'path', visible: true, closed: true, fill: true, width: 0.4, heightMode: 'ground',
-        points: [corner(4, 5), corner(7, 5), corner(7, 7.5), corner(4, 7.5)], materialId: 'gg-forge:water', tint: '#ffffff',
-        opacity: 1, offset: 0, flip: false, edge: 'soft', ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
-      })
-    })
-    await expect.poll(async () => (await falls(page)).length).toBe(1)
-    const [f] = await falls(page)
-    expect(Math.abs(f.width - 2.5), 'width').toBeLessThan(0.1)
-    expect(Math.abs(f.length - 1), 'length').toBeLessThan(0.1)
-    expect(Math.abs(f.x - 3.5), 'x').toBeLessThan(0.1)
-    expect(Math.abs(f.y - 6.25), 'y').toBeLessThan(0.1)
-    await waitFrame(page, 6)
-    expect(Math.abs((await lum(page, probe)) - before), 'the ground 1.5 cells down is as it was').toBeLessThan(3)
-  })
 })
 
 /** A fresh map with one 20 x 16 field floor on its layer, the layer active, the view fitted. */
@@ -414,56 +303,24 @@ const rectAround = (x0: number, y0: number, x1: number, y1: number): Pt[] => [
   { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 },
 ]
 
-test.describe('a bridge drawn with the defaults', () => {
-  test('picking planks draws the bridge overhead between two +1 cliffs, and both landings open', async ({ page }) => {
+test.describe('the Plateau tool', () => {
+  test('its tab holds the Plateau tool alone: no Path tool, no lake, no path materials, and A and U pick nothing', async ({ page }) => {
     const errors = await openField(page)
-    for (const [y0, y1] of [[2, 7], [10, 15]]) {
-      await blur(page)
-      await page.keyboard.press('e')
-      await dragThrough(page, rectAround(4, y0, 12, y1))
-    }
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(2)
+    await page.getByTestId('v2-dock-tab-plateaus').click()
+    await expect(page.getByTestId('v2-tool-plateau')).toBeVisible()
+    await expect(page.getByTestId('v2-tool-path')).toHaveCount(0)
+    await expect(page.getByTestId('v2-tool-lake')).toHaveCount(0)
+    await expect(page.getByTestId('v2-strip-paths')).toHaveCount(0)
+    await expect(page.getByTestId('v2-strip-lakes')).toHaveCount(0)
     await blur(page)
-    await page.keyboard.press('a')
-    await page.getByTestId('v2-strip-paths').getByRole('button', { name: /planks/i }).click()
-    for (const p of [{ x: 8, y: 7 }, { x: 8, y: 10 }]) {
-      const at = await screenOf(page, p)
-      await page.mouse.click(at.x, at.y)
-      await page.waitForTimeout(400)
+    for (const key of ['a', 'u']) {
+      await page.keyboard.press(key)
+      await waitFrame(page, 2)
+      expect(await inPage(page, `(s) => s().tools.activeTool`), key).not.toMatch(/^(path|lake)$/)
     }
-    await blur(page)
-    await page.keyboard.press('Enter')
-    await expect.poll(async () => inPage<number>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'path').length`)).toBe(1)
-    const bridge = await inPage<Any>(page, `(s, layer) => layer().children.find((c) => c.childType === 'path')`)
-    expect(bridge).toMatchObject({ materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' })
-    expect(bridge.points.map((p: Any) => p.height)).toEqual([1, 1])
-    // Its sprites are in its overhead container, over the ledge.
-    const overhead = () =>
-      page.evaluate((id) => {
-        const w = window as Any
-        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-        const pool = find(find(w.__pixiApp.stage, `path-overhead-${id}`), 'path-units')
-        return (pool?.children ?? []).filter((k: Any) => k.anchor).length
-      }, bridge.id)
-    await expect.poll(overhead).toBeGreaterThan(5)
-    // Both cliffs part where it lands, and keep their rock either side.
-    const rock = () =>
-      page.evaluate(() => {
-        const w = window as Any
-        const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-        const kids = find(find(w.__pixiApp.stage, 'plateau-band-1'), 'plateau-cliff')?.children ?? []
-        const near = (x: number, y: number) => kids.filter((s: Any) => Math.hypot(s.position.x - x, s.position.y - y) < 0.6).length
-        return { all: kids.length, a: near(8, 7), b: near(8, 10) }
-      })
-    await expect.poll(async () => (await rock()).a).toBe(0)
-    const r = await rock()
-    expect(r.b).toBe(0)
-    expect(r.all).toBeGreaterThan(10)
     expect(errors).toEqual([])
   })
-})
 
-test.describe('the Plateau tool', () => {
   test('E, then a dragged rectangle on the field: one plateau at +1 with a cliff ledge, selected', async ({ page }) => {
     const errors = await openField(page)
     await blur(page)
@@ -612,38 +469,6 @@ test.describe('how a plateau draws', () => {
     expect(Math.abs(lifted - bare)).toBeGreaterThan(10)
   })
 
-  test('a road under a plateau shows under its top, and its ledge draws over the road', async ({ page }) => {
-    await openField(page)
-    await inPage(page, `(s, layer) => s().addChild(layer().id, {
-      id: 'road', name: 'Road', childType: 'path', visible: true, points: [{ x: 2, y: 7 }, { x: 18, y: 7 }], closed: false,
-      width: 2, heightMode: 'ground', materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false,
-      edge: 'soft', ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
-    })`)
-    await blur(page)
-    await page.keyboard.press('e')
-    await dragThrough(page, rectAround(6, 3, 12, 11))
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
-    // Floor, tops, paths, edges, in that order on the layer.
-    const order = await page.evaluate(() => {
-      const w = window as Any
-      const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-      const tops = find(w.__pixiApp.stage, 'sublayer-plateau-tops')
-      return tops.parent.children.map((c: Any) => c.label)
-    })
-    expect(order.slice(0, 4)).toEqual(['sublayer-floor', 'sublayer-plateau-tops', 'sublayer-paths', 'sublayer-plateau-edges'])
-    await expect.poll(async () => (await bandLabels(page, 1)).find((l) => l.label === 'plateau-cliff')?.children ?? 0).toBeGreaterThan(4)
-    await waitFrame(page, 10)
-    // The road reads on the plateau top: unlike the top beside it.
-    expect(Math.abs((await shownLum(page, { x: 9, y: 7 })) - (await shownLum(page, { x: 9, y: 4.5 })))).toBeGreaterThan(6)
-    // Rock lies across the road where it meets the ledge: nothing opens a road's way.
-    const rockOnRoad = await page.evaluate(() => {
-      const w = window as Any
-      const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-      const rock = find(find(w.__pixiApp.stage, 'plateau-band-1'), 'plateau-cliff')
-      return rock.children.filter((s: Any) => [6, 12].some((x) => Math.abs(s.position.x - x) < 0.7) && Math.abs(s.position.y - 7) < 1).length
-    })
-    expect(rockOnRoad).toBeGreaterThan(0)
-  })
 })
 
 test.describe('the test maps export and publish', () => {

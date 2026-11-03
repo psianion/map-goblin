@@ -21,7 +21,7 @@ function doc(version: unknown): unknown {
 
 describe('validateMapData', () => {
   it('accepts every version SUPPORTED_VERSIONS lists', () => {
-    for (const version of ['2.0', '3.0', '3.1', '3.2', '3.3']) {
+    for (const version of ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']) {
       expect(validateMapData(doc(version))).toMatchObject({ ok: true })
     }
   })
@@ -66,11 +66,20 @@ describe('parseMapFile', () => {
     expect((result.data.layers[0] as unknown as { children: { id: string }[] }).children.map((c) => c.id)).toEqual(['torch'])
   })
 
-  it('takes a 3.3 file with paths, plateaus and openings as it arrived', () => {
+  it('stores a 3.3 file with paths without them, its plateaus and openings kept', () => {
     const road = { id: 'road', name: 'Road', childType: 'path', visible: true, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }], closed: false, width: 1 }
     const mesa = { id: 'm', name: 'Mesa', childType: 'plateau', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'cliff' }
     const stairs = { id: 'stairs', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', hostId: 'm', t: 0.5, width: 2 }
-    const file = { ...(doc('3.3') as object), layers: [{ type: 'dungeon', id: 'l', children: [road, mesa, stairs] }] }
+    const result = parseMapFile(JSON.stringify({ ...(doc('3.3') as object), layers: [{ type: 'dungeon', id: 'l', children: [road, mesa, stairs] }] }))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(true)
+    expect((result.data.layers[0] as unknown as { children: { id: string }[] }).children.map((c) => c.id)).toEqual(['m', 'stairs'])
+  })
+
+  it('takes a 3.4 file with plateaus and openings as it arrived', () => {
+    const mesa = { id: 'm', name: 'Mesa', childType: 'plateau', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'cliff' }
+    const stairs = { id: 'stairs', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', hostId: 'm', t: 0.5, width: 2 }
+    const file = { ...(doc('3.4') as object), layers: [{ type: 'dungeon', id: 'l', children: [mesa, stairs] }] }
     const result = parseMapFile(JSON.stringify(file))
     if (!result.ok) throw new Error(result.error)
     expect(result.migrated).toBe(false)

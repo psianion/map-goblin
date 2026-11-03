@@ -10,13 +10,12 @@
 //   surface just outside: positive faces outward (a plateau), negative inward (a pit).
 
 import type { DungeonLayer } from '../store/types';
-import type { CrossingKind, OpeningChild, PathChild, PathPoint, PlateauChild, RingGeometry } from './types';
+import type { CrossingKind, OpeningChild, PlateauChild, RingGeometry } from './types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
 import { ringOwner } from './wallLook';
 import { DEFAULT_SIGHT_DROP_CELLS } from './crossingKinds';
-import { pathCentreline } from '../geometry/pathGeometry';
 
 export type EdgeKind = PlateauChild['edge'];
 
@@ -474,7 +473,7 @@ export function openingFrame(
 
 /** A stretch of a raised ring left open: no cliff art laid, no sight blocked, free to cross. */
 export interface RingGap {
-  /** Where the gap comes from: `opening:<id>`, or a bridge landing. */
+  /** Where the gap comes from: `opening:<id>`. */
   id: string;
   position: Vec;
   /** Cells along the ring. */
@@ -492,218 +491,14 @@ export function openingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
   return gaps;
 }
 
-/** How far off a raised ring a bridge's end may rest and still land on it, cells. */
-const LANDING_REACH = 0.5;
-/** How far past each side of a bridge's end its landing opens the ring, cells. */
-export const LANDING_MARGIN = 0.25;
-
-/**
- * Whether a path material is a bridge's: its kit is the planks kind. The catalogue answers
- * once the engine installs it (`setBridgeMaterial`); until then, and where there is no
- * catalogue (the server), a material whose set is `planks`.
- */
-export const planksByName = (materialId: string): boolean => materialId.split(':').pop() === 'planks';
-let bridgeMaterial = planksByName;
-export function setBridgeMaterial(fn: (materialId: string) => boolean): void {
-  bridgeMaterial = fn;
-}
-export const isBridgeMaterial = (materialId: string): boolean => bridgeMaterial(materialId);
-
-/** Where segment a→b crosses segment c→d, as a point, or null. */
-function crossing(a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[]): Vec | null {
-  const rx = b[0] - a[0];
-  const ry = b[1] - a[1];
-  const sx = d[0] - c[0];
-  const sy = d[1] - c[1];
-  const den = rx * sy - ry * sx;
-  if (Math.abs(den) < 1e-12) return null;
-  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den;
-  const u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + rx * t, a[1] + ry * t] : null;
-}
-
-/** The nearest point of a ring to (x, y), and how far it is. */
-function nearestOnRing(ring: Polygon, x: number, y: number): { p: Vec; dist: number } {
-  let best: { p: Vec; dist: number } = { p: ring[0] as Vec, dist: Infinity };
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i];
-    const b = ring[(i + 1) % ring.length];
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const len2 = dx * dx + dy * dy;
-    const u = len2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2)) : 0;
-    const p: Vec = [a[0] + dx * u, a[1] + dy * u];
-    const d = Math.hypot(x - p[0], y - p[1]);
-    if (d < best.dist) best = { p, dist: d };
-  }
-  return best;
-}
-
-/**
- * Bridge landings (plan §5.4): where an end of a bridge (a visible open path of a planks
- * material, sorted overhead) rests on a raised ring within LANDING_REACH, the ring opens
- * there, centred where the bridge's centreline crosses it (the nearest point of the ring when
- * the end stops short of it), as wide as the bridge is at that end and LANDING_MARGIN more
- * each side, the way an opening opens it. In bridge order, start before end.
- */
-export function landingGaps(layer: Pick<DungeonLayer, 'children'>): RingGap[] {
-  const bridges = layer.children.filter(
-    (c): c is PathChild =>
-      c.childType === 'path' && c.visible && c.sort === 'overhead' && !c.closed && c.points.length >= 2 && isBridgeMaterial(c.materialId),
-  );
-  if (bridges.length === 0 || !hasPlateaus(layer)) return [];
-  const rings = layerPlateaus(layer).bands.flatMap((b) => b.rings);
-  const gaps: RingGap[] = [];
-  for (const bridge of bridges) {
-    const line = pathCentreline(bridge).xy;
-    const ends = [
-      ['start', bridge.points[0]],
-      ['end', bridge.points[bridge.points.length - 1]],
-    ] as const;
-    for (const [name, end] of ends) {
-      let best: { p: Vec; dist: number } | null = null;
-      for (const ring of rings) {
-        const near = nearestOnRing(ring, end.x, end.y);
-        if (near.dist > LANDING_REACH) continue;
-        // Centred where the centreline crosses this ring nearest the end, when it does within reach.
-        let at = near.p;
-        let atDist = Infinity;
-        for (let i = 0; i + 1 < line.length; i++) {
-          for (let k = 0; k < ring.length; k++) {
-            const p = crossing(line[i], line[i + 1], ring[k], ring[(k + 1) % ring.length]);
-            const d = p ? Math.hypot(p[0] - end.x, p[1] - end.y) : Infinity;
-            if (p && d <= LANDING_REACH && d < atDist) {
-              at = p;
-              atDist = d;
-            }
-          }
-        }
-        if (!best || near.dist < best.dist) best = { p: at, dist: near.dist };
-      }
-      if (best) gaps.push({ id: `landing:${bridge.id}:${name}`, position: best.p, width: (end.width ?? bridge.width) + 2 * LANDING_MARGIN });
-    }
-  }
-  return gaps;
-}
-
-/** Everything that opens a raised ring on this layer: openings and bridge landings. */
+/** Everything that opens a raised ring on this layer: its openings. */
 export function ringGaps(layer: Pick<DungeonLayer, 'children'>, extra: readonly RingGap[] = []): RingGap[] {
-  return [...openingGaps(layer), ...landingGaps(layer), ...extra];
+  return [...openingGaps(layer), ...extra];
 }
 
 /** Whether a point on a ring lies inside any gap (within half its width). */
 export function inGap(gaps: readonly RingGap[], x: number, y: number): boolean {
   return gaps.some((g) => Math.hypot(x - g.position[0], y - g.position[1]) <= g.width / 2);
-}
-
-// ─── Waterfalls (the seam water paths and lakes call) ──────
-
-/** A place where water leaves a raised edge: the water kit's fall hangs there (plateauRenderer `plateauCliffCrossings`). */
-export interface FallSpan {
-  /** The stretch of edge the water falls over, in ring order. */
-  a: Vec;
-  b: Vec;
-  /** Unit direction from the high side to the low side. */
-  downhill: Vec;
-  /** Cells fallen. */
-  drop: number;
-}
-
-/** Each raised edge of the layer with its downhill direction. */
-function fallEdges(layer: Pick<DungeonLayer, 'children'>): FallSpan[] {
-  const out: FallSpan[] = [];
-  for (const band of layerPlateaus(layer).bands) {
-    band.rings.forEach((ring, ri) => {
-      band.edges[ri].forEach((e, i) => {
-        if (e.drop === 0) return;
-        const a = ring[i];
-        const b = ring[(i + 1) % ring.length];
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        if (len < 1e-9) return;
-        // Outside is the left of travel; a plateau falls outward, a pit inward.
-        const s = Math.sign(e.drop);
-        out.push({ a, b, downhill: [((b[1] - a[1]) / len) * s, (-(b[0] - a[0]) / len) * s], drop: Math.abs(e.drop) });
-      });
-    });
-  }
-  return out;
-}
-
-/**
- * Where a polyline (a water path's centreline) crosses a raised edge, either way: one span
- * per crossing, `width` cells wide along the edge, centred on the crossing. `downhill` says
- * which way the water falls, whichever way the line was drawn.
- */
-export function cliffCrossings(layer: Pick<DungeonLayer, 'children'>, points: readonly Vec[], width = 1): FallSpan[] {
-  const out: FallSpan[] = [];
-  for (const edge of fallEdges(layer)) {
-    const ex = edge.b[0] - edge.a[0];
-    const ey = edge.b[1] - edge.a[1];
-    const elen = Math.hypot(ex, ey);
-    for (let i = 0; i + 1 < points.length; i++) {
-      const [px, py] = points[i];
-      const dx = points[i + 1][0] - px;
-      const dy = points[i + 1][1] - py;
-      const den = dx * ey - dy * ex;
-      if (Math.abs(den) < 1e-12) continue;
-      const t = ((edge.a[0] - px) * ey - (edge.a[1] - py) * ex) / den;
-      const u = ((edge.a[0] - px) * dy - (edge.a[1] - py) * dx) / den;
-      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-      // A crossing right on a vertex belongs to the segment it starts.
-      if (t === 1 && i + 2 < points.length) continue;
-      const cx = px + dx * t;
-      const cy = py + dy * t;
-      const h = width / 2 / elen;
-      out.push({
-        a: [cx - ex * h, cy - ey * h],
-        b: [cx + ex * h, cy + ey * h],
-        downhill: edge.downhill,
-        drop: edge.drop,
-      });
-    }
-  }
-  return out;
-}
-
-/** Samples per cell along a raised edge when finding the stretch a shore runs along. */
-const SPILL_STEP = 0.25;
-
-/**
- * The stretches of raised edge a closed outline (a raised pool's shore) runs along within
- * `tol` cells: each a run of the edge, sampled every SPILL_STEP, whose every sample is near
- * the outline, so a pool spills over just the part of a cliff its shore shares.
- */
-export function cliffSpansNear(layer: Pick<DungeonLayer, 'children'>, outline: Polygon, tol = 0.1): FallSpan[] {
-  const near = (x: number, y: number): boolean => {
-    for (let i = 0; i < outline.length; i++) {
-      const a = outline[i];
-      const b = outline[(i + 1) % outline.length];
-      const dx = b[0] - a[0];
-      const dy = b[1] - a[1];
-      const len2 = dx * dx + dy * dy;
-      const u = len2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2)) : 0;
-      if (Math.hypot(x - (a[0] + dx * u), y - (a[1] + dy * u)) <= tol) return true;
-    }
-    return false;
-  };
-  const out: FallSpan[] = [];
-  for (const e of fallEdges(layer)) {
-    const len = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
-    // Less a hair, so an edge a float off a whole number of steps keeps its samples on the step.
-    const n = Math.max(1, Math.ceil(len / SPILL_STEP - 1e-3));
-    const at = (k: number): Vec => [e.a[0] + ((e.b[0] - e.a[0]) * k) / n, e.a[1] + ((e.b[1] - e.a[1]) * k) / n];
-    let from = -1;
-    for (let k = 0; k <= n + 1; k++) {
-      const p = k <= n ? at(k) : null;
-      if (p && near(p[0], p[1])) {
-        if (from < 0) from = k;
-        continue;
-      }
-      if (from >= 0 && k - 1 > from) out.push({ a: at(from), b: at(k - 1), downhill: e.downhill, drop: e.drop });
-      from = -1;
-    }
-  }
-  return out;
 }
 
 // ─── Sight ─────────────────────────────────────────────────
@@ -750,7 +545,7 @@ function outsideGaps(a: Vec, b: Vec, gaps: readonly RingGap[]): [number, number]
 /**
  * The raised edges of a layer that hide what is above them from below (`edgeHides`), counting
  * cliffs from `minDrop` cells up, as one-way segments blocking from the low side, with
- * openings and bridge landings cut out. Sight passes the map's `sightDropCells`; light passes
+ * openings cut out. Sight passes the map's `sightDropCells`; light passes
  * 1, so a lamp below never lights a top. A plateau's ring has its low side on the left of
  * travel (outside); a pit's on the right.
  */
@@ -784,52 +579,10 @@ export function cliffOccluders(
 
 // ─── The table: where a token stands, and what it crosses ──
 
-/** How far off a bridge's deck height a token may stand and still be walking on it, cells. */
-export const DECK_REACH = 1;
-
 /**
- * The deck height at (x, y): of a bridge (an overhead path whose heights are set) whose deck
- * holds the point, read off its centreline where the point is nearest, to a tenth of a cell.
- * Null off every bridge.
+ * How high a point stands: on a stairs, ramp or ladder, part way down it; else its surface.
  */
-export function deckHeightAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number | null {
-  for (const c of layer.children) {
-    if (c.childType !== 'path' || !c.visible || c.sort !== 'overhead' || c.heightMode !== 'set') continue;
-    const { xy, width, height } = pathCentreline(c);
-    let best: { d: number; h: number; w: number } | null = null;
-    for (let i = 0; i + 1 < xy.length; i++) {
-      const [ax, ay] = xy[i];
-      const dx = xy[i + 1][0] - ax;
-      const dy = xy[i + 1][1] - ay;
-      const len2 = dx * dx + dy * dy;
-      if (len2 < 1e-12) continue;
-      const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
-      const d = Math.hypot(x - ax - dx * u, y - ay - dy * u);
-      if (!best || d < best.d) {
-        best = { d, h: height[i] + (height[i + 1] - height[i]) * u, w: width[i] + (width[i + 1] - width[i]) * u };
-      }
-    }
-    if (best && best.d <= best.w / 2) return Math.round(best.h * 10) / 10;
-  }
-  return null;
-}
-
-/** Whether a token at `elevation` over (x, y) is on a bridge's deck there rather than beneath it. */
-function onDeck(layer: Pick<DungeonLayer, 'children'>, x: number, y: number, elevation: number | undefined): number | null {
-  if (elevation === undefined) return null;
-  const deck = deckHeightAt(layer, x, y);
-  return deck !== null && Math.abs(deck - elevation) <= DECK_REACH ? deck : null;
-}
-
-/**
- * How high a point stands: on a bridge's deck for a token that walks onto it from about its
- * height (`from`, the token's height before the move), the deck's height; on a stairs, ramp
- * or ladder, part way down it; else its surface. A token at ground level walks beneath a
- * bridge, and one placed with no height before stands on the ground.
- */
-export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number, from?: number): number {
-  const deck = onDeck(layer, x, y, from);
-  if (deck !== null) return deck;
+export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number {
   if (!hasPlateaus(layer)) return 0;
   const plateaus = layerPlateaus(layer);
   for (const c of layer.children) {
@@ -853,60 +606,12 @@ export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y:
 }
 
 /** The same across a level's layers: the topmost layer that raises or sinks the point decides. */
-export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number, from?: number): number {
+export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number): number {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const h = elevationAt(layers[i], x, y, from);
+    const h = elevationAt(layers[i], x, y);
     if (h !== 0) return h;
   }
   return 0;
-}
-
-// ─── Bridges as they are drawn ─────────────────────────────
-
-/**
- * The sort and height a path takes when its material becomes `materialId`: a bridge's
- * (overhead, heights set) for a planks material, each only where the path still has the plain
- * one (under, ground), so a choice made on the path stands.
- */
-export function bridgeLook(
-  path: Pick<PathChild, 'sort' | 'heightMode'>,
-  materialId: string,
-): Partial<Pick<PathChild, 'sort' | 'heightMode'>> {
-  if (!isBridgeMaterial(materialId)) return {};
-  return { ...(path.sort === 'under' ? { sort: 'overhead' as const } : {}), ...(path.heightMode === 'ground' ? { heightMode: 'set' as const } : {}) };
-}
-
-/**
- * A bridge's points with heights set: each end at the height it rests on (the highest ground
- * within LANDING_REACH of it, so an end on a cliff's edge takes the top), the points between
- * eased from one end's height to the other's along the way.
- */
-export function bridgeHeights(layer: Pick<DungeonLayer, 'children'>, points: readonly PathPoint[]): PathPoint[] {
-  if (points.length < 2) return [...points];
-  const restsAt = (p: PathPoint): number => {
-    let h = elevationAt(layer, p.x, p.y);
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * 2 * Math.PI;
-      h = Math.max(h, elevationAt(layer, p.x + LANDING_REACH * Math.cos(a), p.y + LANDING_REACH * Math.sin(a)));
-    }
-    return h;
-  };
-  const from = restsAt(points[0]);
-  const to = restsAt(points[points.length - 1]);
-  const along = [0];
-  for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
-  const total = along[along.length - 1] || 1;
-  return points.map((p, i) => ({ ...p, height: Math.round((from + (to - from) * (along[i] / total)) * 10) / 10 }));
-}
-
-/** Everything a path's material switch changes: the material, a bridge's sort and height where still plain, and its heights when they turn on. */
-export function pathMaterialPatch(
-  layer: Pick<DungeonLayer, 'children'>,
-  path: Pick<PathChild, 'sort' | 'heightMode' | 'points'>,
-  materialId: string,
-): Partial<Pick<PathChild, 'materialId' | 'sort' | 'heightMode' | 'points'>> {
-  const look = bridgeLook(path, materialId);
-  return { materialId, ...look, ...(look.heightMode === 'set' ? { points: bridgeHeights(layer, path.points) } : {}) };
 }
 
 /**
@@ -957,8 +662,7 @@ function segHit(p: Vec, q: Vec, a: Vec, b: Vec): { t: number; u: number } | null
  * Every raised edge (cliff, slope or bare) the straight move `from` → `to` crosses on one
  * layer, in order along the move, with the crossing rule that applies there: an opening's
  * where the move passes through one, else the edge's plateau's (its own, a live override, or
- * the edge kind's default). Walls are the walls' business and are not listed. With the
- * mover's `elevation`, a move on a bridge's deck passes over the edges beneath it.
+ * the edge kind's default). Walls are the walls' business and are not listed.
  */
 export function crossingsAlong(
   layer: Pick<DungeonLayer, 'children'>,
@@ -966,7 +670,6 @@ export function crossingsAlong(
   to: Vec,
   kinds: readonly CrossingKind[],
   overrides: CrossingOverrides = {},
-  elevation?: number,
 ): Crossing[] {
   if (!hasPlateaus(layer) || (from[0] === to[0] && from[1] === to[1])) return [];
   const gaps = ringGaps(layer);
@@ -982,8 +685,6 @@ export function crossingsAlong(
         const hit = segHit(from, to, a, b);
         if (!hit) return;
         const position: Vec = [from[0] + (to[0] - from[0]) * hit.t, from[1] + (to[1] - from[1]) * hit.t];
-        // A token on a bridge's deck passes over the edges beneath it.
-        if (onDeck(layer, position[0], position[1], elevation) !== null) return;
         const gap = gaps.find((g) => Math.hypot(position[0] - g.position[0], position[1] - g.position[1]) <= g.width / 2);
         const opening = gap?.id.startsWith('opening:') ? openings.get(gap.id.slice('opening:'.length)) : undefined;
         // Outside is the left of travel along the ring: (dy, -dx). Moving outward on a plateau
@@ -992,9 +693,6 @@ export function crossingsAlong(
         const down = e.drop > 0 ? outward : !outward;
         const targetId = opening ? opening.id : e.owner.id;
         const via: Crossing['via'] = opening ? 'opening' : (e.edge as 'cliff' | 'slope' | 'none');
-        // A bridge landing is the bridge's: free from its deck (above), the cliff's own rule from
-        // beneath it. A caller that names no height keeps it free.
-        if (gap && !opening && elevation === undefined) return;
         const kindId = overrides.edges?.[targetId] ?? (opening ? opening.crossingId ?? FREE_CROSSING : crossingIdOf(e.owner));
         const kind = kinds.find((k) => k.id === kindId) ?? null;
         const blocks = overrides.blocks?.[kindId] ?? kind?.blocks ?? false;
@@ -1013,9 +711,8 @@ export function crossingsAlongLayers(
   to: Vec,
   kinds: readonly CrossingKind[],
   overrides: CrossingOverrides = {},
-  elevation?: number,
 ): Crossing[] {
-  return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides, elevation)).sort((p, q) => p.at - q.at);
+  return layers.flatMap((l) => crossingsAlong(l, from, to, kinds, overrides)).sort((p, q) => p.at - q.at);
 }
 
 /** A raised top that hides from below: its height and its outline (outer rings only). */

@@ -9,7 +9,6 @@
 
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import type { EntryRect } from '../engine/assetPackManager';
-import type { KitManifest } from '../engine/packManifest';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
 export const GRID_CELL_PX = 200;
@@ -36,8 +35,6 @@ export interface CatalogEntry {
   tags: string[];
   /** Variant family within `set` (written by the pack build); absent = a family of one. */
   family?: string;
-  /** A `kit` entry's manifest (see `pathKits`). */
-  kit?: KitManifest;
 }
 
 interface CatalogState {
@@ -91,7 +88,6 @@ function build(): CatalogState {
         label: e.material.replace(/_/g, ' '),
         tags: e.tags,
         family: e.family,
-        kit: e.kit,
       };
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
@@ -284,60 +280,6 @@ export function bandSetArt(setId: string): Map<string, CatalogEntry> {
   const art = new Map<string, CatalogEntry>();
   for (const e of getBandSet(setId)) art.set(`${e.material}_${e.gridSize}`, e);
   return art;
-}
-
-// ─── Path kits ────────────────────────────────────────────
-
-/**
- * One path material: a pack's `kit` entry for a material set, named `<packId>:<set>` like
- * `gg-forge:road-dirt` (the id a path's `materialId` holds). Its manifest names the pieces
- * it is built from; `fill` is resolved here, the rest through `kitPiece`.
- */
-export interface PathKit {
-  id: string;
-  packId: string;
-  set: string;
-  label: string;
-  kind: KitManifest['kind'];
-  manifest: KitManifest;
-  fill?: CatalogEntry;
-}
-
-let pathKitCache: { state: CatalogState; list: PathKit[] } | null = null;
-
-/** Every installed path kit, by label. */
-export function pathKits(): PathKit[] {
-  const state = current();
-  if (pathKitCache?.state === state) return pathKitCache.list;
-  const byId = new Map<string, PathKit>();
-  for (const e of state.byType.get('kit') ?? []) {
-    if (!e.kit) continue;
-    const set = e.set ?? e.material;
-    const id = `${e.packId}:${set}`;
-    if (byId.has(id)) continue;
-    const words = set.replace(/[-_]+/g, ' ');
-    byId.set(id, {
-      id,
-      packId: e.packId,
-      set,
-      label: words[0].toUpperCase() + words.slice(1),
-      kind: e.kit.kind,
-      manifest: e.kit,
-      fill: e.kit.fill ? state.byId.get(`${e.packId}:${e.kit.fill}`) : undefined,
-    });
-  }
-  const list = [...byId.values()].sort((a, b) => a.label.localeCompare(b.label));
-  pathKitCache = { state, list };
-  return list;
-}
-
-export function pathKit(id: string): PathKit | undefined {
-  return pathKits().find((k) => k.id === id);
-}
-
-/** A piece a kit names by its entry key, from the kit's own pack. */
-export function kitPiece(kit: PathKit, key: string): CatalogEntry | undefined {
-  return current().byId.get(`${kit.packId}:${key}`);
 }
 
 // ─── Variant families ─────────────────────────────────────

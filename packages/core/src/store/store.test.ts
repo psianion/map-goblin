@@ -81,7 +81,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('3.3');
+    expect(data.version).toBe('3.4');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.customImages).toEqual({});
@@ -214,7 +214,7 @@ describe('getSerializableState / loadFromFile — prep', () => {
   });
 
   it('writes version 3.2', () => {
-    expect(useStore.getState().getSerializableState().version).toBe('3.3');
+    expect(useStore.getState().getSerializableState().version).toBe('3.4');
   });
 
   it('omits the prep key entirely when nothing was ever authored', () => {
@@ -334,7 +334,7 @@ describe('loadFromFile — the old water bodies', () => {
     const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
     expect(layer.type === 'dungeon' && layer.children).toEqual([]);
     expect(warning).toHaveBeenCalledTimes(1);
-    expect(warning).toHaveBeenCalledWith('2 water bodies from the old water tool were removed; redraw them with the Path tool.');
+    expect(warning).toHaveBeenCalledWith('2 paths and water bodies from a retired tool were removed.');
   });
 
   it('stays quiet for a map that had none', () => {

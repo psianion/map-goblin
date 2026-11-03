@@ -5,8 +5,6 @@ export type ToolType =
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'
-  | 'path'
-  | 'lake'
   | 'wall'
   | 'door'
   | 'light'

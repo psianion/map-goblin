@@ -53,7 +53,7 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
 }
 
 /**
- * The raw extent of everything drawn — floor geometry, paths, standalone walls, placed
+ * The raw extent of everything drawn — floor geometry, plateaus, standalone walls, placed
  * assets, painted terrain — with no allowance yet for how wide a wall is stroked. Null when
  * nothing is drawn.
  */
@@ -105,20 +105,6 @@ function drawnBounds(
         maxY = Math.max(maxY, y + pad);
       }
     }
-    // A path is map too: its points and curve handles, grown by the widest half-width it
-    // carries (a curve stays inside its handles' hull).
-    for (const child of dl.children ?? []) {
-      if (child.childType !== 'path' || !child.visible) continue;
-      const half = Math.max(child.width ?? 0, ...(child.points ?? []).map((p) => p.width ?? 0)) / 2;
-      for (const p of child.points ?? []) {
-        const xs = [p.x, ...(p.handles ? [p.x + p.handles.in[0], p.x + p.handles.out[0]] : [])];
-        const ys = [p.y, ...(p.handles ? [p.y + p.handles.in[1], p.y + p.handles.out[1]] : [])];
-        minX = Math.min(minX, ...xs.map((x) => x - half));
-        minY = Math.min(minY, ...ys.map((y) => y - half));
-        maxX = Math.max(maxX, ...xs.map((x) => x + half));
-        maxY = Math.max(maxY, ...ys.map((y) => y + half));
-      }
-    }
     // A wall drawn out past the floor is still map — the DM drew it, so it counts.
     for (const wall of dl.standaloneWalls ?? []) {
       for (const [x, y] of wall.points) {
@@ -168,7 +154,7 @@ function strokePad(layers: readonly Layer[]): number {
 }
 
 /**
- * Axis-aligned bounds of everything drawn — floor geometry, paths, standalone walls,
+ * Axis-aligned bounds of everything drawn — floor geometry, plateaus, standalone walls,
  * placed assets, painted terrain — padded for wall strokes. Null when the map
  * has nothing on it at all (callers that want an export-friendly default box add their own).
  */

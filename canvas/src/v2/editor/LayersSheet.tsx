@@ -16,7 +16,6 @@ import {
   MoreHorizontal,
   Mountain,
   Plus,
-  Route,
   Search,
   Settings2,
   Square,
@@ -74,7 +73,6 @@ const KIND_ICON: Record<RowKind, ReactNode> = {
   zone: <Crosshair size={13} strokeWidth={1.75} />,
   shape: <Square size={13} strokeWidth={1.75} />,
   plateau: <Mountain size={13} strokeWidth={1.75} />,
-  path: <Route size={13} strokeWidth={1.75} />,
   opening: <Footprints size={13} strokeWidth={1.75} />,
 };
 

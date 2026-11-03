@@ -90,7 +90,7 @@ export function importedMapToDocument(map: ImportedMap): SerializedMapData {
   }
 
   return {
-    version: '3.3',
+    version: '3.4',
     mapSettings: {
       name: map.name,
       // UVTT carries no scale; 5 ft is the editor's own default.

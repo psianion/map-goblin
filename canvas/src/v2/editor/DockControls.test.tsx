@@ -6,7 +6,6 @@ import type { DungeonLayer, ShapeChild, ToolType } from '@/store/types';
 import { ToolSettings, ToolSwatches } from './DockControls';
 import { SCATTER_TINT_PALETTE } from './PropsDock';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
-import { resetAssetPackManager, seedPack, seedPathKits } from '@dnd/core/src/testing/seedCatalog';
 
 // jsdom has no 2D canvas; the thumbnails are not what these tests look at.
 vi.mock('@/editor/PackThumbnailCanvas', () => ({
@@ -355,7 +354,7 @@ describe('wall quick settings', () => {
 });
 
 describe('All settings', () => {
-  it.each<ToolType>(['rectangle', 'polygon', 'regularPolygon', 'path', 'terrain', 'wall', 'door', 'scatterBrush'])(
+  it.each<ToolType>(['rectangle', 'polygon', 'regularPolygon', 'terrain', 'wall', 'door', 'scatterBrush'])(
     'is gone for %s, whose settings all sit in the row',
     (tool) => {
       settings(tool);
@@ -545,62 +544,5 @@ describe('props quick settings', () => {
     expect(within(strip).getAllByRole('img', { name: 'Favourite' })).toHaveLength(1);
     fireEvent.click(within(strip).getByTestId('v2-props-library'));
     expect(onOpenAssets).toHaveBeenCalledWith('object');
-  });
-});
-
-describe('path quick settings', () => {
-  it('steps the next path’s width and sets its look', () => {
-    settings('path');
-    fireEvent.click(screen.getByRole('button', { name: 'Width up' }));
-    expect(useStore.getState().tools.settings.path.width).toBe(1.75);
-    fireEvent.click(screen.getByRole('button', { name: 'Taper' }));
-    expect(useStore.getState().tools.settings.path.ends).toMatchObject({ start: 'taper', end: 'taper' });
-    expect(screen.getByLabelText('Length')).not.toBeNull();
-    fireEvent.click(screen.getByRole('switch', { name: 'Snap ends' }));
-    expect(useStore.getState().tools.settings.path.snapEnds).toBe(false);
-  });
-
-  it('offers the installed path kits as tiles, and only the kits with a shore for a lake', () => {
-    seedPathKits();
-    try {
-      const swatches = (tool: ToolType) => {
-        cleanup();
-        useStore.getState().setActiveTool(tool);
-        render(<ToolSwatches tool={tool} tab={'tools' as never} onTab={() => {}} onOpenAssets={() => {}} />);
-      };
-      swatches('path');
-      const strip = screen.getByTestId('v2-strip-paths');
-      expect(within(strip).getByTestId('thumb-gg-forge:road-dirt-fill')).not.toBeNull();
-      expect(within(strip).getByTestId('thumb-gg-forge:water-fill')).not.toBeNull();
-      swatches('lake');
-      const lakes = screen.getByTestId('v2-strip-lakes');
-      expect(within(lakes).queryByTestId('thumb-gg-forge:road-dirt-fill')).toBeNull();
-      expect(within(lakes).getByTestId('thumb-gg-forge:water-fill')).not.toBeNull();
-    } finally {
-      resetAssetPackManager();
-    }
-  });
-
-  it('draws the next path as a bridge once the planks are picked: overhead, heights set', () => {
-    seedPack('gg-forge', {
-      'planks-plank_2x1_object_A': { type: 'object', material: 'planks-plank', gridSize: '2x1', pieceType: 'object', variant: 'A', frame: { x: 0, y: 0, w: 400, h: 200 }, set: 'GG_Paths_Props', tags: [] },
-      'planks-kit': { type: 'kit', material: 'planks', gridSize: '1x1', pieceType: 'kit', variant: 'A', set: 'planks', tags: ['path', 'kit'], kit: { kind: 'planks', cross: [{ key: 'planks-plank_2x1_object_A', weight: 1 }] } },
-    });
-    try {
-      useStore.getState().setActiveTool('path');
-      render(<ToolSwatches tool="path" tab={'tools' as never} onTab={() => {}} onOpenAssets={() => {}} />);
-      expect(useStore.getState().tools.settings.path).toMatchObject({ sort: 'under', heightMode: 'ground' });
-      fireEvent.click(within(screen.getByTestId('v2-strip-paths')).getByRole('button', { name: /planks/i }));
-      expect(useStore.getState().tools.settings.path).toMatchObject({ materialId: 'gg-forge:planks', sort: 'overhead', heightMode: 'set' });
-    } finally {
-      resetAssetPackManager();
-    }
-  });
-
-  it('keeps the lake preset to what a lake can use', () => {
-    settings('lake');
-    expect(screen.queryByRole('button', { name: 'Taper' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Overhead' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Width up' })).not.toBeNull();
   });
 });

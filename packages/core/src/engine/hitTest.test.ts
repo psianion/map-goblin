@@ -15,7 +15,6 @@ import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
 import type {
   DoorChild,  TextChild,
-  PathChild,
   ZoneChild,
   ZoneShape,
 } from '../shared/types';
@@ -405,14 +404,6 @@ describe('getChildBounds', () => {
     const light = makeLight({ x: 5, y: 5 }, 3);
     const b = getChildBounds(light);
     expect(b).toEqual({ x: 2, y: 2, width: 6, height: 6 });
-  });
-
-  it('computes AABB for a path from its centreline grown by half its width', () => {
-    const path = {
-      id: 'path-1', name: 'Road', childType: 'path', visible: true, closed: false, width: 2,
-      points: [{ x: 2, y: 1 }, { x: 8, y: 1 }],
-    } as PathChild;
-    expect(getChildBounds(path)).toEqual({ x: 1, y: 0, width: 8, height: 2 });
   });
 
   function makeZone(shape: ZoneShape): ZoneChild {

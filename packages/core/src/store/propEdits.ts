@@ -180,21 +180,6 @@ export function createPropPatchCommand(label: string, patches: PropPatch[]): Com
   return one(label, cmds);
 }
 
-/**
- * Detach every prop in `ids` placed by a path's or a plot's kit (engine/path/attachedObjects):
- * each lets go of its host and stays where it is, a plain prop. Null when none is attached.
- */
-export function createDetachCommand(ids: string[]): Command | null {
-  const attached = findChildren(useStore.getState().layers, ids).filter(
-    (f): f is Found<AssetChild> => f.child.childType === 'asset' && !!f.child.attachedTo,
-  );
-  if (attached.length === 0) return null;
-  return createPropPatchCommand(
-    'Detach',
-    attached.map((f) => ({ layerId: f.layer.id, id: f.child.id, before: { attachedTo: f.child.attachedTo }, after: { attachedTo: undefined } })),
-  );
-}
-
 // ─── Fields ──────────────────────────────────────────────
 
 /**
@@ -495,9 +480,6 @@ function translateChild(c: AnyChild, dx: number, dy: number): void {
         : { ...c.shape, position: { x: c.shape.position.x + dx, y: c.shape.position.y + dy } };
   } else if ((c.childType === 'shape' || c.childType === 'plateau') && c.transform) {
     c.transform.translate = [c.transform.translate[0] + dx, c.transform.translate[1] + dy];
-  } else if (c.childType === 'path') {
-    // Handles are relative to their points, so only the points move.
-    c.points = c.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
   } else if (c.childType === 'shape' || c.childType === 'plateau') {
     c.contours = c.contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
     c.tangents = translateTangents(c.tangents, dx, dy);

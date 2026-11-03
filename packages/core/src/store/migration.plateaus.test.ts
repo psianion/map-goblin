@@ -47,7 +47,7 @@ describe('migrating 3.2 floors with a height', () => {
   for (const file of ['plateau-test', 'plateau-table', 'tower-test']) {
     it(`gives ${file} the same bands and edge runs from plateau children`, () => {
       const raw = load(file);
-      expect(raw.version).toBe('3.3');
+      expect(raw.version).toBe('3.4');
       const data = migrateToLatest(raw);
       // Re-saved through the migration: loading it again moves nothing.
       expect(data.layers).toEqual(raw.layers);
@@ -92,14 +92,12 @@ describe('migrating 3.2 floors with a height', () => {
           { id: 'g', name: 'Hill', childType: 'shape', visible: true, contours: [[[9, 9], [12, 9], [12, 12]]], height: -1, edge: 'slope', slopeWidth: 2 },
           { id: 'h', name: 'Flat', childType: 'shape', visible: true, contours: [[[0, 0], [1, 0], [1, 1]]], edge: 'cliff' },
           { id: 'o', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'f', t: 0.2, width: 2 },
-          { id: 'a', name: 'Rock', childType: 'asset', attachedTo: { kind: 'shape', id: 'g', t: 0.1, side: 1 } },
-          { id: 'b', name: 'Rock', childType: 'asset', attachedTo: { kind: 'shape', id: 'h', t: 0.1, side: 1 } },
         ],
       },
     ] as unknown as SerializedMapData['layers'];
     const [layer] = plateausFromShapes(layers) as unknown as DungeonLayer[];
     expect(layer.children.map((c) => `${c.id}:${c.childType}`)).toEqual([
-      'f:shape', 'f-plateau:plateau', 'g:shape', 'g-plateau:plateau', 'h:shape', 'o:opening', 'a:asset', 'b:asset',
+      'f:shape', 'f-plateau:plateau', 'g:shape', 'g-plateau:plateau', 'h:shape', 'o:opening',
     ]);
     const keep = layer.children[1] as PlateauChild;
     expect(keep).toMatchObject({ id: plateauIdFor('f'), name: 'Keep', height: 2, edge: 'cliff', contourLines: false });
@@ -107,8 +105,6 @@ describe('migrating 3.2 floors with a height', () => {
     expect(layer.children[3]).toMatchObject({ height: -1, edge: 'slope', slopeWidth: 2 });
     expect('edge' in layer.children[4]).toBe(false);
     expect(layer.children[5]).toMatchObject({ hostId: 'f-plateau' });
-    expect(layer.children[6]).toMatchObject({ attachedTo: { kind: 'plateau', id: 'g-plateau' } });
-    expect('attachedTo' in layer.children[7]).toBe(false);
     // Nothing left to move: the same array back.
     const again = plateausFromShapes([layer] as unknown as SerializedMapData['layers']);
     expect(again[0]).toBe(layer);

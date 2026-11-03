@@ -242,52 +242,6 @@ test.describe.serial('@plateaus on plateau-test', () => {
     await player.waitForTimeout(800)
     expect((await held(dm, 'Borin'))!.x).toBe(10.5)
   })
-
-  test('scenario 5 (table half): a token beneath the plank bridge sees it fade, one on the bridge crosses the pit at its height', async () => {
-    // "A token on the ground walks under it (planks fade), a token at +2 walks across." The
-    // bridge runs from the outcrop's south edge (7, 11) at +2 to the far mesa's (7, 26) at +3,
-    // over the -2 pit (y 17..23).
-    const bridgeAlpha = (page: Page) =>
-      page.evaluate(
-        () =>
-          (window as unknown as { __overheadProbe?: () => { paths: { childId: string; alpha: number; drawn: boolean }[] } })
-            .__overheadProbe?.()
-            .paths.find((p) => p.childId === 'plank-bridge') ?? null,
-      )
-    await expect.poll(async () => (await bridgeAlpha(player))?.drawn).toBe(true)
-    expect((await bridgeAlpha(player))!.alpha).toBe(1)
-
-    // A scout of the player's on the ground beneath the bridge, between the outcrop and the pit.
-    await command(dm, 'tokens', 'place', { name: 'Scout', x: 7.5, y: 14.5, disposition: 'friendly' })
-    await expect.poll(async () => (await held(dm, 'Scout'))?.id).toBeTruthy()
-    const scout = (await held(dm, 'Scout'))!
-    expect(scout.elevation).toBe(0)
-    const playerId = await player.evaluate(() => (window as unknown as Tab).__sessionStore!.getState().you!.identityId)
-    await command(dm, 'tokens', 'assign', { id: scout.id, identityId: playerId })
-    await expect.poll(async () => (await held(player, 'Scout'))?.id).toBe(scout.id)
-    await expect.poll(async () => (await bridgeAlpha(player))!.alpha, { timeout: 5000 }).toBeLessThan(0.4)
-    // Out from under it: the planks come back.
-    await command(dm, 'tokens', 'move', { id: scout.id, x: 14.5, y: 14.5 })
-    await expect.poll(async () => (await bridgeAlpha(player))!.alpha, { timeout: 5000 }).toBe(1)
-
-    // Borin, up on the outcrop, walks out on the deck from its landing and over the pit at the
-    // deck's height, the outcrop's Impassable cliff no bar at the landing, and the planks stay.
-    await player.waitForTimeout(4500) // the earlier chips expire
-    await drag(player, [10.5, 5.5], [7.5, 9.5])
-    await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(7.5)
-    expect((await held(dm, 'Borin'))!.elevation).toBe(2)
-    await drag(player, [7.5, 9.5], [7.5, 20.5])
-    await expect.poll(async () => (await held(dm, 'Borin'))?.y).toBe(20.5)
-    const over = (await held(dm, 'Borin'))!.elevation
-    expect(over).toBeGreaterThan(2)
-    expect(over).toBeLessThan(3)
-    await expect(player.locator('[data-testid="crossing-chip"][data-refused]')).toHaveCount(0)
-    expect((await bridgeAlpha(player))!.alpha).toBe(1)
-    // And on, off the far landing onto the +3 mesa.
-    await drag(player, [7.5, 20.5], [7.5, 28.5])
-    await expect.poll(async () => (await held(dm, 'Borin'))?.y).toBe(28.5)
-    expect((await held(dm, 'Borin'))!.elevation).toBe(3)
-  })
 })
 
 /**

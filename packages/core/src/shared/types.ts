@@ -128,7 +128,6 @@ export type ChildType =
   | 'asset'
   | 'light'
   | 'door'
-  | 'path'
   | 'opening'
   | 'plateau'
   | 'text'
@@ -242,13 +241,6 @@ export interface AssetChild extends LayerChild {
   glows?: boolean;
   /** How the glow burns while `glows` is on. Absent = strength 0.9, steady (`GLOW_DEFAULT`). */
   glow?: { strength: number; animation?: LightAnimation };
-  /**
-   * Placed by its host's kit along a path or a plot (engine/path/attachedObjects.ts): `t` how
-   * far along the host's line, 0..1, and `side` which side of it (1 out, -1 in, 0 on). Laid
-   * again on every edit of the host and gone with it. Absent = a plain prop (one placed by
-   * hand, or detached).
-   */
-  attachedTo?: { kind: 'path' | 'plateau'; id: string; t: number; side: -1 | 0 | 1 };
 }
 
 /** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */
@@ -327,52 +319,6 @@ export interface DoorChild extends LayerChild {
   roomA?: string | null;
   /** Room on the other side of the wall. `null` = exterior, absent = not yet bound. */
   roomB?: string | null;
-}
-
-/** One authored point of a path, in cells. Geometry is derived from these (`geometry/ribbon.ts`). */
-export interface PathPoint {
-  x: number;
-  y: number;
-  /** Cells. Absent = interpolated from the points either side that set one, else `path.width`. */
-  width?: number;
-  /** Cells, read when `heightMode` is 'set'. */
-  height?: number;
-  /** Curve handles relative to the point. Absent = auto tangent (centripetal Catmull-Rom). null = sharp corner. */
-  handles?: { in: [number, number]; out: [number, number] } | null;
-}
-
-export type PathEndKind = 'cut' | 'fade' | 'taper';
-
-/** A road, trail, river, bridge or (closed with `fill`) a lake: a ribbon of material along points. */
-export interface PathChild extends LayerChild {
-  childType: 'path';
-  points: PathPoint[];
-  closed: boolean;
-  /** Closed paths only: fill the interior with the material's fill texture (lakes, ponds, lava pools). The ribbon becomes the shoreline band. */
-  fill?: boolean;
-  /** Default width for points without their own, and the base Shift-scales against. Cells. */
-  width: number;
-  /** ground = the height of the band under each point; set = per point. */
-  heightMode: 'ground' | 'set';
-  /** Pack set id of a path material, e.g. 'gg-forge:road-dirt'. */
-  materialId: string;
-  tint: string;
-  opacity: number;
-  /** Texture start along U in cells; written at creation from a random seed so repeats differ. */
-  offset: number;
-  /** Mirror the strip across the centreline. */
-  flip: boolean;
-  edge: 'soft' | 'hard';
-  /** `length` in cells. */
-  ends: { start: PathEndKind; end: PathEndKind; length: number };
-  /** under props / over props / above tokens (bridges). */
-  sort: 'under' | 'over' | 'overhead';
-  /** Bridges: can tokens pass beneath. Only read when sort = 'overhead'. */
-  under?: 'walkable' | 'blocked';
-  /** Map crossing kind. Absent = the material's default. */
-  crossingId?: string;
-  /** Hedges, fences. Absent = false. */
-  blocksSight?: boolean;
 }
 
 /** Stairs, a ramp or a ladder through a cliff ring: to a cliff what a door is to a wall. */
@@ -529,7 +475,6 @@ export type AnyChild =
   | AssetChild
   | LightChild
   | DoorChild
-  | PathChild
   | OpeningChild
   | PlateauChild
   | TextChild

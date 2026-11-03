@@ -14,8 +14,6 @@ export function toolToTypeFilter(tool: ToolType): AssetTypeFilter {
     case 'polygon':
     case 'regularPolygon':
       return 'floor';
-    case 'path':
-      return 'path';
     case 'wall':
     case 'door':
       return 'wall';

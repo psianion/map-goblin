@@ -4,7 +4,7 @@ import type { PreviewShape } from '@dnd/core/src/engine/tools/DrawingTool';
 import { useStore } from '@/store/store';
 
 /** Preview types the HUD knows how to measure. */
-const MEASURED_TOOLS = new Set(['rectangle', 'wall', 'path', 'polygon']);
+const MEASURED_TOOLS = new Set(['rectangle', 'wall', 'polygon']);
 
 function fmt(n: number): string {
   return String(Math.round(n * 100) / 100);

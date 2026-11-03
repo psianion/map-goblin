@@ -44,11 +44,10 @@ export function judgeHop(
   to: readonly [number, number],
   live: SceneCrossings,
   role: Role | undefined,
-  elevation?: number,
 ): HopVerdict {
   const layers = layersOnLevel(map, map.layers as Layer[], levelId || firstLevelId(map));
   const kinds = map.mapSettings.crossingKinds ?? defaultCrossingKinds();
-  const all = crossingsAlongLayers(layers, [from[0], from[1]], [to[0], to[1]], kinds, live, elevation);
+  const all = crossingsAlongLayers(layers, [from[0], from[1]], [to[0], to[1]], kinds, live);
   const refused = role === 'dm' ? null : (all.find((c) => c.blocks) ?? null);
   const upTo = refused ? all.slice(0, all.indexOf(refused) + 1) : all;
   return { chips: upTo.filter((c) => c.chip || c === refused), refused };
