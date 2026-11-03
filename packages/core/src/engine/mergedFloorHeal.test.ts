@@ -33,7 +33,8 @@ function makeEntry(id: string): LayerEntry {
     container: new Container(),
     sublayers: {
       floor: new Container(),
-      plateaus: new Container(),
+      plateauTops: new Container(),
+      plateauEdges: new Container(),
       paths: new Container(),
       pathsOver: new Container(),
       shadows: new Container(),

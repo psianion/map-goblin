@@ -47,13 +47,15 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
-  /**
-   * Raised and sunken floors (plateauRenderer.ts): each band's floor, slope, cliff rock and
-   * openings, lowest band first, over the ground and under the paths and shadows on them.
-   */
-  plateaus: Container;
+  /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor, under the paths. */
+  plateauTops: Container;
   /** Paths sorted `under` (roads, rivers, lakes): over the floor, under props; not masked to the floor. See `pathRenderer.ts`. */
   paths: Container;
+  /**
+   * Plateau edges (plateauRenderer.ts): each band's slopes, cliff rock, foot and openings, lowest
+   * band first, over the paths (a road runs under the ledge) and under the shadows on them.
+   */
+  plateauEdges: Container;
   /** Paths sorted `over`: above the layer's props, under its labels. */
   pathsOver: Container;
   /**
@@ -238,8 +240,9 @@ export function addLayerToScene(
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
-    const plateaus = new Container(); plateaus.label = 'sublayer-plateaus';
+    const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
     const paths = new Container(); paths.label = 'sublayer-paths';
+    const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
     const pathsOver = new Container(); pathsOver.label = 'sublayer-paths-over';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
@@ -252,8 +255,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, plateaus, paths, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
-    sublayers = { floor, plateaus, paths, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, plateauTops, paths, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, pathsOver, labels);
+    sublayers = { floor, plateauTops, paths, plateauEdges, pathsOver, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

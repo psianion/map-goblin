@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { test, expect, type Page } from '@playwright/test'
 import { getPixelColor, waitForBoot, waitFrame } from './helpers'
@@ -94,6 +95,19 @@ async function lum(page: Page, p: Pt): Promise<number> {
     await waitFrame(page, 1)
   }
   return reads.sort((a, b) => a - b)[1]
+}
+
+// sharp comes in with the workspace's own tools (vault-engine), as the sheet scripts take it.
+const sharp = createRequire(fileURLToPath(new URL('../../../packages/vault-engine/package.json', import.meta.url)))('sharp')
+
+/** The luminance of the page as shown at world `p`: a 5 x 5 px screenshot's mean. */
+async function shownLum(page: Page, p: Pt): Promise<number> {
+  const at = await screenOf(page, p)
+  const png = await page.screenshot({ clip: { x: at.x - 2, y: at.y - 2, width: 5, height: 5 } })
+  const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true })
+  let sum = 0
+  for (let i = 0; i < data.length; i += info.channels) sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+  return sum / (data.length / info.channels)
 }
 
 /** The sun at a fixed hour of the editor's preview clock. */
@@ -414,6 +428,69 @@ test.describe('the Plateau tool', () => {
     await page.keyboard.press('Control+z')
     await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
     expect(await child(page, 'st')).toBeTruthy()
+  })
+})
+
+test.describe('how a plateau draws', () => {
+  test('its top is a lift over whatever is beneath: terrain paint shows through a +1 plateau', async ({ page }) => {
+    await openField(page)
+    // Paint terrain on the void east of the field, then draw the plateau on the paint.
+    await inPage(page, `(s) => s().setTerrainData({ palette: ['gg-demo:floor_small_8x8_floor_A', null, null, null, null, null] })`)
+    await waitFrame(page, 6)
+    await blur(page)
+    await page.keyboard.press('t')
+    for (const y of [5, 6, 7, 8, 9]) await dragThrough(page, [{ x: 25, y }, { x: 29, y }, { x: 33, y }])
+    await expect.poll(() => inPage(page, `(s) => s().mapSettings.terrain?.bounds?.maxX ?? 0`)).toBeGreaterThan(30)
+    // The view out to the paint as well.
+    await page.keyboard.press('Control+0')
+    await waitFrame(page, 10)
+    const painted = await shownLum(page, { x: 29, y: 7 })
+    const bare = await shownLum(page, { x: 29, y: 13 })
+    expect(Math.abs(painted - bare), 'the paint is on the canvas').toBeGreaterThan(10)
+    await inPage(page, `(s) => s().setActiveLayerId(s().layers.find((l) => l.type === 'dungeon').id)`)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(27, 5.5, 31, 8.5))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    await waitFrame(page, 10)
+    const lifted = await shownLum(page, { x: 29, y: 7 })
+    // Lifted a few percent, the paint still there under it: not a fill of its own.
+    expect(lifted).toBeGreaterThanOrEqual(painted - 2)
+    expect(lifted - painted).toBeLessThan(25)
+    expect(Math.abs(lifted - bare)).toBeGreaterThan(10)
+  })
+
+  test('a road under a plateau shows under its top, and its ledge draws over the road', async ({ page }) => {
+    await openField(page)
+    await inPage(page, `(s, layer) => s().addChild(layer().id, {
+      id: 'road', name: 'Road', childType: 'path', visible: true, points: [{ x: 2, y: 7 }, { x: 18, y: 7 }], closed: false,
+      width: 2, heightMode: 'ground', materialId: 'gg-forge:road-dirt', tint: '#ffffff', opacity: 1, offset: 0, flip: false,
+      edge: 'soft', ends: { start: 'cut', end: 'cut', length: 1 }, sort: 'under',
+    })`)
+    await blur(page)
+    await page.keyboard.press('e')
+    await dragThrough(page, rectAround(6, 3, 12, 11))
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    // Floor, tops, paths, edges, in that order on the layer.
+    const order = await page.evaluate(() => {
+      const w = window as Any
+      const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+      const tops = find(w.__pixiApp.stage, 'sublayer-plateau-tops')
+      return tops.parent.children.map((c: Any) => c.label)
+    })
+    expect(order.slice(0, 4)).toEqual(['sublayer-floor', 'sublayer-plateau-tops', 'sublayer-paths', 'sublayer-plateau-edges'])
+    await expect.poll(async () => (await bandLabels(page, 1)).find((l) => l.label === 'plateau-cliff')?.children ?? 0).toBeGreaterThan(4)
+    await waitFrame(page, 10)
+    // The road reads on the plateau top: unlike the top beside it.
+    expect(Math.abs((await shownLum(page, { x: 9, y: 7 })) - (await shownLum(page, { x: 9, y: 4.5 })))).toBeGreaterThan(6)
+    // Rock lies across the road where it meets the ledge: nothing opens a road's way.
+    const rockOnRoad = await page.evaluate(() => {
+      const w = window as Any
+      const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
+      const rock = find(find(w.__pixiApp.stage, 'plateau-band-1'), 'plateau-cliff')
+      return rock.children.filter((s: Any) => [6, 12].some((x) => Math.abs(s.position.x - x) < 0.7) && Math.abs(s.position.y - 7) < 1).length
+    })
+    expect(rockOnRoad).toBeGreaterThan(0)
   })
 })
 

@@ -162,16 +162,19 @@ describe('the cliff kit', () => {
 describe('renderPlateaus', () => {
   it('draws nothing on a flat layer', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground]), parent);
+    renderPlateaus(layerOf([ground]), new Container(), parent);
     expect(parent.children).toHaveLength(0);
   });
 
-  it('draws a cliff band: lift tint, top line and ledge rock', () => {
+  it('draws a cliff band: the lift tint on its own in the tops, the top line and ledge rock in the edges', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), parent);
+    const tops = new Container();
+    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), tops, parent);
+    expect(tops.children.map((c) => c.label)).toEqual(['plateau-top-2']);
+    expect(tops.children[0]).toBeInstanceOf(Graphics);
     expect(parent.children.map((c) => c.label)).toEqual(['plateau-band-2']);
     const names = labels(parent);
-    expect(names).toContain('plateau-top');
+    expect(names).not.toContain('plateau-top-2');
     expect(names).toContain('plateau-top-line');
     expect(names).toContain('plateau-cliff');
     const rock = (parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container;
@@ -181,7 +184,7 @@ describe('renderPlateaus', () => {
 
   it('draws a slope as one ink contour ring per cell of drop, 2 px at 1x, shaded in quads; none when switched off', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), parent);
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(3);
@@ -199,13 +202,13 @@ describe('renderPlateaus', () => {
     walk(band);
     expect(meshes).toEqual([]);
 
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', contourLines: false })]), parent);
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', contourLines: false })]), new Container(), parent);
     expect(labels(parent)).not.toContain('plateau-contours');
   });
 
   it('rings a one-cell slope at its foot, not just along its top', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), parent);
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(1);
@@ -214,7 +217,7 @@ describe('renderPlateaus', () => {
 
   it('shades the slope face turned from the sun and leaves the lit one bare', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope' })]), parent);
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
     // The shadow runs +x: the light is in the west, so the east face is turned away.
@@ -233,7 +236,7 @@ describe('renderPlateaus', () => {
 
   it('reads as a hill: on the face turned from the sun, light at the top and darker ring by ring to the foot', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), parent);
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
     shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
@@ -260,7 +263,9 @@ describe('renderPlateaus', () => {
     const parent = new Container();
     renderPlateaus(
       layerOf([ground, plat('top', 2, 2, 6, 6, { height: 2, edge: 'cliff' }), plat('pit', 15, 15, 20, 20, { height: -2, edge: 'cliff' })]),
-      parent);
+      new Container(),
+      parent,
+    );
     expect(parent.children.map((c) => c.label)).toEqual(['plateau-band--2', 'plateau-band-2']);
   });
 
@@ -282,7 +287,7 @@ describe('renderPlateaus', () => {
     expect(over(layBandRing(ring, [], ledgePieces()))).toBe(true);
     expect(over(layBandRing(ring, [{ wallId: gap.id, position: gap.position, width: gap.width }], ledgePieces()))).toBe(false);
     const cut = new Container();
-    renderPlateaus(layer, cut);
+    renderPlateaus(layer, new Container(), cut);
     expect(labels(cut)).toContain('opening-s1');
   });
 });
@@ -290,7 +295,7 @@ describe('renderPlateaus', () => {
 describe('every cliff ring is walked', () => {
   const rockOf = (layer: DungeonLayer): Sprite[] => {
     const parent = new Container();
-    renderPlateaus(layer, parent);
+    renderPlateaus(layer, new Container(), parent);
     const band = parent.children[parent.children.length - 1] as Container;
     const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
     return rock.children as Sprite[];
@@ -366,7 +371,7 @@ describe('the cliff foot', () => {
 
   it('draws the foot under the rock of every cliff, inside a pit', () => {
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), parent);
+    renderPlateaus(layerOf([ground, plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const foot = band.children.find((c) => c.label === 'plateau-foot') as Container;
     const sprites = foot.children.filter((c) => c instanceof Sprite);
@@ -403,7 +408,7 @@ describe('light on the rock', () => {
   it('re-tints laid rock when the sun moves', () => {
     const parent = new Container();
     const layer = layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]);
-    renderPlateaus(layer, parent);
+    renderPlateaus(layer, new Container(), parent);
     const rock = (parent.children[0] as Container).children.find((x) => x.label === 'plateau-cliff') as Container;
     shadeCliffs('l1', look);
     // The faces away from the corners: the walk turns each corner with a bend whose chord runs
@@ -424,7 +429,7 @@ describe('light on the rock', () => {
     expect(faceLight([-1, 0], { ...look, dx: -1 })).toBe(0);
     expect(faceLight([1, 0], null)).toBe(0);
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), parent);
+    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), new Container(), parent);
     const lights = (parent.children[0] as Container).children.find((x) => x.label === 'plateau-cliff-light') as Container;
     shadeCliffs('l1', { ...look, dx: -1 });
     const lit = lights.children.filter((g) => g.alpha > 0).map((g) => g.getLocalBounds());

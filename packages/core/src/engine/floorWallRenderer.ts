@@ -552,7 +552,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   // Plateaus, band by band, over the ground (plateauRenderer.ts). Ahead of the no-floor
   // bail-out: a plateau over painted terrain has no floor under it.
-  renderPlateaus(layer, entry.sublayers.plateaus, {
+  renderPlateaus(layer, entry.sublayers.plateauTops, entry.sublayers.plateauEdges, {
     waitFor: (id) => armLateTextureRebuild(layer.id, id),
   });
 

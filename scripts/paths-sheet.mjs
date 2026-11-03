@@ -7,8 +7,10 @@
 // and stops it after) under an outdoor sky at --hour (default 16). plateau-test gives the
 // outcrop, the hill, the river's fall, the bridge over the pit and the cobble road; a stretch
 // of ground added east of it takes a dirt road junction and a lake, drawn after the load so
-// their kits lay their attached objects (trees, reeds, lily pads). The goblin warren is
-// loaded with its cave floor raised to +1 on a cliff. <refs> holds the reference pictures
+// their kits lay their attached objects (trees, reeds, lily pads). The outcrop, the hill and
+// its summit are taken off the map and drawn again with the Plateau tool, click by click, as
+// a hand would. The goblin warren is loaded with its cave floor raised to +1 on a cliff.
+// <refs> holds the reference pictures
 // named in SCENARIOS. Writes one png per scenario and sheet.png to <out> (default
 // forge/staging/final-sheet, which git ignores).
 
@@ -76,13 +78,57 @@ function stopServer(child) {
 
 const testMap = (name) => JSON.parse(readFileSync(join(ROOT, 'session', 'testdata', `${name}.mapbuilder`), 'utf8'));
 
-/** plateau-test with a stretch of the same ground added east of it, for the junction and the lake. */
+/** The plateaus plateau-test's sheet draws with the Plateau tool, outermost first. */
+const TOOL_DRAWN = ['outcrop-plateau', 'hill-plateau', 'summit-plateau'];
+
+/**
+ * plateau-test with a stretch of the same ground added east of it, for the junction and the
+ * lake, and the TOOL_DRAWN plateaus taken off it: returned beside the map, to be drawn again.
+ */
 function plateauMap() {
   const map = testMap('plateau-test');
   const layer = map.layers.find((l) => l.type === 'dungeon');
   const ground = layer.children.find((c) => c.id === 'ground');
   layer.children.splice(layer.children.indexOf(ground) + 1, 0, { ...ground, id: 'ground-east', name: 'East ground', contours: [[[40, 0], [64, 0], [64, 32], [40, 32]]] });
-  return map;
+  const drawn = TOOL_DRAWN.map((id) => layer.children.find((c) => c.id === id));
+  layer.children = layer.children.filter((c) => !TOOL_DRAWN.includes(c.id));
+  return { map, plateaus: drawn };
+}
+
+/**
+ * Each plateau drawn with the Plateau tool on the active layer: its height and edge set in the
+ * tool's settings, E, a click on each corner and one on the first to close. Its openings are
+ * pointed at the plateau the tool made.
+ */
+async function drawPlateaus(page, plateaus) {
+  for (const p of plateaus) {
+    await page.evaluate(({ height, edge }) => {
+      const st = window.__store.getState();
+      st.updateToolSettings({ plateau: { height, edge } });
+      st.setSelectedIds([]);
+      document.activeElement?.blur?.();
+    }, p);
+    await page.keyboard.press('e');
+    const before = await page.evaluate(() => window.__store.getState().layers.flatMap((l) => l.children ?? []).filter((c) => c.childType === 'plateau').length);
+    for (const [x, y] of [...p.contours[0], p.contours[0][0]]) {
+      const at = await page.evaluate(([x, y]) => {
+        const r = window.__pixiApp.canvas.getBoundingClientRect();
+        const w = window.__pixiApp.stage.children[0];
+        return { x: r.left + x * w.scale.x + w.position.x, y: r.top + y * w.scale.x + w.position.y };
+      }, [x, y]);
+      await page.mouse.click(at.x, at.y);
+      await page.waitForTimeout(350);
+    }
+    await page.waitForFunction((n) => window.__store.getState().layers.flatMap((l) => l.children ?? []).filter((c) => c.childType === 'plateau').length > n, before);
+    await page.evaluate((old) => {
+      const st = window.__store.getState();
+      const layer = st.layers.find((l) => l.id === st.ui.activeLayerId);
+      const made = st.selection.selectedIds[0];
+      for (const c of layer.children) if (c.childType === 'opening' && c.hostId === old) st.updateChild(layer.id, c.id, { hostId: made });
+    }, p.id);
+  }
+  await page.keyboard.press('v');
+  await page.evaluate(() => window.__store.getState().setSelectedIds([]));
 }
 
 /** The goblin warren with its cave floor raised to +1 on a cliff. */
@@ -112,7 +158,7 @@ const ADDED = [
   ),
 ];
 
-async function open(page, data, added) {
+async function open(page, data, added, plateaus = []) {
   await page.goto(`${URL_BASE}/v2?e2e=1`);
   await page.waitForFunction(() => window.__store && window.__pixiApp, null, { timeout: 120_000 });
   await page.getByTestId('v2-new-map-card').click();
@@ -139,6 +185,8 @@ async function open(page, data, added) {
     for (const p of added) st.addChild(st.ui.activeLayerId, p);
   }, added);
   await page.keyboard.press('Control+0');
+  await page.waitForTimeout(1000);
+  await drawPlateaus(page, plateaus);
   // The pack's art lands over a few frames; give the scene time to settle.
   await page.waitForTimeout(7000);
 }
@@ -186,7 +234,8 @@ const shots = [];
 try {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 2400, height: 1900 } });
-  await open(page, plateauMap(), ADDED);
+  const plateau = plateauMap();
+  await open(page, plateau.map, ADDED, plateau.plateaus);
   shots.push(...(await shoot(page, SCENARIOS.filter((s) => s.map === 'plateau'))));
   await open(page, warrenMap(), []);
   shots.push(...(await shoot(page, SCENARIOS.filter((s) => s.map === 'warren'))));

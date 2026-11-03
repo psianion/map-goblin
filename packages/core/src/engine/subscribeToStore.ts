@@ -98,7 +98,7 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  * cliff art, slope width, contour lines, sight override and crossing, every opening on a ring,
  * and where each bridge's ends land.
  */
-function plateauLookKey(children: readonly AnyChild[]): string {
+export function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
   for (const c of children) {
     if (c.childType === 'plateau') {
@@ -861,8 +861,9 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
-        // Raised floors are floor too.
-        entry.sublayers.plateaus.visible = vis.floor;
+        // Plateaus are relief on the floor: they follow it.
+        entry.sublayers.plateauTops.visible = vis.floor;
+        entry.sublayers.plateauEdges.visible = vis.floor;
         // Shadows fall on the floor, so they follow it: hiding the ground to look at what is
         // under it should not leave the sun's own pass floating over nothing.
         entry.sublayers.shadows.visible = vis.floor;

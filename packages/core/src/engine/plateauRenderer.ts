@@ -1,9 +1,11 @@
-// Plateaus, drawn (plan §4.3). One container per band, lowest first, in the layer's
-// `plateaus` sublayer: over the ground, under the shadows that fall on it. Each band is a
-// translucent lift over whatever lies beneath (3 % a cell), its slopes as an ink contour ring
-// per cell of drop over a flat shade on the faces turned from the sun, its cliffs laid by the
-// cave walk with the ledge kit over a foot of rubble walked the same way (void side = low
-// side, so a pit's rock faces in), and its openings across the gaps they cut.
+// Plateaus, drawn (plan §4.3), band by band, lowest first, in two of the layer's sublayers.
+// The tops (`plateauTops`, over the floor, under the paths) are a translucent lift over
+// whatever lies beneath (3 % a cell), so floor texture, terrain paint and floor borders show
+// through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as an
+// ink contour ring per cell of drop over a flat shade on the faces turned from the sun, its
+// cliffs laid by the cave walk with the ledge kit over a foot of rubble walked the same way
+// (void side = low side, so a pit's rock faces in), and its openings across the gaps they
+// cut: a road runs under the ledge except where a landing or an opening opens it.
 //
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
@@ -214,15 +216,17 @@ const lowSide = (drop: number): 'left' | 'right' => (drop > 0 ? 'right' : 'left'
 // ─── The pass ──────────────────────────────────────────────
 
 /**
- * Draw every band of a layer into `parent`, replacing what was there. A flat layer draws
- * nothing and costs one scan of its children.
+ * Draw every band of a layer, its top into `tops` and its edges into `edges`, replacing what
+ * was there. A flat layer draws nothing and costs one scan of its children.
  */
 export function renderPlateaus(
   layer: DungeonLayer,
-  parent: Container,
+  tops: Container,
+  edges: Container,
   options: PlateauRenderOptions = {},
 ): void {
-  for (const child of parent.removeChildren()) child.destroy({ children: true });
+  for (const child of tops.removeChildren()) child.destroy({ children: true });
+  for (const child of edges.removeChildren()) child.destroy({ children: true });
   cliffSprites.delete(layer.id);
   if (!hasPlateaus(layer)) return;
 
@@ -230,14 +234,14 @@ export function renderPlateaus(
   const gaps: DoorGap[] = ringGaps(layer, options.gaps).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
   const sprites: CliffSprite[] = [];
   for (const band of plateaus.bands) {
+    drawBandTop(tops, band);
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
-    drawBandTop(holder, band);
     const runs = edgeRuns(band);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
-    parent.addChild(holder);
+    edges.addChild(holder);
   }
   cliffSprites.set(layer.id, sprites);
   shadeCliffs(layer.id, lastLook.get(layer.id) ?? null);
@@ -248,7 +252,7 @@ function drawBandTop(parent: Container, band: PlateauBand): void {
   const lift = tierLift(band.height);
   if (lift === 0) return;
   const tier = new Graphics();
-  tier.label = 'plateau-top';
+  tier.label = `plateau-top-${band.height}`;
   fillRings(tier, band.rings, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
   parent.addChild(tier);
 }
