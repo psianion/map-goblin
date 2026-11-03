@@ -104,6 +104,14 @@ export function leeSweeps(
 
 // ─── The slope ─────────────────────────────────────────────
 
+/** How wide a slope is, cells: the card's slope width (1 when unset), whatever the drop, at most this. */
+export const SLOPE_MAX_WIDTH = 3;
+
+/** The band a slope lays outside its outline, cells wide. */
+export function slopeWidthOf(slopeWidth: number | undefined): number {
+  return Math.max(0, Math.min(SLOPE_MAX_WIDTH, slopeWidth ?? 1));
+}
+
 /** How dark a slope is at its foot: black at this opacity, from none at its top. */
 export const SLOPE_FOOT_SHADE = 0.4;
 /** How much lighter a slope face turned square to the sun is than one turned from it. */
@@ -130,10 +138,131 @@ export function slopeSunFactor(normal: Vec, look: Pick<ShadowLook, 'dx' | 'dy'> 
   return 1 - SLOPE_SUN_LIGHTER * facing;
 }
 
-/** Where a slope's contour lines lie across it, as distances from its top: one a cell of drop, the last at the foot. */
+/** Where a slope's contour lines lie across it, as distances from its outline: one a cell of drop, evenly spaced inside the band. */
 export function contourOffsets(drop: number, width: number): number[] {
   const cells = Math.max(1, Math.round(Math.abs(drop)));
-  return Array.from({ length: cells }, (_, k) => ((k + 1) * width) / cells);
+  return Array.from({ length: cells }, (_, k) => ((k + 1) * width) / (cells + 1));
+}
+
+/** One face of a slope's band: which way it faces down the slope, and its bands from the outline out. */
+export interface RampFace {
+  normal: Vec;
+  bands: Polygon[];
+}
+
+/** The widest a mitre at a concave corner may reach, as a multiple of the offset. */
+const MITRE_LIMIT = 4;
+/** A rounded corner is cut into faces of at most this turn, degrees. */
+const ARC_STEP = 15;
+
+interface Seg {
+  a: Vec;
+  b: Vec;
+  /** Unit normal to the low side. */
+  n: Vec;
+}
+
+/** Where each corner's offset goes: per segment, the directions its two ends move along, and the arcs at convex corners. */
+function offsetFrame(points: Polygon, closed: boolean, lowLeft: boolean) {
+  const pts: Vec[] = [];
+  for (const p of points) {
+    const last = pts[pts.length - 1];
+    if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) pts.push([p[0], p[1]]);
+  }
+  if (closed && pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-9) pts.pop();
+  const segs: Seg[] = [];
+  const count = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < count; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    // Left of travel on screen (y down) is (dy, -dx).
+    const side = lowLeft ? 1 : -1;
+    segs.push({ a, b, n: [(side * (b[1] - a[1])) / len, (side * -(b[0] - a[0])) / len] });
+  }
+  // Per segment end: the direction that end's offset moves (its normal, or a mitre at a concave corner).
+  const start: Vec[] = segs.map((g) => g.n);
+  const end: Vec[] = segs.map((g) => g.n);
+  // Per corner after segment i: the arc from its normal round to the next one's, when convex.
+  const arcs: ({ at: Vec; from: number; sweep: number } | null)[] = segs.map(() => null);
+  for (let i = 0; i < segs.length; i++) {
+    if (!closed && i === segs.length - 1) break;
+    const g0 = segs[i];
+    const g1 = segs[(i + 1) % segs.length];
+    const u0: Vec = [g0.b[0] - g0.a[0], g0.b[1] - g0.a[1]];
+    const convex = u0[0] * g1.n[0] + u0[1] * g1.n[1] > 1e-12;
+    if (convex) {
+      const from = Math.atan2(g0.n[1], g0.n[0]);
+      let sweep = Math.atan2(g1.n[1], g1.n[0]) - from;
+      while (sweep > Math.PI) sweep -= 2 * Math.PI;
+      while (sweep < -Math.PI) sweep += 2 * Math.PI;
+      arcs[i] = { at: g0.b, from, sweep };
+    } else {
+      const k = 1 + g0.n[0] * g1.n[0] + g0.n[1] * g1.n[1];
+      const m: Vec = [(g0.n[0] + g1.n[0]) / k, (g0.n[1] + g1.n[1]) / k];
+      if (k > 1e-6 && Math.hypot(m[0], m[1]) <= MITRE_LIMIT) {
+        end[i] = m;
+        start[(i + 1) % segs.length] = m;
+      }
+    }
+  }
+  return { segs, start, end, arcs };
+}
+
+const along = (p: Vec, d: Vec, t: number): Vec => [p[0] + d[0] * t, p[1] + d[1] * t];
+const onArc = (c: Vec, angle: number, r: number): Vec => [c[0] + Math.cos(angle) * r, c[1] + Math.sin(angle) * r];
+
+/**
+ * A slope's band, `width` cells out on the low side of a run (`lowLeft`: a plateau's ring;
+ * else a pit's), in faces: one per straight stretch, mitred at concave corners, and a fan of
+ * rounded faces at each convex one. Each face's `steps` bands run from the outline out.
+ */
+export function slopeRamp(points: Polygon, closed: boolean, lowLeft: boolean, width: number, steps = SLOPE_STEPS): RampFace[] {
+  const { segs, start, end, arcs } = offsetFrame(points, closed, lowLeft);
+  const faces: RampFace[] = [];
+  const ts = Array.from({ length: steps + 1 }, (_, k) => (width * k) / steps);
+  segs.forEach((g, i) => {
+    faces.push({
+      normal: g.n,
+      bands: ts.slice(0, -1).map((t0, k) => {
+        const t1 = ts[k + 1];
+        return [along(g.a, start[i], t0), along(g.b, end[i], t0), along(g.b, end[i], t1), along(g.a, start[i], t1)];
+      }),
+    });
+    const arc = arcs[i];
+    if (!arc) return;
+    const slices = Math.max(1, Math.ceil((Math.abs(arc.sweep) * 180) / Math.PI / ARC_STEP));
+    for (let j = 0; j < slices; j++) {
+      const a0 = arc.from + (arc.sweep * j) / slices;
+      const a1 = arc.from + (arc.sweep * (j + 1)) / slices;
+      const mid = (a0 + a1) / 2;
+      faces.push({
+        normal: [Math.cos(mid), Math.sin(mid)],
+        bands: ts.slice(0, -1).map((t0, k) => {
+          const t1 = ts[k + 1];
+          return t0 === 0
+            ? [arc.at, onArc(arc.at, a0, t1), onArc(arc.at, mid, t1), onArc(arc.at, a1, t1)]
+            : [onArc(arc.at, a0, t0), onArc(arc.at, a0, t1), onArc(arc.at, mid, t1), onArc(arc.at, a1, t1), onArc(arc.at, a1, t0), onArc(arc.at, mid, t0)];
+        }),
+      });
+    }
+  });
+  return faces;
+}
+
+/** The run's line pushed `d` cells to its low side: mitred at concave corners, rounded at convex ones. */
+export function offsetPath(points: Polygon, closed: boolean, lowLeft: boolean, d: number): Polygon {
+  const { segs, start, end, arcs } = offsetFrame(points, closed, lowLeft);
+  const out: Polygon = [];
+  segs.forEach((g, i) => {
+    out.push(along(g.a, start[i], d), along(g.b, end[i], d));
+    const arc = arcs[i];
+    if (!arc) return;
+    const slices = Math.max(1, Math.ceil((Math.abs(arc.sweep) * 180) / Math.PI / ARC_STEP));
+    for (let j = 1; j < slices; j++) out.push(onArc(arc.at, arc.from + (arc.sweep * j) / slices, d));
+  });
+  if (closed && out.length > 0) out.push(out[0]);
+  return out;
 }
 
 // ─── The blur ──────────────────────────────────────────────

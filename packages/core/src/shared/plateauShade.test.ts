@@ -7,7 +7,11 @@ import {
   DROP_SHADE_ALPHA,
   SUN_SHADOW_ALPHA,
   SUN_SHADOW_BACK,
+  SLOPE_MAX_WIDTH,
   contourOffsets,
+  offsetPath,
+  slopeRamp,
+  slopeWidthOf,
   dropShadeWidth,
   leeSweeps,
   nestedAlphas,
@@ -152,9 +156,53 @@ describe('the slope', () => {
     expect(slopeSunFactor([-1, 0], null)).toBe(1);
   });
 
-  it('rings one contour a cell of drop, evenly spaced, the last at the foot', () => {
-    expect(contourOffsets(1, 1)).toEqual([1]);
-    expect(contourOffsets(2, 2)).toEqual([1, 2]);
-    expect(contourOffsets(-3, 1.5)).toEqual([0.5, 1, 1.5]);
+  it('rings one contour a cell of drop, evenly spaced inside the band', () => {
+    expect(contourOffsets(1, 1)).toEqual([0.5]);
+    expect(contourOffsets(2, 1.5)).toEqual([0.5, 1]);
+    expect(contourOffsets(-3, 1)).toEqual([0.25, 0.5, 0.75]);
+  });
+
+  it('is the card’s slope width wide whatever the drop, 1 when unset, at most 3', () => {
+    expect(slopeWidthOf(undefined)).toBe(1);
+    expect(slopeWidthOf(2.5)).toBe(2.5);
+    expect(slopeWidthOf(9)).toBe(SLOPE_MAX_WIDTH);
+    expect(SLOPE_MAX_WIDTH).toBe(3);
+  });
+
+  it('lays its band outside the outline only, out to its width, rounded at convex corners', () => {
+    // A 4 x 3.5 plateau's ring, outside on the left of travel.
+    const ring: Polygon = [[2, 2], [6, 2], [6, 5.5], [2, 5.5]];
+    const faces = slopeRamp(ring, true, true, 1);
+    const pts = faces.flatMap((f) => f.bands.flat());
+    for (const [x, y] of pts) {
+      // Never inside the top…
+      expect(x > 2 + 1e-9 && x < 6 - 1e-9 && y > 2 + 1e-9 && y < 5.5 - 1e-9).toBe(false);
+      // …and never further from it than the band is wide.
+      const dx = Math.max(2 - x, 0, x - 6);
+      const dy = Math.max(2 - y, 0, y - 5.5);
+      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(1 + 1e-9);
+    }
+    // Four sides and a fan at each corner.
+    expect(faces.filter((f) => Math.abs(f.normal[0]) === 1 || Math.abs(f.normal[1]) === 1).length).toBe(4);
+    expect(faces.length).toBeGreaterThan(8);
+    for (const f of faces) expect(f.bands).toHaveLength(16);
+    // The contour at 0.5 rounds each corner at 0.5 from it.
+    const line = offsetPath(ring, true, true, 0.5);
+    for (const [x, y] of line) {
+      const dx = Math.max(2 - x, 0, x - 6);
+      const dy = Math.max(2 - y, 0, y - 5.5);
+      expect(Math.hypot(dx, dy)).toBeCloseTo(0.5, 6);
+    }
+  });
+
+  it('mitres a pit’s band inside its rim without crossing itself', () => {
+    const ring: Polygon = [[2, 2], [6, 2], [6, 6], [2, 6]];
+    const faces = slopeRamp(ring, true, false, 1);
+    expect(faces).toHaveLength(4);
+    for (const [x, y] of faces.flatMap((f) => f.bands.flat())) {
+      expect(x).toBeGreaterThanOrEqual(2 - 1e-9);
+      expect(x).toBeLessThanOrEqual(6 + 1e-9);
+      expect(Math.min(x - 2, 6 - x, y - 2, 6 - y)).toBeLessThanOrEqual(1 + 1e-9);
+    }
   });
 });

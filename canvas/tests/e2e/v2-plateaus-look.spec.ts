@@ -7,7 +7,7 @@ import { waitForBoot, waitFrame } from './helpers'
 /**
  * How a plateau darkens the ground below it, read off the screen: the drop shade every edge
  * kind lays on its low side, the sun shadow that starts on the edge itself, and the slope's
- * graded shade with one contour a cell of drop. Indoors, so the shadows come from the fixed
+ * band outside its outline, graded, with one contour a cell of drop. Indoors, so the shadows come from the fixed
  * top-left sun; on a flat floor colour with the grid off, so the pixels are the shade alone.
  */
 
@@ -34,14 +34,14 @@ const box = (id: string, x0: number, y0: number, x1: number, y1: number, height:
 })
 
 /** One flat field, the grid off, white ambient light, indoors, with `plateaus` on it. */
-function mapWith(plateaus: Any[]): Any {
+function mapWith(plateaus: Any[], size = 60): Any {
   const map = structuredClone(TEMPLATE)
   map.grid = { ...map.grid, visible: false }
   map.mapSettings = { ...map.mapSettings, ambientLight: '#ffffff', environment: 'indoor' }
   const layer = map.layers.find((l: Any) => l.type === 'dungeon')
   const ground = layer.children.find((c: Any) => c.id === 'ground')
   layer.children = [
-    { ...ground, contours: [[[0, 0], [60, 0], [60, 60], [0, 60]]], styleOverrides: { floorColor: '#c8b89a' } },
+    { ...ground, contours: [[[0, 0], [size, 0], [size, size], [0, size]]], styleOverrides: { floorColor: '#c8b89a' } },
     ...plateaus,
   ]
   layer.mergedFloor = null
@@ -171,26 +171,31 @@ test.describe('the plateau look', () => {
     expect(errors).toEqual([])
   })
 
-  test('a slope is a smooth ramp, darker toward its foot, with one contour a cell of drop', async ({ page }) => {
-    const errors = await open(page, mapWith([box('slope-2', 10, 10, 16, 16, 2, 'slope')]))
+  /** The luminance across a slope's east band at `height`, from its outline out, a sample a pixel, over `reach` cells. */
+  const across = async (page: Page, height: number, reach: number) => {
+    await open(page, mapWith([box('slope', 10, 10, 16, 16, height, 'slope')]))
     await look(page, { x: 17, y: 13 })
-    // Across the east ramp, top (x 16) to foot (x 18), a sample a pixel.
     const step = 1 / ZOOM
-    const row = await lums(page, ray({ x: 16, y: 13 }, { x: 1, y: 0 }, step, Math.round(2 / step)))
-    // The contours: dips darker than the ramp either side of them.
+    return { step, row: await lums(page, ray({ x: 16, y: 13 }, { x: 1, y: 0 }, step, Math.round(reach / step))) }
+  }
+  /** The contours across a row: samples darker by 10 than the ramp 3 px either side, as sample indices. */
+  const dipsOf = (row: number[]) => {
     const dips: number[] = []
     for (let i = 3; i < row.length - 3; i++) {
-      const around = Math.max(row[i - 3], row[i + 3])
-      if (row[i] < around - 10 && row[i] <= Math.min(...row.slice(i - 2, i + 3))) dips.push(i)
+      if (row[i] < Math.max(row[i - 3], row[i + 3]) - 10 && row[i] <= Math.min(...row.slice(i - 2, i + 3))) {
+        if (dips.length === 0 || i - dips[dips.length - 1] > 3) dips.push(i)
+      }
     }
-    // The foot's contour sits on the ramp's last sample: read one past it.
-    const tail = await lums(page, ray({ x: 18 - 3 * step, y: 13 }, { x: 1, y: 0 }, step, 8))
-    const footDip = Math.min(...tail.slice(1, 6)) < Math.max(tail[0], tail[7]) - 10
-    const contours = dips.filter((i, k) => k === 0 || i - dips[k - 1] > 3).length + (footDip && !dips.some((i) => i > row.length - 6) ? 1 : 0)
-    console.log(`ramp: ${row.filter((_, i) => i % 6 === 0).map((v) => v.toFixed(0)).join(' ')}; contours ${contours}`)
-    expect(contours).toBe(2)
-    // Off the contours, the ramp only darkens toward the foot, never by 12 or more a pixel.
-    const near = (i: number) => dips.some((d) => Math.abs(d - i) <= 4) || i >= row.length - 5
+    return dips
+  }
+
+  test('a slope is a smooth ramp in a band outside its outline, with one contour a cell of drop', async ({ page }) => {
+    const { step, row } = await across(page, 2, 1)
+    const dips = dipsOf(row)
+    console.log(`ramp: ${row.filter((_, i) => i % 6 === 0).map((v) => v.toFixed(0)).join(' ')}; contours ${dips.length}`)
+    expect(dips.length).toBe(2)
+    // Off the contours, the ramp only darkens toward its outer edge, never by 12 or more a pixel.
+    const near = (i: number) => dips.some((d) => Math.abs(d - i) <= 4) || i >= row.length - 8
     let worst = 0
     for (let i = 0; i + 1 < row.length; i++) {
       if (near(i) || near(i + 1)) continue
@@ -199,7 +204,48 @@ test.describe('the plateau look', () => {
     }
     console.log(`largest step between neighbours ${worst.toFixed(1)}`)
     expect(worst).toBeLessThan(12)
-    expect(row[0] - row[row.length - 8]).toBeGreaterThan(20)
-    expect(errors).toEqual([])
+    expect(row[0] - row[row.length - 10]).toBeGreaterThan(20)
+  })
+
+  test('a slope is its card width wide at +1 and +3, one contour a cell of drop inside it', async ({ page }) => {
+    for (const height of [1, 3]) {
+      const { step, row } = await across(page, height, 2)
+      const bare = row[row.length - 1]
+      const dips = dipsOf(row)
+      const off = row.filter((_, i) => !dips.some((d) => Math.abs(d - i) <= 4))
+      // The band ends where its darkening falls to half of its darkest, off the contours.
+      const peak = bare - Math.min(...off)
+      let edge = 0
+      for (let i = 0; i < row.length; i++) if (!dips.some((d) => Math.abs(d - i) <= 4) && bare - row[i] >= peak / 2) edge = i
+      const width = (edge + 1) * step
+      console.log(`+${height}: band width ${width.toFixed(2)}, contours ${dips.length}, 0.5 past it ${row[Math.round((1.5) / step)].toFixed(1)} against bare ${bare.toFixed(1)}`)
+      expect(Math.abs(width - 1)).toBeLessThanOrEqual(0.1)
+      expect(dips.length).toBe(height)
+      // Nothing past the band: 0.5 cell beyond its outer edge is the bare floor.
+      expect(Math.abs(row[Math.round(1.5 / step)] - bare)).toBeLessThanOrEqual(3)
+    }
+  })
+
+  test('a 4 x 3.5 slope at +3 on a 9 x 9 floor leaves its top as Edge None does and the floor round it bare', async ({ page }) => {
+    const plateau = (edge: string) => [box('small', 2.5, 2.75, 6.5, 6.25, 3, edge)]
+    // The floor's outer frame, 1.25 cells deep (the band ends 1.5 cells in), and the top's centre.
+    const frame: Pt[] = []
+    for (let k = 0.5; k < 9; k += 1) frame.push({ x: k, y: 0.6 }, { x: k, y: 8.4 }, { x: 0.6, y: k }, { x: 8.4, y: k })
+    const centre = { x: 4.5, y: 4.5 }
+    const read = async (plateaus: Any[]) => {
+      const errors = await open(page, mapWith(plateaus, 9))
+      await look(page, { x: 4.5, y: 4.5 })
+      const out = await lums(page, [centre, ...frame])
+      expect(errors).toEqual([])
+      return out
+    }
+    const bare = await read([])
+    const slope = await read(plateau('slope'))
+    const none = await read(plateau('none'))
+    console.log(`top centre: slope ${slope[0].toFixed(1)}, Edge None ${none[0].toFixed(1)}, bare floor ${bare[0].toFixed(1)}`)
+    expect(Math.abs(slope[0] - none[0])).toBeLessThanOrEqual(3)
+    const worst = Math.max(...frame.map((_, i) => Math.abs(slope[i + 1] - bare[i + 1])))
+    console.log(`outer frame: largest difference from the bare floor ${worst.toFixed(1)}`)
+    expect(worst).toBeLessThanOrEqual(3)
   })
 })

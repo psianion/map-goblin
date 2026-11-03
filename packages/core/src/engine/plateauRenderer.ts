@@ -2,7 +2,8 @@
 // The tops (`plateauTops`, over the floor, under the paths) are a translucent lift over
 // whatever lies beneath (7 % a cell), so floor texture, terrain paint and floor borders show
 // through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as a
-// smooth ramp of shade, dark at the foot, with a thin ink contour per cell of drop, its
+// band outside the outline, a smooth ramp of shade dark at its outer edge with a thin ink
+// contour per cell of drop inside it, its
 // cliffs laid by the cave walk with the ledge kit, one ledge ring at any drop (void side = low
 // side, so a pit's rock faces in), and its openings across the gaps they cut: a road
 // runs under the ledge except where a landing or an opening opens it.
@@ -20,14 +21,17 @@ import {
   DROP_SHADE_STEPS,
   SLOPE_CONTOUR_ALPHA,
   SLOPE_CONTOUR_WIDTH,
-  SLOPE_STEPS,
   blurStrengthFor,
   contourOffsets,
   dropShadeWidth,
   nestedAlphas,
+  offsetPath,
   slopeBandAlpha,
+  slopeRamp,
   slopeSunFactor,
+  slopeWidthOf,
 } from '../shared/plateauShade';
+import { useStore } from '../store/store';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
 import type { OpeningChild } from '../shared/types';
@@ -43,7 +47,6 @@ import {
   type PlateauBand,
   type RingGap,
 } from '../shared/plateaus';
-import { buildEdgeStrips, sampleCentreline } from '../geometry/edgeStrips';
 import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
@@ -138,8 +141,6 @@ function mulColour(colour: number, k: number): number {
 
 // ─── Geometry helpers ──────────────────────────────────────
 
-const sharp = (pts: Polygon) => pts.map(([x, y]) => ({ x, y, handles: null }));
-
 function signedArea(poly: Polygon): number {
   let a = 0;
   for (let i = 0; i < poly.length; i++) {
@@ -172,18 +173,6 @@ function inside([x, y]: [number, number], poly: Polygon): boolean {
   return hit;
 }
 
-/** The outer edge of an edge strip `width` cells out on `side` of a run, as a polyline. */
-function offsetLine(run: EdgeRun, width: number, side: 'left' | 'right'): Polygon {
-  if (width <= 0) return run.closed ? [...run.points, run.points[0]] : run.points;
-  const strip = buildEdgeStrips(sampleCentreline(sharp(run.points), run.closed, 0), width)[side];
-  const out: Polygon = [];
-  for (let k = 2; k < strip.positions.length; k += 4) out.push([strip.positions[k], strip.positions[k + 1]]);
-  return out;
-}
-
-/** Which of the edge strips lies on the low side: outside (its right) for a plateau, inside for a pit. */
-const lowSide = (drop: number): 'left' | 'right' => (drop > 0 ? 'right' : 'left');
-
 // ─── The pass ──────────────────────────────────────────────
 
 /**
@@ -204,12 +193,13 @@ export function renderPlateaus(
   const plateaus = layerPlateaus(layer);
   const gaps: DoorGap[] = ringGaps(layer, options.gaps).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
   const sprites: CliffSprite[] = [];
+  const ground = groundOf(layer);
   for (const band of plateaus.bands) {
     drawBandTop(tops, band);
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
     const runs = edgeRuns(band);
-    const soft = drawShade(holder, band, runs, plateaus.bands);
+    const soft = drawShade(holder, band, runs, plateaus.bands, ground);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
@@ -230,50 +220,43 @@ function drawBandTop(parent: Container, band: PlateauBand): void {
 }
 
 /**
- * A slope, `slopeWidth × |drop|` wide on its low side: a graded shade from none at its top to
- * SLOPE_FOOT_SHADE black at its foot, laid in SLOPE_STEPS bands into `shade` (the band's
- * blurred shade holder), each face of it lighter as it turns to the sun (`shadeCliffs`); and
- * over it in `parent` one thin ink contour a cell of drop, evenly spaced, the last at the foot.
+ * A slope: a band `slopeWidthOf` the card's slope width wide on its low side, outside the
+ * outline only. Its shade runs from none at the outline to SLOPE_FOOT_SHADE black at the band's
+ * outer edge in SLOPE_STEPS steps, laid into `shade` (the band's blurred, masked holder), each
+ * face lighter as it turns to the sun (`shadeCliffs`); over it in `parent`, one thin ink
+ * contour a cell of drop, evenly spaced inside the band, rounded where the outline turns out.
  */
 function drawSlope(shade: Container, parent: Container, run: EdgeRun): CliffSprite[] {
-  const per = run.owner?.slopeWidth ?? 1;
-  const width = per * Math.abs(run.drop);
-  const side = lowSide(run.drop);
-  const strip = buildEdgeStrips(sampleCentreline(sharp(run.points), run.closed, 0), width)[side];
+  const width = slopeWidthOf(run.owner?.slopeWidth);
+  const lowLeft = run.drop > 0;
   const ramp = new Container();
   ramp.label = 'plateau-slope';
   const faces: CliffSprite[] = [];
-  // Each sample is its inner and outer point; per stretch between two samples, one face of
-  // SLOPE_STEPS quads across, each shaded a step deeper toward the foot.
-  const p = strip.positions;
-  const across = (k: number, t: number): [number, number] => [p[k] + (p[k + 2] - p[k]) * t, p[k + 1] + (p[k + 3] - p[k + 1]) * t];
-  for (let k = 0; k + 7 < p.length; k += 4) {
-    const nx = (p[k + 2] + p[k + 6] - p[k] - p[k + 4]) / 2;
-    const ny = (p[k + 3] + p[k + 7] - p[k + 1] - p[k + 5]) / 2;
-    const len = Math.hypot(nx, ny);
-    if (len < 1e-6) continue;
+  for (const face of slopeRamp(run.points, run.closed, lowLeft, width)) {
     const g = new Graphics();
-    for (let r = 0; r < SLOPE_STEPS; r++) {
-      const t0 = r / SLOPE_STEPS;
-      const t1 = (r + 1) / SLOPE_STEPS;
-      g.poly([...across(k, t0), ...across(k + 4, t0), ...across(k + 4, t1), ...across(k, t1)]).fill({
-        color: 0x000000,
-        alpha: slopeBandAlpha(r),
-      });
-    }
+    face.bands.forEach((band, k) => g.poly(band.flat()).fill({ color: 0x000000, alpha: slopeBandAlpha(k) }));
     ramp.addChild(g);
-    faces.push({ shade: g, normal: [nx / len, ny / len] });
+    faces.push({ shade: g, normal: face.normal });
   }
   shade.addChild(ramp);
   if (run.owner?.contourLines === false) return faces;
   const rings = new Container();
   rings.label = 'plateau-contours';
   for (const d of contourOffsets(run.drop, width)) {
-    const line = offsetLine(run, d, side);
+    const line = offsetPath(run.points, run.closed, lowLeft, d);
     rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: SLOPE_CONTOUR_WIDTH, alpha: SLOPE_CONTOUR_ALPHA }));
   }
   parent.addChild(rings);
   return faces;
+}
+
+/** The ground a layer's shade may land on: its floor union and any painted terrain. Empty = not known yet. */
+function groundOf(layer: DungeonLayer): Polygon[] {
+  const ground: Polygon[] = [];
+  for (const ring of layer.mergedFloor ?? []) if (ring.length >= 3) ground.push(ring);
+  const t = useStore.getState().mapSettings.terrain?.bounds;
+  if (t) ground.push([[t.minX, t.minY], [t.maxX, t.minY], [t.maxX, t.maxY], [t.minX, t.maxY]]);
+  return ground;
 }
 
 // ─── The shade below an edge ───────────────────────────────
@@ -297,39 +280,44 @@ function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: bo
 }
 
 /**
- * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line,
- * `from` cells out (a slope's foot) to `dropShadeWidth` past that, stacking to
- * DROP_SHADE_ALPHA black at the line and fading out in even steps.
+ * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line, out
+ * to `dropShadeWidth`, stacking to DROP_SHADE_ALPHA black at the line and fading out in even
+ * steps.
  */
-function dropShade(g: Graphics, run: EdgeRun, from: number): void {
+function dropShade(g: Graphics, run: EdgeRun): void {
   const line = run.closed ? [...run.points, run.points[0]] : run.points;
   const width = dropShadeWidth(run.drop);
-  const near = from > 0 ? clipper2Engine.inflateOpen([line], from) : [];
   nestedAlphas(DROP_SHADE_ALPHA, DROP_SHADE_STEPS).forEach((alpha, i) => {
-    const out = clipper2Engine.inflateOpen([line], from + (width * (i + 1)) / DROP_SHADE_STEPS);
-    fillRings(g, near.length > 0 ? clipper2Engine.difference(out, near) : out, { color: 0x000000, alpha });
+    fillRings(g, clipper2Engine.inflateOpen([line], (width * (i + 1)) / DROP_SHADE_STEPS), { color: 0x000000, alpha });
   });
 }
 
 /**
  * The shade a band lays under its rock, per side it drops to: the drop shade along each edge
- * (from a slope's foot), blurred, then cut by a mask of that side, so it is as dark at the edge
- * as the shade says and never spills up onto the band. Returns the blurred holder of each side.
+ * but a slope (whose band is its own shade), blurred, then cut by a mask of that side and of
+ * the ground there is, so it is as dark at the edge as the shade says, never spills up onto
+ * the band and never lands on void. Returns the blurred holder of each side.
  */
-function drawShade(parent: Container, band: PlateauBand, runs: EdgeRun[], bands: readonly PlateauBand[]): Map<boolean, Container> {
+function drawShade(
+  parent: Container,
+  band: PlateauBand,
+  runs: EdgeRun[],
+  bands: readonly PlateauBand[],
+  ground: Polygon[],
+): Map<boolean, Container> {
   const soft = new Map<boolean, Container>();
   for (const outward of [true, false]) {
     // A run dropping to a band below shades it from above; one rising to a band above is that
     // band's to shade, so only a run rising to the ground (a pit's rim) shades its own band.
     const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || Math.abs(band.height - r.drop) < 1e-9));
     if (mine.length === 0) continue;
-    const slopeOf = (r: EdgeRun) => (r.edge === 'slope' ? (r.owner?.slopeWidth ?? 1) * Math.abs(r.drop) : 0);
-    const reach = SHADE_REACH + Math.max(...mine.map((r) => slopeOf(r) + dropShadeWidth(r.drop)));
-    const region = lowRegion(band, bands, outward, reach);
+    const reach = SHADE_REACH + Math.max(...mine.map((r) => (r.edge === 'slope' ? slopeWidthOf(r.owner?.slopeWidth) : dropShadeWidth(r.drop))));
+    const low = lowRegion(band, bands, outward, reach);
+    const region = ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
     if (region.length === 0) continue;
     const g = new Graphics();
     g.label = 'plateau-drop-shade';
-    for (const run of mine) dropShade(g, run, slopeOf(run));
+    for (const run of mine) if (run.edge !== 'slope') dropShade(g, run);
     const blur = new BlurFilter({ strength: 1, quality: 3, kernelSize: 5 });
     blur.resolution = 1;
     const held = new Container();

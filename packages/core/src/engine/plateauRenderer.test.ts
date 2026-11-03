@@ -173,15 +173,26 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  it('draws a slope as a ramp under one thin ink contour a cell of drop, 1.5 px at 1x; none when switched off', () => {
+  it('draws a slope as a band outside the outline under one thin ink contour a cell of drop, 1.5 px at 1x; none when switched off', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(3);
-    // Each ring a cell further down the slope: 8, 10 and 12 cells across round the 6-cell top.
-    const widths = contours.children.map((g) => Math.round(g.getLocalBounds().width));
-    expect(widths).toEqual([8, 10, 12]);
+    // Evenly spaced inside the one-cell band, whatever the drop: 0.25, 0.5 and 0.75 cell out round the 6-cell top.
+    const widths = contours.children.map((g) => g.getLocalBounds().width - SLOPE_CONTOUR_WIDTH);
+    widths.forEach((w, k) => expect(w).toBeCloseTo(6 + 2 * 0.25 * (k + 1), 2));
+    // The ramp reaches the card's slope width out and no further.
+    const rampOf = (extra: Partial<PlateauChild>) => {
+      const p = new Container();
+      renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', ...extra })]), new Container(), p);
+      const find = (c: Container): Container | undefined => (c.label === 'plateau-slope' ? c : c.children.map((k) => find(k as Container)).find(Boolean));
+      return find(p)!.getLocalBounds();
+    };
+    expect(rampOf({}).maxX).toBeCloseTo(12, 2);
+    expect(rampOf({}).minX).toBeCloseTo(4, 2);
+    expect(rampOf({ slopeWidth: 2.5 }).maxX).toBeCloseTo(13.5, 2);
+    expect(rampOf({ slopeWidth: 6 }).maxX).toBeCloseTo(14, 2);
     // 1.5 px wide at 1x (20 px a cell), at 60 %.
     expect(SLOPE_CONTOUR_WIDTH * 20).toBeCloseTo(1.5);
     expect(SLOPE_CONTOUR_ALPHA).toBeCloseTo(0.6);
@@ -201,13 +212,17 @@ describe('renderPlateaus', () => {
     expect(labels(parent)).not.toContain('plateau-contours');
   });
 
-  it('rings a one-cell slope at its foot, not just along its top', () => {
+  it('rings a one-cell slope once inside its band, rounded round the corners', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(1);
-    expect(contours.getLocalBounds().width).toBeGreaterThan(6 + 1.9);
+    const ring = contours.children[0] as Graphics;
+    expect(ring.getLocalBounds().width - SLOPE_CONTOUR_WIDTH).toBeCloseTo(7, 2);
+    // Rounded: no point of it out at the square corner (11.5, 11.5), its arc 0.5 from the top's corner.
+    expect(ring.containsPoint({ x: 11.5, y: 11.5 })).toBe(false);
+    expect(ring.containsPoint({ x: 11 + 0.5 * Math.SQRT1_2, y: 11 + 0.5 * Math.SQRT1_2 })).toBe(true);
   });
 
   it('keeps the slope face turned to the sun 40 % lighter than the one turned away, and all alike indoors', () => {
@@ -219,8 +234,9 @@ describe('renderPlateaus', () => {
     // The shadow runs +x: the light is in the west, so the west face is turned to it.
     shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
     const faces = ramp.children.map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }));
-    const east = faces.filter(({ b }) => b.minX >= 11 - 1e-6);
-    const west = faces.filter(({ b }) => b.maxX <= 5 + 1e-6);
+    // The straight sides, not the rounded corners between them.
+    const east = faces.filter(({ b }) => b.minX >= 11 - 1e-6 && b.height > 3);
+    const west = faces.filter(({ b }) => b.maxX <= 5 + 1e-6 && b.height > 3);
     expect(east.length).toBeGreaterThan(0);
     expect(west.length).toBeGreaterThan(0);
     for (const f of east) expect(f.alpha).toBeCloseTo(1);
