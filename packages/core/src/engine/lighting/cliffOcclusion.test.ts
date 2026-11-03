@@ -1,10 +1,12 @@
-// Plateaus in the sweep: a cliff tall enough hides its top from below and nothing from above,
-// for eyes and lights alike; the map threshold and each floor's override decide which cliffs
-// count; openings never block; and a one-way wall still blocks only from its own side.
+// Plateaus in the sweep: a cliff hides its top from below and nothing from above. Light is
+// stopped by any cliff a cell or more tall; for eyes the map threshold and each floor's
+// override decide which cliffs count; openings never block; and a one-way wall still blocks
+// only from its own side.
 import { describe, it, expect, beforeAll } from 'vitest'
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z'
 import { setClipperModule } from '../../geometry/Clipper2Engine'
 import { extractWallSegments, type Segment } from './raycaster'
+import { cliffOccluders } from '../../shared/plateaus'
 import { clockwiseSweep } from './ClockwiseSweep'
 import type { DungeonLayer, ShapeChild, WallSegment } from '../../store/types'
 import type { OpeningChild, PlateauChild } from '../../shared/types'
@@ -83,6 +85,26 @@ describe('cliffs as one-way occluders', () => {
     const segs = extractWallSegments([layerOf([ground, pit])], 'sight')
     expect(sees(segs, [12, 12], [20, 12])).toBe(false)
     expect(sees(segs, [20, 12], [12, 12])).toBe(true)
+  })
+
+  it('stops light at a one-cell cliff: a lamp below leaves the top dark, a lamp on top lights the ground', () => {
+    const layers = [layerOf([ground, plateau({ height: 1 })])]
+    const light = extractWallSegments(layers, 'light', { sightDropCells: 2 })
+    expect(light).toHaveLength(4)
+    expect(sees(light, [5, 12], [12, 12])).toBe(false)
+    expect(sees(light, [12, 12], [5, 12])).toBe(true)
+    expect(sees(light, [12, 12], [20, 12])).toBe(true)
+    // The eye keeps the DM's threshold: at 2 a ground viewer still sees the +1 top.
+    const sight = extractWallSegments(layers, 'sight', { sightDropCells: 2 })
+    expect(sight).toHaveLength(0)
+    expect(sees(sight, [5, 12], [12, 12])).toBe(true)
+  })
+
+  it('takes the drop it starts at from its caller', () => {
+    const layer = layerOf([ground, plateau({ height: 1 })])
+    expect(cliffOccluders(layer, 1)).toHaveLength(4)
+    expect(cliffOccluders(layer, 2)).toHaveLength(0)
+    expect(cliffOccluders(layer)).toHaveLength(0)
   })
 
   it('hides from the map threshold up', () => {

@@ -52,6 +52,8 @@ import { resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
   CONTOUR_LINE,
+  LEDGE_ROW_INSET,
+  cliffRows,
   drawOpening,
   faceLight,
   faceShade,
@@ -60,13 +62,22 @@ import {
   SHADE_FLOOR,
   SHADE_SIDE,
 } from './plateauRenderer';
-import { BLUR_WEIGHTS_5, CLIFF_BLUR_PASSES, CLIFF_SHADOW_ALPHA, cliffBlurStrength, cliffShadowGeometry } from './shadowPass';
-import { CASTER_HEIGHT, casterLook, type ShadowLook } from '../shared/shadows';
+import {
+  BLUR_WEIGHTS_5,
+  CLIFF_BLUR_PASSES,
+  CLIFF_SHADOW_ALPHA,
+  cliffBlurStrength,
+  cliffCaster,
+  cliffShadowGeometry,
+} from './shadowPass';
+import { CASTER_HEIGHT, casterLook, shadowLook, type ShadowLook } from '../shared/shadows';
+import { skyFrame } from '../shared/sky';
+import type { MapEnvironment } from '../shared/world';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { OpeningChild, PathChild } from '../shared/types';
 import { cliffCrossingsOf, fallPieces, waterfallSpans } from './path/waterfalls';
 import type { Polygon } from '../types/geometry';
-import { layerPlateaus, ringGaps } from '../shared/plateaus';
+import { layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -288,7 +299,7 @@ describe('every cliff ring is walked', () => {
       15 + 5 * Math.cos((i / 64) * 2 * Math.PI),
       15 + 5 * Math.sin((i / 64) * 2 * Math.PI),
     ]);
-    const layer = layerOf([ground, { ...plat('top', 0, 0, 1, 1, { height: 2, edge: 'cliff' }), contours: [round] }]);
+    const layer = layerOf([ground, { ...plat('top', 0, 0, 1, 1, { height: 1, edge: 'cliff' }), contours: [round] }]);
     const ring = layerPlateaus(layer).bands[0].rings[0];
     const walked = walkClosed(bandRide(resampleClosed(ring as [number, number][], CURVE_STEP), true), cliffPieces(cliffArt(undefined)), LIVE_WALK);
     expect(rockOf(layer).length).toBe(walked.placed.length);
@@ -298,7 +309,7 @@ describe('every cliff ring is walked', () => {
     // An 8x7 side leaves the walk room for one straight at most once its corners are
     // turned, so the band lays it corner first (caveWalk `layCorners`): still every piece
     // at its own size, one sprite each.
-    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]);
+    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
     const ring = layerPlateaus(layer).bands[0].rings[0];
     expect(rockOf(layer).length).toBe(layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length);
   });
@@ -316,7 +327,7 @@ describe('every cliff ring is walked', () => {
   });
 
   it('walks a pit reversed, so its rock lies inside the rim', () => {
-    const sprites = rockOf(layerOf([ground, plat('pit', 5, 5, 13, 12, { height: -2, edge: 'cliff' })]));
+    const sprites = rockOf(layerOf([ground, plat('pit', 5, 5, 13, 12, { height: -1, edge: 'cliff' })]));
     const inside = sprites.filter((s) => s.position.x > 5 && s.position.x < 13 && s.position.y > 5 && s.position.y < 12);
     expect(inside.length / sprites.length).toBeGreaterThan(0.9);
   });
@@ -331,7 +342,7 @@ describe('a cliff draws its ledge alone', () => {
     c.children.reduce((n, ch) => n + (ch instanceof Sprite ? 1 : ch instanceof Container ? spritesIn(ch) : 0), 0);
 
   it('lays one sprite per ledge placement and nothing else past it', () => {
-    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 2, edge: 'cliff' })]);
+    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
     const parent = new Container();
     renderPlateaus(layer, new Container(), parent);
     const ring = layerPlateaus(layer).bands[0].rings[0];
@@ -347,6 +358,104 @@ describe('a cliff draws its ledge alone', () => {
     const rock = band.children.find((c) => c.label === 'plateau-cliff') as Container;
     expect(rock.children.length).toBeGreaterThan(3);
     expect(spritesIn(parent)).toBe(rock.children.length);
+  });
+});
+
+describe('each cell of height shows', () => {
+  const rgb = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  const mean = (c: number[]) => (c[0] + c[1] + c[2]) / 3;
+  /** What the tops make of `floor` at (x, y): every top over the point composited in draw order. */
+  const shown = (layer: DungeonLayer, tops: Container, floor: number, x: number, y: number): number => {
+    const bands = layerPlateaus(layer).bands;
+    let c = rgb(floor);
+    for (const top of tops.children as Graphics[]) {
+      const height = Number(top.label.replace('plateau-top-', ''));
+      const band = bands.find((b) => b.height === height)!;
+      const over = band.rings.filter((r) => pointInPoly(x, y, r)).length % 2 === 1;
+      if (!over) continue;
+      const fill = top.context.instructions.find((i) => i.action === 'fill')!.data as { style: { color: number; alpha: number } };
+      const to = rgb(fill.style.color);
+      c = c.map((v, k) => v + (to[k] - v) * fill.style.alpha);
+    }
+    return mean(c);
+  };
+
+  it('lifts a +1, +2 and +3 top at least 8/255 apart on cave, grass and stone floors, and sinks pits the same steps', () => {
+    const raised = layerOf([ground, plat('a', 2, 2, 8, 8, { height: 1 }), plat('b', 10, 2, 16, 8, { height: 2 }), plat('c', 18, 2, 24, 8, { height: 3 })]);
+    const sunk = layerOf([ground, plat('a', 2, 2, 8, 8, { height: -1 }), plat('b', 10, 2, 16, 8, { height: -2 }), plat('c', 18, 2, 24, 8, { height: -3 })]);
+    const up = new Container();
+    const down = new Container();
+    renderPlateaus(raised, up, new Container());
+    renderPlateaus(sunk, down, new Container());
+    for (const floor of [0x3d3a36, 0x5f7040, 0x8a857c]) {
+      const lift = [1, 5, 13, 21].map((x) => shown(raised, up, floor, x, 5));
+      const sink = [1, 5, 13, 21].map((x) => shown(sunk, down, floor, x, 5));
+      for (let k = 1; k < 4; k++) {
+        expect(lift[k] - lift[k - 1], `floor ${floor.toString(16)}, +${k}`).toBeGreaterThanOrEqual(8);
+        expect(sink[k]).toBeLessThan(sink[k - 1]);
+      }
+    }
+  });
+
+  it('stacks a cliff’s ledge a row a cell, up to three: 1x, 2x and 3x the ring walk', () => {
+    const rock = (height: number): number => {
+      const parent = new Container();
+      renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height })]), new Container(), parent);
+      return ((parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children.length;
+    };
+    const ring = layerPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18)])).bands[0].rings[0];
+    const walk = layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length;
+    expect(rock(1)).toBe(walk);
+    expect(rock(2) / walk).toBeGreaterThan(1.8);
+    expect(rock(2) / walk).toBeLessThanOrEqual(2);
+    expect(rock(3) / walk).toBeGreaterThan(2.6);
+    expect(rock(3) / walk).toBeLessThanOrEqual(3);
+    expect(rock(5)).toBe(rock(3));
+    expect(rock(-3) / rock(-1)).toBeGreaterThan(2.6);
+  });
+
+  it('walks each inner row 0.35 cell up the cliff from the last, and draws it first, under the outer', () => {
+    const ring = layerPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18)])).bands[0].rings[0];
+    const rows = cliffRows(ring, true, 3, [], cliffPieces(cliffArt(undefined)));
+    expect(LEDGE_ROW_INSET).toBeCloseTo(0.35);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual(layBandRing(ring, [], cliffPieces(cliffArt(undefined))));
+    // On the north edge (y = 4), each row's chords lie 0.35 cell further south than the last.
+    const northY = (row: (typeof rows)[number]) => {
+      const ys = row.filter((p) => p.P[0] > 8 && p.P[0] < 18 && p.P[1] < 11 && Math.abs(p.P[1] - p.Q[1]) < 0.05).map((p) => p.P[1]);
+      return ys.reduce((a, b) => a + b, 0) / ys.length;
+    };
+    expect(northY(rows[1]) - northY(rows[0])).toBeCloseTo(LEDGE_ROW_INSET, 1);
+    expect(northY(rows[2]) - northY(rows[1])).toBeCloseTo(LEDGE_ROW_INSET, 1);
+    // Drawn inner first: the outer row's pieces are the last sprites laid.
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height: 3 })]), new Container(), parent);
+    const sprites = ((parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children;
+    const flat = new Container();
+    renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height: 1 })]), new Container(), flat);
+    const outer = ((flat.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children;
+    expect(sprites.slice(-outer.length).map((s) => [s.position.x, s.position.y])).toEqual(outer.map((s) => [s.position.x, s.position.y]));
+  });
+
+  it('cuts every row at an opening', () => {
+    const top = plat('top', 4, 4, 22, 18, { height: 3 });
+    // The ring runs (4,4)→(22,4)→…, 64 cells round: t = 9/64 stands at (13, 4).
+    const stairs: OpeningChild = { id: 's1', name: 's1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 9 / 64, width: 2 };
+    const layer = layerOf([ground, top, stairs]);
+    const [gap] = ringGaps(layer);
+    expect(gap.position[0]).toBeCloseTo(13);
+    const ring = layerPlateaus(layer).bands[0].rings[0];
+    const pieces = cliffPieces(cliffArt(undefined));
+    const over = (row: { P: [number, number]; Q: [number, number] }[], y: number) =>
+      row.some(({ P, Q }) => {
+        const [dx, dy] = [Q[0] - P[0], Q[1] - P[1]];
+        const u = Math.max(0, Math.min(1, ((13 - P[0]) * dx + (y - P[1]) * dy) / (dx * dx + dy * dy)));
+        return Math.hypot(13 - (P[0] + dx * u), y - (P[1] + dy * u)) < 0.5;
+      });
+    const plain = cliffRows(ring, true, 3, [], pieces);
+    const cut = cliffRows(ring, true, 3, [{ wallId: gap.id, position: gap.position, width: gap.width }], pieces);
+    plain.forEach((row, k) => expect(over(row, 4 + k * LEDGE_ROW_INSET), `row ${k} uncut`).toBe(true));
+    cut.forEach((row, k) => expect(over(row, 4 + k * LEDGE_ROW_INSET), `row ${k} cut`).toBe(false));
   });
 });
 
@@ -462,6 +571,29 @@ describe('cliff shadows', () => {
       expect(fade(zoom), `at ${zoom} px a cell`).toBeGreaterThanOrEqual(0.3);
       expect(fade(zoom)).toBeLessThan(0.6);
     }
+  });
+
+  it('casts under every sky: indoors from a fixed top-left sun at 70 %, as long as the drop', () => {
+    const at = (map: MapEnvironment) => cliffCaster(skyFrame({ ...map, minutes: 12 * 60 }), map);
+    for (const map of [{ environment: 'indoor' }, { environment: 'outdoor', naturalLight: false }] as MapEnvironment[]) {
+      const { sun, strength } = at(map);
+      expect(sun.kind).toBe('sun');
+      expect(sun.altitude).toBe(35);
+      expect(strength).toBeCloseTo(0.7);
+    }
+    expect(at({ environment: 'outdoor' }).strength).toBe(1);
+    const look = shadowLook(at({ environment: 'indoor' }).sun)!;
+    // From the top left: the shadow falls to the bottom right.
+    expect(look.dx).toBeCloseTo(Math.SQRT1_2);
+    expect(look.dy).toBeCloseTo(Math.SQRT1_2);
+    const reach = (height: number) => {
+      const layer = layerOf([ground, plat('top', 10, 10, 14, 14, { height, edge: 'cliff' })]);
+      const pts = points(cliffShadowGeometry(layer, look, groundRing));
+      expect(pts.length).toBeGreaterThan(0);
+      return Math.max(...pts.map(([x, y]) => (x - 14) * look.dx + (y - 14) * look.dy));
+    };
+    expect(reach(1)).toBeGreaterThan(1);
+    expect(reach(2) / reach(1)).toBeCloseTo(2, 1);
   });
 
   it('slopes cast none: they shade instead', () => {

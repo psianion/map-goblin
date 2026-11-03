@@ -29,8 +29,8 @@ import {
   shadowSignature,
   type ShadowLook,
 } from '../shared/shadows';
-import { timeBucket } from '../shared/world';
-import { cliffSunAt } from '../shared/sky';
+import { timeBucket, type MapEnvironment, type SunVector } from '../shared/world';
+import { cliffSunAt, type SkyFrame } from '../shared/sky';
 import { edgeRuns, hasPlateaus, layerPlateaus } from '../shared/plateaus';
 import { shadeCliffs } from './plateauRenderer';
 import { worldFrame, type WorldFrame } from './worldOverride';
@@ -135,9 +135,9 @@ export function updateShadows(
   // is asked for once, on the first layer that turns out to need redrawing, and never on an
   // idle frame.
   const casting = frame.sun.kind !== null && frame.sun.intensity > 0;
-  // Cliffs cast under any outdoor sky unless natural shadows are switched off (cliffSunAt):
-  // the same sun as the walls' when those cast, else that sun forced on for cliffs alone.
-  const cliffSun = cliffSunAt(frame, map);
+  // Cliffs cast under every sky (cliffCaster): outdoors the same sun as the walls' when those
+  // cast, else that sun forced on for cliffs alone; with no sun at all, a fixed one.
+  const { sun: cliffSun, strength: cliffStrength } = cliffCaster(frame, map);
   const cliffsCast = cliffSun.kind !== null && cliffSun.intensity > 0;
   let look: ShadowLook | null | undefined;
   let cliffLook: ShadowLook | null | undefined;
@@ -152,7 +152,7 @@ export function updateShadows(
   }
 
   for (const layer of layers) {
-    // Nothing casting and nothing drawn before is the state every indoor map lives in: no
+    // Nothing casting and nothing drawn before is the state every flat indoor map lives in: no
     // container, no geometry, no cost — the pass simply is not there.
     const castsHere = casting || (cliffsCast && hasPlateaus(layer));
     const state = castsHere || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
@@ -181,7 +181,7 @@ export function updateShadows(
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
-    drawCliffShadows(state.cliff, layer, cliffLook);
+    drawCliffShadows(state.cliff, layer, cliffLook, cliffStrength);
     shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
   }
@@ -238,17 +238,32 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
  * flat at CLIFF_SHADOW_ALPHA black and softened by the holder's blur into a lee shadow whose
  * edges fade out over CLIFF_SHADOW_FADE.
  */
-function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null): void {
+function drawCliffShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null, strength: number): void {
   g.clear();
   if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
   const polys = cliffShadowGeometry(layer, look, groundOf(layer));
   if (polys.length === 0) return;
   for (const poly of polys) g.poly(poly.flat());
-  g.fill({ color: 0x000000, alpha: CLIFF_SHADOW_ALPHA });
+  g.fill({ color: 0x000000, alpha: CLIFF_SHADOW_ALPHA * strength });
 }
 
 /** How dark a cliff's lee shadow is: black at this opacity. */
 export const CLIFF_SHADOW_ALPHA = 0.4;
+
+/**
+ * The sun cliffs cast by when the sky gives them none (an indoor map, natural light off, a
+ * moonless night): fixed at the top left of the screen, 35° up. Azimuth 225 here (0 is
+ * screen-right, y down) is the north-west, 315° on a compass.
+ */
+export const FIXED_CLIFF_SUN: SunVector = { azimuth: 225, altitude: 35, intensity: 1, kind: 'sun' };
+/** How dark a cliff's shadow under that fixed sun is, against an outdoor one. */
+export const FIXED_CLIFF_STRENGTH = 0.7;
+
+/** The sun a cliff casts by under `frame`, and its shadow's strength against the outdoor one. */
+export function cliffCaster(frame: SkyFrame, map: MapEnvironment): { sun: SunVector; strength: number } {
+  const sun = cliffSunAt(frame, map);
+  return sun.kind === null ? { sun: FIXED_CLIFF_SUN, strength: FIXED_CLIFF_STRENGTH } : { sun, strength: 1 };
+}
 /** How far a cliff shadow's edge takes to fade, cells: from 90 % of its darkness to 10 %. */
 export const CLIFF_SHADOW_FADE = 0.4;
 /** The blur's passes and kernel taps (Pixi's BlurFilter `quality` and `kernelSize`). */

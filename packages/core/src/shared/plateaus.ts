@@ -21,8 +21,8 @@ import { pathCentreline } from '../geometry/pathGeometry';
 export type EdgeKind = PlateauChild['edge'];
 
 /** Brightness added to a band's floor per cell of height, and the most it adds. */
-export const TIER_STEP = 0.03;
-export const TIER_CAP = 0.12;
+export const TIER_STEP = 0.07;
+export const TIER_CAP = 0.35;
 
 /** How far outside an edge the surface below it is probed, in cells. */
 const PROBE = 0.05;
@@ -394,7 +394,7 @@ export function crossingIdOf(shape: Pick<PlateauChild, 'crossingId' | 'edge'>): 
   return shape.crossingId ?? defaultCrossingId(edgeOf(shape));
 }
 
-/** The brightness a band's floor is lifted (or, below ground, lowered) by: ±3 % a cell, capped. */
+/** The brightness a band's floor is lifted (or, below ground, lowered) by: ±7 % a cell, capped. */
 export function tierLift(height: number): number {
   return Math.max(-TIER_CAP, Math.min(TIER_CAP, height * TIER_STEP));
 }
@@ -703,13 +703,15 @@ function outsideGaps(a: Vec, b: Vec, gaps: readonly RingGap[]): [number, number]
 }
 
 /**
- * The raised edges of a layer that hide what is above them from below (`edgeHides`), as one-way
- * segments blocking from the low side, with openings and bridge landings cut out. A plateau's
- * ring has its low side on the left of travel (outside); a pit's on the right.
+ * The raised edges of a layer that hide what is above them from below (`edgeHides`), counting
+ * cliffs from `minDrop` cells up, as one-way segments blocking from the low side, with
+ * openings and bridge landings cut out. Sight passes the map's `sightDropCells`; light passes
+ * 1, so a lamp below never lights a top. A plateau's ring has its low side on the left of
+ * travel (outside); a pit's on the right.
  */
 export function cliffOccluders(
   layer: Pick<DungeonLayer, 'children'>,
-  sightDropCells: number = DEFAULT_SIGHT_DROP_CELLS,
+  minDrop: number = DEFAULT_SIGHT_DROP_CELLS,
 ): CliffOccluder[] {
   if (!hasPlateaus(layer)) return [];
   const gaps = ringGaps(layer);
@@ -717,7 +719,7 @@ export function cliffOccluders(
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
       band.edges[ri].forEach((e, i) => {
-        if (e.drop === 0 || !edgeHides(e.owner, e.edge, e.drop, sightDropCells)) return;
+        if (e.drop === 0 || !edgeHides(e.owner, e.edge, e.drop, minDrop)) return;
         const a = ring[i];
         const b = ring[(i + 1) % ring.length];
         for (const [u0, u1] of outsideGaps(a, b, gaps)) {

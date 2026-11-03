@@ -211,10 +211,15 @@ describe('sight and crossing', () => {
     expect(crossingIdOf({ edge: 'cliff', crossingId: 'impassable' })).toBe('impassable');
   });
 
-  it('lifts a band 3 % a cell, capped at 12 %', () => {
-    expect(tierLift(1)).toBeCloseTo(0.03);
-    expect(tierLift(10)).toBeCloseTo(0.12);
-    expect(tierLift(-2)).toBeCloseTo(-0.06);
+  it('lifts a band 7 % a cell, capped at 35 %, and sinks a pit by the same steps', () => {
+    expect(tierLift(1)).toBeCloseTo(0.07);
+    expect(tierLift(2)).toBeCloseTo(0.14);
+    expect(tierLift(3)).toBeCloseTo(0.21);
+    expect(tierLift(5)).toBeCloseTo(0.35);
+    expect(tierLift(10)).toBeCloseTo(0.35);
+    expect(tierLift(-1)).toBeCloseTo(-0.07);
+    expect(tierLift(-2)).toBeCloseTo(-0.14);
+    expect(tierLift(-10)).toBeCloseTo(-0.35);
   });
 });
 

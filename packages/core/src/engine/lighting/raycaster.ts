@@ -46,14 +46,15 @@ export interface OccluderOptions {
   props?: boolean
   /** Raised edges that hide their tops from below. False for the wall-shadow pass (cliffs cast by drop). */
   cliffs?: boolean
-  /** The map's `sightDropCells`: the drop at which a cliff starts hiding. Absent = the default, 2. */
+  /** The map's `sightDropCells`: the drop at which a cliff starts hiding from an eye. Absent = the default, 2. */
   sightDropCells?: number
 }
 
 /**
  * Every occluding segment on `dungeonLayers` for one kind of sweep: walls split at their doors,
- * blocking props, and the cliffs tall enough to hide their tops, which block one way only (from
- * the low side: an eye or a light on top sees and lights down over the edge).
+ * blocking props, and the cliffs that hide their tops, which block one way only (from the low
+ * side: an eye or a light on top sees and lights down over the edge). Light is stopped by any
+ * cliff a cell or more tall; sight by those of the map's `sightDropCells` and up.
  */
 export function extractWallSegments(
   dungeonLayers: DungeonLayer[],
@@ -101,9 +102,9 @@ export function extractWallSegments(
         })
       }
     }
-    // Cliffs: the same for light and sight, one-way, openings already cut out.
+    // Cliffs: one-way, openings already cut out; light from a drop of one cell, sight from the threshold.
     if (options.cliffs !== false) {
-      for (const c of cliffOccluders(layer, options.sightDropCells)) {
+      for (const c of cliffOccluders(layer, kind === 'light' ? 1 : options.sightDropCells)) {
         segments.push({ ...c, blocksLight: true, blocksSight: true })
       }
     }

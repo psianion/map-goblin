@@ -10,10 +10,11 @@
 // load so their kits lay their attached objects (trees, reeds, lily pads), and terrain painted
 // south of it takes a plateau of its own. Every plateau is taken off its map and drawn again
 // with the Plateau tool, click by click, as a hand would: plateau-test's, one across two rooms
-// of the fieldstone keep (whose rooms must come out unchanged) and one on the goblin warren's
-// cave floor. <refs> holds the reference pictures named in SCENARIOS; --only keeps the named
-// ones. Writes one png per scenario and sheet.png to <out> (default forge/staging/final-sheet,
-// which git ignores).
+// of the fieldstone keep (whose rooms must come out unchanged), one on the goblin warren's
+// cave floor, and +1, +2 and +3 side by side on the warren indoors, where the mean brightness
+// of each top is measured against the floor beneath it and printed. <refs> holds the reference
+// pictures named in SCENARIOS; --only keeps the named ones. Writes one png per scenario and
+// sheet.png to <out> (default forge/staging/final-sheet, which git ignores).
 
 import { spawn, execSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -51,6 +52,7 @@ const SCENARIOS = [
   { name: 'terrain', map: 'plateau', title: 'A +1 plateau on terrain paint, the paint through its top', box: [18, 32, 36, 44], ref: 'canvasofkings-02-plot-tool-has-cliffs.jpg' },
   { name: 'straddle', map: 'keep', title: 'A +1 plateau across the Great Hall and Barrack Rows: rooms unchanged', box: [20, 10, 42, 30], ref: 'dungeondraft-04-stacked-cliffs.png' },
   { name: 'warren', map: 'warren', title: 'Goblin warren with a +1 plateau on its cave floor', box: [0, 0, 60, 47], ref: 'canvasofkings-03-walls-roofs-result.jpg' },
+  { name: 'cave-tiers', map: 'cave', title: 'Warren cave: +1, +2 and +3 side by side', box: [9, 21, 30, 33], ref: 'dungeondraft-04-stacked-cliffs.png' },
 ];
 const ROW_HEIGHT = 520;
 const LABEL = 44;
@@ -85,6 +87,26 @@ const testMap = (name) => JSON.parse(readFileSync(join(ROOT, 'session', 'testdat
 
 /** A rectangle plateau for the tool to draw. */
 const box = (id, x0, y0, x1, y1, height, edge = 'cliff') => ({ id, contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], height, edge });
+
+/** The warren's indoor tiers: +1, +2 and +3 side by side on its cave floor. */
+const TIERS = [1, 2, 3].map((h, i) => box(`tier-${h}`, 11.5 + 5.5 * i, 24.5, 15.5 + 5.5 * i, 28.5, h));
+
+/** Mean brightness (0-255) of the cell at the middle of each plateau, as the screen shows it. */
+async function topBrightness(page, plateaus) {
+  const out = [];
+  for (const p of plateaus) {
+    const xs = p.contours[0].map(([x]) => x);
+    const ys = p.contours[0].map(([, y]) => y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const a = await screenAt(page, cx - 0.5, cy - 0.5);
+    const b = await screenAt(page, cx + 0.5, cy + 0.5);
+    const png = await page.screenshot({ clip: { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y } });
+    const { channels } = await sharp(png).stats();
+    out.push((channels[0].mean + channels[1].mean + channels[2].mean) / 3);
+  }
+  return out;
+}
 
 /** Where plateau-test's terrain is painted (world cells), and the plateau drawn on it. */
 const PAINT = { x0: 21, x1: 33, y0: 34.5, y1: 41.5 };
@@ -199,13 +221,13 @@ const ADDED = [
   ),
 ];
 
-async function open(page, data, added, plateaus = [], paint = false) {
+async function open(page, data, added, plateaus = [], paint = false, environment = 'outdoor', measure = false) {
   await page.goto(`${URL_BASE}/v2?e2e=1`);
   await page.waitForFunction(() => window.__store && window.__pixiApp, null, { timeout: 120_000 });
   await page.getByTestId('v2-new-map-card').click();
   await page.getByTestId('v2-new-map-submit').click();
   await page.getByTestId('v2-editor').waitFor();
-  await page.evaluate(async ({ data, hour }) => {
+  await page.evaluate(async ({ data, hour, environment }) => {
     const st = window.__store.getState();
     st.loadFromFile(structuredClone(data));
     st.setRoomsSheetOpen?.(false);
@@ -214,10 +236,10 @@ async function open(page, data, added, plateaus = [], paint = false) {
     const now = window.__store.getState();
     now.setActiveLayerId(now.layers.find((l) => l.type === 'dungeon' && l.children.some((c) => c.childType === 'shape')).id);
     window.__store.setState((s) => {
-      s.mapSettings.environment = 'outdoor';
+      s.mapSettings.environment = environment;
       s.ui.previewClock = hour * 60;
     });
-  }, { data, hour: HOUR });
+  }, { data, hour: HOUR, environment });
   // Let the editor settle on the opened map (it remounts the canvas once the map is saved)
   // before the new paths arrive, so their kits see them drawn.
   await page.waitForTimeout(4000);
@@ -233,6 +255,7 @@ async function open(page, data, added, plateaus = [], paint = false) {
     await page.waitForTimeout(1000);
   }
   const rooms = await roomFaces(page);
+  const floor = measure ? await topBrightness(page, plateaus) : null;
   await drawPlateaus(page, plateaus);
   // Plateaus are relief: no room may move.
   await page.waitForTimeout(1500);
@@ -241,6 +264,12 @@ async function open(page, data, added, plateaus = [], paint = false) {
   if (after !== rooms) throw new Error('a plateau moved a room');
   // The pack's art lands over a few frames; give the scene time to settle.
   await page.waitForTimeout(7000);
+  if (floor) {
+    const tops = await topBrightness(page, plateaus);
+    const f = (v) => v.toFixed(1);
+    console.log(`tops ${plateaus.map((p, i) => `+${p.height} ${f(tops[i])} (floor ${f(floor[i])}, lift ${f(tops[i] - floor[i])})`).join(', ')}`);
+    console.log(`steps ${tops.slice(1).map((t, i) => f(t - tops[i])).join(', ')} (each must be at least 8)`);
+  }
 }
 
 async function shoot(page, list) {
@@ -294,6 +323,7 @@ try {
     },
     keep: () => [testMap('fieldstone-keep'), [], [box('across-the-hall', 26, 18, 36, 26, 1)]],
     warren: () => [testMap('goblin-warren'), [], [box('on-the-cave', 16, 22, 24, 28, 1)]],
+    cave: () => [testMap('goblin-warren'), [], TIERS, false, 'indoor', true],
   };
   for (const [name, make] of Object.entries(maps)) {
     const list = wanted.filter((s) => s.map === name);
@@ -308,7 +338,7 @@ try {
 
 const rows = [];
 for (const s of shots) {
-  const ours = await tile(s.file, `${s.title}, ${HOUR}:00 outdoors`);
+  const ours = await tile(s.file, s.map === 'cave' ? `${s.title}, indoors` : `${s.title}, ${HOUR}:00 outdoors`);
   const ref = await tile(join(REFS, s.ref), `Reference: ${s.ref}`);
   rows.push({ ours, ref, width: ours.width + GAP + ref.width });
 }
