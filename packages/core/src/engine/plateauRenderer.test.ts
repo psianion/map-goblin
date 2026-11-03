@@ -59,11 +59,13 @@ import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './ca
 import { kitOut, resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
+  defaultStairsArt,
   drawOpening,
   faceShade,
   renderPlateaus,
   shadeCliffs,
   sliverDensity,
+  stairsArtEntries,
   SHADE_FLOOR,
   SHADE_SIDE,
 } from './plateauRenderer';
@@ -611,6 +613,13 @@ describe('openings', () => {
     expect((stairs.children[0] as Sprite).rotation).toBeCloseTo(0);
     expect(drawOpening({ id: 'b', kind: 'ramp', width: 2 }, frame)).toBeInstanceOf(Graphics);
     expect(drawOpening({ id: 'c', kind: 'ladder', width: 1 }, frame)).toBeInstanceOf(Graphics);
+  });
+
+  it('defaults to the ink stone stairs and offers the ink flights first', () => {
+    expect(defaultStairsArt()?.id).toBe('gg-forge:stairs_stone_short_2x2_A');
+    const ids = stairsArtEntries().map((e) => e.id);
+    expect(ids[0]).toBe('gg-forge:stairs_stone_short_2x2_A');
+    expect(ids).toContain('gg-demo:stairs_stone_short_2x2_A');
   });
 
 });

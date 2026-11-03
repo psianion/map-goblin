@@ -599,15 +599,19 @@ function stairsContent(entry: CatalogEntry, tex: Texture): Texture {
   return sub;
 }
 
-/** The stairs a new opening shows until one is picked: gg-demo's short stone flight. */
-export function defaultStairsArt(): CatalogEntry | undefined {
+/** The set whose stairs are drawn in the plateau's own ink hand, offered first. */
+const INK_STAIRS_SET = 'GG_Cave_Ink';
+
+/** Every stairs piece the catalogue has, for the opening card's art picker: the ink ones first. */
+export function stairsArtEntries(): CatalogEntry[] {
   const stairs = getEntriesByType('object').filter((e) => e.material.startsWith('stairs_'));
-  return stairs.find((e) => e.material === 'stairs_stone_short') ?? stairs[0];
+  return [...stairs.filter((e) => e.set === INK_STAIRS_SET), ...stairs.filter((e) => e.set !== INK_STAIRS_SET)];
 }
 
-/** Every stairs piece the catalogue has, for the opening card's art picker. */
-export function stairsArtEntries(): CatalogEntry[] {
-  return getEntriesByType('object').filter((e) => e.material.startsWith('stairs_'));
+/** The stairs a new opening shows until one is picked: the short stone flight, the ink one if installed. */
+export function defaultStairsArt(): CatalogEntry | undefined {
+  const stairs = stairsArtEntries();
+  return stairs.find((e) => e.material === 'stairs_stone_short') ?? stairs[0];
 }
 
 function drawOpenings(parent: Container, layer: DungeonLayer, band: PlateauBand, options: PlateauRenderOptions): void {
