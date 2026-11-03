@@ -180,15 +180,30 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  it('draws a slope as a band outside the outline under one thin ink contour a cell of drop, 1.5 px at 1x; none when switched off', () => {
+  /** How far outside the 6-cell square top at (5, 5) a point lies: rounded at its corners. */
+  const outside = (p: { x: number; y: number }) =>
+    Math.hypot(Math.max(5 - p.x, 0, p.x - 11), Math.max(5 - p.y, 0, p.y - 11));
+  /** The mean distance out of a contour ring's straights, mid side, where each centre is on its ring. */
+  const ringOut = (ring: Container) => {
+    const mid = ring.children.filter((c) => Math.abs(c.position.x - 8) <= 1.5 || Math.abs(c.position.y - 8) <= 1.5);
+    expect(mid.length).toBeGreaterThan(1);
+    return mid.reduce((sum, c) => sum + outside(c.position), 0) / mid.length;
+  };
+
+  it('draws a slope as a band outside the outline under one walked ink contour a cell of drop; none when switched off', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(3);
+    // Each ring is the contour pieces, walked: sprites, not a stroke.
+    for (const ring of contours.children as Container[]) {
+      expect(ring.label).toBe('plateau-contour');
+      expect(ring.children.length).toBeGreaterThan(4);
+      expect(ring.children.every((s) => s instanceof Sprite)).toBe(true);
+    }
     // Evenly spaced inside the one-cell band, whatever the drop: 0.25, 0.5 and 0.75 cell out round the 6-cell top.
-    const widths = contours.children.map((g) => g.getLocalBounds().width - SLOPE_CONTOUR_WIDTH);
-    widths.forEach((w, k) => expect(w).toBeCloseTo(6 + 2 * 0.25 * (k + 1), 2));
+    (contours.children as Container[]).forEach((ring, k) => expect(Math.abs(ringOut(ring) - 0.25 * (k + 1))).toBeLessThan(0.12));
     // The ramp reaches the card's slope width out and no further.
     const rampOf = (extra: Partial<PlateauChild>) => {
       const p = new Container();
@@ -200,7 +215,7 @@ describe('renderPlateaus', () => {
     expect(rampOf({}).minX).toBeCloseTo(4, 2);
     expect(rampOf({ slopeWidth: 2.5 }).maxX).toBeCloseTo(13.5, 2);
     expect(rampOf({ slopeWidth: 6 }).maxX).toBeCloseTo(14, 2);
-    // 1.5 px wide at 1x (20 px a cell), at 60 %.
+    // The stroke a contour falls back to without art: 1.5 px wide at 1x (20 px a cell), at 60 %.
     expect(SLOPE_CONTOUR_WIDTH * 20).toBeCloseTo(1.5);
     expect(SLOPE_CONTOUR_ALPHA).toBeCloseTo(0.6);
     // The ramp lies in the band's blurred shade, under the contours.
@@ -219,17 +234,13 @@ describe('renderPlateaus', () => {
     expect(labels(parent)).not.toContain('plateau-contours');
   });
 
-  it('rings a one-cell slope once inside its band, rounded round the corners', () => {
+  it('rings a one-cell slope once inside its band', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
     const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
     expect(contours.children).toHaveLength(1);
-    const ring = contours.children[0] as Graphics;
-    expect(ring.getLocalBounds().width - SLOPE_CONTOUR_WIDTH).toBeCloseTo(7, 2);
-    // Rounded: no point of it out at the square corner (11.5, 11.5), its arc 0.5 from the top's corner.
-    expect(ring.containsPoint({ x: 11.5, y: 11.5 })).toBe(false);
-    expect(ring.containsPoint({ x: 11 + 0.5 * Math.SQRT1_2, y: 11 + 0.5 * Math.SQRT1_2 })).toBe(true);
+    expect(Math.abs(ringOut(contours.children[0] as Container) - 0.5)).toBeLessThan(0.12);
   });
 
   it('keeps the slope face turned to the sun 40 % lighter than the one turned away, and all alike indoors', () => {

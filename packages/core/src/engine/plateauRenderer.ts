@@ -51,7 +51,7 @@ import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces, ledgeEndPieces, sliverArt, sliverPieces } from './plateauKit';
+import { cliffArt, cliffPieces, contourArt, contourPieces, ledgeEndPieces, sliverArt, sliverPieces } from './plateauKit';
 import type { DoorGap } from './wallNodeRenderer';
 import { LINE_OVERLAP, type WalkPlacement } from './caveWalk';
 import { jointsOf, ledgeRidge, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
@@ -182,7 +182,7 @@ export function renderPlateaus(
     holder.label = `plateau-band-${band.height}`;
     const runs = edgeRuns(band);
     const soft = drawShade(holder, band, runs, plateaus.bands, ground);
-    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run));
+    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
     edges.addChild(holder);
@@ -205,10 +205,12 @@ function drawBandTop(parent: Container, band: PlateauBand): void {
  * A slope: a band `slopeWidthOf` the card's slope width wide on its low side, outside the
  * outline only. Its shade runs from none at the outline to SLOPE_FOOT_SHADE black at the band's
  * outer edge in SLOPE_STEPS steps, laid into `shade` (the band's blurred, masked holder), each
- * face lighter as it turns to the sun (`shadeCliffs`); over it in `parent`, one thin ink
- * contour a cell of drop, evenly spaced inside the band, rounded where the outline turns out.
+ * face lighter as it turns to the sun (`shadeCliffs`); over it in `parent`, one ink contour a
+ * cell of drop, evenly spaced inside the band, rounded where the outline turns out. Each contour
+ * is the set's contour pieces walked round its ring like the ledge (low side on the left, where
+ * the pieces carry their ticks), or a thin stroke while there is no contour art.
  */
-function drawSlope(shade: Container, parent: Container, run: EdgeRun): CliffSprite[] {
+function drawSlope(shade: Container, parent: Container, run: EdgeRun, options: PlateauRenderOptions): CliffSprite[] {
   const width = slopeWidthOf(run.owner?.slopeWidth);
   const lowLeft = run.drop > 0;
   const ramp = new Container();
@@ -222,11 +224,26 @@ function drawSlope(shade: Container, parent: Container, run: EdgeRun): CliffSpri
   }
   shade.addChild(ramp);
   if (run.owner?.contourLines === false) return faces;
+  const art = contourArt(run.owner?.edgeArt);
+  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  const pieces = contourPieces(art);
   const rings = new Container();
   rings.label = 'plateau-contours';
   for (const d of contourOffsets(run.drop, width)) {
     const line = offsetPath(run.points, run.closed, lowLeft, d);
-    rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: SLOPE_CONTOUR_WIDTH, alpha: SLOPE_CONTOUR_ALPHA }));
+    if (run.closed && line.length > 1 && vdist(line[0] as Vec, line[line.length - 1] as Vec) < 1e-6) line.pop();
+    // The walk lays the low side on its left; a pit's low side is inside, so walk it backwards.
+    const pts = lowLeft ? line : [...line].reverse();
+    const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, [], pieces) : layBandChain(pts, [], pieces);
+    const drawn = drawnPlacements(placed, art);
+    if (drawn.length === 0) {
+      rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: SLOPE_CONTOUR_WIDTH, alpha: SLOPE_CONTOUR_ALPHA }));
+      continue;
+    }
+    const ring = new Container();
+    ring.label = 'plateau-contour';
+    placeBand(ring, drawn, art, 0xffffff, 0);
+    rings.addChild(ring);
   }
   parent.addChild(rings);
   return faces;
