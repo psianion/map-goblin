@@ -47,13 +47,11 @@ vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
-import { bandRide, CURVE_STEP, layBandRing, LIVE_WALK } from './caveBandRenderer';
+import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
   CONTOUR_LINE,
-  LEDGE_ROW_INSET,
-  cliffRows,
   drawOpening,
   faceLight,
   faceShade,
@@ -76,7 +74,7 @@ import type { MapEnvironment } from '../shared/world';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
-import { layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
+import { edgeRuns, layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -396,65 +394,15 @@ describe('each cell of height shows', () => {
     }
   });
 
-  it('stacks a cliff’s ledge a row a cell, up to three: 1x, 2x and 3x the ring walk', () => {
-    const rock = (height: number): number => {
+  it('lays one ledge ring at any drop: +1, +2 and +3 lay the ring walk once', () => {
+    const ring = plat('top', 4, 4, 12, 10).contours[0] as Polygon;
+    const once = layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length;
+    for (const height of [1, 2, 3]) {
       const parent = new Container();
-      renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height })]), new Container(), parent);
-      return ((parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children.length;
-    };
-    const ring = layerPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18)])).bands[0].rings[0];
-    const walk = layBandRing(ring, [], cliffPieces(cliffArt(undefined))).length;
-    expect(rock(1)).toBe(walk);
-    expect(rock(2) / walk).toBeGreaterThan(1.8);
-    expect(rock(2) / walk).toBeLessThanOrEqual(2);
-    expect(rock(3) / walk).toBeGreaterThan(2.6);
-    expect(rock(3) / walk).toBeLessThanOrEqual(3);
-    expect(rock(5)).toBe(rock(3));
-    expect(rock(-3) / rock(-1)).toBeGreaterThan(2.6);
-  });
-
-  it('walks each inner row 0.35 cell up the cliff from the last, and draws it first, under the outer', () => {
-    const ring = layerPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18)])).bands[0].rings[0];
-    const rows = cliffRows(ring, true, 3, [], cliffPieces(cliffArt(undefined)));
-    expect(LEDGE_ROW_INSET).toBeCloseTo(0.35);
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toEqual(layBandRing(ring, [], cliffPieces(cliffArt(undefined))));
-    // On the north edge (y = 4), each row's chords lie 0.35 cell further south than the last.
-    const northY = (row: (typeof rows)[number]) => {
-      const ys = row.filter((p) => p.P[0] > 8 && p.P[0] < 18 && p.P[1] < 11 && Math.abs(p.P[1] - p.Q[1]) < 0.05).map((p) => p.P[1]);
-      return ys.reduce((a, b) => a + b, 0) / ys.length;
-    };
-    expect(northY(rows[1]) - northY(rows[0])).toBeCloseTo(LEDGE_ROW_INSET, 1);
-    expect(northY(rows[2]) - northY(rows[1])).toBeCloseTo(LEDGE_ROW_INSET, 1);
-    // Drawn inner first: the outer row's pieces are the last sprites laid.
-    const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height: 3 })]), new Container(), parent);
-    const sprites = ((parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children;
-    const flat = new Container();
-    renderPlateaus(layerOf([ground, plat('top', 4, 4, 22, 18, { height: 1 })]), new Container(), flat);
-    const outer = ((flat.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container).children;
-    expect(sprites.slice(-outer.length).map((s) => [s.position.x, s.position.y])).toEqual(outer.map((s) => [s.position.x, s.position.y]));
-  });
-
-  it('cuts every row at an opening', () => {
-    const top = plat('top', 4, 4, 22, 18, { height: 3 });
-    // The ring runs (4,4)→(22,4)→…, 64 cells round: t = 9/64 stands at (13, 4).
-    const stairs: OpeningChild = { id: 's1', name: 's1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 9 / 64, width: 2 };
-    const layer = layerOf([ground, top, stairs]);
-    const [gap] = ringGaps(layer);
-    expect(gap.position[0]).toBeCloseTo(13);
-    const ring = layerPlateaus(layer).bands[0].rings[0];
-    const pieces = cliffPieces(cliffArt(undefined));
-    const over = (row: { P: [number, number]; Q: [number, number] }[], y: number) =>
-      row.some(({ P, Q }) => {
-        const [dx, dy] = [Q[0] - P[0], Q[1] - P[1]];
-        const u = Math.max(0, Math.min(1, ((13 - P[0]) * dx + (y - P[1]) * dy) / (dx * dx + dy * dy)));
-        return Math.hypot(13 - (P[0] + dx * u), y - (P[1] + dy * u)) < 0.5;
-      });
-    const plain = cliffRows(ring, true, 3, [], pieces);
-    const cut = cliffRows(ring, true, 3, [{ wallId: gap.id, position: gap.position, width: gap.width }], pieces);
-    plain.forEach((row, k) => expect(over(row, 4 + k * LEDGE_ROW_INSET), `row ${k} uncut`).toBe(true));
-    cut.forEach((row, k) => expect(over(row, 4 + k * LEDGE_ROW_INSET), `row ${k} cut`).toBe(false));
+      renderPlateaus(layerOf([ground, plat('top', 4, 4, 12, 10, { height })]), new Container(), parent);
+      const rock = (parent.children[0] as Container).children.find((c) => c.label === 'plateau-cliff') as Container;
+      expect(rock.children, `+${height}`).toHaveLength(once);
+    }
   });
 });
 
@@ -613,4 +561,62 @@ describe('openings', () => {
     expect(drawOpening({ id: 'c', kind: 'ladder', width: 1 }, frame)).toBeInstanceOf(Graphics);
   });
 
+});
+
+describe('the ledge on the goblin warren', () => {
+  const warrenFloor = async (): Promise<ShapeChild> => {
+    const { readFileSync } = await import('node:fs' as string);
+    // The suite runs from packages/core.
+    const doc = JSON.parse(readFileSync(`${process.cwd()}/../../session/testdata/goblin-warren.mapbuilder`, 'utf8'));
+    return doc.layers.find((l: DungeonLayer) => l.type === 'dungeon').children.find((c: ShapeChild) => c.id === 'floor-cave-0');
+  };
+  /** Every cliff ring of a +1 plateau of `contour` on the warren floor, walked as it draws: its holes. */
+  const holesOf = (floor: ShapeChild, contour: Polygon) => {
+    const layer = layerOf([floor, { ...plat('p', 0, 0, 1, 1), contours: [contour] }]);
+    const pieces = cliffPieces(cliffArt(undefined));
+    return layerPlateaus(layer).bands.flatMap((band) =>
+      edgeRuns(band).map((run) => {
+        const placed = run.closed ? layBandRing(run.points, [], pieces) : layBandChain(run.points, [], pieces);
+        expect(placed.length).toBeGreaterThan(3);
+        return bandHoles(placed, run.closed).length;
+      }),
+    );
+  };
+  const rounded = (x0: number, y0: number, w: number, h: number, r: number): Polygon => {
+    const out: Polygon = [];
+    const corners = [[x0 + w - r, y0 + r, -90], [x0 + w - r, y0 + h - r, 0], [x0 + r, y0 + h - r, 90], [x0 + r, y0 + r, 180]];
+    for (const [cx, cy, a0] of corners) {
+      for (let k = 0; k <= 8; k++) {
+        const a = ((a0 + (90 * k) / 8) * Math.PI) / 180;
+        out.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+    }
+    return out;
+  };
+
+  it('closes a 6 x 5.5 plateau against the den’s cave wall with no hole', async () => {
+    const floor = await warrenFloor();
+    const ring = floor.contours[0] as Polygon;
+    // The den's north-east corner: its north and east sides run along and past the cave wall.
+    const against: Polygon = [[51, 6], [57, 6], [57, 11.5], [51, 11.5]];
+    expect(against.filter(([x, y]) => pointInPoly(x, y, ring)).length).toBeLessThan(4);
+    expect(holesOf(floor, against)).toEqual([0]);
+  });
+
+  it('closes 20 rectangles and 20 rounded rectangles at +1 anywhere on the warren floor with no hole', async () => {
+    const floor = await warrenFloor();
+    const ring = floor.contours[0] as Polygon;
+    let seed = 7;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    let n = 0;
+    while (n < 20) {
+      const [w, h] = [2 + rand() * 8, 2 + rand() * 7];
+      const [x, y] = [2 + rand() * 54, 2 + rand() * 42];
+      const rect: Polygon = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+      if (!rect.every(([px, py]) => pointInPoly(px, py, ring))) continue;
+      n++;
+      expect(holesOf(floor, rect), `rect at ${x.toFixed(1)},${y.toFixed(1)}`).toEqual([0]);
+      expect(holesOf(floor, rounded(x, y, w, h, Math.min(w, h) * rand() * 0.5)), `rounded at ${x.toFixed(1)},${y.toFixed(1)}`).toEqual([0]);
+    }
+  });
 });

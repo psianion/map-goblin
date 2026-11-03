@@ -3,8 +3,8 @@
 // whatever lies beneath (7 % a cell), so floor texture, terrain paint and floor borders show
 // through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as an
 // ink contour ring per cell of drop over a flat shade on the faces turned from the sun, its
-// cliffs laid by the cave walk with the ledge kit, a row a cell of drop up to three (void side
-// = low side, so a pit's rock faces in), and its openings across the gaps they cut: a road
+// cliffs laid by the cave walk with the ledge kit, one ledge ring at any drop (void side = low
+// side, so a pit's rock faces in), and its openings across the gaps they cut: a road
 // runs under the ledge except where a landing or an opening opens it.
 //
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
@@ -32,7 +32,6 @@ import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
 import { cliffArt, cliffPieces } from './plateauKit';
-import type { CaveKitPiece } from '../assets/caveWallKit';
 import type { DoorGap } from './wallNodeRenderer';
 import type { WalkPlacement } from './caveWalk';
 
@@ -63,10 +62,6 @@ const CONTOUR_ALPHA = 0.85;
 const SLOPE_SHADE = 0.45;
 /** How far past the cliff edge the ledge rock reaches on the low side, cells. */
 export const LEDGE_DEPTH = 0.475;
-/** How far up the cliff each further ledge row is walked from the one below it, cells. */
-export const LEDGE_ROW_INSET = 0.35;
-/** The most ledge rows a cliff stacks: one a cell of drop, up to this. */
-const MAX_LEDGE_ROWS = 3;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
 const FALLBACK_EDGE = 0.12;
 /** How far the light on a cliff face reaches across the rock from the edge, cells: the ledge rock's depth. */
@@ -281,66 +276,6 @@ function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
   return faces;
 }
 
-/** `pts` pushed `d` cells to the right of travel, away from the void and up the cliff, mitred at each corner. */
-function inset(pts: Polygon, d: number, closed: boolean): Polygon {
-  const n = pts.length;
-  const normal = (a: readonly number[], b: readonly number[]): Vec => {
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-    return [-(b[1] - a[1]) / len, (b[0] - a[0]) / len];
-  };
-  return pts.map((p, i) => {
-    const prev = pts[closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
-    const next = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
-    const n1 = !closed && i === 0 ? normal(p, next) : normal(prev, p);
-    const n2 = !closed && i === n - 1 ? n1 : normal(p, next);
-    const k = Math.max(0.25, 1 + n1[0] * n2[0] + n1[1] * n2[1]);
-    return [p[0] + ((n1[0] + n2[0]) * d) / k, p[1] + ((n1[1] + n2[1]) * d) / k];
-  });
-}
-
-/** The point of polyline `line` (a ring when `closed`) nearest `p`, and how far off it is. */
-function nearestOn(line: Polygon, closed: boolean, p: Vec): { at: Vec; d: number } {
-  let best = { at: p, d: Infinity };
-  const segs = closed ? line.length : line.length - 1;
-  for (let i = 0; i < segs; i++) {
-    const [ax, ay] = line[i];
-    const [bx, by] = line[(i + 1) % line.length];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const u = Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / (dx * dx + dy * dy || 1)));
-    const at: Vec = [ax + dx * u, ay + dy * u];
-    const d = Math.hypot(p[0] - at[0], p[1] - at[1]);
-    if (d < best.d) best = { at, d };
-  }
-  return best;
-}
-
-/**
- * A cliff's ledge rows, outermost first: the run walked with the ledge pieces (void on its
- * left), and for each cell of drop past the first another row walked LEDGE_ROW_INSET further
- * up the cliff, up to MAX_LEDGE_ROWS. A gap on the run is carried onto every row, so an
- * opening or a landing parts them all.
- */
-export function cliffRows(
-  pts: Polygon,
-  closed: boolean,
-  drop: number,
-  gaps: readonly DoorGap[],
-  pieces: CaveKitPiece[],
-): WalkPlacement[][] {
-  if (pieces.length === 0) return [];
-  const count = Math.min(MAX_LEDGE_ROWS, Math.max(1, Math.floor(Math.abs(drop))));
-  const rows: WalkPlacement[][] = [];
-  for (let k = 0; k < count; k++) {
-    const line = k === 0 ? pts : inset(pts, k * LEDGE_ROW_INSET, closed);
-    const cut = gaps.map((g) =>
-      k > 0 && nearestOn(pts, closed, g.position).d < 0.25 ? { ...g, position: nearestOn(line, closed, g.position).at } : g,
-    );
-    rows.push(closed ? layBandRing(line, cut, pieces) : layBandChain(line, cut, pieces));
-  }
-  return rows;
-}
-
 /** Which placements `placeBand` will turn into sprites, in the order it adds them. */
 function drawnPlacements(placed: WalkPlacement[], art: Map<string, CatalogEntry>): WalkPlacement[] {
   return placed.filter((pl) => {
@@ -369,11 +304,10 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   const sprites: CliffSprite[] = [];
 
   // The whole run, straights and corners alike, is walked with the measured ledge pieces:
-  // every stone at its own size, none stretched to fit an edge. A row a cell of drop, the
-  // inner rows first so the outer one lies over them.
+  // every stone at its own size, none stretched to fit an edge. One ring of it at any drop.
   const rock = new Container();
   rock.label = 'plateau-cliff';
-  const placed = cliffRows(pts, run.closed, run.drop, gaps, pieces).reverse().flat();
+  const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
   const drawn = drawnPlacements(placed, art);
   placeBand(rock, drawn, art, 0xffffff, 0);
   drawn.forEach((pl, i) => {
