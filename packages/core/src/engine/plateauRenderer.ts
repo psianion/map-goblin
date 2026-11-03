@@ -667,10 +667,13 @@ function drawFootRubble(
 
 const stairsCache = new Map<Texture, Texture>();
 
-/** The part of a stairs texture the flight is drawn in (`STAIRS_CONTENT`), as its own texture. */
+/**
+ * The part of a stairs texture the flight is drawn in (`STAIRS_CONTENT`), as its own texture. Art
+ * whose entry carries a `contentRect` (the ink stairs) is already served cropped to it.
+ */
 function stairsContent(entry: CatalogEntry, tex: Texture): Texture {
-  const key = `${entry.material}_${entry.gridSize}`;
-  const rect = STAIRS_CONTENT[`${entry.set}:${key}`] ?? STAIRS_CONTENT[key];
+  if (entry.contentRect) return tex;
+  const rect = STAIRS_CONTENT[`${entry.material}_${entry.gridSize}`];
   if (!rect) return tex;
   const hit = stairsCache.get(tex);
   if (hit && !hit.destroyed) return hit;

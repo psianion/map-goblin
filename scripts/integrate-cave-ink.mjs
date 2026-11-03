@@ -3,13 +3,13 @@
 //
 //   node scripts/integrate-cave-ink.mjs [--pack-version <semver>] [--forge <forge dir>]
 //
-// --pack-version defaults to 1.16.0 for the first run; pass the next patch on a re-run.
+// --pack-version defaults to the next patch of the installed gg-forge pack.
 // --forge defaults to ../map-goblin-forge/forge. Reads dist/GG_Cave_Ink,
 // staging/cave/kit-A/caveWallKit.json and staging/cave/geometry.json from it: the kit is
 // copied over the core kit, and each ledge piece's drawn ridge (the line's centre, every
 // RIDGE_STEP cell, in cells from the sprite's centre) is written to caveLedgeRidge.json, so
-// the slivers under a cliff root on the line where it wanders. STAIRS_CONTENT (stairsArt.ts)
-// is copied by hand from staging/cave-props/stairs-content.json when the stairs change.
+// the slivers under a cliff root on the line where it wanders. The ink stairs need no
+// STAIRS_CONTENT rect: their manifest entries carry the forge's contentRect.
 
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,7 +25,11 @@ const arg = (name, fallback) => {
   return i > 0 ? process.argv[i + 1] : fallback;
 };
 const FORGE = arg('--forge', join(ROOT, '..', 'map-goblin-forge', 'forge'));
-const VERSION = arg('--pack-version', '1.16.0');
+// The next patch of the installed pack: the bump is what makes returning browsers reinstall it.
+const installed = JSON.parse(
+  readFileSync(join(PACKS, PACK, readdirSync(join(PACKS, PACK)).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))), 'utf8'),
+).version.split('.');
+const VERSION = arg('--pack-version', `${installed[0]}.${installed[1]}.${Number(installed[2]) + 1}`);
 const SET = join(FORGE, 'dist', 'GG_Cave_Ink');
 const KIT = join(FORGE, 'staging', 'cave', 'kit-A', 'caveWallKit.json');
 const GEOMETRY = join(FORGE, 'staging', 'cave', 'geometry.json');

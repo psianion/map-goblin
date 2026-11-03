@@ -4,9 +4,8 @@
 // from the cliff. Measured once from the shipped webps (alpha > 40), keyed like the kit:
 // `material_gridSize`. The top of each flight is its high end.
 //
-// The cave ink stairs (GG_Cave_Ink, in gg-forge) share gg-demo's keys, so theirs are keyed
-// `set:material_gridSize` and looked up first. Written by the forge with the art
-// (staging/cave-props/stairs-content.json).
+// The cave ink stairs (GG_Cave_Ink, in gg-forge) need none: their entries carry the forge's
+// `contentRect` (staging/cave-props/stairs-content.json) and are served cropped to it.
 
 export interface ArtRect {
   x: number;
@@ -16,9 +15,6 @@ export interface ArtRect {
 }
 
 export const STAIRS_CONTENT: Readonly<Record<string, ArtRect>> = {
-  'GG_Cave_Ink:stairs_stone_short_2x2': { x: 7, y: 157, w: 393, h: 236 },
-  'GG_Cave_Ink:stairs_stone_long_2x4': { x: 8, y: 0, w: 358, h: 791 },
-  'GG_Cave_Ink:stairs_stone_wide_3x2': { x: 16, y: 0, w: 566, h: 388 },
   stairs_stone_long_2x4: { x: 9, y: 2, w: 222, h: 675 },
   stairs_stone_short_2x2: { x: 8, y: 164, w: 227, h: 224 },
   stairs_stone_wide_3x2: { x: 17, y: 2, w: 423, h: 249 },
