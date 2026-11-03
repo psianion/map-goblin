@@ -45,13 +45,13 @@ const manager = {
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 
 import { setClipperModule } from '../geometry/Clipper2Engine';
+import { SLOPE_CONTOUR_ALPHA, SLOPE_CONTOUR_WIDTH } from '../shared/plateauShade';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtSetIds, cliffPieces } from './plateauKit';
 import {
-  CONTOUR_LINE,
   drawOpening,
   faceLight,
   faceShade,
@@ -173,7 +173,7 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  it('draws a slope as one ink contour ring per cell of drop, 2 px at 1x, shaded in quads; none when switched off', () => {
+  it('draws a slope as a ramp under one thin ink contour a cell of drop, 1.5 px at 1x; none when switched off', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
     const band = parent.children[0] as Container;
@@ -182,9 +182,13 @@ describe('renderPlateaus', () => {
     // Each ring a cell further down the slope: 8, 10 and 12 cells across round the 6-cell top.
     const widths = contours.children.map((g) => Math.round(g.getLocalBounds().width));
     expect(widths).toEqual([8, 10, 12]);
-    // 2 px wide at 1x (20 px a cell).
-    expect(CONTOUR_LINE * 20).toBeCloseTo(2);
-    expect(band.children.some((c) => c.label === 'plateau-slope')).toBe(true);
+    // 1.5 px wide at 1x (20 px a cell), at 60 %.
+    expect(SLOPE_CONTOUR_WIDTH * 20).toBeCloseTo(1.5);
+    expect(SLOPE_CONTOUR_ALPHA).toBeCloseTo(0.6);
+    // The ramp lies in the band's blurred shade, under the contours.
+    const shade = band.children.find((c) => c.label === 'plateau-shade') as Container;
+    expect(labels(shade)).toContain('plateau-slope');
+    expect(band.children.indexOf(shade)).toBeLessThan(band.children.indexOf(contours));
     const meshes: Container[] = [];
     const walk = (c: Container) => {
       if (c instanceof MeshSimple) meshes.push(c);
@@ -206,48 +210,23 @@ describe('renderPlateaus', () => {
     expect(contours.getLocalBounds().width).toBeGreaterThan(6 + 1.9);
   });
 
-  it('shades the slope face turned from the sun and leaves the lit one bare', () => {
+  it('keeps the slope face turned to the sun 40 % lighter than the one turned away, and all alike indoors', () => {
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope' })]), new Container(), parent);
-    const band = parent.children[0] as Container;
-    const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
-    // The shadow runs +x: the light is in the west, so the east face is turned away.
+    const find = (c: Container): Container | undefined =>
+      c.label === 'plateau-slope' ? c : c.children.map((k) => find(k as Container)).find(Boolean);
+    const ramp = find(parent)!;
+    // The shadow runs +x: the light is in the west, so the west face is turned to it.
     shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
-    // The east and west faces: the north and south ones run side-on to this sun.
-    const faces = shade.children.map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }));
+    const faces = ramp.children.map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }));
     const east = faces.filter(({ b }) => b.minX >= 11 - 1e-6);
     const west = faces.filter(({ b }) => b.maxX <= 5 + 1e-6);
     expect(east.length).toBeGreaterThan(0);
     expect(west.length).toBeGreaterThan(0);
-    expect(Math.min(...east.map((f) => f.alpha))).toBeGreaterThan(0.2);
-    expect(Math.max(...west.map((f) => f.alpha))).toBe(0);
+    for (const f of east) expect(f.alpha).toBeCloseTo(1);
+    for (const f of west) expect(f.alpha).toBeCloseTo(0.6);
     shadeCliffs('l1', null);
-    expect(shade.children.every((g) => g.alpha === 0)).toBe(true);
-  });
-
-  it('reads as a hill: on the face turned from the sun, light at the top and darker ring by ring to the foot', () => {
-    const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
-    const band = parent.children[0] as Container;
-    const shade = band.children.find((c) => c.label === 'plateau-slope') as Container;
-    shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
-    // The east face's quads (not its corner wedges), by how far down the slope each lies.
-    const east = shade.children
-      .map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }))
-      .filter(({ b }) => b.minX >= 11 - 1e-6 && b.height > 2);
-    const byStep = new Map<number, number[]>();
-    for (const { b, alpha } of east) {
-      const step = Math.floor((b.minX + b.maxX) / 2 - 11);
-      byStep.set(step, [...(byStep.get(step) ?? []), alpha]);
-    }
-    expect([...byStep.keys()].sort()).toEqual([0, 1, 2]);
-    // Brightness under the shade (1 - alpha), top to foot.
-    const bright = [0, 1, 2].map((k) => 1 - Math.max(...byStep.get(k)!));
-    expect(bright[0]).toBeGreaterThan(bright[1]);
-    expect(bright[1]).toBeGreaterThan(bright[2]);
-    expect(bright[0] - bright[2]).toBeGreaterThan(0.2);
-    // Every quad of one step is shaded alike: flat between rings, a step at each.
-    for (const alphas of byStep.values()) expect(Math.max(...alphas) - Math.min(...alphas)).toBeLessThan(1e-9);
+    expect(ramp.children.every((g) => g.alpha === 1)).toBe(true);
   });
 
   it('orders bands low to high, a pit before the plateau', () => {

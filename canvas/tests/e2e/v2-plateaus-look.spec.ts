@@ -6,9 +6,9 @@ import { waitForBoot, waitFrame } from './helpers'
 
 /**
  * How a plateau darkens the ground below it, read off the screen: the drop shade every edge
- * kind lays on its low side, and the sun shadow that starts on the edge itself. Indoors, so
- * the shadows come from the fixed top-left sun; on a flat floor colour with the grid off, so
- * the pixels are the shade alone.
+ * kind lays on its low side, the sun shadow that starts on the edge itself, and the slope's
+ * graded shade with one contour a cell of drop. Indoors, so the shadows come from the fixed
+ * top-left sun; on a flat floor colour with the grid off, so the pixels are the shade alone.
  */
 
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -168,6 +168,38 @@ test.describe('the plateau look', () => {
       for (let i = 0; i + 1 < row.length; i++) expect(row[i], `${name} at ${(i * 0.03).toFixed(2)} cell`).toBeLessThanOrEqual(row[i + 1] + 1.5)
       expect(row[row.length - 1] - row[0]).toBeGreaterThan(20)
     }
+    expect(errors).toEqual([])
+  })
+
+  test('a slope is a smooth ramp, darker toward its foot, with one contour a cell of drop', async ({ page }) => {
+    const errors = await open(page, mapWith([box('slope-2', 10, 10, 16, 16, 2, 'slope')]))
+    await look(page, { x: 17, y: 13 })
+    // Across the east ramp, top (x 16) to foot (x 18), a sample a pixel.
+    const step = 1 / ZOOM
+    const row = await lums(page, ray({ x: 16, y: 13 }, { x: 1, y: 0 }, step, Math.round(2 / step)))
+    // The contours: dips darker than the ramp either side of them.
+    const dips: number[] = []
+    for (let i = 3; i < row.length - 3; i++) {
+      const around = Math.max(row[i - 3], row[i + 3])
+      if (row[i] < around - 10 && row[i] <= Math.min(...row.slice(i - 2, i + 3))) dips.push(i)
+    }
+    // The foot's contour sits on the ramp's last sample: read one past it.
+    const tail = await lums(page, ray({ x: 18 - 3 * step, y: 13 }, { x: 1, y: 0 }, step, 8))
+    const footDip = Math.min(...tail.slice(1, 6)) < Math.max(tail[0], tail[7]) - 10
+    const contours = dips.filter((i, k) => k === 0 || i - dips[k - 1] > 3).length + (footDip && !dips.some((i) => i > row.length - 6) ? 1 : 0)
+    console.log(`ramp: ${row.filter((_, i) => i % 6 === 0).map((v) => v.toFixed(0)).join(' ')}; contours ${contours}`)
+    expect(contours).toBe(2)
+    // Off the contours, the ramp only darkens toward the foot, never by 12 or more a pixel.
+    const near = (i: number) => dips.some((d) => Math.abs(d - i) <= 4) || i >= row.length - 5
+    let worst = 0
+    for (let i = 0; i + 1 < row.length; i++) {
+      if (near(i) || near(i + 1)) continue
+      expect(row[i + 1], `at ${(i * step).toFixed(2)} cell`).toBeLessThanOrEqual(row[i] + 1.5)
+      worst = Math.max(worst, Math.abs(row[i + 1] - row[i]))
+    }
+    console.log(`largest step between neighbours ${worst.toFixed(1)}`)
+    expect(worst).toBeLessThan(12)
+    expect(row[0] - row[row.length - 8]).toBeGreaterThan(20)
     expect(errors).toEqual([])
   })
 })

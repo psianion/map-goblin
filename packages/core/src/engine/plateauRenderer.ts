@@ -1,8 +1,8 @@
 // Plateaus, drawn (plan §4.3), band by band, lowest first, in two of the layer's sublayers.
 // The tops (`plateauTops`, over the floor, under the paths) are a translucent lift over
 // whatever lies beneath (7 % a cell), so floor texture, terrain paint and floor borders show
-// through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as an
-// ink contour ring per cell of drop over a flat shade on the faces turned from the sun, its
+// through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as a
+// smooth ramp of shade, dark at the foot, with a thin ink contour per cell of drop, its
 // cliffs laid by the cave walk with the ledge kit, one ledge ring at any drop (void side = low
 // side, so a pit's rock faces in), and its openings across the gaps they cut: a road
 // runs under the ledge except where a landing or an opening opens it.
@@ -18,9 +18,15 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import {
   DROP_SHADE_ALPHA,
   DROP_SHADE_STEPS,
+  SLOPE_CONTOUR_ALPHA,
+  SLOPE_CONTOUR_WIDTH,
+  SLOPE_STEPS,
   blurStrengthFor,
+  contourOffsets,
   dropShadeWidth,
   nestedAlphas,
+  slopeBandAlpha,
+  slopeSunFactor,
 } from '../shared/plateauShade';
 import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
@@ -59,18 +65,6 @@ const INK = 0x2b2420;
 /** The cliff's top-edge line, cells wide. */
 const LINE = 0.04;
 const TOP_LINE_ALPHA = 0.5;
-/**
- * A slope's contour rings: ink lines one per cell of drop, 2 px wide at 1x (PixiRenderEngine
- * INITIAL_ZOOM, 20 px a cell).
- */
-export const CONTOUR_LINE = 2 / 20;
-const CONTOUR_ALPHA = 0.85;
-/**
- * How dark a slope face turned square from the sun is shaded at its foot; the shade steps up
- * ring by ring from the top, so the hill reads light at the top and dark at the foot. A face
- * turned to the sun is not shaded at all.
- */
-const SLOPE_SHADE = 0.45;
 /** How far past the cliff edge the ledge rock reaches on the low side, cells. */
 export const LEDGE_DEPTH = 0.475;
 /** A cliff with no ledge art to lay draws this ink edge instead, so it never reads as missing. */
@@ -96,8 +90,6 @@ const WASH_COLOR = 0xfff0d0;
 interface CliffSprite {
   /** A piece of rock, tinted by how its face turns to the light… */
   sprite?: Sprite;
-  /** A slope face's share of its full shade: deeper toward the foot. */
-  weight?: number;
   /** …or the light added over one face of it… */
   light?: Graphics;
   /** …or one face of a slope, shaded as it turns from the light. */
@@ -128,18 +120,13 @@ const grey = (k: number): number => {
   return (c << 16) | (c << 8) | c;
 };
 
-/** How dark a slope face turned to `normal` is shaded: none facing the light or without one. */
-export function slopeShade(normal: Vec, look: ShadowLook | null): number {
-  return (SLOPE_SHADE * (1 - faceShade(normal, look))) / (1 - SHADE_FLOOR);
-}
-
 /** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, weight, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
+  for (const { sprite, light, shade, normal } of cliffSprites.get(layerId) ?? []) {
     if (sprite && !sprite.destroyed) sprite.tint = mulColour(0xffffff, faceShade(normal, look));
     if (light && !light.destroyed) light.alpha = faceLight(normal, look);
-    if (shade && !shade.destroyed) shade.alpha = slopeShade(normal, look) * (weight ?? 1);
+    if (shade && !shade.destroyed) shade.alpha = slopeSunFactor(normal, look);
   }
 }
 
@@ -222,8 +209,8 @@ export function renderPlateaus(
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
     const runs = edgeRuns(band);
-    drawShade(holder, band, runs, plateaus.bands);
-    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(holder, run));
+    const soft = drawShade(holder, band, runs, plateaus.bands);
+    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run));
     for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
     drawOpenings(holder, layer, band, options);
     edges.addChild(holder);
@@ -243,22 +230,21 @@ function drawBandTop(parent: Container, band: PlateauBand): void {
 }
 
 /**
- * A slope, `slopeWidth × |drop|` wide on its low side: a flat shade on each face of it, dark
- * as the face turns from the sun (`shadeCliffs`), and an ink contour ring for each cell of
- * drop, the last at the slope's foot.
+ * A slope, `slopeWidth × |drop|` wide on its low side: a graded shade from none at its top to
+ * SLOPE_FOOT_SHADE black at its foot, laid in SLOPE_STEPS bands into `shade` (the band's
+ * blurred shade holder), each face of it lighter as it turns to the sun (`shadeCliffs`); and
+ * over it in `parent` one thin ink contour a cell of drop, evenly spaced, the last at the foot.
  */
-function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
+function drawSlope(shade: Container, parent: Container, run: EdgeRun): CliffSprite[] {
   const per = run.owner?.slopeWidth ?? 1;
-  const drop = Math.abs(run.drop);
-  const width = per * drop;
+  const width = per * Math.abs(run.drop);
   const side = lowSide(run.drop);
   const strip = buildEdgeStrips(sampleCentreline(sharp(run.points), run.closed, 0), width)[side];
-  const shade = new Container();
-  shade.label = 'plateau-slope';
+  const ramp = new Container();
+  ramp.label = 'plateau-slope';
   const faces: CliffSprite[] = [];
-  const cells = Math.max(1, Math.round(drop));
-  // Each sample is its inner and outer point; per stretch between two samples, one quad for
-  // each ring step across, shaded deeper the further down the slope it lies.
+  // Each sample is its inner and outer point; per stretch between two samples, one face of
+  // SLOPE_STEPS quads across, each shaded a step deeper toward the foot.
   const p = strip.positions;
   const across = (k: number, t: number): [number, number] => [p[k] + (p[k + 2] - p[k]) * t, p[k + 1] + (p[k + 3] - p[k + 1]) * t];
   for (let k = 0; k + 7 < p.length; k += 4) {
@@ -266,23 +252,25 @@ function drawSlope(parent: Container, run: EdgeRun): CliffSprite[] {
     const ny = (p[k + 3] + p[k + 7] - p[k + 1] - p[k + 5]) / 2;
     const len = Math.hypot(nx, ny);
     if (len < 1e-6) continue;
-    for (let r = 0; r < cells; r++) {
-      const t0 = r / cells;
-      const t1 = (r + 1) / cells;
-      const quad = [...across(k, t0), ...across(k + 4, t0), ...across(k + 4, t1), ...across(k, t1)];
-      const g = new Graphics().poly(quad).fill({ color: INK });
-      g.alpha = 0;
-      shade.addChild(g);
-      faces.push({ shade: g, normal: [nx / len, ny / len], weight: (r + 1) / cells });
+    const g = new Graphics();
+    for (let r = 0; r < SLOPE_STEPS; r++) {
+      const t0 = r / SLOPE_STEPS;
+      const t1 = (r + 1) / SLOPE_STEPS;
+      g.poly([...across(k, t0), ...across(k + 4, t0), ...across(k + 4, t1), ...across(k, t1)]).fill({
+        color: 0x000000,
+        alpha: slopeBandAlpha(r),
+      });
     }
+    ramp.addChild(g);
+    faces.push({ shade: g, normal: [nx / len, ny / len] });
   }
-  parent.addChild(shade);
+  shade.addChild(ramp);
   if (run.owner?.contourLines === false) return faces;
   const rings = new Container();
   rings.label = 'plateau-contours';
-  for (let k = 1; k <= cells; k++) {
-    const line = offsetLine(run, (k * width) / cells, side);
-    rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: CONTOUR_LINE, alpha: CONTOUR_ALPHA }));
+  for (const d of contourOffsets(run.drop, width)) {
+    const line = offsetLine(run, d, side);
+    rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: SLOPE_CONTOUR_WIDTH, alpha: SLOPE_CONTOUR_ALPHA }));
   }
   parent.addChild(rings);
   return faces;
