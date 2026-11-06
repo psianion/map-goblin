@@ -6,9 +6,8 @@
  * Tailwind reads the colours through tailwind.config.ts (`bg-panel`, `text-text-2`,
  * `border-line`, `ring-ink`); raw CSS reads them as `var(--panel)`.
  */
-/* IBM Plex Sans and Mono for the editor. Newsreader stays only because the home page title
-   and the modal titles in src/v2/v2.css still set it. */
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* IBM Plex Sans for words, IBM Plex Mono for numbers, keys, times and ids. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
   --bg: #f2f2f2;

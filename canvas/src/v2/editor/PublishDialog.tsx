@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { AlertCircle, X } from 'lucide-react';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/ui/dialog';
 import { usePublishFlow, type PublishChange } from '@/io/publishFlow';
 import { timeAgo } from '../format';
 import { useEscapeToClose } from '../useEscapeToClose';
@@ -45,9 +45,7 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogBackdrop className="v2-backdrop" />
-        <DialogContent className="v2-modal max-w-[420px] p-0">
+        <DialogContent className="v2-modal block w-full max-w-[420px] gap-0 p-0">
           <div
             data-v2-home=""
             data-testid="v2-publish-dialog"
@@ -189,7 +187,6 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             </div>
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }

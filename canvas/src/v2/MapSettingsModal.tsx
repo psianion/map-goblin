@@ -7,7 +7,7 @@ import {
   normalizeFixedSize,
   type CellScaleUnit,
 } from '@dnd/core/src/store/slices/mapSettings';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/ui/dialog';
 import { cn } from '@/lib/utils';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
@@ -122,9 +122,7 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogBackdrop className="v2-backdrop" />
-        <DialogContent className="v2-modal max-w-[440px] p-0">
+        <DialogContent className="v2-modal block w-full max-w-[440px] gap-0 p-0">
           <div
             data-v2-home=""
             data-testid="v2-map-settings-modal"
@@ -230,7 +228,6 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
             </div>
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }

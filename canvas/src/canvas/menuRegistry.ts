@@ -6,7 +6,7 @@
 // never on what the menu is for, so a new child kind means a new builder here
 // and nothing else.
 
-import type { MenuRow, MenuSubmenuRow } from '@/ui/context-menu'
+import type { MenuRow, MenuSubmenuRow } from '@/editor/RowMenu'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
 import {

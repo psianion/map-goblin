@@ -4,8 +4,8 @@ import { restoreLastDeletedMap } from '@dnd/core/src/store/slices/maps';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/ui/ConfirmDialog';
-import { ContextMenu, useContextMenu, type MenuRow } from '@/ui/context-menu';
+import { ConfirmDialog } from '@/editor/ConfirmDialog';
+import { ContextMenu, useContextMenu, type MenuRow } from '@/editor/RowMenu';
 import type { MapMeta } from '@/store/types';
 import { NewMapModal } from './NewMapModal';
 import { openMap } from './openMap';
@@ -244,7 +244,6 @@ export function HomeScreen({ onEnter }: HomeScreenProps) {
         title="Delete map?"
         message={`This will delete "${pendingName}" and everything on it.`}
         confirmLabel="Delete"
-        destructive
         onConfirm={confirmDelete}
       />
     </div>

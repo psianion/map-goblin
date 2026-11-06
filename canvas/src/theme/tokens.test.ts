@@ -47,7 +47,7 @@ function sourceFiles(fs: Fs, dir: string): string[] {
   });
 }
 
-// The Moss theme's colour names, its shadcn vocabulary, and its other utilities.
+// The Moss theme's colour names, its shadcn vocabulary, its other utilities, and its serif.
 const MOSS_COLOURS = [
   'surface-[0-3]', 'text-primary', 'text-secondary', 'text-muted', 'text-dim',
   'border-structure', 'border-default', 'border-subtle', 'border-focus',
@@ -61,7 +61,7 @@ const MOSS_CLASS = new RegExp(
   `(?<![\\w-])(?:bg|text|border|ring|ring-offset|outline|fill|stroke|divide|placeholder|from|via|to|shadow|caret|decoration)-(?:${MOSS_COLOURS})(?:/\\d+)?(?![\\w-])`,
   'g',
 );
-const MOSS_OTHER = /(?<![\w-])(?:gg-grain|gg-row|shadow-panel|font-display|text-(?:panel-(?:heading|label|body|small)|tab-label|strip-label))(?![\w-])/g;
+const MOSS_OTHER = /(?<![\w-])(?:gg-grain|gg-row|shadow-panel|font-display|text-(?:panel-(?:heading|label|body|small)|tab-label|strip-label)|Newsreader)(?![\w-])/g;
 
 describe('theme tokens', () => {
   it('defines the 16 tokens with the plan values, light on :root and dark on .dark', async () => {

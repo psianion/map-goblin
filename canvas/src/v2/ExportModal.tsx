@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { editorShowsLighting } from '@dnd/core/src/engine/editorDesk';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/ui/dialog';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { computeMapWorldBounds, runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
 import { MAX_EXPORT_PX, computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';
@@ -309,9 +309,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogBackdrop className="v2-backdrop" />
-        <DialogContent className="v2-modal max-w-[420px] p-0">
+        <DialogContent className="v2-modal block w-full max-w-[420px] gap-0 p-0">
           <div
             data-v2-home=""
             data-testid="v2-export-modal"
@@ -409,7 +407,6 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </div>
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }

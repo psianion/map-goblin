@@ -32,7 +32,7 @@ import { TERRAIN_PANEL_ID, type AnyChild, type DungeonLayer, type Layer, type Wa
 import { PropertyCommand, ReorderChildCommand, TerrainAppearanceCommand, UpdateWallCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { cn } from '@/lib/utils';
-import { ContextMenu, useContextMenu } from '@/ui/context-menu';
+import { ContextMenu, useContextMenu } from '@/editor/RowMenu';
 import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
 import { buildLayerTileMenu } from '@/canvas/menuRegistry';
 import { computeChildDragReorder } from '@/editor/childReorder';

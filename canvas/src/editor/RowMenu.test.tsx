@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ContextMenu, clampMenuPosition, type ContextMenuItem, type MenuRow } from './context-menu'
+import { ContextMenu, clampMenuPosition, type ContextMenuItem, type MenuRow } from './RowMenu'
 
 describe('ContextMenu', () => {
   const items: ContextMenuItem[] = [

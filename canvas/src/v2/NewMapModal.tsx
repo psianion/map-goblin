@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, FileText, FolderOpen, Image as ImageIcon, Layers, Map as MapIcon, Square, Upload, X } from 'lucide-react';
 import { normalizeFixedSize } from '@dnd/core/src/store/slices/mapSettings';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/ui/dialog';
 import { cn } from '@/lib/utils';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
@@ -342,9 +342,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
         onOpenChange(next);
       }}
     >
-      <DialogPortal>
-        <DialogBackdrop className="v2-backdrop" />
-        <DialogContent className="v2-modal max-w-[440px] p-0">
+        <DialogContent className="v2-modal block w-full max-w-[440px] gap-0 p-0">
           <div
             data-v2-home=""
             data-testid="v2-new-map-modal"
@@ -711,7 +709,6 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
             )}
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }

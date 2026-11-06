@@ -9,7 +9,7 @@ import { TERRAIN_PANEL_ID, type Layer } from '@/store/types';
 import { TerrainAppearanceCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { priorActiveLayerRef } from '@/editor/toolConstants';
-import { ContextMenu, useContextMenu } from '@/ui/context-menu';
+import { ContextMenu, useContextMenu } from '@/editor/RowMenu';
 import { buildLayerTileMenu } from '@/canvas/menuRegistry';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';

@@ -25,13 +25,13 @@ import {
 } from './menuRegistry';
 import { getAssetPackManager, resetAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import type { ManifestEntry, PackManifest } from '@dnd/core/src/engine/assetPackManager';
-import type { MenuSliderRow, MenuSubmenuRow, MenuSwatchesRow, MenuThumbStripRow, MenuToggleRow } from '@/ui/context-menu';
+import type { MenuSliderRow, MenuSubmenuRow, MenuSwatchesRow, MenuThumbStripRow, MenuToggleRow } from '@/editor/RowMenu';
 import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 import { groupSelection, mergeSelection } from './groupActions';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
 import { shortcutById } from '@/shortcuts/defaultShortcuts';
 import { formatCombo } from '@/shortcuts/formatCombo';
-import type { MenuRow, ContextMenuItem } from '@/ui/context-menu';
+import type { MenuRow, ContextMenuItem } from '@/editor/RowMenu';
 import type { AssetChild, DungeonLayer, LightChild, DoorChild, WallSegment } from '@/store/types';
 
 function layer(): DungeonLayer {

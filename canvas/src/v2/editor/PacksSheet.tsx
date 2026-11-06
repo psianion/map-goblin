@@ -7,7 +7,7 @@ import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import { refreshAssetTextures } from '@/engine/subscribeToAssets';
 import { propEntries } from '@dnd/core/src/assets/packCatalog';
-import { ConfirmDialog } from '@/ui/ConfirmDialog';
+import { ConfirmDialog } from '@/editor/ConfirmDialog';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { PackFileError, readPackFile } from '@/io/packFile';
@@ -421,7 +421,6 @@ export function PacksSheet({
             : ''
         }
         confirmLabel="Uninstall"
-        destructive
         onConfirm={() => {
           if (confirm) void uninstall(confirm.pack);
         }}

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { Dialog, DialogPortal, DialogBackdrop, DialogContent, DialogTitle } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/ui/dialog';
 import { useStore } from '@/store/store';
 import { SplitRoomCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
@@ -72,9 +72,7 @@ function SplitForm({ split, layer, room }: { split: PendingSplit; layer: Dungeon
 
   return (
     <Dialog open onOpenChange={(open) => !open && cancel()}>
-      <DialogPortal>
-        <DialogBackdrop className="v2-backdrop" />
-        <DialogContent className="v2-modal max-w-[520px] p-0">
+        <DialogContent className="v2-modal block w-full max-w-[520px] gap-0 p-0">
           <div
             data-v2-home=""
             data-testid="v2-split-dialog"
@@ -151,7 +149,6 @@ function SplitForm({ split, layer, room }: { split: PendingSplit; layer: Dungeon
             </div>
           </div>
         </DialogContent>
-      </DialogPortal>
     </Dialog>
   );
 }
