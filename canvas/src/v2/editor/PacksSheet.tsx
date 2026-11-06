@@ -6,6 +6,7 @@ import type { PackSummary, PackUpdateInfo, PackUpdateState } from '@/store/types
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import { refreshAssetTextures } from '@/engine/subscribeToAssets';
+import { propEntries } from '@dnd/core/src/assets/packCatalog';
 import { ConfirmDialog } from '@/ui/ConfirmDialog';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -18,7 +19,8 @@ import './packs.css';
 /*
  * The Packs sheet: every installed pack with its version, size and where it came from,
  * Check updates and Update, Uninstall for a pack installed from a file, and Install from
- * file (the picker, or a .zip dropped on the sheet).
+ * file (the picker, or a .zip dropped on the sheet). A pack's menu opens its props in the
+ * Props sheet.
  */
 
 const MB = 1024 * 1024;
@@ -141,18 +143,22 @@ function PackRow({
   update,
   state,
   onUninstall,
+  onBrowseProps,
 }: {
   pack: PackSummary;
   update?: PackUpdateInfo;
   state?: PackUpdateState;
   onUninstall: (pack: PackSummary) => void;
+  onBrowseProps?: (packId: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [details, setDetails] = useState(false);
   const moreRef = useRef<HTMLButtonElement>(null);
   const entries = getAssetPackManager().getInstalledPacks().find((p) => p.packId === pack.packId)?.entryCount ?? 0;
   const busy = state?.status === 'running';
+  const hasProps = !!onBrowseProps && propEntries().some((e) => e.packId === pack.packId);
   const menu: FloatMenuEntry[] = [
+    ...(hasProps ? [{ label: 'Browse props', onSelect: () => onBrowseProps?.(pack.packId) }] : []),
     { label: details ? 'Hide details' : 'Details', onSelect: () => setDetails((d) => !d) },
     'divider',
     {
@@ -195,7 +201,16 @@ function PackRow({
 }
 
 /** The sheet: header actions, the rows, and the cache line. */
-export function PacksSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function PacksSheet({
+  open,
+  onClose,
+  onBrowseProps,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Opens the Props sheet on one pack; absent, the rows offer no Browse props. */
+  onBrowseProps?: (packId: string) => void;
+}) {
   const { installedPacks, availableUpdates, isChecking, updateCheckError, activeUpdate } = useStore(
     useShallow((s) => ({
       installedPacks: s.packs.installedPacks,
@@ -385,6 +400,7 @@ export function PacksSheet({ open, onClose }: { open: boolean; onClose: () => vo
                 update={updates.get(pack.packId)}
                 state={activeUpdate?.packId === pack.packId ? activeUpdate : undefined}
                 onUninstall={askUninstall}
+                onBrowseProps={onBrowseProps}
               />
             ))}
           </ul>

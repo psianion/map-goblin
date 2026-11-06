@@ -221,6 +221,15 @@
   align-self: flex-start;
   height: 22px;
 }
+.v2-pbrowse__packs {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.v2-pbrowse__packs button {
+  white-space: nowrap;
+}
 .v2-pbrowse__main {
   flex: 1;
   min-height: 0;
