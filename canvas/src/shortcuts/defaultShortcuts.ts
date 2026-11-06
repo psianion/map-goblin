@@ -807,6 +807,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
   { id: 'tool.plateau', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Plateau', run: () => pickTool('plateau', 'Plateau') },
   { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
+  // The terrain brush's size, as the wheel steps it: [ smaller, ] larger.
+  { id: 'tool.terrainSize', combo: '[', group: 'Tools', scope: 'tool:terrain', label: 'Brush size', run: toTool },
+  { id: 'tool.terrainSize', combo: ']', group: 'Tools', scope: 'tool:terrain', label: 'Brush size', run: toTool },
   // Walls.
   { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
   { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },

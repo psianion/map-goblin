@@ -1,9 +1,9 @@
 // The registry: every family, tool, setting and card as data, and the lookups the
-// surfaces render from. Families register here as they move over (steps 7, 10 to 14).
+// surfaces render from. Families register in families/index.ts; Select sits on the rail.
 
 import { RAIL_TOOLS } from './rail';
 import { SHARED_SETTINGS } from './shared';
-import { DESIGN_CARDS, design } from '@/editor/families/design';
+import { cards, families } from '@/editor/families';
 import type { CardDef, FamilyDef, Home, ObjectKind, SettingDef, ToolDef } from './types';
 
 export * from './types';
@@ -48,9 +48,6 @@ export function createRegistry(input: RegistryInput): Registry {
     settingsByHome: (toolId, home) => (toolMap.get(toolId)?.settings ?? []).filter((s) => s.home === home),
   };
 }
-
-const families: FamilyDef[] = [design];
-const cards: CardDef[] = [...DESIGN_CARDS];
 
 export const registry = createRegistry({ rail: RAIL_TOOLS, families, shared: SHARED_SETTINGS, cards });
 

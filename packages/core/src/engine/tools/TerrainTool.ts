@@ -8,6 +8,7 @@ import { getTerrainRenderer, TERRAIN_EXTENT_HALF } from '../terrain/TerrainRende
 import { TerrainStrokeCommand } from '../terrain/terrainCommands';
 import { drawTerrainBrushDisc } from '../terrain/terrainBrushPreview';
 import { notify } from '../../shared/notify';
+import { TERRAIN_BRUSH_RANGES } from '../../store/slices/tools';
 
 /** Stamp spacing along a drag, as a fraction of brush radius. */
 const STAMP_SPACING = 0.35;
@@ -133,7 +134,23 @@ export class TerrainTool implements DrawingTool {
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       this.cancel();
+    } else if (event.key === '[' || event.key === ']') {
+      this.resize(event.key === ']' ? 1 : -1);
     }
+  }
+
+  /** The wheel sizes the brush, a step a notch, up grows, as [ and ] do. */
+  onWheel(e: WheelEvent, world: Point): boolean {
+    const delta = e.deltaY || e.deltaX;
+    if (delta !== 0) this.resize(delta < 0 ? 1 : -1);
+    this.drawBrushPreview(world);
+    return true;
+  }
+
+  /** One size step up or down; the store clamps it to the brush's range. */
+  private resize(dir: 1 | -1): void {
+    const s = this.settings();
+    useStore.getState().updateTerrainBrushSettings({ radius: s.radius + dir * TERRAIN_BRUSH_RANGES.radius.step });
   }
 
   private drawBrushPreview(p: Point): void {

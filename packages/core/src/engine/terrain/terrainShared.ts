@@ -151,3 +151,63 @@ export function splatRegionsEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
+
+// ─── A stroke, as one composite over the pre-stroke splats ───────────────
+
+/** The colour each slot's weight is written in, within its map: red, green, blue. */
+export const CHANNEL_TINTS = [0xff0000, 0x00ff00, 0x0000ff] as const;
+
+/**
+ * One draw of the stroke's coverage mask onto a splat map, over that map's pre-stroke copy.
+ * Blends are premultiplied, as on the GPU: `normal` is src + dst × (1 − srcA), `add` is
+ * src + dst, `erase` is dst × (1 − srcA); src is `tint` × coverage × `alpha`.
+ */
+export interface StrokePass {
+  map: SplatMapIndex;
+  blend: 'normal' | 'add' | 'erase';
+  tint: number;
+  alpha: number;
+}
+
+/**
+ * The passes a stroke lays over the splats it started from. Strength is the stroke's
+ * ceiling, not a per-stamp flow: every stamp only widens the coverage mask, and the
+ * splats are re-laid from their pre-stroke copy as a lerp towards the slot by
+ * strength × coverage. Stamps of one drag overlap five or six deep, so a per-stamp flow
+ * compounded to full weight within a single drag at any strength; a ceiling keeps 0.3
+ * at 0.3, and a second stroke builds on the first.
+ *
+ * Painting lerps the slot's channel towards 1 and every other channel towards 0; erase
+ * lerps every channel, and the brush tint, towards 0 (back to the floor's own texture).
+ */
+export function strokePasses(slot: number, strength: number, erase: boolean): StrokePass[] {
+  const alpha = Math.min(1, Math.max(0, strength));
+  const decay = (map: SplatMapIndex): StrokePass => ({ map, blend: 'normal', tint: 0x000000, alpha });
+  if (erase) return [decay(0), decay(1), { map: TINT_MAP_INDEX, blend: 'erase', tint: 0xffffff, alpha }];
+  const target = (Math.floor(slot / 3) === 0 ? 0 : 1) as SplatMapIndex;
+  return [decay(0), decay(1), { map: target, blend: 'add', tint: CHANNEL_TINTS[slot % 3], alpha }];
+}
+
+/** One texel of the three splat maps, each RGBA in 0 to 1. */
+export type SplatTexel = [number, number, number, number][];
+
+/**
+ * What the GPU composite writes for one texel: `passes` over its pre-stroke value, at the
+ * stroke's coverage there (0 to 1). The renderer draws exactly these passes; this is the
+ * same arithmetic on the CPU, for tests.
+ */
+export function compositeTexel(before: SplatTexel, passes: readonly StrokePass[], coverage: number): SplatTexel {
+  const out = before.map((px) => [...px] as [number, number, number, number]);
+  for (const p of passes) {
+    const a = p.alpha * coverage;
+    const src = [(p.tint >> 16) & 0xff, (p.tint >> 8) & 0xff, p.tint & 0xff].map((c) => (c / 255) * a);
+    const px = out[p.map];
+    for (let i = 0; i < 4; i++) {
+      const s = i < 3 ? src[i] : a;
+      if (p.blend === 'normal') px[i] = s + px[i] * (1 - a);
+      else if (p.blend === 'add') px[i] = Math.min(1, s + px[i]);
+      else px[i] = px[i] * (1 - a);
+    }
+  }
+  return out;
+}
