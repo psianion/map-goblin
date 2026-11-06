@@ -9,6 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { z } from 'zod';
 import type { useStore } from '@/store/store';
 import type { HintSegment } from '@/editor/statusHints';
+import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
 import type { AnyChild, ChildType, Room, ToolType, WallSegment } from '@/store/types';
 import type { createDefaultState } from '@/store/factories';
 
@@ -136,6 +137,8 @@ export interface ToolDef {
    * picked: Select's card host. A tool without one keeps its panel whatever is picked.
    */
   selectionPanel?: ComponentType;
+  /** Opens the asset library on this kind when the tool comes into hand (the Objects tools). */
+  opensAssets?: AssetTypeFilter;
 }
 
 export interface FamilyDef {

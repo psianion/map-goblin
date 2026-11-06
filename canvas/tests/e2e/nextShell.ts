@@ -16,8 +16,8 @@ const WARREN = JSON.parse(
 export const VIEWPORT = { width: 1400, height: 1000 }
 
 /** The new shell on the warren, Select in hand, nothing picked, the map fitted. */
-export async function openNext(page: Page, theme: 'light' | 'dark' = 'light'): Promise<void> {
-  await page.setViewportSize(VIEWPORT)
+export async function openNext(page: Page, theme: 'light' | 'dark' = 'light', viewport = VIEWPORT): Promise<void> {
+  await page.setViewportSize(viewport)
   await page.addInitScript((t) => localStorage.setItem('v2-theme', t), theme)
   await page.goto('/next?e2e=1')
   await waitForBoot(page)

@@ -217,7 +217,7 @@ const objects = defineFamily({
   label: 'Objects',
   icon: Box,
   key: 'O',
-  tools: [simple({ id: 'stamp', label: 'Stamp', description: 'Place one prop at a time', icon: Stamp, key: 'S', engine: ['scatterBrush'], settings: [], hint: 'Click to place' })],
+  tools: [{ ...simple({ id: 'stamp', label: 'Stamp', description: 'Place one prop at a time', icon: Stamp, key: 'S', engine: ['scatterBrush'], settings: [], hint: 'Click to place' }), opensAssets: 'object' }],
 });
 
 const environment = defineFamily({

@@ -16,6 +16,9 @@ import { toolForEngine } from '@/editor/surfaces/hooks';
 import { RAIL_W, Rail } from '@/editor/surfaces/Rail';
 import { SheetHost } from '@/editor/surfaces/Sheet';
 import { Slot } from '@/editor/surfaces/Slot';
+import { AssetPanel } from '@/editor/surfaces/AssetPanel';
+import { chipFor } from '@/editor/surfaces/assetModel';
+import { toolToTypeFilter } from '@/editor/assetTypeFilter';
 import { StatusBar } from '@/editor/surfaces/StatusBar';
 import { Tip } from '@/editor/surfaces/Tip';
 import { TitleCard } from '@/editor/surfaces/TitleCard';
@@ -27,13 +30,19 @@ import { resetShell, useShell } from './shellStore';
 /** Air between the map and the chrome around it when the map is fitted. */
 const FIT_PAD = 32;
 
-/** Remembers the last family tool in hand, which the dock keeps while Select is up. */
+/**
+ * Remembers the last family tool in hand, which the dock keeps while Select is up, and opens
+ * the asset library for a tool that asks for it.
+ */
 function useLastFamilyTool(registry: Registry) {
-  const engine = useStore((s) => s.tools.activeTool);
+  // The registry tool, not the core one: Floor's shape row changes the core tool, not the tool.
+  const toolId = useStore((s) => toolForEngine(registry, s.tools.activeTool)?.id);
   useEffect(() => {
-    const tool = toolForEngine(registry, engine);
+    const tool = toolId ? registry.toolById(toolId) : undefined;
     if (tool && registry.familyOfTool(tool.id)) useShell.getState().setLastTool(tool.id);
-  }, [registry, engine]);
+    // A tool that works from the library opens it as it comes into hand.
+    if (tool?.opensAssets) useShell.getState().openAssets(chipFor(tool.opensAssets));
+  }, [registry, toolId]);
 }
 
 /**
@@ -62,11 +71,11 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
     };
   }, []);
 
-  // From library and a card's texture Change open the asset panel; until it is built they
-  // only say so in development.
+  // From library in the dock and a card's texture Change open the asset panel; with no kind
+  // asked for, it opens on what the tool in hand uses.
   useEffect(() => {
     openAssetsRef.current = (type) => {
-      if (import.meta.env.DEV) console.info('[shell] the asset panel is not built yet', type ?? 'any');
+      useShell.getState().openAssets(chipFor(type ?? toolToTypeFilter(useStore.getState().tools.activeTool)));
     };
     return () => {
       openAssetsRef.current = null;
@@ -156,6 +165,7 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
         <StatusBar />
         <FloatingActions />
         <SheetHost />
+        <AssetPanel />
         <Tip />
       </div>
     </RegistryProvider>
