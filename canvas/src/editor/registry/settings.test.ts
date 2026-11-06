@@ -19,9 +19,9 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('setSetting', () => {
   it('writes a value that parses into the core field and reads it back', () => {
-    expect(settings.setSetting('fixture.sides', 6)).toBe(true);
-    expect(tools().settings.regularPolygon.sides).toBe(6);
-    expect(settings.getSetting('fixture.sides')).toBe(6);
+    expect(settings.setSetting('fixture.sides', 7)).toBe(true);
+    expect(tools().settings.regularPolygon.sides).toBe(7);
+    expect(settings.getSetting('fixture.sides')).toBe(7);
 
     expect(settings.setSetting('fixture.scaleRange', [0.5, 2])).toBe(true);
     expect(tools().settings.scatterBrush.scaleRange).toEqual([0.5, 2]);
@@ -31,7 +31,7 @@ describe('setSetting', () => {
     expect(settings.setSetting('fixture.sides', 2)).toBe(false);
     expect(settings.setSetting('fixture.sides', 'six')).toBe(false);
     expect(settings.setSetting('fixture.scaleRange', [2, 1])).toBe(false);
-    expect(tools().settings.regularPolygon.sides).toBe(4);
+    expect(tools().settings.regularPolygon.sides).toBe(6);
     expect(tools().settings.scatterBrush.scaleRange).toEqual([0.8, 1.2]);
   });
 
@@ -71,7 +71,7 @@ describe('resetTool', () => {
     settings.setSetting('fixture.secret', true);
     settings.setSetting('fixture.scaleRange', [1, 3]);
     settings.resetTool('fixture');
-    expect(settings.getSetting('fixture.sides')).toBe(4);
+    expect(settings.getSetting('fixture.sides')).toBe(6);
     expect(settings.getSetting('fixture.secret')).toBe(false);
     expect(settings.getSetting('fixture.scaleRange')).toEqual([0.8, 1.2]);
   });

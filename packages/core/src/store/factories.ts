@@ -128,7 +128,7 @@ export function createDefaultState(): MapBuilderState {
       curveMode: false,
       settings: {
         brushRadius: 0.5,
-        regularPolygon: { sides: 4 },
+        regularPolygon: { sides: 6 },
         wallType: 'normal' as const,
         wallDirection: 'both' as const,
         wallWidth: 0.5,

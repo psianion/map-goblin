@@ -1,7 +1,7 @@
 // `/next`: the new shell over the same canvas, store and map as the editor at `/`, so the
 // two can be compared side by side. Development only (main.tsx guards it); it renders the
-// stub registry until the real families land. The v2 styles load because the sheets that
-// come over as they are still use them.
+// real families that have landed and the stub registry for the rest. The v2 styles load
+// because the sheets that come over as they are still use them.
 
 import { useEffect } from 'react';
 import { EditorHost, type EditorChromeProps } from '@/editor/EditorHost';
@@ -12,7 +12,9 @@ import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRo
 import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { EditorShell } from './EditorShell';
 import { useShell } from './shellStore';
-import { stubRegistry } from './stub/stubRegistry';
+import { createRegistry } from '@/editor/registry';
+import { DESIGN_CARDS, design } from '@/editor/families/design';
+import { stubInput } from './stub/stubRegistry';
 import '@/v2/v2.css';
 import '@/v2/editor/v2-editor.css';
 
@@ -31,8 +33,15 @@ function deskFromTokens(): EditorDesk {
   return readDesk((name) => css.getPropertyValue(name), document.documentElement.classList.contains('dark'));
 }
 
+// The families that have landed replace their stubs; the rest stay stubbed.
+const nextRegistry = createRegistry({
+  ...stubInput,
+  families: stubInput.families.map((f) => (f.id === design.id ? design : f)),
+  cards: [...DESIGN_CARDS],
+});
+
 function NextChrome(props: EditorChromeProps) {
-  return <EditorShell {...props} registry={stubRegistry} />;
+  return <EditorShell {...props} registry={nextRegistry} />;
 }
 
 export function NextRoute() {

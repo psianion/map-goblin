@@ -3,6 +3,7 @@
 
 import { RAIL_TOOLS } from './rail';
 import { SHARED_SETTINGS } from './shared';
+import { DESIGN_CARDS, design } from '@/editor/families/design';
 import type { CardDef, FamilyDef, Home, ObjectKind, SettingDef, ToolDef } from './types';
 
 export * from './types';
@@ -48,8 +49,8 @@ export function createRegistry(input: RegistryInput): Registry {
   };
 }
 
-const families: FamilyDef[] = [];
-const cards: CardDef[] = [];
+const families: FamilyDef[] = [design];
+const cards: CardDef[] = [...DESIGN_CARDS];
 
 export const registry = createRegistry({ rail: RAIL_TOOLS, families, shared: SHARED_SETTINGS, cards });
 

@@ -99,7 +99,7 @@ describe('the rules, proven on a fixture', () => {
     [
       'a default disagrees with the core default',
       'binding',
-      () => withTool({ settings: [edit(sides, { default: 6 })] }),
+      () => withTool({ settings: [edit(sides, { default: 5 })] }),
     ],
     [
       'a setting has neither path nor bind',

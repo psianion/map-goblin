@@ -11,7 +11,7 @@ export const sides = defineSetting<number>({
   id: 'fixture.sides',
   label: 'Sides',
   schema: z.number().int().min(3).max(32),
-  default: 4,
+  default: 6,
   home: 'dock',
   control: 'stepper',
   range: { min: 3, max: 32, step: 1 },
