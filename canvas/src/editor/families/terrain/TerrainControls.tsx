@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Slider } from '@/ui/slider';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
-import { pickTerrainSlotTexture, TERRAIN_SLOT_COUNT } from '@/v2/editor/assetStrip';
+import { pickTerrainSlotTexture, TERRAIN_SLOT_COUNT } from '@/editor/models/assetStrip';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { isHex8 } from './colour';
 

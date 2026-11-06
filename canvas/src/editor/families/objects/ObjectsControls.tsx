@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Slider } from '@/ui/slider';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
-import { pickAssetForTool, propCandidates } from '@/v2/editor/assetStrip';
+import { pickAssetForTool, propCandidates } from '@/editor/models/assetStrip';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { RANDOM, variantStep } from './variant';
 

@@ -9,7 +9,7 @@ import { polylineLength } from '@dnd/core/src/shared/wallResolve';
 import { wallTypeGroup, GROUP_WALL_TYPE, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
 import { defineCard, defineCardField } from '@/editor/registry/define';
-import { WALL_TYPE_CHOICES } from '@/v2/editor/selectionModel';
+import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
 import { editWalls } from './cardWrites';
 import { EDITABLE_VERBS } from './verbs';
 import { LAYER_SET, NO_SET } from './wallLook';

@@ -12,7 +12,7 @@ import { doorwayEditCommand } from '@dnd/core/src/store/doorwayCommands';
 import { doorAngleValue, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorKitById, isKitStyle, MAX_OPEN_ANGLE, type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { defineCard, defineCardField } from '@/editor/registry/define';
-import { cleanDoorName, DOOR_HINGES, DOOR_STATES, DOOR_SWINGS, doorModel, doorStyleChange, OPEN_ANGLE_STEP, swingChoice, swingValue, type DoorMaterial } from '@/v2/editor/selectionModel';
+import { cleanDoorName, DOOR_HINGES, DOOR_STATES, DOOR_SWINGS, doorModel, doorStyleChange, OPEN_ANGLE_STEP, swingChoice, swingValue, type DoorMaterial } from '@/editor/models/selectionModel';
 import { editChildren, editKey, runEdit } from './cardWrites';
 import { SELECTION_VERBS } from './verbs';
 import { doorDeg, doorHost, installedDoorKits, liveKit, state } from './doorModel';

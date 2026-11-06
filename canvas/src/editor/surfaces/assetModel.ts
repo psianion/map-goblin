@@ -13,7 +13,7 @@ import {
 } from '@dnd/core/src/assets/packCatalog';
 import type { Layer } from '@/store/types';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
-import { categoryLabel, familyTiles, searchProps, usedOnMap } from '@/v2/editor/propLibrary';
+import { categoryLabel, familyTiles, searchProps, usedOnMap } from '@/editor/models/propLibrary';
 
 export type AssetChip = 'textures' | 'props' | 'walls' | 'paths' | 'lights';
 

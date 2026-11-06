@@ -12,6 +12,7 @@ export const SHEET_W = 320;
  */
 export function SheetFrame({
   title,
+  path,
   onClose,
   children,
   footer,
@@ -20,6 +21,8 @@ export function SheetFrame({
   testId,
 }: {
   title: string;
+  /** Crumbs before the title: a room's key reads "Rooms / 3 Crypt / Key". */
+  path?: string[];
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
@@ -38,7 +41,7 @@ export function SheetFrame({
       role="complementary"
       aria-label={title}
     >
-      <PanelHeader title={title}>
+      <PanelHeader path={path} title={title}>
         {actions}
         <IconKeyButton size={26} icon={X} label={`Close ${title}`} onClick={onClose} />
       </PanelHeader>

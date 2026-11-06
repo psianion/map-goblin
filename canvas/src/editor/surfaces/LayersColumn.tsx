@@ -16,9 +16,9 @@ import { buildLayerTileMenu } from '@/canvas/menuRegistry';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { layerObjectCount } from '@dnd/core/src/store/layerCommands';
-import { TERRAIN_THUMB, startLayerThumbs, useLayerThumb } from '@/v2/editor/layerThumbs';
-import { disposeLayerThumbRenderer, renderLayerThumb } from '@/v2/editor/layerThumbRender';
-import { layerOnLevel } from '@/v2/editor/roomModel';
+import { TERRAIN_THUMB, startLayerThumbs, useLayerThumb } from '@/editor/models/layerThumbs';
+import { disposeLayerThumbRenderer, renderLayerThumb } from '@/editor/models/layerThumbRender';
+import { layerOnLevel } from '@/editor/models/roomModel';
 import { useDropTarget } from '@/v2/editor/dropToLayer';
 import {
   addLayerOnShownLevel,
@@ -31,8 +31,8 @@ import {
   toggleLayerLocked,
   toggleLayerVisible,
   toggleSolo,
-} from '@/v2/editor/layerActions';
-import { checkRename } from '@/v2/editor/layerSheetModel';
+} from '@/editor/models/layerActions';
+import { checkRename } from '@/editor/models/layerSheetModel';
 import { useShell } from '@/editor/shell/shellStore';
 import { RenameDialog } from './RenameDialog';
 

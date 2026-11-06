@@ -3,7 +3,7 @@
 import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
 import type { MapBuilderStore, ShapeChild } from '@/store/types';
-import { radToDeg } from '@/v2/editor/selectionModel';
+import { radToDeg } from '@/editor/models/selectionModel';
 
 export const state = () => useStore.getState() as MapBuilderStore;
 

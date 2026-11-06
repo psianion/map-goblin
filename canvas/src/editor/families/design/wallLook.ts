@@ -6,7 +6,7 @@ import { LayerWallLookCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { MapBuilderStore, RoomLook } from '@/store/types';
 import type { EditorState } from '@/editor/registry/types';
-import { resolvedLookOf, selectedLookTarget, setLook } from '@/v2/editor/roomLook';
+import { resolvedLookOf, selectedLookTarget, setLook } from '@/editor/models/roomLook';
 import { activeDungeonLayer } from './layerStyle';
 
 type WallKey = 'wallWidth' | 'wallTextureTint' | 'wallTextureSetId';

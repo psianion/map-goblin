@@ -79,3 +79,99 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
   await expect.poll(async () => (await counts(page)).rooms).toBe(before.rooms)
   expect(errors).toEqual([])
 })
+
+/** The warren's rooms in list order (by number), and a room's key. */
+const roomOrder = (page: Page) =>
+  page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const layer = st.layers.find((l: Any) => l.type === 'dungeon' && (l.rooms?.length ?? 0) > 1)
+    return [...layer.rooms].sort((a: Any, b: Any) => (a.number ?? 0) - (b.number ?? 0)).map((r: Any) => r.id as string)
+  })
+const readAloud = (page: Page, roomId: string) =>
+  page.evaluate((id) => {
+    const prep = (window as Any).__store.getState().prep
+    return (prep?.rooms ?? []).find((k: Any) => k.roomId === id)?.readAloud ?? ''
+  }, roomId)
+
+// The Text family's sheets: a room's key opened from its card and written, then the Rooms
+// list behind it with two rooms reordered by dragging, each undone; a zone's sheet from More
+// on its card, a trigger added, and the zone renamed there and undone (triggers are prep,
+// outside the undo stack).
+test('text: the rooms list keys and reorders rooms, the zone sheet adds a trigger, undo', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openNext(page)
+  const undo = page.getByTestId('shell-top-actions').getByRole('button', { name: 'Undo' })
+  const order = await roomOrder(page)
+  expect(order.length).toBeGreaterThan(2)
+
+  // The room's card opens its key in the Rooms sheet; the read-aloud writes on leaving the field.
+  await page.evaluate((id) => (window as Any).__store.getState().setSelectedIds([id]), order[0])
+  await page.getByRole('button', { name: 'Open room key' }).click()
+  const sheet = page.getByTestId('shell-rooms-sheet')
+  await expect(sheet.getByTestId('room-key-editor')).toBeVisible()
+  const field = sheet.getByRole('textbox', { name: 'Read-aloud' })
+  await field.fill('Spores hang in the air.')
+  await field.blur()
+  await expect.poll(() => readAloud(page, order[0])).toBe('Spores hang in the air.')
+  await undo.click()
+  await expect.poll(() => readAloud(page, order[0])).toBe('')
+  await expect(field).toHaveValue('')
+
+  // Back to the list: every room on the level, in number order.
+  await sheet.getByRole('button', { name: 'Back to rooms' }).click()
+  const rows = sheet.getByTestId('rooms-row')
+  await expect(rows).toHaveCount(order.length)
+
+  // Drag the first row below the second: a pointer drag, the second row's lower half.
+  const first = await rows.nth(0).boundingBox()
+  const second = await rows.nth(1).boundingBox()
+  await page.mouse.move(first!.x + 60, first!.y + first!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(first!.x + 60, first!.y + first!.height / 2 + 8, { steps: 2 })
+  await page.mouse.move(second!.x + 60, second!.y + second!.height * 0.8, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(() => roomOrder(page)).toEqual([order[1], order[0], ...order.slice(2)])
+  await expect(rows.nth(0)).toHaveAttribute('data-room-id', order[1])
+  await page.mouse.move(700, 900)
+  await shot(page, '14b-rooms-sheet')
+  await undo.click()
+  await expect.poll(() => roomOrder(page)).toEqual(order)
+  await expect(rows.nth(0)).toHaveAttribute('data-room-id', order[0])
+  await sheet.getByRole('button', { name: 'Close Rooms' }).click()
+  await expect(sheet).toHaveCount(0)
+
+  // The zone's sheet from More on its card: add a trigger, rename the zone, undo the name.
+  const zone = await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const z = st.layers.flatMap((l: Any) => l.children ?? []).find((c: Any) => c.childType === 'zone')
+    st.setSelectedIds([z.id])
+    return { id: z.id as string, name: z.name as string }
+  })
+  await page.getByRole('button', { name: 'More…' }).click()
+  const zoneSheet = page.getByTestId('shell-zone-sheet')
+  await expect(zoneSheet).toBeVisible()
+  await zoneSheet.getByRole('button', { name: 'Add trigger' }).click()
+  const trigger = zoneSheet.getByTestId('zone-trigger')
+  await expect(trigger).toHaveCount(1)
+  await expect(trigger.getByRole('textbox', { name: 'Trigger name' })).toBeVisible()
+  expect(
+    await page.evaluate((id) => {
+      const prep = (window as Any).__store.getState().prep
+      return (prep?.triggers ?? []).filter((t: Any) => t.when.zoneId === id).length
+    }, zone.id),
+  ).toBe(1)
+  await page.mouse.move(700, 900)
+  await shot(page, '14b-zone-sheet')
+
+  const name = zoneSheet.getByRole('textbox', { name: 'Zone name' })
+  await name.fill('Ore seam')
+  await name.press('Enter')
+  const zoneName = () =>
+    page.evaluate((id) => (window as Any).__store.getState().layers.flatMap((l: Any) => l.children ?? []).find((c: Any) => c.id === id).name, zone.id)
+  await expect.poll(zoneName).toBe('Ore seam')
+  await undo.click()
+  await expect.poll(zoneName).toBe(zone.name)
+  await expect(name).toHaveValue(zone.name)
+  expect(errors).toEqual([])
+})

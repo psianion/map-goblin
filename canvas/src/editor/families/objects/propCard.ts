@@ -12,7 +12,7 @@ import type { AssetChild, Command } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { SELECTION_VERBS } from '@/editor/families/select';
 import { editKey, runEdit } from '@/editor/families/design/cardWrites';
-import { propBoxModel } from '@/v2/editor/selectionModel';
+import { propBoxModel } from '@/editor/models/selectionModel';
 import { boxOf, pickedProps, type BoxValue } from './propModel';
 import { OrderField, TransformField, VariantField } from './PropFields';
 

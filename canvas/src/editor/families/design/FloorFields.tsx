@@ -7,7 +7,7 @@ import type { DungeonLayer } from '@/store/types';
 import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
-import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/v2/editor/selectionModel';
+import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren } from './cardWrites';
 import { openAssets } from './openAssets';
 import { pickedFloors, type FillValue } from './floorModel';

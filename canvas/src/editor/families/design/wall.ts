@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { GROUP_WALL_TYPE, wallTypeGroup, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
-import { WALL_TYPE_CHOICES } from '@/v2/editor/selectionModel';
+import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
 import { WallWidthControl } from './controls';
 import { wallLookValue, setWallLook } from './wallLook';
 import { WallLook } from './LookColumn';

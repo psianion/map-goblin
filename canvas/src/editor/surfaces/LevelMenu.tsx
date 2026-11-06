@@ -16,9 +16,9 @@ import {
 import { useStore } from '@/store/store';
 import { RenameLevelCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { addLevelWithLayer } from '@/v2/editor/roomActions';
-import { layerOnLevel } from '@/v2/editor/roomModel';
-import { moveLayerToLevel, reorderLevel } from '@/v2/editor/layerActions';
+import { addLevelWithLayer } from '@/editor/models/roomActions';
+import { layerOnLevel } from '@/editor/models/roomModel';
+import { moveLayerToLevel, reorderLevel } from '@/editor/models/layerActions';
 import { LevelDeleteDialog } from '@/v2/editor/LevelDeleteDialog';
 import { useShell } from '@/editor/shell/shellStore';
 import { RenameDialog } from './RenameDialog';

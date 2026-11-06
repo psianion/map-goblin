@@ -12,7 +12,7 @@ import { defineCard, defineCardField } from '@/editor/registry/define';
 import type { CardFieldDef, EditorState, Verb } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
 import { editKey, runEdit } from '@/editor/families/design/cardWrites';
-import { nearestProp } from '@/v2/editor/lightModel';
+import { nearestProp } from './lightModel';
 import { FeetRow } from './LightControls';
 import {
   CONE_RANGE,

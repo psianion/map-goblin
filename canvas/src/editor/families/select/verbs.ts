@@ -19,7 +19,7 @@ import type { MapBuilderStore } from '@/store/types';
 import { openCanvasMenuRef, type CanvasMenuPayload } from '@/editor/canvasMenuRef';
 import { runSelectionVerb, type SelectionVerb } from '@/shortcuts/defaultShortcuts';
 import type { EditorState, Verb } from '@/editor/registry/types';
-import { cardActions, type CardAction } from '@/v2/editor/cardModels';
+import { cardActions, type CardAction } from './cardModels';
 
 function offers(state: EditorState, action: CardAction): boolean {
   const s = state as MapBuilderStore;

@@ -12,11 +12,11 @@ import { Caption, ColourRow, InputRow, SecondaryButton, SelectRow, SettingRow, S
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
-import { chainOf, lookGesture, resolvedLookOf, setLook, type LookTarget } from '@/v2/editor/roomLook';
-import { FLOOR_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/v2/editor/roomModel';
-import { installedWallSets, wallSetLabel, wallWidthIgnored } from '@/v2/editor/assetStrip';
-import { shortTextureName } from '@/v2/editor/selectionModel';
-import { openRoomKey } from '@/v2/editor/roomActions';
+import { chainOf, lookGesture, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
+import { FLOOR_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
+import { installedWallSets, wallSetLabel, wallWidthIgnored } from '@/editor/models/assetStrip';
+import { shortTextureName } from '@/editor/models/selectionModel';
+import { openRoomKey } from '@/editor/models/roomActions';
 import type { RoomKey } from '@/store/types';
 
 /** A text typed in place: landed on Enter or blur, Escape puts the stored value back. */

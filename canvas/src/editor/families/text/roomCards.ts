@@ -18,9 +18,9 @@ import { undoManager } from '@/store/undoManager';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import type { CardFieldDef, ObjectKind } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
-import type { LookTarget } from '@/v2/editor/roomLook';
-import { nextAreaName } from '@/v2/editor/roomActions';
-import { layerOnLevel, levelDungeons, roomCountLabel } from '@/v2/editor/roomModel';
+import type { LookTarget } from '@/editor/models/roomLook';
+import { nextAreaName } from '@/editor/models/roomActions';
+import { layerOnLevel, levelDungeons, roomCountLabel } from '@/editor/models/roomModel';
 import { AreaPick, CountField, FloorSection, KeyField, NEW_AREA, NO_AREA, ReadoutField, TypedField, WallsSection } from './RoomFields';
 
 const state = () => useStore.getState() as MapBuilderStore;

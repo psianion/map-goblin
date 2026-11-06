@@ -1,7 +1,8 @@
 // Pure pieces the Light tool and the light card share: bright and dim in feet over cells,
-// keeping bright inside dim, and the cone and effect as the controls hold them.
+// keeping bright inside dim, the cone and effect as the controls hold them, and the prop a
+// light would attach to.
 
-import type { LightChild } from '@/store/types';
+import type { AssetChild, DungeonLayer, LightChild } from '@/store/types';
 import { LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets';
 
 export { LIGHT_RADIUS_FT };
@@ -56,4 +57,22 @@ export const speedOf = (l: LightLike): number => l.animation?.speed ?? 1;
 
 export function animationFor(effect: Effect, speed: number): LightChild['animation'] {
   return effect === 'none' ? undefined : { kind: effect, speed };
+}
+
+/** Within half a cell of a prop's centre a light can be glued to it (the Light tool's rule). */
+export const ATTACH_RADIUS = 0.5;
+
+/** The prop a free light would attach to: the nearest on its layer within half a cell. */
+export function nearestProp(layer: DungeonLayer, light: LightChild): AssetChild | null {
+  let best: AssetChild | null = null;
+  let bestDist = ATTACH_RADIUS;
+  for (const c of layer.children) {
+    if (c.childType !== 'asset') continue;
+    const d = Math.hypot(c.position.x - light.position.x, c.position.y - light.position.y);
+    if (d <= bestDist) {
+      best = c;
+      bestDist = d;
+    }
+  }
+  return best;
 }

@@ -7,7 +7,7 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createSwapPropCommand } from '@dnd/core/src/store/propEdits';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
-import { pickAssetForTool } from '@/v2/editor/assetStrip';
+import { pickAssetForTool } from '@/editor/models/assetStrip';
 import { useShell } from '@/editor/shell/shellStore';
 import { ASSET_CHIPS, assetTiles, byPack, usedIds, type AssetChip } from './assetModel';
 

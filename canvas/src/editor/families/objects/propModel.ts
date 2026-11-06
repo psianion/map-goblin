@@ -3,7 +3,7 @@
 import { useStore } from '@/store/store';
 import type { AssetChild, MapBuilderStore } from '@/store/types';
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
-import { isMixed, propBoxModel, radToDeg } from '@/v2/editor/selectionModel';
+import { isMixed, propBoxModel, radToDeg } from '@/editor/models/selectionModel';
 
 export interface BoxValue {
   x: number;

@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { useStore } from '@/store/store';
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
-import { soleRoomTarget } from '@/v2/editor/selectionModel';
+import { soleRoomTarget } from '@/editor/models/selectionModel';
 import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectKind, type Registry, type SettingDef, type ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';

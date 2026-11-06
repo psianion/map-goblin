@@ -22,7 +22,7 @@ import type { DungeonLayer } from '@/store/types';
 import type { AlignEdge, ZOrderOp } from '@dnd/core/src/store/propEdits';
 import { resolveSelection, type SelectionKind } from '@dnd/core/src/store/selectionResolve';
 import { alignSelection, distributeSelection, moveSelectionToLayer, orderSelectionNow } from '@/shortcuts/defaultShortcuts';
-import { KIND_LABEL, mixedModel, type MixedModel } from '@/v2/editor/cardModels';
+import { KIND_LABEL, mixedModel, type MixedModel } from './cardModels';
 import type { CardDef } from '@/editor/registry/types';
 import { VerbButton } from '@/editor/surfaces/Card';
 import { liveVerbs } from '@/editor/surfaces/model';

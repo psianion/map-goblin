@@ -23,7 +23,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenu
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { notify } from '@/lib/toast';
-import { MIXED_SWATCH } from '@/v2/editor/selectionModel';
+import { MIXED_SWATCH } from '@/editor/models/selectionModel';
 import {
   floorCandidates,
   floorColourGesture,
@@ -35,8 +35,8 @@ import {
   wallSetCandidates,
   wallSetLabel,
   wallSetThumb,
-} from '@/v2/editor/assetStrip';
-import { lookGesture, resolvedLookOf, setLook, targetName, useLookTarget, type LookTarget } from '@/v2/editor/roomLook';
+} from '@/editor/models/assetStrip';
+import { lookGesture, resolvedLookOf, setLook, targetName, useLookTarget, type LookTarget } from '@/editor/models/roomLook';
 import { activeDungeonLayer } from './layerStyle';
 import { openAssets } from './openAssets';
 

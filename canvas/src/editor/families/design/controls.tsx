@@ -5,7 +5,7 @@ import { useStore } from '@/store/store';
 import { turnDoorAngle } from '@dnd/core/src/engine/tools/DoorTool';
 import { SecondaryButton, Stepper } from '@/editor/components';
 import type { SettingProps } from '@/editor/registry/types';
-import { wallWidthIgnored } from '@/v2/editor/assetStrip';
+import { wallWidthIgnored } from '@/editor/models/assetStrip';
 import { wallLookValue } from './wallLook';
 import { signed, stepHeight } from './plateauModel';
 

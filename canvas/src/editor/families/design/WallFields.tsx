@@ -4,7 +4,7 @@ import { useStore } from '@/store/store';
 import { selectWallById } from '@/store/selectors';
 import { SelectRow } from '@/editor/components';
 import type { SettingProps } from '@/editor/registry/types';
-import { installedWallSets, wallSetLabel } from '@/v2/editor/assetStrip';
+import { installedWallSets, wallSetLabel } from '@/editor/models/assetStrip';
 import { LAYER_SET, NO_SET } from './wallLook';
 
 /** The installed wall sets, the layer's first. Sets arrive with the packs, so they are read live. */

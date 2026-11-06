@@ -45,10 +45,10 @@ import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
 import { standaloneWallLook } from '@dnd/core/src/shared/wallLook';
 import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
 import { isLayerEffectivelyVisible } from '@/store/selectors';
-import { useLayerThumb } from '@/v2/editor/layerThumbs';
-import { wallSetLabel } from '@/v2/editor/assetStrip';
-import { jumpToPoint } from '@/v2/editor/jumpTo';
-import { buildSheetRows, KIND_LABEL, VIRTUAL_ROWS, type RowKind, type SheetRow } from '@/v2/editor/layerRows';
+import { useLayerThumb } from '@/editor/models/layerThumbs';
+import { wallSetLabel } from '@/editor/models/assetStrip';
+import { jumpToPoint } from '@/editor/models/jumpTo';
+import { buildSheetRows, KIND_LABEL, VIRTUAL_ROWS, type RowKind, type SheetRow } from '@/editor/models/layerRows';
 import {
   addLayerOnShownLevel,
   deleteLayer,
@@ -58,7 +58,7 @@ import {
   toggleLayerLocked,
   toggleLayerVisible,
   toggleSolo,
-} from '@/v2/editor/layerActions';
+} from '@/editor/models/layerActions';
 import { loadLayersSheetFilter, saveLayersSheetFilter } from '@/v2/viewPrefs';
 import { SheetFrame } from './SheetFrame';
 

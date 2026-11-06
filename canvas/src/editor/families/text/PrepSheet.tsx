@@ -10,9 +10,9 @@ import type { ZoneChild } from '@/store/types';
 import { Caption, KeyHint } from '@/editor/components';
 import { Button } from '@/ui/button';
 import { cn } from '@/lib/utils';
-import { buildPrepGroups, zoneAnchor, type PrepGroup, type PrepRow } from '@/v2/editor/prepModel';
-import { jumpToPoint } from '@/v2/editor/jumpTo';
-import { selectRoom } from '@/v2/editor/roomActions';
+import { buildPrepGroups, zoneAnchor, type PrepGroup, type PrepRow } from '@/editor/models/prepModel';
+import { jumpToPoint } from '@/editor/models/jumpTo';
+import { selectRoom } from '@/editor/models/roomActions';
 
 const KIND_ICON = { trigger: Zap, encounter: Swords, note: FileText } as const;
 

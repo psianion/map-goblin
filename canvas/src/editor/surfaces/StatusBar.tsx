@@ -9,7 +9,7 @@ import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { editHint } from '@/editor/statusHints';
 import { currentZoom, DEFAULT_ZOOM, fitToContent, zoomPercent } from '@/editor/zoomControl';
 import { useDropTarget } from '@/v2/editor/dropToLayer';
-import { toggleSolo } from '@/v2/editor/layerActions';
+import { toggleSolo } from '@/editor/models/layerActions';
 import { setLitPreview, useLitPreview } from '@/v2/viewPrefs';
 import type { HintLine } from '@/editor/registry';
 import { useShell } from '@/editor/shell/shellStore';

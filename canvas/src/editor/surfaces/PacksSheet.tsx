@@ -15,7 +15,7 @@ import { propEntries } from '@dnd/core/src/assets/packCatalog';
 import { notify } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import { PackFileError, readPackFile } from '@/io/packFile';
-import { usedOnMap } from '@/v2/editor/propLibrary';
+import { usedOnMap } from '@/editor/models/propLibrary';
 import { useShell } from '@/editor/shell/shellStore';
 import { SheetFrame } from './SheetFrame';
 

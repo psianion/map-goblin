@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { DoorStyle } from '@/store/types';
 import { doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { defineSetting, defineTool } from '@/editor/registry/define';
-import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/v2/editor/selectionModel';
+import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
 
 export const doorStyle = defineSetting<DoorStyle>({

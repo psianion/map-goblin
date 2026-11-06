@@ -10,7 +10,7 @@ import { hasLiveTexture } from '@dnd/core/src/assets/packCatalog';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
-import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/v2/editor/selectionModel';
+import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren, editKey } from './cardWrites';
 import { EDITABLE_VERBS } from './verbs';
 import { fillOf, pickedFloors, state, type FillValue } from './floorModel';

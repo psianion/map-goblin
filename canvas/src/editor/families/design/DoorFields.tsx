@@ -9,7 +9,7 @@ import { DOOR_ANGLE_STEP, turnDoorAngle } from '@dnd/core/src/engine/tools/DoorT
 import { type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { InputRow, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
 import type { SettingProps } from '@/editor/registry/types';
-import { DOOR_WIDTH_STEP, doorMaterialOptions, doorModel, doorWidthValue } from '@/v2/editor/selectionModel';
+import { DOOR_WIDTH_STEP, doorMaterialOptions, doorModel, doorWidthValue } from '@/editor/models/selectionModel';
 import { doorHost, installedDoorKits } from './doorModel';
 
 /** Typed freely, landed on Enter or blur as one step; Escape puts it back; empty keeps the old name. */

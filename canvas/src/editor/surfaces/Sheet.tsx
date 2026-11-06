@@ -1,6 +1,5 @@
-import { RoomsSheet } from '@/v2/editor/RoomsSheet';
 import { SkyMoodSheet } from '@/editor/families/environment';
-import { PrepSheet, ZoneSheetBody } from '@/editor/families/text/sheets';
+import { PrepSheet, RoomsSheet, ZoneSheetBody } from '@/editor/families/text/sheets';
 import { useShell } from '@/editor/shell/shellStore';
 import { LayerSheet } from './LayerSheet';
 import { LayersSheet } from './LayersSheet';
@@ -11,8 +10,8 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 /**
  * Whichever right sheet is open, all in the same 320 slot. Layers, a layer's settings, Packs
  * and the shortcuts are built here from the composites, Sky and mood by the Environment
- * family and Prep by the Text family; a zone's sheet sits in the frame with its body as it
- * is, and the Rooms list places itself, until they are rebuilt (step 15).
+ * family, and Prep, a zone's sheet and the Rooms list by the Text family. The Rooms list
+ * opens from the store (the room card's Open list and Key), so it frames itself.
  */
 export function SheetHost() {
   const sheet = useShell((s) => s.sheet);

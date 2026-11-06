@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { AssetEntry, AssetCategory, AssetManifest } from '@/store/types';
 import { cn } from '@/lib/utils';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
-import { pickAssetForTool } from '@/v2/editor/assetStrip';
+import { pickAssetForTool } from '@/editor/models/assetStrip';
 import { categoryToType, recentAssetsOfType, toolToTypeFilter, type AssetTypeFilter } from './assetTypeFilter';
 
 export type { AssetTypeFilter } from './assetTypeFilter';

@@ -6,8 +6,8 @@ import { useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { Caption, PrimaryButton, SecondaryButton } from '@/editor/components';
-import { acceptAllSuggestions, activeDungeon, dismissSuggestions, suggestOnActiveLayer } from '@/v2/editor/roomActions';
-import { levelDungeons, roomCountText } from '@/v2/editor/roomModel';
+import { acceptAllSuggestions, activeDungeon, dismissSuggestions, suggestOnActiveLayer } from '@/editor/models/roomActions';
+import { levelDungeons, roomCountText } from '@/editor/models/roomModel';
 
 export function SuggestPanel() {
   const suggested = useStore((s) => s.ui.roomSuggestions?.rooms.length ?? 0);

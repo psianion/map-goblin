@@ -10,8 +10,8 @@ import { undoManager } from '@/store/undoManager';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { getEntriesByType } from '@dnd/core/src/assets/packCatalog';
 import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands';
-import { checkRename, rowShown, sheetSections, showRows } from '@/v2/editor/layerSheetModel';
-import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleSolo } from '@/v2/editor/layerActions';
+import { checkRename, rowShown, sheetSections, showRows } from '@/editor/models/layerSheetModel';
+import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleSolo } from '@/editor/models/layerActions';
 import { SheetFrame } from './SheetFrame';
 import { useLiveEdit } from './liveEdit';
 
