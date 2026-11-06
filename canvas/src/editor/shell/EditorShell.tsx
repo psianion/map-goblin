@@ -20,6 +20,7 @@ import { StatusBar } from '@/editor/surfaces/StatusBar';
 import { Tip } from '@/editor/surfaces/Tip';
 import { TitleCard } from '@/editor/surfaces/TitleCard';
 import { TopActions } from '@/editor/surfaces/TopActions';
+import { openAssetsRef } from '@/editor/families/design/openAssets';
 import { RegistryProvider } from './RegistryProvider';
 import { resetShell, useShell } from './shellStore';
 
@@ -58,6 +59,17 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
     return () => {
       zoomToFitRef.current = null;
       cancelZoomAnimationRef.current = null;
+    };
+  }, []);
+
+  // From library and a card's texture Change open the asset panel; until it is built they
+  // only say so in development.
+  useEffect(() => {
+    openAssetsRef.current = (type) => {
+      if (import.meta.env.DEV) console.info('[shell] the asset panel is not built yet', type ?? 'any');
+    };
+    return () => {
+      openAssetsRef.current = null;
     };
   }, []);
 

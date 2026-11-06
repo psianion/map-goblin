@@ -1,20 +1,11 @@
-// The tools above the families on the rail. Select grows its panel in the Select family
-// (step 7); these defs give the rail its keys now so the key rules see every letter.
+// The tools above the families on the rail: Select (its family is families/select), Pan
+// and Measure.
 
-import { Hand, MousePointer2, Ruler } from 'lucide-react';
+import { Hand, Ruler } from 'lucide-react';
+import { selectTool } from '@/editor/families/select';
 import { defineTool } from './define';
 
-export const selectTool = defineTool({
-  id: 'select',
-  label: 'Select',
-  description: 'Pick and edit what is on the map',
-  icon: MousePointer2,
-  key: 'V',
-  engine: ['select'],
-  settings: [],
-  dock: [],
-  hint: () => ({ label: 'Select', segments: [{ text: 'Click to pick · drag to box-select' }] }),
-});
+export { selectTool };
 
 export const panTool = defineTool({
   id: 'pan',

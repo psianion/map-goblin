@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { AddTile, Caption, Chip, DockColumn, Fold, SecondaryButton, SelectRow, SettingRow, Swatch, Tile } from '@/editor/components';
+import { AddTile, DockColumn, Fold, SecondaryButton, SelectRow, SettingRow, Swatch, Tile } from '@/editor/components';
 import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
 import type { SettingProps } from '@/editor/registry';
@@ -32,24 +32,6 @@ export function LookColumn() {
       ))}
       <AddTile name="From library" />
     </DockColumn>
-  );
-}
-
-const PICK_ONLY = ['All', 'Floors', 'Walls', 'Doors', 'Props', 'Lights', 'Labels', 'Zones'];
-
-export function PickOnly({ value, onChange }: SettingProps<string[]>) {
-  const toggle = (k: string) => onChange(value.includes(k) ? value.filter((v) => v !== k) : [...value, k]);
-  return (
-    <div className="flex flex-col gap-2">
-      <Caption>Pick only</Caption>
-      <div className="flex flex-wrap gap-1">
-        {PICK_ONLY.map((k) => (
-          <Chip key={k} pressed={value.includes(k)} onPressedChange={() => toggle(k)}>
-            {k}
-          </Chip>
-        ))}
-      </div>
-    </div>
   );
 }
 

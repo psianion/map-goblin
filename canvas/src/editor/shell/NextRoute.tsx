@@ -12,9 +12,9 @@ import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRo
 import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { EditorShell } from './EditorShell';
 import { useShell } from './shellStore';
-import { createRegistry } from '@/editor/registry';
-import { DESIGN_CARDS, design } from '@/editor/families/design';
+import { createRegistry, registry } from '@/editor/registry';
 import { stubInput } from './stub/stubRegistry';
+import { withStubs } from './stub/withStubs';
 import '@/v2/v2.css';
 import '@/v2/editor/v2-editor.css';
 
@@ -33,12 +33,8 @@ function deskFromTokens(): EditorDesk {
   return readDesk((name) => css.getPropertyValue(name), document.documentElement.classList.contains('dark'));
 }
 
-// The families that have landed replace their stubs; the rest stay stubbed.
-const nextRegistry = createRegistry({
-  ...stubInput,
-  families: stubInput.families.map((f) => (f.id === design.id ? design : f)),
-  cards: [...DESIGN_CARDS],
-});
+// The registered families, and a stub for each one not registered yet.
+const nextRegistry = createRegistry(withStubs(registry, stubInput));
 
 function NextChrome(props: EditorChromeProps) {
   return <EditorShell {...props} registry={nextRegistry} />;

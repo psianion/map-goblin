@@ -1,7 +1,9 @@
+import { ArrowLeft } from 'lucide-react';
 import { Caption, FloatBox, IconKeyButton, PanelHeader, SecondaryButton } from '@/editor/components';
 import { useStore } from '@/store/store';
 import type { ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
+import { useShell } from '@/editor/shell/shellStore';
 import { pickTool, useFamilyOf } from './hooks';
 import { groupBySection } from './sections';
 import { ToolSetting } from './SettingItems';
@@ -20,6 +22,10 @@ export function ToolPanel({ tool }: { tool: ToolDef }) {
   const sections = groupBySection(registry.settingsByHome(tool.id, 'panel'));
   // Reset puts the tool's saved settings back; a tool with none has no Reset.
   const resettable = tool.settings.some((s) => s.persist !== false);
+  // A rail tool (Select) offers the way back to the last family tool in hand.
+  const lastId = useShell((s) => s.lastToolId);
+  const previous = !family && lastId ? registry.toolById(lastId) : undefined;
+  const Extra = tool.panelExtra;
   return (
     <FloatBox className="flex w-[272px] flex-col overflow-hidden p-0" data-testid="shell-tool-panel" data-tool={tool.id}>
       <PanelHeader path={family ? [family.label] : []} title={tool.label}>
@@ -37,8 +43,20 @@ export function ToolPanel({ tool }: { tool: ToolDef }) {
             onClick={() => pickTool(t)}
           />
         ))}
+        {previous && (
+          <IconKeyButton
+            size={26}
+            icon={ArrowLeft}
+            label={`Back to ${previous.label}`}
+            shortcut="X"
+            data-tip="Previous tool"
+            data-tip-key="X"
+            data-tip-side="bottom"
+            onClick={() => pickTool(previous)}
+          />
+        )}
       </PanelHeader>
-      {sections.length > 0 && (
+      {(sections.length > 0 || Extra) && (
         <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto px-3 pt-2.5 pb-3">
           {sections.map((sec, i) => (
             <div key={sec.title ?? `s${i}`} className="flex flex-col gap-px" data-section={sec.title ?? ''}>
@@ -48,6 +66,7 @@ export function ToolPanel({ tool }: { tool: ToolDef }) {
               ))}
             </div>
           ))}
+          {Extra && <Extra tool={tool} />}
         </div>
       )}
       {(resettable || tool.savePreset) && (

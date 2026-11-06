@@ -129,6 +129,13 @@ export interface ToolDef {
   hint: (state: EditorState) => HintLine;
   /** The panel foot's Save as preset, for tools that keep presets. */
   savePreset?: (store: CoreStore) => void;
+  /** Panel content after the settings that is not a setting: Select's how-to and Previous tool. */
+  panelExtra?: ComponentType<{ tool: ToolDef }>;
+  /**
+   * What the slot shows in place of the panel while this tool is in hand and something is
+   * picked: Select's card host. A tool without one keeps its panel whatever is picked.
+   */
+  selectionPanel?: ComponentType;
 }
 
 export interface FamilyDef {

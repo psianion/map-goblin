@@ -73,6 +73,7 @@ test('frame D: a picked floor shows the Design floor card, and a card edit undoe
   await expectFrameGeometry(page)
   await expectSlot(page)
   await shot(page, '10-d')
+  await shot(page, '07-d')
 
   // Edit a card field: a textured floor's Tint, a plain one's Colour, typed as a hex.
   const before = await floor(page, id!)

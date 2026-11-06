@@ -17,7 +17,6 @@ import {
   Lightbulb,
   Lock,
   Mountain,
-  MousePointer2,
   Paintbrush,
   PencilRuler,
   Pentagon,
@@ -30,7 +29,7 @@ import {
   Type,
 } from 'lucide-react';
 import { z } from 'zod';
-import { FillField, LayerField, LookColumn, PickOnly, TextureField } from './StubParts';
+import { FillField, LayerField, LookColumn, TextureField } from './StubParts';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import type { ShapeChild } from '@/store/types';
 import {
@@ -46,7 +45,7 @@ import {
   type HintLine,
   type ToolDef,
 } from '@/editor/registry';
-import { panTool, measureTool } from '@/editor/registry/rail';
+import { RAIL_TOOLS } from '@/editor/registry/rail';
 import { SHARED_SETTINGS, editCurve, editErase, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 
 /** A value the core store has no field for yet, held here; a write nudges the store so readers re-render. */
@@ -237,38 +236,6 @@ const text = defineFamily({
   tools: [simple({ id: 'label', label: 'Label', description: 'Room names, notes, numbers', icon: Type, key: 'L', engine: ['text'], settings: [], hint: 'Click to place a label' })],
 });
 
-// ── Select, with its panel stubbed ───────────────────────
-
-const selectPickOnly = defineSetting<string[]>({
-  id: 'select.pickOnly',
-  label: 'Pick only',
-  schema: z.array(z.string()),
-  default: [],
-  home: 'panel',
-  control: 'custom',
-  render: PickOnly,
-  persist: false,
-  bind: memory<string[]>([]),
-});
-
-function selectHint(s: EditorState): HintLine {
-  const n = s.selection.selectedIds.length;
-  if (n === 0) return line('Select', 'Nothing picked');
-  return line('Select', `${n} picked ·`, ['N'], 'nodes ·', ['Del'], 'delete');
-}
-
-const select = defineTool({
-  id: 'select',
-  label: 'Select',
-  description: 'Pick and edit what is on the map',
-  icon: MousePointer2,
-  key: 'V',
-  engine: ['select'],
-  settings: [selectPickOnly],
-  dock: [],
-  hint: selectHint,
-});
-
 // ── The floor card ───────────────────────────────────────
 
 function bounds(o: ShapeChild): { w: number; h: number } {
@@ -338,7 +305,7 @@ const floorCard = defineCard<'shape'>({
 });
 
 export const stubInput = {
-  rail: [select, panTool, measureTool],
+  rail: RAIL_TOOLS,
   families: [design, terrain, objects, environment, text],
   shared: SHARED_SETTINGS,
   cards: [floorCard],

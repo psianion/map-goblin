@@ -7,8 +7,7 @@ import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { VerbButton } from './Card';
 import { liveVerbs } from './model';
-import { useCardTarget } from './hooks';
-import { useRegistry } from '@/editor/shell/registryContext';
+import { useActiveTool, useCardTarget } from './hooks';
 
 /** Space between the bar and the top of what is picked. */
 const GAP = 8;
@@ -33,10 +32,11 @@ function selectionAnchor(): { x: number; y: number } | null {
  */
 export function FloatingActions() {
   const target = useCardTarget();
-  const { registry } = useRegistry();
   const ref = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
-  const railTool = useStore((s) => !registry.familyOfTool(registry.tools.find((t) => t.engine.includes(s.tools.activeTool))?.id ?? ''));
+  // Beside the card, so only while the tool in hand shows one (Select), and one thing is picked.
+  const tool = useActiveTool();
+  const single = useStore((s) => s.selection.selectedIds.length === 1);
 
   useEffect(() => {
     if (!target) return;
@@ -57,7 +57,7 @@ export function FloatingActions() {
     return () => cancelAnimationFrame(raf);
   }, [target]);
 
-  if (!target || !railTool) return null;
+  if (!target || !tool?.selectionPanel || !single) return null;
   const verbs = liveVerbs(target.card.verbs).filter((v) => v.bar !== false);
   if (verbs.length === 0) return null;
   return (

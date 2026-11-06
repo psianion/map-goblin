@@ -7,9 +7,8 @@
 // loaded back through the same parse, so a bad or stale saved value is dropped, never
 // written. Settings with `persist: false` are skipped both ways.
 
-import { useStore } from '@/store/store';
 import { bindingOf } from './binding';
-import { registry as defaultRegistry, type Registry } from './index';
+import type { Registry } from './index';
 import type { CoreStore, SettingDef } from './types';
 
 export const TOOL_SETTINGS_KEY = 'mapbuilder-tool-settings';
@@ -136,7 +135,3 @@ export function createSettings(reg: Registry, store: CoreStore): Settings {
   return settings;
 }
 
-/** The registered registry's settings, over the editor's store. */
-export const settings = createSettings(defaultRegistry, useStore);
-
-export const { getSetting, setSetting, resetTool, loadPrefs, prefsSnapshot, initPrefs } = settings;
