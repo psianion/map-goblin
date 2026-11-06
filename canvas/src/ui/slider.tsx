@@ -2,7 +2,8 @@ import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 import { cn } from "@/lib/utils"
 
 // Track 2 in line-strong, the filled part in ink, a 12px thumb on panel with a 1.5px
-// ink ring. The value readout lives in the row composite, not here.
+// ink ring. The ring is an inset shadow: Chromium snaps a 1.5px border to 1px.
+// The value readout lives in the row composite, not here.
 function Slider({
   className,
   defaultValue,
@@ -42,7 +43,7 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="relative block size-3 shrink-0 rounded-full border-[1.5px] border-ink bg-panel select-none after:absolute after:-inset-2 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1 has-[:focus-visible]:outline-focus disabled:pointer-events-none"
+            className="relative block size-3 shrink-0 rounded-full bg-panel ring-[1.5px] ring-inset ring-ink select-none after:absolute after:-inset-2 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1 has-[:focus-visible]:outline-focus disabled:pointer-events-none"
           />
         ))}
       </SliderPrimitive.Control>
