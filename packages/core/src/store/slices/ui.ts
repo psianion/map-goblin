@@ -24,6 +24,8 @@ export interface UIActions {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  /** Hide or show every label in the editor's view. */
+  setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
 }
@@ -168,6 +170,10 @@ export const createUISlice: StateCreator<
   setSeeUnderOverhead: (on) =>
     set((state) => {
       state.ui.seeUnderOverhead = on;
+    }),
+  setLabelsHidden: (hidden) =>
+    set((state) => {
+      state.ui.labelsHidden = hidden;
     }),
   setMarqueeFilter: (filter) =>
     set((state) => {

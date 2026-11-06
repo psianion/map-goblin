@@ -866,8 +866,8 @@ export function subscribeToStore(
         // follow the "walls" visibility toggle — same as when they lived
         // inside the walls container.
         entry.sublayers.doors.visible = vis.walls;
-        // Absent on layers saved before the row existed: shown.
-        entry.sublayers.labels.visible = vis.labels !== false;
+        // Absent on layers saved before the row existed: shown. The View menu can hide them all.
+        entry.sublayers.labels.visible = vis.labels !== false && !useStore.getState().ui.labelsHidden;
       }
     },
     { fireImmediately: true },

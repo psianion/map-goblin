@@ -13,7 +13,7 @@ import type { CardFieldDef, EditorState, Verb } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
 import { editKey, runEdit } from '@/editor/families/design/cardWrites';
 import { nearestProp } from '@/v2/editor/lightModel';
-import { ColourSwatch, FeetStepper } from './LightControls';
+import { FeetRow } from './LightControls';
 import {
   CONE_RANGE,
   DIRECTION_RANGE,
@@ -57,7 +57,7 @@ const bright = field<number>({
   default: 5,
   control: 'custom',
   range: { ...LIGHT_RADIUS_FT, unit: 'ft' },
-  render: FeetStepper,
+  render: FeetRow,
   read: (l) => toFt(l.featherRadius, ftPerCell()),
   write: (_s, ids, ft) => edit('Bright', ids, (l) => brightPatch(l, ft, ftPerCell())),
 });
@@ -69,7 +69,7 @@ const dim = field<number>({
   default: 30,
   control: 'custom',
   range: { ...LIGHT_RADIUS_FT, unit: 'ft' },
-  render: FeetStepper,
+  render: FeetRow,
   read: (l) => toFt(l.radius, ftPerCell()),
   write: (_s, ids, ft) => edit('Dim', ids, (l) => dimPatch(l, ft, ftPerCell())),
 });
@@ -90,8 +90,7 @@ const colour = field<string>({
   label: 'Colour',
   schema: z.string().regex(/^#[0-9a-f]{6}$/i),
   default: '#ffdd88',
-  control: 'custom',
-  render: ColourSwatch,
+  control: 'colour',
   // A darkness source burns no colour.
   visibleWhen: (l) => !l.darkness,
   read: (l) => l.color,

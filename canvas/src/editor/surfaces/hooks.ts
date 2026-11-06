@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { useStore } from '@/store/store';
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
+import { soleRoomTarget } from '@/v2/editor/selectionModel';
 import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectKind, type Registry, type SettingDef, type ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';
@@ -82,6 +83,14 @@ function cardTarget(registry: Registry, state: EditorState): { kind: ObjectKind;
   if (ids.length === 0) return null;
   const sel = resolveSelection(state, ids);
   const kinds = Object.keys(sel.kinds) as ObjectKind[];
+  // An area (the rooms list's group header) or a level (Level settings) is picked by its id.
+  if (kinds.length === 0) {
+    const scope = soleRoomTarget(state, ids);
+    if (scope && scope.kind !== 'room' && registry.cardForKind(scope.kind)) {
+      return { kind: scope.kind, layer: scope.kind === 'area' ? scope.layer.name || 'Unnamed layer' : '' };
+    }
+    return null;
+  }
   if (kinds.length !== 1 || !registry.cardForKind(kinds[0])) return null;
   const kind = kinds[0];
   const first = sel.children[0] ?? sel.walls[0] ?? sel.rooms[0];
@@ -102,7 +111,9 @@ export function useCardTarget(): CardTarget | null {
   const object = useStore((s) => {
     if (!key) return null;
     const sel = resolveSelection(s, s.selection.selectedIds);
-    return sel.children[0]?.child ?? sel.walls[0]?.wall ?? sel.rooms[0]?.room ?? null;
+    const scope = soleRoomTarget(s, s.selection.selectedIds);
+    const own = scope?.kind === 'area' ? scope.area : scope?.kind === 'level' ? scope.level : null;
+    return sel.children[0]?.child ?? sel.walls[0]?.wall ?? sel.rooms[0]?.room ?? own;
   });
   if (!key || !object) return null;
   const [kind, layerName] = key.split('|') as [ObjectKind, string];

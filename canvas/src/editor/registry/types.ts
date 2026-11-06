@@ -10,7 +10,7 @@ import type { z } from 'zod';
 import type { useStore } from '@/store/store';
 import type { HintSegment } from '@/editor/statusHints';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
-import type { AnyChild, ChildType, Room, ToolType, WallSegment } from '@/store/types';
+import type { AnyChild, ChildType, Level, Room, RoomArea, ToolType, WallSegment } from '@/store/types';
 import type { createDefaultState } from '@/store/factories';
 
 /** Where a setting renders. Each setting has exactly one. */
@@ -165,13 +165,17 @@ export interface FamilyDef {
 }
 
 /** What a card can be for: every child kind, drawn walls and rooms. */
-export type ObjectKind = ChildType | 'wall' | 'room';
+export type ObjectKind = ChildType | 'wall' | 'room' | 'area' | 'level';
 
 export type ObjectOf<K extends ObjectKind> = K extends ChildType
   ? Extract<AnyChild, { childType: K }>
   : K extends 'wall'
     ? WallSegment
-    : Room;
+    : K extends 'room'
+      ? Room
+      : K extends 'area'
+        ? RoomArea
+        : Level;
 
 /** A button on a card's action row: Flip H, Duplicate, Merge. */
 export interface Verb {

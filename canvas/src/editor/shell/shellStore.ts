@@ -14,6 +14,8 @@ export type ShellSheet =
   | 'sky'
   | 'prep'
   | { kind: 'layer'; target: string }
+  /** One zone's triggers, encounter and notes (its card's More). */
+  | { kind: 'zone'; target: string }
   | null;
 
 interface ShellState {

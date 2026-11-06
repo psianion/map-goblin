@@ -82,7 +82,7 @@ type MapBuilderState = Omit<
   | 'toggleChildGroup' | 'setRevealChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
   | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
-  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setMarqueeFilter' | 'setPropReplaceIds'
+  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setLabelsHidden' | 'setMarqueeFilter' | 'setPropReplaceIds'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -217,6 +217,7 @@ export function createDefaultState(): MapBuilderState {
       roomWalls: 'with' as const,
       pendingSplit: null,
       seeUnderOverhead: false,
+      labelsHidden: false,
       marqueeFilter: 'all' as const,
       propReplaceIds: null,
     },

@@ -479,6 +479,8 @@ export interface UISlice {
    * view preference; never saved with the map.
    */
   seeUnderOverhead: boolean;
+  /** Hide every label in the editor's view (the View menu). Never saved with the map; the table and exports keep them. */
+  labelsHidden: boolean;
   /**
    * What a marquee picks: every kind, or only the active dock tab's kinds. Persisted as a
    * view preference; never saved with the map.
@@ -805,6 +807,7 @@ export interface MapBuilderStore {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
 

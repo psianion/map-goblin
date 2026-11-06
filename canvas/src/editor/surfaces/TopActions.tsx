@@ -24,6 +24,14 @@ import { useShell } from '@/editor/shell/shellStore';
 
 const FOCUS_LABEL: Record<FocusMode, string> = { auto: 'Auto', manual: 'Manual', fullscreen: 'Fullscreen' };
 
+type RoomLabels = 'off' | 'numbers' | 'both';
+/** What the rooms overlay writes on each room: a view, so it lives here, not on the Rooms tools. */
+const ROOM_LABELS: { value: RoomLabels; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'numbers', label: 'Numbers' },
+  { value: 'both', label: 'Numbers and names' },
+];
+
 /** Top right, 44 tall: Undo, Redo, everything else behind "…", and Publish last. */
 export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeActions; onOpenSettings: () => void }) {
   const canUndo = useStore((s) => s.ui.canUndo);
@@ -31,6 +39,9 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
   const focusMode = useStore((s) => s.ui.focusMode);
   const seeUnder = useStore((s) => s.ui.seeUnderOverhead);
   const gridShown = useStore((s) => s.grid.visible);
+  const labelsHidden = useStore((s) => s.ui.labelsHidden);
+  const outlines = useStore((s) => s.ui.roomOverlayVisible);
+  const roomLabels = useStore((s) => s.ui.roomLabels);
   const lit = useLitPreview();
   const [theme, toggleTheme] = useTheme();
   const openSheet = useShell((s) => s.openSheet);
@@ -89,6 +100,22 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
             <DropdownMenuCheckboxItem checked={seeUnder} onCheckedChange={(v) => useStore.getState().setSeeUnderOverhead(v)}>
               See under overhead
             </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={labelsHidden} onCheckedChange={(v) => useStore.getState().setLabelsHidden(v)}>
+              Hide labels
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={outlines} onCheckedChange={(v) => useStore.getState().setRoomOverlayVisible(v)}>
+              Room outlines
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuGroup>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Room labels</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={roomLabels} onValueChange={(v) => useStore.getState().setRoomLabels(v as RoomLabels)}>
+              {ROOM_LABELS.map((m) => (
+                <DropdownMenuRadioItem key={m.value} value={m.value}>
+                  {m.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
           </DropdownMenuGroup>
           <DropdownMenuGroup>
             <DropdownMenuLabel>Focus</DropdownMenuLabel>

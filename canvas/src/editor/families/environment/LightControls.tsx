@@ -6,7 +6,7 @@ import { Eclipse, Flame, FlameKindling, Lamp, LampWallUp, Sparkles, SunMoon, typ
 import { HexColorPicker } from 'react-colorful';
 import { useStore } from '@/store/store';
 import { LIGHT_PRESETS, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
-import { DockColumn, SecondaryButton, Stepper, Swatch, Tile } from '@/editor/components';
+import { DockColumn, SecondaryButton, SettingRow, Stepper, Swatch, Tile } from '@/editor/components';
 import { Input } from '@/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Slider } from '@/ui/slider';
@@ -121,5 +121,14 @@ export function SkyButton() {
         Sky and mood…
       </SecondaryButton>
     </div>
+  );
+}
+
+/** A distance as a card row: the label left, the stepper right. */
+export function FeetRow(props: SettingProps<number>) {
+  return (
+    <SettingRow label={props.def.label}>
+      <FeetStepper {...props} />
+    </SettingRow>
   );
 }

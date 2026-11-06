@@ -3,6 +3,7 @@ import { useCardTarget } from '@/editor/surfaces/hooks';
 import { useStore } from '@/store/store';
 import { resolveSelection, type SelectionKind } from '@dnd/core/src/store/selectionResolve';
 import { useRegistry } from '@/editor/shell/registryContext';
+import type { CardDef } from '@/editor/registry';
 import { MixedCard } from './MixedCard';
 
 /**
@@ -19,5 +20,5 @@ export function SelectionPanel() {
     return kinds.length === 1 ? kinds[0] : null;
   });
   if (count === 1 && target) return <Card {...target} />;
-  return <MixedCard kindCard={soleKind ? registry.cardForKind(soleKind) : undefined} />;
+  return <MixedCard kindCard={soleKind ? (registry.cardForKind(soleKind) as CardDef | undefined) : undefined} />;
 }
