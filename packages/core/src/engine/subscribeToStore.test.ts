@@ -34,6 +34,8 @@ vi.mock('./sceneGraph', () => {
     textureSprite: null,
     sublayers: {
       floor: { visible: true },
+      plateauTops: { visible: true },
+      plateauEdges: { visible: true },
       shadows: { visible: true },
       grid: { visible: true },
       walls: { visible: true },
@@ -58,7 +60,7 @@ vi.mock('../shared/notify', () => ({
   notify: { subtle: vi.fn(), info: vi.fn(), error: vi.fn(), success: vi.fn() },
 }));
 
-import { subscribeToStore, flushLayerDraws } from './subscribeToStore';
+import { subscribeToStore, flushLayerDraws, plateauLookKey } from './subscribeToStore';
 import { useStore } from '../store/store';
 import { LightManager, extractWallSegments } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -68,7 +70,7 @@ import { scheduleRoomSync } from '../store/roomRefresh';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
-import type { DungeonLayer } from '../store/types';
+import type { DungeonLayer, PlateauChild } from '../store/types';
 import type { DoorChild, LightChild, ShapeChild, WallSegment } from '../shared/types';
 
 function shape(id: string, x: number, y: number, size = 40): ShapeChild {
@@ -598,6 +600,41 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
     expect(redrawDoors).toHaveBeenCalled();
     expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+  });
+
+  it('every plateau field redraws the layer and re-lights it, and none of it re-unions the floor', () => {
+    const plateau: PlateauChild = {
+      id: 'p1', name: 'Mesa', childType: 'plateau', visible: true,
+      contours: [[[2, 2], [10, 2], [10, 10], [2, 10]]], height: 1, edge: 'cliff',
+    };
+    const layerId = seed({ children: [shape('s1', 0, 0), plateau] });
+    unsub = start();
+    const patches: Partial<PlateauChild>[] = [
+      { height: 2 },
+      { edge: 'slope' },
+      { edgeArt: 'gg-forge:GG_Cave_Ink' },
+      { slopeWidth: 2 },
+      { contourLines: false },
+      { sightOverride: 'hide' },
+      { crossingId: 'impassable' },
+      { visible: false },
+      { visible: true },
+      { contours: [[[2, 2], [12, 2], [12, 10], [2, 10]]] },
+      { tangents: [[null, { tin: [11, 1], tout: [13, 3] }, null, null]] },
+      { transform: { translate: [1, 0], rotate: 0, scale: [1, 1] } },
+    ];
+    for (const patch of patches) {
+      vi.clearAllMocks();
+      const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+      const key = plateauLookKey(dungeon().children);
+      useStore.getState().updateChild(layerId, 'p1', patch);
+      flushLayerDraws();
+      expect(plateauLookKey(dungeon().children), JSON.stringify(patch)).not.toBe(key);
+      expect(rebuildDungeonLayer, JSON.stringify(patch)).toHaveBeenCalled();
+      expect(invalidateAll, JSON.stringify(patch)).toHaveBeenCalled();
+      expect(clipper2Engine.union, JSON.stringify(patch)).not.toHaveBeenCalled();
+      invalidateAll.mockRestore();
+    }
   });
 
   // ── W4 smoothness pass ────────────────────────────────────────────────

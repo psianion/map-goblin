@@ -36,6 +36,15 @@ import {
   isDraggingOutline,
   toggleShapeNodeEditAt,
 } from '@/engine/shapeNodeEdit';
+import {
+  cancelPlateauDrag,
+  endPlateauDrag,
+  hoverPlateau,
+  isDraggingPlateau,
+  movePlateauDrag,
+  pressPlateau,
+  togglePlateauPointAt,
+} from '@dnd/core/src/engine/ringNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -94,8 +103,15 @@ function applyMiddleware(point: Point): Point {
  * already rounded to the grid would put a 1×1 on a cell corner.
  */
 function toolPoint(world: Point): Point {
-  return useStore.getState().tools.activeTool === 'scatterBrush' ? world : applyMiddleware(world);
+  return RAW_POINT_TOOLS.has(useStore.getState().tools.activeTool) ? world : applyMiddleware(world);
 }
+
+/**
+ * Tools handed the raw cursor: the Props tool (above), and the Plateau tool, which snaps a
+ * clicked point itself but must sample a freehand stroke unsnapped, or it would come out as
+ * a staircase.
+ */
+const RAW_POINT_TOOLS = new Set(['scatterBrush', 'plateau']);
 
 /**
  * The room a double-click lands on, where rooms pick: the topmost visible, unlocked
@@ -274,6 +290,12 @@ export function useCanvasInput(
         return;
       }
 
+      // A selected plateau's ring handles (points, curve handles, insert), unsnapped like the
+      // outline handles above. A miss falls through to the Select tool.
+      if (e.button === 0 && pressPlateau(rawWorld, engine.stage().scale.x, { alt: e.altKey })) {
+        return;
+      }
+
       const snapped = toolPoint(rawWorld);
       cursorWorldPosition.current = snapped;
       _toolManager?.onPointerDown(snapped, e);
@@ -319,6 +341,14 @@ export function useCanvasInput(
           { alt: e.altKey },
         );
         return;
+      }
+
+      if (isDraggingPlateau()) {
+        movePlateauDrag(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top));
+        return;
+      }
+      if (useStore.getState().tools.activeTool === 'select') {
+        hoverPlateau(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top), engine.stage().scale.x);
       }
 
       // Process coalesced events for smooth high-DPI/stylus input.
@@ -373,6 +403,10 @@ export function useCanvasInput(
         endOutlineDrag();
         return;
       }
+      if (isDraggingPlateau()) {
+        endPlateauDrag();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = toolPoint(world);
@@ -395,6 +429,7 @@ export function useCanvasInput(
         outlineDragStart = null;
         cancelOutlineDrag();
       }
+      if (isDraggingPlateau()) cancelPlateauDrag();
       // The tool manager never heard about this gesture ending — without this
       // an active drawing tool (chain, drag, freehand stroke) is left mid-flight,
       // and an unguarded onPointerUp downstream could commit it.
@@ -408,6 +443,11 @@ export function useCanvasInput(
       if (useStore.getState().tools.activeTool !== 'select') return;
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      // On a selected plateau's point: sharp corner, or back to a smooth curve.
+      if (togglePlateauPointAt(world, engine.stage().scale.x)) {
+        e.preventDefault();
+        return;
+      }
       // In outline edit mode, double-click on an anchor toggles it between
       // corner and smooth; only a double-click elsewhere exits the mode.
       if (useStore.getState().tools.shapeNodeEditId) {

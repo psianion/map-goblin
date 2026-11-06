@@ -2,20 +2,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
-
-function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; rotate: number; scale: [number, number] }): Polygon {
-  return pts.map(([x, y]) => {
-    let px = x * t.scale[0];
-    let py = y * t.scale[1];
-    const cos = Math.cos(t.rotate);
-    const sin = Math.sin(t.rotate);
-    const rx = px * cos - py * sin;
-    const ry = px * sin + py * cos;
-    px = rx + t.translate[0];
-    py = ry + t.translate[1];
-    return [px, py] as [number, number];
-  });
-}
+import { applyShapeTransform as applyTransformToPoints } from '../shared/plateaus';
 
 /**
  * Recompute mergedFloor from shape children via Clipper2 boolean union.
@@ -35,6 +22,11 @@ export function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
     (c): c is ShapeChild => c.childType === 'shape' && c.visible,
   );
 
+  return unionFloor(shapeChildren);
+}
+
+/** The plain union of floors: every outer ring unioned, every hole subtracted. */
+function unionFloor(shapeChildren: ShapeChild[]): Polygon[] | null {
   if (shapeChildren.length === 0) return null;
 
   // Collect outer rings and hole rings separately, applying transforms

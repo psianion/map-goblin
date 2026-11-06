@@ -1,5 +1,4 @@
 import { resolveStyle } from '@dnd/core/src/engine/styleResolver';
-import { WATER_BANK_TEXTURE_ID } from '@dnd/core/src/engine/water/waterTextures';
 import { hasLiveTexture } from '@dnd/core/src/assets/packCatalog';
 import { clampDoorWidth, doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { connectorKindForStyle, connectorStyle } from '@dnd/core/src/shared/authoredRooms';
@@ -26,11 +25,10 @@ import type {
   Room,
   RoomArea,
   ShapeChild,
-  WaterChild,
 } from '@/store/types';
 import type { ConnectorChild, DoorChild, DoorState, DoorStyle, WallSegment } from '@/shared/types';
 
-/* What the selection card shows for floors, water, rooms, doors and props. Pure: no store reads.
+/* What the selection card shows for floors, rooms, doors and props. Pure: no store reads.
  * The outside questions (whether a texture id names art that still exists, how long a
  * door's wall is) are parameters. */
 
@@ -188,24 +186,6 @@ export function shortTextureName(id: string, label?: string): string {
   return tail ? tail[0].toUpperCase() + tail.slice(1) : id;
 }
 
-/* ── Water ──────────────────────────────────────────────── */
-
-export const BANK_TEXTURE_ID = WATER_BANK_TEXTURE_ID;
-
-export interface WaterModel {
-  tint: Mixed<string>;
-  opacity: Mixed<number>;
-  banks: Mixed<boolean>;
-}
-
-export function waterModel(bodies: readonly WaterChild[]): WaterModel {
-  return {
-    tint: sameOrMixed(bodies.map((b) => b.tint), sameColor) as Mixed<string>,
-    opacity: sameOrMixed(bodies.map((b) => b.opacity)) as Mixed<number>,
-    banks: sameOrMixed(bodies.map((b) => !!b.bankTextureId)) as Mixed<boolean>,
-  };
-}
-
 /* ── Rooms ──────────────────────────────────────────────── */
 
 export interface RoomInfo {
@@ -228,18 +208,16 @@ export function cleanRoomName(raw: string): string | null {
 
 /* ── Which fields the card shows ───────────────────────── */
 
-export type FieldsGroup =
-  | { kind: 'shape'; layerId: string; ids: string[] }
-  | { kind: 'water'; layerId: string; ids: string[] };
+export type FieldsGroup = { kind: 'shape' | 'plateau'; layerId: string; ids: string[] };
 
 /**
- * Floors or water the card can edit together: every item that kind, all on one layer.
+ * Floors (or plateaus) the card can edit together: every item of that kind, all on one layer.
  * Anything else (a mix of kinds, two layers) gets no shared fields.
  */
 export function fieldsGroup(children: readonly AnyChild[], layerIds: readonly (string | null)[]): FieldsGroup | null {
   if (children.length === 0) return null;
   const kind = children[0].childType;
-  if (kind !== 'shape' && kind !== 'water') return null;
+  if (kind !== 'shape' && kind !== 'plateau') return null;
   const layerId = layerIds[0];
   if (!layerId) return null;
   if (!children.every((c, i) => c.childType === kind && layerIds[i] === layerId)) return null;

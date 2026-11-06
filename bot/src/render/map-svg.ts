@@ -49,7 +49,6 @@ const FLOOR = '#f5ecda'
 const INK = '#2a2016'
 const ACCENT = '#b08d57'
 const MUTED = '#6b5c46'
-const WATER = '#6f8a93'
 const DISPOSITION: Record<Disposition, string> = {
   friendly: '#4f7043',
   neutral: '#8a7a52',
@@ -106,17 +105,22 @@ interface RoomLabel {
   x: number
   y: number
 }
+/** A plateau's outline and its height, cells: negative for a pit. */
+interface Plateau {
+  ring: Ring
+  height: number
+}
 interface Scene {
   name: string
   cellScale: { value: number; unit: string }
   frame: Bounds | null
   floors: Ring[][]
-  waters: Ring[][]
   walls: Wall[]
   doors: Door[]
   labels: Label[]
   rooms: RoomLabel[]
   lamps: { x: number; y: number }[]
+  plateaus: Plateau[]
 }
 
 // ── defensive readers ────────────────────────────────────────────────────────────────────
@@ -176,12 +180,12 @@ export function readScene(doc: unknown, dmView: boolean, doors: MapSvgOptions['d
         }
       : null,
     floors: [],
-    waters: [],
     walls: [],
     doors: [],
     labels: [],
     rooms: [],
     lamps: [],
+    plateaus: [],
   }
 
   for (const layer of list(root.layers).filter(isRec)) {
@@ -207,9 +211,12 @@ export function readScene(doc: unknown, dmView: boolean, doors: MapSvgOptions['d
         case 'shape':
           scene.floors.push(readRings(child.contours))
           break
-        case 'water':
-          scene.waters.push(readRings(child.contours))
+        case 'plateau': {
+          const [ring] = readRings(child.contours)
+          const height = Math.round(num(child.height))
+          if (ring && height !== 0) scene.plateaus.push({ ring, height })
           break
+        }
         case 'door': {
           // A secret door is the DM's alone. The server already cut it from every player
           // document; this is the second lock, so a mis-issued token still cannot leak one.
@@ -273,10 +280,11 @@ function boundsOf(scene: Scene, tokens: MapToken[]): Bounds | null {
     box.maxX = Math.max(box.maxX, x)
     box.maxY = Math.max(box.maxY, y)
   }
-  for (const rings of [...scene.floors, ...scene.waters]) for (const ring of rings) for (const [x, y] of ring) add(x, y)
+  for (const rings of scene.floors) for (const ring of rings) for (const [x, y] of ring) add(x, y)
   for (const wall of scene.walls) for (const [x, y] of wall.points) add(x, y)
   for (const door of scene.doors) add(door.x, door.y)
   for (const room of scene.rooms) add(room.x, room.y)
+  for (const plateau of scene.plateaus) for (const [x, y] of plateau.ring) add(x, y)
   for (const label of scene.labels) add(label.x, label.y)
   for (const token of tokens) add(token.x, token.y)
   if (box.minX === Infinity) return null
@@ -355,6 +363,47 @@ const f = (n: number): string => String(Math.round(n * 1000) / 1000)
 
 const escapeXml = (text: string): string =>
   text.replace(/[<>&"']/g, (c) => `&${{ '<': 'lt', '>': 'gt', '&': 'amp', '"': 'quot', "'": 'apos' }[c]!};`)
+
+/** How far apart a plateau's contour rings sit, cells: one ring per cell of drop. */
+const CONTOUR_STEP = 0.3
+
+/**
+ * `ring` pushed `d` cells out from its middle (in for a negative `d`), each corner along the
+ * mean of its two edges' normals. A schematic's offset, true for the boxy outlines plateaus are.
+ */
+function offsetRing(ring: Ring, d: number): Ring {
+  let area = 0
+  for (let i = 0; i < ring.length; i++) {
+    const [x1, y1] = ring[i]
+    const [x2, y2] = ring[(i + 1) % ring.length]
+    area += x1 * y2 - x2 * y1
+  }
+  // The outward normal of an edge, for the ring's own winding (y down).
+  const side = area > 0 ? 1 : -1
+  const normal = (a: [number, number], b: [number, number]): [number, number] => {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+    return [((b[1] - a[1]) / len) * side, (-(b[0] - a[0]) / len) * side]
+  }
+  return ring.map((p, i) => {
+    const n1 = normal(ring[(i - 1 + ring.length) % ring.length], p)
+    const n2 = normal(p, ring[(i + 1) % ring.length])
+    const mx = n1[0] + n2[0]
+    const my = n1[1] + n2[1]
+    const len = Math.hypot(mx, my) || 1
+    // The miter's length keeps the two edges `d` off; capped so a sharp tip cannot spike.
+    const k = d / Math.max(0.35, (mx * n2[0] + my * n2[1]) / len)
+    return [p[0] + (mx / len) * k, p[1] + (my / len) * k]
+  })
+}
+
+/** A plateau as contour rings, one per cell of drop: out from its edge down a hill, in for a pit. */
+function drawPlateau(plateau: Plateau): string {
+  const cells = Math.min(12, Math.abs(plateau.height))
+  const dir = plateau.height > 0 ? 1 : -1
+  const rings: Ring[] = []
+  for (let k = 0; k < cells; k++) rings.push(k === 0 ? plateau.ring : offsetRing(plateau.ring, dir * k * CONTOUR_STEP))
+  return `<path d="${ringsPath(rings)}" fill="none" stroke="${INK}" stroke-opacity="0.7" stroke-width="0.05" stroke-linejoin="round"/>`
+}
 
 function ringsPath(rings: Ring[]): string {
   return rings
@@ -546,12 +595,8 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
     out.push(`<path d="${floorPath}" fill-rule="evenodd" fill="none" stroke="${INK}" stroke-width="0.13"/>`)
   }
 
-  // Water sits on the floor it flooded, so it is drawn over it — and over the grid, which the
-  // references show continuing under the surface rather than on top of it.
-  for (const rings of scene.waters)
-    out.push(
-      `<path d="${ringsPath(rings)}" fill-rule="evenodd" fill="${WATER}" fill-opacity="0.5" stroke="${INK}" stroke-width="0.07"/>`,
-    )
+  // Plateaus are relief over the floors and the terrain: their contours sit on the ground, under the walls.
+  for (const plateau of scene.plateaus) out.push(drawPlateau(plateau))
 
   for (const wall of scene.walls)
     out.push(

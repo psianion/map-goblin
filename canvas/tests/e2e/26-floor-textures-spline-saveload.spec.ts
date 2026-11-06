@@ -1,6 +1,6 @@
 /**
  * 26-floor-textures-spline-saveload.spec.ts
- * Month 2 integration tests: floor textures, spline paths, save/load round-trip.
+ * Month 2 integration tests: floor textures, save/load round-trip.
  *
  * Tests:
  * FLOOR TEXTURES:
@@ -8,13 +8,6 @@
  * - textureId can be set directly on a shape via store mutation
  * - TexturePicker UI visible in properties panel when shape selected (Task 7)
  * - Undo reverts textureId (tested via Ctrl+Z after ShapeTextureCommand — needs Task 7 UI)
- *
- * SPLINE PATHS:
- * - SplinePathRecord schema has controlPoints ([number,number][]), closed, textureId
- * - Selecting SplinePathTool activates it in store
- * - Clicking 4 control points + double-click finalizes path
- * - controlPoints length matches clicks
- * - Undo removes last path
  *
  * SAVE / LOAD:
  * - getSerializableState() returns version '1.3'
@@ -33,13 +26,6 @@ type ShapeRecord = {
   textureId?: string
   textureScale: number
   textureTint: string
-}
-
-type SplinePathRecord = {
-  id: string
-  controlPoints: [number, number][]
-  closed: boolean
-  textureId?: string
 }
 
 type RawDungeonLayer = {
@@ -91,17 +77,6 @@ async function getDungeonLayer(page: import('@playwright/test').Page): Promise<D
       type: 'dungeon' as const,
       shapes: layer.children.filter((c) => c.childType === 'shape') as unknown as ShapeRecord[],
     }
-  })
-}
-
-async function getSplinePaths(page: import('@playwright/test').Page): Promise<SplinePathRecord[]> {
-  return page.evaluate(() => {
-    const store = (window as StoreWindow).__store
-    if (!store) return []
-    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
-    return (layer?.children ?? []).filter(
-      (c) => c.childType === 'shape' && c.shapeType === 'path',
-    ) as unknown as SplinePathRecord[]
   })
 }
 
@@ -211,170 +186,17 @@ test.describe('Floor Textures', () => {
   })
 })
 
-// ---------- Spline Path Tests ----------
-
-test.describe('Spline Paths', () => {
-  /**
-   * Select the tool that draws paths.
-   *
-   * There is no SplinePathTool any more — the v2.0 store dropped
-   * `SplinePathRecord` and `DungeonLayer.paths`, and a path is now an ordinary
-   * shape child drawn by the path tool on 'a'. The rows below used to look for a
-   * "Spline" button, not find one, and skip themselves forever; pointed at the
-   * tool that replaced it they cover the same three things for real.
-   */
-  async function activatePathTool(page: import('@playwright/test').Page): Promise<void> {
-    await page.keyboard.press('a')
-    await waitFrame(page, 2)
-  }
-
-  // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
-  // the old `SplinePathRecord` with `controlPoints` / `closed`: that record type
-  // and `DungeonLayer.paths` went away with the v2.0 store. This drew nothing
-  // before, because it called an `addPath` action that no longer exists through
-  // an optional-call that swallowed its absence — so it asserted a schema on a
-  // layer that never got a path. It now draws one with the
-  // real path tool and checks the shape that actually reaches a save file.
-  test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
-    await gotoApp(page)
-
-    const canvas = page.locator('canvas').first()
-    const box = await canvas.boundingBox()
-    expect(box).not.toBeNull()
-    const cx = box!.x + box!.width / 2
-    const cy = box!.y + box!.height / 2
-
-    await page.keyboard.press('a')
-    await waitFrame(page, 2)
-
-    for (const [px, py] of [
-      [cx - 120, cy],
-      [cx, cy - 60],
-      [cx + 120, cy],
-    ]) {
-      await firePointer(page, 'pointerdown', px, py, 0.5, 1)
-      await firePointer(page, 'pointerup', px, py, 0, 0)
-      await waitFrame(page, 2)
-    }
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await waitFrame(page, 5)
-
-    const paths = await getSplinePaths(page)
-    expect(paths.length).toBeGreaterThan(0)
-
-    const path = paths[paths.length - 1] as unknown as {
-      shapeType: string
-      contours: [number, number][][]
-    }
-    expect(path.shapeType).toBe('path')
-    expect(Array.isArray(path.contours)).toBe(true)
-    expect(path.contours.length).toBeGreaterThan(0)
-    const ring = path.contours[0]
-    expect(Array.isArray(ring)).toBe(true)
-    // A corridor offset from a polyline is a closed ring, so at least a triangle.
-    expect(ring.length).toBeGreaterThanOrEqual(3)
-    expect(typeof ring[0][0]).toBe('number')
-    expect(typeof ring[0][1]).toBe('number')
-  })
-
-  test('the path tool activates in store', async ({ page }) => {
-    await gotoApp(page)
-    await activatePathTool(page)
-
-    const active = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      return store?.getState().tools.activeTool ?? ''
-    })
-    expect(active).toBe('path')
-  })
-
-  test('4 clicks + double-click commits a path', async ({ page }) => {
-    await gotoApp(page)
-    await activatePathTool(page)
-
-    const canvas = page.locator('canvas').first()
-    const box = await canvas.boundingBox()
-    expect(box).not.toBeNull()
-    const cx = box!.x + box!.width / 2
-    const cy = box!.y + box!.height / 2
-
-    const beforePaths = await getSplinePaths(page)
-
-    // Click 4 control points
-    for (const [px, py] of [
-      [cx - 150, cy],
-      [cx - 50, cy - 80],
-      [cx + 50, cy + 80],
-      [cx + 150, cy],
-    ]) {
-      await firePointer(page, 'pointerdown', px, py, 0.5, 1)
-      await firePointer(page, 'pointerup', px, py, 0, 0)
-      await waitFrame(page, 2)
-    }
-
-    // Double-click to finalize
-    await page.mouse.dblclick(cx + 150, cy)
-    await page.waitForTimeout(200)
-    await waitFrame(page, 5)
-
-    const afterPaths = await getSplinePaths(page)
-    expect(afterPaths.length).toBeGreaterThan(beforePaths.length)
-
-    // The double-click finalises rather than adding a vertex, so the committed
-    // corridor comes from the clicks before it.
-    const newPath = afterPaths[afterPaths.length - 1] as unknown as {
-      contours: [number, number][][]
-    }
-    expect(newPath.contours[0].length).toBeGreaterThanOrEqual(3)
-  })
-
-  test('undo removes the last path', async ({ page }) => {
-    await gotoApp(page)
-    // Drawn with the tool, so the path goes through AddChildCommand + undoManager.
-    await activatePathTool(page)
-
-    const canvas = page.locator('canvas').first()
-    const box = await canvas.boundingBox()
-    expect(box).not.toBeNull()
-    const cx = box!.x + box!.width / 2
-    const cy = box!.y + box!.height / 2
-
-    const beforePaths = await getSplinePaths(page)
-
-    // Draw a 3-point path and finalize
-    for (const [px, py] of [[cx - 100, cy], [cx, cy - 60], [cx + 100, cy]]) {
-      await firePointer(page, 'pointerdown', px, py, 0.5, 1)
-      await firePointer(page, 'pointerup', px, py, 0, 0)
-      await waitFrame(page, 3)
-    }
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(300)
-    await waitFrame(page, 5)
-
-    const afterDraw = await getSplinePaths(page)
-    expect(afterDraw.length).toBeGreaterThan(beforePaths.length)
-
-    // Ctrl+Z should undo the AddChildCommand
-    await pressShortcut(page, 'z', { ctrl: true })
-    await waitFrame(page, 5)
-
-    const afterUndo = await getSplinePaths(page)
-    expect(afterUndo.length).toBeLessThan(afterDraw.length)
-  })
-})
-
 // ---------- Save / Load Tests ----------
 
 test.describe('Save / Load Round-trip', () => {
-  test('getSerializableState returns the current version, "3.1"', async ({ page }) => {
+  test('getSerializableState returns the current version, "3.4"', async ({ page }) => {
     await gotoApp(page)
 
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.1')
+    expect(version).toBe('3.4')
   })
 
   test('round-trip: save then loadFromFile restores dungeon layer shapes', async ({ page }) => {
@@ -475,7 +297,7 @@ test.describe('Save / Load Round-trip', () => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('3.1')
+    expect(version).toBe('3.4')
 
     // Shape children survive the migration
     const layer = await getDungeonLayer(page)

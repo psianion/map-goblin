@@ -467,7 +467,7 @@ test('an erase stroke takes rubble but spares cave rock and an imported image, a
   )
   await page.keyboard.press('b')
   await setBrush(page, { stampMode: false, brushRadius: 1 })
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   await expect(page.getByTestId('v2-status-hint')).toContainText('images and cave rock are kept')
   const before = new Set(await childIds(page))
 
@@ -485,7 +485,7 @@ test('an erase stroke takes rubble but spares cave rock and an imported image, a
   expect(after.has(rock.id)).toBe(true)
   expect(after.has('e2e-image')).toBe(true)
 
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   await undo(page)
   expect(new Set(await childIds(page))).toEqual(before)
 })
@@ -773,8 +773,9 @@ test('the library: categories, "barel" finds barrels first, and a star survives 
   const sheet = page.getByTestId('v2-props-sheet')
   await expect(sheet).toBeVisible()
   const cats = await sheet.getByRole('list', { name: 'Categories' }).getByRole('button').allTextContents()
-  expect(cats.slice(0, 4)).toEqual(['All825', 'Furniture142', 'Clutter119', 'Storage106'])
-  expect(cats.some((c) => /Cave Ink/.test(c))).toBe(false)
+  expect(cats.slice(0, 4)).toEqual(['All839', 'Furniture142', 'Clutter119', 'Storage106'])
+  // The cave ink set's props only (rubble piles and band pieces, pits, adaptor, stairs), never its walked kit.
+  expect(cats.filter((c) => /Cave Ink/.test(c))).toEqual(['Cave Ink14'])
   await expect(sheet.getByRole('button', { name: /^Used on this map \(\d+\)$/ })).toBeVisible()
 
   await sheet.getByLabel('Search props').fill('barel')
@@ -856,7 +857,7 @@ test('the Props dock at 1920: eight strip tiles, a typed Scale, two tints that d
 
   // Erase is a moment: E, then Select, then B comes back painting, not erasing.
   await blur(page)
-  await page.keyboard.press('e')
+  await page.keyboard.press('Shift+E')
   expect(await inPage(page, `(s) => s().tools.eraseMode`)).toBe(true)
   await page.getByTestId('v2-rail').getByRole('button', { name: /^Select/ }).click()
   await blur(page)

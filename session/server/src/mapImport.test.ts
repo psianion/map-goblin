@@ -21,7 +21,7 @@ function doc(version: unknown): unknown {
 
 describe('validateMapData', () => {
   it('accepts every version SUPPORTED_VERSIONS lists', () => {
-    for (const version of ['2.0', '3.0', '3.1']) {
+    for (const version of ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']) {
       expect(validateMapData(doc(version))).toMatchObject({ ok: true })
     }
   })
@@ -55,6 +55,43 @@ describe('parseMapFile', () => {
   it('leaves a current file that has nothing to migrate as it arrived', () => {
     const result = parseMapFile(JSON.stringify(doc('3.1')))
     expect(result).toMatchObject({ ok: true, migrated: false })
+  })
+
+  it('stores a file that still holds old water bodies without them, the rest kept', () => {
+    const lake = { id: 'lake', name: 'Lake', childType: 'water', visible: true, contours: [[[0, 0], [2, 0], [2, 2]]] }
+    const torch = { id: 'torch', name: 'Torch', childType: 'light', visible: true, position: { x: 1, y: 1 } }
+    const result = parseMapFile(JSON.stringify({ ...(doc('3.1') as object), layers: [{ type: 'dungeon', id: 'l', children: [lake, torch] }] }))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(true)
+    expect((result.data.layers[0] as unknown as { children: { id: string }[] }).children.map((c) => c.id)).toEqual(['torch'])
+  })
+
+  it('stores a 3.3 file with paths without them, its plateaus kept', () => {
+    const road = { id: 'road', name: 'Road', childType: 'path', visible: true, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }], closed: false, width: 1 }
+    const mesa = { id: 'm', name: 'Mesa', childType: 'plateau', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'cliff' }
+    const result = parseMapFile(JSON.stringify({ ...(doc('3.3') as object), layers: [{ type: 'dungeon', id: 'l', children: [road, mesa] }] }))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(true)
+    expect((result.data.layers[0] as unknown as { children: { id: string }[] }).children.map((c) => c.id)).toEqual(['m'])
+  })
+
+  it('takes a 3.4 file with plateaus as it arrived', () => {
+    const mesa = { id: 'm', name: 'Mesa', childType: 'plateau', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'cliff' }
+    const file = { ...(doc('3.4') as object), layers: [{ type: 'dungeon', id: 'l', children: [mesa] }] }
+    const result = parseMapFile(JSON.stringify(file))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(false)
+    expect(result.data).toEqual(file)
+  })
+
+  it('stores a 3.2 file whose floors carry a height with plateaus instead', () => {
+    const floor = { id: 's', name: 'Mesa', childType: 'shape', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'cliff' }
+    const result = parseMapFile(JSON.stringify({ ...(doc('3.2') as object), layers: [{ type: 'dungeon', id: 'l', children: [floor] }] }))
+    if (!result.ok) throw new Error(result.error)
+    expect(result.migrated).toBe(true)
+    const children = (result.data.layers[0] as unknown as { children: Record<string, unknown>[] }).children
+    expect(children.map((c) => c.childType)).toEqual(['shape', 'plateau'])
+    expect(children[1]).toMatchObject({ id: 's-plateau', height: 2, edge: 'cliff' })
   })
 
   it('refuses a 2.0 file whose layers the migration cannot read, instead of throwing', () => {

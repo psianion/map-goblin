@@ -52,7 +52,13 @@ export interface Token extends TokenDef {
   /** World units == grid cells. */
   x: number
   y: number
+  /**
+   * Height above the map's ground, in cells (1 world unit == 1 cell, D13): the plateau, pit,
+   * stairs or ramp the token stands on, set by the server on every place and move.
+   */
   elevation: number
+  /** The DM set `elevation` by hand on the token card: moves leave it alone until unpinned. */
+  elevationPinned?: boolean
   /** Draw order within the token overlay. */
   z: number
   /** DM-only visibility — redacted out of every non-DM view (D4). */
@@ -117,6 +123,13 @@ export interface SceneVision {
    */
   canSee?(x: number, y: number): boolean
   /**
+   * Rooms mode — is this spot a plateau top no party eye stands high enough to see (plan §6)?
+   * A room the party sees is seen whole, except for these: a cliff hides what is up there
+   * from below. Absent when the scene has no such top (and in vision mode, where `canSee`
+   * already answers it through the cliffs).
+   */
+  coveredAt?(x: number, y: number): boolean
+  /**
    * Vision mode only — is this spot ground the party has already been shown?
    *
    * `roomAt` answers "which authored room is this", and outside every room it answers
@@ -169,4 +182,17 @@ export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null
  * scene has one level (or no map), which shows every token. The server answers it from the
  * seat's viewed level (`viewedLevel`, triggers).
  */
+/**
+ * The ground a scene's tokens stand on (plateaus, plan §7): how high a point is, and whether a
+ * straight move from one point to another crosses a raised edge whose crossing kind refuses
+ * it. The server answers it from the scene's map and the live crossing rules; null on a scene
+ * with no map, where every point is level ground and nothing refuses.
+ */
+export interface SceneTerrain {
+  elevationAt(x: number, y: number, levelId?: string): number
+  /** The refusal message for a player's move, or null when it may go. */
+  crossingRefusal(from: { x: number; y: number }, to: { x: number; y: number }, levelId?: string): string | null
+}
+export type TerrainOf = (sceneId: string) => SceneTerrain | null
+
 export type LevelFilterOf = (sceneId: string, viewer: Viewer) => ((levelId: string | undefined) => boolean) | null

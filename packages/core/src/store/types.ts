@@ -4,6 +4,7 @@ export * from '../shared/world';
 export * from '../shared/fogLook';
 import type {
   AnyChild,
+  CrossingKind,
   WallSegment,
   WallEdits,
   WallType,
@@ -72,7 +73,14 @@ export interface MapSettings extends MapEnvironment {
   roomsVersion?: 2;
   /** The room the table starts in by default; the publish dialog preselects it. */
   startingRoomId?: string;
+  /** Cells of drop at which a plateau top hides from below; a plateau may override. */
+  sightDropCells: number;
+  /** The DM's crossing rules, picked by cliff edges and bridges. */
+  crossingKinds: CrossingKind[];
 }
+
+/** The map's sight threshold and crossing kinds, as one patch (`setMapRules`). */
+export type MapRules = Partial<Pick<MapSettings, 'sightDropCells' | 'crossingKinds'>>;
 
 // ─── Grid ─────────────────────────────────────────────────
 export interface GridConfig {
@@ -223,14 +231,12 @@ export type ToolType =
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'
-  | 'path'
   | 'wall'
   | 'door'
   | 'light'
   | 'ruler'
   | 'scatterBrush'
   | 'terrain'
-  | 'water'
   | 'text'
   | 'zone'
   /** Draws a rectangle floor and the room on it in one gesture. */
@@ -238,7 +244,9 @@ export type ToolType =
   /** Draws a polygon floor and the room on it in one gesture. */
   | 'roomPolygon'
   /** Draws a threshold (or a wall) across a floor to split a room. */
-  | 'divide';
+  | 'divide'
+  /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
+  | 'plateau';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -256,12 +264,12 @@ export interface TerrainBrushSettings {
   tintOpacity: number;
 }
 
-export interface WaterToolSettings {
-  mode: 'river' | 'lake';
-  /** River stroke width in world units. */
-  width: number;
-  textureId: string;
-  bankTextureId: string;
+
+/** What the Plateau tool draws next. */
+export interface PlateauToolSettings {
+  /** Cells, whole, never 0. */
+  height: number;
+  edge: 'none' | 'slope' | 'cliff';
 }
 
 export interface ZoneToolSettings {
@@ -325,9 +333,10 @@ export interface ToolSettings {
   /** A free-standing door's angle, degrees: 0 runs along x, 90 along y. Doors on a wall take the wall's. */
   doorAngle: number;
   terrainBrush: TerrainBrushSettings;
-  water: WaterToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
+  /** Absent on settings saved before the plateau tool: its defaults. */
+  plateau?: PlateauToolSettings;
 }
 
 export interface ToolsSlice {
@@ -623,7 +632,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
@@ -702,6 +711,7 @@ export interface MapBuilderStore {
   setAmbientLight: (color: string) => void;
   setFogLook: (look: FogLook | undefined) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
+  setMapRules: (patch: MapRules) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
 
@@ -762,7 +772,6 @@ export interface MapBuilderStore {
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
-  updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
   toggleNodeSelection: (t: number) => void;

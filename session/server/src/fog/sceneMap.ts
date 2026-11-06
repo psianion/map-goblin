@@ -341,7 +341,7 @@ export function centreOf(child: AnyChild): [number, number] {
       // centre. Nothing the editor writes today uses those on a floor shape. Applied to every
       // ring child that has one, not shapes alone: `authoredRing` honours a room's or a
       // joint's transform, and the two answering differently is a bug waiting on the first
-      // unbaked one. (Water rings carry no transform at all, hence the `in`.)
+      // unbaked one.
       const [dx, dy] = ('transform' in child ? child.transform?.translate : null) ?? [0, 0]
       return [(minX + maxX) / 2 + dx, (minY + maxY) / 2 + dy]
     }

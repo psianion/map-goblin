@@ -179,3 +179,36 @@ describe('mapSvg — map labels', () => {
     expect(svg).toMatch(/<text x="8" [^>]*text-anchor="end"[^>]*>Right<\/text>/)
   })
 })
+
+describe('mapSvg — plateaus', () => {
+  const floor = { childType: 'shape', visible: true, contours: [[[0, 0], [20, 0], [20, 14], [0, 14]]] }
+  const plateau = (height: number) => ({
+    childType: 'plateau',
+    visible: true,
+    contours: [[[4, 4], [10, 4], [10, 9], [4, 9]]],
+    height,
+    edge: 'cliff',
+  })
+  /** The contour path's rings, as the M commands that start them. */
+  const rings = (svg: string) => {
+    const m = /<path d="([^"]*)" fill="none" stroke="#[0-9a-f]+" stroke-opacity="0.7"/.exec(svg)
+    return m ? [...m[1].matchAll(/M([-\d.]+) ([-\d.]+)/g)].map((r) => [Number(r[1]), Number(r[2])]) : []
+  }
+  const render = (...children: unknown[]) => mapSvg({ layers: [{ type: 'dungeon', children: [floor, ...children] }] })
+
+  it('draws one contour ring per cell of drop, the outline first, out from a plateau', () => {
+    const three = rings(render(plateau(3)))
+    expect(three).toHaveLength(3)
+    expect(three[0]).toEqual([4, 4])
+    expect(three[1][0]).toBeLessThan(4)
+    expect(three[2][0]).toBeLessThan(three[1][0])
+    expect(rings(render(plateau(1)))).toHaveLength(1)
+  })
+
+  it('draws a pit’s rings inward, and nothing for a plateau with no height', () => {
+    const pit = rings(render(plateau(-2)))
+    expect(pit).toHaveLength(2)
+    expect(pit[1][0]).toBeGreaterThan(4)
+    expect(rings(render(plateau(0)))).toHaveLength(0)
+  })
+})

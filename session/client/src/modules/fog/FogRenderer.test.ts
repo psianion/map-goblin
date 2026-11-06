@@ -2078,10 +2078,15 @@ describe('the lighting composite each seat is mounted with', () => {
     const frame = (): Promise<void> =>
       new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
-    /** Mount dark, then hand the party the room they are standing in. */
+    /**
+     * Mount dark, then hand the party the room they are standing in. Not a fresh table: one
+     * where the DM has shown and hidden the vault already, or the party's own room would
+     * count as revealed from the start (`revealPartyRooms`) and there would be no reveal.
+     */
     async function fadesAfterAReveal(mode: 'rooms' | 'vision'): Promise<number> {
-      const dark = { ...fogOf({}), mode };
-      const lit = { ...fogOf({ [VESTIBULE.id]: seen }), mode };
+      const shown: RoomFog = { status: 're_hidden', wasEverRevealed: true };
+      const dark = { ...fogOf({ [VAULT.id]: shown }), mode };
+      const lit = { ...fogOf({ [VAULT.id]: shown, [VESTIBULE.id]: seen }), mode };
       const withFog = (scene: SceneFog) =>
         session({
           fog: { byScene: { 'scene-1': scene } },

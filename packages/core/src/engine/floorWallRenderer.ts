@@ -11,21 +11,29 @@ import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { ringFloorOf } from './caveBandRenderer';
 import { renderDoors } from './doorRenderer';
-import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
 import { flattenRing } from '../shared/bezier';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
+import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { getEditorDesk } from './editorDesk';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 
-function parseColor(hex: string): number {
-  return parseInt(hex.replace('#', ''), 16);
+/** A '#rrggbb' as a number; NaN for anything else, missing included. */
+function parseColor(hex: string | undefined): number {
+  return typeof hex === 'string' ? parseInt(hex.replace('#', ''), 16) : NaN;
+}
+
+/** The floor colour a style paints with, or the new-layer default when it names none. */
+const DEFAULT_FLOOR_COLOR = 0xf1ecdf;
+function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
+  const n = parseColor(style?.floorColor);
+  return Number.isFinite(n) ? n : DEFAULT_FLOOR_COLOR;
 }
 
 /**
@@ -207,43 +215,68 @@ function renderTexturedShape(
   texture: Texture,
   bleed: number,
 ): void {
-  const rings = fillRings(shape, bleed);
+  const tint = shape.textureTint && shape.textureTint !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
+  paintTiled(parent, fillRings(shape, bleed), texture, {
+    // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
+    scale: shape.textureScale || 1,
+    rotation: shape.textureFillRotation,
+    offsetX: shape.textureOffsetX ?? 0,
+    offsetY: shape.textureOffsetY ?? 0,
+    tint: isNaN(tint) ? undefined : tint,
+  });
+}
+
+/** How a tiled fill lays its texture: cells per 200 px, turn, offset from the world origin, tint. */
+export interface TiledLook {
+  scale: number;
+  rotation?: number;
+  offsetX?: number;
+  offsetY?: number;
+  tint?: number;
+  alpha?: number;
+  /** The rings are Clipper output whose negative rings are holes, cut out of the fill. */
+  holes?: boolean;
+}
+
+/**
+ * Tile `texture` over `rings` the way a floor is painted: a TilingSprite over their bounds,
+ * the pattern anchored to the world origin so neighbouring fills tile as one, masked to the
+ * rings. Floors and path fills both paint through here.
+ */
+export function paintTiled(parent: Container, rings: Polygon[], texture: Texture, look: TiledLook): void {
   const { minX, minY, maxX, maxY } = polygonBounds(rings.flat());
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
 
-  // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
-  const userScale = shape.textureScale || 1;
-  const tileScale = userScale / PX_PER_GRID_CELL;
+  const tileScale = look.scale / PX_PER_GRID_CELL;
 
   const ts = new TilingSprite({
     texture,
     width,
     height,
     tileScale: { x: tileScale, y: tileScale },
-    tileRotation: shape.textureFillRotation,
+    tileRotation: look.rotation ?? 0,
   });
   ts.position.set(minX, minY);
 
   // Anchor tile pattern to world origin so adjacent shapes tile seamlessly
-  const offsetX = shape.textureOffsetX ?? 0;
-  const offsetY = shape.textureOffsetY ?? 0;
   ts.tilePosition.set(
-    (-minX + offsetX) / tileScale,
-    (-minY + offsetY) / tileScale,
+    (-minX + (look.offsetX ?? 0)) / tileScale,
+    (-minY + (look.offsetY ?? 0)) / tileScale,
   );
 
-  // Apply tint (guard against undefined/invalid)
-  if (shape.textureTint && shape.textureTint !== '#ffffff') {
-    const tint = parseColor(shape.textureTint);
-    if (!isNaN(tint)) ts.tint = tint;
-  }
+  if (look.tint !== undefined) ts.tint = look.tint;
+  if (look.alpha !== undefined) ts.alpha = look.alpha;
 
-  // Mask to shape polygon (coordinates in world space, mask relative to parent)
+  // Mask to the rings (coordinates in world space, mask relative to parent)
   const mask = new Graphics();
-  for (const r of rings) traceSinglePolygon(mask, r);
-  mask.fill({ color: 0xffffff });
+  if (look.holes) {
+    fillPolygonsWithHoles(mask, rings, { color: 0xffffff });
+  } else {
+    for (const r of rings) traceSinglePolygon(mask, r);
+    mask.fill({ color: 0xffffff });
+  }
 
   const container = new Container();
   container.addChild(ts);
@@ -273,7 +306,9 @@ export function shapeFloorFill(
   fallbackTextureId?: string,
 ): ShapeFloorFill {
   const resolved = resolveStyle(layerStyle, shape.styleOverrides as Partial<DungeonStyle> | undefined);
-  const floorColor = parseColor(resolved.floorColor);
+  // A layer whose style came through empty (a hand-written map, a republished copy) paints
+  // the default floor rather than throwing on the missing colour.
+  const floorColor = floorColorOf(resolved);
   const textureId = shape.textureId || fallbackTextureId;
   if (!textureId || !hasLiveTexture(textureId)) return { kind: 'solid', color: floorColor };
   // unitTexture, not resolveTexture: a variant-sheet source file must fill
@@ -314,9 +349,6 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
   for (const child of layer.children) {
     if (child.childType === 'shape' && child.textureId) {
       wanted.push(child.textureId);
-    } else if (child.childType === 'water') {
-      wanted.push(child.textureId);
-      if (child.bankTextureId) wanted.push(child.bankTextureId);
     }
   }
   const fallback = layerFloorFallback(layer);
@@ -419,7 +451,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
 
     // Grid lines
     const gridG = new Graphics();
-    gridG.setStrokeStyle({ color: parseColor(color), width: 0.02, alpha: 0.25 });
+    gridG.setStrokeStyle({ color: Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, width: 0.02, alpha: 0.25 });
 
     for (let x = gridMinX; x <= gridMaxX; x++) {
       gridG.moveTo(x, gridMinY);
@@ -443,7 +475,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
- * Sublayer order (water → floor → shadows → grid → walls → doors → objects → labels) is
+ * Sublayer order (floor → shadows → grid → walls → doors → objects → labels) is
  * established in sceneGraph.addLayerToScene — we only populate content.
  */
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
@@ -483,11 +515,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
 
-  // Water renders independently of floor geometry (a layer can be water-only)
-  if (entry.sublayers.water) {
-    rebuildWaterSublayer(entry.sublayers.water, layer);
-  }
-
   // ── Walls and doors ────────────────────────────────────────────
   // Ahead of the no-floor bail-out below: walls do not depend on the floor
   // render, and a layer holding only standalone walls used to draw nothing at
@@ -523,13 +550,19 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     renderDoors(doorsSublayer, doors, drawStyle, gridCellSize, rings, edges);
   }
 
+  // Plateaus, band by band, over the ground (plateauRenderer.ts). Ahead of the no-floor
+  // bail-out: a plateau over painted terrain has no floor under it.
+  renderPlateaus(layer, entry.sublayers.plateauTops, entry.sublayers.plateauEdges, {
+    waitFor: (id) => armLateTextureRebuild(layer.id, id),
+  });
+
   // The authored boundary itself. A ring's stones stand on it, and dragging one
   // moves it (see ringStoneDrag), so there is nothing here to bend to match.
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
 
-  const s = layer.style;
-  const floorColorNum = parseColor(s.floorColor);
+  const s = layer.style ?? ({} as DungeonStyle);
+  const floorColorNum = floorColorOf(s);
   // Paint-only overshoot, per floor: a floor a preset pinned carries its own, so the
   // paint of drawn work stays put. The mask below grows by the widest of them — a fill
   // grown past a mask that was not is just a more expensive way to draw the same edge.

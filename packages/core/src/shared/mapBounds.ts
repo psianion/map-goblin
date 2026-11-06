@@ -3,6 +3,11 @@
 // drags pixi in with it.
 
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
+import { shapeRing } from './plateaus';
+import { dropShadeWidth, slopeWidthOf } from './plateauShade';
+
+/** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
+const CLIFF_REACH = 1.2;
 
 export interface WorldBounds {
   minX: number;
@@ -49,7 +54,7 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
 }
 
 /**
- * The raw extent of everything drawn — floor geometry, water, standalone walls, placed
+ * The raw extent of everything drawn — floor geometry, plateaus, standalone walls, placed
  * assets, painted terrain — with no allowance yet for how wide a wall is stroked. Null when
  * nothing is drawn.
  */
@@ -75,17 +80,36 @@ function drawnBounds(
         }
       }
     }
-    // Floor shapes and water bodies both extend the map. Shapes are walked as well as
+    // Floor shapes extend the map. Shapes are walked as well as
     // mergedFloor because mergedFloor is a derived cache that ships null in saved files —
     // on the server (which measures frames off raw documents) it is the only geometry
     // there is. `?? []` because documents straight off disk owe nobody a complete shape.
     for (const child of dl.children ?? []) {
-      if ((child.childType !== 'water' && child.childType !== 'shape') || !child.visible) continue;
+      if (child.childType !== 'shape' || !child.visible) continue;
       for (const [x, y] of child.contours?.[0] ?? []) {
         if (x < minX) minX = x;
         if (y < minY) minY = y;
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
+      }
+    }
+    // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
+    // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and
+    // reaches no further than its ring.
+    for (const child of dl.children ?? []) {
+      if (child.childType !== 'plateau' || !child.visible || (child.contours?.[0]?.length ?? 0) < 3) continue;
+      const rise = child.height > 0 ? child.height : 0;
+      const pad =
+        rise === 0
+          ? 0
+          : child.edge === 'slope'
+            ? slopeWidthOf(child.slopeWidth)
+            : Math.max(dropShadeWidth(rise), child.edge === 'cliff' ? CLIFF_REACH : 0);
+      for (const [x, y] of shapeRing(child, 0)) {
+        minX = Math.min(minX, x - pad);
+        minY = Math.min(minY, y - pad);
+        maxX = Math.max(maxX, x + pad);
+        maxY = Math.max(maxY, y + pad);
       }
     }
     // A wall drawn out past the floor is still map — the DM drew it, so it counts.
@@ -137,7 +161,7 @@ function strokePad(layers: readonly Layer[]): number {
 }
 
 /**
- * Axis-aligned bounds of everything drawn — floor geometry, water, standalone walls,
+ * Axis-aligned bounds of everything drawn — floor geometry, plateaus, standalone walls,
  * placed assets, painted terrain — padded for wall strokes. Null when the map
  * has nothing on it at all (callers that want an export-friendly default box add their own).
  */

@@ -6,7 +6,7 @@
 import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3 waiver, same as shared/mapBounds: store/migration is the shared version list + pure JSON migration, pixi-free by design
-import { SUPPORTED_VERSIONS, migrateToLatest } from '@dnd/core/src/store/migration'
+import { SUPPORTED_VERSIONS, countRetiredBodies, migrateToLatest, plateausFromShapes } from '@dnd/core/src/store/migration'
 
 /**
  * The editor writes a `.mapbuilder` as `MPBLD\0` + gzip(UTF-8 JSON) — canvas/src/io/saveLoad.ts
@@ -37,8 +37,8 @@ export type MapImportResult =
   | { ok: true; data: SerializedMapData; name: string }
   | { ok: false; error: string }
 
-/** `migrated`: the schema moved, so the stored JSON has to be re-serialised from `data`, not
- *  kept as the bytes that arrived. */
+/** `migrated`: the schema moved (old water bodies and paths dropped, floor heights moved onto plateaus), so the stored JSON has to
+ *  be re-serialised from `data`, not kept as the bytes that arrived. */
 export type MapFileResult =
   | { ok: true; data: SerializedMapData; name: string; migrated: boolean }
   | { ok: false; error: string }
@@ -46,8 +46,11 @@ export type MapFileResult =
 /**
  * Parse + validate + migrate in one step, because a body that is not JSON fails the same way.
  * The upload and the republish both come through here, so a 2.0 file is stored as the 3.x
- * document every reader past this point expects. A file already on a 3.x schema keeps its own
- * bytes: what else `migrateToLatest` does (legacy tints, retired fields) is load-time tidying
+ * document every reader past this point expects, and a file still holding the old water tool's
+ * bodies or the Path tool's paths is stored without them (the same `dropRetiredBodies` the
+ * editor's load runs), and a 3.2
+ * file whose floors carry a height is stored with plateaus instead (`plateausFromShapes`). Any other
+ * 3.x file keeps its own bytes: what else `migrateToLatest` does (legacy tints, retired fields) is load-time tidying
  * the editor's and the table's own load repeats and nothing on the server reads, and the map
  * GET answers with the file as uploaded.
  */
@@ -67,7 +70,10 @@ export function parseMapFile(text: string): MapFileResult {
     // The envelope passed, but a layer inside it is not one the migration can read.
     return { ok: false, error: 'could not migrate that .mapbuilder file' }
   }
-  const migrated = data.version !== map.data.version
+  const migrated =
+    data.version !== map.data.version ||
+    countRetiredBodies(map.data.layers) > 0 ||
+    plateausFromShapes(map.data.layers) !== map.data.layers
   return { ...map, data: migrated ? data : map.data, migrated }
 }
 

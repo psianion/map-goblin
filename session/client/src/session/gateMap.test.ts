@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AnyChild, AssetChild, DoorChild, LightChild, Room, WaterChild } from '@dnd/core/src/shared/types';
+import type { AnyChild, AssetChild, DoorChild, LightChild, Room } from '@dnd/core/src/shared/types';
 import type { DungeonLayer } from '@dnd/core/src/store/types';
 import { computeStableRoomId } from '@dnd/core/src/shared/roomUtils';
 import { bindDoorToRooms } from '@dnd/core/src/shared/roomBinding';
@@ -70,7 +70,6 @@ describe('sprint 3 gate map — Emberhold Crypt', () => {
   it('carries the acceptance-row content budget', () => {
     expect(layer.standaloneWalls.length).toBeGreaterThanOrEqual(200);
     expect(kids<LightChild>('light')).toHaveLength(4);
-    expect(kids<WaterChild>('water').length).toBeGreaterThan(0);
     expect(kids<AssetChild>('asset').length).toBeGreaterThan(20);
     // Terrain: a palette plus both splat bitmaps, not an empty stub.
     expect(map.mapSettings.terrain?.palette.filter(Boolean).length).toBeGreaterThan(0);

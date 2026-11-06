@@ -47,6 +47,7 @@ import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomAction
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
 import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
+import { removeHoveredPlateauPoint } from '@dnd/core/src/engine/ringNodeEdit';
 
 /** Set by EditorHost so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -223,7 +224,7 @@ function nudgeSelection(dx: number, dy: number): void | false {
 
 /**
  * Flip the selection in place, each member about its own centre: props mirror their art,
- * floors, water and drawn walls their outline. Labels, lights and zones have nothing to
+ * floors and drawn walls their outline. Labels, lights and zones have nothing to
  * mirror and pass through unchanged.
  */
 export function flipSelection(axis: 'h' | 'v', anyTool = false): void | false {
@@ -769,7 +770,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool.pan', combo: 'g', group: 'Tools', scope: 'canvas', label: 'Pan', run: () => pickTool('pan', 'Pan', false) },
   // No settings: the ruler has nothing to configure.
   { id: 'tool.ruler', combo: 'm', group: 'Tools', scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
-  { id: 'mode.erase', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
+  // Shift+E: E is the Plateau tool.
+  { id: 'mode.erase', combo: 'shift+e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
     run: () => {
       const s = useStore.getState();
       const next = !s.tools.eraseMode;
@@ -803,9 +805,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'tool.polygon', combo: 'p', group: 'Tools', scope: 'canvas', label: 'Polygon', run: () => pickTool('polygon', 'Polygon') },
   { id: 'tool.regularPolygon', combo: 'h', group: 'Tools', scope: 'canvas', label: 'Regular polygon',
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
-  { id: 'tool.path', combo: 'a', group: 'Tools', scope: 'canvas', label: 'Path', run: () => pickTool('path', 'Path') },
+  { id: 'tool.plateau', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Plateau', run: () => pickTool('plateau', 'Plateau') },
   { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
-  { id: 'tool.water', combo: 'u', group: 'Tools', scope: 'canvas', label: 'Water', run: () => pickTool('water', 'Water') },
   // Walls.
   { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
   { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },
@@ -859,10 +860,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'edit.back', combo: 'ctrl+shift+[', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back') },
   { id: 'edit.back', combo: 'ctrl+shift+{', group: 'Selection', scope: 'canvas', label: 'Send to back', run: () => orderSelection('back'), alias: true },
   // With nothing selected the tool in hand has the key (a hovered door, a selected zone).
+  // A selected plateau's hovered point goes on its own, not the plateau.
   { id: 'edit.delete', combo: 'delete', group: 'Selection', scope: 'canvas', label: 'Delete',
-    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+    run: (e) => (removeHoveredPlateauPoint() ? undefined : deleteSelection() === false ? toTool(e) : undefined) },
   { id: 'edit.delete', combo: 'backspace', group: 'Selection', scope: 'canvas', label: 'Delete',
-    run: (e) => (deleteSelection() === false ? toTool(e) : undefined) },
+    run: (e) => (removeHoveredPlateauPoint() ? undefined : deleteSelection() === false ? toTool(e) : undefined) },
 
   // Edit.
   { id: 'edit.undo', combo: 'ctrl+z', group: 'Edit', scope: 'canvas', label: 'Undo', run: undo },
@@ -876,7 +878,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => acceptAllSuggestions() },
   { id: 'rooms.dismiss', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Dismiss the suggested rooms', when: suggesting,
     run: () => dismissSuggestions() },
-  { id: 'edit.finish', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Finish the line (wall, polygon, path, lake)', run: toTool },
+  { id: 'edit.finish', combo: 'enter', group: 'Edit', scope: 'canvas', label: 'Finish the line (wall, polygon)', run: toTool },
   { id: 'edit.cancel', combo: 'escape', group: 'Edit', scope: 'canvas', label: 'Cancel the drawing, or leave solo', run: cancelOrLeaveSolo },
 
   // View.

@@ -11,7 +11,7 @@ import type { AssetChild } from '../shared/types';
 
 export { resetAssetPackManager };
 
-function seedPack(packId: string, entries: Record<string, ManifestEntry>): void {
+export function seedPack(packId: string, entries: Record<string, ManifestEntry>): void {
   const manifest: PackManifest = {
     name: packId,
     description: '',
@@ -167,3 +167,4 @@ export function seedTestWallSets(setIds: string[] = ['GG_Test'], packId = 'gg-fo
   }
   seedPack(packId, entries);
 }
+

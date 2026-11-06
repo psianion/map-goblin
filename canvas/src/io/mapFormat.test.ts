@@ -9,7 +9,7 @@ import type { DoorChild, DungeonLayer } from '@/store/types';
 function doc(customImages: Record<string, string> = {}): SerializedMapData {
   return {
     version: '3.0',
-    mapSettings: { name: 'T', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000000' },
+    mapSettings: { name: 'T', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000000', sightDropCells: 2, crossingKinds: [] },
     grid: { visible: true, snapDivision: 2 },
     layers: [],
     customImages,

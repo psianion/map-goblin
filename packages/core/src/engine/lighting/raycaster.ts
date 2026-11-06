@@ -3,6 +3,7 @@ import type { WallDirection } from '../../shared/types'
 import { buildOcclusionSegments } from '../../shared/occlusion'
 import { connectorChildren } from '../../shared/authoredRooms'
 import { propSegments } from '../../shared/propOcclusion'
+import { cliffOccluders } from '../../shared/plateaus'
 import {
   connectorApertures,
   resolveWalls,
@@ -40,15 +41,25 @@ export function blocksFrom(seg: Segment, ox: number, oy: number): boolean {
   return dir === 'left' ? cross <= 0 : cross >= 0
 }
 
+export interface OccluderOptions {
+  /** Blocking props' footprints. False for the sun's wall-shadow pass (props cast their own sprite shadow). */
+  props?: boolean
+  /** Raised edges that hide their tops from below. False for the wall-shadow pass (cliffs cast by drop). */
+  cliffs?: boolean
+  /** The map's `sightDropCells`: the drop at which a cliff starts hiding from an eye. Absent = the default, 2. */
+  sightDropCells?: number
+}
+
 /**
- * Every occluding segment on `dungeonLayers` for one kind of sweep. `props: false` leaves out
- * the blocking props' footprints, for the sun's wall-shadow pass (props cast their own sprite
- * shadow there).
+ * Every occluding segment on `dungeonLayers` for one kind of sweep: walls split at their doors,
+ * blocking props, and the cliffs that hide their tops, which block one way only (from the low
+ * side: an eye or a light on top sees and lights down over the edge). Light is stopped by any
+ * cliff a cell or more tall; sight by those of the map's `sightDropCells` and up.
  */
 export function extractWallSegments(
   dungeonLayers: DungeonLayer[],
   kind: OcclusionKind = 'light',
-  options: { props?: boolean } = {},
+  options: OccluderOptions = {},
 ): Segment[] {
   const segments: Segment[] = []
 
@@ -89,6 +100,12 @@ export function extractWallSegments(
           blocksLight: seg.blocksLight,
           blocksSight: seg.blocksVision,
         })
+      }
+    }
+    // Cliffs: one-way; light from a drop of one cell, sight from the threshold.
+    if (options.cliffs !== false) {
+      for (const c of cliffOccluders(layer, kind === 'light' ? 1 : options.sightDropCells)) {
+        segments.push({ ...c, blocksLight: true, blocksSight: true })
       }
     }
     // Props with "Blocks light and sight": four edges of the footprint, both ways, both kinds.

@@ -25,7 +25,7 @@ describe('importedMapToDocument', () => {
   const [base, walls] = layers;
 
   it('is a current-version document pinned to the imported size', () => {
-    expect(doc.version).toBe('3.1');
+    expect(doc.version).toBe('3.4');
     expect(doc.mapSettings).toMatchObject({ name: 'Cellar', fixedSize: { width: 10, height: 8 }, ambientLight: '#ffffff' });
     expect(doc.layers.map((l) => l.name)).toEqual(['Background', 'Battlemap', 'Walls']);
   });

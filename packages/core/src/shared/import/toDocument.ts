@@ -6,6 +6,7 @@ import type { AssetChild, DoorChild, LightChild, WallSegment } from '../types';
 import type { SerializedMapData } from '../../store/types';
 import { createBackgroundLayer, createDungeonLayer } from '../../store/factories';
 import type { ImportedMap } from './types';
+import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../crossingKinds';
 
 export function importedMapToDocument(map: ImportedMap): SerializedMapData {
   const background = createBackgroundLayer();
@@ -89,13 +90,15 @@ export function importedMapToDocument(map: ImportedMap): SerializedMapData {
   }
 
   return {
-    version: '3.1',
+    version: '3.4',
     mapSettings: {
       name: map.name,
       // UVTT carries no scale; 5 ft is the editor's own default.
       cellScale: map.cellScale ?? { value: 5, unit: 'ft' },
       ambientLight: map.ambientLight,
       fixedSize: { width: map.size.width, height: map.size.height },
+      sightDropCells: DEFAULT_SIGHT_DROP_CELLS,
+      crossingKinds: defaultCrossingKinds(),
     },
     grid: { visible: true, snapDivision: 2 },
     layers: [background, base, walls],

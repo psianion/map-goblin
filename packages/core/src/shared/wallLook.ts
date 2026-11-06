@@ -189,11 +189,11 @@ function bbox(poly: readonly [number, number][]): [number, number, number, numbe
  * The floor a ring of the merged outline belongs to: the shape most of the ring's vertices
  * sit on or inside, the earliest drawn on a tie. Null when none does.
  */
-export function ringOwner(ring: readonly [number, number][], shapes: readonly ShapeChild[]): ShapeChild | null {
+export function ringOwner<T extends Pick<ShapeChild, 'contours'>>(ring: readonly [number, number][], shapes: readonly T[]): T | null {
   if (ring.length === 0) return null;
   const [rx0, ry0, rx1, ry1] = bbox(ring);
   const step = Math.max(1, Math.floor(ring.length / RING_SAMPLES));
-  let best: ShapeChild | null = null;
+  let best: T | null = null;
   let bestHits = 0;
   for (const shape of shapes) {
     const outer = shape.contours[0];

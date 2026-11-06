@@ -192,7 +192,7 @@ test.describe('Scatter Brush Tool', () => {
     expect(afterScatter.length).toBeGreaterThan(0)
 
     // Activate erase mode
-    await page.keyboard.press('e')
+    await page.keyboard.press('Shift+E')
     await waitFrame(page, 2)
 
     // Erase at same location

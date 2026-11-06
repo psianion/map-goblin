@@ -128,7 +128,7 @@ export type ChildType =
   | 'asset'
   | 'light'
   | 'door'
-  | 'water'
+  | 'plateau'
   | 'text'
   | 'zone';
 
@@ -182,6 +182,29 @@ export interface ShapeChild extends LayerChild {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
+}
+
+/**
+ * Relief drawn over floors or painted terrain: a ring raised (or sunk) by whole cells. Never
+ * part of the floor union, walls, rooms or doors; walls come only from floors. Its parent is
+ * the innermost plateau of the layer holding its centroid, and heights add along that chain.
+ */
+export interface PlateauChild extends LayerChild, RingGeometry {
+  childType: 'plateau';
+  /** Cells, relative to the enclosing plateau. Negative = a pit. */
+  height: number;
+  /** How the ring meets lower ground. */
+  edge: 'none' | 'slope' | 'cliff';
+  /** Band set id the cliff is laid with. Absent = the cave ink ledge band. */
+  edgeArt?: string;
+  /** Slope cells per cell of drop. Absent = 1. */
+  slopeWidth?: number;
+  /** Contour lines drawn on the slope or cliff top. Absent = on. (Not `contours`: those are the rings.) */
+  contourLines?: boolean;
+  /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
+  sightOverride?: 'hide' | 'show';
+  /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */
+  crossingId?: string;
 }
 
 /** Per-ring curve tangents — see shared/bezier.ts. */
@@ -297,27 +320,13 @@ export interface DoorChild extends LayerChild {
   roomB?: string | null;
 }
 
-export interface WaterChild extends LayerChild {
-  childType: 'water';
-  /** 'river' = built from a stroked spline, 'lake' = drawn polygon. Editing UX only — rendering is identical. */
-  waterType: 'river' | 'lake';
-  contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
-  /** Optional curve tangents, indexed like `contours` — see ShapeChild.tangents. */
-  tangents?: import('./bezier').RingTangents[];
-  textureId: string;
-  tint: string;
-  opacity: number;
-  /** Bank edge-strip texture tiled along the shoreline. Empty string = no banks. */
-  bankTextureId: string;
-  /** Bank strip width in world units (grid cells). */
-  bankWidth: number;
-  /**
-   * Legacy: water used to scroll along a flow direction. Water is static now;
-   * these stay optional so older maps still load. New bodies do not write them.
-   */
-  flowSpeed?: number;
-  /** Legacy flow direction in radians. Read by nothing. */
-  flowAngle?: number;
+/** A rule for crossing an edge, named by the DM per map. */
+export interface CrossingKind {
+  id: string;
+  name: string;
+  note?: string;
+  /** Refuse a player's move across it (Impassable). */
+  blocks: boolean;
 }
 
 /**
@@ -450,7 +459,7 @@ export type AnyChild =
   | AssetChild
   | LightChild
   | DoorChild
-  | WaterChild
+  | PlateauChild
   | TextChild
   | ZoneChild;
 

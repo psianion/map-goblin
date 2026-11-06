@@ -211,3 +211,28 @@
   line-height: 18px;
   color: var(--v2-text-2);
 }
+
+/* The path card: one control to a row, segmented controls share the row's width, nothing
+   scrolls sideways. */
+.v2-selc--path {
+  overflow-x: hidden;
+}
+.v2-selc--path .v2-ctl {
+  min-width: 0;
+}
+.v2-selc--path .v2-seg {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.v2-selc--path .v2-seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.v2-selc--path .v2-sel__links {
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -155,10 +155,9 @@ describe('delete / ctrl+x — owning-layer validation (X1)', () => {
 });
 
 describe('help list', () => {
-  it('lists the terrain and water tools with their keys', () => {
+  it('lists the terrain tool with its key', () => {
     const tools = SHORTCUTS.filter((s) => s.group === 'Tools');
     expect(tools).toContainEqual(expect.objectContaining({ combo: 't', label: 'Terrain' }));
-    expect(tools).toContainEqual(expect.objectContaining({ combo: 'u', label: 'Water' }));
   });
 
   it('lists the Props tool on B', () => {
@@ -180,6 +179,26 @@ describe('b picks the scatter brush', () => {
   it('switches to the scatter brush', () => {
     expect(handleShortcut('b')).toBe(true);
     expect(useStore.getState().tools.activeTool).toBe('scatterBrush');
+  });
+});
+
+describe('e picks the Plateau tool, shift+e toggles erase', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  it('switches to the Plateau tool from any tool', () => {
+    for (const tool of ['select', 'rectangle'] as const) {
+      useStore.getState().setActiveTool(tool);
+      expect(handleShortcut('e')).toBe(true);
+      expect(useStore.getState().tools.activeTool).toBe('plateau');
+      expect(useStore.getState().tools.eraseMode).toBe(false);
+    }
+  });
+
+  it('toggles erase mode on shift+e, the tool in hand kept', () => {
+    useStore.getState().setActiveTool('scatterBrush');
+    expect(handleShortcut('shift+e')).toBe(true);
+    expect(useStore.getState().tools.activeTool).toBe('scatterBrush');
+    expect(useStore.getState().tools.eraseMode).toBe(true);
   });
 });
 
@@ -287,7 +306,6 @@ describe('deletedMessage', () => {
   it('names what went by its kind', () => {
     expect(deletedMessage({ shape: 1 })).toBe('Deleted 1 floor');
     expect(deletedMessage({ asset: 3 })).toBe('Deleted 3 props');
-    expect(deletedMessage({ water: 1 })).toBe('Deleted 1 water body');
   });
 
   it('names the walls and the doors that went with them; a mix is objects', () => {

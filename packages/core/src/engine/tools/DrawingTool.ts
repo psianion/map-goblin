@@ -5,19 +5,18 @@ export type ToolType =
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'
-  | 'path'
   | 'wall'
   | 'door'
   | 'light'
   | 'ruler'
   | 'scatterBrush'
   | 'terrain'
-  | 'water'
   | 'text'
   | 'zone'
   | 'roomRect'
   | 'roomPolygon'
-  | 'divide';
+  | 'divide'
+  | 'plateau';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

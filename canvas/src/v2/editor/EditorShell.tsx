@@ -110,6 +110,13 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
   // The type tab the asset browser opens on; unset, it follows the tool in hand.
   const [assetsType, setAssetsType] = useState<AssetTypeFilter | undefined>(undefined);
   const closeSheet = useCallback(() => setSheet(null), []);
+  // The pack the props browser opens on (the Packs sheet's "Browse props"); gone once it closes.
+  const [propsPack, setPropsPack] = useState<string | undefined>(undefined);
+  if (propsPack !== undefined && sheet !== 'props') setPropsPack(undefined);
+  const browseProps = useCallback((packId: string) => {
+    setPropsPack(packId);
+    setSheet('props');
+  }, []);
   // The rooms sheet's open state lives in the store (a view preference, opened from the
   // dock, a card or a menu); it shares the right edge with the shell's own sheets.
   const roomsSheetOpen = useStore((s) => s.ui.roomsSheetOpen);
@@ -350,9 +357,9 @@ export function EditorShell({ actions, onHome, openSettings = false }: EditorShe
         legacy={false}
         header={<PropBrowserHead onClose={closeSheet} onOpenPacks={() => setSheet('packs')} />}
       >
-        <PropBrowser />
+        <PropBrowser key={propsPack ?? 'all'} initialPack={propsPack} />
       </SlideOver>
-      <PacksSheet open={sheet === 'packs'} onClose={closeSheet} />
+      <PacksSheet open={sheet === 'packs'} onClose={closeSheet} onBrowseProps={browseProps} />
       <ShortcutsSheet open={sheet === 'shortcuts'} onClose={closeSheet} />
       <SlideOver title="Prep" open={sheet === 'prep'} onClose={closeSheet} testId="v2-prep-sheet">
         <PrepOverview />

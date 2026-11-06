@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useStore } from './store';
 import { createDungeonLayer } from './factories';
+import { getNotify, setNotify } from './notify';
 import type { DoorChild } from '../shared/types';
 import type { SerializedMapData } from './types';
 
@@ -80,7 +81,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('3.1');
+    expect(data.version).toBe('3.4');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.customImages).toEqual({});
@@ -140,7 +141,7 @@ describe('MapBuilderStore', () => {
 
   it('loadFromFile drops a retired gridType from a 3.1 file, and the next save leaves it out', () => {
     const data = structuredClone(useStore.getState().getSerializableState());
-    expect(data.version).toBe('3.1');
+    data.version = '3.1';
     (data.mapSettings as unknown as Record<string, unknown>).gridType = 'hex';
     data.mapSettings.name = 'Old Save';
     useStore.getState().loadFromFile(data);
@@ -212,8 +213,8 @@ describe('getSerializableState / loadFromFile — prep', () => {
     useStore.getState().resetToDefault();
   });
 
-  it('writes version 3.1', () => {
-    expect(useStore.getState().getSerializableState().version).toBe('3.1');
+  it('writes version 3.2', () => {
+    expect(useStore.getState().getSerializableState().version).toBe('3.4');
   });
 
   it('omits the prep key entirely when nothing was ever authored', () => {
@@ -303,5 +304,51 @@ describe('getSerializableState / loadFromFile — prep', () => {
     data.version = '3.0';
     useStore.getState().loadFromFile(data);
     expect(useStore.getState().prep).toBeNull();
+  });
+});
+
+// ─── water bodies (schema 3.2) ──────────────────────────────
+
+describe('loadFromFile — the old water bodies', () => {
+  const notify = getNotify();
+  const warning = vi.fn();
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    warning.mockReset();
+    setNotify({ ...notify, warning });
+  });
+  afterEach(() => setNotify(notify));
+
+  function savedWithWater(count: number): SerializedMapData {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    data.version = '3.1';
+    const layer = data.layers.find((l) => l.type === 'dungeon')!;
+    for (let i = 0; i < count; i++) {
+      (layer as unknown as { children: unknown[] }).children.push({ id: `w${i}`, name: 'Lake', childType: 'water', visible: true, contours: [[[0, 0], [2, 0], [2, 2]]] });
+    }
+    return data;
+  }
+
+  it('drops them and says how many, once', () => {
+    useStore.getState().loadFromFile(savedWithWater(2));
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    expect(layer.type === 'dungeon' && layer.children).toEqual([]);
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith('2 paths and water bodies from a retired tool were removed.');
+  });
+
+  it('stays quiet for a map that had none', () => {
+    useStore.getState().loadFromFile(savedWithWater(0));
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('seeds the plateau settings on an older map', () => {
+    const data = savedWithWater(0);
+    const settings = data.mapSettings as Partial<SerializedMapData['mapSettings']>;
+    delete settings.sightDropCells;
+    delete settings.crossingKinds;
+    useStore.getState().loadFromFile(data);
+    expect(useStore.getState().mapSettings.sightDropCells).toBe(2);
+    expect(useStore.getState().mapSettings.crossingKinds).toHaveLength(4);
   });
 });

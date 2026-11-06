@@ -15,7 +15,6 @@ import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
 import type {
   DoorChild,  TextChild,
-  WaterChild,
   ZoneChild,
   ZoneShape,
 } from '../shared/types';
@@ -108,22 +107,6 @@ function makeLight(
     intensity: 1,
     falloff: 'linear',
     position,
-  };
-}
-
-function makeWater(outer: [number, number][]): WaterChild {
-  return {
-    id: 'water-1',
-    name: 'Water',
-    childType: 'water',
-    visible: true,
-    waterType: 'lake',
-    contours: [outer],
-    textureId: 'water-still-a-01',
-    tint: '#9fc8e8',
-    opacity: 0.9,
-    bankTextureId: '',
-    bankWidth: 0.5,
   };
 }
 
@@ -421,22 +404,6 @@ describe('getChildBounds', () => {
     const light = makeLight({ x: 5, y: 5 }, 3);
     const b = getChildBounds(light);
     expect(b).toEqual({ x: 2, y: 2, width: 6, height: 6 });
-  });
-
-  it('computes AABB for water from its outer contour', () => {
-    const b = getChildBounds(makeWater([[2, 1], [8, 1], [8, 6], [2, 6]]));
-    expect(b).toEqual({ x: 2, y: 1, width: 6, height: 5 });
-  });
-
-  it('ignores water holes — bounds come from the outer contour only', () => {
-    const water = makeWater([[0, 0], [10, 0], [10, 10], [0, 10]]);
-    water.contours.push([[3, 3], [7, 3], [7, 7], [3, 7]]);
-    expect(getChildBounds(water)).toEqual({ x: 0, y: 0, width: 10, height: 10 });
-  });
-
-  it('returns a zero rect for water with an empty contour', () => {
-    const water = makeWater([]);
-    expect(getChildBounds(water)).toEqual({ x: 0, y: 0, width: 0, height: 0 });
   });
 
   function makeZone(shape: ZoneShape): ZoneChild {

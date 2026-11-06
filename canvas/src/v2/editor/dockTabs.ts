@@ -1,12 +1,11 @@
 import {
   Crosshair,
   DoorOpen,
-  Droplets,
   Hexagon,
   Lightbulb,
   Minus,
   Mountain,
-  Pen,
+  MountainSnow,
   Pentagon,
   Square,
   Stamp,
@@ -24,7 +23,7 @@ export interface ToolEntry {
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
 }
 
-export type DockTabId = 'floors' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
+export type DockTabId = 'floors' | 'plateaus' | 'walls' | 'rooms' | 'props' | 'lights' | 'labels' | 'assets';
 
 export interface DockTab {
   id: DockTabId;
@@ -42,10 +41,13 @@ export const DOCK_TABS: DockTab[] = [
       { tool: 'rectangle', label: 'Rectangle', shortcut: keyCaption('tool.rectangle'), icon: Square },
       { tool: 'polygon', label: 'Polygon', shortcut: keyCaption('tool.polygon'), icon: Pentagon },
       { tool: 'regularPolygon', label: 'Regular polygon', shortcut: keyCaption('tool.regularPolygon'), icon: Hexagon },
-      { tool: 'path', label: 'Path', shortcut: keyCaption('tool.path'), icon: Pen },
       { tool: 'terrain', label: 'Terrain', shortcut: keyCaption('tool.terrain'), icon: Mountain },
-      { tool: 'water', label: 'Water', shortcut: keyCaption('tool.water'), icon: Droplets },
     ],
+  },
+  {
+    id: 'plateaus',
+    label: 'Plateaus',
+    tools: [{ tool: 'plateau', label: 'Plateau', shortcut: keyCaption('tool.plateau'), icon: MountainSnow }],
   },
   {
     id: 'walls',
@@ -92,10 +94,10 @@ export function tabForTool(tool: ToolType): DockTabId | null {
 }
 
 /** Tools that lay down floor, so a floor texture picked while one is in hand goes on the floors. */
-export const FLOOR_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'path', 'roomRect', 'roomPolygon'];
+export const FLOOR_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'roomRect', 'roomPolygon'];
 
 /** Tools that draw with the layer's style, so the dock offers the style presets for them. */
-export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'path', 'wall'];
+export const STYLE_TOOLS: ToolType[] = ['rectangle', 'polygon', 'regularPolygon', 'wall'];
 
 /** Whether the tool in hand has a row of presets in the dock. */
 export function hasSwatches(tool: ToolType, tab: DockTabId): boolean {

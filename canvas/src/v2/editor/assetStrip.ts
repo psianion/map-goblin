@@ -21,7 +21,6 @@ import { pickAsset } from '@dnd/core/src/store/pickAsset';
 import { notify } from '@/lib/toast';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { FLOOR_TOOLS } from './dockTabs';
-import { WATER_BANK_TEXTURE_ID } from '@dnd/core/src/engine/water/waterTextures';
 import { selectedLookTarget, setLook, targetName } from './roomLook';
 
 /**
@@ -438,13 +437,10 @@ export function pickWallSet(picked: DungeonLayer, setId: string): void {
   );
 }
 
-/* ── Terrain and water ──────────────────────────────────── */
+/* ── Terrain ────────────────────────────────────────────── */
 
 /** Brush slots on the map's terrain palette. */
 export const TERRAIN_SLOT_COUNT = 6;
-
-/** The bank texture water takes when banks are on. */
-export const WATER_BANK_TEXTURE = WATER_BANK_TEXTURE_ID;
 
 /**
  * Put a texture in a terrain palette slot, or empty it with null. The palette is map

@@ -1,0 +1,2969 @@
+{
+  "name": "gg-forge",
+  "version": "1.16.3",
+  "description": "Good Goblin forge-generated asset sets",
+  "theme": [
+    "fantasy"
+  ],
+  "entries": {
+    "GG_Fieldstone_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1005,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 51,
+        "y": 66,
+        "w": 99,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1005,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 80,
+        "y": 66,
+        "w": 40,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1204,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 16,
+        "y": 66,
+        "w": 151,
+        "h": 114
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 402,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Fieldstone_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 603,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Fieldstone_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 401,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1203,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1405,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 802,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 804,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 804,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 201,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 402,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_A_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_A",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_B_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 201,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_C_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_C",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 402,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_A_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_B_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_B",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_C_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_C",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 603,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 201,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 1406,
+        "w": 1650,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 1650,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1005,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 51,
+        "y": 78,
+        "w": 99,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1005,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 82,
+        "y": 78,
+        "w": 36,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1204,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 26,
+        "y": 78,
+        "w": 140,
+        "h": 97
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 402,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Palisade_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 603,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Palisade_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 401,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1203,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1405,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 802,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 804,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 804,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 201,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 402,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_A_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_A",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_B_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 201,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_C_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_C",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 402,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_A_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_B_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_B",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_C_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_C",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 603,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 201,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 1406,
+        "w": 1650,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 1650,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "bit_2x1_object_A": {
+      "type": "object",
+      "material": "bit",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "bit"
+    },
+    "bit_2x2_object_A": {
+      "type": "object",
+      "material": "bit",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "bit"
+    },
+    "cave_dungeon_adaptor_4x5_object_A": {
+      "type": "object",
+      "material": "cave_dungeon_adaptor",
+      "gridSize": "4x5",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 1000
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 3,
+        "w": 800,
+        "h": 997
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "adaptor",
+        "structure"
+      ],
+      "family": "cave_dungeon_adaptor"
+    },
+    "cave_floor_8x8_floor_A": {
+      "type": "floor",
+      "material": "cave_floor",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Cave_Floor",
+      "tags": [
+        "cave",
+        "stone"
+      ]
+    },
+    "contour_1x2_object_A": {
+      "type": "object",
+      "material": "contour",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "contour"
+    },
+    "contour_1x4_object_A": {
+      "type": "object",
+      "material": "contour",
+      "gridSize": "1x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "contour"
+    },
+    "contour_bend_45_1x1_object_A": {
+      "type": "object",
+      "material": "contour_bend_45",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "contour_bend"
+    },
+    "contour_bend_90_2x2_object_A": {
+      "type": "object",
+      "material": "contour_bend_90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "contour_bend"
+    },
+    "doorkit-cave-hinge": {
+      "type": "door",
+      "material": "doorkit-cave-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-cave-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-jamb": {
+      "type": "door",
+      "material": "doorkit-cave-jamb",
+      "gridSize": "1x1",
+      "pieceType": "jamb",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 280,
+        "h": 544
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-latch": {
+      "type": "door",
+      "material": "doorkit-cave-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 72,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-tile-a": {
+      "type": "door",
+      "material": "doorkit-cave-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-tile-b": {
+      "type": "door",
+      "material": "doorkit-cave-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-hinge": {
+      "type": "door",
+      "material": "doorkit-stone-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-stone-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-latch": {
+      "type": "door",
+      "material": "doorkit-stone-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-tile-a": {
+      "type": "door",
+      "material": "doorkit-stone-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-stone-tile-b": {
+      "type": "door",
+      "material": "doorkit-stone-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-hinge": {
+      "type": "door",
+      "material": "doorkit-wood-hinge",
+      "gridSize": "1x1",
+      "pieceType": "hinge",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-hinge-plain": {
+      "type": "door",
+      "material": "doorkit-wood-hinge-plain",
+      "gridSize": "1x1",
+      "pieceType": "hinge-plain",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-latch": {
+      "type": "door",
+      "material": "doorkit-wood-latch",
+      "gridSize": "1x1",
+      "pieceType": "latch",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-tile-a": {
+      "type": "door",
+      "material": "doorkit-wood-tile-a",
+      "gridSize": "1x1",
+      "pieceType": "tile-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-wood-tile-b": {
+      "type": "door",
+      "material": "doorkit-wood-tile-b",
+      "gridSize": "1x1",
+      "pieceType": "tile-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 160
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "inside_bend_2x2_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "inside_bend"
+    },
+    "inside_bend_3x2_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "3x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "inside_bend"
+    },
+    "inside_bend_3x3_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "inside_bend"
+    },
+    "inside_bend_4x4_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "4x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "inside_bend"
+    },
+    "inside_bend_5x3_object_A": {
+      "type": "object",
+      "material": "inside_bend",
+      "gridSize": "5x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "inside_bend"
+    },
+    "ledge_1x2_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge"
+    },
+    "ledge_1x4_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge"
+    },
+    "ledge_1x6_object_A": {
+      "type": "object",
+      "material": "ledge",
+      "gridSize": "1x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge"
+    },
+    "ledge_bend_15_2x1_object_A": {
+      "type": "object",
+      "material": "ledge_bend_15",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_30_2x1_object_A": {
+      "type": "object",
+      "material": "ledge_bend_30",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_45_1x1_object_A": {
+      "type": "object",
+      "material": "ledge_bend_45",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_45_2x2_object_A": {
+      "type": "object",
+      "material": "ledge_bend_45",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_60_2x2_object_A": {
+      "type": "object",
+      "material": "ledge_bend_60",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_75_2x2_object_A": {
+      "type": "object",
+      "material": "ledge_bend_75",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_90_2x2_object_A": {
+      "type": "object",
+      "material": "ledge_bend_90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_bend_90_3x3_object_A": {
+      "type": "object",
+      "material": "ledge_bend_90",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_bend"
+    },
+    "ledge_end_knot_1x1_object_A": {
+      "type": "object",
+      "material": "ledge_end_knot",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_end_knot"
+    },
+    "ledge_end_tail_1x1_object_A": {
+      "type": "object",
+      "material": "ledge_end_tail",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "ledge_end_tail"
+    },
+    "outside_bend_2x2_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "outside_bend_3x2_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "3x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "outside_bend_3x3_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "outside_bend_4x4_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "4x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "outside_bend_5x3_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "5x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "outside_bend_5x5_object_A": {
+      "type": "object",
+      "material": "outside_bend",
+      "gridSize": "5x5",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "outside_bend"
+    },
+    "pit_3x3_object_A": {
+      "type": "object",
+      "material": "pit",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "pit",
+        "hazard"
+      ],
+      "family": "pit"
+    },
+    "pit_collapsed_3x3_object_A": {
+      "type": "object",
+      "material": "pit_collapsed",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "pit",
+        "hazard"
+      ],
+      "family": "pit_collapsed"
+    },
+    "rockledge_1x2_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_1x4_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_1x6_object_A": {
+      "type": "object",
+      "material": "rockledge",
+      "gridSize": "1x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge"
+    },
+    "rockledge_bend_45_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_45",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend"
+    },
+    "rockledge_bend_90_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend"
+    },
+    "rockledge_bend_n45_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_n45",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend_n45"
+    },
+    "rockledge_bend_n90_2x2_object_A": {
+      "type": "object",
+      "material": "rockledge_bend_n90",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_bend_n90"
+    },
+    "rockledge_end_1x1_object_A": {
+      "type": "object",
+      "material": "rockledge_end",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "rockledge_end"
+    },
+    "rubble_2x2_object_A": {
+      "type": "object",
+      "material": "rubble",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave",
+        "prop",
+        "rubble"
+      ],
+      "family": "rubble"
+    },
+    "rubble_2x4_object_A": {
+      "type": "object",
+      "material": "rubble",
+      "gridSize": "2x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave",
+        "prop",
+        "rubble"
+      ],
+      "family": "rubble"
+    },
+    "rubble_bend_45_3x3_object_A": {
+      "type": "object",
+      "material": "rubble_bend_45",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave",
+        "prop",
+        "rubble"
+      ],
+      "family": "rubble_bend"
+    },
+    "rubble_bend_90_3x3_object_A": {
+      "type": "object",
+      "material": "rubble_bend_90",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave",
+        "prop",
+        "rubble"
+      ],
+      "family": "rubble_bend"
+    },
+    "rubble_end_2x1_object_A": {
+      "type": "object",
+      "material": "rubble_end",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave",
+        "prop",
+        "rubble"
+      ],
+      "family": "rubble_end"
+    },
+    "rubble_large_7x4_object_A": {
+      "type": "object",
+      "material": "rubble_large",
+      "gridSize": "7x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1400,
+        "h": 800
+      },
+      "contentRect": {
+        "x": 6,
+        "y": 6,
+        "w": 1389,
+        "h": 789
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rubble",
+        "debris"
+      ],
+      "family": "rubble_large"
+    },
+    "rubble_medium_4x2_object_A": {
+      "type": "object",
+      "material": "rubble_medium",
+      "gridSize": "4x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 400
+      },
+      "contentRect": {
+        "x": 6,
+        "y": 6,
+        "w": 789,
+        "h": 389
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rubble",
+        "debris"
+      ],
+      "family": "rubble_medium"
+    },
+    "rubble_small_3x3_object_A": {
+      "type": "object",
+      "material": "rubble_small",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "contentRect": {
+        "x": 6,
+        "y": 6,
+        "w": 587,
+        "h": 556
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rubble",
+        "debris"
+      ],
+      "family": "rubble_small"
+    },
+    "stairs_stone_long_2x4_object_A": {
+      "type": "object",
+      "material": "stairs_stone_long",
+      "gridSize": "2x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 800
+      },
+      "contentRect": {
+        "x": 7,
+        "y": 0,
+        "w": 359,
+        "h": 792
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stairs"
+      ],
+      "family": "stairs_stone_long"
+    },
+    "stairs_stone_short_2x2_object_A": {
+      "type": "object",
+      "material": "stairs_stone_short",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "contentRect": {
+        "x": 7,
+        "y": 157,
+        "w": 393,
+        "h": 237
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stairs"
+      ],
+      "family": "stairs_stone_short"
+    },
+    "stairs_stone_wide_3x2_object_A": {
+      "type": "object",
+      "material": "stairs_stone_wide",
+      "gridSize": "3x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 400
+      },
+      "contentRect": {
+        "x": 15,
+        "y": 0,
+        "w": 567,
+        "h": 388
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stairs"
+      ],
+      "family": "stairs_stone_wide"
+    },
+    "wall_short_2x2_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "wall_short"
+    },
+    "wall_short_2x4_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x4",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 800
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "wall_short"
+    },
+    "wall_short_2x6_object_A": {
+      "type": "object",
+      "material": "wall_short",
+      "gridSize": "2x6",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 400,
+        "h": 1200
+      },
+      "set": "GG_Cave_Ink",
+      "tags": [
+        "structure",
+        "cave"
+      ],
+      "family": "wall_short"
+    }
+  },
+  "atlases": {
+    "atlas-GG_Fieldstone-wall-dcc789c1.json": {
+      "checksum": "sha256:dfd567a0f27a75ddcc3efd296815c65316db3b3d9cddae1bedc63be7f2e865cd",
+      "size": 5847
+    },
+    "atlas-GG_Fieldstone-wall-dcc789c1.webp": {
+      "checksum": "sha256:dcc789c1afd346fab68c6022e8e8990d79607a3afd52fdaee0c3a78d22af28d3",
+      "size": 179690
+    },
+    "atlas-GG_Palisade-wall-b5255e09.json": {
+      "checksum": "sha256:ab1a18fecb12d709578c3830b8a3fc1ddf06f686c26c5f5252b74bc0e27dabd0",
+      "size": 5787
+    },
+    "atlas-GG_Palisade-wall-b5255e09.webp": {
+      "checksum": "sha256:b5255e09245b3a0072d8c3c506847e535536f95e0d385f00a6adc8bce84efaf9",
+      "size": 94228
+    }
+  },
+  "files": {
+    "bit_2x1_A-e6020db0.webp": {
+      "checksum": "sha256:e6020db051c69ec5232ac1ee5de0d6abc348c458362bd2544d0b3f576a340b97",
+      "size": 9542
+    },
+    "bit_2x2_A-088e3bf5.webp": {
+      "checksum": "sha256:088e3bf5fb9c1d46f53824f5f3cea55abeaea595dcf8c093e8479738389649e0",
+      "size": 20876
+    },
+    "cave_dungeon_adaptor_4x5_A-1b535d09.webp": {
+      "checksum": "sha256:1b535d098c9fd9aa86f09cd39a6a4c0765cc947f56625896ce10c7c800b25058",
+      "size": 144148
+    },
+    "cave_floor_8x8_A-2afd5eb3.webp": {
+      "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
+      "size": 160988
+    },
+    "contour_1x2_A-91b6eb8a.webp": {
+      "checksum": "sha256:91b6eb8a3ff769f5f9769f93ef4002bef413bd731550e24aa8d6bd819aee74a9",
+      "size": 1188
+    },
+    "contour_1x4_A-27bfaab5.webp": {
+      "checksum": "sha256:27bfaab5639085cf500503c8e59d7e98871a54e4b211b27fff3b728f156f5f9b",
+      "size": 2388
+    },
+    "contour_bend_45_1x1_A-7d8f33c1.webp": {
+      "checksum": "sha256:7d8f33c14b70d4e9943a1400c53e66018653153789a41ae0b98e5701fd162557",
+      "size": 994
+    },
+    "contour_bend_90_2x2_A-d6bd053c.webp": {
+      "checksum": "sha256:d6bd053c1b1d7ba9a761c436f3924f0341bd00498974b8404ed678d9e62d479f",
+      "size": 1966
+    },
+    "doorkit-cave-hinge-plain_1x1_A-28d2bbd4.webp": {
+      "checksum": "sha256:28d2bbd425dc9524567ba27e03d11e58f7d9d58645154363e9c027178ce60697",
+      "size": 914
+    },
+    "doorkit-cave-hinge_1x1_A-ffa8e34c.webp": {
+      "checksum": "sha256:ffa8e34cce5eadba88d4f3c9d1092dc016437d849e4fa2a76aabfa765bfe1119",
+      "size": 1034
+    },
+    "doorkit-cave-jamb_1x1_A-a999b293.webp": {
+      "checksum": "sha256:a999b293217be78f4e7ea19e76c06981ead43e2e5e32f29d311da2eaf846a10a",
+      "size": 4938
+    },
+    "doorkit-cave-latch_1x1_A-1200be1a.webp": {
+      "checksum": "sha256:1200be1ac2ef521c1d9e90e92028939b996221926f71f694387f35b82d048be9",
+      "size": 2076
+    },
+    "doorkit-cave-tile-a_1x1_A-fb81e406.webp": {
+      "checksum": "sha256:fb81e406f509e4e380eae4795d6a2bcb91522a3bf4546dfa1fbc4b28025afabd",
+      "size": 1570
+    },
+    "doorkit-cave-tile-b_1x1_A-b1dffded.webp": {
+      "checksum": "sha256:b1dffded9e8ca106821dd78db65e6228854ac09effe948aa7253e5bd628d9511",
+      "size": 1814
+    },
+    "doorkit-stone-hinge-plain_1x1_A-c51188aa.webp": {
+      "checksum": "sha256:c51188aa901c0a7c0056992703420373ea2ffcb6c70bb98a1e07d22f70aaf514",
+      "size": 512
+    },
+    "doorkit-stone-hinge_1x1_A-2018dee3.webp": {
+      "checksum": "sha256:2018dee34281c15e7a79e04057df372d491395bddc532e7f54f6d359282752a6",
+      "size": 804
+    },
+    "doorkit-stone-latch_1x1_A-36c24dff.webp": {
+      "checksum": "sha256:36c24dff2996b06a3d9bea75199309c7da0030b0accb4e6409d836634e526449",
+      "size": 1068
+    },
+    "doorkit-stone-tile-a_1x1_A-57cae151.webp": {
+      "checksum": "sha256:57cae151869ed47339d55aa6d377ba8a5306e28aea92cd0c0f732771c6842d25",
+      "size": 1132
+    },
+    "doorkit-stone-tile-b_1x1_A-341cf6cf.webp": {
+      "checksum": "sha256:341cf6cfd806232259bd808033fd6215b1e3e04b25c91dc8f5de48c9d702ed1c",
+      "size": 1222
+    },
+    "doorkit-wood-hinge-plain_1x1_A-4b9d9e64.webp": {
+      "checksum": "sha256:4b9d9e6438f409acd358e0e3e9aa9fb20f8a28de097454fa2ef244c5f2e6e3c3",
+      "size": 628
+    },
+    "doorkit-wood-hinge_1x1_A-a1855a18.webp": {
+      "checksum": "sha256:a1855a1888a01b4d490f73770a81aa8060d7487eaf4d251707370e3f3aadda30",
+      "size": 1488
+    },
+    "doorkit-wood-latch_1x1_A-43f782de.webp": {
+      "checksum": "sha256:43f782dec9ac0904f0555e9e63ea3a1cf9d41ea574e7325405c3ab559156317e",
+      "size": 1726
+    },
+    "doorkit-wood-tile-a_1x1_A-61bc6cfe.webp": {
+      "checksum": "sha256:61bc6cfe27287a91a0d4a1b2fabe9ae7e5e720d438707895afbf05b77bef7c0a",
+      "size": 780
+    },
+    "doorkit-wood-tile-b_1x1_A-b91770f7.webp": {
+      "checksum": "sha256:b91770f780e26765fd8e15657bfa25517e2c566e734d650806f31d834593bf7f",
+      "size": 902
+    },
+    "inside_bend_2x2_A-e2335a6e.webp": {
+      "checksum": "sha256:e2335a6e6094097d2b3c1b4fc249d2d99012c147ff915a07f0a2456ba72ed004",
+      "size": 22414
+    },
+    "inside_bend_3x2_A-b66cefb9.webp": {
+      "checksum": "sha256:b66cefb92517f8715498495daada3799af537ebe4416897a81dfdca543a70b05",
+      "size": 29478
+    },
+    "inside_bend_3x3_A-a2c5219d.webp": {
+      "checksum": "sha256:a2c5219d17cebca36217311e734e2bb6d945b1abf3fa1327f4a5da3380441138",
+      "size": 30866
+    },
+    "inside_bend_4x4_A-c1e89da0.webp": {
+      "checksum": "sha256:c1e89da03f4f66e78c9bbf9980080aba0446d3e7a39cc8c44568b04567af8da0",
+      "size": 47166
+    },
+    "inside_bend_5x3_A-f5f599b2.webp": {
+      "checksum": "sha256:f5f599b2a59f8cfece5b475f470e68ecab2e1b8ba12708e43aeda4708085ba67",
+      "size": 49524
+    },
+    "ledge_1x2_A-c2225395.webp": {
+      "checksum": "sha256:c2225395e0a1d85d9616a0e3679500421247a6a446fe48a6373d5ecfc904cad0",
+      "size": 3764
+    },
+    "ledge_1x4_A-ee0fe087.webp": {
+      "checksum": "sha256:ee0fe087e927a5a7c3d73da2242eec0f5ffe62aa7abb49d5b9bd21e119a8ba4c",
+      "size": 7518
+    },
+    "ledge_1x6_A-8c6e126a.webp": {
+      "checksum": "sha256:8c6e126a7381d1f6aa7a2326b0cebbffb60fe0b6eec035f335d9e16a5b646296",
+      "size": 11390
+    },
+    "ledge_bend_15_2x1_A-16170255.webp": {
+      "checksum": "sha256:161702555d12f172b5f46929f09ad157de03e993268577fd1418bf64e2f20357",
+      "size": 3968
+    },
+    "ledge_bend_30_2x1_A-7ba1ee46.webp": {
+      "checksum": "sha256:7ba1ee469cea889119ca798da39e961e0e155eb9c57fc605a519041e914b2de9",
+      "size": 3842
+    },
+    "ledge_bend_45_1x1_A-e112ae8c.webp": {
+      "checksum": "sha256:e112ae8c9a1cc3e384376f9ac2bdf851920e4d94e7b419b87948331955a18cfa",
+      "size": 2584
+    },
+    "ledge_bend_45_2x2_A-be1b57ed.webp": {
+      "checksum": "sha256:be1b57ed8046bfd0de7f678dc71e37c2521b42d2b4ae8d1814443fa4edabd0f2",
+      "size": 5418
+    },
+    "ledge_bend_60_2x2_A-0f3bda7c.webp": {
+      "checksum": "sha256:0f3bda7cecf4aab375906d73405be5ef49c17ff925678da41e6368a8a69a8739",
+      "size": 5270
+    },
+    "ledge_bend_75_2x2_A-60b02bf8.webp": {
+      "checksum": "sha256:60b02bf8fc2de775911e96b1c164e56d8f5c184ba7379c87453d85029fd9ffe5",
+      "size": 5494
+    },
+    "ledge_bend_90_2x2_A-baa5e981.webp": {
+      "checksum": "sha256:baa5e981f8b523eb3373584a98a172c80156d51b917ba190d9f8817338bab422",
+      "size": 5500
+    },
+    "ledge_bend_90_3x3_A-bc0c49c1.webp": {
+      "checksum": "sha256:bc0c49c1ea69c393e731c2f7850e196f9ce5cf222728b5c1e1811fbc9b82c520",
+      "size": 8532
+    },
+    "ledge_end_knot_1x1_A-54007c98.webp": {
+      "checksum": "sha256:54007c98c8b3b97f055d24928f0273fb01a0a54d5c9ae7573d55eb1537137a61",
+      "size": 1246
+    },
+    "ledge_end_tail_1x1_A-87908e76.webp": {
+      "checksum": "sha256:87908e76da06b92b23bcf617be23c7b7ea2b934c1f32fc32a92395442f5fb7d8",
+      "size": 1366
+    },
+    "outside_bend_2x2_A-a95f4649.webp": {
+      "checksum": "sha256:a95f46492011bd9c91e5ff179834a7b1168c5cc7058ae5537dbff583f0719dd4",
+      "size": 20490
+    },
+    "outside_bend_3x2_A-9fce129a.webp": {
+      "checksum": "sha256:9fce129a4031da4f6b2c324d98c54133362a3e5d4eba3ec41fadc67ddb731bdb",
+      "size": 27614
+    },
+    "outside_bend_3x3_A-ef662bcf.webp": {
+      "checksum": "sha256:ef662bcfc7265bb77dafe92a4bf96481efc48cede999ad24019da8f00219b160",
+      "size": 35736
+    },
+    "outside_bend_4x4_A-4c5ba7c8.webp": {
+      "checksum": "sha256:4c5ba7c8dda2c4641c67253de1dfaa9cf107867f4b7ca929adcb799c6da62d99",
+      "size": 51582
+    },
+    "outside_bend_5x3_A-ada1e416.webp": {
+      "checksum": "sha256:ada1e416a2dbfd18b6cda156764c2d591ffd8fd0f58f92b1463e1c5e2ff783c5",
+      "size": 46218
+    },
+    "outside_bend_5x5_A-c96de146.webp": {
+      "checksum": "sha256:c96de146500c3e6630fc8f60c4781d9b69f8221c2c0912f39250838d7ea224fd",
+      "size": 61122
+    },
+    "pit_3x3_A-ffe8c66d.webp": {
+      "checksum": "sha256:ffe8c66dafe092d34f5ae8b8cdd9fac4f58da7a27734497f7e0d5e32bda77519",
+      "size": 99200
+    },
+    "pit_collapsed_3x3_A-fe71e7ce.webp": {
+      "checksum": "sha256:fe71e7ce9272ae2c0f9895fd0295d1656df2e24227af69149953f3ebd553fb0d",
+      "size": 115226
+    },
+    "rockledge_1x2_A-1eedd3bb.webp": {
+      "checksum": "sha256:1eedd3bbfc8d002be40aaae4648539a4dd0f71f752aee3ea86a3244266e297f9",
+      "size": 16958
+    },
+    "rockledge_1x4_A-e509301e.webp": {
+      "checksum": "sha256:e509301e2e777f20dd9b9e073a552890ced39370293bead30e3621b38cc81259",
+      "size": 29988
+    },
+    "rockledge_1x6_A-ba67ef5b.webp": {
+      "checksum": "sha256:ba67ef5b326ce275dbf970d537d1f534e7eecdfcb6220a35ba1f00ebc0b5cef2",
+      "size": 40008
+    },
+    "rockledge_bend_45_2x2_A-39d508e9.webp": {
+      "checksum": "sha256:39d508e9a3d5758d2252cc14161eba4fac8bbf77bb3890e91301ed8b26301f61",
+      "size": 11330
+    },
+    "rockledge_bend_90_2x2_A-3d5fb003.webp": {
+      "checksum": "sha256:3d5fb003a692ca4b5092720ea3b84b726947d34b3fa88e4dadbbbdb539a29943",
+      "size": 18244
+    },
+    "rockledge_bend_n45_2x2_A-2c006069.webp": {
+      "checksum": "sha256:2c00606949a348688eac0e82f421bf7bd87d97c87b004d5165f1c3c87c9f69c5",
+      "size": 9340
+    },
+    "rockledge_bend_n90_2x2_A-9f5b3a27.webp": {
+      "checksum": "sha256:9f5b3a27df632bbaf619feb7cd815c801b1433f7faea8c2657ef160752eff6b7",
+      "size": 16696
+    },
+    "rockledge_end_1x1_A-a979d3b2.webp": {
+      "checksum": "sha256:a979d3b270c42afa9d005f1d243d8cca588ab7878a730588992aeb3e7b57c44e",
+      "size": 8842
+    },
+    "rubble_2x2_A-e9569b1c.webp": {
+      "checksum": "sha256:e9569b1cc0f2ace083a67cc980650c8cb186152cf1c294eacc6d64a46d5ca6c6",
+      "size": 13872
+    },
+    "rubble_2x4_A-b4ac19d8.webp": {
+      "checksum": "sha256:b4ac19d82d2e181d9e628048d54f210f11a4b6a1bfda909e873ac62bc97c0ddb",
+      "size": 27076
+    },
+    "rubble_bend_45_3x3_A-4ce2bd3c.webp": {
+      "checksum": "sha256:4ce2bd3c39945b096390f898e554ed03682dac99ab4e5fe29c5e7b43dd6cbb40",
+      "size": 15250
+    },
+    "rubble_bend_90_3x3_A-86683b7f.webp": {
+      "checksum": "sha256:86683b7f86bdc7c800ebefcc111c90f3fe04c02266ebfd56e0a8147e836f690f",
+      "size": 17464
+    },
+    "rubble_end_2x1_A-0acc7b1b.webp": {
+      "checksum": "sha256:0acc7b1b6d50655ed7f7732be244caeaf84db67a6fe2b1757fe7ba6da85e9511",
+      "size": 5154
+    },
+    "rubble_large_7x4_A-d319a34a.webp": {
+      "checksum": "sha256:d319a34a73d65d3c647ea9a0c8c0ed5d350ef2941fef5759f2f754a2e251769f",
+      "size": 83394
+    },
+    "rubble_medium_4x2_A-92d3880c.webp": {
+      "checksum": "sha256:92d3880ce9560d5b53182cd7065e9c8f0e4afaf479fb01a3866442ee7c2cd907",
+      "size": 24044
+    },
+    "rubble_small_3x3_A-d0d01e52.webp": {
+      "checksum": "sha256:d0d01e5207ad87c029ad2e705bb881ff278c625f2afc9d8a046b3951537ad1c0",
+      "size": 19446
+    },
+    "stairs_stone_long_2x4_A-521ef446.webp": {
+      "checksum": "sha256:521ef446cf15d505955844e499953347749c53064a5778ad9e100aa7faba19e9",
+      "size": 87258
+    },
+    "stairs_stone_short_2x2_A-fc4a66b4.webp": {
+      "checksum": "sha256:fc4a66b4ba363954dd015114b2db64b16b4d9ab9b44773e2ae3e598a762f51b1",
+      "size": 34782
+    },
+    "stairs_stone_wide_3x2_A-1c709568.webp": {
+      "checksum": "sha256:1c709568c553d8dcfd0f7470729ec312cfeecb6c67f902141e9019df19a9a115",
+      "size": 53074
+    },
+    "wall_short_2x2_A-479bf070.webp": {
+      "checksum": "sha256:479bf07087d4be26efa0b0ab6bbd36eb07197913c6b6a597efce5bef59fc74a1",
+      "size": 20316
+    },
+    "wall_short_2x4_A-e68b090a.webp": {
+      "checksum": "sha256:e68b090a0c0a8cb290a6a53e836c24fde43ee58ced7946382fa94e6480e85859",
+      "size": 41812
+    },
+    "wall_short_2x6_A-dac3f2b8.webp": {
+      "checksum": "sha256:dac3f2b8e21beec51036fe4171c8c41a34b23258c6bd4b6908d3d9aaf31d031d",
+      "size": 58820
+    }
+  },
+  "bundleSize": 2005946
+}

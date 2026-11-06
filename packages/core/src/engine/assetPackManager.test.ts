@@ -735,7 +735,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
   it('never throws for a map with no dungeon layers', async () => {
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
     const map: MapTextureSource = {
-      mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+      mapSettings: { name: 'x', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000', sightDropCells: 2, crossingKinds: [] },
       layers: [],
     }
     await expect(mgr.ensureTexturesForMap(map)).resolves.toBeUndefined()

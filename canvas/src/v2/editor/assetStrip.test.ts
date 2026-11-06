@@ -379,7 +379,7 @@ describe('pickAssetForTool', () => {
   it('a floor texture with a floor tool in hand retextures the selected shapes', () => {
     useStore.getState().addChild(dungeon().id, shape('a', 'p:floor_a'));
     useStore.getState().setSelectedIds(['a']);
-    useStore.getState().setActiveTool('path');
+    useStore.getState().setActiveTool('rectangle');
     pickAssetForTool('p:floor_b');
 
     expect(shapeById('a').textureId).toBe('p:floor_b');

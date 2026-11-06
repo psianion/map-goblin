@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_TEXTURE_SCALE } from '@dnd/core/src/shared/types';
-import type { AnyChild, AssetChild, DungeonLayer, DungeonStyle, Room, ShapeChild, WaterChild } from '@/store/types';
+import type { AnyChild, AssetChild, DungeonLayer, DungeonStyle, Room, ShapeChild } from '@/store/types';
 import { createDungeonLayer } from '@dnd/core/src/store/factories';
 import type { ConnectorChild, DoorChild, WallSegment } from '@/shared/types';
 import {
@@ -25,7 +25,6 @@ import {
   sameOrMixed,
   shapeFillModel,
   shortTextureName,
-  waterModel,
   WALL_TYPE_CHOICES,
   wallModel,
   wallTypeChange,
@@ -50,23 +49,6 @@ function shape(id: string, over: Partial<ShapeChild> = {}): ShapeChild {
     textureOffsetY: 0,
     textureFillRotation: 0,
     textureTint: '#ffffff',
-    ...over,
-  };
-}
-
-function water(id: string, over: Partial<WaterChild> = {}): WaterChild {
-  return {
-    id,
-    name: id,
-    childType: 'water',
-    visible: true,
-    waterType: 'river',
-    contours: [],
-    textureId: 'w',
-    tint: '#336699',
-    opacity: 0.8,
-    bankTextureId: '',
-    bankWidth: 0.5,
     ...over,
   };
 }
@@ -216,20 +198,6 @@ describe('shortTextureName', () => {
   });
 });
 
-describe('waterModel', () => {
-  it('reads banks and mixes', () => {
-    const m = waterModel([water('a'), water('b', { bankTextureId: 'bank-grassy-01-a1', opacity: 0.5 })]);
-    expect(m.banks).toBe(MIXED);
-    expect(m.opacity).toBe(MIXED);
-    expect(m.tint).toBe('#336699');
-  });
-
-  it('has no flow: rivers and lakes share the same fields', () => {
-    const m = waterModel([water('a', { flowSpeed: 0.6 }), water('l', { waterType: 'lake' })]);
-    expect(Object.keys(m).sort()).toEqual(['banks', 'opacity', 'tint']);
-  });
-});
-
 describe('rooms', () => {
   it('finds the measured room by the child id', () => {
     const rooms = [{ id: 'r1', area: 23.6, isPathway: true }] as Room[];
@@ -244,13 +212,10 @@ describe('rooms', () => {
 });
 
 describe('fieldsGroup', () => {
-  it('groups same-kind floors or water on one layer only', () => {
+  it('groups floors on one layer only', () => {
     const a = shape('a');
     const b = shape('b');
-    const w = water('w');
     expect(fieldsGroup([a, b], ['l1', 'l1'])).toEqual({ kind: 'shape', layerId: 'l1', ids: ['a', 'b'] });
-    expect(fieldsGroup([w], ['l1'])).toEqual({ kind: 'water', layerId: 'l1', ids: ['w'] });
-    expect(fieldsGroup([a, w], ['l1', 'l1'])).toBeNull();
     expect(fieldsGroup([a, b], ['l1', 'l2'])).toBeNull();
     expect(fieldsGroup([{ ...a, childType: 'zone' } as unknown as AnyChild], ['l1'])).toBeNull();
     expect(fieldsGroup([], [])).toBeNull();

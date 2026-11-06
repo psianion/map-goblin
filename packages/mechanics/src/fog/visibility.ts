@@ -3,7 +3,7 @@
 // token-room mutations and caches the result, so this never runs per frame or per message.
 
 import { seedDoor, type AuthoredDoor, type BlockedEdge, type DoorLiveState } from '../doors/types'
-import type { RoomFog, SceneFog } from './types'
+import { fogModeOf, type RoomFog, type SceneFog } from './types'
 
 /**
  * Just what picking the default room needs — a core `Room` satisfies it as-is, so nothing
@@ -69,6 +69,23 @@ export function effectiveFog(
     rooms: { ...fog.rooms, [fallback.id]: EFFECTIVELY_REVEALED },
     concealBehindDoors: false,
   }
+}
+
+/**
+ * A fresh table in rooms mode: while the DM has never revealed a room on the scene, the rooms
+ * the party stands in count as revealed, so a player sees the ground under their own feet and
+ * can walk on it (decision A9, 2026-11-03). Unlike the retired default room it hands over
+ * nothing the party is not already standing in. A scene the DM has revealed anything on, even
+ * one since hidden again (a Hide All, a re-hide), is the DM's call and is left as stored.
+ * Read-time like `effectiveFog`, nothing written back. Run after `effectiveFog` by both of
+ * its consumers.
+ */
+export function revealPartyRooms(fog: SceneFog, partyRoomIds: readonly string[]): SceneFog {
+  if (fogModeOf(fog) !== 'rooms' || partyRoomIds.length === 0) return fog
+  if (Object.values(fog.rooms).some((room) => room.status === 'revealed' || room.wasEverRevealed)) return fog
+  const rooms = { ...fog.rooms }
+  for (const id of partyRoomIds) rooms[id] = EFFECTIVELY_REVEALED
+  return { ...fog, rooms }
 }
 
 /**

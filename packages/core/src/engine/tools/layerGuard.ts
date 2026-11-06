@@ -36,7 +36,7 @@ export function blockedLayerReason(layer: DungeonLayer | null | undefined): stri
  * Resolves `layerId` to an editable dungeon layer — existing, type
  * 'dungeon', unlocked, visible — warning and returning null otherwise.
  *
- * For a chain tool (wall/polygon/path/water) this is called at *finalize*
+ * For a chain tool (wall/polygon/path) this is called at *finalize*
  * against the layer id captured when the chain started, not the current
  * active layer: the active layer can be locked, hidden, or switched away
  * from mid-chain, and the commit has to answer for the layer the chain was

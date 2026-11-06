@@ -45,8 +45,8 @@ import { registerAllTools } from './registerTools';
  * passing.
  */
 const EXPECTED_GATED = [
-  'rectangle', 'polygon', 'regularPolygon', 'path', 'wall',
-  'light', 'text', 'water', 'scatterBrush',
+  'rectangle', 'polygon', 'regularPolygon', 'plateau', 'wall',
+  'light', 'text', 'scatterBrush',
   'roomRect', 'roomPolygon', 'divide',
 ].sort();
 

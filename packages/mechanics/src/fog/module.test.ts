@@ -17,7 +17,7 @@ import {
   tableRegion,
 } from './types'
 import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
-import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
+import { blockedEdge, defaultRoom, effectiveFog, revealPartyRooms, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -489,6 +489,17 @@ describe('defaultRoom / effectiveFog (amendment 2026-07-28)', () => {
   it('has nothing to pick on a map nobody zoned', () => {
     expect(defaultRoom([])).toBeNull()
     expect(effectiveFog(nothing, [], ['nowhere'])).toEqual(nothing)
+  })
+
+  it('reveals the party’s own rooms in rooms mode while the DM has revealed nothing, and only then', () => {
+    expect(idsOf(revealPartyRooms(nothing, ['hall']))).toEqual(['hall'])
+    expect(revealPartyRooms(nothing, [])).toBe(nothing)
+    expect(revealPartyRooms({ ...nothing, mode: 'vision' }, ['hall'])).toEqual({ ...nothing, mode: 'vision' })
+    const lit: SceneFog = { ...nothing, rooms: { vault: { status: 'revealed', wasEverRevealed: true } } }
+    expect(idsOf(revealPartyRooms(lit, ['hall']))).toEqual(['vault'])
+    // A Hide All is the DM's call: a room ever revealed means the table is not fresh.
+    const hidden: SceneFog = { ...nothing, rooms: { hall: { status: 're_hidden', wasEverRevealed: true } } }
+    expect(revealPartyRooms(hidden, ['hall'])).toBe(hidden)
   })
 
   it('reveals the default room while the DM has revealed nothing', () => {

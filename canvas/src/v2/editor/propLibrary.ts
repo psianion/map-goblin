@@ -58,6 +58,17 @@ export function propCategories(entries: readonly PropEntryLike[]): PropCategory[
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
+/* ── Packs ──────────────────────────────────────────────── */
+
+/** One row per pack the entries come from, biggest first (ties by id). */
+export function propPacks(entries: readonly PropEntryLike[]): { id: string; count: number }[] {
+  const byPack = new Map<string, number>();
+  for (const e of entries) byPack.set(e.packId, (byPack.get(e.packId) ?? 0) + 1);
+  return [...byPack]
+    .map(([id, count]) => ({ id, count }))
+    .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id));
+}
+
 /* ── Families ───────────────────────────────────────────── */
 
 /** The key one family shares: pack, set and family name; an entry with no family is its own. */

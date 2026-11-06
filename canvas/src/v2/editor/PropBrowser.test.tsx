@@ -219,6 +219,61 @@ describe('PropBrowser', () => {
     expect(brush().assetIds).not.toContain('p:anvil');
   });
 
+  describe('packs', () => {
+    const FORGE = [
+      { id: 'f:boulder_1', material: 'boulder_1', set: 'GG_Cave_Ink', gridSize: '1x1', tags: ['rock'] },
+      { id: 'f:boulder_2', material: 'boulder_2', set: 'GG_Cave_Ink', gridSize: '1x1', tags: ['rock'] },
+    ].map((e) => ({ ...e, packId: 'f', type: 'object', label: e.material.replace(/_/g, ' '), naturalWidth: 200, naturalHeight: 200 }));
+    const pack = (packId: string, name: string) => ({ packId, name, version: '1', sizeBytes: 0, bundled: true, installedAt: 0 });
+
+    beforeEach(() => {
+      ENTRIES.push(...FORGE);
+      useStore.getState().setInstalledPacks([pack('p', 'Demo'), pack('f', 'Forge')]);
+    });
+    afterEach(() => {
+      ENTRIES.splice(ENTRIES.length - FORGE.length, FORGE.length);
+    });
+
+    const strip = () => screen.getByRole('group', { name: 'Pack' });
+    const cats = () => within(screen.getByRole('list', { name: 'Categories' })).getAllByRole('button').map((c) => c.textContent);
+
+    it('lists every pack with its count, biggest first; a pack narrows the rail and the grid, All packs restores', () => {
+      render(<PropBrowser />);
+      expect(within(strip()).getAllByRole('button').map((b) => b.textContent)).toEqual(['All packs', 'Demo 6', 'Forge 2']);
+      expect(cats()).toEqual(['All8', 'Storage4', 'Cave Ink2', 'Clutter1', 'Gear1']);
+
+      fireEvent.click(within(strip()).getByRole('button', { name: 'Forge 2' }));
+      expect(within(strip()).getByRole('button', { name: 'Forge 2' }).getAttribute('aria-pressed')).toBe('true');
+      expect(cats()).toEqual(['All2', 'Cave Ink2']);
+      expect(screen.getAllByTestId('v2-prop-tile').map((t) => t.querySelector('.v2-ptile__nm')?.textContent)).toEqual(['boulder 1', 'boulder 2']);
+
+      fireEvent.click(within(strip()).getByRole('button', { name: 'All packs' }));
+      expect(cats()[0]).toBe('All8');
+      expect(screen.getAllByTestId('v2-prop-tile')).toHaveLength(6);
+    });
+
+    it('picking a pack clears the category; search still reaches every pack', () => {
+      render(<PropBrowser />);
+      fireEvent.click(screen.getByRole('button', { name: /^Gear/ }));
+      fireEvent.click(within(strip()).getByRole('button', { name: 'Forge 2' }));
+      expect(screen.getByRole('button', { name: /^All2/ }).getAttribute('aria-pressed')).toBe('true');
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search props' }), { target: { value: 'anvil' } });
+      expect(tileNamed(/^anvil$/)).toBeTruthy();
+    });
+
+    it('opens on the pack it is given', () => {
+      render(<PropBrowser initialPack="f" />);
+      expect(cats()).toEqual(['All2', 'Cave Ink2']);
+    });
+
+    it('has no pack strip with one pack', () => {
+      ENTRIES.splice(ENTRIES.length - FORGE.length, FORGE.length);
+      render(<PropBrowser />);
+      expect(screen.queryByRole('group', { name: 'Pack' })).toBeNull();
+      ENTRIES.push(...FORGE);
+    });
+  });
+
   it('cancels replace mode', () => {
     useStore.getState().setPropReplaceIds(['x']);
     render(<PropBrowser />);

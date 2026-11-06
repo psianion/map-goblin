@@ -7,6 +7,7 @@ import {
   favouriteTiles,
   fuzzyScore,
   propCategories,
+  propPacks,
   searchProps,
   usedOnMap,
   type PropEntryLike,
@@ -88,6 +89,22 @@ describe('categories', () => {
     ]);
     expect(cats[0]).toMatchObject({ label: 'Storage', count: 2, tags: ['storage', 'wood'] });
     expect(cats[1]).toMatchObject({ label: 'Other', count: 1, tags: [] });
+  });
+});
+
+describe('packs', () => {
+  it('gives one row per pack, biggest first, ties by id', () => {
+    const packs = propPacks([
+      entry('a', { packId: 'b' }),
+      entry('b', { packId: 'a' }),
+      entry('c', { packId: 'z' }),
+      entry('d', { packId: 'z' }),
+    ]);
+    expect(packs).toEqual([
+      { id: 'z', count: 2 },
+      { id: 'a', count: 1 },
+      { id: 'b', count: 1 },
+    ]);
   });
 });
 

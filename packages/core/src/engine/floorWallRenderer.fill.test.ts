@@ -108,4 +108,9 @@ describe('shapeFloorFill', () => {
     expect(shapeFloorFill(shape(), style, 'gg-demo:floor_A')).toEqual({ kind: 'solid', color: 0xb8ac92, waitFor: 'gg-demo:floor_A' });
     expect(shapeFloorFill(shape({ textureId: 'gg-demo:floor_A' }), style, 'gg-demo:floor_B')).toMatchObject({ waitFor: 'gg-demo:floor_A' });
   });
+
+  it('a layer whose style came through empty paints the default floor instead of throwing', () => {
+    expect(shapeFloorFill(shape(), {} as DungeonStyle)).toEqual({ kind: 'solid', color: 0xf1ecdf });
+    expect(shapeFloorFill(shape(), undefined as unknown as DungeonStyle)).toEqual({ kind: 'solid', color: 0xf1ecdf });
+  });
 });

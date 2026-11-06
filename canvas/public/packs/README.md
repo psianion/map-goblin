@@ -10,5 +10,3 @@ pnpm --filter @dnd/vault-cli cli index -d ../../canvas/public/packs
 ```
 
 The version bump is what makes returning browsers reinstall the pack. `gg-forge` has no families: its object entries are the cave band kit, not props.
-
-Placeholders: `gg-forge:water-still-a-01` and `gg-forge:bank-grassy-01-a1` are procedural stand-ins made by `scripts/gen-water-placeholders.mjs`. Integrate the forge `water` set under the same entry keys to replace them.

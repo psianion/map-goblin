@@ -101,8 +101,9 @@ function build(): CatalogState {
       }
       // A cave band kit ships as `object` entries tagged `cave`, which is what
       // tells the forge's kit apart from gg-demo's structures that share the
-      // family names.
-      if (entry.type === 'object' && entry.set && entry.tags.includes('cave')) {
+      // family names. Its props (rubble, pits, stairs: also tagged `prop`) ship in the
+      // same set but are stamped, not walked.
+      if (entry.type === 'object' && entry.set && entry.tags.includes('cave') && !entry.tags.includes('prop')) {
         const setList = bandSets.get(entry.set);
         if (setList) setList.push(entry);
         else bandSets.set(entry.set, [entry]);
@@ -337,12 +338,13 @@ export function familyPosition(id: string): { index: number; count: number } {
 
 /**
  * Every placeable prop: `object` entries that are neither cave band kit rock nor a
- * piece of a wall set. The cave band kit is walked along floor rings, never stamped.
+ * piece of a wall set. The cave band kit is walked along floor rings, never stamped; a
+ * band set's own props (tagged `prop`) are.
  */
 export function propEntries(): CatalogEntry[] {
   const state = current();
   state.props ??= (state.byType.get('object') ?? []).filter(
-    (e) => !(e.set && (state.bandSets.has(e.set) || state.wallSets.has(e.set))),
+    (e) => !(e.set && ((state.bandSets.has(e.set) && !e.tags.includes('prop')) || state.wallSets.has(e.set))),
   );
   return state.props;
 }

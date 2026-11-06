@@ -14,7 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
+import type { AnyChild, DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
 import { isLayerShown } from '../store/selectors';
@@ -93,6 +93,20 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  * digest. Nothing does today — every write goes through useStore.setState. If
  * one appears, key the cache on a version counter instead.
  */
+/**
+ * Everything about plateaus the scene draws or sweeps: each plateau's rings, height, edge,
+ * cliff art, slope width, contour lines, sight override and crossing.
+ */
+export function plateauLookKey(children: readonly AnyChild[]): string {
+  let key = '';
+  for (const c of children) {
+    if (c.childType === 'plateau') {
+      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+    }
+  }
+  return key;
+}
+
 function geometryDigest(shape: RingGeometry & object): number {
   const cached = digestCache.get(shape);
   if (cached !== undefined) return cached;
@@ -521,11 +535,6 @@ export function subscribeToStore(
             .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
             .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}:${c.openAngle}:${c.hinge}:${c.swing}:${c.hinges}:${c.kit}`)
             .join(','),
-          // Track water body changes
-          waterSignature: l.children
-            .filter((c): c is import('../shared/types').WaterChild => c.childType === 'water')
-            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}`)
-            .join(','),
           // Wall type/direction for lighting, plus the wall's own geometry —
           // see wallDigest. This rides into roomKey, and through it into
           // renderKey and lightingKey, so a wall that moves re-lays its stones,
@@ -549,16 +558,20 @@ export function subscribeToStore(
           areasRef: refId(l.areas),
           // Props with "Blocks light and sight": moving, turning or resizing one re-sweeps.
           propOccluders: propOccluderKey(l.children),
+          // How plateau edges are drawn and whether they hide (see plateauLookKey), and the
+          // map's sight threshold they are measured against. Render and lighting only: the
+          // union and the rooms read heights and edge kinds, which ride in the shape keys.
+          plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}`,
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
           // The union is a function of the shape children and nothing else, but
-          // this subscription also fires for doors, walls and water. Toggling a
+          // this subscription also fires for doors and walls. Toggling a
           // door open used to rebuild it anyway (#18): Clipper2 on a dressed map
           // is ~280ms, and the fresh mergedFloor array it wrote busted the wall
           // resolver memo on top, dragging the stones through a rebuild too.
@@ -574,16 +587,16 @@ export function subscribeToStore(
           // the faces after it.
           const roomKey = `${detectionKey}|${thresholdKey}`;
           // Everything that forces a full rebuild (stone re-layout): floor
-          // and wall geometry, the shapes' dressing, water, door GEOMETRY, and
+          // and wall geometry, the shapes' dressing, door GEOMETRY, and
           // the hand stone edits —
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${detectionKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}`;
+          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -699,11 +712,11 @@ export function subscribeToStore(
           item.doorStateKey === b[i].doorStateKey &&
           item.wallSignature === b[i].wallSignature &&
           item.wallEditsKey === b[i].wallEditsKey &&
-          item.waterSignature === b[i].waterSignature &&
           item.thresholdKey === b[i].thresholdKey &&
           item.roomsRef === b[i].roomsRef &&
           item.areasRef === b[i].areasRef &&
-          item.propOccluders === b[i].propOccluders,
+          item.propOccluders === b[i].propOccluders &&
+          item.plateauKey === b[i].plateauKey,
         ),
     },
   );
@@ -840,6 +853,9 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
+        // Plateaus are relief on the floor: they follow it.
+        entry.sublayers.plateauTops.visible = vis.floor;
+        entry.sublayers.plateauEdges.visible = vis.floor;
         // Shadows fall on the floor, so they follow it: hiding the ground to look at what is
         // under it should not leave the sun's own pass floating over nothing.
         entry.sublayers.shadows.visible = vis.floor;

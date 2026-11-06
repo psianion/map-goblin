@@ -143,8 +143,8 @@ function childTarget(layer: DungeonLayer, child: AnyChild): TransformTarget {
       if (snap.kind !== 'rings') return null;
       const mirrored = mirrorRings(snap, axis);
       if (!mirrored) return null;
-      // Only shapes carry a baked-in transform; snapshotChild folded it into the rings.
-      const after = child.childType === 'shape' ? ({ ...mirrored, transform: undefined } as Partial<AnyChild>) : mirrored;
+      // Only shapes and plateaus carry a baked-in transform; snapshotChild folded it into the rings.
+      const after = child.childType === 'shape' || child.childType === 'plateau' ? ({ ...mirrored, transform: undefined } as Partial<AnyChild>) : mirrored;
       const ring = carryRing();
       const [cx, cy] = boxCentre(bounds);
       return {

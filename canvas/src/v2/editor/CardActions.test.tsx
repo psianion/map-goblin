@@ -54,12 +54,6 @@ describe('card action row', () => {
     expect(actionsFor(['t'])).toEqual(['rotate', 'duplicate', 'lock', 'hide', 'delete', 'more']);
   });
 
-  it('water flips and turns', () => {
-    seed([kid('w', 'water')]);
-    expect(actionsFor(['w'])).toContain('flipH');
-    expect(actionsFor(['w'])).toContain('rotate');
-  });
-
   it('a zone turns, never flips', () => {
     seed([kid('z', 'zone')]);
     const a = actionsFor(['z']);

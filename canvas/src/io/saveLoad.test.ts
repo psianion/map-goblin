@@ -30,6 +30,8 @@ const SAMPLE_DATA: SerializedMapData = {
     name: 'Test Dungeon',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#1a1a2e',
+    sightDropCells: 2,
+    crossingKinds: [],
   },
   grid: { visible: true, snapDivision: 2 },
   layers: [],

@@ -23,7 +23,6 @@ import type {
   ShapeChild,
   TextChild,
   WallSegment,
-  WaterChild,
 } from '@/store/types';
 import type { AssetTypeFilter } from '@/editor/AssetBrowserPanel';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
@@ -51,8 +50,8 @@ import { ColorCtl, Seg, Select, Slider, Switch } from './controls';
 import { wallSetLabel } from './assetStrip';
 import { SlideOver } from './SlideOver';
 import { ZoneSheet } from './ZoneSheet';
+import { PlateauFields } from './PlateauFields';
 import {
-  BANK_TEXTURE_ID,
   MIXED_SWATCH,
   TEXTURE_DEFAULTS,
   cleanDoorName,
@@ -79,7 +78,6 @@ import {
   TEXTURE_SCALE_RANGE,
   shortTextureName,
   textureValue,
-  waterModel,
   WALL_TYPE_CHOICES,
   wallModel,
   wallTypeChange,
@@ -97,7 +95,7 @@ const KIND_LABEL: Record<AnyChild['childType'], string> = {
   text: 'Label',
   light: 'Light',
   door: 'Door',
-  water: 'Water',
+  plateau: 'Plateau',
   zone: 'Zone',
 };
 
@@ -230,8 +228,8 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
       <MixedCard dims={dims}>
         {group?.kind === 'shape' ? (
           <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
-        ) : group?.kind === 'water' ? (
-          <WaterFields layerId={group.layerId} ids={group.ids} />
+        ) : group?.kind === 'plateau' ? (
+          <PlateauFields layerId={group.layerId} ids={group.ids} />
         ) : walls.length === 0 && roomCount === 0 && children.every((c) => c.childType === 'text') ? (
           <LabelGroupFields entries={children.map((c, i) => ({ id: c.id, layerId: layerIds[i] ?? '' }))} />
         ) : null}
@@ -257,8 +255,8 @@ export function SelectionCard({ onOpenPrep, onOpenAssets, onOpenLayers }: Select
 
           {group?.kind === 'shape' ? (
             <ShapeFields layerId={group.layerId} ids={group.ids} onOpenAssets={onOpenAssets} />
-          ) : group?.kind === 'water' ? (
-            <WaterFields layerId={group.layerId} ids={group.ids} />
+          ) : group?.kind === 'plateau' ? (
+            <PlateauFields layerId={group.layerId} ids={group.ids} />
           ) : soleWall && soleWallLayerId ? (
             <WallFields layerId={soleWallLayerId} wallId={soleWall.id} />
           ) : (
@@ -529,7 +527,6 @@ function saveFillOpen(open: boolean): void {
 
 const fmtScale = (v: number) => `×${v.toFixed(2)}`;
 const fmtDeg = (v: number) => `${Math.round(v)}°`;
-const fmtPct = (v: number) => `${Math.round(v * 100)}%`;
 
 function mixedFormat<T>(model: Mixed<T>, fmt: (v: number) => string): (v: number) => string {
   return (v) => (isMixed(model) ? 'Mixed' : fmt(v));
@@ -852,67 +849,6 @@ function NumField({
         }}
       />
     </label>
-  );
-}
-
-/* ── Water ──────────────────────────────────────────────── */
-
-function WaterFields({ layerId, ids }: { layerId: string; ids: readonly string[] }) {
-  const layer = useStore((s) => s.layers.find((l) => l.id === layerId)) as DungeonLayer | undefined;
-  const { live, commit } = useLiveEdit(layerId);
-  const bodies = (layer?.children ?? []).filter(
-    (c): c is WaterChild => c.childType === 'water' && ids.includes(c.id),
-  );
-  if (bodies.length === 0) return null;
-
-  const m = waterModel(bodies);
-  const head = bodies[0];
-  const tint = isMixed(m.tint) ? MIXED_SWATCH : m.tint;
-
-  const setBanks = (on: boolean) => {
-    const next = on ? BANK_TEXTURE_ID : '';
-    run(
-      on ? 'Show banks' : 'Hide banks',
-      bodies
-        .filter((b) => b.bankTextureId !== next)
-        .map(
-          (b) =>
-            new UpdateChildCommand(on ? 'Show banks' : 'Hide banks', layerId, b.id, { bankTextureId: b.bankTextureId }, {
-              bankTextureId: next,
-            }),
-        ),
-    );
-  };
-
-  return (
-    <div className="v2-sel__rows v2-selc" data-testid="v2-sel-water">
-      <div className="v2-sel__row">
-        <Switch label="Banks" checked={m.banks === true} onChange={setBanks} />
-        {isMixed(m.banks) && <span className="v2-selc__value">Mixed</span>}
-      </div>
-      <div className="v2-sel__row">
-        <ColorCtl
-          label="Tint"
-          placement="beside"
-          value={tint}
-          onChange={(c) => live(ids, { tint: c })}
-          onCommit={() => commit('Water tint')}
-        />
-        <span className="v2-selc__value v2-num">{isMixed(m.tint) ? 'Mixed' : tint.toUpperCase()}</span>
-      </div>
-      <div className="v2-sel__row">
-        <Slider
-          label="Opacity"
-          min={0}
-          max={1}
-          step={0.05}
-          value={head.opacity}
-          format={mixedFormat(m.opacity, fmtPct)}
-          onChange={(v) => live(ids, { opacity: v })}
-          onCommit={() => commit('Water opacity')}
-        />
-      </div>
-    </div>
   );
 }
 

@@ -102,7 +102,7 @@ export function pointInLight(
  * draw on top of everything (`LightingRenderer`'s overlay pass), then
  * sublayers stack floor < walls < doors < objects(assets) < labels — so the
  * topmost picks must be lights, then labels, then assets, then doors, then
- * everything else (shapes, water) — the flat children array only reflects
+ * everything else (shapes) — the flat children array only reflects
  * relative order *within* one of those buckets, not across them.
  */
 function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
@@ -173,9 +173,7 @@ function* childHits(
     if (child.locked && !takesLocked(opts)) continue;
     switch (child.childType) {
       case 'shape':
-        if (pointInShape(child, point)) yield child;
-        break;
-      case 'water':
+      case 'plateau':
         if (pointInShape(child, point)) yield child;
         break;
       case 'zone':
@@ -489,7 +487,7 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, water, the room the point
+ * labels, props, doors), a zone by its outline, the drawn walls, plateaus, the room the point
  * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
  * area, then the floors.
  */
@@ -501,8 +499,9 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
   const walls = wallHits(layer, point, opts);
   for (const w of walls) yield wallHit(layer.id, w);
-  const water = layer.children.filter((c) => c.childType === 'water');
-  for (const c of childHits(water, point, layer, opts)) yield childHit(layer.id, c);
+  // Plateaus draw over the floors and the rooms on them: next, before either.
+  const plateaus = layer.children.filter((c) => c.childType === 'plateau');
+  for (const c of childHits(plateaus, point, layer, opts)) yield childHit(layer.id, c);
   // Where a drawn wall answers, the rooms and floor it stands on are looked for beside it too.
   const beside = walls.flatMap((w) => besideWall(w, layer, point));
   if (opts?.rooms ?? roomPicking()) {
@@ -514,7 +513,9 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
     }
   }
   for (const z of zoneHits) yield childHit(layer.id, z);
-  const below = layer.children.filter((c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'water');
+  const below = layer.children.filter(
+    (c) => !ABOVE_WALLS.has(c.childType) && c.childType !== 'zone' && c.childType !== 'plateau',
+  );
   for (const c of childHits(below, point, layer, opts)) yield childHit(layer.id, c);
   for (const p of beside) for (const c of childHits(below, p, layer, opts)) yield childHit(layer.id, c);
 }
@@ -548,7 +549,7 @@ function besideWall(wall: WallSegment, layer: DungeonLayer, point: [number, numb
 
 /**
  * The pick on one layer, in draw order (see `layerHits`): whatever stands on the walls,
- * a zone by its outline, a drawn wall, water, the room the point is in, a zone by its
+ * a zone by its outline, a drawn wall, the room the point is in, a zone by its
  * area, then the floors.
  * Callers decide which layers may answer (hidden, locked).
  */
@@ -635,7 +636,8 @@ export function getChildBounds(child: AnyChild): {
   height: number;
 } {
   switch (child.childType) {
-    case 'shape': {
+    case 'shape':
+    case 'plateau': {
       // Flattened: a curve can bow past its anchors, and the gizmo/selection
       // box must wrap what is actually drawn.
       let points = flattenRing(child.contours[0], child.tangents?.[0]);
@@ -706,21 +708,6 @@ export function getChildBounds(child: AnyChild): {
         width: child.width,
         height: child.width,
       };
-    }
-    case 'water': {
-      const points = flattenRing(child.contours[0] ?? [], child.tangents?.[0]);
-      if (points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
-      let minX = points[0][0];
-      let maxX = points[0][0];
-      let minY = points[0][1];
-      let maxY = points[0][1];
-      for (const [px, py] of points) {
-        if (px < minX) minX = px;
-        if (px > maxX) maxX = px;
-        if (py < minY) minY = py;
-        if (py > maxY) maxY = py;
-      }
-      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
     case 'zone': {
       const shape = child.shape;

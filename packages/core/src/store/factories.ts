@@ -4,7 +4,7 @@ import type {
   DungeonStyle,
   MapBuilderStore,
 } from './types';
-import { WATER_BANK_TEXTURE_ID, WATER_TEXTURE_ID } from '../engine/water/waterTextures';
+import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds';
 
 const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   floorColor: '#F1ECDF',
@@ -68,14 +68,14 @@ export function createBackgroundLayer(levelId = ''): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setFixedSize' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
+  | 'setMapName' | 'setFixedSize' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setMapRules' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'setChildOrder' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
-  | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
+  | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'toggleExpandedLayerId'
   | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
@@ -111,6 +111,8 @@ export function createDefaultState(): MapBuilderState {
       fixedSize: null,
       // Born in the anchored-rooms format: nothing to migrate.
       roomsVersion: 2,
+      sightDropCells: DEFAULT_SIGHT_DROP_CELLS,
+      crossingKinds: defaultCrossingKinds(),
     },
     grid: {
       visible: true,
@@ -174,12 +176,6 @@ export function createDefaultState(): MapBuilderState {
           // White at zero opacity = the brush paints untinted until asked.
           tintColor: '#ffffff',
           tintOpacity: 0,
-        },
-        water: {
-          mode: 'river' as const,
-          width: 2,
-          textureId: WATER_TEXTURE_ID,
-          bankTextureId: WATER_BANK_TEXTURE_ID,
         },
         zone: {
           mode: 'point' as const,

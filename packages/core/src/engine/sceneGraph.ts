@@ -9,6 +9,7 @@ import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
+import { initRingNodeOverlay } from './ringNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 
 export interface SceneGraph {
@@ -45,8 +46,14 @@ export interface SceneGraphOptions {
 }
 
 export interface DungeonSublayers {
-  water: Container;
   floor: Container;
+  /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
+  plateauTops: Container;
+  /**
+   * Plateau edges (plateauRenderer.ts): each band's slopes, cliff rock and foot, lowest
+   * band first, over the tops and under the shadows on them.
+   */
+  plateauEdges: Container;
   /**
    * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
    * per-layer grid as well as the walls, because a shadow falls on the floor and the grid is
@@ -176,6 +183,10 @@ export function buildSceneGraph(
   worldContainer.addChild(shapeNodeOverlay);
   initShapeNodeOverlay(shapeNodeOverlay);
 
+  const ringNodeOverlay = new Graphics();
+  worldContainer.addChild(ringNodeOverlay);
+  initRingNodeOverlay(ringNodeOverlay);
+
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
@@ -224,8 +235,9 @@ export function addLayerToScene(
 
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
-    const water = new Container(); water.label = 'sublayer-water';
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
+    const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
@@ -237,8 +249,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(water, floor, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { water, floor, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

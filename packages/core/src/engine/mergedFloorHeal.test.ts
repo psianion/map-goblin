@@ -32,8 +32,9 @@ function makeEntry(id: string): LayerEntry {
     type: 'dungeon',
     container: new Container(),
     sublayers: {
-      water: new Container(),
       floor: new Container(),
+      plateauTops: new Container(),
+      plateauEdges: new Container(),
       shadows: new Container(),
       grid: new Container(),
       walls: new Container(),

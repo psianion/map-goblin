@@ -7,7 +7,7 @@ test.describe('06 - Keyboard Shortcuts', () => {
     { key: 'r', tool: 'rectangle' },
     { key: 'p', tool: 'polygon' },
     { key: 'h', tool: 'regularPolygon' },
-    { key: 'd', tool: 'path' },
+    { key: 'd', tool: 'door' },
     { key: 'w', tool: 'wall' },
     { key: 'l', tool: 'light' },
   ];
@@ -22,9 +22,9 @@ test.describe('06 - Keyboard Shortcuts', () => {
     });
   }
 
-  test('E toggles erase mode', async ({ page }) => {
+  test('Shift+E toggles erase mode', async ({ page }) => {
     await gotoApp(page);
-    await page.keyboard.press('e');
+    await page.keyboard.press('Shift+E');
     await waitFrame(page, 2);
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();

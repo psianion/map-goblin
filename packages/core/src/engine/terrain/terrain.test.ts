@@ -7,9 +7,7 @@ import {
   type TerrainRenderer,
 } from './TerrainRenderer';
 import { useStore } from '../../store/store';
-import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '../../store/slices/tools';
-import type { WaterChild } from '../../shared/types';
-import type { DungeonLayer } from '../../store/types';
+import { TERRAIN_BRUSH_RANGES } from '../../store/slices/tools';
 
 function makeFakeRenderer() {
   const calls: { rtIndex: number; pixels: Uint8Array }[] = [];
@@ -103,14 +101,11 @@ describe('tool setting clamps', () => {
   it('clamps to the same ranges the sliders expose', () => {
     const s = useStore.getState();
     s.updateTerrainBrushSettings({ radius: 999, strength: -1, tintOpacity: 2 });
-    s.updateWaterSettings({ width: 999 });
 
-    const { terrainBrush, water } = useStore.getState().tools.settings;
+    const { terrainBrush } = useStore.getState().tools.settings;
     expect(terrainBrush.radius).toBe(TERRAIN_BRUSH_RANGES.radius.max);
     expect(terrainBrush.strength).toBe(TERRAIN_BRUSH_RANGES.strength.min);
     expect(terrainBrush.tintOpacity).toBe(TERRAIN_BRUSH_RANGES.tintOpacity.max);
-    expect(water.width).toBe(WATER_RANGES.width.max);
-    expect(water).not.toHaveProperty('flowSpeed');
   });
 });
 
@@ -141,50 +136,8 @@ describe('brush tint colour', () => {
   });
 });
 
-describe('water children in the store', () => {
+describe('terrain in the store', () => {
   beforeEach(() => useStore.getState().resetToDefault());
-
-  function activeDungeonLayer(): DungeonLayer {
-    const s = useStore.getState();
-    return s.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
-  }
-
-  function makeWater(): WaterChild {
-    return {
-      id: 'w1',
-      name: 'River 1',
-      childType: 'water',
-      visible: true,
-      waterType: 'river',
-      contours: [[[0, 0], [4, 0], [4, 2], [0, 2]]],
-      textureId: 'water-still-a-01',
-      tint: '#9fc8e8',
-      opacity: 0.9,
-      bankTextureId: 'bank-grassy-01-a1',
-      bankWidth: 0.5,
-      flowSpeed: 0.15,
-      flowAngle: 0,
-    };
-  }
-
-  it('water child round-trips through serialization, legacy flow fields included', () => {
-    const layer = activeDungeonLayer();
-    useStore.getState().addChild(layer.id, makeWater());
-
-    const data = useStore.getState().getSerializableState();
-    useStore.getState().resetToDefault();
-    useStore.getState().loadFromFile(structuredClone(data));
-
-    const restored = useStore.getState().layers.find(
-      (l): l is DungeonLayer => l.type === 'dungeon',
-    )!;
-    const water = restored.children.find((c) => c.childType === 'water') as WaterChild;
-    expect(water).toBeDefined();
-    expect(water.waterType).toBe('river');
-    expect(water.contours[0].length).toBe(4);
-    // Older maps carry flow fields; they load untouched even though nothing reads them.
-    expect(water.flowSpeed).toBeCloseTo(0.15);
-  });
 
   it('terrain data rides mapSettings through serialization', () => {
     useStore.getState().setTerrainData({ bounds: { minX: -3, minY: -2, maxX: 5, maxY: 4 } });

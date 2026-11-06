@@ -1044,6 +1044,34 @@ export class TerrainRenderer {
     }
   }
 
+  /**
+   * Whether ground is painted at a point, over the world box `b`: the two weight maps read
+   * back for the box once, then a texel lookup per point (painted = any slot's weight, the
+   * shader's own cutoff). Null when the box is off the paintable region.
+   */
+  async paintedSampler(b: { minX: number; minY: number; maxX: number; maxY: number }): Promise<((x: number, y: number) => boolean) | null> {
+    const lo = this.worldToTexel(b.minX, b.minY);
+    const hi = this.worldToTexel(b.maxX, b.maxY);
+    const x0 = Math.max(0, Math.floor(lo.x));
+    const y0 = Math.max(0, Math.floor(lo.y));
+    const x1 = Math.min(SPLAT_SIZE, Math.ceil(hi.x));
+    const y1 = Math.min(SPLAT_SIZE, Math.ceil(hi.y));
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (w <= 0 || h <= 0) return null;
+    const frame = new Rectangle(x0, y0, w, h);
+    const splats = this.splats();
+    const [a, c] = await Promise.all([this.extractRegion(splats[0], frame), this.extractRegion(splats[1], frame)]);
+    return (x, y) => {
+      const t = this.worldToTexel(x, y);
+      const tx = Math.floor(t.x) - x0;
+      const ty = Math.floor(t.y) - y0;
+      if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
+      const i = (ty * w + tx) * 4;
+      return a[i] + a[i + 1] + a[i + 2] >= 1 || c[i] + c[i + 1] + c[i + 2] >= 1;
+    };
+  }
+
   /** Write raw RGBA pixels back into a splatmap region (undo/redo restore). */
   restoreRegion(rtIndex: SplatMapIndex, rect: { x: number; y: number; width: number; height: number }, pixels: Uint8Array): void {
     const source = new BufferImageSource({

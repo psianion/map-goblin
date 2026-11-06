@@ -1,5 +1,5 @@
-// Overhead props at the table: a canopy, a web or a bridge fades for a token standing under
-// it, so the token stays readable.
+// Overhead props at the table: a canopy or a web fades for a token standing under it, so the
+// token stays readable.
 //
 // Since the Lighting pass the overhead art takes the lighting like everything else, at the
 // table too: core's `overheadContainer` stays in the world container, under the lighting

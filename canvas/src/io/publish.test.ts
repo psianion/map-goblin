@@ -27,6 +27,8 @@ const BASE_DATA: SerializedMapData = {
     name: 'Test Dungeon',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#1a1a2e',
+    sightDropCells: 2,
+    crossingKinds: [],
   },
   grid: { visible: true, snapDivision: 2 },
   layers: [],
@@ -84,7 +86,7 @@ describe('hashMapBytes', () => {
     const pinned = {
       ...BASE_DATA,
       mapSettings: { name: 'Test Dungeon', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#1a1a2e' },
-    } as SerializedMapData;
+    } as unknown as SerializedMapData;
     const hash = await hashMapBytes(pinned);
     expect(hash).toBe('ce5e81eacc13c177ccf6dafe5eb45ba8fa75d51f43d2cf6d7c5832cffe5c038c');
   });

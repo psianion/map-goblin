@@ -17,6 +17,17 @@ describe('caveWallKit measurements', () => {
     // indoors and its loose pebbles out in the void. The fix is applied once, at
     // measurement time, so this is the assertion that it stayed applied.
     for (const p of RAW) {
+      // A ledge, contour or rubble bend turns as measured and is reversed in code where it may be.
+      if (p.key.startsWith('ledge_bend_') || p.key.startsWith('contour_bend_') || p.key.startsWith('rubble_bend_')) {
+        expect(p.turnDeg, p.key).toBeGreaterThan(0);
+        continue;
+      }
+      // The rock row ships both hands, named by their turn: rockledge_bend_n90 turns -90.
+      if (p.key.startsWith('rockledge_bend_')) {
+        const turn = Number(/^rockledge_bend_(n?)(\d+)_/.exec(p.key)!.slice(1).join('').replace('n', '-'));
+        expect(`${p.key}:${p.turnDeg}`).toBe(`${p.key}:${turn}`);
+        continue;
+      }
       const want = p.key.startsWith('inside_bend')
         ? 90
         : p.key.startsWith('outside_bend')
@@ -109,21 +120,21 @@ describe('placeOnChord', () => {
 });
 
 describe('the join to the shipped pack', () => {
-  it('resolves every measured piece to exactly one gg-demo entry', () => {
+  it('resolves every measured piece to exactly one GG_Cave_Ink entry in gg-forge', () => {
     // `material` + `gridSize` is how a measurement finds its art. The pack cannot
     // be rebuilt from inside this repo, so if that join ever stops being 1:1 the
     // band editor silently stops recognising walls rather than failing loudly.
     // From process.cwd() (packages/core under vitest), not import.meta.url: the
     // jsdom environment hands that back as an http URL.
-    const dir = resolve(process.cwd(), '../../canvas/public/packs/gg-demo');
+    const dir = resolve(process.cwd(), '../../canvas/public/packs/gg-forge');
     const manifestFile = readdirSync(dir).find((f) => /^pack-[0-9a-f]+\.json$/.test(f))!;
-    const entries: Record<string, { type: string; material: string; gridSize: string }> = JSON.parse(
+    const entries: Record<string, { type: string; material: string; gridSize: string; set?: string }> = JSON.parse(
       readFileSync(`${dir}/${manifestFile}`, 'utf8'),
     ).entries;
 
     for (const p of RAW) {
       const matches = Object.entries(entries).filter(
-        ([, e]) => e.type === 'object' && `${e.material}_${e.gridSize}` === p.key,
+        ([, e]) => e.type === 'object' && e.set === 'GG_Cave_Ink' && `${e.material}_${e.gridSize}` === p.key,
       );
       expect(`${p.key} → ${matches.length} entries`).toBe(`${p.key} → 1 entries`);
     }

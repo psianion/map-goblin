@@ -9,11 +9,11 @@ import { createSwapPropCommand } from '@dnd/core/src/store/propEdits';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { cn } from '@/lib/utils';
 import { pickAssetForTool } from './assetStrip';
-import { familyTiles, favouriteTiles, propCategories, searchProps, usedOnMap, type FamilyTile } from './propLibrary';
+import { familyTiles, favouriteTiles, propCategories, propPacks, searchProps, usedOnMap, type FamilyTile } from './propLibrary';
 import './props.css';
 
 /*
- * The props browser (Library board): search, the four views, the pack's categories, one
+ * The props browser (Library board): search, the four views, the packs and their categories, one
  * tile per family with its members a click away, and stars. A click picks for the tool in
  * hand (Stamp takes the prop, Scatter toggles it in the pool), or, while replacing, swaps
  * the replaced props for it.
@@ -204,9 +204,10 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="v2-pbrowse__empty">{children}</p>;
 }
 
-/** The props browser's body. */
-export function PropBrowser() {
+/** The props browser's body; `initialPack` opens it on one pack's props. */
+export function PropBrowser({ initialPack }: { initialPack?: string } = {}) {
   const props = useProps();
+  const installed = useStore((s) => s.packs.installedPacks);
   const layers = useStore((s) => s.layers);
   const favourites = useStore((s) => s.assets.favourites);
   const recent = useStore((s) => s.assets.recentlyUsed);
@@ -214,6 +215,7 @@ export function PropBrowser() {
   const replaceIds = useStore(useShallow((s) => s.ui.propReplaceIds));
 
   const [view, setView] = useState<View>('all');
+  const [pack, setPack] = useState<string | null>(initialPack ?? null);
   const [category, setCategory] = useState<string | null>(null);
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -221,7 +223,9 @@ export function PropBrowser() {
   const [limit, setLimit] = useState(PAGE);
 
   const byId = useMemo(() => new Map(props.map((e) => [e.id, e])), [props]);
-  const categories = useMemo(() => propCategories(props), [props]);
+  const packs = useMemo(() => propPacks(props), [props]);
+  const inPack = useMemo(() => (pack ? props.filter((e) => e.packId === pack) : props), [props, pack]);
+  const categories = useMemo(() => propCategories(inPack), [inPack]);
   const used = useMemo(() => usedOnMap(layers), [layers]);
   const usedProps = useMemo(
     () => [...used].filter(([id]) => byId.has(id)).sort((a, b) => b[1] - a[1]),
@@ -237,12 +241,12 @@ export function PropBrowser() {
     }
     if (view === 'recent') return searchProps(of(recent), query).map(single);
     if (view === 'used') return searchProps(of(usedProps.map(([id]) => id)), query).map(single);
-    // Typing searches every prop whatever the category.
+    // Typing searches every prop whatever the pack or category.
     const scope = searching
       ? props
-      : props.filter((e) => (!category || (e.set ?? '') === category) && (!tag || e.tags.includes(tag)));
+      : inPack.filter((e) => (!category || (e.set ?? '') === category) && (!tag || e.tags.includes(tag)));
     return familyTiles(searchProps(scope, query));
-  }, [view, favourites, recent, usedProps, props, byId, query, searching, category, tag]);
+  }, [view, favourites, recent, usedProps, props, inPack, byId, query, searching, category, tag]);
 
   const pick = (id: string) => {
     if (replaceIds) {
@@ -255,6 +259,13 @@ export function PropBrowser() {
   };
   const usedOf = (t: FamilyTile<CatalogEntry>) => t.members.reduce((n, m) => n + (used.get(m.id) ?? 0), 0);
   const chosen = categories.find((c) => c.id === category);
+  const packName = (id: string) => installed.find((p) => p.packId === id)?.name ?? id;
+  const pickPack = (id: string | null) => {
+    setPack(id);
+    setCategory(null);
+    setTag(null);
+    setLimit(PAGE);
+  };
   const shown = tiles.slice(0, limit);
 
   const views: { id: View; label: string }[] = [
@@ -320,6 +331,18 @@ export function PropBrowser() {
             </button>
           ))}
         </span>
+        {view === 'all' && packs.length > 1 && (
+          <span className="v2-seg v2-pbrowse__packs" role="group" aria-label="Pack">
+            <button type="button" aria-pressed={!pack} onClick={() => pickPack(null)}>
+              All packs
+            </button>
+            {packs.map((p) => (
+              <button key={p.id} type="button" aria-pressed={pack === p.id} onClick={() => pickPack(p.id)}>
+                {packName(p.id)} <span className="v2-num">{p.count}</span>
+              </button>
+            ))}
+          </span>
+        )}
       </div>
 
       <div className="v2-pbrowse__main">
@@ -337,7 +360,7 @@ export function PropBrowser() {
                 }}
               >
                 <span>All</span>
-                <span className="v2-pcat__n v2-num">{props.length}</span>
+                <span className="v2-pcat__n v2-num">{inPack.length}</span>
               </button>
             </li>
             {categories.map((c) => (

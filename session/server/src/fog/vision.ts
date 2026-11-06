@@ -25,6 +25,7 @@ import {
   nearAuthoredFloor,
   onAuthoredFloor,
   regionFor,
+  revealPartyRooms,
   sceneFogOf,
   setCells,
   sightRangeLimitOn,
@@ -49,6 +50,10 @@ import {
 import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd/mechanics/tokens'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
 import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure
+import { hiddenTops } from '@dnd/core/src/shared/plateaus'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design
+import { pointInRing } from '@dnd/core/src/shared/roomUtils'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { MapDelta } from '@dnd/core/src/shared/protocol'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
@@ -205,6 +210,27 @@ const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 const NO_TRIGGERS: TriggersState = { byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
 
+/**
+ * The plateau tops on the map that no party token stands high enough to see: a token sees a top
+ * at or below its own elevation. The party is the claimed tokens, or this seat's own in
+ * individual share. Undefined when nothing is covered.
+ */
+function coveredOf(
+  data: SerializedMapData,
+  tokens: readonly Token[],
+  viewer: Viewer | undefined,
+  share: string,
+): ((x: number, y: number) => boolean) | undefined {
+  const tops = data.layers.flatMap((l) => (l.type === 'dungeon' ? hiddenTops(l, data.mapSettings.sightDropCells) : []))
+  if (tops.length === 0) return undefined
+  const party = tokens.filter(
+    (t) => !t.hidden && t.ownerId !== null && (share !== 'individual' || !viewer || t.ownerId === viewer.identityId),
+  )
+  const covered = tops.filter((top) => !party.some((t) => (t.elevation ?? 0) >= top.height))
+  if (covered.length === 0) return undefined
+  return (x, y) => covered.some((top) => top.rings.some((ring) => pointInRing(x, y, ring)))
+}
+
 export function createVision(stores: Stores): Vision {
   const { sceneMapOf, invalidate: invalidateSceneMap } = createSceneMaps(stores)
   const sweeps = createSweeps()
@@ -242,7 +268,11 @@ export function createVision(stores: Stores): Vision {
     // emberhold-crypt is the torchlit one, and the fourth browser gate read it at full
     // brightness on a scene the DM's panel called Unrevealed. Withholding it here is the half
     // that matters; the mask is only the half the player can see (PRODUCT principle 2).
-    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party)
+    //
+    // What a fresh table does give a player is the room the party stands in: while the DM has
+    // never revealed a room, in rooms mode, those rooms count as revealed (`revealPartyRooms`), so the first
+    // move inside them is allowed and the ground under their feet is drawn.
+    const fog = revealPartyRooms(effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party), party)
     // S3 P1 — the sweep is taken once per mutation alongside the BFS, and cached with it:
     // token redaction, auto-explore and (P2) the mask all read the same polygons, so the
     // three cannot disagree about where the party's sight ends.
@@ -459,6 +489,8 @@ export function createVision(stores: Stores): Vision {
         // P3 — and by the light on that point: in darkness a token beyond every torch and
         // beyond darkvision is not on the wire at all (§3.1).
         canSee: sight ? (x, y) => seen(sight, x, y) : undefined,
+        // Rooms mode's one exception (plan §6): plateau tops no party eye is high enough to see.
+        coveredAt: sight ? undefined : coveredOf(computed.map.data, Object.values(computed.tokens), viewer, computed.share),
         // The ground half of the same widening (`SceneVision.openGround`): in vision mode a
         // cell the party remembers is somewhere they may stand, room or no room. Built from
         // the *stored* record rather than the live sweep on purpose — walking out of your own

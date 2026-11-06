@@ -111,16 +111,6 @@ function renderShapePreview(
       else g.lineTo(px, py);
     }
     g.closePath();
-  } else if (tool === 'path') {
-    const halfW = size / 2;
-    const halfH = size / 4;
-    g.moveTo(cx - halfW, cy);
-    g.lineTo(cx - halfW * 0.3, cy - halfH);
-    g.lineTo(cx + halfW * 0.3, cy + halfH);
-    g.lineTo(cx + halfW, cy);
-    g.setStrokeStyle({ color: wallColor, width: style.wallWidth });
-    g.stroke();
-    return;
   } else {
     const w = size;
     const h = size * 0.6;

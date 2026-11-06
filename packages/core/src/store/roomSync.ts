@@ -98,13 +98,22 @@ export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): RoomS
   const faces = needFaces ? layerFaces(layer, gridSize) : [];
   const boxes = faces.map(bboxOf);
 
+  // The smallest face holding the point: a face is its outer ring only, so a room sealed
+  // inside another (a tower in a field) sits inside both, and the outer one is the wrong answer.
   const faceAt = (x: number, y: number): Polygon | null => {
+    let best: Polygon | null = null;
+    let bestArea = Infinity;
     for (let i = 0; i < faces.length; i++) {
       const [x0, y0, x1, y1] = boxes[i];
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (pointInRing(x, y, faces[i])) return faces[i];
+      if (!pointInRing(x, y, faces[i])) continue;
+      const area = (x1 - x0) * (y1 - y0);
+      if (area < bestArea) {
+        best = faces[i];
+        bestArea = area;
+      }
     }
-    return null;
+    return best;
   };
 
   // Faces first, doors second: binding reads the faces just placed.

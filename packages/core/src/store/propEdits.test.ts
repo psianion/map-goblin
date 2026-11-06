@@ -23,7 +23,6 @@ import type {
   DoorChild,
   LightChild,
   ShapeChild,
-  WaterChild,
   WallSegment,
   ZoneChild,
 } from '../shared/types';
@@ -415,18 +414,13 @@ describe('createDuplicateCommand', () => {
       contours: [[[0, 0], [2, 0], [2, 2]]], tangents: [[{ tout: [1, 0] }, null, null]],
       textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
     } as unknown as ShapeChild;
-    const water = {
-      id: 'wa', name: 'wa', childType: 'water', visible: true, waterType: 'lake', contours: [[[0, 0], [1, 0], [1, 1]]],
-      textureId: '', tint: '#ffffff', opacity: 1, bankTextureId: '', bankWidth: 0,
-    } as unknown as WaterChild;
-    add(main, door, rect, circle, shape, water);
-    const copies = dup(['door', 'zr', 'zc', 'sh', 'wa']);
+    add(main, door, rect, circle, shape);
+    const copies = dup(['door', 'zr', 'zc', 'sh']);
     expect(child<DoorChild>(copies[0]).position).toEqual([5, 5]);
     expect(child<ZoneChild>(copies[1]).shape).toMatchObject({ x: 1, y: 1 });
     expect(child<ZoneChild>(copies[2]).shape).toMatchObject({ position: { x: 2, y: 2 } });
     expect(child<ShapeChild>(copies[3]).contours[0][1]).toEqual([3, 1]);
     expect(child<ShapeChild>(copies[3]).tangents![0][0]).toEqual({ tout: [2, 1] });
-    expect(child<WaterChild>(copies[4]).contours[0][2]).toEqual([2, 2]);
   });
 
   it('a whole group copies into a new group; part of one stays in it on its own layer', () => {

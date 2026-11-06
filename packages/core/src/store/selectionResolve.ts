@@ -71,7 +71,7 @@ const KIND_NOUNS: [SelectionKind, string, string][] = [
   ['light', 'light', 'lights'],
   ['text', 'label', 'labels'],
   ['shape', 'floor', 'floors'],
-  ['water', 'water body', 'water bodies'],
+  ['plateau', 'plateau', 'plateaus'],
   ['wall', 'wall', 'walls'],
   ['door', 'door', 'doors'],
   ['zone', 'zone', 'zones'],
@@ -87,7 +87,7 @@ export function selectionTitle(kinds: Partial<Record<SelectionKind, number>>): s
 
 /**
  * What a toast calls the objects it acted on, counted by kind: "1 wall", "3 props",
- * "2 water bodies"; two or more kinds together are "objects". Empty for none.
+ * "2 paths"; two or more kinds together are "objects". Empty for none.
  */
 export function selectionNoun(kinds: Partial<Record<SelectionKind, number>>): string {
   const present = KIND_NOUNS.filter(([k]) => (kinds[k] ?? 0) > 0);

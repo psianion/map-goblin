@@ -255,6 +255,35 @@ describe('computeMapFrame', () => {
     expect(computeMapFrame([layer], null)).toEqual({ minX: 0, minY: 0, maxX: 9, maxY: 7 });
   });
 
+  it('measures a plateau outside the floors, out to where its edge falls', () => {
+    const floor = [[[0, 0], [4, 0], [4, 4], [0, 4]]] as [number, number][][];
+    const plateau = (edge: string, height: number) => ({
+      id: 'p',
+      name: 'Mesa',
+      childType: 'plateau',
+      visible: true,
+      contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]],
+      height,
+      edge,
+      slopeWidth: 2,
+    });
+    const frame = (edge: string, height: number) =>
+      computeContentBounds([{ ...layerWith(floor), children: [plateau(edge, height)] } as unknown as Layer], null)!;
+    // The ring's own reach: half the wall stroke plus the AA margin on top of the plateau's.
+    const stroke = frame('none', 0).maxX - 14;
+    expect(frame('none', 2).maxY).toBeGreaterThanOrEqual(14);
+    // Edge None reaches its drop shade: 0.65 cell at +1, 1.25 at +3.
+    expect(frame('none', 1).maxX - stroke).toBeCloseTo(14.65, 6);
+    expect(frame('none', 3).maxX - stroke).toBeCloseTo(15.25, 6);
+    // A slope reaches its band, the card's width, whatever the drop; a pit's falls inward.
+    expect(frame('slope', 3).maxX - stroke).toBeCloseTo(16, 6);
+    expect(frame('slope', 1).maxX - stroke).toBeCloseTo(16, 6);
+    expect(frame('slope', -3).maxX).toBeLessThan(frame('slope', 3).maxX);
+    // A cliff reaches past its shade to what hangs off its ledge.
+    expect(frame('cliff', 1).maxX - stroke).toBeCloseTo(15.2, 6);
+    expect(frame('cliff', 3).maxX - stroke).toBeCloseTo(15.25, 6);
+  });
+
   it('includes painted terrain in the frame', () => {
     const frame = computeMapFrame(
       [layerWith([[[0, 0], [2, 0], [2, 2], [0, 2]]])],

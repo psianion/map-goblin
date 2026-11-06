@@ -3,9 +3,12 @@
 // tests; what is checkable here is the part this module adds — the ring's
 // handedness, the cut a door makes, and a free-ended run.
 import { describe, it, expect } from 'vitest';
-import { caveBandPieces, jointsOf } from '../assets/caveWallKit';
+import { caveBandPieces, jointsOf, ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
+import { migrateToLatest } from '../store/migration';
+import { computeMergedFloor } from './mergedFloor';
+import type { DungeonLayer } from '../store/types';
 import { bandRide, layBandChain, layBandRing, orientRings, sharpCorners } from './caveBandRenderer';
-import { resampleClosed, walkClosed } from './caveWalk';
+import { bandHoles, resampleClosed, walkClosed } from './caveWalk';
 import type { WalkPlacement, Vec } from './caveWalk';
 import type { Polygon } from '../types/geometry';
 import type { DoorGap } from './wallNodeRenderer';
@@ -175,15 +178,25 @@ describe('a plain ring or run', () => {
   const same = (a: WalkPlacement, b: WalkPlacement): boolean =>
     a.piece.key === b.piece.key && dist(a.P, b.P) < 1e-9 && dist(a.Q, b.Q) < 1e-9;
 
-  it('keeps the piece count and every walked piece of a rectangle', () => {
+  it('keeps the piece count and every walked piece of a rectangle the walk turns cleanly', () => {
+    // A rectangle the walk lays with a corner cut (a straight across it, or a bend the
+    // wrong way) is laid corner first instead (see 'seams and small rings'); one it turns
+    // cleanly keeps exactly what it had.
+    const turned = (placed: WalkPlacement[]) => placed.reduce((s, pl) => s + pl.piece.turnDeg, 0);
     for (const r of [
       [[0, 0], [12, 0], [12, 8], [0, 8]],
       [[0, 0], [4, 0], [4, 4], [0, 4]],
       [[-6.8, -5.2], [6.8, -5.2], [6.8, 5.2], [-6.8, 5.2]],
+      [[0, 0], [8, 0], [8, 8], [0, 8]],
     ] as Polygon[]) {
       const [o] = orientRings([r]);
       const before = plain(o);
       const now = layBandRing(o);
+      if (now.some((pl) => pl.branch === 'corner')) {
+        expect(now.every((pl) => pl.branch === 'corner' || pl.branch === 'side')).toBe(true);
+        expect(Math.abs(turned(now) - 360)).toBeLessThanOrEqual(45);
+        continue;
+      }
       expect(now.length).toBe(before.length);
       now.forEach((pl, k) => {
         if (!pl.branch.startsWith('close')) expect(same(pl, before[k])).toBe(true);
@@ -197,5 +210,59 @@ describe('a plain ring or run', () => {
       expect(now.length).toBeGreaterThan(0);
       for (const pl of now) expect(pl.at.scale).toBeGreaterThan(0.85);
     }
+  });
+});
+
+describe('seams and small rings', () => {
+  const square = (s: number): Polygon => [[0, 0], [s, 0], [s, s], [0, s]];
+  const FIVE: [string, Polygon][] = [
+    ['4x4', square(4)],
+    ['10x4', [[0, 0], [10, 0], [10, 4], [0, 4]]],
+    ['L', [[0, 0], [6, 0], [6, 3], [3, 3], [3, 6], [0, 6]]],
+    ['circle 3', circle(3)],
+    ['circle 6', circle(6)],
+  ];
+  // The rock band and the ledge kit a cliff lays.
+  const KITS: [string, () => CaveKitPiece[]][] = [
+    ['band', caveBandPieces],
+    ['ledge', ledgePieces],
+  ];
+  const lay = (ring: Polygon, kit: () => CaveKitPiece[]) => layBandRing(orientRings([ring])[0], [], kit());
+
+  for (const [kitName, kit] of KITS) {
+    for (const [name, ring] of [...FIVE, ['5x5', square(5)], ['6x6', square(6)]] as [string, Polygon][]) {
+      it(`lays ${name} with the ${kitName} kit with every joint lapped`, () => {
+        const placed = lay(ring, kit);
+        expect(placed.length).toBeGreaterThan(3);
+        expect(bandHoles(placed, true)).toEqual([]);
+      });
+    }
+    for (const s of [4, 5, 6]) {
+      it(`turns every corner of a ${s}x${s} square with the ${kitName} kit, never cutting one`, () => {
+        const placed = lay(square(s), kit);
+        expect(placed.filter((pl) => pl.branch === 'fallback')).toEqual([]);
+        // The art turns once round the ring: a bend laid the wrong way or a straight across a
+        // corner leaves the sum a quarter turn or more short.
+        const turned = placed.reduce((sum, pl) => sum + pl.piece.turnDeg, 0);
+        expect(Math.abs(Math.abs(turned) - 360)).toBeLessThanOrEqual(45);
+      });
+    }
+  }
+
+  it('reports a closer butted end to end as a hole', () => {
+    const placed = lay(square(10), caveBandPieces);
+    const butted = placed.map((pl, k) => (k === placed.length - 1 ? { ...pl, Q: placed[0].P } : pl));
+    expect(bandHoles(placed, true)).toEqual([]);
+    expect(bandHoles(butted, true)).toHaveLength(1);
+  });
+
+  it('lays the warren with no hole', async () => {
+    const { readFileSync } = await import('node:fs' as string);
+    const { resolve } = await import('node:path' as string);
+    const data = migrateToLatest(JSON.parse(readFileSync(resolve(process.cwd(), '../..', 'session/testdata/goblin-warren.mapbuilder'), 'utf8')));
+    const layer = data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const rings = orientRings(computeMergedFloor({ ...layer, mergedFloor: null })!);
+    expect(rings.length).toBeGreaterThan(0);
+    for (const ring of rings) expect(bandHoles(layBandRing(ring), true)).toEqual([]);
   });
 });

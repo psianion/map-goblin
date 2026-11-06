@@ -4,6 +4,7 @@ import type { VisibilityVertex } from './ClockwiseSweep'
 import { clockwiseSweep } from './ClockwiseSweep'
 import { SegmentQuadtree } from './SegmentQuadtree'
 import { extractWallSegments } from './raycaster'
+import { useStore } from '../../store/store'
 import type { Segment } from './raycaster'
 
 /** One room face of the shown level and the mood it resolves to (the grade mask's input). */
@@ -163,7 +164,7 @@ export class LightManager {
 
   rebuildIfDirty(dungeonLayers: DungeonLayer[]): void {
     if (!this.wallsDirty) return
-    this.wallSegments = extractWallSegments(dungeonLayers)
+    this.wallSegments = extractWallSegments(dungeonLayers, 'light', { sightDropCells: useStore.getState().mapSettings.sightDropCells })
     this.quadtree.build(this.wallSegments)
     this.wallsDirty = false
   }

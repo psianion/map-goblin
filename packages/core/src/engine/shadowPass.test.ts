@@ -18,12 +18,19 @@ vi.mock('pixi.js', () => {
     destroyed = false;
     blendMode = 'normal';
     mask: unknown = null;
+    filters: unknown[] = [];
+    parent: MockContainer | null = null;
+    worldTransform = { a: 20, b: 0 };
     /** Every `poly`/`rect` since the last `clear`, and every `fill` that committed them. */
     paths = 0;
     fills = 0;
     addChild(c: MockContainer): MockContainer {
+      c.parent = this;
       this.children.push(c);
       return c;
+    }
+    removeChildren(): MockContainer[] {
+      return this.children.splice(0);
     }
     removeChild(c: MockContainer): void {
       const i = this.children.indexOf(c);
@@ -63,7 +70,11 @@ vi.mock('pixi.js', () => {
     tint = 0;
     texture: unknown;
   }
-  return { Container: MockContainer, Graphics: MockGraphics, Sprite: MockSprite };
+  class MockBlurFilter {
+    strength = 0;
+    resolution = 1;
+  }
+  return { Container: MockContainer, Graphics: MockGraphics, Sprite: MockSprite, BlurFilter: MockBlurFilter };
 });
 vi.mock('./sceneGraph', () => ({ getLayerEntry: vi.fn() }));
 // Clipper2's WASM is not loaded in a unit test (its real `intersection` answers [] without it),

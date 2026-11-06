@@ -137,13 +137,8 @@ export type ChildSnapshot =
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
     case 'shape':
+    case 'plateau':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
-    case 'water':
-      return {
-        kind: 'rings',
-        contours: child.contours.map((r) => r.map(([x, y]): [number, number] => [x, y])),
-        tangents: child.tangents ? structuredClone(child.tangents) : undefined,
-      };
     case 'asset':
     case 'text':
       return {

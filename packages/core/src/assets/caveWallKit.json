@@ -554,25 +554,25 @@
     "hCells": 2,
     "joints": [
       [
-        92.843,
-        396.472
+        100,
+        400
       ],
       [
-        92.843,
-        2.528
+        100,
+        0
       ]
     ],
     "jointsCells": [
       [
-        -0.036,
-        0.982
+        0,
+        1
       ],
       [
-        -0.036,
-        -0.987
+        0,
+        -1
       ]
     ],
-    "chordCells": 1.97,
+    "chordCells": 2,
     "turnDeg": 0,
     "voidCentroidCells": [
       -0.5,
@@ -593,25 +593,25 @@
     "hCells": 4,
     "joints": [
       [
-        92.843,
-        796.472
+        100,
+        800
       ],
       [
-        92.843,
-        2.528
+        100,
+        0
       ]
     ],
     "jointsCells": [
       [
-        -0.036,
-        1.982
+        0,
+        2
       ],
       [
-        -0.036,
-        -1.987
+        0,
+        -2
       ]
     ],
-    "chordCells": 3.97,
+    "chordCells": 4,
     "turnDeg": 0,
     "voidCentroidCells": [
       -0.5,
@@ -632,25 +632,1078 @@
     "hCells": 6,
     "joints": [
       [
-        92.757,
-        1196.475
+        100,
+        1200
       ],
       [
-        92.757,
-        2.525
+        100,
+        0
       ]
     ],
     "jointsCells": [
       [
-        -0.036,
-        2.982
+        0,
+        3
       ],
       [
-        -0.036,
-        -2.987
+        0,
+        -3
       ]
     ],
-    "chordCells": 5.97,
+    "chordCells": 6,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_15_2x1",
+    "file": "cave__ledge_bend_15_2x1__A.png",
+    "wPx": 400,
+    "hPx": 200,
+    "wCells": 2,
+    "hCells": 1,
+    "joints": [
+      [
+        24,
+        176
+      ],
+      [
+        376,
+        24
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.88,
+        0.38
+      ],
+      [
+        0.88,
+        -0.38
+      ]
+    ],
+    "chordCells": 1.917,
+    "turnDeg": 15,
+    "voidCentroidCells": [
+      -1,
+      -0.5
+    ],
+    "floorCentroidCells": [
+      1,
+      0.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_30_2x1",
+    "file": "cave__ledge_bend_30_2x1__A.png",
+    "wPx": 400,
+    "hPx": 200,
+    "wCells": 2,
+    "hCells": 1,
+    "joints": [
+      [
+        24,
+        176
+      ],
+      [
+        376,
+        24
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.88,
+        0.38
+      ],
+      [
+        0.88,
+        -0.38
+      ]
+    ],
+    "chordCells": 1.917,
+    "turnDeg": 30,
+    "voidCentroidCells": [
+      -1,
+      -0.5
+    ],
+    "floorCentroidCells": [
+      1,
+      0.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_45_1x1",
+    "file": "cave__ledge_bend_45_1x1__A.png",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        20,
+        180
+      ],
+      [
+        180,
+        20
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.4,
+        0.4
+      ],
+      [
+        0.4,
+        -0.4
+      ]
+    ],
+    "chordCells": 1.131,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -0.5,
+      -0.5
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_45_2x2",
+    "file": "cave__ledge_bend_45_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        30,
+        370
+      ],
+      [
+        370,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.85,
+        0.85
+      ],
+      [
+        0.85,
+        -0.85
+      ]
+    ],
+    "chordCells": 2.404,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_60_2x2",
+    "file": "cave__ledge_bend_60_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        30,
+        370
+      ],
+      [
+        370,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.85,
+        0.85
+      ],
+      [
+        0.85,
+        -0.85
+      ]
+    ],
+    "chordCells": 2.404,
+    "turnDeg": 60,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_75_2x2",
+    "file": "cave__ledge_bend_75_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        30,
+        370
+      ],
+      [
+        370,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.85,
+        0.85
+      ],
+      [
+        0.85,
+        -0.85
+      ]
+    ],
+    "chordCells": 2.404,
+    "turnDeg": 75,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_90_2x2",
+    "file": "cave__ledge_bend_90_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        30,
+        370
+      ],
+      [
+        370,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.85,
+        0.85
+      ],
+      [
+        0.85,
+        -0.85
+      ]
+    ],
+    "chordCells": 2.404,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_bend_90_3x3",
+    "file": "cave__ledge_bend_90_3x3__A.png",
+    "wPx": 600,
+    "hPx": 600,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        30,
+        570
+      ],
+      [
+        570,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -1.35,
+        1.35
+      ],
+      [
+        1.35,
+        -1.35
+      ]
+    ],
+    "chordCells": 3.818,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1.5,
+      -1.5
+    ],
+    "floorCentroidCells": [
+      1.5,
+      1.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_end_tail_1x1",
+    "file": "cave__ledge_end_tail_1x1__A.png",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        100,
+        200
+      ],
+      [
+        100,
+        56
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        0.5
+      ],
+      [
+        0,
+        -0.22
+      ]
+    ],
+    "chordCells": 0.72,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_end_knot_1x1",
+    "file": "cave__ledge_end_knot_1x1__A.png",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        100,
+        200
+      ],
+      [
+        100,
+        90
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        0.5
+      ],
+      [
+        0,
+        -0.05
+      ]
+    ],
+    "chordCells": 0.55,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "contour_1x2",
+    "file": "cave__contour_1x2__A.png",
+    "wPx": 200,
+    "hPx": 400,
+    "wCells": 1,
+    "hCells": 2,
+    "joints": [
+      [
+        100,
+        400
+      ],
+      [
+        100,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        -1
+      ]
+    ],
+    "chordCells": 2,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "contour_1x4",
+    "file": "cave__contour_1x4__A.png",
+    "wPx": 200,
+    "hPx": 800,
+    "wCells": 1,
+    "hCells": 4,
+    "joints": [
+      [
+        100,
+        800
+      ],
+      [
+        100,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        -2
+      ]
+    ],
+    "chordCells": 4,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "contour_bend_45_1x1",
+    "file": "cave__contour_bend_45_1x1__A.png",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        20,
+        180
+      ],
+      [
+        180,
+        20
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.4,
+        0.4
+      ],
+      [
+        0.4,
+        -0.4
+      ]
+    ],
+    "chordCells": 1.131,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -0.5,
+      -0.5
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "contour_bend_90_2x2",
+    "file": "cave__contour_bend_90_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        30,
+        370
+      ],
+      [
+        370,
+        30
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.85,
+        0.85
+      ],
+      [
+        0.85,
+        -0.85
+      ]
+    ],
+    "chordCells": 2.404,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_2x2",
+    "file": "cave__rubble_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        200,
+        400
+      ],
+      [
+        200,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        -1
+      ]
+    ],
+    "chordCells": 2,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_2x4",
+    "file": "cave__rubble_2x4__A.png",
+    "wPx": 400,
+    "hPx": 800,
+    "wCells": 2,
+    "hCells": 4,
+    "joints": [
+      [
+        200,
+        800
+      ],
+      [
+        200,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        -2
+      ]
+    ],
+    "chordCells": 4,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_bend_45_3x3",
+    "file": "cave__rubble_bend_45_3x3__A.png",
+    "wPx": 600,
+    "hPx": 600,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        180,
+        600
+      ],
+      [
+        332.304,
+        232.304
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.6,
+        1.5
+      ],
+      [
+        0.162,
+        -0.338
+      ]
+    ],
+    "chordCells": 1.99,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -1.5,
+      -1.5
+    ],
+    "floorCentroidCells": [
+      1.5,
+      1.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_bend_90_3x3",
+    "file": "cave__rubble_bend_90_3x3__A.png",
+    "wPx": 600,
+    "hPx": 600,
+    "wCells": 3,
+    "hCells": 3,
+    "joints": [
+      [
+        300,
+        600
+      ],
+      [
+        600,
+        300
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1.5
+      ],
+      [
+        1.5,
+        0
+      ]
+    ],
+    "chordCells": 2.121,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1.5,
+      -1.5
+    ],
+    "floorCentroidCells": [
+      1.5,
+      1.5
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rubble_end_2x1",
+    "file": "cave__rubble_end_2x1__A.png",
+    "wPx": 400,
+    "hPx": 200,
+    "wCells": 2,
+    "hCells": 1,
+    "joints": [
+      [
+        200,
+        200
+      ],
+      [
+        200,
+        20
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        0.5
+      ],
+      [
+        0,
+        -0.4
+      ]
+    ],
+    "chordCells": 0.9,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -1,
+      0
+    ],
+    "floorCentroidCells": [
+      1,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_1x2",
+    "file": "cave__rockledge_1x2__A.png",
+    "wPx": 200,
+    "hPx": 400,
+    "wCells": 1,
+    "hCells": 2,
+    "joints": [
+      [
+        100,
+        400
+      ],
+      [
+        100,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        -1
+      ]
+    ],
+    "chordCells": 2,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_1x4",
+    "file": "cave__rockledge_1x4__A.png",
+    "wPx": 200,
+    "hPx": 800,
+    "wCells": 1,
+    "hCells": 4,
+    "joints": [
+      [
+        100,
+        800
+      ],
+      [
+        100,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        -2
+      ]
+    ],
+    "chordCells": 4,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_1x6",
+    "file": "cave__rockledge_1x6__A.png",
+    "wPx": 200,
+    "hPx": 1200,
+    "wCells": 1,
+    "hCells": 6,
+    "joints": [
+      [
+        100,
+        1200
+      ],
+      [
+        100,
+        0
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        -3
+      ]
+    ],
+    "chordCells": 6,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.5,
+      0
+    ],
+    "floorCentroidCells": [
+      0.5,
+      0
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_bend_45_2x2",
+    "file": "cave__rockledge_bend_45_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        112,
+        400
+      ],
+      [
+        196.353,
+        196.353
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.44,
+        1
+      ],
+      [
+        -0.018,
+        -0.018
+      ]
+    ],
+    "chordCells": 1.102,
+    "turnDeg": 45,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_bend_90_2x2",
+    "file": "cave__rockledge_bend_90_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        112,
+        400
+      ],
+      [
+        400,
+        112
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.44,
+        1
+      ],
+      [
+        1,
+        -0.44
+      ]
+    ],
+    "chordCells": 2.036,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -1,
+      -1
+    ],
+    "floorCentroidCells": [
+      1,
+      1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_bend_n45_2x2",
+    "file": "cave__rockledge_bend_n45_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        208,
+        400
+      ],
+      [
+        147.078,
+        252.922
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.04,
+        1
+      ],
+      [
+        -0.265,
+        0.265
+      ]
+    ],
+    "chordCells": 0.796,
+    "turnDeg": -45,
+    "voidCentroidCells": [
+      -1,
+      1
+    ],
+    "floorCentroidCells": [
+      1,
+      -1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_bend_n90_2x2",
+    "file": "cave__rockledge_bend_n90_2x2__A.png",
+    "wPx": 400,
+    "hPx": 400,
+    "wCells": 2,
+    "hCells": 2,
+    "joints": [
+      [
+        208,
+        400
+      ],
+      [
+        0,
+        192
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.04,
+        1
+      ],
+      [
+        -1,
+        -0.04
+      ]
+    ],
+    "chordCells": 1.471,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -1,
+      1
+    ],
+    "floorCentroidCells": [
+      1,
+      -1
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "rockledge_end_1x1",
+    "file": "cave__rockledge_end_1x1__A.png",
+    "wPx": 200,
+    "hPx": 200,
+    "wCells": 1,
+    "hCells": 1,
+    "joints": [
+      [
+        100,
+        200
+      ],
+      [
+        100,
+        60
+      ]
+    ],
+    "jointsCells": [
+      [
+        0,
+        0.5
+      ],
+      [
+        0,
+        -0.2
+      ]
+    ],
+    "chordCells": 0.7,
     "turnDeg": 0,
     "voidCentroidCells": [
       -0.5,

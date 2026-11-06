@@ -32,13 +32,19 @@ const fake = vi.hoisted(() => {
     updatePack: vi.fn(async () => ({ changedFiles: 6, unchangedFiles: 10, downloadedBytes: 420_000, totalFiles: 16 })),
     installPack: vi.fn(async () => {}),
   };
-  return { state, manager };
+  return { state, manager, props: null as { packId: string }[] | null };
 });
 
 vi.mock('@/engine/assetPackInstance', () => ({
   getAssetPackManager: () => fake.manager,
   resetAssetPackManager: () => {},
 }));
+
+// The catalogue reads core's own manager, not the fake; a test may set the props it lists.
+vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd/core/src/assets/packCatalog')>();
+  return { ...actual, propEntries: () => fake.props ?? actual.propEntries() };
+});
 
 import { useStore } from '@/store/store';
 import { PacksSheet } from './PacksSheet';
@@ -183,6 +189,20 @@ describe('PacksSheet', () => {
     expect(details).toContain('Two test props');
     expect(details).toContain('fantasy');
     expect(details).toContain('Not available at the table');
+  });
+
+  it('the row menu: Browse props, for a pack with props, opens that pack', () => {
+    seed(BUNDLED_AND_FILE);
+    fake.props = [{ packId: 'crates' }];
+    const onBrowseProps = vi.fn();
+    try {
+      render(<PacksSheet open onClose={vi.fn()} onBrowseProps={onBrowseProps} />);
+      expect(within(openMenu('gg-forge')).queryByRole('menuitem', { name: 'Browse props' })).toBeNull();
+      fireEvent.click(within(openMenu('crates')).getByRole('menuitem', { name: 'Browse props' }));
+      expect(onBrowseProps).toHaveBeenCalledWith('crates');
+    } finally {
+      fake.props = null;
+    }
   });
 
   it('Install from file… opens the file picker for a .zip', () => {

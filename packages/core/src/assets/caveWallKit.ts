@@ -113,6 +113,43 @@ export function caveBandPieces(): CaveKitPiece[] {
 }
 
 /**
+ * The same piece walked the other way: joints swapped, turn negated. Only for art that paints
+ * no void side — the ledge — where it turns a convex bend into the concave one for free.
+ */
+export function reversePiece(p: CaveKitPiece): CaveKitPiece {
+  const [a, b] = p.jointsCells;
+  return { ...p, jointsCells: [b, a], turnDeg: -p.turnDeg };
+}
+
+/**
+ * A cliff kit: one ledge family's straights (mirrors included) and bends. `family` is the key
+ * prefix: `ledge` (the cave ink line) or `rockledge` (the cave rock row). A family that ships
+ * bends of one hand only (the ink line, which paints no side) has each also reversed; one that
+ * ships both hands (the rock row, which has a void side) is laid as measured. All drawn by the
+ * forge, which writes their joints from its own geometry. The run ends (`<family>_end_*`) are
+ * not in it: they are laid only at an open run's tips.
+ */
+const ledgePools = new Map<string, CaveKitPiece[]>();
+export function ledgePieces(family = 'ledge'): CaveKitPiece[] {
+  let pool = ledgePools.get(family);
+  if (!pool) {
+    const straights = [...BY_KEY.values()].filter(
+      (p) => p.key.startsWith(`${family}_`) && !p.key.startsWith(`${family}_end_`) && p.turnDeg === 0,
+    );
+    const bends = [...BY_KEY.values()].filter((p) => p.key.startsWith(`${family}_bend_`));
+    const bothHands = bends.some((p) => p.turnDeg > 0) && bends.some((p) => p.turnDeg < 0);
+    pool = [...straights, ...straights.map(mirrorPiece), ...bends, ...(bothHands ? [] : bends.map(reversePiece))];
+    ledgePools.set(family, pool);
+  }
+  return pool;
+}
+
+/** Every measured piece whose key starts with `prefix` (`ledge_end_`, `sliver_`, `contour`). */
+export function kitPieces(prefix: string): CaveKitPiece[] {
+  return [...BY_KEY.values()].filter((p) => p.key.startsWith(prefix));
+}
+
+/**
  * The kit piece a placed asset is showing, or null when it is not kit art.
  *
  * Joined through the catalog's `material` + `gridSize` rather than by parsing the

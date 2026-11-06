@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store/store';
 import { undoManager } from '../store/undoManager';
 import type { AnyChild, DungeonLayer } from '../store/types';
-import type { AssetChild, DoorChild, LightChild, ShapeChild, TextChild, WallSegment, WaterChild, ZoneChild } from '../shared/types';
+import type { AssetChild, DoorChild, LightChild, ShapeChild, TextChild, WallSegment, ZoneChild } from '../shared/types';
 import {
   alignTargetsCommand,
   boxTargets,
@@ -41,12 +41,6 @@ const shape = (id: string, x0: number, y0: number, x1: number, y1: number): Shap
     id, name: id, childType: 'shape', visible: true, shapeType: 'rectangle', flipX: false, flipY: false,
     contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
   } as unknown as ShapeChild);
-
-const water = (id: string): WaterChild =>
-  add({
-    id, name: id, childType: 'water', visible: true, opacity: 1,
-    contours: [[[0, 0], [4, 0], [4, 2], [0, 2]]],
-  } as unknown as WaterChild);
 
 const light = (id: string, x: number, y: number): LightChild =>
   add({
@@ -157,15 +151,6 @@ describe('transform targets', () => {
     zone('z', { kind: 'point', position: { x: 1, y: 1 } });
     run(transformCommand('Move', targetsOf(['z']), translation(2, 0)));
     expect((find('z') as ZoneChild).shape).toEqual({ kind: 'point', position: { x: 3, y: 1 } });
-  });
-
-  it('flips water by mirroring its rings', () => {
-    water('wa');
-    const before = (find('wa') as WaterChild).contours[0].map((p) => [...p]);
-    run(flipCommand(targetsOf(['wa']), 'v'));
-    const after = (find('wa') as WaterChild).contours[0];
-    expect(after).toHaveLength(before.length);
-    expect(after.map(([, y]) => y).sort()).toEqual(before.map(([, y]) => 2 - y).sort());
   });
 
   it('leaves locked members out and counts them', () => {
