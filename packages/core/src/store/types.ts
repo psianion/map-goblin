@@ -297,6 +297,8 @@ export interface ScatterBrushSettings {
   stampScale: number;
   /** Mirror (F). */
   stampFlipX: boolean;
+  /** The tint the next stamp is placed with, set before placing; white places untinted. */
+  stampTint: string;
   /** Each stamp re-rolls the next ghost's variant within its family. */
   stampVary: boolean;
   /** 0.5..10. */

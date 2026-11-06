@@ -151,6 +151,7 @@ export function createDefaultState(): MapBuilderState {
           stampRotation: 0,
           stampScale: 1,
           stampFlipX: false,
+          stampTint: '#ffffff',
           stampVary: false,
           brushRadius: 3,
           // About six props a dab at the default radius, what `count: 5` used to give.
