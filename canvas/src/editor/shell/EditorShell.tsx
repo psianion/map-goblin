@@ -26,6 +26,7 @@ import { TopActions } from '@/editor/surfaces/TopActions';
 import { openAssetsRef } from '@/editor/families/design/openAssets';
 import { RegistryProvider } from './RegistryProvider';
 import { useRegistryKeys } from './shellKeys';
+import { useSpacePan } from './spacePan';
 import { resetShell, useShell } from './shellStore';
 
 /** Air between the map and the chrome around it when the map is fitted. */
@@ -41,8 +42,11 @@ function useLastFamilyTool(registry: Registry) {
   useEffect(() => {
     const tool = toolId ? registry.toolById(toolId) : undefined;
     if (tool && registry.familyOfTool(tool.id)) useShell.getState().setLastTool(tool.id);
-    // A tool that works from the library opens it as it comes into hand.
-    if (tool?.opensAssets) useShell.getState().openAssets(chipFor(tool.opensAssets));
+    // A tool that works from the library opens it as it comes into hand, but not when a
+    // Space-pan hands it back.
+    const back = useShell.getState().spaceReturn;
+    if (back !== null) useShell.setState({ spaceReturn: null });
+    if (tool?.opensAssets && (back === null || !tool.engine.some((x) => x === back))) useShell.getState().openAssets(chipFor(tool.opensAssets));
   }, [registry, toolId]);
 }
 
@@ -63,6 +67,8 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
   useLastFamilyTool(registry);
   // The rail, family, tool and dock keys, from the registry, in place of the old tool keys.
   useRegistryKeys(registry);
+  // Hold Space to pan with any tool.
+  useSpacePan();
   useEffect(() => () => resetShell(), []);
 
   useEffect(() => {

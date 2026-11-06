@@ -3,6 +3,7 @@
 
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { useStore } from '@/store/store';
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
 import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectKind, type Registry, type SettingDef, type ToolDef } from '@/editor/registry';
@@ -40,8 +41,18 @@ export function useDockTool(): { tool: ToolDef | undefined; drawing: boolean } {
   return { tool: lastId ? registry.toolById(lastId) : undefined, drawing: false };
 }
 
+/** Plain data compared by value: settings hold numbers, strings, lists and small records. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  return Object.is(a, b) || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * A setting's value. A binding may build its value afresh on every read (a list, a record);
+ * one equal by value to the last counts as no change, so the control never re-renders
+ * without end.
+ */
 export function useSettingValue<T>(def: SettingDef<T>): T {
-  return useStore((s) => bindingOf(def).read(s));
+  return useStoreWithEqualityFn(useStore, (s) => bindingOf(def).read(s), sameValue);
 }
 
 /** Reads any setting by id, for visibility rules. */

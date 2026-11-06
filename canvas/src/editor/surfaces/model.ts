@@ -16,3 +16,11 @@ export function liveVerbs(verbs: readonly Verb[]): Verb[] {
   const live = verbs.filter((v) => !v.when || v.when(state));
   return [...live.filter((v) => !v.danger), ...live.filter((v) => v.danger)];
 }
+
+/**
+ * "L2 Cellars": numbered from the ground up, as the dock and the title card read it. The
+ * store lists levels top first (Page Up goes to the one before).
+ */
+export function levelLabel(index: number, count: number, name: string): string {
+  return `L${count - index} ${name || 'Unnamed'}`;
+}

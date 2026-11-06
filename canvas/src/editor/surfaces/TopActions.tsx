@@ -30,6 +30,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
   const canRedo = useStore((s) => s.ui.canRedo);
   const focusMode = useStore((s) => s.ui.focusMode);
   const seeUnder = useStore((s) => s.ui.seeUnderOverhead);
+  const gridShown = useStore((s) => s.grid.visible);
   const lit = useLitPreview();
   const [theme, toggleTheme] = useTheme();
   const openSheet = useShell((s) => s.openSheet);
@@ -81,6 +82,9 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
             <DropdownMenuLabel>View</DropdownMenuLabel>
             <DropdownMenuCheckboxItem checked={lit} onCheckedChange={(v) => setLitPreview(v)}>
               Lit preview<DropdownMenuShortcut>{keyCaption('view.litPreview')}</DropdownMenuShortcut>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={gridShown} onCheckedChange={(v) => useStore.getState().setGridVisible(v)}>
+              Show grid
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={seeUnder} onCheckedChange={(v) => useStore.getState().setSeeUnderOverhead(v)}>
               See under overhead

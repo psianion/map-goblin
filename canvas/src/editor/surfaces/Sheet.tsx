@@ -1,19 +1,18 @@
-import { TERRAIN_PANEL_ID } from '@/store/types';
-import { LayerSheet } from '@/v2/editor/LayerSheet';
-import { LayersSheet } from '@/v2/editor/LayersSheet';
-import { PacksSheet } from '@/v2/editor/PacksSheet';
 import { PrepOverview } from '@/v2/editor/PrepOverview';
 import { RoomsSheet } from '@/v2/editor/RoomsSheet';
 import { SkySheet, SkySheetFoot } from '@/v2/editor/SkySheet';
 import { useShell } from '@/editor/shell/shellStore';
+import { LayerSheet } from './LayerSheet';
+import { LayersSheet } from './LayersSheet';
+import { PacksSheet } from './PacksSheet';
 import { SheetFrame } from './SheetFrame';
 import { ShortcutsSheet } from './ShortcutsSheet';
 
 /**
- * Whichever right sheet is open. Sheets that are whole components today (Layers, a
- * layer's settings, Packs, Rooms) come over as they are and place themselves in the same
- * 320 slot; sheets that are a body only (Sky and mood, Prep) sit in the frame, and so does
- * the shortcuts sheet, rebuilt here from the registry and the global chords.
+ * Whichever right sheet is open, all in the same 320 slot. Layers, a layer's settings, Packs
+ * and the shortcuts are built here from the composites; Sky and mood and Prep sit in the
+ * frame with their bodies as they are, and the Rooms list places itself, until their
+ * families rebuild them.
  */
 export function SheetHost() {
   const sheet = useShell((s) => s.sheet);
@@ -22,13 +21,9 @@ export function SheetHost() {
   const layerTarget = typeof sheet === 'object' && sheet?.kind === 'layer' ? sheet.target : null;
   return (
     <>
-      <LayersSheet
-        open={sheet === 'layers'}
-        onClose={close}
-        onOpenLayerSettings={(target) => openSheet({ kind: 'layer', target: target === TERRAIN_PANEL_ID ? TERRAIN_PANEL_ID : target })}
-      />
-      <LayerSheet target={layerTarget} onClose={close} />
-      <PacksSheet open={sheet === 'packs'} onClose={close} onBrowseProps={close} />
+      {sheet === 'layers' && <LayersSheet onClose={close} onOpenLayerSettings={(target) => openSheet({ kind: 'layer', target })} />}
+      {layerTarget && <LayerSheet key={layerTarget} target={layerTarget} onClose={close} />}
+      {sheet === 'packs' && <PacksSheet onClose={close} />}
       {sheet === 'shortcuts' && <ShortcutsSheet onClose={close} />}
       <RoomsSheet />
       {sheet === 'sky' && (

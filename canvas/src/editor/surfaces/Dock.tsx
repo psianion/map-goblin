@@ -1,21 +1,17 @@
 import { forwardRef } from 'react';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { DockColumn, FloatBox, LevelList, Tile } from '@/editor/components';
+import { DockColumn, FloatBox, LevelList } from '@/editor/components';
 import { Button } from '@/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/ui/dropdown-menu';
 import { useStore } from '@/store/store';
-import { TERRAIN_PANEL_ID } from '@/store/types';
-import { notify } from '@/lib/toast';
-import { layerOnLevel } from '@/v2/editor/roomModel';
-import { addLayerOnShownLevel, requestTileRename } from '@/v2/editor/layerActions';
-import { addLevelWithLayer } from '@/v2/editor/roomActions';
 import type { SettingDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
-import { useShell } from '@/editor/shell/shellStore';
 import { useDockTool } from './hooks';
 import { groupBySection } from './sections';
 import { ToolSetting } from './SettingItems';
+import { LayersColumn } from './LayersColumn';
+import { LevelMenu } from './LevelMenu';
+import { levelLabel } from './model';
 
 /** The dock's height, whatever the tool: it never changes. */
 export const DOCK_H = 112;
@@ -25,64 +21,24 @@ const chevron = <ChevronDown aria-hidden strokeWidth={1.75} className="size-3.5"
 function LevelColumn() {
   const levels = useStore(useShallow((s) => s.levels));
   const activeLevelId = useStore((s) => s.ui.activeLevelId);
-  // Top level first, numbered from the ground up.
-  const items = levels.map((l, i) => ({ id: l.id, label: `L${i + 1} ${l.name || 'Unnamed'}` })).reverse();
+  // The store lists levels top first; the column reads the same, numbered from the ground up.
+  const items = levels.map((l, i) => ({ id: l.id, label: levelLabel(i, levels.length, l.name) }));
   return (
     <DockColumn
       title="Level"
       data-column="level"
       control={
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label="Level menu" className="size-4 p-0 text-text-3" />}>
-            {chevron}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => addLevelWithLayer()}>New level</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => useShell.getState().openSheet('layers')}>Levels and layers…</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <LevelMenu
+          align="end"
+          trigger={
+            <Button variant="ghost" size="icon-xs" aria-label="Level menu" className="size-4 p-0 text-text-3">
+              {chevron}
+            </Button>
+          }
+        />
       }
     >
       <LevelList levels={items} value={activeLevelId} onValueChange={(id) => useStore.getState().setActiveLevelId(id)} />
-    </DockColumn>
-  );
-}
-
-function LayersColumn() {
-  const layers = useStore(useShallow((s) => s.layers));
-  const levels = useStore(useShallow((s) => s.levels));
-  const activeLevelId = useStore((s) => s.ui.activeLevelId);
-  const activeLayerId = useStore((s) => s.ui.activeLayerId);
-  // The level on show's layers; Background and Terrain belong to the whole map.
-  const shown = layers.filter((l) => l.type !== 'background' && layerOnLevel(l, levels, activeLevelId));
-  const add = () => {
-    const id = addLayerOnShownLevel();
-    notify.subtle('Layer added', { icon: 'plus' });
-    requestTileRename(id);
-  };
-  return (
-    <DockColumn
-      title="Layers"
-      data-column="layers"
-      control={
-        <Button variant="ghost" size="icon-xs" aria-label="Add layer" className="size-4 p-0 text-text-3" onClick={add}>
-          <Plus aria-hidden strokeWidth={1.75} className="size-3.5" />
-        </Button>
-      }
-    >
-      <div className="flex max-w-[372px] gap-1.5 overflow-x-auto">
-        {shown.map((l) => (
-          <Tile
-            key={l.id}
-            name={l.name || 'Unnamed layer'}
-            active={l.id === activeLayerId && activeLayerId !== TERRAIN_PANEL_ID}
-            locked={l.locked}
-            data-layer-tile={l.id}
-            onClick={() => useStore.getState().setActiveLayerId(l.id)}
-            onDoubleClick={() => useShell.getState().openSheet({ kind: 'layer', target: l.id })}
-          />
-        ))}
-      </div>
     </DockColumn>
   );
 }

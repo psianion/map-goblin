@@ -22,6 +22,8 @@ interface ShellState {
   sheet: ShellSheet;
   /** The asset panel, open on a chip, or closed. It shares the right edge with the sheets. */
   assets: AssetChip | null;
+  /** The core tool a Space-pan just handed back, so its return is not taken for a new pick. */
+  spaceReturn: string | null;
   setFlyout: (family: FamilyDef['id'] | null) => void;
   setLastTool: (toolId: string) => void;
   openSheet: (sheet: ShellSheet) => void;
@@ -35,6 +37,7 @@ export const useShell = create<ShellState>()((set) => ({
   lastToolId: null,
   sheet: null,
   assets: null,
+  spaceReturn: null,
   setFlyout: (flyout) => set({ flyout }),
   setLastTool: (lastToolId) => set({ lastToolId }),
   openSheet: (sheet) => set(sheet ? { sheet, assets: null } : { sheet }),
@@ -45,5 +48,5 @@ export const useShell = create<ShellState>()((set) => ({
 
 /** Back to a closed shell: no flyout, no sheet, no remembered tool. For tests and a new mount. */
 export function resetShell(): void {
-  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null });
+  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null, spaceReturn: null });
 }
