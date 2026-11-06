@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { useStore } from '@/store/store';
 import { decodeAnyMapFile, encodeMapFile } from '@/io/mapFormat';
 import type { SerializedMapData } from '@/store/types';
-import { isMapFile } from './mapFile';
+import { createBackgroundLayer, createDungeonLayer } from '@/store/factories';
+import { MAP_SCHEMAS, isMapFile, readMapDocument, saveableMap } from './mapFile';
 import fieldstoneKeep from '../../../session/testdata/fieldstone-keep.mapbuilder?raw';
 import demoDungeon from '../../../session/testdata/demo-dungeon.mapbuilder?raw';
 import goblinWarren from '../../../session/testdata/goblin-warren.mapbuilder?raw';
@@ -136,5 +137,69 @@ describe('levels in the map file', () => {
     const rooms = (s.layers.find((l) => l.id === dungeon.id) as { rooms?: { id: string; face?: unknown }[] }).rooms ?? [];
     expect(rooms).toHaveLength(12);
     expect(rooms.every((r) => r.face === undefined)).toBe(true);
+  });
+});
+
+describe('the settings the editor dropped', () => {
+  /** A map saved before the rework, carrying every removed field. */
+  function oldMap(): SerializedMapData {
+    const level = { id: 'lv1', name: 'Ground', look: { mood: 'dim', moodTint: '#223344', moodVision: 'visible', floorTint: '#ffeedd' } };
+    const dungeon = {
+      ...createDungeonLayer('Keep', 'lv1'),
+      id: 'd1',
+      children: [
+        {
+          id: 'light1', name: 'Torch', childType: 'light', visible: true, color: '#ffaa55', radius: 8, featherRadius: 4,
+          intensity: 0.9, falloff: 'quadratic', position: { x: 2, y: 2 }, nightOnly: { min: 0.5, max: 1 }, darkness: true, darkvisionSees: true,
+        },
+        {
+          id: 'prop1', name: 'Brazier', childType: 'asset', visible: true, objectType: 'asset', assetId: 'p:brazier', position: { x: 3, y: 3 },
+          rotation: 0, scale: 1, width: 1, height: 1, tint: '#ffffff', flipX: false, flipY: false, glows: true, glow: { strength: 0.5 }, blocksMovement: true,
+        },
+      ],
+      rooms: [{ id: 'r1', name: 'Hall', anchor: [2, 2], look: { mood: 'dark', moodVision: 'darkness' } }],
+      areas: [{ id: 'a1', name: 'Wing', look: { mood: 'lit', moodTint: '#000000', wallTextureTint: '#aabbcc' } }],
+    };
+    return {
+      version: '3.4',
+      mapSettings: {
+        name: 'Old Keep', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#808080', environment: 'outdoor',
+        timePalette: { preset: 'desert' }, timeMode: 'fixed', fixedTime: 600, weather: 'rain', nightSky: 'crescent',
+        roomsVersion: 2,
+      },
+      grid: { visible: true, snapDivision: 2 },
+      layers: [createBackgroundLayer('lv1'), dungeon],
+      levels: [level],
+      customImages: {},
+    } as unknown as SerializedMapData;
+  }
+
+  const REMOVED = ['timePalette', 'timeMode', 'fixedTime', 'weather', 'nightSky', 'nightOnly', 'darkvisionSees', 'glows', '"glow"', 'blocksMovement', 'mood', 'moodTint', 'moodVision'];
+
+  it('loads a map that carries every one of them, and saves without any', () => {
+    const file = encodeMapFile(oldMap());
+    const doc = readMapDocument(decodeAnyMapFile(file));
+    useStore.getState().loadFromFile(doc);
+    const s = useStore.getState();
+    expect(s.mapSettings.name).toBe('Old Keep');
+    expect(s.mapSettings.environment).toBe('outdoor');
+    const saved = JSON.stringify(saveableMap(s.getSerializableState()));
+    for (const key of REMOVED) expect(saved, key).not.toContain(key);
+    // What stays: the light, its darkness, the prop, the looks' other keys.
+    expect(saved).toContain('"darkness":true');
+    expect(saved).toContain('"floorTint":"#ffeedd"');
+    expect(saved).toContain('"wallTextureTint":"#aabbcc"');
+    expect(saved).toContain('p:brazier');
+  });
+
+  it('takes them off a document handed straight to the saver', () => {
+    const saved = JSON.stringify(saveableMap(oldMap()));
+    for (const key of REMOVED) expect(saved, key).not.toContain(key);
+  });
+
+  it('checks a document against its version', () => {
+    expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
+    expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']);
   });
 });

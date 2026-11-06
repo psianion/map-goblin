@@ -1,6 +1,6 @@
 import { PrepOverview } from '@/v2/editor/PrepOverview';
 import { RoomsSheet } from '@/v2/editor/RoomsSheet';
-import { SkySheet, SkySheetFoot } from '@/v2/editor/SkySheet';
+import { SkyMoodSheet } from '@/editor/families/environment';
 import { useShell } from '@/editor/shell/shellStore';
 import { LayerSheet } from './LayerSheet';
 import { LayersSheet } from './LayersSheet';
@@ -10,9 +10,9 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 
 /**
  * Whichever right sheet is open, all in the same 320 slot. Layers, a layer's settings, Packs
- * and the shortcuts are built here from the composites; Sky and mood and Prep sit in the
- * frame with their bodies as they are, and the Rooms list places itself, until their
- * families rebuild them.
+ * and the shortcuts are built here from the composites, Sky and mood by the Environment
+ * family; Prep sits in the frame with its body as it is, and the Rooms list places itself,
+ * until the Text family rebuilds them.
  */
 export function SheetHost() {
   const sheet = useShell((s) => s.sheet);
@@ -27,8 +27,8 @@ export function SheetHost() {
       {sheet === 'shortcuts' && <ShortcutsSheet onClose={close} />}
       <RoomsSheet />
       {sheet === 'sky' && (
-        <SheetFrame title="Sky and mood" onClose={close} footer={<SkySheetFoot />} testId="shell-sky-sheet">
-          <SkySheet />
+        <SheetFrame title="Sky and mood" onClose={close} testId="shell-sky-sheet">
+          <SkyMoodSheet />
         </SheetFrame>
       )}
       {sheet === 'prep' && (

@@ -3,6 +3,7 @@ import type { SerializedMapData } from './types'
 import type { Level } from '../shared/types'
 import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
+import { dropRemovedFields } from './removedFields'
 
 export const CURRENT_VERSION = '3.4' as const
 
@@ -82,7 +83,8 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
   if (retired.removed > 0) result = { ...result, layers: retired.layers } as SerializedMapData
   const plateaus = plateausFromShapes((result as SerializedMapData).layers)
   if (plateaus !== (result as SerializedMapData).layers) result = { ...result, layers: plateaus } as SerializedMapData
-  const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData)))
+  // The settings dropped in the editor rework go too (removedFields.ts).
+  const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(dropRemovedFields(result as SerializedMapData))))
   if (!caveKit) return migrated
   const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
   return layers === migrated.layers ? migrated : { ...migrated, layers }

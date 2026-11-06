@@ -1,0 +1,103 @@
+// The editor's own map file: which files are one, and the shape a map document must have,
+// a zod schema per format version, checked where a document comes in and goes out.
+//
+// The schemas hold what the editor relies on and pass everything else through, so a field
+// this build does not know survives a round trip. The settings the editor dropped
+// (removedFields.ts) are taken off a document before it is saved.
+
+import { z } from 'zod';
+import type { SerializedMapData } from '@/store/types';
+import { SUPPORTED_VERSIONS } from '@dnd/core/src/store/migration';
+import { dropRemovedFields } from '@dnd/core/src/store/removedFields';
+import { hasMagicHeader, parsePlainMapJson } from '@/io/mapFormat';
+
+/**
+ * It is being renamed from .mapbuilder to .ggvtt; both open. What makes a file one is its
+ * content, not its name; the extensions only steer the picker: the container header, or
+ * (older .mapbuilder files) a plain JSON map document.
+ */
+export const MAP_FILE_ACCEPT = '.ggvtt,.mapbuilder';
+
+/** Whether the file is one of the editor's map files. Unreadable files (a dropped folder) are not. */
+export async function isMapFile(file: Blob): Promise<boolean> {
+  try {
+    const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+    if (hasMagicHeader(head)) return true;
+    // Only a file that could be JSON is read whole.
+    const first = head.find((b) => b !== 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d && b !== 0xef && b !== 0xbb && b !== 0xbf);
+    if (first !== 0x7b) return false;
+    return parsePlainMapJson(new Uint8Array(await file.arrayBuffer())) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/* ── The document, version by version ─────────────────── */
+
+type Version = SerializedMapData['version'];
+
+const layer = z.object({ id: z.string(), type: z.string() }).passthrough();
+const mapSettings = z.object({ name: z.string() }).passthrough();
+const grid = z.object({ visible: z.boolean().optional(), snapDivision: z.number().optional() }).passthrough();
+
+/** 2.0: before levels, walls with their own light flags. Migrated to 3.x on load. */
+const v2 = z
+  .object({ version: z.literal('2.0'), mapSettings, layers: z.array(layer), customImages: z.record(z.string(), z.string()).optional() })
+  .passthrough();
+
+/** 3.x: the same top level throughout; each step since moved fields inside layers (migration.ts). */
+const v3 = (version: Exclude<Version, '2.0'>) =>
+  z
+    .object({
+      version: z.literal(version),
+      mapSettings,
+      grid: grid.optional(),
+      layers: z.array(layer),
+      levels: z.array(z.object({ id: z.string() }).passthrough()).optional(),
+      customImages: z.record(z.string(), z.string()).optional(),
+      prep: z.unknown().optional(),
+    })
+    .passthrough();
+
+export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
+  '2.0': v2,
+  '3.0': v3('3.0'),
+  '3.1': v3('3.1'),
+  '3.2': v3('3.2'),
+  '3.3': v3('3.3'),
+  '3.4': v3('3.4'),
+};
+
+/** The first problem with a document, said plainly. */
+function problem(error: z.ZodError): string {
+  const issue = error.issues[0];
+  return issue ? `${issue.path.join('.') || 'the document'}: ${issue.message}` : 'unreadable';
+}
+
+/**
+ * A document read from a file, checked against its version's schema. Throws a readable
+ * error for a version this app cannot open or a document that is not a map.
+ */
+export function readMapDocument(doc: unknown): SerializedMapData {
+  const version = (doc as { version?: unknown } | null)?.version;
+  if (typeof version !== 'string' || !(SUPPORTED_VERSIONS as readonly string[]).includes(version)) {
+    throw new Error(`Incompatible file version "${String(version)}". This app requires one of: ${SUPPORTED_VERSIONS.join(', ')}.`);
+  }
+  const parsed = MAP_SCHEMAS[version as Version].safeParse(doc);
+  if (!parsed.success) throw new Error(`Invalid map file (${problem(parsed.error)}).`);
+  return parsed.data as SerializedMapData;
+}
+
+/**
+ * The document a save writes: the dropped settings off, checked against its version (the
+ * store stamps the current one). A version this build does not know is left for the reader
+ * to refuse.
+ */
+export function saveableMap(data: SerializedMapData): SerializedMapData {
+  const doc = dropRemovedFields(data);
+  const schema = MAP_SCHEMAS[doc.version];
+  if (!schema) return doc;
+  const parsed = schema.safeParse(doc);
+  if (!parsed.success) throw new Error(`The map could not be saved (${problem(parsed.error)}).`);
+  return parsed.data as SerializedMapData;
+}

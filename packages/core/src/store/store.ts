@@ -7,6 +7,7 @@ import { migrateRooms } from './roomMigration';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
 import { CURRENT_VERSION, countRetiredBodies, isSupportedVersion, migrateToLatest, retiredRemovedMessage } from './migration';
+import { dropRemovedFields } from './removedFields';
 import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
 import { getCatalogEntry, isBandSet, nextAssetName } from '../assets/packCatalog';
@@ -200,7 +201,8 @@ export const useStore = create<MapBuilderStore>()(
 
       getSerializableState: (): SerializedMapData => {
         const s = get();
-        return {
+        // Nothing the editor dropped is written back, whatever an old map or a v2 control left in memory.
+        return dropRemovedFields({
           version: CURRENT_VERSION,
           // Whatever the store holds is in the anchored-rooms format: every load ran the
           // migration, and a new map was born in it. Stamped on the way out so a map that
@@ -220,7 +222,7 @@ export const useStore = create<MapBuilderStore>()(
           // undefined (not null) when unauthored: JSON.stringify drops the key,
           // and an absent prep leaves the server's stored prep alone on republish.
           prep: s.prep ?? undefined,
-        };
+        });
       },
 
       resetToDefault: () =>

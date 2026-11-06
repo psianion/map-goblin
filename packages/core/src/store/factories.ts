@@ -136,7 +136,8 @@ export function createDefaultState(): MapBuilderState {
         lightDefaults: {
           color: '#ffdd88',
           radius: 6,
-          featherRadius: 0,
+          // One cell, 5 ft: the Bright control's minimum, where 0 sat below it.
+          featherRadius: 1,
           // 0.2 predates the diffuse-lighting rework: under the multiply
           // composite it reads as no light at all on real (dark) floor art —
           // the "authored lights don't render" gate finding was exactly a

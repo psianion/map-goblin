@@ -14,7 +14,7 @@ import { importMaps } from '@/io/importMap';
 import { loadMap as openMapFile } from '@/io/saveLoad';
 import { SizeFields, type SizeMode } from './SizeFields';
 import { ImportReport, type ImportOutcome } from './ImportReport';
-import { MAP_FILE_ACCEPT, isMapFile } from './mapFile';
+import { MAP_FILE_ACCEPT, isMapFile } from '@/io/mapFile';
 import { useEscapeToClose } from './useEscapeToClose';
 
 /**

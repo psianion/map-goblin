@@ -17,6 +17,7 @@ import { notify } from '@/lib/toast';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { encodeMapFile, decodeMapFile, decodeAnyMapFile, hasMagicHeader, MAGIC_HEADER } from './mapFormat';
+import { readMapDocument, saveableMap } from './mapFile';
 
 export { MAGIC_HEADER };
 
@@ -102,7 +103,8 @@ export function callSaveWorker(
  * Splat bitmaps are read from the store (as binary Blobs) and injected as
  * data URLs inside the worker — the format on disk is unchanged.
  */
-export async function serializeToBytes(data: SerializedMapData): Promise<Uint8Array> {
+export async function serializeToBytes(input: SerializedMapData): Promise<Uint8Array> {
+  const data = saveableMap(input);
   // Make sure a just-finished stroke's pixels have landed in the store.
   await getTerrainRenderer()?.flushPersistNow();
   const pngs = useStore.getState().terrainSplats.pngs;
@@ -124,13 +126,14 @@ export async function serializeToBytes(data: SerializedMapData): Promise<Uint8Ar
 export async function deserializeFromBytes(bytes: Uint8Array): Promise<SerializedMapData> {
   // Older .mapbuilder files are plain JSON rather than the container; they parse
   // here (or throw the not-a-map-file error) without a trip to the worker.
-  if (!hasMagicHeader(bytes)) return decodeAnyMapFile(bytes);
+  // Every path checks the document against its version's schema (mapFile.ts).
+  if (!hasMagicHeader(bytes)) return readMapDocument(decodeAnyMapFile(bytes));
   const worker = getSaveWorker();
-  if (!worker) return decodeMapFile(bytes);
+  if (!worker) return readMapDocument(decodeMapFile(bytes));
   // Copy: callers may reuse their buffer, and transfer detaches it.
   const buf = bytes.slice().buffer;
   const reply = await callSaveWorker(worker, { op: 'decode', bytes: buf }, [buf]);
-  return reply.data!;
+  return readMapDocument(reply.data!);
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
