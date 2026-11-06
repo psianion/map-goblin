@@ -1,8 +1,8 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /**
- * Light and dark for the v2 route. The choice rides on the same `dark` class on <html>
- * the v1 tokens key off, so the editor under the home page switches with it.
+ * Light and dark for the v2 route. The choice rides on the `dark` class on <html> that
+ * src/theme/tokens.css keys off, so the editor under the home page switches with it.
  */
 export type Theme = 'light' | 'dark';
 

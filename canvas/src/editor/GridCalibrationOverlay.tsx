@@ -45,7 +45,7 @@ function nativePxWidth(assetId: string): number {
  * grid offset and its size sets px/cell, so one gesture gives both.
  *
  * Chrome, not canvas overlay — it wants DOM focus semantics and the theme
- * accent. The container is pointer-transparent so pan and zoom still work
+ * ink. The container is pointer-transparent so pan and zoom still work
  * underneath while the mode is up.
  *
  * Motion: nothing here animates beyond CSS transitions, and index.css already
@@ -115,8 +115,8 @@ export function GridCalibrationOverlay() {
       const step = w / s.spans;
       el.style.backgroundImage =
         s.spans > 1 && step >= 3
-          ? `repeating-linear-gradient(to right, rgb(var(--accent-active) / 0.55) 0 1px, transparent 1px ${step}px),` +
-            `repeating-linear-gradient(to bottom, rgb(var(--accent-active) / 0.55) 0 1px, transparent 1px ${h / s.spans}px)`
+          ? `repeating-linear-gradient(to right, color-mix(in srgb, var(--ink) 55%, transparent) 0 1px, transparent 1px ${step}px),` +
+            `repeating-linear-gradient(to bottom, color-mix(in srgb, var(--ink) 55%, transparent) 0 1px, transparent 1px ${h / s.spans}px)`
           : 'none';
     };
     raf = requestAnimationFrame(tick);
@@ -240,32 +240,32 @@ export function GridCalibrationOverlay() {
         onPointerCancel={onPointerUp}
         onWheel={onWheel}
         onKeyDown={onBoxKeyDown}
-        className="pointer-events-auto absolute left-0 top-0 cursor-move border-2 border-accent-active bg-accent-active/10 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="pointer-events-auto absolute left-0 top-0 cursor-move border-2 border-ink bg-ink/10 outline-none focus-visible:ring-3 focus-visible:ring-focus"
       >
         <span
           onPointerDown={onPointerDown('tl')}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          className="absolute -left-1.5 -top-1.5 size-3 cursor-nwse-resize rounded-sm border border-surface-0 bg-accent-active"
+          className="absolute -left-1.5 -top-1.5 size-3 cursor-nwse-resize rounded-sm border border-bg bg-ink"
         />
         <span
           onPointerDown={onPointerDown('br')}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize rounded-sm border border-surface-0 bg-accent-active"
+          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize rounded-sm border border-bg bg-ink"
         />
       </div>
 
       <div
         role="group"
         aria-label="Grid calibration"
-        className="pointer-events-auto absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border-default bg-surface-1/95 px-2.5 py-1.5 shadow-xl backdrop-blur"
+        className="pointer-events-auto absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-line bg-panel/95 px-2.5 py-1.5 shadow-xl backdrop-blur"
       >
-        <span className="text-xs text-text-secondary">Drag the box onto the image&rsquo;s own grid</span>
-        <span className="h-[22px] w-px bg-border-default" />
-        <label className="flex items-center gap-1.5 text-xs text-text-muted">
+        <span className="text-xs text-text-2">Drag the box onto the image&rsquo;s own grid</span>
+        <span className="h-[22px] w-px bg-line" />
+        <label className="flex items-center gap-1.5 text-xs text-text-3">
           spans
           <input
             type="number"
@@ -277,14 +277,14 @@ export function GridCalibrationOverlay() {
             value={spansDraft}
             onChange={(e) => commitSpans(e.target.value)}
             onBlur={() => setSpansDraft(String(session.spans))}
-            className="h-6 w-12 rounded-md border border-border-default bg-surface-0 px-1.5 text-center text-xs tabular-nums text-text-primary outline-none focus-visible:border-border-focus"
+            className="h-6 w-12 rounded-md border border-line bg-bg px-1.5 text-center text-xs tabular-nums text-text outline-none focus-visible:border-line-strong"
           />
           cells
         </label>
-        <span className="text-xs tabular-nums text-accent-active" aria-live="polite">
+        <span className="text-xs tabular-nums text-text" aria-live="polite">
           {perCell === null ? '= — px/cell' : `= ${perCell.toFixed(1)} px/cell`}
         </span>
-        <span className="h-[22px] w-px bg-border-default" />
+        <span className="h-[22px] w-px bg-line" />
         <Button variant="outline" size="sm" onClick={endGridCalibration}>
           Skip
         </Button>

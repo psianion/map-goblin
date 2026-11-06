@@ -69,7 +69,7 @@ export function SliderInput({
         // startRef to the settled value, so a blur right after sees no change.
         onBlur={(e) => commitIfChanged(Number((e.target as HTMLInputElement).value))}
       />
-      <span className="font-mono text-panel-small text-text-muted w-10 text-right tabular-nums">
+      <span className="font-mono text-[10px] leading-[14px] text-text-3 w-10 text-right tabular-nums">
         {display}{unit}
       </span>
     </div>

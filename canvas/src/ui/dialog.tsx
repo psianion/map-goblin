@@ -54,7 +54,7 @@ function DialogContent({ className, children }: { className?: string; children: 
       ref={popup}
       className={cn(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-        'w-full max-w-md rounded-xl border border-border bg-surface-1 p-6 shadow-xl',
+        'w-full max-w-md rounded-xl border border-line bg-panel p-6 shadow-xl',
         'data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
         'data-[ending-style]:scale-95 data-[ending-style]:opacity-0',
         'transition-all duration-200',
@@ -69,7 +69,7 @@ function DialogContent({ className, children }: { className?: string; children: 
 function DialogTitle({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <DialogPrimitive.Title
-      className={cn('text-base font-semibold text-foreground', className)}
+      className={cn('text-base font-semibold text-text', className)}
     >
       {children}
     </DialogPrimitive.Title>
@@ -79,7 +79,7 @@ function DialogTitle({ className, children }: { className?: string; children: Re
 function DialogDescription({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <DialogPrimitive.Description
-      className={cn('text-sm text-muted-foreground', className)}
+      className={cn('text-sm text-text-3', className)}
     >
       {children}
     </DialogPrimitive.Description>

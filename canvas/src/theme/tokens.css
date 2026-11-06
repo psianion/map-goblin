@@ -1,0 +1,66 @@
+/*
+ * The design system's tokens, the only place a colour, shadow or radius is defined.
+ * Values match docs/plans/canvas-v2-shell/mockups/design-system.html. Light is :root;
+ * dark follows the `dark` class on <html> that src/v2/theme.ts sets.
+ *
+ * Tailwind reads the colours through tailwind.config.ts (`bg-panel`, `text-text-2`,
+ * `border-line`, `ring-ink`); raw CSS reads them as `var(--panel)`.
+ */
+/* IBM Plex Sans and Mono for the editor. Newsreader stays only because the home page title
+   and the modal titles in src/v2/v2.css still set it. */
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #f2f2f2;
+  --dot: #c6c6c6;
+  --sheet: #fbfbfb;
+  --panel: #ffffff;
+  --panel-2: #f7f7f7;
+  --panel-3: #ebebeb;
+  --line: #e0e0e0;
+  --line-strong: #c2c2c2;
+  --text: #1b1b1b;
+  --text-2: #4d4d4d;
+  --text-3: #6b6b6b;
+  --ink: #1b1b1b;
+  --on-ink: #ffffff;
+  --ink-hover: #383838;
+  --focus: rgb(27 27 27 / 0.14);
+  --danger: #b3261e;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 24px -14px rgb(0 0 0 / 0.22);
+  --shadow-lg: 0 1px 3px rgb(0 0 0 / 0.06), 0 24px 56px -20px rgb(0 0 0 / 0.3);
+  --backdrop: rgb(24 24 24 / 0.32);
+
+  --radius-key: 4px;
+  --radius-control: 6px;
+  --radius-float: 8px;
+  --radius-pill: 999px;
+}
+
+.dark {
+  --bg: #2b2b2b;
+  --dot: #4f4f4f;
+  --sheet: #353535;
+  --panel: #333333;
+  --panel-2: #383838;
+  --panel-3: #444444;
+  --line: #474747;
+  --line-strong: #5c5c5c;
+  --text: #ececec;
+  --text-2: #bdbdbd;
+  --text-3: #9c9c9c;
+  --ink: #ececec;
+  --on-ink: #1b1b1b;
+  --ink-hover: #ffffff;
+  --focus: rgb(236 236 236 / 0.18);
+  --danger: #f08a7e;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.25), 0 12px 28px -14px rgb(0 0 0 / 0.7);
+  --shadow-lg: 0 1px 3px rgb(0 0 0 / 0.3), 0 28px 64px -20px rgb(0 0 0 / 0.8);
+  --backdrop: rgb(0 0 0 / 0.5);
+}

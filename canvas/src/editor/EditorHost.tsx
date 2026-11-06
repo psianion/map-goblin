@@ -148,7 +148,7 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
 
   return (
     <>
-    <div className="relative h-screen w-screen overflow-hidden bg-surface-0" data-focus-mode={focusMode}>
+    <div className="relative h-screen w-screen overflow-hidden bg-bg" data-focus-mode={focusMode}>
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
         <CanvasHost />

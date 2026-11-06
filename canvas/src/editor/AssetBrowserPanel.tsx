@@ -42,8 +42,8 @@ function AssetThumbnail({ asset, selected, onSelect }: AssetThumbnailProps) {
         'aspect-square rounded border p-1 transition-colors',
         'flex items-center justify-center overflow-hidden',
         selected
-          ? 'border-accent bg-accent/20'
-          : 'border-border bg-muted/30 hover:border-accent/50 hover:bg-muted/60',
+          ? 'border-panel-3 bg-panel-3/20'
+          : 'border-line bg-panel-2/30 hover:border-panel-3/50 hover:bg-panel-2/60',
       )}
     >
       {asset.thumbnailUrl && !thumbFailed ? (
@@ -57,7 +57,7 @@ function AssetThumbnail({ asset, selected, onSelect }: AssetThumbnailProps) {
       ) : isPackAsset || thumbFailed ? (
         <PackThumbnailCanvas textureId={asset.id} />
       ) : (
-        <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground text-center leading-tight px-1">
+        <div className="flex h-full w-full items-center justify-center text-[10px] text-text-3 text-center leading-tight px-1">
           {asset.name}
         </div>
       )}
@@ -76,7 +76,7 @@ interface AssetGridProps {
 function AssetGrid({ assets, selectedIds, onSelect }: AssetGridProps) {
   if (assets.length === 0) {
     return (
-      <p className="py-6 text-center text-xs text-muted-foreground">No assets in this category.</p>
+      <p className="py-6 text-center text-xs text-text-3">No assets in this category.</p>
     );
   }
 
@@ -103,15 +103,15 @@ interface AssetSearchInputProps {
 
 function AssetSearchInput({ value, onChange }: AssetSearchInputProps) {
   return (
-    <div className="relative px-2 py-1.5 border-b border-border">
+    <div className="relative px-2 py-1.5 border-b border-line">
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search assets…"
         className={cn(
-          'w-full rounded bg-muted/50 border border-border px-2.5 py-1 text-xs text-foreground',
-          'placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring',
+          'w-full rounded bg-panel-2/50 border border-line px-2.5 py-1 text-xs text-text',
+          'placeholder:text-text-3 focus:outline-none focus:ring-1 focus:ring-focus',
         )}
       />
     </div>
@@ -202,17 +202,16 @@ export function AssetBrowserPanel({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Type filter tabs */}
-      <div className="flex gap-0.5 overflow-x-auto border-b border-border p-1.5 flex-shrink-0">
+      <div className="flex gap-0.5 overflow-x-auto border-b border-line p-1.5 flex-shrink-0">
         {TYPE_FILTER_TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => handleTypeFilterChange(tab.id)}
             className={cn(
               'shrink-0 rounded px-2 py-1 text-xs transition-colors whitespace-nowrap',
-              'font-display',
               typeFilter === tab.id
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                ? 'bg-panel-3 text-text'
+                : 'text-text-3 hover:bg-panel-2 hover:text-text',
             )}
           >
             {tab.label}
@@ -221,7 +220,7 @@ export function AssetBrowserPanel({
       </div>
 
       {/* Category sub-tabs */}
-      <div className="flex gap-0.5 overflow-x-auto border-b border-border p-1.5 flex-shrink-0">
+      <div className="flex gap-0.5 overflow-x-auto border-b border-line p-1.5 flex-shrink-0">
         {categoryTabs.map((tab) => (
           <button
             key={tab.id}
@@ -229,8 +228,8 @@ export function AssetBrowserPanel({
             className={cn(
               'shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap',
               activeCategory === tab.id
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                ? 'bg-panel-3 text-text'
+                : 'text-text-3 hover:bg-panel-2 hover:text-text',
             )}
           >
             {tab.label}
@@ -244,20 +243,20 @@ export function AssetBrowserPanel({
       {/* Grid */}
       <div className="flex-1 overflow-y-auto">
         {categories.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">No assets available.</p>
+          <p className="py-6 text-center text-xs text-text-3">No assets available.</p>
         ) : (
           <>
             {typeFilter === 'floor' ? (
               // Floor textures always go on floors (pickAssetForTool), never into the brush.
-              <p className="px-2 py-1 text-[10px] text-accent" data-testid="asset-browser-hint">
+              <p className="px-2 py-1 text-[10px] text-text-2" data-testid="asset-browser-hint">
                 {floorHint ?? 'Click a texture to apply it to the floors'}
               </p>
             ) : activeTool === 'scatterBrush' && !scatterSettings.stampMode ? (
-              <p className="px-2 py-1 text-[10px] text-accent">
+              <p className="px-2 py-1 text-[10px] text-text-2">
                 Click assets to add/remove from scatter pool
               </p>
             ) : (
-              <p className="px-2 py-1 text-[10px] text-accent" data-testid="asset-browser-hint">
+              <p className="px-2 py-1 text-[10px] text-text-2" data-testid="asset-browser-hint">
                 {hint ?? 'Click an asset to stamp it'}
               </p>
             )}

@@ -16,15 +16,9 @@
 .v2-pop,
 .v2-sheet,
 .v2-tipbox {
-  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --v2-e-shadow: var(--e-shadow);
   --v2-e-rail: 44px;
   --v2-e-status: 28px;
-}
-.dark .v2-editor,
-.dark .v2-pop,
-.dark .v2-sheet,
-.dark .v2-tipbox {
-  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
 }
 
 /* Fixed to the viewport, so nothing the shell draws can land below the fold. The layer
@@ -1514,66 +1508,11 @@
 }
 
 /*
- * v1 components living inside the shell (tool options, property sections, the layer
- * panel, the asset browser) keep their own markup but read neutral tokens here, so the
- * v1 accent never shows inside v2.
+ * v1 components living inside the shell (the asset browser, the prep overview) keep their
+ * own markup; their colours are the v2 token classes, so they need only the text colour.
  */
 .v2-legacy {
-  --surface-0: 247 247 247;
-  --surface-1: 255 255 255;
-  --surface-2: 240 240 240;
-  --surface-3: 230 230 230;
-  --text-primary: 27 27 27;
-  --text-secondary: 77 77 77;
-  --text-muted: 92 92 92;
-  --text-dim: 45 45 45;
-  --border-structure: 194 194 194;
-  --border-default: 214 214 214;
-  --border-subtle: 232 232 232;
-  --border-focus: 27 27 27;
-  --accent-active: 27 27 27;
-  --accent-dim: 107 107 107;
-  --on-accent: 255 255 255;
-  --success: 27 27 27;
-  --primary: var(--accent-active);
-  --primary-foreground: var(--on-accent);
-  --accent: var(--surface-3);
-  --accent-foreground: var(--text-primary);
-  --ring: var(--border-focus);
-  --border: var(--border-default);
-  --input: var(--border-default);
-  --muted: var(--surface-2);
-  --muted-foreground: var(--text-muted);
-  --hover-tint: rgb(0 0 0 / 0.05);
-  --hover-glow: none;
-  color: rgb(var(--text-primary));
-}
-.dark .v2-legacy {
-  --surface-0: 43 43 43;
-  --surface-1: 51 51 51;
-  --surface-2: 56 56 56;
-  --surface-3: 68 68 68;
-  --text-primary: 236 236 236;
-  --text-secondary: 189 189 189;
-  --text-muted: 160 160 160;
-  --text-dim: 220 220 220;
-  --border-structure: 92 92 92;
-  --border-default: 76 76 76;
-  --border-subtle: 60 60 60;
-  --border-focus: 236 236 236;
-  --accent-active: 236 236 236;
-  --accent-dim: 156 156 156;
-  --on-accent: 27 27 27;
-  --success: 236 236 236;
-  --hover-tint: rgb(255 255 255 / 0.05);
-}
-.v2-legacy .gg-grain {
-  background-image: none;
-}
-/* v1 hint lines (the asset browser's "what a click does") are accent text; with the accent
-   mapped to a surface grey above they read near-white on white. */
-.v2-legacy .text-accent {
-  color: var(--v2-text-2);
+  color: var(--v2-text);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1598,10 +1537,7 @@
    they never land on the fitted map. Scoped to the class EditorHost gives the toaster, over
    the pill rules in index.css. */
 .v2-toaster {
-  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
-}
-.dark .v2-toaster {
-  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+  --v2-e-shadow: var(--e-shadow);
 }
 .v2-toaster [data-sonner-toast] {
   background: var(--v2-panel) !important;

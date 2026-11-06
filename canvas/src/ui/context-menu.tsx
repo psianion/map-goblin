@@ -208,21 +208,21 @@ function ActionRow({ item, onClose, returnFocus }: {
         item.onSelect()
       }}
       className={cn(
-        'flex w-full items-center gap-2 text-left px-3 py-1.5 text-sm gg-row',
-        'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
-        item.danger ? 'text-danger' : 'text-text-primary',
-        // 60%, not 50: composited on surface-1 the danger/muted inks fell to
+        'flex w-full items-center gap-2 text-left px-3 py-1.5 text-sm transition-colors hover:bg-panel-2 active:bg-panel-3',
+        'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus',
+        item.danger ? 'text-danger' : 'text-text',
+        // 60%, not 50: composited on the panel the danger/muted inks fell to
         // ~2.6:1 at half opacity — dim enough to read disabled, not illegible.
         item.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
       )}
     >
       {item.icon || item.kbd || item.checked !== undefined ? (
         <>
-          {item.icon && <span className="shrink-0 text-text-muted">{item.icon}</span>}
+          {item.icon && <span className="shrink-0 text-text-3">{item.icon}</span>}
           <span className="flex-1">{item.label}</span>
-          {item.checked && <Check size={12} className="shrink-0 text-text-secondary" aria-hidden />}
+          {item.checked && <Check size={12} className="shrink-0 text-text-2" aria-hidden />}
           {item.kbd && (
-            <span className="font-mono text-panel-small text-text-muted">{item.kbd}</span>
+            <span className="font-mono text-[10px] leading-[14px] text-text-3">{item.kbd}</span>
           )}
         </>
       ) : (
@@ -254,12 +254,12 @@ function Row({ row, onClose, returnFocus, onResize }: {
     case 'header': {
       const r = row as MenuHeaderRow
       return (
-        <div className="flex items-center gap-2 px-3 pt-1.5 pb-2 border-b border-border-default mb-1">
-          {r.icon && <span className="shrink-0 text-text-muted">{r.icon}</span>}
+        <div className="flex items-center gap-2 px-3 pt-1.5 pb-2 border-b border-line mb-1">
+          {r.icon && <span className="shrink-0 text-text-3">{r.icon}</span>}
           <div className="min-w-0">
-            <div className="truncate text-sm text-text-primary">{r.label}</div>
+            <div className="truncate text-sm text-text">{r.label}</div>
             {r.sublabel && (
-              <div className="font-mono text-panel-small uppercase text-text-muted">{r.sublabel}</div>
+              <div className="font-mono text-[10px] leading-[14px] uppercase text-text-3">{r.sublabel}</div>
             )}
           </div>
         </div>
@@ -280,8 +280,8 @@ function Row({ row, onClose, returnFocus, onResize }: {
             r.onToggle(!r.checked)
           }}
           className={cn(
-            'flex w-full items-center justify-between px-3 py-1.5 text-sm gg-row text-text-primary',
-            'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
+            'flex w-full items-center justify-between px-3 py-1.5 text-sm transition-colors hover:bg-panel-2 active:bg-panel-3 text-text',
+            'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus',
             r.disabled && 'opacity-60 pointer-events-none',
           )}
         >
@@ -290,21 +290,21 @@ function Row({ row, onClose, returnFocus, onResize }: {
             <span
               aria-hidden
               data-look="check"
-              className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-structure"
+              className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-line-strong"
             >
-              {r.checked && <Check size={10} strokeWidth={3} className="text-text-primary" />}
+              {r.checked && <Check size={10} strokeWidth={3} className="text-text" />}
             </span>
           ) : (
             <span
               aria-hidden
               className={cn(
                 'h-3.5 w-6 rounded-full border transition-colors relative',
-                r.checked ? 'bg-accent-dim border-accent-active' : 'bg-surface-2 border-border-default',
+                r.checked ? 'bg-text-3 border-ink' : 'bg-panel-2 border-line',
               )}
             >
               <span
                 className={cn(
-                  'absolute top-0.5 h-2 w-2 rounded-full bg-text-primary transition-transform',
+                  'absolute top-0.5 h-2 w-2 rounded-full bg-text transition-transform',
                   r.checked ? 'translate-x-3' : 'translate-x-0.5',
                 )}
               />
@@ -317,7 +317,7 @@ function Row({ row, onClose, returnFocus, onResize }: {
       const r = row as MenuSliderRow
       return (
         <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
+          <div className="mb-1 font-mono text-[10px] leading-[14px] tracking-[0.1em] uppercase text-text-3">{r.label}</div>
           <SliderInput
             value={r.value}
             min={r.min}
@@ -335,7 +335,7 @@ function Row({ row, onClose, returnFocus, onResize }: {
       const r = row as MenuSwatchesRow
       return (
         <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
+          <div className="mb-1 font-mono text-[10px] leading-[14px] tracking-[0.1em] uppercase text-text-3">{r.label}</div>
           <div className="flex gap-1.5" role="group" aria-label={r.label}>
             {r.options.map((color, i) => {
               const active = color.toLowerCase() === r.value.toLowerCase()
@@ -358,8 +358,8 @@ function Row({ row, onClose, returnFocus, onResize }: {
                     // 24px minimum touch target; the check carries "selected"
                     // so state never rides on the ring colour alone.
                     'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus',
-                    active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                    active ? 'border-ink' : 'border-line hover:border-text-2',
                   )}
                   style={{ backgroundColor: color }}
                 >
@@ -375,7 +375,7 @@ function Row({ row, onClose, returnFocus, onResize }: {
       const r = row as MenuThumbStripRow
       return (
         <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
+          <div className="mb-1 font-mono text-[10px] leading-[14px] tracking-[0.1em] uppercase text-text-3">{r.label}</div>
           {/* Wraps instead of scrolling: a horizontal scroller inside a
               context menu hid half the choices behind an invisible edge. */}
           <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
@@ -398,9 +398,9 @@ function Row({ row, onClose, returnFocus, onResize }: {
                   r.onPick(it.id)
                 }}
                 className={cn(
-                  'h-9 w-9 shrink-0 overflow-hidden rounded-sm border bg-surface-2',
-                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus',
-                  it.active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
+                  'h-9 w-9 shrink-0 overflow-hidden rounded-sm border bg-panel-2',
+                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-focus',
+                  it.active ? 'border-ink' : 'border-line hover:border-text-2',
                 )}
               >
                 <MenuThumb id={it.id} src={it.src} />
@@ -417,7 +417,7 @@ function Row({ row, onClose, returnFocus, onResize }: {
                   returnFocus()
                   r.trailing!.onSelect()
                 }}
-                className="h-9 shrink-0 rounded-sm border border-border-default px-2 text-panel-small text-text-secondary gg-row hover:text-text-primary"
+                className="h-9 shrink-0 rounded-sm border border-line px-2 text-[10px] leading-[14px] text-text-2 transition-colors hover:bg-panel-2 active:bg-panel-3 hover:text-text"
               >
                 {r.trailing.label}
               </button>
@@ -442,17 +442,17 @@ function Row({ row, onClose, returnFocus, onResize }: {
               setExpanded((v) => !v)
             }}
             className={cn(
-              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm gg-row text-text-primary',
-              'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
+              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-panel-2 active:bg-panel-3 text-text',
+              'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus',
               r.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
             )}
           >
-            {r.icon && <span className="shrink-0 text-text-muted">{r.icon}</span>}
+            {r.icon && <span className="shrink-0 text-text-3">{r.icon}</span>}
             <span className="flex-1">{r.label}</span>
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button>
           {expanded && (
-            <div className="ml-3 border-l border-border-default">
+            <div className="ml-3 border-l border-line">
               {r.rows.map((sub, i) => (
                 <Row key={i} row={sub} onClose={onClose} returnFocus={returnFocus} onResize={onResize} />
               ))}
@@ -581,14 +581,14 @@ export function ContextMenu({
       className={cn(
         'fixed z-50',
         className ??
-          'gg-grain min-w-[180px] max-w-[260px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1',
+          'min-w-[180px] max-w-[260px] bg-panel border border-line-strong rounded-md shadow-e py-1',
       )}
       style={{ left: pos.x, top: pos.y }}
     >
       {items.map((row, i) => (
         <div key={i}>
           {'separatorBefore' in row && row.separatorBefore && (
-            <div role="separator" className="h-px bg-border-default mx-2 my-1" />
+            <div role="separator" className="h-px bg-line mx-2 my-1" />
           )}
           <Row row={row} onClose={onClose} returnFocus={returnFocus} onResize={clamp} />
         </div>
