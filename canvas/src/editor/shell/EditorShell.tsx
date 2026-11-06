@@ -25,6 +25,7 @@ import { TitleCard } from '@/editor/surfaces/TitleCard';
 import { TopActions } from '@/editor/surfaces/TopActions';
 import { openAssetsRef } from '@/editor/families/design/openAssets';
 import { RegistryProvider } from './RegistryProvider';
+import { useRegistryKeys } from './shellKeys';
 import { resetShell, useShell } from './shellStore';
 
 /** Air between the map and the chrome around it when the map is fitted. */
@@ -36,7 +37,7 @@ const FIT_PAD = 32;
  */
 function useLastFamilyTool(registry: Registry) {
   // The registry tool, not the core one: Floor's shape row changes the core tool, not the tool.
-  const toolId = useStore((s) => toolForEngine(registry, s.tools.activeTool)?.id);
+  const toolId = useStore((s) => toolForEngine(registry, s.tools.activeTool, s)?.id);
   useEffect(() => {
     const tool = toolId ? registry.toolById(toolId) : undefined;
     if (tool && registry.familyOfTool(tool.id)) useShell.getState().setLastTool(tool.id);
@@ -60,6 +61,8 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
   const shellRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   useLastFamilyTool(registry);
+  // The rail, family, tool and dock keys, from the registry, in place of the old tool keys.
+  useRegistryKeys(registry);
   useEffect(() => () => resetShell(), []);
 
   useEffect(() => {
@@ -83,7 +86,7 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
   }, []);
 
   // The table's shell keys: Page Up and Down step the levels, ? opens the shortcuts. The
-  // dock never folds here, and there are no dock tabs; tool keys come from the registry later.
+  // dock never folds here, and there are no dock tabs.
   useEffect(() => {
     editorShellKeysRef.current = {
       tab: () => '',

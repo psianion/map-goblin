@@ -80,7 +80,8 @@ export const doorTool = defineTool({
   label: 'Door',
   description: 'Single, double, portcullis, archway',
   icon: DoorOpen,
-  key: 'D',
+  // Not D: that is the Design family's own key.
+  key: 'S',
   engine: ['door'],
   settings: [doorStyle, doorWidth, doorAngle, doorSecret],
   dock: [],

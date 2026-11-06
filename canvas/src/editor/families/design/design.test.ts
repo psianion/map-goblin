@@ -121,13 +121,14 @@ describe('the Design family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds Floor, Wall, Door and Elevation under D, keys F W D E', () => {
+  // Door and Elevation are off D and E, the Design and Environment family keys (step 9).
+  it('holds Floor, Wall, Door and Elevation under D, keys F W S L', () => {
     expect(design.key).toBe('D');
     expect(design.tools.map((t) => [t.label, t.key])).toEqual([
       ['Floor', 'F'],
       ['Wall', 'W'],
-      ['Door', 'D'],
-      ['Elevation', 'E'],
+      ['Door', 'S'],
+      ['Elevation', 'L'],
     ]);
   });
 

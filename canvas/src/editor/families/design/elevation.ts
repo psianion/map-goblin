@@ -60,7 +60,8 @@ export const elevationTool = defineTool({
   label: 'Elevation',
   description: 'Plateaus and pits over floors or terrain',
   icon: Mountain,
-  key: 'E',
+  // Not E: that is the Environment family's own key.
+  key: 'L',
   engine: ['plateau'],
   settings: [elevationHeight, elevationEdge],
   dock: [],

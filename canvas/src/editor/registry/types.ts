@@ -110,6 +110,15 @@ export interface DockColumnDef {
   render: ComponentType<DockColumnProps>;
 }
 
+/** A key a tool answers while it is in hand. Without `run` the key goes to the tool itself. */
+export interface ToolKey {
+  id: string;
+  /** As the shortcut table writes it: lower case, modifiers first ('[', 'shift+r'). */
+  combo: string;
+  label: string;
+  run?: (store: CoreStore) => void;
+}
+
 export interface ToolDef {
   id: string;
   label: string;
@@ -124,6 +133,10 @@ export interface ToolDef {
    * regular polygon, its shape row choosing among them).
    */
   engine: ReadonlyArray<ToolType>;
+  /** Several tools on one core tool (Stamp and Scatter on the props brush): whether this one is in hand. */
+  inHand?: (state: EditorState) => boolean;
+  /** Runs after the tool's core tool is in hand, to set what tells it apart (Stamp's stamp mode). */
+  onPick?: (store: CoreStore) => void;
   /** References: a shared def (registry/shared.ts) may appear in many tools. Order is render order. */
   settings: ReadonlyArray<SettingDef>;
   dock: ReadonlyArray<DockColumnDef>;
@@ -137,6 +150,8 @@ export interface ToolDef {
    * picked: Select's card host. A tool without one keeps its panel whatever is picked.
    */
   selectionPanel?: ComponentType;
+  /** Keys the tool answers while in hand beyond its settings' own: Terrain's [ and ] size the brush. */
+  keys?: ReadonlyArray<ToolKey>;
   /** Opens the asset library on this kind when the tool comes into hand (the Objects tools). */
   opensAssets?: AssetTypeFilter;
 }

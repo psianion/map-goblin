@@ -74,6 +74,11 @@ export const terrainBrushTool = defineTool({
   engine: ['terrain'],
   settings: [terrainSize, terrainStrength, editErase, terrainColour],
   dock: [slotsColumn],
+  // The brush's size, as the wheel steps it; the tool in hand takes the key.
+  keys: [
+    { id: 'size.down', combo: '[', label: 'Brush smaller' },
+    { id: 'size.up', combo: ']', label: 'Brush larger' },
+  ],
   hint: (s) => ({
     label: 'Terrain brush',
     segments: [

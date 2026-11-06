@@ -9,21 +9,26 @@ import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectK
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';
 
-/** The registry tool driving the core tool in hand, if any does. */
-export function toolForEngine(registry: Registry, engine: string): ToolDef | undefined {
-  return registry.tools.find((t) => t.engine.some((e) => e === engine));
+/**
+ * The registry tool driving the core tool in hand, if any does. Where several tools share
+ * one core tool (Stamp and Scatter), each says through `inHand` whether it is the one.
+ */
+export function toolForEngine(registry: Registry, engine: string, state: EditorState = useStore.getState()): ToolDef | undefined {
+  return registry.tools.find((t) => t.engine.some((e) => e === engine) && (!t.inHand || t.inHand(state)));
 }
 
 /** Puts `tool` in hand: its first core tool, unless one of its core tools already is. */
 export function pickTool(tool: ToolDef): void {
   const state = useStore.getState();
   if (!tool.engine.includes(state.tools.activeTool)) state.setActiveTool(tool.engine[0]);
+  tool.onPick?.(useStore);
 }
 
 export function useActiveTool(): ToolDef | undefined {
   const { registry } = useRegistry();
-  const engine = useStore((s) => s.tools.activeTool);
-  return toolForEngine(registry, engine);
+  // The tool's id, so a store change that leaves the same tool in hand re-renders nothing.
+  const id = useStore((s) => toolForEngine(registry, s.tools.activeTool, s)?.id);
+  return id ? registry.toolById(id) : undefined;
 }
 
 /** The family tool the dock shows: the one in hand, else the last one held (under Select). */
