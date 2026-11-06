@@ -62,7 +62,7 @@ import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { kitOut, resampleClosed, walkClosed } from './caveWalk';
-import { CLIFF_ART_CHOICES, cliffArt, cliffChoice, cliffPieces } from './plateauKit';
+import { cliffArt, cliffArtChoices, cliffChoice, cliffPieces } from './plateauKit';
 import {
   defaultStairsArt,
   drawOpening,
@@ -143,7 +143,7 @@ function labels(c: Container, out: string[] = []): string[] {
 
 describe('the cliff kit', () => {
   it('offers Cave rock (the default, stored as nothing) and Cave ink line', () => {
-    expect(CLIFF_ART_CHOICES.map((c) => [c.value, c.label])).toEqual([
+    expect(cliffArtChoices().map((c) => [c.value, c.label])).toEqual([
       [undefined, 'Cave rock'],
       ['GG_Cave_Ink:ledge', 'Cave ink line'],
     ]);
@@ -151,6 +151,37 @@ describe('the cliff kit', () => {
     expect(cliffChoice(undefined)).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
     expect(cliffChoice('GG_Cave_Ink')).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
     expect(cliffChoice('GG_Cave_Ink:ledge')).toEqual({ setId: 'GG_Cave_Ink', family: 'ledge' });
+  });
+
+  it('offers a second band set’s rock row too, each label led by its set', () => {
+    const shipped = manager.getPackManifests;
+    const second = {
+      packId: 'more-caves',
+      manifest: {
+        entries: Object.fromEntries(
+          [
+            ['wall_short', '2x2'],
+            ['inside_bend', '2x2'],
+            ['outside_bend', '2x2'],
+            ['rockledge', '1x2'],
+            ['rockledge', '1x4'],
+            ['rockledge_bend_90', '2x2'],
+          ].map(([m, g]) => [`${m}_${g}_A`, object(m, g, 'GG_Deep_Cave')]),
+        ),
+      },
+    };
+    manager.getPackManifests = () => [...shipped(), second] as ReturnType<typeof shipped>;
+    manager.catalogVersion += 1;
+    try {
+      expect(cliffArtChoices().map((c) => [c.value, c.label])).toEqual([
+        [undefined, 'Cave Ink · Cave rock'],
+        ['GG_Cave_Ink:ledge', 'Cave Ink · Cave ink line'],
+        ['GG_Deep_Cave:rockledge', 'Deep Cave · Cave rock'],
+      ]);
+    } finally {
+      manager.getPackManifests = shipped;
+      manager.catalogVersion += 1;
+    }
   });
 
   it('lays Cave rock with its bends of both hands as drawn, never reversed', () => {

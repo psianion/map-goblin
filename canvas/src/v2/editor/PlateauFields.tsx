@@ -5,7 +5,7 @@ import { undoManager } from '@/store/undoManager';
 import type { Command, DungeonLayer, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { absoluteHeight, defaultCrossingId, edgeHides, edgeOf, ownHeight, shapeDrop, type EdgeKind } from '@dnd/core/src/shared/plateaus';
-import { CLIFF_ART_CHOICES, cliffChoice, DEFAULT_CLIFF_FAMILY } from '@dnd/core/src/engine/plateauKit';
+import { cliffArtChoices, cliffChoice, DEFAULT_CLIFF_FAMILY, DEFAULT_CLIFF_SET } from '@dnd/core/src/engine/plateauKit';
 import { plateauSettings } from '@dnd/core/src/engine/tools/PlateauTool';
 import { Ctl, Seg, Select, Switch } from './controls';
 
@@ -31,6 +31,12 @@ const SIGHT_OPTIONS: { value: SightChoice; label: string }[] = [
 
 const DEFAULT_ART = '';
 const SLOPE_STEP = 0.5;
+
+/** Cave rock of the default set: stored as nothing, however an older plateau names it. */
+function isDefaultCliff(edgeArt: string | undefined): boolean {
+  const { setId, family } = cliffChoice(edgeArt);
+  return setId === DEFAULT_CLIFF_SET && family === DEFAULT_CLIFF_FAMILY;
+}
 
 function apply(label: string, ids: readonly string[], patch: PlateauPatch): void {
   const cmds = ids.map((id) => setPlateauFields(id, patch, label)).filter((c): c is Command => c !== null);
@@ -112,8 +118,8 @@ export function PlateauFields({ layerId, ids }: { layerId: string; ids: readonly
         <div className="v2-sel__row">
           <Select
             label="Cliff art"
-            value={cliffChoice(head.edgeArt).family === DEFAULT_CLIFF_FAMILY ? DEFAULT_ART : (head.edgeArt ?? DEFAULT_ART)}
-            options={CLIFF_ART_CHOICES.map((c) => ({ value: c.value ?? DEFAULT_ART, label: c.label }))}
+            value={isDefaultCliff(head.edgeArt) ? DEFAULT_ART : (head.edgeArt ?? DEFAULT_ART)}
+            options={cliffArtChoices().map((c) => ({ value: c.value ?? DEFAULT_ART, label: c.label }))}
             onChange={(v) => apply('Cliff art', ids, { edgeArt: v === DEFAULT_ART ? undefined : v })}
           />
         </div>

@@ -3,7 +3,7 @@
 // with the rock band's laps; "Cave ink line" is the thin ink ledge (`ledge_*`), laid on the edge
 // itself. Joined by `material` + `gridSize`, the kit's key, like the rock band.
 
-import { bandSetArt, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
 import { kitPieces, ledgePieces, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
 
 /** The band set a cliff takes when its plateau names none. */
@@ -23,11 +23,46 @@ export function cliffChoice(edgeArt: string | undefined): CliffChoice {
   return { setId: setId || DEFAULT_CLIFF_SET, family: family || DEFAULT_CLIFF_FAMILY };
 }
 
-/** The two cliff looks the card offers, as `edgeArt` values: Cave rock is the default, stored as nothing. */
-export const CLIFF_ART_CHOICES: readonly { value: string | undefined; label: string }[] = [
-  { value: undefined, label: 'Cave rock' },
-  { value: `${DEFAULT_CLIFF_SET}:ledge`, label: 'Cave ink line' },
-];
+/** What the card calls a ledge family; another family reads as its own name. */
+const FAMILY_LABELS: Record<string, string> = { rockledge: 'Cave rock', ledge: 'Cave ink line' };
+
+const capitalise = (w: string) => w[0].toUpperCase() + w.slice(1);
+
+/** A set's name as a DM reads it: `GG_Cave_Ink` → Cave Ink. */
+function setLabel(setId: string): string {
+  return setId.replace(/^GG_/, '').split(/[-_\s]+/).filter(Boolean).map(capitalise).join(' ');
+}
+
+/**
+ * The cliff looks the card offers, as `edgeArt` values: each installed band set's ledge
+ * families (the rock row first) that have a kit to lay. Cave rock is the default, stored as
+ * nothing. With two sets or more, each label leads with its set.
+ */
+export function cliffArtChoices(): { value: string | undefined; label: string }[] {
+  const sets = getBandSetIds();
+  const out: { value: string | undefined; label: string }[] = [];
+  for (const setId of sets) {
+    const families = new Set<string>();
+    for (const e of bandSetArt(setId).values()) {
+      const base = e.material.split('_')[0];
+      if (base.endsWith('ledge')) families.add(base);
+    }
+    const ordered = [...families].sort((a, b) => Number(b === DEFAULT_CLIFF_FAMILY) - Number(a === DEFAULT_CLIFF_FAMILY) || a.localeCompare(b));
+    for (const family of ordered) {
+      const isDefault = setId === DEFAULT_CLIFF_SET && family === DEFAULT_CLIFF_FAMILY;
+      const value = isDefault ? undefined : `${setId}:${family}`;
+      if (cliffPieces(cliffArt(value), value).length === 0) continue;
+      const label = FAMILY_LABELS[family] ?? capitalise(family);
+      out.push({ value, label: sets.length > 1 ? `${setLabel(setId)} · ${label}` : label });
+    }
+  }
+  // Nothing installed: the card still offers the two looks the default set will bring.
+  if (out.length > 0) return out;
+  return [
+    { value: undefined, label: FAMILY_LABELS.rockledge },
+    { value: `${DEFAULT_CLIFF_SET}:ledge`, label: FAMILY_LABELS.ledge },
+  ];
+}
 
 /** The ledge art a cliff's `edgeArt` names, keyed `material_gridSize`. Empty when nothing is installed. */
 export function cliffArt(edgeArt: string | undefined): Map<string, CatalogEntry> {
