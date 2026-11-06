@@ -9,7 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { z } from 'zod';
 import type { useStore } from '@/store/store';
 import type { HintSegment } from '@/editor/statusHints';
-import type { AnyChild, ChildType, Room, WallSegment } from '@/store/types';
+import type { AnyChild, ChildType, Room, ToolType, WallSegment } from '@/store/types';
 import type { createDefaultState } from '@/store/factories';
 
 /** Where a setting renders. Each setting has exactly one. */
@@ -26,6 +26,7 @@ export type Control =
   | 'colour'
   | 'swatches' // options are the swatches, value the colour or id picked
   | 'button'
+  | 'readout' // a value shown, not edited: a card's Size
   | 'custom';
 
 /** What a binding, a hint and a visibility rule read: the core store's data. */
@@ -42,12 +43,21 @@ export interface Binding<T> {
 
 /** What a custom control is handed. */
 export interface SettingProps<T> {
-  def: SettingDef<T>;
+  def: SettingMeta<T>;
   value: T;
   onChange: (value: T) => void;
 }
 
-interface SettingBase<T> {
+/** One choice of a seg, select or swatches control. In the dock a seg draws its icons. */
+export interface SettingOption<T> {
+  value: T;
+  label: string;
+  icon?: LucideIcon;
+  key?: string;
+}
+
+/** What every setting and card field says about itself, whatever it is bound to. */
+export interface SettingMeta<T> {
   /** Unique across the registry: 'floor.opacity', 'grid.snap'. */
   id: string;
   label: string;
@@ -58,9 +68,12 @@ interface SettingBase<T> {
   control: Control;
   /** Caption the setting sits under in the panel or the card. */
   section?: string;
-  options?: ReadonlyArray<{ value: T; label: string }>;
+  options?: ReadonlyArray<SettingOption<T>>;
   /** For slider, range and stepper. */
   range?: { min: number; max: number; step: number; unit?: string };
+  /** A dock switch draws as this icon button, with `key` at its corner. */
+  icon?: LucideIcon;
+  key?: string;
   /** Only for control 'custom'. */
   render?: ComponentType<SettingProps<T>>;
 }
@@ -69,7 +82,7 @@ interface SettingBase<T> {
  * A tool setting, bound to the core store. Give `path` for a field inside
  * `tools.settings` (the id and the path may differ), or `bind` for anything else.
  */
-export type SettingDef<T = unknown> = SettingBase<T> & {
+export type SettingDef<T = unknown> = SettingMeta<T> & {
   /** Hidden unless this holds, e.g. Sides only for a regular polygon. Reads other settings by id. */
   visibleWhen?: (get: (id: string) => unknown) => boolean;
   /**
@@ -104,10 +117,18 @@ export interface ToolDef {
   icon: LucideIcon;
   /** One letter, unique within the rail and within the tool's family. */
   key: string;
+  /**
+   * The core tools this tool drives. Picking it puts the first in hand unless one of them
+   * already is; it is the tool in hand while any of them is (Floor: rectangle, polygon,
+   * regular polygon, its shape row choosing among them).
+   */
+  engine: ReadonlyArray<ToolType>;
   /** References: a shared def (registry/shared.ts) may appear in many tools. Order is render order. */
   settings: ReadonlyArray<SettingDef>;
   dock: ReadonlyArray<DockColumnDef>;
   hint: (state: EditorState) => HintLine;
+  /** The panel foot's Save as preset, for tools that keep presets. */
+  savePreset?: (store: CoreStore) => void;
 }
 
 export interface FamilyDef {
@@ -133,6 +154,10 @@ export interface Verb {
   label: string;
   icon: LucideIcon;
   key?: string;
+  /** Delete: drawn in the danger colour, last in the row. */
+  danger?: boolean;
+  /** false: on the card's action row only, not on the floating bar by the selection. */
+  bar?: false;
   /** Shown only when this holds, e.g. Merge with two walls picked. */
   when?: (state: EditorState) => boolean;
   run: (store: CoreStore) => void;
@@ -142,7 +167,7 @@ export interface Verb {
  * A card field reads the picked object and writes through the command layer, so undo
  * keeps working. It is never saved in prefs.
  */
-export type CardFieldDef<K extends ObjectKind = ObjectKind, T = unknown> = SettingBase<T> & {
+export type CardFieldDef<K extends ObjectKind = ObjectKind, T = unknown> = SettingMeta<T> & {
   home: 'card';
   read: (o: ObjectOf<K>) => T;
   write: (store: CoreStore, ids: readonly string[], value: T) => void;

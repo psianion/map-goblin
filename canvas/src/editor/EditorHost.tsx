@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Toaster } from 'sonner';
+import { useState, useEffect, useCallback, useRef, useMemo, type ComponentType } from 'react';
+import { Toaster, type ToasterProps } from 'sonner';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { CanvasContextMenu } from '@/editor/CanvasContextMenu';
 import { GridCalibrationOverlay } from '@/editor/GridCalibrationOverlay';
@@ -28,12 +28,32 @@ export interface EditorChromeActions {
   importImage: () => void;
 }
 
+/** What the chrome drawn over the canvas is handed. */
+export interface EditorChromeProps {
+  actions: EditorChromeActions;
+  onHome: () => void;
+  openSettings: boolean;
+}
+
+/** The toasts as the v2 chrome styles them (`.v2-toaster`), centred in its title-card band. */
+const V2_TOASTER: ToasterProps = {
+  position: 'top-center',
+  visibleToasts: 3,
+  className: 'v2-toaster',
+  toastOptions: { duration: 2000 },
+  offset: 17,
+  gap: 4,
+};
+
 interface EditorHostProps {
   /** The home page is up over the editor: the canvas boots underneath it, with no chrome. */
   home: boolean;
   onHome: () => void;
   /** Entered from a card's "Map settings…": the chrome comes up with that dialog showing. */
   openSettings: boolean;
+  /** The chrome over the canvas: the v2 shell unless another is handed in (the `/next` route). */
+  chrome?: ComponentType<EditorChromeProps>;
+  toaster?: ToasterProps;
 }
 
 /**
@@ -41,7 +61,7 @@ interface EditorHostProps {
  * the export and publish dialogs, toasts and the image picker, and the boot, autosave and
  * thumbnails behind them.
  */
-export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
+export function EditorHost({ home, onHome, openSettings, chrome: Chrome = EditorShell, toaster = V2_TOASTER }: EditorHostProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const focusMode = useStore((s) => s.ui.focusMode);
@@ -156,7 +176,7 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
         <CanvasContextMenu />
       </div>
 
-      {!home && <EditorShell actions={chromeActions} onHome={onHome} openSettings={openSettings} />}
+      {!home && <Chrome actions={chromeActions} onHome={onHome} openSettings={openSettings} />}
     </div>
 
     {/* Modals + overlays outside the layout so they never clip */}
@@ -174,16 +194,8 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
       onChange={onImportChange}
     />
 
-    {/* The chrome styles toasts as part of it (`.v2-toaster`); they sit centred in its
-        title-card band, 12px down and 44px tall. */}
-    <Toaster
-      position="top-center"
-      visibleToasts={3}
-      className="v2-toaster"
-      toastOptions={{ duration: 2000 }}
-      offset={17}
-      gap={4}
-    />
+    {/* The chrome styles the toasts as part of it. */}
+    <Toaster {...toaster} />
     </>
   );
 }

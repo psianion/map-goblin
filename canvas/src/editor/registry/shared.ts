@@ -3,6 +3,7 @@
 // settings prefs: snap keeps its own pref (src/io/snapPref.ts), the snap step is the map's
 // (saved in the map file), and curve, erase and node mode last the session, as today.
 
+import { GitCommitHorizontal, Spline } from 'lucide-react';
 import { z } from 'zod';
 import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
 import { defineSetting } from './define';
@@ -32,13 +33,12 @@ export const gridSnapStep = defineSetting<SnapDivision>({
   home: 'panel',
   control: 'seg',
   section: 'Placement',
+  // The seg offers the plan's three; the schema still takes all six the core allows, so a
+  // map saved at thirds, sixths or eighths loads and reads back as it was.
   options: [
     { value: 1, label: '1' },
-    { value: 2, label: '1/2' },
-    { value: 3, label: '1/3' },
-    { value: 4, label: '1/4' },
-    { value: 6, label: '1/6' },
-    { value: 8, label: '1/8' },
+    { value: 2, label: '½' },
+    { value: 4, label: '¼' },
   ],
   persist: false,
   bind: {
@@ -54,6 +54,9 @@ export const editCurve = defineSetting<boolean>({
   default: false,
   home: 'dock',
   control: 'switch',
+  icon: Spline,
+  key: 'C',
+  section: 'Edit',
   persist: false,
   bind: {
     read: (s) => s.tools.curveMode,
@@ -86,6 +89,9 @@ export const editNodeMode = defineSetting<boolean>({
   default: false,
   home: 'dock',
   control: 'switch',
+  icon: GitCommitHorizontal,
+  key: 'N',
+  section: 'Edit',
   persist: false,
   bind: {
     read: (s) => s.tools.shapeNodeEditId !== null || s.tools.nodeEditWallId !== null,

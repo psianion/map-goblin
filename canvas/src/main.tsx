@@ -34,6 +34,16 @@ if (import.meta.env.DEV && window.location.pathname === '/gallery') {
       </StrictMode>,
     ),
   )
+} else if (import.meta.env.DEV && window.location.pathname === '/next') {
+  // `/next`: the reworked shell over the same canvas and map, beside the editor at `/`.
+  // Development only, like the gallery, until it replaces the editor.
+  void import('./editor/shell/NextRoute').then(({ NextRoute }) =>
+    root.render(
+      <StrictMode>
+        <NextRoute />
+      </StrictMode>,
+    ),
+  )
 } else {
   root.render(
     <StrictMode>

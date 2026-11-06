@@ -136,7 +136,7 @@ export function createSettings(reg: Registry, store: CoreStore): Settings {
   return settings;
 }
 
-export const { getSetting, setSetting, resetTool, loadPrefs, prefsSnapshot, initPrefs } = createSettings(
-  defaultRegistry,
-  useStore,
-);
+/** The registered registry's settings, over the editor's store. */
+export const settings = createSettings(defaultRegistry, useStore);
+
+export const { getSetting, setSetting, resetTool, loadPrefs, prefsSnapshot, initPrefs } = settings;
