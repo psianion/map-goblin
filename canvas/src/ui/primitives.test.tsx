@@ -67,6 +67,14 @@ describe('ui primitives', () => {
     render(<Slider defaultValue={[40]} aria-label="Strength" />);
     expect(document.querySelectorAll('[data-slot="slider-thumb"]')).toHaveLength(1);
     expect(slot('slider-track').className).toContain('bg-line-strong');
+    // One thumb has no fill; only a range shows its span in ink.
+    expect(slot('slider-range')).toBeNull();
+  });
+
+  it('Slider: a range draws two thumbs with the span between them in ink', () => {
+    render(<Slider defaultValue={[30, 70]} aria-label="Rotation" />);
+    expect(document.querySelectorAll('[data-slot="slider-thumb"]')).toHaveLength(2);
+    expect(slot('slider-range').className).toContain('bg-ink');
   });
 
   it('Switch: 28 by 16, flips on click', () => {

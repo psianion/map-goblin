@@ -1,8 +1,8 @@
 import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 import { cn } from "@/lib/utils"
 
-// Track 2 in line-strong, the filled part in ink, a 12px thumb on panel with a 1.5px
-// ink ring. The ring is an inset shadow: Chromium snaps a 1.5px border to 1px.
+// Track 2 in line-strong, a 12px thumb on panel with a 1.5px ink ring. Only a range (two
+// thumbs) shows the span between them in ink; a single thumb has no fill. The ring is an inset shadow: Chromium snaps a 1.5px border to 1px.
 // The value readout lives in the row composite, not here.
 function Slider({
   className,
@@ -34,10 +34,12 @@ function Slider({
           data-slot="slider-track"
           className="relative grow rounded-[1px] bg-line-strong select-none data-[orientation=horizontal]:h-0.5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-0.5"
         >
-          <SliderPrimitive.Indicator
-            data-slot="slider-range"
-            className="rounded-[1px] bg-ink select-none data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
-          />
+          {_values.length > 1 ? (
+            <SliderPrimitive.Indicator
+              data-slot="slider-range"
+              className="rounded-[1px] bg-ink select-none data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
+            />
+          ) : null}
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
