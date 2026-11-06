@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas v2 design system</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Page chrome. The specimen tokens live on .t-light and .t-dark so both themes show at once. */
+  --page: #f7f7f5; --page-text: #1b1b1b; --page-text-2: #5a5a5a; --page-text-3: #8a8a8a; --page-line: #e3e3e0; --page-panel: #ffffff;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+.t-light {
+  --v2-bg: #f2f2f2; --v2-dot: #c6c6c6; --v2-sheet: #fbfbfb; --v2-panel: #ffffff; --v2-panel-2: #f7f7f7; --v2-panel-3: #ebebeb;
+  --v2-line: #e0e0e0; --v2-line-strong: #c2c2c2; --v2-text: #1b1b1b; --v2-text-2: #4d4d4d; --v2-text-3: #6b6b6b;
+  --v2-ink: #1b1b1b; --v2-on-ink: #ffffff; --v2-ink-hover: #383838; --v2-focus: rgb(27 27 27 / 0.14); --v2-danger: #b3261e;
+  --v2-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06); --v2-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 10px 24px -14px rgb(0 0 0 / 0.22);
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --v2-backdrop: rgb(24 24 24 / 0.32); color-scheme: light;
+}
+.t-dark {
+  --v2-bg: #2b2b2b; --v2-dot: #4f4f4f; --v2-sheet: #353535; --v2-panel: #333333; --v2-panel-2: #383838; --v2-panel-3: #444444;
+  --v2-line: #474747; --v2-line-strong: #5c5c5c; --v2-text: #ececec; --v2-text-2: #bdbdbd; --v2-text-3: #9c9c9c;
+  --v2-ink: #ececec; --v2-on-ink: #1b1b1b; --v2-ink-hover: #ffffff; --v2-focus: rgb(236 236 236 / 0.18); --v2-danger: #f08a7e;
+  --v2-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3); --v2-shadow: 0 1px 2px rgb(0 0 0 / 0.25), 0 12px 28px -14px rgb(0 0 0 / 0.7);
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+  --v2-backdrop: rgb(0 0 0 / 0.5); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--page-text); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 28px 16px 80px; }
+h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 16px; font-weight: 600; margin: 48px 0 4px; padding-top: 18px; border-top: 1px solid var(--page-line); }
+h2 small { font-weight: 400; color: var(--page-text-3); font-family: var(--mono); font-size: 11px; margin-left: 10px; }
+p.lead { color: var(--page-text-2); margin: 0 0 8px; max-width: 76ch; }
+p.note { color: var(--page-text-2); margin: 0 0 12px; font-size: 13px; max-width: 76ch; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.spec { background: var(--v2-bg); border: 1px solid var(--page-line); border-radius: 10px; padding: 18px; color: var(--v2-text); font-family: var(--sans); font-size: 12px; }
+.spec .label { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.row { display: flex; flex-wrap: wrap; gap: 20px 28px; align-items: flex-start; }
+.item { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.item .cap { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); line-height: 1.5; white-space: pre; }
+.measure { font-family: var(--mono); font-size: 11px; color: var(--page-text-2); margin: 10px 0 0; line-height: 1.7; }
+.measure b { color: var(--page-text); font-weight: 500; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+
+/* ───── tokens */
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.sw { display: flex; flex-direction: column; gap: 6px; }
+.sw i { display: block; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); }
+.sw b { font-size: 11px; font-weight: 500; color: var(--v2-text); }
+.sw small { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.type-row { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; align-items: baseline; }
+.type-row .n { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.scale { display: flex; gap: 14px; align-items: flex-end; }
+.scale div { display: flex; flex-direction: column; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.scale i { display: block; width: 18px; background: var(--v2-ink); opacity: 0.8; }
+.radii { display: flex; gap: 20px; }
+.radii div { width: 56px; height: 44px; background: var(--v2-panel); border: 1px solid var(--v2-line); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.shadows { display: flex; gap: 20px; }
+.shadows div { width: 120px; height: 56px; background: var(--v2-panel); border: 1px solid var(--v2-line); border-radius: 8px; display: flex; align-items: flex-end; padding: 6px 8px; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+
+/* ───── primitives (the real v2 classes, measured) */
+.ico { width: 16px; height: 16px; stroke-width: 1.75; flex-shrink: 0; }
+.ico.sm { width: 14px; height: 14px; }
+.ico.lg { width: 18px; height: 18px; }
+kbd { font-family: var(--mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); color: var(--v2-text-3); }
+.ib { position: relative; width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--v2-text-2); background: transparent; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.ib .k { position: absolute; right: 3px; bottom: 2px; font-family: var(--mono); font-size: 8px; line-height: 1; color: var(--v2-text-3); }
+.ib.hk .ico { transform: translate(-1.5px, -1.5px); }
+.ib.r36.hk .ico { transform: translate(-2px, -2px); }
+.ib.hover { background: var(--v2-panel-3); color: var(--v2-text); }
+.ib.on { color: var(--v2-text); box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.ib.on .k { color: var(--v2-text-2); }
+.ib.focus { outline: 2px solid var(--v2-focus); outline-offset: 1px; }
+.ib.dis { opacity: 0.38; cursor: default; }
+.ib.r36 { width: 36px; height: 36px; border-radius: 8px; }
+.ib.r36 .k { right: 5px; bottom: 4px; font-size: 9px; }
+.ib.r32 { width: 32px; height: 32px; }
+.ib.r26 { width: 26px; height: 26px; }
+.ib.r32 .k { right: 4px; bottom: 3px; }
+.ib.danger { color: var(--v2-danger); }
+.primary { height: 28px; padding: 0 14px; line-height: 1; border: 0; border-radius: 6px; background: var(--v2-ink); color: var(--v2-on-ink); font: inherit; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.primary.hover { background: var(--v2-ink-hover); }
+.btn { height: 24px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 6px; font: inherit; font-size: 11px; line-height: 1; display: inline-flex; align-items: center; gap: 6px; color: var(--v2-text-2); background: transparent; }
+.btn.hover { background: var(--v2-panel-2); color: var(--v2-text); }
+.btn.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); color: var(--v2-text); border-color: transparent; }
+.btn.dis { opacity: 0.38; }
+.chip { font-size: 11px; line-height: 1; height: 22px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 999px; color: var(--v2-text-2); display: inline-flex; align-items: center; gap: 6px; }
+.chip.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); border-color: transparent; color: var(--v2-text); }
+.sw2 { width: 28px; height: 16px; border-radius: 999px; background: var(--v2-line-strong); position: relative; display: inline-block; }
+.sw2.on { background: var(--v2-ink); }
+.sw2::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+.sw2.on::after { left: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--v2-line); border-radius: 6px; overflow: hidden; height: 24px; }
+.seg span { padding: 0 10px; font-size: 11px; color: var(--v2-text-2); border-right: 1px solid var(--v2-line); display: inline-flex; align-items: center; }
+.seg span:last-child { border-right: 0; }
+.seg span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.slider { width: 160px; height: 14px; position: relative; }
+.slider::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--v2-line-strong); border-radius: 1px; }
+.slider i { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--v2-panel); border: 1.5px solid var(--v2-ink); }
+.slider.range::after { content: ""; position: absolute; left: 30%; right: 30%; top: 6px; height: 2px; background: var(--v2-ink); }
+.val { font-family: var(--mono); font-size: 11px; color: var(--v2-text); font-variant-numeric: tabular-nums; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--v2-line); border-radius: 6px; height: 24px; font-family: var(--mono); font-size: 11px; color: var(--v2-text); }
+.stepper span { padding: 0 8px; min-width: 36px; text-align: center; }
+.stepper i { width: 22px; height: 100%; display: inline-flex; justify-content: center; align-items: center; color: var(--v2-text-3); font-style: normal; }
+.stepper i:first-child { border-right: 1px solid var(--v2-line); }
+.stepper i:last-child { border-left: 1px solid var(--v2-line); }
+.sel { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; line-height: 1; color: var(--v2-text); }
+.input { height: 24px; padding: 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; line-height: 1; display: inline-flex; align-items: center; min-width: 72px; color: var(--v2-text); font-family: var(--mono); background: var(--v2-panel); }
+.input.focus { outline: 2px solid var(--v2-focus); outline-offset: 1px; border-color: var(--v2-line-strong); }
+.input .ph { color: var(--v2-text-3); font-family: var(--sans); }
+.swatch { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--v2-line); display: inline-block; }
+.tile { width: 56px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.tile .th { width: 56px; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); position: relative; }
+.tile .th.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.tile .th .lk { position: absolute; right: 3px; top: 3px; color: var(--v2-text-3); }
+.tile .n { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; max-width: 56px; overflow: hidden; text-overflow: ellipsis; }
+.addtile { width: 56px; height: 44px; border: 1px dashed var(--v2-line-strong); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--v2-text-3); }
+
+/* ───── composites */
+.float { background: var(--v2-panel); border: 1px solid var(--v2-line); border-radius: 8px; box-shadow: var(--v2-e-shadow); }
+.setrow { display: grid; grid-template-columns: 1fr auto; align-items: center; min-height: 28px; width: 248px; }
+.setrow label { font-size: 12px; color: var(--v2-text-2); }
+.setrow .withval { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; }
+.setrow .withval .slider { grid-column: 1 / -1; width: 100%; }
+.cap6 { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); }
+.hd { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--v2-line); width: 272px; }
+.hd .crumb { font-size: 11px; color: var(--v2-text-3); }
+.hd .crumb b { color: var(--v2-text); font-weight: 500; font-size: 12px; }
+.hd .sw { margin-left: auto; display: flex; gap: 2px; }
+.hd .sw .ib { width: 26px; height: 26px; }
+.actrow { display: flex; gap: 2px; padding: 6px 8px; width: 272px; border-bottom: 1px solid var(--v2-line); }
+.actrow .ib { width: 26px; height: 26px; }
+.actrow .ib.danger { margin-left: auto; }
+.flyrow { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: 6px; color: var(--v2-text); width: 260px; }
+.flyrow.on { background: var(--v2-panel-2); }
+.flyrow .lbl { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.flyrow .lbl span { font-size: 13px; font-weight: 500; }
+.flyrow .lbl small { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col { display: flex; flex-direction: column; padding: 8px 10px; gap: 6px; height: 112px; }
+.col .t { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.col .t .r { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; display: inline-flex; gap: 4px; align-items: center; }
+.strip { display: flex; gap: 6px; }
+.levels { display: flex; flex-direction: column; gap: 2px; }
+.levels span { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 4px; color: var(--v2-text-3); }
+.levels span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.bar { height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; }
+.bar .name { font-weight: 500; font-size: 13px; }
+.bar .lvl { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border: 1px solid var(--v2-line); border-radius: 4px; color: var(--v2-text-2); }
+.bar .saved { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.status { height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 12px; background: var(--v2-panel); border-top: 1px solid var(--v2-line); font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--v2-text-3); white-space: nowrap; width: 100%; }
+.status .hint { color: var(--v2-text-2); display: inline-flex; gap: 6px; align-items: center; }
+.status .sp { flex: 1; }
+.rail { width: 56px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--v2-panel); border-right: 1px solid var(--v2-line); border-radius: 0; }
+.rail hr { width: 24px; border: 0; border-top: 1px solid var(--v2-line); margin: 6px 0; }
+.rail .ib { width: 36px; height: 36px; border-radius: 8px; }
+.rail .ib .k { right: 5px; bottom: 4px; font-size: 9px; }
+.rail .ib .ico { width: 18px; height: 18px; }
+.rail .ib.hk .ico { transform: translate(-2px, -2px); }
+.gutter { position: relative; display: flex; gap: 12px; align-items: flex-start; }
+.g { position: absolute; font-family: var(--mono); font-size: 9px; color: var(--v2-danger); }
+.toast { display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; background: var(--v2-ink); color: var(--v2-on-ink); font-size: 12px; }
+.toast .u { text-decoration: underline; text-underline-offset: 2px; }
+.tip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px; background: var(--v2-ink); color: var(--v2-on-ink); font-size: 11px; }
+.tip kbd { background: transparent; border-color: rgb(255 255 255 / 0.3); color: var(--v2-on-ink); }
+.t-dark .tip kbd { border-color: rgb(0 0 0 / 0.3); }
+.dlg { width: 320px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.dlg b { font-size: 13px; font-weight: 500; }
+.dlg p { margin: 0; font-size: 12px; color: var(--v2-text-2); }
+.dlg .acts { display: flex; justify-content: flex-end; gap: 6px; }
+.menu { width: 232px; padding: 6px; }
+.menu .mi { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--v2-text); }
+.menu .mi.hover { background: var(--v2-panel-2); }
+.menu .mi .meta { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.menu hr { border: 0; border-top: 1px solid var(--v2-line); margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Canvas v2 design system</h1>
+  <p class="lead">The tokens the v2 editor already ships, and every control the new shell needs, drawn in light and dark side by side with the measurements under each. Verify or reject piece by piece. What survives becomes the one component set, built on shadcn primitives, and the old Moss theme and the hand-written v2 CSS go.</p>
+  <p class="note">Base unit 4px. Three control heights: 24 inside panels and cards, 28 in bars and the rail's small buttons, 36 on the rail. Icon strokes 1.75. One accent: none. Active is a 1.5px inset ring in the ink colour. Nothing is filled except the one primary button and tooltips.</p>
+
+  <h2>Colour tokens <small>v2.css, verified against the running editor</small></h2>
+  <div class="pair" id="tokens"></div>
+  <p class="measure"><b>Rules.</b> Text on panel uses text (1b1b1b) for values, text-2 (4d4d4d) for labels, text-3 (6b6b6b) for captions and keys. Lines are hairline only, 1px, line for rest and line-strong for slider tracks. Danger is reserved for delete. No second accent anywhere.</p>
+
+  <h2>Type <small>IBM Plex Sans, IBM Plex Mono</small></h2>
+  <div class="pair" id="type"></div>
+  <p class="measure"><b>Rules.</b> Sans for words, Mono for numbers, keys, times and ids. Captions are 10px, 500, uppercase, 0.04em tracking. Nothing on the chrome is larger than 13px. Tabular numerals everywhere a number can change width.</p>
+
+  <h2>Spacing, shape, elevation</h2>
+  <div class="pair" id="space"></div>
+  <p class="measure"><b>Rules.</b> 12px from every screen edge and 12px between floats. 8px between a float's edge and its content, 12px on the left of text rows. 6px between tiles, 2px between icon buttons in a row, 10px between rail buttons. Radius 8 for floats, 6 for controls and tiles, 4 for keycaps and level rows. One shadow for floats, none on controls.</p>
+
+  <h2>Icon button with key <small>Rail 36, dock 32, bar 28, row 26</small></h2>
+  <div class="pair" id="ibs"></div>
+  <p class="measure"><b>Rules.</b> The key letter sits in the bottom right corner, mono, 8px at 28, 9px at 36, in text-3, 3px from the edges at 28 and 5px at 36. When a button has a key its icon moves 1.5px up and left (2px at 36) so the letter owns its corner. Hover is a panel-3 fill. Active is the 1.5px inset ring and no fill, so hover and active can show together. Focus is a 2px outline in the focus token, offset 1px. Disabled is 38% opacity. The icon never moves between states.</p>
+
+  <h2>Buttons, chips, keys</h2>
+  <div class="pair" id="btns"></div>
+
+  <h2>Controls <small>24px tall inside panels and cards</small></h2>
+  <div class="pair" id="ctls"></div>
+  <p class="measure"><b>Rules.</b> A control is 24px tall in a panel. Segmented controls use panel-3 for the chosen cell, no ring. Switch knob is always white; the track is line-strong off and ink on. Slider thumb is 12px with a 1.5px ink ring, the track 2px. Values sit right-aligned in mono beside the label and the slider drops to a second line.</p>
+
+  <h2>Tiles and swatches <small>56 × 44</small></h2>
+  <div class="pair" id="tiles"></div>
+
+  <h2>Setting rows and captions <small>The panel and card vocabulary</small></h2>
+  <div class="pair" id="rows"></div>
+  <p class="measure"><b>Rules.</b> Label left in text-2, control right. A row is 28px minimum. Sections are separated by 12px and a caption. A slider row puts the value beside the label and the track on the next line, full width. Folds collapse to one line with their summary in mono.</p>
+
+  <h2>Panel header, action row, flyout row</h2>
+  <div class="pair" id="heads"></div>
+
+  <h2>Dock columns</h2>
+  <div class="pair" id="dock"></div>
+  <p class="measure"><b>Rules.</b> A column is a caption row then a strip, 8px padding, 10px sides, hairline between columns. The caption's right end holds the column's one control (a dropdown, a plus). Tiles are 56 wide with 6px between. The dock is 112 tall and never changes height between tools.</p>
+
+  <h2>Bars, rail, status</h2>
+  <div class="pair" id="bars"></div>
+
+  <h2>Overlays <small>Tooltip, menu, dialog, toast</small></h2>
+  <div class="pair" id="overlays"></div>
+  <p class="measure"><b>Rules.</b> Tooltips are ink-filled, 24 tall, label plus key. Menus are floats with 28px rows and 6px padding. Dialogs are floats at 320 wide with the primary action last. Toasts are ink-filled with one underlined undo verb and leave by themselves.</p>
+
+  <h2>Gutters at the screen edge <small>How the surfaces sit together</small></h2>
+  <div class="pair" id="gutters"></div>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+(function () {
+  function ib(icon, key, cls, size) { return '<span class="ib' + (cls ? ' ' + cls : '') + (key ? ' hk' : '') + '"><i data-lucide="' + icon + '" class="ico' + (size ? ' ' + size : '') + '"></i>' + (key ? '<span class="k">' + key + '</span>' : '') + '</span>'; }
+  function item(html, cap) { return '<div class="item">' + html + (cap ? '<div class="cap">' + cap + '</div>' : '') + '</div>'; }
+  function spec(label, html) { return '<div class="spec"><div class="label">' + label + '</div>' + html + '</div>'; }
+  function pair(id, build) { document.getElementById(id).innerHTML = '<div class="t-light">' + spec('Light', build('light')) + '</div><div class="t-dark">' + spec('Dark', build('dark')) + '</div>'; }
+
+  var L = { bg: '#f2f2f2', dot: '#c6c6c6', sheet: '#fbfbfb', panel: '#ffffff', 'panel-2': '#f7f7f7', 'panel-3': '#ebebeb', line: '#e0e0e0', 'line-strong': '#c2c2c2', text: '#1b1b1b', 'text-2': '#4d4d4d', 'text-3': '#6b6b6b', ink: '#1b1b1b', 'on-ink': '#ffffff', 'ink-hover': '#383838', danger: '#b3261e' };
+  var D = { bg: '#2b2b2b', dot: '#4f4f4f', sheet: '#353535', panel: '#333333', 'panel-2': '#383838', 'panel-3': '#444444', line: '#474747', 'line-strong': '#5c5c5c', text: '#ececec', 'text-2': '#bdbdbd', 'text-3': '#9c9c9c', ink: '#ececec', 'on-ink': '#1b1b1b', 'ink-hover': '#ffffff', danger: '#f08a7e' };
+  var ROLES = { bg: 'canvas behind the map', dot: 'grid dots', sheet: 'sheet background', panel: 'floats, rail, bars', 'panel-2': 'hover, kbd, input', 'panel-3': 'chosen cell, hover on icon', line: 'every hairline', 'line-strong': 'slider track, dashed add', text: 'values, names', 'text-2': 'labels, icons', 'text-3': 'captions, keys, hints', ink: 'primary, ring, thumb', 'on-ink': 'text on ink', 'ink-hover': 'primary hover', danger: 'delete only' };
+  pair('tokens', function (t) {
+    var T = t === 'light' ? L : D, h = '<div class="swatches">';
+    Object.keys(T).forEach(function (k) { h += '<div class="sw"><i style="background:' + T[k] + '"></i><b>' + k + '</b><small>' + T[k] + '</small><small>' + ROLES[k] + '</small></div>'; });
+    return h + '</div>';
+  });
+
+  pair('type', function () {
+    return '<div class="type-row">' +
+      '<span class="n">title · 13 / 500</span><span style="font-size:13px;font-weight:500;color:var(--v2-text)">Warren of the Pale Moth</span>' +
+      '<span class="n">body · 12 / 400</span><span style="font-size:12px;color:var(--v2-text)">Stay inside floors</span>' +
+      '<span class="n">label · 12 / 400 · text-2</span><span style="font-size:12px;color:var(--v2-text-2)">Snap to grid</span>' +
+      '<span class="n">control · 11 / 400</span><span style="font-size:11px;color:var(--v2-text-2)">Soft · Hard · Closed · Open · Locked</span>' +
+      '<span class="n">caption · 10 / 500 · caps</span><span class="cap6">Placement</span>' +
+      '<span class="n">tile name · 10 / 400 · text-2</span><span style="font-size:10px;color:var(--v2-text-2)">Stone floor</span>' +
+      '<span class="n">mono value · 11</span><span class="val">16 sq · 40% · 120° · 6 × 6</span>' +
+      '<span class="n">mono meta · 10 · text-3</span><span style="font-family:var(--mono);font-size:10px;color:var(--v2-text-3)">saved 14:32 · L2 Cellars</span>' +
+      '<span class="n">key · 8 or 9 · mono</span><span>' + ib('square-dashed', 'F', 'on') + ' ' + ib('mountain', 'T', 'on r36', 'lg') + '</span>' +
+      '<span class="n">keycap · 10 · mono</span><span><kbd>Enter</kbd> <kbd>Shift</kbd> <kbd>[</kbd> <kbd>]</kbd></span>' +
+      '</div>';
+  });
+
+  pair('space', function () {
+    return '<div class="row">' +
+      item('<div class="scale"><div><i style="height:4px"></i>4</div><div><i style="height:6px"></i>6</div><div><i style="height:8px"></i>8</div><div><i style="height:10px"></i>10</div><div><i style="height:12px"></i>12</div><div><i style="height:16px"></i>16</div></div>', 'spacing scale, px') +
+      item('<div class="radii"><div style="border-radius:4px">4</div><div style="border-radius:6px">6</div><div style="border-radius:8px">8</div><div style="border-radius:999px">pill</div></div>', 'radius: kbd · controls, tiles · floats · chips, switch') +
+      item('<div class="shadows"><div style="box-shadow:var(--v2-shadow-sm)">shadow-sm</div><div style="box-shadow:var(--v2-e-shadow)">e-shadow</div><div style="box-shadow:var(--v2-shadow)">shadow</div></div>', 'elevation: chips · floats · sheets') +
+      '</div>';
+  });
+
+  pair('ibs', function () {
+    return '<div class="row">' +
+      item('<div style="display:flex;gap:10px">' + ib('mountain', 'T', 'r36', 'lg') + ib('mountain', 'T', 'r36 hover', 'lg') + ib('mountain', 'T', 'r36 on', 'lg') + ib('mountain', 'T', 'r36 on hover', 'lg') + ib('mountain', 'T', 'r36 focus', 'lg') + ib('mountain', 'T', 'r36 dis', 'lg') + '</div>', 'rail 36 × 36 · radius 8 · icon 18 · key 9\nrest · hover · active · active+hover · focus · disabled') +
+      item('<div style="display:flex;gap:4px">' + ib('square', 'R', 'r32', 'sm') + ib('pentagon', 'P', 'r32 on', 'sm') + ib('hexagon', 'G', 'r32 hover', 'sm') + ib('spline', 'C', 'r32', 'sm') + ib('git-commit-horizontal', 'N', 'r32 dis', 'sm') + '</div>', 'dock 32 × 32 · radius 6 · icon 14 · key 8 · gap 4') +
+      item('<div style="display:flex;gap:4px">' + ib('undo-2', 'Z') + ib('redo-2', 'Y', 'dis') + ib('ellipsis', '') + ib('circle-help', '?', '', 'sm') + '</div>', 'bar 28 × 28 · icon 16 · gap 4') +
+      item('<div style="display:flex;gap:2px">' + ib('flip-horizontal', '', 'r26', 'sm') + ib('rotate-cw', '', 'r26', 'sm') + ib('copy', '', 'r26', 'sm') + ib('lock', '', 'r26 on', 'sm') + ib('trash-2', '', 'r26 danger', 'sm') + '</div>', 'row 26 × 26 · icon 14 · gap 2 · danger last') +
+      '</div>';
+  });
+
+  pair('btns', function () {
+    return '<div class="row">' +
+      item('<div style="display:flex;gap:8px;align-items:center"><span class="primary">Publish</span><span class="primary hover">Publish</span><span class="primary" style="opacity:.38">Publish</span></div>', 'primary 28 · pad 14 · 12/500 · ink\nrest · hover · disabled') +
+      item('<div style="display:flex;gap:8px;align-items:center"><span class="btn">Reset</span><span class="btn hover">Reset</span><span class="btn on"><i data-lucide="eraser" class="ico sm"></i>Erase</span><span class="btn dis">Reset</span><span class="btn">Hold <kbd>Alt</kbd></span></div>', 'secondary 24 · pad 10 · 11 · hairline · icon 14 gap 6\nrest · hover · active · disabled · with key') +
+      item('<div style="display:flex;gap:4px;align-items:center"><span class="chip">All</span><span class="chip on">Props</span><span class="chip on">Lights</span><span class="chip">Zones</span></div>', 'chip 22 tall · pad 10 · 11 · pill · gap 4\nrest · on') +
+      item('<div style="display:flex;gap:6px;align-items:center"><kbd>Enter</kbd><kbd>Backspace</kbd><kbd>Shift</kbd><kbd>N</kbd><kbd>0</kbd></div>', 'keycap 18 tall · min 18 wide · pad 5 · 10 mono · radius 4 · panel-2') +
+      '</div>';
+  });
+
+  pair('ctls', function () {
+    return '<div class="row">' +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="sw2"></span><span class="sw2 on"></span></div>', 'switch 28 × 16 · knob 12 · off · on') +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="seg"><span class="on">Draw</span><span>Carve out</span></span><span class="seg"><span>Closed</span><span class="on">Open</span><span>Locked</span></span></div>', 'segmented 24 · cell pad 10 · 11 · chosen = panel-3') +
+      item('<div style="display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;width:200px"><span style="font-size:12px;color:var(--v2-text-2)">Size</span><span class="val">16 sq</span><div class="slider" style="grid-column:1/-1;width:100%"><i style="left:38%"></i></div></div>', 'slider · track 2 line-strong · thumb 12 ring 1.5 ink\nvalue mono right, track on its own line') +
+      item('<div class="slider range" style="width:200px"><i style="left:30%"></i><i style="left:70%"></i></div>', 'range · two thumbs · span in ink') +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="stepper"><i>−</i><span>6</span><i>+</i></span><span class="stepper"><i>−</i><span>+2</span><i>+</i></span></div>', 'stepper 24 · cells 22 · value mono 11') +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="sel">Cave ink <i data-lucide="chevron-down" class="ico sm"></i></span><span class="sel">Oak plank <i data-lucide="chevron-down" class="ico sm"></i></span></div>', 'select 24 · pad 8 6 · chevron 14') +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="input">5 ft</span><span class="input focus">120°</span><span class="input"><span class="ph">Search packs</span></span></div>', 'input 24 · mono for numbers · focus = 2px outline') +
+      item('<div style="display:flex;gap:12px;align-items:center"><span class="swatch" style="background:#cfc3ad"></span><span class="swatch" style="background:#8c9a6c"></span><span class="swatch" style="background:transparent"></span><span class="swatch" style="background:#ffdd88"></span></div>', 'colour swatch 24 · radius 6 · empty = none') +
+      '</div>';
+  });
+
+  pair('tiles', function () {
+    return '<div class="row">' +
+      item('<div class="strip"><div class="tile"><div class="th"></div><div class="n">Terrain</div></div><div class="tile"><div class="th on"></div><div class="n">Stone floor</div></div><div class="tile"><div class="th"><i data-lucide="lock" class="ico sm lk"></i></div><div class="n">Walls</div></div><div class="tile"><div class="th" style="background:#8c9a6c"></div><div class="n">Moss</div></div><div class="tile"><div class="th on" style="background:#b9ad96"></div><div class="n">Flagstone</div></div><div class="tile"><div class="th" style="background:#a08f74"></div><div class="n">Cracked earth is long</div></div><div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div></div>', 'tile 56 × 44 · radius 6 · name 10 under, 3px gap, ellipsis\nrest · active ring · locked badge · material · active material · long name · add (dashed)') +
+      '</div>';
+  });
+
+  pair('rows', function () {
+    return '<div class="row">' +
+      item('<div style="display:flex;flex-direction:column;gap:8px"><div class="cap6">Placement</div>' +
+        '<div class="setrow"><label>Snap to grid</label><span class="sw2 on"></span></div>' +
+        '<div class="setrow"><label>Snap step</label><span class="seg"><span>1</span><span class="on">½</span><span>¼</span></span></div>' +
+        '<div class="setrow"><label>Edge band</label><span class="sel">Cave ink <i data-lucide="chevron-down" class="ico sm"></i></span></div>' +
+        '<div class="setrow"><label>Width</label><span class="input">5 ft</span></div>' +
+        '<div class="setrow"><div class="withval" style="width:100%"><label>Opacity</label><span class="val">100%</span><div class="slider"><i style="left:96%"></i></div></div></div>' +
+        '<div class="setrow"><label>Erase</label><span class="btn"><i data-lucide="eraser" class="ico sm"></i>Hold <kbd>Alt</kbd></span></div>' +
+        '<div class="setrow"><label>Texture</label><span style="display:inline-flex;gap:6px;align-items:center"><span class="swatch" style="width:36px;height:28px;background:#cfc3ad"></span><span class="btn">Change</span></span></div>' +
+        '<div style="display:flex;align-items:center;gap:8px;color:var(--v2-text-2);min-height:28px"><i data-lucide="chevron-right" class="ico sm"></i>Fill <small style="color:var(--v2-text-3);font-family:var(--mono);font-size:10px">scale 1 · 0° · offset 0, 0</small></div>' +
+        '</div>', 'row 248 wide · min 28 tall · label 12 text-2 · control right\nswitch · segmented · select · input · slider · button with key · texture · fold') +
+      '</div>';
+  });
+
+  pair('heads', function () {
+    var sw = ib('square-dashed', 'F', 'on', 'sm') + ib('brick-wall', 'W', '', 'sm') + ib('door-open', 'D', '', 'sm') + ib('mountain', 'E', '', 'sm');
+    return '<div class="row">' +
+      item('<div class="float"><div class="hd"><span class="crumb">Design / <b>Floor</b></span><span class="sw">' + sw + '</span></div></div>', 'panel header 40 · pad 12 left 8 right · crumb 11/12 · switcher 26 buttons gap 2') +
+      item('<div class="float"><div class="hd"><span class="crumb">Selection / <b>Door</b></span><span class="sw"><span class="chip" style="font-size:10px">Walls</span></span></div><div class="actrow">' + ib('git-commit-horizontal', 'N', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div></div>', 'card header + action row · row pad 6 8 · 26 buttons gap 2 · delete pushed right') +
+      item('<div class="float" style="padding:6px"><div class="flyrow on">' + ib('square-dashed', 'F', 'r32') + '<div class="lbl"><span>Floor</span><small>Rectangle, polygon, regular polygon</small></div></div><div class="flyrow">' + ib('brick-wall', 'W', 'r32') + '<div class="lbl"><span>Wall</span><small>Solid, window, open</small></div></div></div>', 'flyout row 44 · icon 32 · gap 12 · name 13/500 · description 11 text-3 · one line, ellipsis') +
+      '</div>';
+  });
+
+  pair('dock', function () {
+    return '<div class="row"><div class="float" style="display:flex;overflow:hidden">' +
+      '<div class="col" style="border-right:1px solid var(--v2-line)"><div class="t">Level <span class="r"><i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="levels"><span>L3 Attic</span><span class="on">L2 Cellars</span><span>L1 Ground</span></div></div>' +
+      '<div class="col" style="border-right:1px solid var(--v2-line)"><div class="t">Layers <span class="r"><i data-lucide="plus" class="ico sm"></i></span></div><div class="strip"><div class="tile"><div class="th"><i data-lucide="lock" class="ico sm lk"></i></div><div class="n">Walls</div></div><div class="tile"><div class="th on"></div><div class="n">Stone floor</div></div><div class="tile"><div class="th"></div><div class="n">Water</div></div></div></div>' +
+      '<div class="col" style="border-right:1px solid var(--v2-line)"><div class="t">Shape</div><div style="display:flex;gap:4px;align-items:center">' + ib('square', 'R', 'r32', 'sm') + ib('pentagon', 'P', 'r32 on', 'sm') + ib('hexagon', 'G', 'r32', 'sm') + '<span class="stepper"><i>−</i><span>6</span><i>+</i></span></div></div>' +
+      '<div class="col"><div class="t">Look <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip"><div class="tile"><div class="th" style="background:#d9cfbd"></div><div class="n">Colour</div></div><div class="tile"><div class="th on" style="background:#b9ad96"></div><div class="n">Flagstone</div></div><div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div></div></div>' +
+      '</div></div><div class="cap" style="font-family:var(--mono);font-size:10px;color:var(--v2-text-3);margin-top:8px">dock 112 tall · column pad 8 10 · caption 10 caps with its one control at the right · hairline between columns</div>';
+  });
+
+  pair('bars', function () {
+    return '<div class="row">' +
+      item('<div class="float bar">' + ib('house', '') + '<span class="name">Warren of the Pale Moth</span><span class="lvl">L2 Cellars</span><span class="saved">saved 14:32</span></div>', 'title card 44 · pad 8 · gap 8 · home 28 · level chip mono 10 · saved mono 10 text-3') +
+      item('<div class="float bar" style="gap:4px">' + ib('undo-2', 'Z') + ib('redo-2', 'Y', 'dis') + ib('ellipsis', '') + '<span class="primary" style="margin-left:4px">Publish</span></div>', 'top actions 44 · gap 4 · primary last with 4 extra') +
+      item('<div class="float rail" style="height:420px">' + ib('mouse-pointer-2', 'V', 'on', 'lg') + ib('hand', 'H', '', 'lg') + ib('ruler', 'M', '', 'lg') + '<hr>' + ib('pencil-ruler', 'D', 'on', 'lg') + ib('mountain', 'T', '', 'lg') + ib('box', 'O', '', 'lg') + ib('sun-moon', 'E', '', 'lg') + ib('type', 'X', '', 'lg') + '</div>', 'rail 56 wide · pad 12 top · 36 buttons · gap 10 · divider 24 wide with 6 above and below') +
+      '</div><div class="float status" style="margin-top:20px;border-radius:0 0 8px 8px"><span>Grid 5 ft</span><span>Snap ½</span><span>Lit · off</span><span class="hint">Click points · <kbd>Enter</kbd> close · <kbd>Backspace</kbd> last point</span><span class="sp"></span><span>Fit <kbd>0</kbd> · 100%</span>' + ib('circle-help', '?', '', 'sm') + '</div><div class="cap" style="font-family:var(--mono);font-size:10px;color:var(--v2-text-3);margin-top:8px">status 28 · mono 11 · gap 16 · hint in text-2 with keycaps · help last</div>';
+  });
+
+  pair('overlays', function () {
+    return '<div class="row">' +
+      item('<span class="tip">Terrain brush <kbd>B</kbd></span>', 'tooltip 24 · ink · label + key · 1 line') +
+      item('<div class="float menu"><div class="mi"><i data-lucide="settings-2" class="ico sm"></i>Map settings…</div><div class="mi hover"><i data-lucide="download" class="ico sm"></i>Export…<span class="meta">Ctrl E</span></div><div class="mi"><i data-lucide="package" class="ico sm"></i>Packs…</div><hr><div class="mi"><i data-lucide="maximize" class="ico sm"></i>Fit to content<span class="meta">0</span></div><div class="mi"><i data-lucide="keyboard" class="ico sm"></i>Keyboard shortcuts<span class="meta">?</span></div></div>', 'menu 232 · pad 6 · rows 28 · icon 14 gap 10 · meta mono right') +
+      item('<div class="float dlg"><b>Delete 3 props?</b><p>They leave this layer. Undo brings them back.</p><div class="acts"><span class="btn" style="height:28px;padding:0 12px;font-size:12px">Cancel</span><span class="primary">Delete</span></div></div>', 'dialog 320 · pad 16 · gap 12 · title 13/500 · actions right, primary last') +
+      item('<span class="toast"><i data-lucide="check" class="ico sm"></i>Map deleted<span class="u">Undo</span></span>', 'toast 36 · ink · pad 12 · one verb · 5 s') +
+      '</div>';
+  });
+
+  pair('gutters', function () {
+    return '<div class="gutter" style="background:var(--v2-bg);padding:0;height:260px;overflow:hidden;border-radius:6px;position:relative">' +
+      '<div class="float rail" style="height:260px;border-radius:0">' + ib('mouse-pointer-2', 'V', '', 'lg') + ib('hand', 'H', '', 'lg') + '<hr>' + ib('pencil-ruler', 'D', 'on', 'lg') + '</div>' +
+      '<div style="position:absolute;left:68px;top:12px" class="float bar">' + ib('house', '') + '<span class="name">Warren of the Pale Moth</span></div>' +
+      '<div style="position:absolute;left:68px;top:68px;width:272px;height:150px" class="float"><div class="hd"><span class="crumb">Design / <b>Floor</b></span></div></div>' +
+      '<div style="position:absolute;right:12px;top:12px" class="float bar">' + ib('undo-2', 'Z') + ib('redo-2', 'Y') + '<span class="primary">Publish</span></div>' +
+      '<div style="position:absolute;right:12px;top:68px;width:200px;height:110px" class="float"><div class="hd" style="width:auto"><span class="crumb"><b>Assets</b></span></div></div>' +
+      '<div style="position:absolute;left:352px;top:190px;width:400px;height:40px" class="float"></div>' +
+      '<span class="g" style="left:58px;top:14px">12</span><span class="g" style="left:58px;top:70px">12</span><span class="g" style="left:160px;top:56px">12</span><span class="g" style="right:4px;top:70px">12</span><span class="g" style="right:4px;top:184px">12 above dock</span><span class="g" style="left:342px;top:200px">12</span>' +
+      '</div><div class="cap" style="font-family:var(--mono);font-size:10px;color:var(--v2-text-3);margin-top:8px">12px from every edge, 12px between floats, the asset panel ends 12px above the dock, the dock is 12px above the status bar</div>';
+  });
+
+  if (window.lucide) lucide.createIcons();
+})();
+</script>
+</body>
+</html>
