@@ -102,7 +102,7 @@ export function extractWallSegments(
         })
       }
     }
-    // Cliffs: one-way, openings already cut out; light from a drop of one cell, sight from the threshold.
+    // Cliffs: one-way; light from a drop of one cell, sight from the threshold.
     if (options.cliffs !== false) {
       for (const c of cliffOccluders(layer, kind === 'light' ? 1 : options.sightDropCells)) {
         segments.push({ ...c, blocksLight: true, blocksSight: true })

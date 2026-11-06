@@ -7,7 +7,7 @@ import { installStubs } from './publishStubs'
 
 /**
  * Plateaus in the editor, on the authored test maps (session/testdata/plateau-test and
- * tower-test): plan §0 scenarios 2, 3 and 4, the hill's card readouts, and both maps and the
+ * tower-test): plan §0 scenarios 2 and 3, the hill's card readouts, and both maps and the
  * goblin warren opening, exporting a PNG and publishing. Every map's plateaus are taken off it
  * on open and drawn again with the Plateau tool (`openMap`). Then the tool itself, its card,
  * its ring editing, and how a plateau draws over terrain paint.
@@ -66,8 +66,7 @@ const CARD_FIELDS = ['name', 'edgeArt', 'slopeWidth', 'contourLines', 'sightOver
 /**
  * Draws `plateau` with the Plateau tool on its own layer, as a hand would: its level and layer
  * active, its height and edge in the dock, E, a click on each corner and one on the first to
- * close. The card's fields follow, and its openings are pointed at the new plateau. Resolves
- * to the new plateau's id.
+ * close. The card's fields follow. Resolves to the new plateau's id.
  */
 async function drawWithTool(page: Page, plateau: Any, layer: { id: string; levelId?: string }): Promise<string> {
   await page.evaluate(({ layer, plateau }) => {
@@ -90,16 +89,14 @@ async function drawWithTool(page: Page, plateau: Any, layer: { id: string; level
     await page.waitForTimeout(350)
   }
   await expect.poll(count).toBe(before + 1)
-  return page.evaluate(({ old, layerId, plateau, fields }) => {
+  return page.evaluate(({ layerId, plateau, fields }) => {
     const st = (window as Any).__store.getState()
     const made = st.selection.selectedIds[0]
     const patch: Any = {}
     for (const k of fields) if (plateau[k] !== undefined) patch[k] = plateau[k]
     st.updateChild(layerId, made, patch)
-    const l = st.layers.find((x: Any) => x.id === layerId)
-    for (const c of l.children) if (c.childType === 'opening' && c.hostId === old) st.updateChild(layerId, c.id, { hostId: made })
     return made
-  }, { old: plateau.id, layerId: layer.id, plateau, fields: CARD_FIELDS })
+  }, { layerId: layer.id, plateau, fields: CARD_FIELDS })
 }
 
 /**
@@ -189,7 +186,7 @@ async function select(page: Page, id: string): Promise<void> {
 test.describe('plateau-test in the editor', () => {
   test('opens with every named object and draws every band without an error', async ({ page }) => {
     const { errors } = await openMap(page, PLATEAU)
-    for (const id of ['ground', 'outcrop', 'outcrop-stairs', 'hill', 'summit', 'pit', 'far-mesa', 'torch-top', 'torch-ground']) {
+    for (const id of ['ground', 'outcrop', 'hill', 'summit', 'pit', 'far-mesa', 'torch-top', 'torch-ground']) {
       expect(await child(page, id), id).toBeTruthy()
     }
     await expect.poll(async () => (await bandLabels(page, 2)).length).toBeGreaterThan(0)
@@ -228,34 +225,6 @@ test.describe('plateau-test in the editor', () => {
     await expect(page.getByTestId('v2-plateau-height')).toContainText('+2')
     await expect(page.getByTestId('v2-plateau-standing')).toHaveText('+3 · drop 2')
     await expect(page.getByRole('button', { name: 'Auto (hides)' })).toBeVisible()
-  })
-
-  test('scenario 4: the stairs part the rock, and the Opening tool places more in one undo step', async ({ page }) => {
-    const { ids } = await openMap(page, PLATEAU)
-    const outcrop = await bandLabels(page, 2)
-    expect(outcrop.some((l) => l.label === 'opening-outcrop-stairs')).toBe(true)
-    // No rock sprite sits over the stairs' gap at (12, 7.5).
-    const overGap = await page.evaluate(() => {
-      const w = window as Any
-      const find = (c: Any, label: string): Any => (c.label === label ? c : (c.children ?? []).map((k: Any) => find(k, label)).find(Boolean))
-      const rock = find(find(w.__pixiApp.stage, 'plateau-band-2'), 'plateau-cliff')
-      return rock.children.filter((s: Any) => Math.hypot(s.position.x - 12, s.position.y - 7.5) < 0.6).length
-    })
-    expect(overGap).toBe(0)
-
-    // S, then a click on the far mesa's north edge.
-    await blur(page)
-    await page.keyboard.press('s')
-    const at = await screenOf(page, { x: 10, y: 26.1 })
-    await page.mouse.move(at.x, at.y)
-    await waitFrame(page, 2)
-    await page.mouse.click(at.x, at.y)
-    await waitFrame(page, 2)
-    const openings = () => inPage<Any[]>(page, `(s, layer) => layer().children.filter((c) => c.childType === 'opening')`)
-    await expect.poll(async () => (await openings()).length).toBe(2)
-    expect((await openings()).find((o) => o.id !== 'outcrop-stairs').hostId).toBe(ids['far-mesa-plateau'])
-    await page.keyboard.press('Control+z')
-    await expect.poll(async () => (await openings()).length).toBe(1)
   })
 })
 
@@ -416,27 +385,6 @@ test.describe('the Plateau tool', () => {
     const expand = sheet.getByTestId('v2-layers-layer').first().getByRole('button', { name: 'Expand' })
     if (await expand.count()) await expand.click()
     await expect(sheet.locator(`[data-object-id="${id}"]`)).toContainText('Plateau 1')
-  })
-
-  test('delete takes its openings with it, and undo brings both back', async ({ page }) => {
-    await openField(page)
-    await blur(page)
-    await page.keyboard.press('e')
-    await dragThrough(page, rectAround(4, 4, 10, 9))
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
-    const id = (await plateausOf(page))[0].id
-    await inPage(page, `(s, layer, w2s, id) => s().addChild(layer().id, {
-      id: 'st', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', hostId: id, t: 0.1, width: 2,
-    })`, id)
-    await page.keyboard.press('v')
-    await select(page, id)
-    await blur(page)
-    await page.keyboard.press('Delete')
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(0)
-    expect(await child(page, 'st')).toBeFalsy()
-    await page.keyboard.press('Control+z')
-    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
-    expect(await child(page, 'st')).toBeTruthy()
   })
 })
 

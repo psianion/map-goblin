@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
 import { undoManager } from './undoManager';
-import { addOpening, removeOpening, setCrossingKinds, setPlateauFields, setSightDropCells } from './plateauCommands';
+import { setCrossingKinds, setPlateauFields, setSightDropCells } from './plateauCommands';
 import { defaultCrossingKinds } from '../shared/crossingKinds';
-import { createChildRemovalCommand } from './commands';
-import type { OpeningChild, PlateauChild } from '../shared/types';
+import type { PlateauChild } from '../shared/types';
 import type { Command, DungeonLayer } from './types';
 
 const outcrop: PlateauChild = {
@@ -15,17 +14,6 @@ const outcrop: PlateauChild = {
   contours: [[[0, 0], [6, 0], [6, 4], [0, 4]]],
   height: 1,
   edge: 'none',
-};
-
-const stairs: OpeningChild = {
-  id: 'stairs',
-  name: 'Stairs',
-  childType: 'opening',
-  visible: true,
-  kind: 'stairs',
-  hostId: 'outcrop',
-  t: 0.25,
-  width: 2,
 };
 
 let layerId = '';
@@ -64,32 +52,6 @@ describe('setPlateauFields', () => {
     expect(setPlateauFields('outcrop', { height: Number.NaN })).toBeNull();
     expect(setPlateauFields('outcrop', {})).toBeNull();
     expect(setPlateauFields('nothing', { height: 1 })).toBeNull();
-  });
-});
-
-describe('openings', () => {
-  it('adds stairs and removes them, each one entry', () => {
-    useStore.getState().addChild(layerId, outcrop);
-    exec(addOpening(layerId, stairs));
-    expect(find<OpeningChild>('stairs')).toEqual(stairs);
-    exec(removeOpening('stairs'));
-    expect(find('stairs')).toBeUndefined();
-    undoManager.undo();
-    expect(find<OpeningChild>('stairs')).toEqual(stairs);
-    undoManager.undo();
-    expect(find('stairs')).toBeUndefined();
-    expect(removeOpening('stairs')).toBeNull();
-  });
-
-  it('go with the plateau they sit on, and come back with it', () => {
-    useStore.getState().addChild(layerId, outcrop);
-    exec(addOpening(layerId, stairs));
-    exec(createChildRemovalCommand(layerId, 'outcrop', 'Delete plateau'));
-    expect(find('outcrop')).toBeUndefined();
-    expect(find('stairs')).toBeUndefined();
-    undoManager.undo();
-    expect(find<PlateauChild>('outcrop')).toEqual(outcrop);
-    expect(find<OpeningChild>('stairs')).toEqual(stairs);
   });
 });
 

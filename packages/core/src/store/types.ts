@@ -75,7 +75,7 @@ export interface MapSettings extends MapEnvironment {
   startingRoomId?: string;
   /** Cells of drop at which a plateau top hides from below; a plateau may override. */
   sightDropCells: number;
-  /** The DM's crossing rules, picked by cliff edges, openings and bridges. */
+  /** The DM's crossing rules, picked by cliff edges and bridges. */
   crossingKinds: CrossingKind[];
 }
 
@@ -245,8 +245,6 @@ export type ToolType =
   | 'roomPolygon'
   /** Draws a threshold (or a wall) across a floor to split a room. */
   | 'divide'
-  /** Places stairs, a ramp or a ladder on a cliff ring. */
-  | 'opening'
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
   | 'plateau';
 
@@ -266,14 +264,6 @@ export interface TerrainBrushSettings {
   tintOpacity: number;
 }
 
-/** What the next opening the opening tool places is. */
-export interface OpeningToolSettings {
-  kind: 'stairs' | 'ramp' | 'ladder';
-  /** Cells along the ring. */
-  width: number;
-  /** Stairs art; absent = the default flight. */
-  artId?: string;
-}
 
 /** What the Plateau tool draws next. */
 export interface PlateauToolSettings {
@@ -345,8 +335,6 @@ export interface ToolSettings {
   terrainBrush: TerrainBrushSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
-  /** Absent on settings saved before the opening tool: its defaults. */
-  opening?: OpeningToolSettings;
   /** Absent on settings saved before the plateau tool: its defaults. */
   plateau?: PlateauToolSettings;
 }

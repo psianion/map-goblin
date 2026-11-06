@@ -10,8 +10,7 @@ import { assertMapLoaded, assertMapRendered, hostTable, joinTable, openPanel, ty
  * switched to refuse snaps the token back, and the DM changes the rule live.
  *
  * The map (session/testdata/plateau-table.mapbuilder): one walled hall 20x14, a +3 cliff mesa
- * over x 8..14, y 4..10 with stairs mid way down its west edge (y 6..8), a torch on top, and a
- * Climb kind noted "DC 12 Athletics".
+ * over x 8..14, y 4..10, a torch on top, and a Climb kind noted "DC 12 Athletics".
  *
  *   pnpm exec playwright test -c e2e/playwright.plateaus.config.ts
  */
@@ -116,8 +115,8 @@ test.describe.serial('@plateaus', () => {
   test('a token on the ground stands at 0 and the plateau top hides from it', async () => {
     expect((await held(dm, 'Borin'))!.elevation).toBe(0)
     expect((await held(dm, 'Lookout'))!.elevation).toBe(3)
-    // The lookout stands lit on top, and the cliff (not the stairs) is between them: it is not
-    // on this seat's wire at all.
+    // The lookout stands lit on top, and the cliff is between them: it is not on this seat's
+    // wire at all.
     await player.waitForTimeout(1000)
     expect(await held(player, 'Lookout')).toBeUndefined()
   })
@@ -152,26 +151,18 @@ test.describe.serial('@plateaus', () => {
     expect((await held(dm, 'Borin'))!.x).toBe(10.5)
   })
 
-  test('the DM changes the cliff’s rule live, and the stairs are a free way down', async () => {
+  test('the DM changes the cliff’s rule live, and the token goes down freely', async () => {
     await command(dm, 'crossings', 'set-edge', { targetId: 'floor-mesa-plateau', crossingId: 'free' })
     await player.waitForTimeout(500)
     await drag(player, [10.5, 5.5], [4.5, 5.5])
     await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(4.5)
     expect((await held(dm, 'Borin'))!.elevation).toBe(0)
-
-    // Back up by the stairs: no chip, since the stairs are Free, and on top again.
-    await player.waitForTimeout(4500) // the earlier chips expire
-    await drag(player, [4.5, 5.5], [4.5, 7.5])
-    await drag(player, [4.5, 7.5], [10.5, 7.5])
-    await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(10.5)
-    expect((await held(dm, 'Borin'))!.elevation).toBe(3)
-    await expect(player.getByTestId('crossing-chip')).toHaveCount(0)
   })
 })
 
 /**
  * The same scenario on the authored test map (session/testdata/plateau-test.mapbuilder): a +2
- * rock outcrop with stairs mid way down its east edge (y 6.5..8.5), a torch on top. This time
+ * rock outcrop, a torch on top. This time
  * the DM changes the rule from the map itself, with a right-click on the cliff.
  */
 const PLATEAU_TEST: MapUnderTest = {
@@ -214,16 +205,15 @@ test.describe.serial('@plateaus on plateau-test', () => {
     await dmContext?.close()
   })
 
-  test('from the ground the outcrop top is fog; up the stairs it reveals, freely', async () => {
+  test('from the ground the outcrop top is fog; climbed, it reveals', async () => {
     expect((await held(dm, 'Lookout'))!.elevation).toBe(2)
     await player.waitForTimeout(1000)
     expect(await held(player, 'Lookout')).toBeUndefined()
 
     await drag(player, [14.5, 2.5], [14.5, 7.5])
-    await drag(player, [14.5, 7.5], [10.5, 7.5]) // through the stairs' gap
+    await drag(player, [14.5, 7.5], [10.5, 7.5]) // straight up the east cliff
     await expect.poll(async () => (await held(dm, 'Borin'))?.x).toBe(10.5)
     expect((await held(dm, 'Borin'))!.elevation).toBe(2)
-    await expect(player.getByTestId('crossing-chip')).toHaveCount(0)
     await expect.poll(async () => (await held(player, 'Lookout'))?.name, { timeout: 10_000 }).toBe('Lookout')
   })
 

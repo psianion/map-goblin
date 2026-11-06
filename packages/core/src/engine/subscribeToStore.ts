@@ -95,15 +95,13 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  */
 /**
  * Everything about plateaus the scene draws or sweeps: each plateau's rings, height, edge,
- * cliff art, slope width, contour lines, sight override and crossing, and every opening on a ring.
+ * cliff art, slope width, contour lines, sight override and crossing.
  */
 export function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
   for (const c of children) {
     if (c.childType === 'plateau') {
       key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
-    } else if (c.childType === 'opening') {
-      key += `${c.id}:${c.visible}:${c.kind}:${c.hostId}:${c.t}:${c.width}:${c.artId ?? ''}:${c.crossingId ?? ''},`;
     }
   }
   return key;

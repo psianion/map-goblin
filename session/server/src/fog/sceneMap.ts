@@ -329,9 +329,6 @@ export function centreOf(child: AnyChild): [number, number] {
       return child.shape.kind === 'rect'
         ? [child.shape.x + child.shape.width / 2, child.shape.y + child.shape.height / 2]
         : [child.shape.position.x, child.shape.position.y]
-    case 'opening':
-      // It rides its shape's ring and has no point of its own: in no room, so withheld.
-      return [NaN, NaN]
     default: {
       let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
       for (const [x, y] of child.contours[0] ?? []) {

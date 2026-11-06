@@ -53,12 +53,11 @@ const EXPECTED_GATED = [
 /**
  * door is carved out deliberately (DR10 — locked-layer selection must still
  * work; see DoorTool.onPointerDown), and zone for the same reason (it owns
- * all zone interaction, so it self-guards placement/drag/delete), and opening for the
- * door's reason (a click on a placed opening selects it on a locked layer too).
+ * all zone interaction, so it self-guards placement/drag/delete).
  * select/ruler/terrain never write to a layer at all, or gate their own way
  * (terrain checks map-level visibility).
  */
-const EXPECTED_UNGATED = ['select', 'ruler', 'terrain', 'door', 'zone', 'opening'].sort();
+const EXPECTED_UNGATED = ['select', 'ruler', 'terrain', 'door', 'zone'].sort();
 
 describe('registerAllTools — editsActiveLayer coverage', () => {
   it('gates exactly the layer-editing tools, and none of the others', () => {

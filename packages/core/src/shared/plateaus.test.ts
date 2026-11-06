@@ -222,16 +222,12 @@ describe('sight and crossing', () => {
 describe('the table: elevation and crossings', () => {
   const ground = rect('ground', 0, 0, 30, 30);
   const top = plat('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' });
-  // Stairs mid west edge: the outline runs (10,10)→(14,10)→(14,14)→(10,14), (10,12) at 14/16.
-  const stairs = { id: 'st', name: 'st', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 } as const;
-  const layer = layerOf([ground, top, stairs]);
+  const layer = layerOf([ground, top]);
   const kinds = defaultCrossingKinds();
 
-  it('stands a point on the plateau, the ground, or part way down the stairs', () => {
+  it('stands a point on the plateau or the ground', () => {
     expect(elevationAt(layer, 12, 12)).toBe(3);
     expect(elevationAt(layer, 5, 5)).toBe(0);
-    // Downhill runs west from (10, 12) over a reach of 3 cells: half way is half the drop.
-    expect(elevationAt(layer, 8.5, 12)).toBeCloseTo(1.5);
     expect(elevationAtLayers([layerOf([ground]), layer], 12, 12)).toBe(3);
   });
 
@@ -242,8 +238,7 @@ describe('the table: elevation and crossings', () => {
     expect(crossingsAlong(layer, [12, 11], [12, 8], kinds)[0].down).toBe(true);
   });
 
-  it('takes an opening’s rule through its gap, and a live override over the map', () => {
-    expect(crossingsAlong(layer, [8, 12], [11, 12], kinds)[0]).toMatchObject({ via: 'opening', kindId: 'free', chip: false });
+  it('takes a live override over the map', () => {
     const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
     expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
     expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);

@@ -15,12 +15,11 @@ describe('PlateauRules', () => {
         children: [
           { childType: 'plateau', height: 2, edge: 'cliff' },
           { childType: 'plateau', height: 1, edge: 'slope', crossingId: 'impassable' },
-          { childType: 'opening' },
           { childType: 'shape' },
         ],
       },
     ] as unknown as Layer[];
-    expect(crossingIdsInUse(layers)).toEqual(new Set(['climb', 'impassable', 'free']));
+    expect(crossingIdsInUse(layers)).toEqual(new Set(['climb', 'impassable']));
   });
 
   it('refuses to delete a kind in use, and adds, renames and reorders the rest', () => {

@@ -133,14 +133,13 @@ describe('a live republish', () => {
 })
 
 /**
- * The acceptance map's shape: a walled hall, a +2 cliff with stairs on its south edge, and two
+ * The acceptance map's shape: a walled hall, a +2 cliff, and two
  * raised walled rooms, one over the hall's east wall and one inside it.
  */
 const terraced = () => {
   const map = mapOf(24, [
     rect('ground', 0, 0, 20, 20, { edge: 'wall' }),
     rect('cliff', 4, 2, 16, 12, { height: 2, edge: 'cliff' }),
-    { id: 'cliff-stairs', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'cliff', t: 28 / 44, width: 2 },
     rect('east-room', 18, 3, 24, 11, { height: 2, edge: 'wall' }),
     rect('inner-room', 14, 14, 19, 19, { height: 1, edge: 'wall' }),
   ])
@@ -150,7 +149,7 @@ const terraced = () => {
 }
 
 describe('a live republish onto plateaus', () => {
-  it('lets a player stand beside the stairs, walk up them, and nowhere it could not before', async () => {
+  it('lets a player stand below the cliff, climb it, and nowhere it could not before', async () => {
     const server = await startServer({ port: 0, trustedPort: 0, heartbeatMs: 60_000, dbPath: ':memory:' })
     try {
       const base = `http://127.0.0.1:${server.port}`
@@ -185,10 +184,9 @@ describe('a live republish onto plateaus', () => {
         )
         return got.type === 'error' ? got : tokensIn(got, sceneId).find((t) => t.id === borin.id)!
       }
-      for (const [x, y] of [[6.5, 13.5], [8.5, 12.5], [11.5, 12.5], [3.5, 12.5]]) {
+      for (const [x, y] of [[6.5, 13.5], [8.5, 12.5], [11.5, 12.5], [3.5, 12.5], [10.5, 12.5]]) {
         expect(await step(x, y)).toMatchObject({ elevation: 0 })
       }
-      expect(await step(10.5, 12.5)).toMatchObject({ elevation: 1.5 })
       expect(await step(10.5, 10.5)).toMatchObject({ elevation: 2 })
       dm.socket.close()
       player.socket.close()

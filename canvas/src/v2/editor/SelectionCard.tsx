@@ -51,7 +51,6 @@ import { wallSetLabel } from './assetStrip';
 import { SlideOver } from './SlideOver';
 import { ZoneSheet } from './ZoneSheet';
 import { PlateauFields } from './PlateauFields';
-import { OpeningFields } from './OpeningFields';
 import {
   MIXED_SWATCH,
   TEXTURE_DEFAULTS,
@@ -96,7 +95,6 @@ const KIND_LABEL: Record<AnyChild['childType'], string> = {
   text: 'Label',
   light: 'Light',
   door: 'Door',
-  opening: 'Opening',
   plateau: 'Plateau',
   zone: 'Zone',
 };
@@ -299,9 +297,6 @@ function Fields({
 
   if (child.childType === 'door' && layerId) {
     return <DoorFields layerId={layerId} doorId={child.id} />;
-  }
-  if (child.childType === 'opening' && layerId) {
-    return <OpeningFields layerId={layerId} openingId={child.id} />;
   }
   if (child.childType === 'zone') {
     return (

@@ -7,7 +7,6 @@ import {
   DoorOpen,
   Eye,
   EyeOff,
-  Footprints,
   GripVertical,
   Lightbulb,
   Lock,
@@ -73,7 +72,6 @@ const KIND_ICON: Record<RowKind, ReactNode> = {
   zone: <Crosshair size={13} strokeWidth={1.75} />,
   shape: <Square size={13} strokeWidth={1.75} />,
   plateau: <Mountain size={13} strokeWidth={1.75} />,
-  opening: <Footprints size={13} strokeWidth={1.75} />,
 };
 
 /** Set by a row click, so the reveal that follows the selection leaves the scroll alone. */

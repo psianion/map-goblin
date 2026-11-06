@@ -1,10 +1,10 @@
-// Plateau, opening and crossing-rule edits as Commands (one undo entry each). Callers run
+// Plateau and crossing-rule edits as Commands (one undo entry each). Callers run
 // `undoManager.execute()` on the result; null means there is no such target or nothing to
 // change.
 
-import type { CrossingKind, OpeningChild, PlateauChild } from '../shared/types';
+import type { CrossingKind, PlateauChild } from '../shared/types';
 import type { Command, Layer, MapRules } from './types';
-import { AddChildCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { UpdateChildCommand } from './commands';
 import { useStore } from './store';
 
 /** The fields of a plateau the card edits. */
@@ -12,17 +12,11 @@ export type PlateauPatch = Partial<
   Pick<PlateauChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'contourLines' | 'sightOverride' | 'crossingId'>
 >;
 
-function findChild<T extends 'plateau' | 'opening'>(
-  layers: readonly Layer[],
-  id: string,
-  kind: T,
-): { layerId: string; child: Extract<PlateauChild | OpeningChild, { childType: T }> } | null {
+function findPlateau(layers: readonly Layer[], id: string): { layerId: string; child: PlateauChild } | null {
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     for (const c of layer.children) {
-      if (c.id === id && c.childType === kind) {
-        return { layerId: layer.id, child: c as Extract<PlateauChild | OpeningChild, { childType: T }> };
-      }
+      if (c.id === id && c.childType === 'plateau') return { layerId: layer.id, child: c };
     }
   }
   return null;
@@ -33,7 +27,7 @@ function findChild<T extends 'plateau' | 'opening'>(
  * a slope width must be positive. `undefined` on a key removes it, back to its default.
  */
 export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit plateau'): Command | null {
-  const found = findChild(useStore.getState().layers, id, 'plateau');
+  const found = findPlateau(useStore.getState().layers, id);
   if (!found || Object.keys(patch).length === 0) return null;
   const after: PlateauPatch = { ...patch };
   if (after.height !== undefined) {
@@ -46,14 +40,6 @@ export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit 
   return new UpdateChildCommand(label, found.layerId, id, before as PlateauPatch, after);
 }
 
-export function addOpening(layerId: string, opening: OpeningChild): Command {
-  return new AddChildCommand(`Add ${opening.kind}`, layerId, opening);
-}
-
-export function removeOpening(id: string): Command | null {
-  const found = findChild(useStore.getState().layers, id, 'opening');
-  return found ? createChildRemovalCommand(found.layerId, id, `Delete ${found.child.kind}`) : null;
-}
 
 /** The map's sight threshold and crossing kinds, before and after; replayed through `setMapRules`. */
 class MapRulesCommand implements Command {

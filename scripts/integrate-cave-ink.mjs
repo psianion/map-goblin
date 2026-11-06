@@ -5,8 +5,7 @@
 //
 // --pack-version defaults to the next patch of the installed gg-forge pack.
 // --forge defaults to ../map-goblin-forge/forge. Reads dist/GG_Cave_Ink and
-// staging/cave/kit-A/caveWallKit.json from it; the kit is copied over the core kit. The ink
-// stairs need no STAIRS_CONTENT rect: their manifest entries carry the forge's contentRect.
+// staging/cave/kit-A/caveWallKit.json from it; the kit is copied over the core kit.
 // The rubble band pieces are tagged `prop` on the way in, so they place as plain assets.
 
 import { execSync } from 'node:child_process';

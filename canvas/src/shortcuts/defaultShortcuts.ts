@@ -810,8 +810,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // Walls.
   { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
   { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },
-  // Stairs, ramps and ladders through a cliff: S for stairs.
-  { id: 'tool.opening', combo: 's', group: 'Tools', scope: 'canvas', label: 'Opening', run: () => pickTool('opening', 'Opening') },
   // Labels. N for note: T is terrain.
   { id: 'tool.text', combo: 'n', group: 'Tools', scope: 'canvas', label: 'Label', run: () => pickTool('text', 'Label', false) },
   { id: 'tool.zone', combo: 'z', group: 'Tools', scope: 'canvas', label: 'Zone', run: () => pickTool('zone', 'Zone') },

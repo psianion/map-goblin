@@ -37,15 +37,6 @@ const manager = {
           contour_1x2_A: object('contour', '1x2', 'GG_Cave_Ink'),
           contour_1x4_A: object('contour', '1x4', 'GG_Cave_Ink'),
           contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
-          stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'GG_Cave_Ink', ['cave', 'prop', 'stairs']),
-        },
-      },
-    },
-    {
-      packId: 'gg-demo',
-      manifest: {
-        entries: {
-          stairs_stone_short_2x2_A: object('stairs_stone_short', '2x2', 'demo-structures', ['structure']),
         },
       },
     },
@@ -64,12 +55,9 @@ import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './ca
 import { kitOut, resampleClosed, walkClosed } from './caveWalk';
 import { cliffArt, cliffArtChoices, cliffChoice, cliffPieces } from './plateauKit';
 import {
-  defaultStairsArt,
-  drawOpening,
   faceShade,
   renderPlateaus,
   shadeCliffs,
-  stairsArtEntries,
   SHADE_FLOOR,
   SHADE_SIDE,
 } from './plateauRenderer';
@@ -85,9 +73,8 @@ import { CASTER_HEIGHT, casterLook, shadowLook, type ShadowLook } from '../share
 import { skyFrame } from '../shared/sky';
 import type { MapEnvironment } from '../shared/world';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
-import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
-import { edgeRuns, layerPlateaus, pointInPoly, ringGaps } from '../shared/plateaus';
+import { edgeRuns, layerPlateaus, pointInPoly } from '../shared/plateaus';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -338,27 +325,6 @@ describe('renderPlateaus', () => {
     expect(parent.children.map((c) => c.label)).toEqual(['plateau-band--2', 'plateau-band-2']);
   });
 
-  it('cuts the ledge where an opening stands, and draws the opening', () => {
-    const top = plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' });
-    const stairs: OpeningChild = { id: 's1', name: 's1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 0.125, width: 2 };
-    const layer = layerOf([ground, top, stairs]);
-    const [gap] = ringGaps(layer);
-    expect(gap.position[0]).toBeCloseTo(8);
-    expect(gap.position[1]).toBeCloseTo(5);
-    // No rock chord passes over the opening once its gap is cut.
-    const ring = layerPlateaus(layer).bands[0].rings[0];
-    const over = (placed: { P: [number, number]; Q: [number, number] }[]) =>
-      placed.some(({ P, Q }) => {
-        const [dx, dy] = [Q[0] - P[0], Q[1] - P[1]];
-        const u = Math.max(0, Math.min(1, ((8 - P[0]) * dx + (5 - P[1]) * dy) / (dx * dx + dy * dy)));
-        return Math.hypot(8 - (P[0] + dx * u), 5 - (P[1] + dy * u)) < 0.5;
-      });
-    expect(over(layBandRing(ring, [], ledgePieces()))).toBe(true);
-    expect(over(layBandRing(ring, [{ wallId: gap.id, position: gap.position, width: gap.width }], ledgePieces()))).toBe(false);
-    const cut = new Container();
-    renderPlateaus(layer, new Container(), cut);
-    expect(labels(cut)).toContain('opening-s1');
-  });
 });
 
 describe('every cliff ring is walked', () => {
@@ -433,16 +399,6 @@ describe('a cliff draws its ledge alone', () => {
     // A closed ring has no tips, so no end pieces.
     expect(partOf(parent, 'plateau-cliff')).toHaveLength(placements);
     expect(spritesIn(parent)).toBe(placements);
-  });
-
-  it('ends a ledge run cut by a gap with an end piece at each tip', () => {
-    const layer = layerOf([ground, plat('top', 5, 5, 13, 12, { height: 1, edge: 'cliff' })]);
-    const gaps = [{ id: 'opening:o', position: [9, 5] as [number, number], width: 1.5 }];
-    const parent = new Container();
-    renderPlateaus(layer, new Container(), parent, { gaps });
-    const ring = layerPlateaus(layer).bands[0].rings[0];
-    const walked = layBandRing(ring, gaps.map((g) => ({ wallId: g.id, position: g.position, width: g.width })), cliffPieces(cliffArt(undefined)));
-    expect(partOf(parent, 'plateau-cliff')).toHaveLength(walked.length + 2);
   });
 
   it('draws a pit with its ledge line only', () => {
@@ -634,27 +590,6 @@ describe('cliff shadows', () => {
     const layer = layerOf([ground, plat('hill', 10, 10, 14, 14, { height: 2, edge: 'slope' })]);
     expect(points(cliffShadowGeometry(layer, look, groundRing))).toHaveLength(0);
   });
-});
-
-describe('openings', () => {
-  const frame = { position: [0, 0] as [number, number], along: [1, 0] as [number, number], downhill: [0, 1] as [number, number], drop: 2 };
-
-  it('draws stairs from the art, and placeholder ramps and ladders', () => {
-    const stairs = drawOpening({ id: 'a', kind: 'stairs', width: 2 }, frame)!;
-    expect(stairs.children[0]).toBeInstanceOf(Sprite);
-    // The art's top sits at the ring and its foot runs downhill (+y).
-    expect((stairs.children[0] as Sprite).rotation).toBeCloseTo(0);
-    expect(drawOpening({ id: 'b', kind: 'ramp', width: 2 }, frame)).toBeInstanceOf(Graphics);
-    expect(drawOpening({ id: 'c', kind: 'ladder', width: 1 }, frame)).toBeInstanceOf(Graphics);
-  });
-
-  it('defaults to the ink stone stairs and offers the ink flights first', () => {
-    expect(defaultStairsArt()?.id).toBe('gg-forge:stairs_stone_short_2x2_A');
-    const ids = stairsArtEntries().map((e) => e.id);
-    expect(ids[0]).toBe('gg-forge:stairs_stone_short_2x2_A');
-    expect(ids).toContain('gg-demo:stairs_stone_short_2x2_A');
-  });
-
 });
 
 describe('the ledge on the goblin warren', () => {

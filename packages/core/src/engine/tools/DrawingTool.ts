@@ -16,7 +16,6 @@ export type ToolType =
   | 'roomRect'
   | 'roomPolygon'
   | 'divide'
-  | 'opening'
   | 'plateau';
 
 export interface PreviewShape {

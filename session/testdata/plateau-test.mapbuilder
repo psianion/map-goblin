@@ -161,16 +161,6 @@
           "edge": "cliff"
         },
         {
-          "id": "outcrop-stairs",
-          "name": "Outcrop stairs",
-          "childType": "opening",
-          "visible": true,
-          "kind": "stairs",
-          "t": 0.38333333333333336,
-          "width": 2,
-          "hostId": "outcrop-plateau"
-        },
-        {
           "id": "hill",
           "name": "Hill",
           "childType": "shape",

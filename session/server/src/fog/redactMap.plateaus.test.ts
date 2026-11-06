@@ -26,14 +26,14 @@ function scene(file: string) {
 
 const dungeons = (data: SerializedMapData) => data.layers.filter((l): l is DungeonLayer => l.type === 'dungeon')
 const plateauIds = (data: SerializedMapData) =>
-  dungeons(data).flatMap((l) => l.children.filter((c) => c.childType === 'plateau' || c.childType === 'opening').map((c) => c.id))
+  dungeons(data).flatMap((l) => l.children.filter((c) => c.childType === 'plateau').map((c) => c.id))
 
 /** Nothing seen: the player's copy is as bare as fog makes it. */
 const DARK: SceneFog = { rooms: {}, concealBehindDoors: true }
 
 describe('plateaus on the player’s copy of the map', () => {
   for (const file of ['plateau-test', 'plateau-table', 'tower-test']) {
-    it(`ships every plateau and opening of ${file}, and the player reads the DM’s heights and edges`, () => {
+    it(`ships every plateau of ${file}, and the player reads the DM’s heights and edges`, () => {
       const s = scene(file)
       const dm = s.data
       const player = redactMapForViewer(s, DARK, {})

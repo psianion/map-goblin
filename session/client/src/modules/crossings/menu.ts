@@ -1,4 +1,4 @@
-// The DM's crossing picker on the map: which raised edge or opening a right-click landed on.
+// The DM's crossing picker on the map: which raised edge a right-click landed on.
 import { create } from 'zustand';
 import type { CrossingTarget } from './crossings';
 

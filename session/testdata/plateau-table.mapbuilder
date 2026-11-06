@@ -153,16 +153,6 @@
           "edge": "cliff"
         },
         {
-          "id": "stairs-west",
-          "name": "Stairs 1",
-          "childType": "opening",
-          "visible": true,
-          "kind": "stairs",
-          "t": 0.875,
-          "width": 2,
-          "hostId": "floor-mesa-plateau"
-        },
-        {
           "id": "torch-mesa",
           "name": "Torch",
           "childType": "light",

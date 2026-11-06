@@ -1,5 +1,5 @@
-// The crossing chips over the map (plan §7): where a token went over a cliff, a slope or an
-// opening, the kind the table plays it as and the DM's note, for four seconds. Placed on the
+// The crossing chips over the map (plan §7): where a token went over a cliff or a slope, the
+// kind the table plays it as and the DM's note, for four seconds. Placed on the
 // world point each frame, written straight to the DOM like `DoorMenu`, so a panning camera
 // does not cost a React render a frame.
 

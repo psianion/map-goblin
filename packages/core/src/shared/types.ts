@@ -128,7 +128,6 @@ export type ChildType =
   | 'asset'
   | 'light'
   | 'door'
-  | 'opening'
   | 'plateau'
   | 'text'
   | 'zone';
@@ -321,21 +320,6 @@ export interface DoorChild extends LayerChild {
   roomB?: string | null;
 }
 
-/** Stairs, a ramp or a ladder through a cliff ring: to a cliff what a door is to a wall. */
-export interface OpeningChild extends LayerChild {
-  childType: 'opening';
-  kind: 'stairs' | 'ramp' | 'ladder';
-  /** The plateau whose ring the opening sits on. */
-  hostId: string;
-  /** Parameter along that plateau's flattened outline, like door placement. */
-  t: number;
-  /** Cells along the ring. */
-  width: number;
-  artId?: string;
-  /** Map crossing kind. Absent = Free. */
-  crossingId?: string;
-}
-
 /** A rule for crossing an edge, named by the DM per map. */
 export interface CrossingKind {
   id: string;
@@ -475,7 +459,6 @@ export type AnyChild =
   | AssetChild
   | LightChild
   | DoorChild
-  | OpeningChild
   | PlateauChild
   | TextChild
   | ZoneChild;

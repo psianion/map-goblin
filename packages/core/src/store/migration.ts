@@ -198,21 +198,15 @@ export const plateauIdFor = (shapeId: string): string => `${shapeId}-plateau`
 /**
  * 3.2 → 3.3: height lived on floor shapes; it lives on plateau children now. Every shape with a
  * height stays where it is, at ground, and gains a plateau child right after it with its rings,
- * height and edge (`wall` and absent read as `cliff`; a plateau never makes walls). Openings
- * re-point to the new plateau (`shapeId` → `hostId`). Every shape loses the plateau fields. Hands back `layers` itself when nothing moved.
+ * height and edge (`wall` and absent read as `cliff`; a plateau never makes walls). Every shape
+ * loses the plateau fields. Hands back `layers` itself when nothing moved.
  */
 export function plateausFromShapes(layers: SerializedMapData['layers']): SerializedMapData['layers'] {
   const moves = (layer: unknown): boolean => {
     const children = (layer as { children?: unknown } | null)?.children
     return (
       Array.isArray(children) &&
-      children.some((c) => {
-        const o = c as Loose | null
-        return (
-          hasShapePlateauKey(c) ||
-          (o?.childType === 'opening' && 'shapeId' in o)
-        )
-      })
+      children.some(hasShapePlateauKey)
     )
   }
   if (!Array.isArray(layers) || !layers.some(moves)) return layers
@@ -247,12 +241,6 @@ export function plateausFromShapes(layers: SerializedMapData['layers']): Seriali
           if (child[key] !== undefined) plateau[key] = child[key]
         }
         out.push(plateau)
-        continue
-      }
-      if (child.childType === 'opening' && 'shapeId' in child) {
-        const { shapeId, ...rest } = child
-        const id = shapeId as string
-        out.push({ ...rest, hostId: raised.has(id) ? plateauIdFor(id) : id })
         continue
       }
       out.push(child)

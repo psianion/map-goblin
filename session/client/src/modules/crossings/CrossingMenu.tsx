@@ -1,4 +1,4 @@
-// The DM's right-click on a cliff, a slope or an opening (plan §7): the crossing kind the
+// The DM's right-click on a cliff or a slope (plan §7): the crossing kind the
 // table plays it as, changed live. The pick goes over the socket (`crossings.set-edge`) like a
 // door's state and is kept with the campaign, so every seat's next drag reads it.
 
@@ -10,7 +10,7 @@ import { worldToScreen } from '../../renderer/camera';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { useCrossingMenu } from './menu';
 
-const WHAT: Record<string, string> = { opening: 'Opening', cliff: 'Cliff', slope: 'Slope', none: 'Edge' };
+const WHAT: Record<string, string> = { cliff: 'Cliff', slope: 'Slope', none: 'Edge' };
 
 const close = () => useCrossingMenu.getState().open(null);
 

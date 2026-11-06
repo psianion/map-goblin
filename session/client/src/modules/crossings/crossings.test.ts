@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { Layer, PlateauChild, ShapeChild } from '@dnd/core/src/store/types';
-import type { OpeningChild } from '@dnd/core/src/shared/types';
 import { defaultCrossingKinds } from '@dnd/core/src/shared/crossingKinds';
 import { useStore } from '@dnd/core/src/store/store';
 import type { Token } from '@dnd/mechanics/tokens';
@@ -31,13 +30,11 @@ function rect(id: string, x0: number, y0: number, x1: number, y1: number, extra:
   };
 }
 
-// A +3 cliff (10..14 square) with stairs mid west edge, and a +1 slope east of it.
-const stairs: OpeningChild = { id: 'st', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 };
+// A +3 cliff (10..14 square), and a +1 slope east of it.
 const children = [
   rect('ground', 0, 0, 30, 30),
   plat('top', 10, 10, 14, 14, { height: 3, edge: 'cliff' }),
   plat('hill', 20, 10, 24, 14, { height: 1, edge: 'slope' }),
-  stairs,
 ];
 const kinds = defaultCrossingKinds();
 const map = (over: Partial<ReturnType<typeof defaultCrossingKinds>[number]>[] = []): CrossingMap => ({
@@ -80,14 +77,6 @@ describe('judgeHop', () => {
     expect(judgeHop(map(), undefined, [12, 8.5], [12, 11], live, 'player').refused?.kindId).toBe('climb');
   });
 
-  it('goes through an opening on its own rule, and shows no chip while that is Free', () => {
-    const v = judgeHop(map(), undefined, [8, 12], [11, 12], NONE, 'player');
-    expect(v.chips).toEqual([]);
-    expect(v.refused).toBeNull();
-    const ladder = judgeHop(map(), undefined, [8, 12], [11, 12], { edges: { st: 'climb' }, blocks: {} }, 'player');
-    expect(ladder.chips.map((c) => c.via)).toEqual(['opening']);
-  });
-
   it('names a slope only when its kind is not Free', () => {
     expect(judgeHop(map(), undefined, [18, 12], [21, 12], NONE, 'player').chips.map((c) => c.kindId)).toEqual(['difficult']);
     const free = { edges: { hill: 'free' }, blocks: {} };
@@ -96,8 +85,7 @@ describe('judgeHop', () => {
 });
 
 describe('crossingTargetAt', () => {
-  it('finds the opening before the edge it sits in, and the edge elsewhere', () => {
-    expect(crossingTargetAt(map(), undefined, 10.1, 12)).toMatchObject({ targetId: 'st', what: 'opening', mapKindId: 'free' });
+  it('finds the edge under the point, and nothing on open ground', () => {
     expect(crossingTargetAt(map(), undefined, 12, 10.2)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
     expect(crossingTargetAt(map(), undefined, 5, 5)).toBeNull();
   });

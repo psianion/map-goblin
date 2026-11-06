@@ -7,7 +7,7 @@ import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { migrateToLatest, plateauIdFor, plateausFromShapes } from './migration';
 import { edgeRuns, layerPlateaus } from '../shared/plateaus';
-import type { DungeonLayer, OpeningChild, PlateauChild, SerializedMapData } from './types';
+import type { DungeonLayer, PlateauChild, SerializedMapData } from './types';
 
 let readFileSync: (p: string, enc: string) => string;
 let root = '';
@@ -72,11 +72,6 @@ describe('migrating 3.2 floors with a height', () => {
           }
         }
         plateaus += layer.children.filter((c) => c.childType === 'plateau').length;
-        // Every opening sits on a plateau of its layer.
-        for (const o of layer.children.filter((c): c is OpeningChild => c.childType === 'opening')) {
-          expect(layer.children.find((c) => c.id === o.hostId)?.childType, o.id).toBe('plateau');
-          expect('shapeId' in o).toBe(false);
-        }
       }
       expect(plateaus).toBe(RAISED[file].length);
     });
@@ -91,20 +86,18 @@ describe('migrating 3.2 floors with a height', () => {
           { id: 'f', name: 'Keep', childType: 'shape', visible: true, contours: [[[0, 0], [4, 0], [4, 4]]], height: 2, edge: 'wall', contourLines: false },
           { id: 'g', name: 'Hill', childType: 'shape', visible: true, contours: [[[9, 9], [12, 9], [12, 12]]], height: -1, edge: 'slope', slopeWidth: 2 },
           { id: 'h', name: 'Flat', childType: 'shape', visible: true, contours: [[[0, 0], [1, 0], [1, 1]]], edge: 'cliff' },
-          { id: 'o', name: 'Stairs', childType: 'opening', visible: true, kind: 'stairs', shapeId: 'f', t: 0.2, width: 2 },
         ],
       },
     ] as unknown as SerializedMapData['layers'];
     const [layer] = plateausFromShapes(layers) as unknown as DungeonLayer[];
     expect(layer.children.map((c) => `${c.id}:${c.childType}`)).toEqual([
-      'f:shape', 'f-plateau:plateau', 'g:shape', 'g-plateau:plateau', 'h:shape', 'o:opening',
+      'f:shape', 'f-plateau:plateau', 'g:shape', 'g-plateau:plateau', 'h:shape',
     ]);
     const keep = layer.children[1] as PlateauChild;
     expect(keep).toMatchObject({ id: plateauIdFor('f'), name: 'Keep', height: 2, edge: 'cliff', contourLines: false });
     expect(keep.contours).toEqual([[[0, 0], [4, 0], [4, 4]]]);
     expect(layer.children[3]).toMatchObject({ height: -1, edge: 'slope', slopeWidth: 2 });
     expect('edge' in layer.children[4]).toBe(false);
-    expect(layer.children[5]).toMatchObject({ hostId: 'f-plateau' });
     // Nothing left to move: the same array back.
     const again = plateausFromShapes([layer] as unknown as SerializedMapData['layers']);
     expect(again[0]).toBe(layer);

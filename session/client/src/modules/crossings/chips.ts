@@ -11,7 +11,7 @@ export const CHIP_MS = 4000;
 
 export interface CrossingChip {
   id: number;
-  /** The floor or opening crossed: a second crossing of it renews the chip instead of stacking. */
+  /** The plateau crossed: a second crossing of it renews the chip instead of stacking. */
   targetId: string;
   x: number;
   y: number;

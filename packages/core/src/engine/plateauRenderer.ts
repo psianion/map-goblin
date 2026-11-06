@@ -5,8 +5,7 @@
 // band outside the outline, a smooth ramp of shade dark at its outer edge with a thin ink
 // contour per cell of drop inside it, its
 // cliffs laid by the cave walk with the ledge kit, one ledge ring at any drop (void side = low
-// side, so a pit's rock faces in), and its openings across the gaps they cut: a road
-// runs under the ledge except where a landing or an opening opens it.
+// side, so a pit's rock faces in).
 //
 // Under all of it, every edge lays a drop shade on its low side (`drawShade`): a soft dark band
 // hugging the edge, wider for a taller drop, so a raised edge reads raised whatever its kind.
@@ -14,7 +13,7 @@
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { BlurFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Sprite } from 'pixi.js';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import {
   DROP_SHADE_ALPHA,
@@ -32,22 +31,17 @@ import {
   slopeWidthOf,
 } from '../shared/plateauShade';
 import { useStore } from '../store/store';
-import { STAIRS_CONTENT } from '../assets/stairsArt';
 import type { DungeonLayer } from '../store/types';
-import type { OpeningChild } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import {
   edgeRuns,
   hasPlateaus,
   layerPlateaus,
-  openingFrame,
-  ringGaps,
   tierLift,
   type EdgeRun,
   type PlateauBand,
-  type RingGap,
 } from '../shared/plateaus';
-import { getCatalogEntry, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
+import type { CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
@@ -58,7 +52,6 @@ import {
   contourPieces,
   ledgeEndPieces,
 } from './plateauKit';
-import type { DoorGap } from './wallNodeRenderer';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
@@ -67,8 +60,6 @@ type Vec = [number, number];
 export interface PlateauRenderOptions {
   /** Ask for a re-bake when a pack texture this draw needed lands later. */
   waitFor?: (textureId: string) => void;
-  /** Extra ring gaps beyond the layer's openings and landings. */
-  gaps?: readonly RingGap[];
 }
 
 const INK = 0x2b2420;
@@ -107,10 +98,6 @@ export function faceShade(normal: Vec, look: ShadowLook | null): number {
   return facing >= 0 ? SHADE_SIDE + (1 - SHADE_SIDE) * facing : SHADE_SIDE + (SHADE_SIDE - SHADE_FLOOR) * facing;
 }
 
-const grey = (k: number): number => {
-  const c = Math.round(Math.max(0, Math.min(1, k)) * 255);
-  return (c << 16) | (c << 8) | c;
-};
 
 /** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
@@ -179,7 +166,6 @@ export function renderPlateaus(
   if (!hasPlateaus(layer)) return;
 
   const plateaus = layerPlateaus(layer);
-  const gaps: DoorGap[] = ringGaps(layer, options.gaps).map((g) => ({ wallId: g.id, position: g.position, width: g.width }));
   const sprites: CliffSprite[] = [];
   const ground = groundOf(layer);
   for (const band of plateaus.bands) {
@@ -189,8 +175,7 @@ export function renderPlateaus(
     const runs = edgeRuns(band);
     const soft = drawShade(holder, band, runs, plateaus.bands, ground);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
-    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, gaps, options));
-    drawOpenings(holder, layer, band, options);
+    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, options));
     edges.addChild(holder);
   }
   cliffSprites.set(layer.id, sprites);
@@ -398,8 +383,8 @@ function jointFrame(pl: WalkPlacement): { joints: [Vec, Vec]; tangents: [Vec, Ve
 }
 
 /**
- * The laid ledge split into runs where two pieces in a row do not meet (an opening, a
- * landing, the end of an open edge). A ring with no break is one closed run.
+ * The laid ledge split into runs where two pieces in a row do not meet (the end of an open
+ * edge). A ring with no break is one closed run.
  */
 function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlacement[]; open: boolean }[] {
   if (placed.length === 0) return [];
@@ -471,7 +456,7 @@ const lowNormal = (pl: WalkPlacement): Vec => {
  * A cliff: the top-edge ink line, then the ledge line laid by the cave walk with the low side as
  * void (straights, bends either way, an end piece at each tip of an open run).
  */
-function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: PlateauRenderOptions): CliffSprite[] {
+function drawCliff(parent: Container, run: EdgeRun, options: PlateauRenderOptions): CliffSprite[] {
   // The walk lays rock with the void on its left; band rings run with the outside on the
   // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
   const pts = run.drop > 0 ? run.points : [...run.points].reverse();
@@ -493,7 +478,7 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   // every piece at its own size, none stretched to fit an edge. One ring of it at any drop.
   const rock = new Container();
   rock.label = 'plateau-cliff';
-  const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, gaps, pieces) : layBandChain(pts, gaps, pieces);
+  const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, [], pieces) : layBandChain(pts, [], pieces);
   const walked = drawnPlacements(placed, art);
   const runs = ledgeRuns(walked, run.closed);
   const ends = ledgeEndPieces(art, run.owner?.edgeArt);
@@ -511,141 +496,4 @@ function drawCliff(parent: Container, run: EdgeRun, gaps: DoorGap[], options: Pl
   }
   parent.addChild(rock);
   return sprites;
-}
-
-// ─── Openings ──────────────────────────────────────────────
-
-const stairsCache = new Map<Texture, Texture>();
-
-/**
- * The part of a stairs texture the flight is drawn in (`STAIRS_CONTENT`), as its own texture. Art
- * whose entry carries a `contentRect` (the ink stairs) is already served cropped to it.
- */
-function stairsContent(entry: CatalogEntry, tex: Texture): Texture {
-  if (entry.contentRect) return tex;
-  const rect = STAIRS_CONTENT[`${entry.material}_${entry.gridSize}`];
-  if (!rect) return tex;
-  const hit = stairsCache.get(tex);
-  if (hit && !hit.destroyed) return hit;
-  // The rect is in the art's authored pixels; a texture served at another size scales it.
-  const k = tex.width / entry.naturalWidth;
-  const f = tex.frame;
-  const sub = new Texture({
-    source: tex.source,
-    frame: new Rectangle(f.x + rect.x * k, f.y + rect.y * k, rect.w * k, rect.h * k),
-  });
-  stairsCache.set(tex, sub);
-  return sub;
-}
-
-/** The set whose stairs are drawn in the plateau's own ink hand, offered first. */
-const INK_STAIRS_SET = 'GG_Cave_Ink';
-
-/** Every stairs piece the catalogue has, for the opening card's art picker: the ink ones first. */
-export function stairsArtEntries(): CatalogEntry[] {
-  const stairs = getEntriesByType('object').filter((e) => e.material.startsWith('stairs_'));
-  return [...stairs.filter((e) => e.set === INK_STAIRS_SET), ...stairs.filter((e) => e.set !== INK_STAIRS_SET)];
-}
-
-/** The stairs a new opening shows until one is picked: the short stone flight, the ink one if installed. */
-export function defaultStairsArt(): CatalogEntry | undefined {
-  const stairs = stairsArtEntries();
-  return stairs.find((e) => e.material === 'stairs_stone_short') ?? stairs[0];
-}
-
-function drawOpenings(parent: Container, layer: DungeonLayer, band: PlateauBand, options: PlateauRenderOptions): void {
-  const ids = new Set(band.shapes.map((s) => s.id));
-  for (const c of layer.children) {
-    if (c.childType !== 'opening' || !c.visible || !ids.has(c.hostId)) continue;
-    const frame = openingFrame(layer, c);
-    if (!frame) continue;
-    const g = drawOpening(c, frame, options);
-    if (g) parent.addChild(g);
-  }
-}
-
-/** How far down an opening reaches, in cells: the drop, at least one cell. */
-const reachOf = (drop: number): number => Math.max(1, drop);
-
-/**
- * One opening across its gap, oriented downhill: its top at the ring, its foot on the low
- * side. Stairs show their art (the art's top is the high end); ramps and ladders are drawn
- * placeholders until the forge ships `ramp_*` and `ladder_1x2`.
- */
-export function drawOpening(
-  opening: Pick<OpeningChild, 'id' | 'kind' | 'width' | 'artId'>,
-  frame: { position: Vec; along: Vec; downhill: Vec; drop: number },
-  options: PlateauRenderOptions = {},
-): Container | null {
-  const { position: p, along: a, downhill: d } = frame;
-  const half = opening.width / 2;
-  const reach = reachOf(frame.drop);
-  const lip = 0.15;
-  const at = (s: number, t: number): [number, number] => [p[0] + a[0] * s + d[0] * t, p[1] + a[1] * s + d[1] * t];
-  const box = (s0: number, s1: number, t0: number, t1: number) => [at(s0, t0), at(s1, t0), at(s1, t1), at(s0, t1)].flat();
-
-  if (opening.kind === 'stairs') {
-    const entry = (opening.artId && getCatalogEntry(opening.artId)) || defaultStairsArt();
-    const tex = entry ? resolveTexture(entry.id) : null;
-    if (entry && tex && tex.width > 1) {
-      // Only the flight itself, not the empty frame around it: the frames are untrimmed.
-      const art = stairsContent(entry, tex);
-      const sprite = new Sprite(art);
-      sprite.label = `opening-${opening.id}`;
-      sprite.anchor.set(0.5, 0);
-      // Across the gap at the opening's width; down the drop at the art's own proportions.
-      const length = opening.width * (art.height / art.width);
-      sprite.scale.set(opening.width / art.width, length / art.height);
-      const top = at(0, -lip);
-      sprite.position.set(top[0], top[1]);
-      // The art's +y (down the image) runs downhill.
-      sprite.rotation = Math.atan2(d[1], d[0]) - Math.PI / 2;
-      const holder = new Container();
-      holder.label = `opening-${opening.id}`;
-      holder.addChild(sprite);
-      return holder;
-    }
-    if (entry) options.waitFor?.(entry.id);
-    // No art yet: steps drawn as treads, so the gap still reads as a way down.
-    const g = new Graphics();
-    g.label = `opening-${opening.id}`;
-    g.poly(box(-half, half, -lip, reach)).fill({ color: 0x8a8174 });
-    const treads = Math.max(3, Math.round(reach / 0.3));
-    for (let k = 1; k < treads; k++) {
-      const t = -lip + ((reach + lip) * k) / treads;
-      const [x0, y0] = at(-half, t);
-      const [x1, y1] = at(half, t);
-      g.moveTo(x0, y0).lineTo(x1, y1);
-    }
-    g.stroke({ color: INK, width: LINE, alpha: 0.7 });
-    return g;
-  }
-
-  const g = new Graphics();
-  g.label = `opening-${opening.id}`;
-  if (opening.kind === 'ramp') {
-    // A shaded wedge: light at the top, darker toward the foot.
-    const bands = 5;
-    for (let k = 0; k < bands; k++) {
-      const t0 = -lip + ((reach + lip) * k) / bands;
-      const t1 = -lip + ((reach + lip) * (k + 1)) / bands;
-      g.poly(box(-half, half, t0, t1)).fill({ color: grey(0.72 - 0.08 * k) });
-    }
-    g.poly(box(-half, half, -lip, reach)).stroke({ color: INK, width: LINE, alpha: 0.7 });
-    return g;
-  }
-  // Ladder: two rails and rungs.
-  const rail = Math.min(half - 0.08, 0.35);
-  for (const s of [-rail, rail]) {
-    const [x0, y0] = at(s, -lip);
-    const [x1, y1] = at(s, reach);
-    g.moveTo(x0, y0).lineTo(x1, y1);
-  }
-  for (let t = 0.1; t < reach; t += 0.3) {
-    const [x0, y0] = at(-rail, t);
-    const [x1, y1] = at(rail, t);
-    g.moveTo(x0, y0).lineTo(x1, y1);
-  }
-  g.stroke({ color: 0x6b4f33, width: 0.07 });
-  return g;
 }

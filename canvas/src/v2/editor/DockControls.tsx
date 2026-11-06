@@ -51,7 +51,6 @@ import { lookGesture, resolvedLookOf, setLook, targetName, useLookTarget, type L
 import { RoomSettings } from './RoomsDock';
 import { PropSettings } from './PropsDock';
 import { LightPresets, LightSettings } from './LightsDock';
-import { OpeningSettings } from './OpeningFields';
 import { PlateauSettings } from './PlateauFields';
 import './dock-settings.css';
 import './labels.css';
@@ -836,8 +835,6 @@ function QuickSettings({ tool }: { tool: ToolType }) {
       return <WallSettings />;
     case 'door':
       return <DoorSettings />;
-    case 'opening':
-      return <OpeningSettings />;
     case 'plateau':
       return <PlateauSettings />;
     case 'terrain':

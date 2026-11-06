@@ -1,7 +1,6 @@
 import {
   Crosshair,
   DoorOpen,
-  Footprints,
   Hexagon,
   Lightbulb,
   Minus,
@@ -56,7 +55,6 @@ export const DOCK_TABS: DockTab[] = [
     tools: [
       { tool: 'wall', label: 'Wall', shortcut: keyCaption('tool.wall'), icon: Minus },
       { tool: 'door', label: 'Door', shortcut: keyCaption('tool.door'), icon: DoorOpen },
-      { tool: 'opening', label: 'Opening', shortcut: keyCaption('tool.opening'), icon: Footprints },
     ],
   },
   {

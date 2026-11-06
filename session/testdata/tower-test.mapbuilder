@@ -298,16 +298,6 @@
           "edge": "cliff"
         },
         {
-          "id": "mound-stairs",
-          "name": "Mound stairs",
-          "childType": "opening",
-          "visible": true,
-          "kind": "stairs",
-          "t": 0.625,
-          "width": 2,
-          "hostId": "mound-plateau"
-        },
-        {
           "id": "tower-door",
           "name": "Tower door",
           "childType": "door",

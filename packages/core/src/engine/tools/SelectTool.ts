@@ -77,7 +77,6 @@ type MarqueeMode = 'replace' | 'add' | 'subtract';
 
 const KIND_NAME: Record<AnyChild['childType'], string> = {
   shape: 'Floor',
-  opening: 'Opening',
   plateau: 'Plateau',
   asset: 'Prop',
   text: 'Label',

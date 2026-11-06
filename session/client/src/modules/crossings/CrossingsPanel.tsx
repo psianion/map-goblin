@@ -1,6 +1,6 @@
 // The DM's Crossings popover (plan §7): which kinds refuse a player's move, switched live
 // mid-session (`crossings.set-blocks`), and the hook that opens the on-map picker on a
-// right-click over a cliff, a slope or an opening.
+// right-click over a cliff or a slope.
 
 import { useStore } from '@dnd/core/src/store/store';
 import { defaultCrossingKinds } from '@dnd/core/src/shared/crossingKinds';
@@ -22,7 +22,7 @@ export function CrossingsPanel() {
   return (
     <div className="flex flex-col gap-2 text-xs" data-testid="crossings-panel">
       <p className="text-text-muted">
-        A kind switched on refuses a player&apos;s move across it. Right-click a cliff or an opening to change its kind.
+        A kind switched on refuses a player&apos;s move across it. Right-click a cliff to change its kind.
       </p>
       <ul className="flex flex-col gap-1">
         {kinds.map((k) => {
@@ -50,7 +50,7 @@ export function CrossingsPanel() {
   );
 }
 
-/** The DM's right-click over a raised edge or an opening opens the crossing picker there. */
+/** The DM's right-click over a raised edge opens the crossing picker there. */
 function mountCrossingInput(): () => void {
   return mountWhenEngineReady((engine) => {
     const canvas = engine.canvas();

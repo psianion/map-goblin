@@ -1,5 +1,5 @@
 // The crossings module (plan §7): how the table plays the raised edges of a scene's map right
-// now. The map authors each cliff's, slope's and opening's crossing kind and each kind's
+// now. The map authors each cliff's and slope's crossing kind and each kind's
 // `blocks`; the DM changes either live, mid-session, and the change travels over the socket
 // like a door's state and is kept with the campaign's module state. Everyone reads the same
 // rules: the chip a player's drag shows names the kind and its note, so nothing is redacted.
@@ -9,7 +9,7 @@ import { ID_MAX, Reject, bad, bool, obj, str } from '../tokens/validate'
 
 /** One scene's live overrides. Absent keys fall back to the map. */
 export interface SceneCrossings {
-  /** A floor's or an opening's id → the crossing kind id the DM picked for it at the table. */
+  /** A plateau's id → the crossing kind id the DM picked for it at the table. */
   edges: Record<string, string>
   /** A crossing kind id → whether it refuses a player's move, as the DM switched it. */
   blocks: Record<string, boolean>

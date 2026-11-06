@@ -1,6 +1,6 @@
 // Plateaus in the sweep: a cliff hides its top from below and nothing from above. Light is
 // stopped by any cliff a cell or more tall; for eyes the map threshold and each floor's
-// override decide which cliffs count; openings never block; and a one-way wall still blocks
+// override decide which cliffs count; and a one-way wall still blocks
 // only from its own side.
 import { describe, it, expect, beforeAll } from 'vitest'
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z'
@@ -10,7 +10,7 @@ import { cliffOccluders } from '../../shared/plateaus'
 import { clockwiseSweep } from './ClockwiseSweep'
 import { LightManager } from './LightManager'
 import type { DungeonLayer, LightChild, ShapeChild, WallSegment } from '../../store/types'
-import type { OpeningChild, PlateauChild } from '../../shared/types'
+import type { PlateauChild } from '../../shared/types'
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string)
@@ -119,15 +119,6 @@ describe('cliffs as one-way occluders', () => {
     expect(extractWallSegments([layerOf([ground, plateau({ height: 1, sightOverride: 'hide' })])], 'sight')).toHaveLength(4)
     expect(extractWallSegments([layerOf([ground, plateau({ height: 5, sightOverride: 'show' })])], 'sight')).toHaveLength(0)
     expect(extractWallSegments([layerOf([ground, plateau({ height: 5, edge: 'slope' })])], 'sight')).toHaveLength(0)
-  })
-
-  it('never blocks through an opening', () => {
-    // Stairs on the west edge, centred at (10, 12): the outline runs (10,10)→(14,10)→(14,14)→(10,14),
-    // so (10, 12) sits at 14/16 of the way round.
-    const stairs: OpeningChild = { id: 's', name: 's', childType: 'opening', visible: true, kind: 'stairs', hostId: 'top', t: 14 / 16, width: 2 }
-    const segs = extractWallSegments([layerOf([ground, plateau(), stairs])], 'sight')
-    expect(sees(segs, [5, 12], [12, 12])).toBe(true)
-    expect(sees(segs, [5, 12], [12, 10.5])).toBe(false)
   })
 
   it('stays out of the wall-shadow pass, which casts cliffs by their drop', () => {

@@ -50,7 +50,7 @@ export interface DungeonSublayers {
   /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
   plateauTops: Container;
   /**
-   * Plateau edges (plateauRenderer.ts): each band's slopes, cliff rock, foot and openings, lowest
+   * Plateau edges (plateauRenderer.ts): each band's slopes, cliff rock and foot, lowest
    * band first, over the tops and under the shadows on them.
    */
   plateauEdges: Container;

@@ -1,4 +1,4 @@
-// Format 3.3 at the table: a map with a plateau, stairs and the DM's own crossing kinds goes up,
+// Format 3.3 at the table: a map with a plateau and the DM's own crossing kinds goes up,
 // comes back whole to the DM and to a player (the note included: the chip shows it), and the
 // tokens module's ground reads its heights and blocking edges.
 import { describe, expect, it } from 'vitest'
@@ -60,7 +60,6 @@ const MAP = {
       children: [
         rect('ground', 0, 0, 30, 30),
         plat('mesa', 10, 10, 14, 14, { height: 3, edge: 'cliff', crossingId: 'rope', sightOverride: 'hide' }),
-        { id: 'st', name: 'Stairs 1', childType: 'opening', visible: true, kind: 'stairs', hostId: 'mesa', t: 0.875, width: 2 },
       ],
       standaloneWalls: [],
       rooms: [],
@@ -86,7 +85,7 @@ async function api(base: string, method: string, path: string, token?: string, r
 type Doc = typeof MAP
 
 describe('format 3.3 round trip', () => {
-  it('keeps plateaus, openings, the sight threshold and the crossing kinds for the DM and the players', async () => {
+  it('keeps plateaus, the sight threshold and the crossing kinds for the DM and the players', async () => {
     const server = await startServer({ port: 0, trustedPort: 0, heartbeatMs: 60_000, dbPath: ':memory:' })
     try {
       const base = `http://127.0.0.1:${server.port}`
@@ -104,7 +103,6 @@ describe('format 3.3 round trip', () => {
       expect(dmMap.mapSettings.crossingKinds).toEqual(KINDS)
       const dmChildren = dmMap.layers[0].children
       expect(dmChildren.find((c) => c.id === 'mesa')).toMatchObject({ height: 3, edge: 'cliff', crossingId: 'rope' })
-      expect(dmChildren.find((c) => c.id === 'st')).toMatchObject({ childType: 'opening', hostId: 'mesa', t: 0.875 })
 
       await api(base, 'PATCH', `/api/scenes/${sceneId}`, dmToken, JSON.stringify({ visibleToPlayers: true }))
       const started = await api(base, 'POST', '/api/sessions', dmToken, JSON.stringify({ campaignId, sceneId }))
@@ -112,7 +110,6 @@ describe('format 3.3 round trip', () => {
       const playerMap = JSON.parse((await api(base, 'GET', `/api/maps/${sceneId}`, joined.body.token as string)).text) as Doc
       // The chip a player's drag shows names the kind and the DM's note, so both travel.
       expect(playerMap.mapSettings.crossingKinds).toEqual(KINDS)
-      expect(playerMap.layers[0].children.some((c) => c.id === 'st')).toBe(true)
       // Plateaus are relief: they ship whole, so a player reads the heights the DM does.
       expect(playerMap.layers[0].children.find((c) => c.id === 'mesa')).toMatchObject({ childType: 'plateau', height: 3 })
     } finally {
@@ -126,18 +123,16 @@ describe('the ground the tokens stand on', () => {
   let live: { byScene: Record<string, { edges: Record<string, string>; blocks: Record<string, boolean> }> } | undefined
   const terrainOf = createTerrain((id) => (id === 'scene-a' ? scene : null), () => live)
 
-  it('reads heights off the plateau and part way down its stairs', () => {
+  it('reads heights off the plateau', () => {
     const t = terrainOf('scene-a')!
     expect(t.elevationAt(12, 12)).toBe(3)
     expect(t.elevationAt(5, 5)).toBe(0)
-    expect(t.elevationAt(8.5, 12)).toBeCloseTo(1.5)
     expect(terrainOf('no-such-scene')).toBeNull()
   })
 
-  it('refuses a crossing whose kind blocks, but never through the stairs, and follows the DM’s live rules', () => {
+  it('refuses a crossing whose kind blocks, and follows the DM’s live rules', () => {
     const t = terrainOf('scene-a')!
     expect(t.crossingRefusal({ x: 12, y: 8 }, { x: 12, y: 11 })).toBe('CROSSING_BLOCKED rope: Rope — Needs a rope')
-    expect(t.crossingRefusal({ x: 8, y: 12 }, { x: 11, y: 12 })).toBeNull()
     live = { byScene: { 'scene-a': { edges: { mesa: 'climb' }, blocks: {} } } }
     expect(t.crossingRefusal({ x: 12, y: 8 }, { x: 12, y: 11 })).toBeNull()
     live = { byScene: { 'scene-a': { edges: { mesa: 'climb' }, blocks: { climb: true } } } }

@@ -238,8 +238,8 @@ function childShips(
   // title the party has not learned. Marked ones then follow the room rule like any child.
   if (child.childType === 'text' && child.players !== true) return false
   // Plateaus are relief, like terrain: they always ship with their layer, so a player reads the
-  // same heights the DM does. An opening rides its plateau's ring and goes with it.
-  if (child.childType === 'plateau' || child.childType === 'opening') return true
+  // same heights the DM does.
+  if (child.childType === 'plateau') return true
   // With no room on the layer there is nothing to earn and nothing for a contour to fence.
   //
   // A door with no room to be bound to can never be earned, and the player's door marks are

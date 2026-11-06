@@ -1,16 +1,9 @@
-// Crossing a raised edge at the table (plan §7): which cliffs, slopes and openings a token's
+// Crossing a raised edge at the table (plan §7): which cliffs and slopes a token's
 // move goes over, what the table plays each of them as, and whether the move stands. Pure —
 // the drag reads it per hop, the tests read it directly. The geometry is core's
 // (`shared/plateaus.ts`), the same the server refuses a forged move with.
 
-import {
-  FREE_CROSSING,
-  crossingIdOf,
-  crossingsAlongLayers,
-  layerPlateaus,
-  openingFrame,
-  type Crossing,
-} from '@dnd/core/src/shared/plateaus';
+import { crossingIdOf, crossingsAlongLayers, layerPlateaus, type Crossing } from '@dnd/core/src/shared/plateaus';
 import { defaultCrossingKinds } from '@dnd/core/src/shared/crossingKinds';
 import { firstLevelId, layersOnLevel } from '@dnd/core/src/shared/visionGate';
 import type { CrossingKind, Level } from '@dnd/core/src/shared/types';
@@ -34,7 +27,7 @@ export interface HopVerdict {
 
 /**
  * Judge one hop of a drag. Every crossing is resolved; the chips are the ones the plan says
- * to show (cliffs always, slopes, bare edges and openings only when not Free), and a crossing
+ * to show (cliffs always, slopes and bare edges only when not Free), and a crossing
  * whose kind blocks refuses the move for a player. The DM's own drags are never refused.
  */
 export function judgeHop(
@@ -59,11 +52,11 @@ export function chipWords(c: Crossing, refused: boolean): { title: string; note:
   return { title: refused ? `${name} — you can't cross here` : name, note: c.kind?.note ?? null };
 }
 
-/** A raised edge or an opening the DM pointed at, and what it is played as. */
+/** A raised edge the DM pointed at, and what it is played as. */
 export interface CrossingTarget {
-  /** The plateau's id (its whole raised edge) or the opening's. */
+  /** The plateau's id (its whole raised edge). */
   targetId: string;
-  what: 'opening' | 'cliff' | 'slope' | 'none';
+  what: 'cliff' | 'slope' | 'none';
   /** Where the menu opens, world cells. */
   x: number;
   y: number;
@@ -82,20 +75,10 @@ function segDistance(px: number, py: number, a: readonly number[], b: readonly n
 }
 
 /**
- * The opening or raised edge under (x, y) on the given level, nearest first; null on open
- * ground. Openings win over the edge they sit in.
+ * The raised edge under (x, y) on the given level, nearest first; null on open ground.
  */
 export function crossingTargetAt(map: CrossingMap, levelId: string | undefined, x: number, y: number): CrossingTarget | null {
   const layers = layersOnLevel(map, map.layers as Layer[], levelId || firstLevelId(map));
-  for (const layer of layers) {
-    for (const c of layer.children) {
-      if (c.childType !== 'opening' || !c.visible) continue;
-      const f = openingFrame(layer, c);
-      if (f && Math.hypot(x - f.position[0], y - f.position[1]) <= Math.max(c.width / 2, PICK_REACH)) {
-        return { targetId: c.id, what: 'opening', x: f.position[0], y: f.position[1], mapKindId: c.crossingId ?? FREE_CROSSING };
-      }
-    }
-  }
   let best: (CrossingTarget & { d: number }) | null = null;
   for (const layer of layers) {
     for (const band of layerPlateaus(layer).bands) {
