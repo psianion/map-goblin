@@ -10,7 +10,7 @@ Sixteen items, grouped into five waves by dependency. Every item is one builder,
 
 1. **Mockup first.** No control, panel section, dock column or card field is built until its frame is drawn in `mockups/phase-2.html` and the user has said yes. Items that change only the renderer and reuse an existing control (floor opacity, corner style) still get a before-and-after picture in that page.
 2. **One builder per item.** One Opus builder, briefed with this file's row, the Dungeondraft page and the family's phase-two comment. No helper builders. Sonnet only for read-only research through context mode.
-3. **No browser test run without the user's approval.** Unit tests and typecheck run freely. A builder writes its spec but does not run it; at the end of a wave the user approves one run of the specs the wave touched, the failures get one root-cause analysis and one plan of fixes, and the fixes land in one commit. Never a second run on a builder's own decision. Render checks use a fixed viewport, a fixed map, and a tolerance written in the test.
+3. **No browser tests during the phase.** Typecheck, lint, the unit tests and a production build run freely and are green before every commit. A builder writes its item's browser spec but never runs it. No browser test of any kind runs without the user's approval. At the end of the phase this chat lays out one testing plan (which specs, in what order, what each proves, the expected cost) for the user to approve; the runs, the root-cause analysis of the failures and the one fix commit follow that approval.
 4. **A budget line per item.** Each brief states the expected commits and the expected number of browser runs (usually two: one while writing the spec, one before the commit). A builder that passes its budget stops and reports instead of pushing on.
 5. **Registry stays the source.** A phase-two control is added by registering the setting the family's phase-two comment already names, with its home from the audit. The panel, dock and card render it; no surface code is written per item.
 6. **Nothing lands half-drawn.** If the renderer cannot finish an item within its budget, the control stays unregistered and the item goes back on this list with a note of what was learned.
@@ -21,7 +21,7 @@ One commit on the same branch, then the user reviews phase one.
 
 - Fix the three open render checks from the phase-one suite: the light footprint sample points under the new chrome, the warren band reference fitted to the new viewport, and the plateau ring lift offset for the 112px dock. Fix the helper's wait for the shell test id after navigation so the frame specs pass on four workers.
 - Split the suite: `@render` and `@cdn` specs move to a slow project that runs only on request; everything else is the fast set, under ten minutes on two workers. The scripts: `pnpm -C canvas e2e` for the fast set, `pnpm -C canvas e2e:render` for the slow set.
-- Budget: one builder, one commit, three scoped runs plus one fast-set run with the user's permission.
+- Budget: one builder, one commit, no browser runs; the three render checks are fixed by reading the specs against the new chrome and the fixes are verified in the end-of-phase testing plan.
 
 ## Waves
 
@@ -203,9 +203,9 @@ One page, `mockups/phase-2.html`, in the same style as `shell.html`, with every 
 
 ## Tests and budget for the whole phase
 
-- Fast set: the family and shell specs, tagged, under ten minutes on two workers; a builder runs only its item's file.
-- Slow set: `@render` and `@cdn`, run on request only, never by a builder.
-- Expected browser runs for the whole phase: one approved run per wave, five in all, each followed by a root-cause analysis and one fix commit.
+- Fast set: the family and shell specs, tagged, under ten minutes on two workers. Slow set: `@render` and `@cdn`. Both exist so the end-of-phase testing plan can run one scope at a time.
+- Expected browser runs during the phase: none. Builders write specs and never run them. Typecheck, lint, unit tests and the production build are the gate for every commit.
+- At the end of the phase: one testing plan from this chat, approved by the user, then the runs it lists, one root-cause analysis of the failures and one fix commit.
 - One builder at a time per wave unless two items touch different engine files and the user agrees to a pair.
 - The watcher runs every twenty minutes and reports a stall after thirty minutes without a file change and without a test process alive.
 
@@ -218,7 +218,7 @@ Reviewed 7 November against the approved mockup page, the phase-one code, and th
 - **Map format.** Each wave that adds data bumps the format version once, in `canvas/src/io/mapFile.ts`, with a fixture test that an old map loads and a new map round-trips. The table reads maps through the same core parser, so item 0 adds a test that the parser the table uses accepts the new version.
 - **Undo.** Every new engine operation (carve, fill, merge, clone, insert node) is a command on the existing command layer with a single undo step.
 - **Export and publish.** The PNG export pipeline and the table both draw through the core renderers; each wave's approved run includes the export spec so water, material, path and opacity are known to reach exports.
-- **Reference images.** The terrain model and the threshold change how existing paint looks, on purpose. The wave-1 approved run re-baselines the warren band and plateau pixel references; a diff there is expected, not a bug, and the builder says so in the report before anyone reads it as a failure.
+- **Reference images.** The terrain model and the threshold change how existing paint looks, on purpose. The end-of-phase run re-baselines the warren band and plateau references; a diff there is expected, not a bug, and the testing plan says so before anyone reads it as a failure.
 - **Keys.** The mockup letters are placeholders. Material brush cannot be M (Measure holds M on the rail, which is always live); the registry's collision test picks a free letter and the report lists it. Water W and Path P are clear (Wall is in another family; Pan is G).
 - **Curves.** Floors and paths can carry curved segments after wave 1. One shared helper flattens curves to segments at a fixed tolerance, used by hit-testing, the clipper, the band renderer and export, so no consumer sees a curve it does not understand.
 - **Budget.** One builder at a time; the watcher checks every twenty minutes; a builder that passes its budget stops and reports.
@@ -243,7 +243,7 @@ Reviewed 7 November against the approved mockup page, the phase-one code, and th
 
 ## Open questions
 
-None open. Answered 7 November: the forge is not asked for anything yet, border units per material are noted for later; nothing in the table client is touched until its own pass; background image layers stay out of export and publish by default; one font for everything, so item 15 is dropped; the wave-1 approved run re-baselines the render references.
+None open. Answered 7 November: the forge is not asked for anything yet, border units per material are noted for later; nothing in the table client is touched until its own pass; background image layers stay out of export and publish by default; one font for everything, so item 15 is dropped; the end-of-phase run re-baselines the render references.
 
 ## Decision log
 
@@ -251,4 +251,5 @@ None open. Answered 7 November: the forge is not asked for anything yet, border 
 |---|---|
 | 7 Nov 2026 | Phase two drafted as five waves, one builder per item, mockup before code, scoped tests only, full suite only with the user's permission |
 | 7 Nov 2026 | Mockup page approved; no forge or table work inside phase two (forge asks and the table door module are noted for their own passes); item 15 dropped, one font for everything; trace layers out of export by default |
-| 7 Nov 2026 | Wave 1 built as one workstream, terrain brush first; wave 4 parked for the pack format; label fonts stay with the table behind; render checks kept; no browser run without approval, one run per wave then one root-cause analysis and one fix commit; one mockup page for all of phase two before any build |
+| 7 Nov 2026 | Wave 1 built as one workstream, terrain brush first; wave 4 parked for the pack format; render checks kept; one mockup page for all of phase two before any build |
+| 7 Nov 2026 | No browser tests at all during the phase: typecheck, lint, unit tests and the production build gate every commit; builders write specs and never run them; one testing plan at the end of the phase, approved by the user, then the runs, one root-cause analysis and one fix commit |
