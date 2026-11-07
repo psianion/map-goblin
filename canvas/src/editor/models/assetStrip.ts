@@ -556,6 +556,13 @@ export function pickAssetForTool(assetId: string): void {
     }
     return;
   }
+  // A path unit while drawing paths is the piece the next path is laid with.
+  if (entry?.pieceType === 'path' && tool === 'path') {
+    useStore.setState((s) => {
+      s.tools.settings.path.pieceId = assetId;
+    });
+    return;
+  }
   const target = selectedLookTarget(store);
   const wallSet = tool === 'wall' || target ? wallSetForAsset(assetId) : undefined;
   if (wallSet && target) {

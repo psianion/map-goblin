@@ -1,7 +1,8 @@
 // Props that block light and sight ("Blocks light and sight" on the prop card) occlude as the
 // four edges of their rotated footprint, both directions. One flag, for light and sight alike.
 
-import type { AnyChild, AssetChild } from './types';
+import type { AnyChild, AssetChild, PathwayChild } from './types';
+import { pathwayLine } from './pathway';
 
 /** One edge of a blocking prop's footprint, in world units. */
 export interface PropEdge {
@@ -34,10 +35,26 @@ export function propEdges(prop: AssetChild): PropEdge[] {
   return edges;
 }
 
-/** Every blocking prop's edges among `children`. */
+/** Whether a child is a visible path with Block light on: its line occludes, like a wall. */
+function blocksLightPath(child: AnyChild): child is PathwayChild {
+  return child.childType === 'pathway' && child.visible !== false && child.blocksLight === true;
+}
+
+/** A blocking path's line as segments. */
+function pathEdges(path: PathwayChild): PropEdge[] {
+  const line = pathwayLine(path);
+  const edges: PropEdge[] = [];
+  for (let i = 0; i < line.length - 1; i++) edges.push({ x1: line[i][0], y1: line[i][1], x2: line[i + 1][0], y2: line[i + 1][1] });
+  return edges;
+}
+
+/** Every blocking prop's edges among `children`, and every blocking path's line. */
 export function propSegments(children: readonly AnyChild[]): PropEdge[] {
   const out: PropEdge[] = [];
-  for (const child of children) if (blocksLightProp(child)) out.push(...propEdges(child));
+  for (const child of children) {
+    if (blocksLightProp(child)) out.push(...propEdges(child));
+    else if (blocksLightPath(child)) out.push(...pathEdges(child));
+  }
   return out;
 }
 
@@ -48,6 +65,10 @@ export function propSegments(children: readonly AnyChild[]): PropEdge[] {
 export function propOccluderKey(children: readonly AnyChild[]): string {
   const parts: string[] = [];
   for (const c of children) {
+    if (blocksLightPath(c)) {
+      parts.push(`${c.id}|${JSON.stringify([c.contours, c.transform, c.curve, c.smoothness])}`);
+      continue;
+    }
     if (!blocksLightProp(c)) continue;
     parts.push(`${c.id}|${c.position.x}|${c.position.y}|${c.width * c.scale}|${c.height * c.scale}|${c.rotation}|${c.flipX}|${c.flipY}`);
   }

@@ -56,6 +56,7 @@ export const KIND_LABEL: Record<SelectionKind, string> = {
   wall: 'Walls',
   door: 'Doors',
   zone: 'Zones',
+  pathway: 'Paths',
   room: 'Rooms',
 };
 

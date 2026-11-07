@@ -11,7 +11,7 @@ import type { Verb } from '@/editor/registry/types';
 import { editNodeMode } from '@/editor/registry/shared';
 import { moreVerb, SELECTION_VERBS as SELECT_VERBS } from '@/editor/families/select/verbs';
 
-/** One floor or one wall picked: its points open for editing, as Enter does. */
+/** One floor, one wall or one path picked: its points open for editing, as Enter does. */
 export const nodeModeVerb: Verb = {
   id: 'nodeMode',
   label: 'Node mode',
@@ -21,7 +21,7 @@ export const nodeModeVerb: Verb = {
     const s = state as MapBuilderStore;
     if (s.selection.selectedIds.length !== 1) return false;
     const picked = resolveSelection(s, s.selection.selectedIds);
-    return picked.walls.length === 1 || picked.children.some(({ child }) => child.childType === 'shape');
+    return picked.walls.length === 1 || picked.children.some(({ child }) => child.childType === 'shape' || child.childType === 'pathway');
   },
   active: (state) => bindingOf(editNodeMode).read(state) === true,
   run: (store) => {

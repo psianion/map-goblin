@@ -19,6 +19,12 @@ export const MATERIAL_BRUSH_RANGES = {
   radius: { min: 0.5, max: 12, step: 0.5 },
 } as const;
 
+/** The Path tool's clamps, read by its dock, panel and card too. */
+export const PATH_RANGES = {
+  width: { min: 0.25, max: 8, step: 0.25 },
+  smoothness: { min: 0, max: 1, step: 0.05 },
+} as const;
+
 /** Props tool clamps — the dock's sliders read these too. */
 export const PROPS_RANGES = {
   brushRadius: { min: 0.5, max: 10, step: 0.5 },
@@ -71,6 +77,7 @@ export const createToolsSlice: StateCreator<
       state.tools.selectedNodeTs = [];
       state.tools.shapeNodeEditId = null;
       state.tools.selectedVertex = null;
+      state.tools.pathNodeEditId = null;
     }),
   setNodeEditWall: (wallId) =>
     set((state) => {

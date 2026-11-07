@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   Mountain,
   Plus,
+  Route,
   Search,
   Settings2,
   Square,
@@ -73,6 +74,7 @@ const KIND_ICON: Record<RowKind, LucideIcon> = {
   light: Lightbulb,
   text: Type,
   zone: Crosshair,
+  pathway: Route,
   shape: Square,
   plateau: Mountain,
 };

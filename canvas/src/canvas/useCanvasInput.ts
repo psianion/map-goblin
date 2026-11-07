@@ -46,6 +46,7 @@ import {
   pressPlateau,
   togglePlateauPointAt,
 } from '@dnd/core/src/engine/ringNodeEdit';
+import { cancelPathDrag, endPathDrag, isDraggingPath, movePathDrag, pressPath } from '@dnd/core/src/engine/pathNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -298,6 +299,10 @@ export function useCanvasInput(
       if (e.button === 0 && pressPlateau(rawWorld, engine.stage().scale.x, { alt: e.altKey })) {
         return;
       }
+      // A path in node mode: its node and midpoint handles. A miss falls through to Select.
+      if (e.button === 0 && pressPath(rawWorld, engine.stage().scale.x)) {
+        return;
+      }
 
       const snapped = toolPoint(rawWorld);
       cursorWorldPosition.current = snapped;
@@ -348,6 +353,10 @@ export function useCanvasInput(
 
       if (isDraggingPlateau()) {
         movePlateauDrag(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top));
+        return;
+      }
+      if (isDraggingPath()) {
+        movePathDrag(engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top));
         return;
       }
       if (useStore.getState().tools.activeTool === 'select') {
@@ -410,6 +419,10 @@ export function useCanvasInput(
         endPlateauDrag();
         return;
       }
+      if (isDraggingPath()) {
+        endPathDrag();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = toolPoint(world);
@@ -433,6 +446,7 @@ export function useCanvasInput(
         cancelOutlineDrag();
       }
       if (isDraggingPlateau()) cancelPlateauDrag();
+      if (isDraggingPath()) cancelPathDrag();
       // The tool manager never heard about this gesture ending — without this
       // an active drawing tool (chain, drag, freehand stroke) is left mid-flight,
       // and an unguarded onPointerUp downstream could commit it.

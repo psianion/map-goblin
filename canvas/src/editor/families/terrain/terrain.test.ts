@@ -28,13 +28,14 @@ describe('the Terrain family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds the Terrain, Water and Material brushes under T, keys B, W and A', () => {
+  it('holds the three brushes and Path under T, keys B, W, A and P', () => {
     expect([terrain.key, terrain.tools.map((t) => [t.label, t.key, t.engine])]).toEqual([
       'T',
       [
         ['Terrain brush', 'B', ['terrain']],
         ['Water brush', 'W', ['water']],
         ['Material brush', 'A', ['material']],
+        ['Path', 'P', ['path']],
       ],
     ]);
   });
@@ -166,5 +167,51 @@ describe('Material brush settings', () => {
   it('says how to paint a patch on the status bar', () => {
     const hint = () => reg.toolById('materialBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
     expect(hint()).toBe('Paint a patch · release to close it · Alt erase');
+  });
+});
+
+describe('Path settings and card', () => {
+  it('keeps Width, Smoothness, Curve and Node mode and the pieces in the dock; the ends, Snap and Block light in the panel', () => {
+    const ids = (home: 'dock' | 'panel') => reg.settingsByHome('path', home).map((s) => s.id);
+    expect(ids('dock')).toEqual(['path.width', 'path.smoothness', 'edit.curve', 'edit.nodeMode']);
+    expect(ids('panel')).toEqual(['path.transitionIn', 'path.transitionOut', 'grid.snap', 'path.blocksLight']);
+    expect(reg.toolById('path')!.dock.map((c) => c.id)).toEqual(['path.pieces']);
+    expect(reg.settingById('path.transitionIn')?.options?.map((o) => o.label)).toEqual(['Hard', 'Fade', 'Grow']);
+    expect(reg.settingById('path.transitionOut')?.options?.map((o) => o.label)).toEqual(['Hard', 'Fade', 'Shrink']);
+  });
+
+  it('writes what the next path is drawn with', () => {
+    expect(settings.setSetting('path.width', 2.5)).toBe(true);
+    expect(settings.setSetting('path.smoothness', 0.2)).toBe(true);
+    expect(settings.setSetting('path.transitionIn', 'grow')).toBe(true);
+    expect(settings.setSetting('path.transitionOut', 'grow')).toBe(false);
+    expect(useStore.getState().tools.settings.path).toMatchObject({ width: 2.5, smoothness: 0.2, transitionIn: 'grow' });
+  });
+
+  it('edits a placed path from its card, Node mode first on its row', () => {
+    const card = reg.cardForKind('pathway')!;
+    expect(card.fields.map((f) => f.label)).toEqual(['Width', 'Smoothness', 'Transition in', 'Transition out', 'Block light']);
+    expect(card.verbs[0].id).toBe('nodeMode');
+    const layerId = useStore.getState().ui.activeLayerId;
+    useStore.getState().addChild(layerId, {
+      id: 'p1', name: 'Path', childType: 'pathway', visible: true, contours: [[[0, 0], [4, 0]]],
+      pieceId: 'x', width: 1, smoothness: 0.6, curve: false, transitionIn: 'fade', transitionOut: 'hard', blocksLight: false,
+    });
+    undoManager.clear();
+    card.fields.find((f) => f.label === 'Width')!.write(useStore, ['p1'], 3);
+    const read = () => (useStore.getState().layers.find((l) => l.id === layerId) as DungeonLayer).children.find((c) => c.id === 'p1');
+    expect(read()).toMatchObject({ width: 3 });
+    undoManager.undo();
+    expect(read()).toMatchObject({ width: 1 });
+    // Node mode opens the picked path's nodes, and the shared switch reads it.
+    useStore.setState((s) => {
+      s.selection.selectedIds = ['p1'];
+    });
+    expect(card.verbs[0].when?.(useStore.getState())).toBe(true);
+    card.verbs[0].run(useStore);
+    expect(useStore.getState().tools.pathNodeEditId).toBe('p1');
+    expect(settings.getSetting('edit.nodeMode')).toBe(true);
+    settings.setSetting('edit.nodeMode', false);
+    expect(useStore.getState().tools.pathNodeEditId).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { renderRingNodeHandles } from './ringNodeEdit';
+import { renderPathNodeHandles } from './pathNodeEdit';
 import { authoredWallMarks } from './wallNodeRenderer';
 import { recordFrame } from './fpsMetrics';
 import { updateShadows } from './shadowPass';
@@ -397,6 +398,7 @@ export function setupRenderLoop(
     renderWallNodeHandles(nodeZoom, nodeView);
     renderShapeNodeHandles(nodeZoom, nodeView);
     renderRingNodeHandles(nodeZoom);
+    renderPathNodeHandles(nodeZoom);
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

@@ -194,6 +194,14 @@ export function createDefaultState(): MapBuilderState {
           smooth: true,
           border: true,
         },
+        path: {
+          pieceId: null,
+          width: 1,
+          smoothness: 0.6,
+          transitionIn: 'fade' as const,
+          transitionOut: 'hard' as const,
+          blocksLight: false,
+        },
         zone: {
           mode: 'point' as const,
         },
@@ -207,6 +215,7 @@ export function createDefaultState(): MapBuilderState {
       selectedNodeTs: [],
       shapeNodeEditId: null,
       selectedVertex: null,
+      pathNodeEditId: null,
     },
     ui: {
       activeLayerId: dungeonLayer.id,

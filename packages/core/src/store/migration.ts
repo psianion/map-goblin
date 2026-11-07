@@ -19,8 +19,8 @@ export const CURRENT_VERSION = '3.7' as const
  * '3.4' → '3.5' is additive: the terrain's smooth blending switch, a floor's own opacity and
  * edge band, curved floor edges; a field a 3.4 map lacks takes its default. '3.5' → '3.6'
  * is additive too: a wall's and a layer's corner style, a door's freestanding flag. '3.6' →
- * '3.7' adds the new terrain tools' data, all additive: a layer's water and its material
- * patches.)
+ * '3.7' adds the new terrain tools' data, all additive: a layer's water, its material patches
+ * and path children ('pathway', not the retired 'path').)
  */
 export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7']
 

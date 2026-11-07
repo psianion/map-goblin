@@ -261,7 +261,9 @@ export type ToolType =
   /** Paints the active layer's water mask. */
   | 'water'
   /** Paints Material brush patches on the active layer. */
-  | 'material';
+  | 'material'
+  /** Draws a path: units laid along a line of clicked nodes. */
+  | 'path';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -294,6 +296,17 @@ export interface MaterialToolSettings {
   radius: number;
   smooth: boolean;
   border: boolean;
+}
+
+/** The Path tool: what the next path is drawn with. */
+export interface PathToolSettings {
+  /** The path unit, a pack-scoped id; null takes the first installed. */
+  pieceId: string | null;
+  width: number;
+  smoothness: number;
+  transitionIn: 'hard' | 'fade' | 'grow';
+  transitionOut: 'hard' | 'fade' | 'shrink';
+  blocksLight: boolean;
 }
 
 /** What the Plateau tool draws next. */
@@ -372,6 +385,7 @@ export interface ToolSettings {
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   material: MaterialToolSettings;
+  path: PathToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
   /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */
@@ -420,6 +434,8 @@ export interface ToolsSlice {
   shapeNodeEditId: string | null;
   /** Vertex index within that outline currently selected. */
   selectedVertex: number | null;
+  /** The picked path whose nodes are out for editing (node mode); null when none is. */
+  pathNodeEditId: string | null;
 }
 
 // ─── Selection ───────────────────────────────────────────

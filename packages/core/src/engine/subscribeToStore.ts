@@ -14,7 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { AnyChild, DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
+import type { AnyChild, DungeonLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
 import { isLayerShown } from '../store/selectors';
@@ -27,6 +27,7 @@ import { scheduleRoomSync } from '../store/roomRefresh';
 import * as textureLoader from '../assets/textureLoader';
 import { drawLayerWater } from './water/waterRenderer';
 import { drawLayerMaterials } from './material/materialRenderer';
+import { drawLayerPaths, pathsKey } from './path/pathRenderer';
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -471,6 +472,29 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubPatches);
 
+  // ─── Paths ────────────────────────────────────────────
+  // A layer's paths redraw when any of its path children is a new object (immer hands out a
+  // new one exactly when it changed), or one comes or goes.
+  const drawnPaths = new Map<string, PathwayChild[]>();
+  const unsubPaths = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const now = pathsKey(layer);
+        const was = drawnPaths.get(layer.id) ?? [];
+        drawnPaths.set(layer.id, now);
+        if (now.length === was.length && now.every((p, i) => p === was[i])) continue;
+        drawLayerPaths(layer);
+      }
+      for (const id of [...drawnPaths.keys()]) if (!live.has(id)) drawnPaths.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubPaths);
+
   // ─── Layer visibility changes ─────────────────────────
   // Reads effective visibility (own flag narrowed by solo, and the shown level —
   // see isLayerShown), not the raw flag: soloing never writes
@@ -904,6 +928,7 @@ export function subscribeToStore(
         // Patches and water, like plateaus, lie on the ground: they follow the floor.
         entry.sublayers.materials.visible = vis.floor;
         entry.sublayers.water.visible = vis.floor;
+        entry.sublayers.paths.visible = vis.floor;
         // Plateaus are relief on the floor: they follow it.
         entry.sublayers.plateauTops.visible = vis.floor;
         entry.sublayers.plateauEdges.visible = vis.floor;

@@ -79,8 +79,8 @@ export const editErase = defineSetting<boolean>({
 });
 
 /**
- * Point editing on the picked floor outline or wall. On means one of the two is open;
- * turning it on opens the one picked floor or wall, and does nothing otherwise.
+ * Point editing on the picked floor outline, wall or path. On means one of them is open;
+ * turning it on opens the one picked floor, wall or path, and does nothing otherwise.
  */
 export const editNodeMode = defineSetting<boolean>({
   id: 'edit.nodeMode',
@@ -94,20 +94,31 @@ export const editNodeMode = defineSetting<boolean>({
   section: 'Edit',
   persist: false,
   bind: {
-    read: (s) => s.tools.shapeNodeEditId !== null || s.tools.nodeEditWallId !== null,
+    read: (s) =>
+      s.tools.shapeNodeEditId !== null ||
+      s.tools.nodeEditWallId !== null ||
+      (s.tools.pathNodeEditId !== null && s.selection.selectedIds.length === 1 && s.selection.selectedIds[0] === s.tools.pathNodeEditId),
     write: (store, on) => {
       const state = store.getState();
       if (!on) {
         state.setShapeNodeEdit(null);
         state.setNodeEditWall(null);
+        store.setState((d) => {
+          d.tools.pathNodeEditId = null;
+        });
         return;
       }
       const ids = state.selection.selectedIds;
       if (ids.length !== 1) return;
       const picked = resolveSelection(state, ids);
       const shape = picked.children.find(({ child }) => child.childType === 'shape');
+      const path = picked.children.find(({ child }) => child.childType === 'pathway');
       if (shape) state.setShapeNodeEdit(shape.child.id);
-      else if (picked.walls[0]) state.setNodeEditWall(picked.walls[0].wall.id);
+      else if (path) {
+        store.setState((d) => {
+          d.tools.pathNodeEditId = path.child.id;
+        });
+      } else if (picked.walls[0]) state.setNodeEditWall(picked.walls[0].wall.id);
     },
   },
 });

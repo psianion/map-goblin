@@ -18,7 +18,8 @@ export type ToolType =
   | 'divide'
   | 'plateau'
   | 'water'
-  | 'material';
+  | 'material'
+  | 'path';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

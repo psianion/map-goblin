@@ -50,8 +50,9 @@ const v2 = z
 const settings35 = mapSettings.extend({ terrain: z.object({ smoothBlend: z.boolean().optional() }).passthrough().optional() });
 const child35 = z.object({ opacity: z.number().min(0).max(1).optional(), edgeBand: z.string().nullable().optional() }).passthrough();
 const cornerStyle = z.enum(['rounded', 'sharp']).optional();
+const child36 = child35.extend({ freestanding: z.boolean().optional() });
 const layer36 = layer.extend({
-  children: z.array(child35.extend({ freestanding: z.boolean().optional() })).optional(),
+  children: z.array(child36).optional(),
   standaloneWalls: z.array(z.object({ cornerStyle }).passthrough()).optional(),
   style: z.object({ wallCornerStyle: cornerStyle }).passthrough().optional(),
 });
@@ -69,6 +70,26 @@ const water = z
     border: z.boolean(),
   })
   .passthrough();
+/** 3.7: a path child, its nodes as one open ring (shared/pathway.ts). */
+const pathway = z
+  .object({
+    childType: z.literal('pathway'),
+    contours: z.array(z.array(z.tuple([z.number(), z.number()]))).min(1),
+    pieceId: z.string(),
+    width: z.number().positive(),
+    smoothness: z.number().min(0).max(1),
+    curve: z.boolean(),
+    transitionIn: z.enum(['hard', 'fade', 'grow']),
+    transitionOut: z.enum(['hard', 'fade', 'shrink']),
+    blocksLight: z.boolean(),
+  })
+  .passthrough();
+/** A 3.7 child: a path is checked as one, every other kind as in 3.6. */
+const child37 = child36.superRefine((c, ctx) => {
+  if (c.childType !== 'pathway') return;
+  const parsed = pathway.safeParse(c);
+  if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
+});
 /** 3.7: a Material brush patch, its outline as rings (shared/materialPatch.ts). */
 const patch = z
   .object({
@@ -106,8 +127,13 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   // 3.6 adds a wall's and a layer's corner style (absent, sharp) and a door's freestanding
   // flag (absent, on a wall).
   '3.6': v3('3.6', settings35, layer36),
-  // 3.7 adds a layer's water (absent, dry) and its material patches (absent, none).
-  '3.7': v3('3.7', settings35, layer36.extend({ water: water.optional(), materials: z.array(patch).optional() })),
+  // 3.7 adds a layer's water (absent, dry), its material patches (absent, none) and path
+  // children.
+  '3.7': v3(
+    '3.7',
+    settings35,
+    layer36.extend({ children: z.array(child37).optional(), water: water.optional(), materials: z.array(patch).optional() }),
+  ),
 };
 
 /** The first problem with a document, said plainly. */

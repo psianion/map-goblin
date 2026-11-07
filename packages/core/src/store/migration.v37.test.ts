@@ -1,11 +1,11 @@
-// 3.6 → 3.7: additive. A layer's water and material patches. A 3.6 map loads as it was, the
-// fields it lacks taking their defaults (dry, no patches), and a 3.7 map round-trips through
+// 3.6 → 3.7: additive. A layer's water, material patches and paths. A 3.6 map loads as it
+// was, the fields it lacks taking their defaults (dry, no patches, no paths), and a 3.7 map round-trips through
 // migrateToLatest, the parser the table loads maps with too.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CURRENT_VERSION, SUPPORTED_VERSIONS, migrateToLatest } from './migration';
 import { useStore } from './store';
-import type { DungeonLayer, SerializedMapData } from './types';
+import type { DungeonLayer, PathwayChild, SerializedMapData } from './types';
 import { emptyWaterGrid, encodeWater, paintWaterDisc } from '../shared/waterMask';
 import type { MaterialPatch } from '../shared/materialPatch';
 
@@ -22,6 +22,11 @@ function saved(patch: (l: DungeonLayer) => void): SerializedMapData {
 }
 
 const patch: MaterialPatch = { id: 'p1', material: 'GG_Cave_Ink', rings: [[[0, 0], [4, 0], [4, 3], [0, 3]]], smooth: true, border: false };
+const path: PathwayChild = {
+  id: 'r1', name: 'Path', childType: 'pathway', visible: true, contours: [[[0, 0], [6, 0], [6, 4]]],
+  pieceId: 'gg-forge:GG_Fieldstone_Straight_Path_8x1_wall_A', width: 1.5, smoothness: 0.4, curve: true,
+  transitionIn: 'grow', transitionOut: 'fade', blocksLight: true,
+};
 const pool = encodeWater(paintWaterDisc(emptyWaterGrid(), 4, 4, 2, false), { shallow: '#9db7bd', deep: '#112233', blend: 1.5, border: true })!;
 
 describe('map format 3.7', () => {
@@ -38,17 +43,21 @@ describe('map format 3.7', () => {
     const l = dungeon(useStore.getState().getSerializableState());
     expect(l.water).toBeUndefined();
     expect(l.materials).toBeUndefined();
+    expect(l.children.some((c) => c.childType === 'pathway')).toBe(false);
   });
 
-  it('round-trips a layer of water and a material patch through save and load', () => {
+  it('round-trips a layer of water, a material patch and a path through save and load', () => {
     const data = saved((l) => {
       l.water = structuredClone(pool);
       l.materials = [structuredClone(patch)];
+      l.children.push(structuredClone(path));
     });
     useStore.getState().resetToDefault();
     useStore.getState().loadFromFile(migrateToLatest(data));
     const l = dungeon(useStore.getState().getSerializableState());
     expect(l.water).toEqual(pool);
     expect(l.materials).toEqual([patch]);
+    // A path is not the retired Path tool's 'path' child, which a load drops.
+    expect(l.children.find((c) => c.id === 'r1')).toEqual(path);
   });
 });

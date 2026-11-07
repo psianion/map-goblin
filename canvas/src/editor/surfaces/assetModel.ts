@@ -11,6 +11,7 @@ import {
   propEntries,
   type CatalogEntry,
 } from '@dnd/core/src/assets/packCatalog';
+import { pathPieceLabel, pathPieces } from '@dnd/core/src/assets/pathKit';
 import type { Layer } from '@/store/types';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
 import { categoryLabel, familyTiles, searchProps, usedOnMap } from '@/editor/models/propLibrary';
@@ -60,7 +61,7 @@ export function assetTiles(chip: AssetChip, query: string): AssetTile[] {
     case 'textures':
       return searchProps(getEntriesByType('floor'), query).map((e) => ({ key: e.id, id: e.id, name: e.label, packId: e.packId }));
     case 'paths':
-      return searchProps(getEntriesByType('path'), query).map((e) => ({ key: e.id, id: e.id, name: e.label, packId: e.packId }));
+      return searchProps(pathPieces(), query).map((e) => ({ key: e.id, id: e.id, name: pathPieceLabel(e), packId: e.packId }));
     case 'props':
       return familyTiles(searchProps(propEntries(), query)).map((t) => ({ key: t.key, id: t.rep.id, name: t.rep.label, packId: t.rep.packId }));
     case 'walls': {

@@ -10,6 +10,7 @@ import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { initRingNodeOverlay } from './ringNodeEdit';
+import { initPathNodeOverlay } from './pathNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 
 export interface SceneGraph {
@@ -51,6 +52,8 @@ export interface DungeonSublayers {
   materials: Container;
   /** The layer's water (engine/water/waterRenderer.ts), just above its floors and patches. */
   water: Container;
+  /** The layer's paths (engine/path/pathRenderer.ts): units laid along a line, over the water. */
+  paths: Container;
   /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
   plateauTops: Container;
   /**
@@ -191,6 +194,10 @@ export function buildSceneGraph(
   worldContainer.addChild(ringNodeOverlay);
   initRingNodeOverlay(ringNodeOverlay);
 
+  const pathNodeOverlay = new Graphics();
+  worldContainer.addChild(pathNodeOverlay);
+  initPathNodeOverlay(pathNodeOverlay);
+
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
@@ -242,6 +249,7 @@ export function addLayerToScene(
     const floor = new Container(); floor.label = 'sublayer-floor';
     const materials = new Container(); materials.label = 'sublayer-materials';
     const water = new Container(); water.label = 'sublayer-water';
+    const paths = new Container(); paths.label = 'sublayer-paths';
     const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
     const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
@@ -255,8 +263,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, materials, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, materials, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

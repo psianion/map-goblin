@@ -53,6 +53,7 @@ import { flattenRing } from '../../shared/bezier';
 import { blockedLayerReason } from './layerGuard';
 import { notify } from '../../shared/notify';
 import { keepPlateausOnGround } from '../plateauGround';
+import { editedPath } from '../pathNodeEdit';
 
 // ─── State machine ────────────────────────────────────────
 
@@ -83,6 +84,7 @@ const KIND_NAME: Record<AnyChild['childType'], string> = {
   light: 'Light',
   door: 'Door',
   zone: 'Zone',
+  pathway: 'Path',
 };
 
 /** What a pick is called: its name, or its kind. */
@@ -858,7 +860,7 @@ export class SelectTool implements DrawingTool {
     this.followHoveredChild();
     // A floor in node mode stays picked for its card, but its outline handles are the
     // chrome then: the box retires, and comes back through the adoption below on exit.
-    if (useStore.getState().tools.shapeNodeEditId) {
+    if (useStore.getState().tools.shapeNodeEditId || editedPath()) {
       if (this.gizmo) this.destroyGizmo();
       if (this.state === 'SELECTED') this.state = 'IDLE';
       return;

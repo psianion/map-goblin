@@ -483,6 +483,8 @@ function translateChild(c: AnyChild, dx: number, dy: number): void {
   } else if (c.childType === 'shape' || c.childType === 'plateau') {
     c.contours = c.contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
     c.tangents = translateTangents(c.tangents, dx, dy);
+  } else if (c.childType === 'pathway') {
+    c.contours = c.contours.map((ring) => ring.map(([x, y]): [number, number] => [x + dx, y + dy]));
   }
 }
 

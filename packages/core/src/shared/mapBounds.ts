@@ -6,6 +6,7 @@ import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '
 import { shapeRing } from './plateaus';
 import { waterBounds } from './waterMask';
 import { patchesBounds } from './materialPatch';
+import { pathwayBounds } from './pathway';
 import { dropShadeWidth, slopeWidthOf } from './plateauShade';
 
 /** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
@@ -102,6 +103,16 @@ function drawnBounds(
       minY = Math.min(minY, water.minY);
       maxX = Math.max(maxX, water.maxX);
       maxY = Math.max(maxY, water.maxY);
+    }
+    // And paths, out to their width.
+    for (const child of dl.children ?? []) {
+      if (child.childType !== 'pathway' || !child.visible) continue;
+      const b = pathwayBounds(child);
+      if (!b) continue;
+      minX = Math.min(minX, b.minX);
+      minY = Math.min(minY, b.minY);
+      maxX = Math.max(maxX, b.maxX);
+      maxY = Math.max(maxY, b.maxY);
     }
     // So are Material brush patches.
     const patches = patchesBounds(dl.materials);

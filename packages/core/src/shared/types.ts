@@ -135,7 +135,8 @@ export type ChildType =
   | 'door'
   | 'plateau'
   | 'text'
-  | 'zone';
+  | 'zone'
+  | 'pathway';
 
 export interface LayerChild {
   id: string;
@@ -217,6 +218,28 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   sightOverride?: 'hide' | 'show';
   /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */
   crossingId?: string;
+}
+
+/**
+ * A path drawn with the Path tool: its nodes as one open ring (`contours[0]`, so moving,
+ * turning and scaling it work as for any ring child), laid with a pack's path units along
+ * the line (shared/pathway.ts). Not 'path': that child type is the retired Path tool's and
+ * is dropped on load.
+ */
+export interface PathwayChild extends LayerChild, RingGeometry {
+  childType: 'pathway';
+  /** The path unit laid along it: a pack-scoped catalogue id (a wall set's 'path' piece). */
+  pieceId: string;
+  /** Cells across; scales the units. */
+  width: number;
+  /** 0 keeps the corners sharp, 1 rounds them fully. */
+  smoothness: number;
+  /** The line runs through its nodes as a spline. */
+  curve: boolean;
+  transitionIn: 'hard' | 'fade' | 'grow';
+  transitionOut: 'hard' | 'fade' | 'shrink';
+  /** The path's line blocks light, like a wall. */
+  blocksLight: boolean;
 }
 
 /** Per-ring curve tangents — see shared/bezier.ts. */
@@ -478,7 +501,8 @@ export type AnyChild =
   | DoorChild
   | PlateauChild
   | TextChild
-  | ZoneChild;
+  | ZoneChild
+  | PathwayChild;
 
 // ---- Room Types ----
 
