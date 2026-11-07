@@ -11,8 +11,11 @@ Status: drafted 7 November 2026; order, scope and rules agreed with the user the
 | 2 Floor opacity and per-floor edge band | 1b569cd |
 | 3 Carve out, Mode row, Alt while drawing | 29f8db5, 8b78712 (Floor mode is its own flag, not the shared erase switch) |
 | 4 Midpoint handles in node mode, Curve for floors, one flattening helper | 701fcd5 |
+| 5 Corner style on walls, per wall and per layer, pieces classified in core | 6689ba0 |
+| 6 Wall auto-join and Merge for two walls | fdffdd6, 22b2feb (Merge row and both lengths on the two-wall card) |
+| 7 Freestanding doors on their own piece, 5 degree steps, format 3.6 | cfbfca2 |
 
-Specs written and not run in wave 1: terrain-brush, floor-opacity, floor-carve, floor-node-mode, shell-frame-d (updated). Every commit passed typecheck, lint, the unit tests and the build in both packages.
+Specs written and not run in wave 1: terrain-brush, floor-opacity, floor-carve, floor-node-mode, shell-frame-d (updated). In wave 2: wall-corner-style, wall-merge, door-freestanding. Every commit passed typecheck, lint, the unit tests and the build in both packages. After each wave the public stack is rebuilt from the wave head and restarted so the user can review it live.
 
 ## TL;DR
 
@@ -265,4 +268,5 @@ None open. Answered 7 November: the forge is not asked for anything yet, border 
 | 7 Nov 2026 | Mockup page approved; no forge or table work inside phase two (forge asks and the table door module are noted for their own passes); item 15 dropped, one font for everything; trace layers out of export by default |
 | 7 Nov 2026 | Wave 1 built as one workstream, terrain brush first; wave 4 parked for the pack format; render checks kept; one mockup page for all of phase two before any build |
 | 7 Nov 2026 | Wave 1 decisions while building: Fill is a one-shot (click Fill, then click the floor; armed look is the existing toggle-on style, hint "Click a floor to fill · Esc cancels"); the edge band default starts unset and shows the layer's band; Paint or Erase is a terrain-only seg on the shared erase value; Floor's Draw or Carve out is its own flag so it never flips the brushes to Erase; the flattened-curve notice is a toast; in node mode the floor stays picked, the selection box hides, the floating bar and the card stay as frame 4 draws them, the card's Delete removes the picked node and is disabled at three nodes |
+| 7 Nov 2026 | Wave 2 decisions while building: corner pieces classified by letter in core (A, C sharp; B, D, E rounded) until packs tag them, a forge ask for later; corner default Sharp for new and unset walls, so existing maps lose the random mix; floor-tool outlines follow a layer value the dock writes when nothing is picked; no new renderer pass for corners between separate walls, auto-join makes them one wall; Auto-join default on; Merge enabled only for two walls sharing an end with the same type, set and layer; freestanding doors are built on the existing door-on-its-own-piece, so the table draws and toggles them and the accepted table gap does not arise; angle steps 5 degrees; frame 7's "R rotate" key, its Placement and Fittings captions and its rotate and flip verbs were not built (keys are placeholders; the card keeps its shipped sections) |
 | 7 Nov 2026 | No browser tests at all during the phase: typecheck, lint, unit tests and the production build gate every commit; builders write specs and never run them; one testing plan at the end of the phase, approved by the user, then the runs, one root-cause analysis and one fix commit |
