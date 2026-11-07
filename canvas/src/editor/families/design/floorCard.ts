@@ -1,6 +1,6 @@
 // The floor card (frame D): Size and Layer, then Look (Colour with Reset, Texture with
-// Change, Tint, the Fill fold). Colour shows for floors without a texture, Tint and Fill
-// for textured ones: each row only where it changes something.
+// Change, Tint, Opacity, the Fill fold), then Edge (Edge band). Colour shows for floors
+// without a texture, Tint and Fill for textured ones: each row only where it changes something.
 
 import { z } from 'zod';
 import { selectLayerForChild } from '@/store/selectors';
@@ -8,13 +8,13 @@ import { createMoveToLayerCommand } from '@dnd/core/src/store/propEdits';
 import { getChildBounds } from '@dnd/core/src/engine/hitTest';
 import { hasLiveTexture } from '@dnd/core/src/assets/packCatalog';
 import { undoManager } from '@/store/undoManager';
-import type { DungeonStyle, ShapeChild } from '@/store/types';
+import type { DungeonLayer, DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren, editKey } from './cardWrites';
 import { EDITABLE_VERBS } from './verbs';
-import { fillOf, pickedFloors, state, type FillValue } from './floorModel';
-import { ColourField, FillField, LayerField, TextureField } from './FloorFields';
+import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
+import { ColourField, EdgeBandField, FillField, LayerField, TextureField } from './FloorFields';
 
 const styleOf = (o: ShapeChild): DungeonStyle | undefined => selectLayerForChild(state(), o.id)?.style;
 const fmtSq = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
@@ -111,6 +111,22 @@ const tint = defineCardField<'shape', string>({
     ),
 });
 
+/** The floor's fill and texture alpha; its walls, band, props and lights keep theirs. */
+const opacity = defineCardField<'shape', number>({
+  id: 'card.floor.opacity',
+  label: 'Opacity',
+  schema: z.number().min(0).max(1),
+  default: 1,
+  home: 'card',
+  control: 'slider',
+  section: 'Look',
+  range: { min: 0, max: 1, step: 0.05, unit: '%' },
+  read: (o) => o.opacity ?? 1,
+  // Full opacity is the default, so it is stored as nothing.
+  write: (_store, ids, v) =>
+    editChildren('Floor opacity', ids, () => ({ opacity: v < 1 ? v : undefined }), editKey('floor.opacity', ids)),
+});
+
 /* ── Fill ──────────────────────────────────────────────── */
 
 const fill = defineCardField<'shape', FillValue>({
@@ -138,9 +154,29 @@ const fill = defineCardField<'shape', FillValue>({
   },
 });
 
+/* ── Edge ──────────────────────────────────────────────── */
+
+/** None or a band; the layer's own band unpins it, so the floor follows its layer again. */
+const edgeBand = defineCardField<'shape', string | null>({
+  id: 'card.floor.edgeBand',
+  label: 'Edge band',
+  schema: z.string().nullable(),
+  default: null,
+  home: 'card',
+  control: 'custom',
+  section: 'Edge',
+  render: EdgeBandField,
+  read: edgeBandOf,
+  write: (_store, ids, v) =>
+    editChildren('Edge band', ids, (c) => {
+      const layer = selectLayerForChild(state(), c.id);
+      return { edgeBand: v === layerBandOf(layer?.type === 'dungeon' ? (layer as DungeonLayer) : null) ? undefined : v };
+    }),
+});
+
 export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: EDITABLE_VERBS,
-  fields: [size, layer, colour, texture, tint, fill],
+  fields: [size, layer, colour, texture, tint, opacity, fill, edgeBand],
 });

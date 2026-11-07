@@ -22,6 +22,8 @@ vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
     ...actual,
     getCatalogEntry: (id: string) => entries.find((e) => e.id === id),
     hasLiveTexture: (id: string | undefined) => id === 'p:moss',
+    isBandSet: (id: string | undefined) => !!id?.startsWith('GG_Cave'),
+    getBandSetIds: () => ['GG_Cave_Ink', 'GG_Cave_Moss'],
   };
 });
 
@@ -151,7 +153,7 @@ describe('the Design family', () => {
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.nodeMode']);
-    expect(ids('panel')).toEqual(['grid.snap', 'grid.snapStep', 'floor.blend']);
+    expect(ids('panel')).toEqual(['grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 });
 
@@ -230,6 +232,27 @@ describe('tool settings', () => {
   });
 });
 
+describe('the Floor panel defaults for new floors', () => {
+  it('shows the layer band while unset, and pins only a band picked there', () => {
+    seed([], []);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'GG_Cave_Ink';
+    });
+    expect(settings.getSetting('floor.edgeBand')).toBe('GG_Cave_Ink');
+    settings.setSetting('floor.edgeBand', null);
+    expect(st().tools.settings.floorEdgeBand).toBeNull();
+    settings.setSetting('floor.edgeBand', 'GG_Cave_Ink');
+    expect(st().tools.settings.floorEdgeBand).toBeUndefined();
+  });
+
+  it('keeps an opacity for new floors', () => {
+    expect(settings.getSetting('floor.opacity')).toBe(1);
+    expect(settings.setSetting('floor.opacity', 0.5)).toBe(true);
+    expect(st().tools.settings.floorOpacity).toBe(0.5);
+    expect(settings.setSetting('floor.opacity', 2)).toBe(false);
+  });
+});
+
 describe('the floor card', () => {
   it('reads Size and moves the floor to another layer, undoably', () => {
     seed([shape('a')], ['a']);
@@ -275,6 +298,35 @@ describe('the floor card', () => {
     expect(child<ShapeChild>('a').textureId).toBe('p:moss');
     undoManager.undo();
     expect(child<ShapeChild>('a').textureId).toBeUndefined();
+  });
+
+  it("sets a floor's opacity, a drag as one undo step, full stored as nothing", () => {
+    seed([shape('a')], ['a']);
+    expect(read('shape', 'card.floor.opacity', child<ShapeChild>('a'))).toBe(1);
+    write('shape', 'card.floor.opacity', ['a'], 0.7);
+    write('shape', 'card.floor.opacity', ['a'], 0.5);
+    expect(child<ShapeChild>('a').opacity).toBe(0.5);
+    expect(undoManager.size()).toBe(1);
+    write('shape', 'card.floor.opacity', ['a'], 1);
+    expect(child<ShapeChild>('a').opacity).toBeUndefined();
+  });
+
+  it("reads the layer's band until the floor picks its own; the layer's own unpins it", () => {
+    seed([shape('a')], ['a']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'GG_Cave_Ink';
+    });
+    const a = () => child<ShapeChild>('a');
+    expect(read('shape', 'card.floor.edgeBand', a())).toBe('GG_Cave_Ink');
+    write('shape', 'card.floor.edgeBand', ['a'], null);
+    expect(a().edgeBand).toBeNull();
+    expect(read('shape', 'card.floor.edgeBand', a())).toBeNull();
+    write('shape', 'card.floor.edgeBand', ['a'], 'GG_Cave_Moss');
+    expect(a().edgeBand).toBe('GG_Cave_Moss');
+    write('shape', 'card.floor.edgeBand', ['a'], 'GG_Cave_Ink');
+    expect(a().edgeBand).toBeUndefined();
+    undoManager.undo();
+    expect(a().edgeBand).toBe('GG_Cave_Moss');
   });
 
   it('offers Node mode for one floor', () => {

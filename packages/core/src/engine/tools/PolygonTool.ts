@@ -7,6 +7,7 @@ import { undoManager } from '../../store/undoManager';
 import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 import type { ShapeCommit } from './RectangleTool';
 
@@ -133,7 +134,7 @@ export class PolygonTool implements DrawingTool {
       };
 
       if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, child));
+      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 }

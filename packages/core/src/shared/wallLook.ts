@@ -139,20 +139,36 @@ export function styleWallLook(style: DungeonStyle): WallLook {
  */
 const OUTLINE_KEYS = ['wallTextureSetId', 'wallTextureTint', 'wallWidth', 'wallColor'] as const;
 
-function outlinePins(shape: ShapeChild): Partial<DungeonStyle> | null {
+/** A floor's outline pins; `noBand` is its edge band set to None. */
+type Pins = Partial<DungeonStyle> & { noBand?: true };
+
+/**
+ * Which wall sets are cave bands. The pack catalogue answers (it registers itself, see
+ * packCatalog.ts); shared code never reads the catalogue, so until then nothing is a band.
+ */
+let isBandSetId: (setId: string) => boolean = () => false;
+
+export function setBandSetTest(test: (setId: string) => boolean): void {
+  isBandSetId = test;
+  ringMemo.clear();
+}
+
+function outlinePins(shape: ShapeChild): Pins | null {
   const o = shape.styleOverrides as Partial<DungeonStyle> | undefined;
-  if (!o) return null;
-  let out: Partial<DungeonStyle> | null = null;
+  let out: Pins | null = null;
   for (const k of OUTLINE_KEYS) {
-    if (o[k] === undefined) continue;
+    if (o?.[k] === undefined) continue;
     out ??= {};
     (out as Record<string, unknown>)[k] = o[k];
   }
+  // The floor's own edge band comes first, over the layer's and any preset pin.
+  if (typeof shape.edgeBand === 'string') (out ??= {}).wallTextureSetId = shape.edgeBand;
+  else if (shape.edgeBand === null) (out ??= {}).noBand = true;
   return out;
 }
 
-const samePins = (a: Partial<DungeonStyle> | null, b: Partial<DungeonStyle> | null): boolean =>
-  OUTLINE_KEYS.every((k) => (a?.[k] ?? null) === (b?.[k] ?? null));
+const samePins = (a: Pins | null, b: Pins | null): boolean =>
+  OUTLINE_KEYS.every((k) => (a?.[k] ?? null) === (b?.[k] ?? null)) && !!a?.noBand === !!b?.noBand;
 
 /** Most vertices a ring is sampled at when working out which floor it belongs to. */
 const RING_SAMPLES = 24;
@@ -232,7 +248,12 @@ export function ringStyles(layer: DungeonLayer, level?: RoomLook): DungeonStyle[
   // The level's tint and width beat a floor's outline pin too: that pin is only the
   // layer's own value, frozen onto drawn floors by a preset.
   const levelPins = levelWallPins(level);
-  const pinned = (p: Partial<DungeonStyle>): DungeonStyle => ({ ...base, ...p, ...levelPins });
+  const pinned = ({ noBand, ...p }: Pins): DungeonStyle => {
+    const style = { ...base, ...p, ...levelPins };
+    // None takes the band away and leaves stone walls as they are.
+    if (noBand && style.wallTextureSetId && isBandSetId(style.wallTextureSetId)) style.wallTextureSetId = '';
+    return style;
+  };
   const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false);
   const pins = shapes.map(outlinePins);
   let out: DungeonStyle[];

@@ -209,6 +209,9 @@ function fillRings(shape: ShapeChild, bleed: number): Polygon[] {
   return grown.length > 0 ? grown : [ring];
 }
 
+/** A floor's own alpha, fill and texture only. */
+const floorAlpha = (shape: ShapeChild): number => Math.min(1, Math.max(0, shape.opacity ?? 1));
+
 function renderTexturedShape(
   parent: Container,
   shape: ShapeChild,
@@ -216,7 +219,9 @@ function renderTexturedShape(
   bleed: number,
 ): void {
   const tint = shape.textureTint && shape.textureTint !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
+  const alpha = floorAlpha(shape);
   paintTiled(parent, fillRings(shape, bleed), texture, {
+    alpha: alpha < 1 ? alpha : undefined,
     // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
     scale: shape.textureScale || 1,
     rotation: shape.textureFillRotation,
@@ -334,7 +339,7 @@ function renderSolidShape(
 ): void {
   const g = new Graphics();
   for (const r of fillRings(shape, bleed)) traceSinglePolygon(g, r);
-  g.fill({ color });
+  g.fill({ color, alpha: floorAlpha(shape) });
   parent.addChild(g);
 }
 
@@ -585,7 +590,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Fast-path detection: check if ANY shape has styleOverrides before
   // enabling per-shape resolution (avoids overhead in the common case).
   const hasStyleOverrides = shapeChildren.some((sh) => sh.styleOverrides && Object.keys(sh.styleOverrides).length > 0);
-  const perShape = hasTexturedShapes || hasStyleOverrides;
+  // A floor below full opacity is painted on its own, so what is under it shows through.
+  const perShape = hasTexturedShapes || hasStyleOverrides || shapeChildren.some((sh) => floorAlpha(sh) < 1);
   // The mask grows by the widest bleed any fill takes, or it would crop that fill back.
   const bleed = perShape
     ? shapeChildren.reduce((m, sh) => Math.max(m, bleedOf(sh)), 0)

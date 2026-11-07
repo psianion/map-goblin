@@ -6,6 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
@@ -126,7 +127,7 @@ export class RectangleTool implements DrawingTool {
       };
 
       if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, child));
+      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 

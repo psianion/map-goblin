@@ -54,13 +54,13 @@ test('frame D: a picked floor shows the Design floor card, and a card edit undoe
   await expect(verbs.last()).toHaveAttribute('aria-label', 'Delete')
   await expect(verbs.last()).toHaveAttribute('data-danger', '')
 
-  // No Edge section until a floor carries its own band; no Opacity until it renders.
+  // Look carries Opacity, and the Edge section the floor's own edge band.
   const captions = await card.locator('[data-section]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.section))
-  expect(captions).toEqual(['', 'Look'])
+  expect(captions).toEqual(['', 'Look', 'Edge'])
   await expect(card.locator('[data-setting="card.floor.size"]')).toContainText('sq')
   await expect(card.locator('[data-setting="card.floor.layer"]')).toBeVisible()
   await expect(card.locator('[data-setting="card.floor.texture"]').getByRole('button', { name: 'Change' })).toBeVisible()
-  await expect(card.locator('[data-setting="card.floor.opacity"], [data-setting="card.floor.edgeBand"]')).toHaveCount(0)
+  await expect(card.locator('[data-setting="card.floor.opacity"], [data-setting="card.floor.edgeBand"]')).toHaveCount(2)
 
   // The floating bar carries the quick verbs (not flip V or hide), beside the selection.
   const bar = page.getByTestId('shell-floating-actions')

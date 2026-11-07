@@ -339,6 +339,9 @@ export interface ToolSettings {
   terrainBrush: TerrainBrushSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
+  /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */
+  floorOpacity?: number;
+  floorEdgeBand?: string | null;
   /** Absent on settings saved before the plateau tool: its defaults. */
   plateau?: PlateauToolSettings;
 }

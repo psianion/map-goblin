@@ -9,6 +9,8 @@ import type { DockColumnDef, EditorState, HintLine } from '@/editor/registry/typ
 import { editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 import { activeDungeonLayer, setActiveStyle } from './layerStyle';
 import { FloorLook } from './LookColumn';
+import { EdgeBandField } from './FloorFields';
+import { layerBandOf } from './floorModel';
 
 export type FloorShape = 'rect' | 'polygon' | 'regular';
 
@@ -85,6 +87,49 @@ export const floorBlend = defineSetting<boolean>({
   },
 });
 
+/**
+ * The edge band new floors take. Unset, it reads as the active layer's band and new floors
+ * follow their layer; picking another pins it on them, picking the layer's own unsets it.
+ * Not saved in prefs: the value it reads depends on the layer in hand.
+ */
+export const floorEdgeBand = defineSetting<string | null>({
+  id: 'floor.edgeBand',
+  label: 'Edge band',
+  schema: z.string().nullable(),
+  default: null,
+  home: 'panel',
+  control: 'custom',
+  section: 'Edge',
+  render: EdgeBandField,
+  persist: false,
+  bind: {
+    read: (s) => (s.tools.settings.floorEdgeBand !== undefined ? s.tools.settings.floorEdgeBand : layerBandOf(activeDungeonLayer(s))),
+    write: (store, v) =>
+      store.setState((draft) => {
+        draft.tools.settings.floorEdgeBand = v === layerBandOf(activeDungeonLayer(draft)) ? undefined : v;
+      }),
+  },
+});
+
+/** The opacity new floors take: their fill and texture only. */
+export const floorOpacity = defineSetting<number>({
+  id: 'floor.opacity',
+  label: 'Opacity',
+  schema: z.number().min(0).max(1),
+  default: 1,
+  home: 'panel',
+  control: 'slider',
+  section: 'Defaults for new floors',
+  range: { min: 0, max: 1, step: 0.05, unit: '%' },
+  bind: {
+    read: (s) => s.tools.settings.floorOpacity ?? 1,
+    write: (store, v) =>
+      store.setState((draft) => {
+        draft.tools.settings.floorOpacity = v;
+      }),
+  },
+});
+
 const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
@@ -108,7 +153,7 @@ export const floorTool = defineTool({
   key: 'F',
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
   // No Curve: the polygon tool draws straight edges only; curveMode reaches walls alone.
-  settings: [floorShape, floorSides, editNodeMode, gridSnap, gridSnapStep, floorBlend],
+  settings: [floorShape, floorSides, editNodeMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
   hint: (s) => FLOOR_HINTS[floorShapeOf(s)],
 });

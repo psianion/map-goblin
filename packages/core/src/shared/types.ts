@@ -182,6 +182,13 @@ export interface ShapeChild extends LayerChild {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
+  /** The fill's and texture's alpha, 0 to 1; walls, band, props and lights keep theirs. Absent = 1. */
+  opacity?: number;
+  /**
+   * The cave band round this floor: a band set id, or null for none (stone walls stay).
+   * Absent = the layer's band.
+   */
+  edgeBand?: string | null;
 }
 
 /**

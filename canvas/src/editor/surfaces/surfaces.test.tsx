@@ -39,8 +39,8 @@ describe('ToolPanel', () => {
     const { getByTestId } = withRegistry(<ToolPanel tool={floor} />);
     const panel = getByTestId('shell-tool-panel');
     const captions = [...panel.querySelectorAll<HTMLElement>('[data-section]')].map((el) => el.dataset.section);
-    // The phase-two settings (Draw or carve, the default opacity) are not registered yet.
-    expect(captions).toEqual(['Placement', 'Edge']);
+    // Draw or carve, the Mode section, is not registered yet.
+    expect(captions).toEqual(['Placement', 'Edge', 'Defaults for new floors']);
     expect(shown(panel)).toEqual(ids('panel'));
   });
 

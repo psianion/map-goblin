@@ -208,6 +208,16 @@ describe('the settings the editor dropped', () => {
     expect(readMapDocument(doc(true)).mapSettings.terrain?.smoothBlend).toBe(true);
     expect(() => readMapDocument(doc('soft'))).toThrow(/smoothBlend/);
   });
+
+  it("reads 3.5 floors with their own opacity and edge band, and refuses an opacity past full", () => {
+    const doc = (opacity: number) => ({
+      version: '3.5',
+      mapSettings: { name: 'Cellars' },
+      layers: [{ id: 'l1', type: 'dungeon', children: [{ id: 'a', childType: 'shape', opacity, edgeBand: null }] }],
+    });
+    expect(readMapDocument(doc(0.5)).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc(2))).toThrow(/opacity/);
+  });
 });
 
 describe('the document as written', () => {

@@ -6,6 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function generateRegularPolygon(
@@ -102,7 +103,7 @@ export class RegularPolygonTool implements DrawingTool {
         textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, child));
+      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 

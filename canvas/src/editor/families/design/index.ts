@@ -9,10 +9,6 @@
 //   - Wall Merge on the card and Auto-join at an endpoint in the panel: join on snap.
 //   - Wall Shadow on the card: the renderer casting wall shadows at all.
 //   - Freestanding doors in the Door panel: a door object not bound to a wall edge.
-//   - Floor Opacity, in the panel's defaults and on the card: per-floor alpha in the renderer.
-//     Until then the Floor panel has no Defaults section.
-//   - Edge band, a panel default and a per-floor card field: a band per floor in the renderer.
-//     Today the band follows the layer's wall set, which the layer sheet sets.
 //   - Node mode midpoint handles; until then Node mode opens today's point editing.
 //   - Curve on Floor: the polygon tool draws straight edges; curve mode reaches walls only.
 

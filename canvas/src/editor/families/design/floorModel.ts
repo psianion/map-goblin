@@ -1,8 +1,10 @@
-// What the floor card's fields read: the picked floors and a floor's texture fill.
+// What the floor card's fields read: the picked floors, a floor's texture fill and the
+// edge band it draws with.
 
 import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
-import type { MapBuilderStore, ShapeChild } from '@/store/types';
+import { isBandSet } from '@dnd/core/src/assets/packCatalog';
+import type { DungeonLayer, MapBuilderStore, ShapeChild } from '@/store/types';
 import { radToDeg } from '@/editor/models/selectionModel';
 
 export const state = () => useStore.getState() as MapBuilderStore;
@@ -23,6 +25,19 @@ export interface FillValue {
   rotate: number;
   x: number;
   y: number;
+}
+
+/** The band a layer draws its floors' edges with, or null when its walls are not a band. */
+export function layerBandOf(layer: Pick<DungeonLayer, 'style'> | null | undefined): string | null {
+  const id = layer?.style.wallTextureSetId;
+  return id && isBandSet(id) ? id : null;
+}
+
+/** A floor's edge band as it draws: its own, else its layer's. */
+export function edgeBandOf(o: ShapeChild): string | null {
+  if (o.edgeBand !== undefined) return o.edgeBand;
+  const layer = selectLayerForChild(state(), o.id);
+  return layerBandOf(layer?.type === 'dungeon' ? (layer as DungeonLayer) : null);
 }
 
 export function fillOf(o: ShapeChild): FillValue {

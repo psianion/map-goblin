@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import type { DungeonLayer, DungeonStyle, ShapeChild } from '../store/types';
 import type { WallSegment, WallType } from './types';
 import {
@@ -6,6 +6,7 @@ import {
   ringLook,
   ringOwner,
   ringStyles,
+  setBandSetTest,
   standaloneWallLook,
   styleValueOrDefault,
   wallTypeGroup,
@@ -102,6 +103,34 @@ describe('floor outline look', () => {
     const l = layer([shape('bare', 0, { wallTextureSetId: '' }), shape('new', 10)], [square(0), square(10)]);
     expect(ringLook(l, 0).setId).toBeUndefined();
     expect(ringLook(l, 1).setId).toBe('GG_Palisade');
+  });
+
+  describe("a floor's own edge band", () => {
+    const caveStyle = { ...style, wallTextureSetId: 'GG_Cave_Ink' } as DungeonStyle;
+    const cave = (children: ShapeChild[], rings: [number, number][][]) => ({ ...layer(children, rings), style: caveStyle }) as DungeonLayer;
+    const banded = (id: string, x: number, edgeBand: string | null | undefined): ShapeChild => ({ ...shape(id, x), edgeBand });
+    beforeAll(() => setBandSetTest((id) => id.startsWith('GG_Cave')));
+    afterAll(() => setBandSetTest(() => false));
+
+    it("falls back to the layer's band when unset", () => {
+      const l = cave([banded('a', 0, undefined), banded('b', 10, undefined)], [square(0), square(10)]);
+      expect(ringLook(l, 0).setId).toBe('GG_Cave_Ink');
+      expect(ringLook(l, 1).setId).toBe('GG_Cave_Ink');
+    });
+
+    it('is read first, over the layer', () => {
+      const l = cave([banded('a', 0, 'GG_Cave_Moss'), banded('b', 10, undefined)], [square(0), square(10)]);
+      expect(ringLook(l, 0).setId).toBe('GG_Cave_Moss');
+      expect(ringLook(l, 1).setId).toBe('GG_Cave_Ink');
+    });
+
+    it('None takes the band off that floor alone, and never stone walls', () => {
+      const l = cave([banded('a', 0, null), banded('b', 10, undefined)], [square(0), square(10)]);
+      expect(ringLook(l, 0).setId).toBeUndefined();
+      expect(ringLook(l, 1).setId).toBe('GG_Cave_Ink');
+      const stone = layer([banded('a', 0, null)], [square(0)]);
+      expect(ringLook(stone, 0).setId).toBe('GG_Palisade');
+    });
   });
 
   it('a ring two floors were unioned into belongs to the one most of it runs along', () => {

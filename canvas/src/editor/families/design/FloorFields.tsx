@@ -2,15 +2,28 @@
 
 import { useMemo } from 'react';
 import { useStore } from '@/store/store';
-import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
+import { getBandSetIds, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import type { DungeonLayer } from '@/store/types';
 import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
+import { wallSetLabel } from '@/editor/models/assetStrip';
 import type { SettingProps } from '@/editor/registry/types';
 import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren } from './cardWrites';
 import { openAssets } from './openAssets';
 import { pickedFloors, type FillValue } from './floorModel';
+
+const NO_BAND = '__none__';
+
+/** Edge band: None, or one of the installed band sets. */
+export function EdgeBandField({ def, value, onChange }: SettingProps<string | null>) {
+  // Pack bands arrive after boot; re-read them when the pack list moves.
+  useStore((s) => s.packs.installedPacks);
+  const ids = getBandSetIds();
+  if (value && !ids.includes(value)) ids.push(value);
+  const options = [{ value: NO_BAND, label: 'None' }, ...ids.map((id) => ({ value: id, label: wallSetLabel(id) }))];
+  return <SelectRow label={def.label} value={value ?? NO_BAND} options={options} onValueChange={(v) => onChange(v === NO_BAND ? null : v)} />;
+}
 
 /** The dungeon layers on the floor's level, by name. */
 export function LayerField({ def, value, onChange }: SettingProps<string>) {
