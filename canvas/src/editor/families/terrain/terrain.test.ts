@@ -28,12 +28,13 @@ describe('the Terrain family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds the Terrain brush and the Water brush under T, keys B and W', () => {
+  it('holds the Terrain, Water and Material brushes under T, keys B, W and A', () => {
     expect([terrain.key, terrain.tools.map((t) => [t.label, t.key, t.engine])]).toEqual([
       'T',
       [
         ['Terrain brush', 'B', ['terrain']],
         ['Water brush', 'W', ['water']],
+        ['Material brush', 'A', ['material']],
       ],
     ]);
   });
@@ -143,5 +144,27 @@ describe('Water brush settings', () => {
     expect(hint()).toBe('Paint water · Alt erase · [ ] size');
     settings.setSetting('terrain.mode', true);
     expect(hint()).toBe('Erase water · [ ] size');
+  });
+});
+
+describe('Material brush settings', () => {
+  it('keeps Size and the swatches in the dock, the mode, Smooth and Border in the panel', () => {
+    const ids = (home: 'dock' | 'panel') => reg.settingsByHome('materialBrush', home).map((s) => s.id);
+    expect(ids('dock')).toEqual(['material.size']);
+    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border']);
+    expect(reg.toolById('materialBrush')!.dock.map((c) => c.id)).toEqual(['material.swatches']);
+  });
+
+  it('writes what the next stroke paints with', () => {
+    expect(settings.setSetting('material.size', 4)).toBe(true);
+    expect(settings.setSetting('material.smooth', false)).toBe(true);
+    expect(settings.setSetting('material.border', false)).toBe(true);
+    expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false });
+    expect(settings.setSetting('material.size', 40)).toBe(false);
+  });
+
+  it('says how to paint a patch on the status bar', () => {
+    const hint = () => reg.toolById('materialBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    expect(hint()).toBe('Paint a patch · release to close it · Alt erase');
   });
 });

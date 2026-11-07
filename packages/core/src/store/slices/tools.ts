@@ -14,6 +14,11 @@ export const WATER_BRUSH_RANGES = {
   blend: { min: 0, max: 6, step: 0.5 },
 } as const;
 
+/** The Material brush's clamps, read by its dock too. */
+export const MATERIAL_BRUSH_RANGES = {
+  radius: { min: 0.5, max: 12, step: 0.5 },
+} as const;
+
 /** Props tool clamps — the dock's sliders read these too. */
 export const PROPS_RANGES = {
   brushRadius: { min: 0.5, max: 10, step: 0.5 },

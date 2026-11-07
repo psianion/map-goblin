@@ -10,7 +10,7 @@
 import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
-import { GRID_CELL_PX, hasLiveTexture, type CatalogEntry } from '../assets/packCatalog';
+import { GRID_CELL_PX, bandSetArt, hasLiveTexture, type CatalogEntry } from '../assets/packCatalog';
 import { caveBandPieces, jointsOf, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -1007,6 +1007,33 @@ export function placeBand(
     at++;
   }
   return at;
+}
+
+/* ── Any outline ──────────────────────────────────────────────────────
+ *
+ * The band is not only a floor's: a Material brush patch has its border units
+ * laid the same way round its outline. The rings are oriented as floor rings
+ * are, so what lies outside the outline is the walk's void side, and each is
+ * walked with the set's kit; holes walk the other way round, like a floor's.
+ */
+
+/** A band set's kit laid round each of `rings` (outer rings and holes), one list a ring. */
+export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandPieces()): WalkPlacement[][] {
+  return orientRings(rings).map((ring) => (ring.length < 3 ? [] : layBandRing(ring, [], set)));
+}
+
+/**
+ * Draws `setId`'s border units round `rings` into `parent`, after what it holds, with the
+ * ground under the rock shaded `fillColor` the way a floor's band strip is.
+ */
+export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number): void {
+  const art = bandSetArt(setId);
+  const oriented = orientRings(rings);
+  const laid = layOutlineBand(rings);
+  let at = parent.children.length;
+  oriented.forEach((edge, i) => {
+    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps: [], color: fillColor });
+  });
 }
 
 /* ── Drawn walls on a band layer ──────────────────────────────────────

@@ -17,7 +17,8 @@ export type ToolType =
   | 'roomPolygon'
   | 'divide'
   | 'plateau'
-  | 'water';
+  | 'water'
+  | 'material';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

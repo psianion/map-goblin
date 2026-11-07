@@ -188,6 +188,12 @@ export function createDefaultState(): MapBuilderState {
           blend: 1.5,
           border: true,
         },
+        material: {
+          material: 'GG_Cave_Ink',
+          radius: 3,
+          smooth: true,
+          border: true,
+        },
         zone: {
           mode: 'point' as const,
         },

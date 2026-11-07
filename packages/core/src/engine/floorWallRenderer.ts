@@ -117,7 +117,7 @@ function pointInPolygon(px: number, py: number, poly: Polygon): boolean {
  * holes individually — otherwise cut() can't associate holes with the
  * correct outer.
  */
-function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
+export function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
   const outers: Polygon[] = [];
   const holes: Polygon[] = [];
   for (const poly of polygons) {

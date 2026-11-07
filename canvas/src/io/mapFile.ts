@@ -69,6 +69,16 @@ const water = z
     border: z.boolean(),
   })
   .passthrough();
+/** 3.7: a Material brush patch, its outline as rings (shared/materialPatch.ts). */
+const patch = z
+  .object({
+    id: z.string(),
+    material: z.string(),
+    rings: z.array(z.array(z.tuple([z.number(), z.number()]))),
+    smooth: z.boolean(),
+    border: z.boolean(),
+  })
+  .passthrough();
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -96,8 +106,8 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   // 3.6 adds a wall's and a layer's corner style (absent, sharp) and a door's freestanding
   // flag (absent, on a wall).
   '3.6': v3('3.6', settings35, layer36),
-  // 3.7 adds a layer's water (absent, dry).
-  '3.7': v3('3.7', settings35, layer36.extend({ water: water.optional() })),
+  // 3.7 adds a layer's water (absent, dry) and its material patches (absent, none).
+  '3.7': v3('3.7', settings35, layer36.extend({ water: water.optional(), materials: z.array(patch).optional() })),
 };
 
 /** The first problem with a document, said plainly. */

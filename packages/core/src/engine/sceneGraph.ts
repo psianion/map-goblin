@@ -47,7 +47,9 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
-  /** The layer's water (engine/water/waterRenderer.ts), just above its floors. */
+  /** The layer's Material brush patches (engine/material/materialRenderer.ts), on its floors. */
+  materials: Container;
+  /** The layer's water (engine/water/waterRenderer.ts), just above its floors and patches. */
   water: Container;
   /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
   plateauTops: Container;
@@ -238,6 +240,7 @@ export function addLayerToScene(
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const materials = new Container(); materials.label = 'sublayer-materials';
     const water = new Container(); water.label = 'sublayer-water';
     const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
     const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
@@ -252,8 +255,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, materials, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
+    sublayers = { floor, materials, water, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

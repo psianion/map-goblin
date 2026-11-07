@@ -26,6 +26,7 @@ import type { MapEnvironment, NightSky } from '../shared/world';
 import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
 import type { WaterBody, WaterLook } from '../shared/waterMask';
+import type { MaterialPatch } from '../shared/materialPatch';
 
 // ─── Map Settings ─────────────────────────────────────────
 
@@ -202,6 +203,8 @@ export interface DungeonLayer extends BaseLayer {
   floorWallEdits?: Record<string, WallEdits>;
   /** The Water brush's mask and look, drawn just above this layer's floors. Absent = dry. */
   water?: WaterBody;
+  /** The Material brush's patches, drawn on this layer's floors, under its water. Absent = none. */
+  materials?: MaterialPatch[];
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -256,7 +259,9 @@ export type ToolType =
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
   | 'plateau'
   /** Paints the active layer's water mask. */
-  | 'water';
+  | 'water'
+  /** Paints Material brush patches on the active layer. */
+  | 'material';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -279,6 +284,16 @@ export interface TerrainBrushSettings {
 export interface WaterToolSettings extends WaterLook {
   /** Brush radius in cells. */
   radius: number;
+}
+
+/** The Material brush: what the next stroke paints. */
+export interface MaterialToolSettings {
+  /** The band set painted with ('GG_Cave_Ink'). */
+  material: string;
+  /** Brush radius in cells. */
+  radius: number;
+  smooth: boolean;
+  border: boolean;
 }
 
 /** What the Plateau tool draws next. */
@@ -356,6 +371,7 @@ export interface ToolSettings {
   doorFreestanding?: boolean;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
+  material: MaterialToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
   /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */

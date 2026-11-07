@@ -26,6 +26,7 @@ import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomRefresh';
 import * as textureLoader from '../assets/textureLoader';
 import { drawLayerWater } from './water/waterRenderer';
+import { drawLayerMaterials } from './material/materialRenderer';
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -448,6 +449,27 @@ export function subscribeToStore(
     { fireImmediately: true },
   );
   unsubscribers.push(unsubWater);
+
+  // ─── Material patches ─────────────────────────────────
+  // The same, for a layer's Material brush patches.
+  const drawnPatches = new Map<string, DungeonLayer['materials']>();
+  const unsubPatches = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const drawn = drawnPatches.has(layer.id);
+        const same = drawn ? drawnPatches.get(layer.id) === layer.materials : !layer.materials?.length;
+        drawnPatches.set(layer.id, layer.materials);
+        if (!same) drawLayerMaterials(layer);
+      }
+      for (const id of [...drawnPatches.keys()]) if (!live.has(id)) drawnPatches.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubPatches);
 
   // ─── Layer visibility changes ─────────────────────────
   // Reads effective visibility (own flag narrowed by solo, and the shown level —
@@ -879,7 +901,8 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
-        // Water, like plateaus, lies on the ground: it follows the floor.
+        // Patches and water, like plateaus, lie on the ground: they follow the floor.
+        entry.sublayers.materials.visible = vis.floor;
         entry.sublayers.water.visible = vis.floor;
         // Plateaus are relief on the floor: they follow it.
         entry.sublayers.plateauTops.visible = vis.floor;
