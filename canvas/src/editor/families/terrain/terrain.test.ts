@@ -29,10 +29,12 @@ describe('the Terrain family', () => {
     expect([terrain.key, terrain.tools.map((t) => [t.label, t.key, t.engine])]).toEqual(['T', [['Terrain brush', 'B', ['terrain']]]]);
   });
 
-  it('keeps Size, Strength and the slots in the dock, Erase and the colour in the panel', () => {
+  it('keeps Size, Intensity and the slots in the dock; Paint or erase, the blending, Fill and the colour in the panel', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('terrainBrush', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['terrain.size', 'terrain.strength']);
-    expect(ids('panel')).toEqual(['edit.erase', 'terrain.colour']);
+    expect(ids('panel')).toEqual(['terrain.mode', 'terrain.smoothBlend', 'terrain.fill', 'terrain.colour']);
+    // The id and the store field stay, so saved prefs load; only the label is new.
+    expect(reg.settingById('terrain.strength')?.label).toBe('Intensity');
     expect(reg.toolById('terrainBrush')!.dock.map((c) => c.id)).toEqual(['terrain.slots']);
   });
 
@@ -61,10 +63,31 @@ describe('Terrain brush settings', () => {
     expect(settings.setSetting('terrain.colour', '#336699')).toBe(false);
   });
 
-  it('turns Erase mode on through the shared setting', () => {
-    settings.setSetting('edit.erase', true);
+  it('picks Erase on the Mode seg, the erase mode Scatter shares', () => {
+    const hint = () => reg.toolById('terrainBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    expect(hint()).toBe('Hold to build up · Alt erase · [ ] size');
+    settings.setSetting('terrain.mode', true);
     expect(useStore.getState().tools.eraseMode).toBe(true);
-    expect(reg.toolById('terrainBrush')!.hint(useStore.getState()).segments[0].text).toMatch(/erase/);
+    expect(hint()).toMatch(/^Hold to erase/);
+  });
+
+  it('saves Smooth blending on the terrain, with the map', () => {
+    expect(settings.getSetting('terrain.smoothBlend')).toBe(false);
+    settings.setSetting('terrain.smoothBlend', true);
+    expect(useStore.getState().mapSettings.terrain?.smoothBlend).toBe(true);
+    expect(useStore.getState().getSerializableState().mapSettings.terrain?.smoothBlend).toBe(true);
+  });
+
+  it('arms Fill as a one-shot that another tool or Escape puts down', () => {
+    const hint = () => reg.toolById('terrainBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    settings.setSetting('terrain.fill', true);
+    expect(useStore.getState().tools.terrainFill).toBe('armed');
+    expect(hint()).toBe('Click a floor to fill · Esc cancels');
+    useStore.getState().setTerrainFill('miss');
+    expect(settings.getSetting('terrain.fill')).toBe(true);
+    expect(hint()).toBe('No floor here · Esc cancels');
+    useStore.getState().setActiveTool('select');
+    expect(useStore.getState().tools.terrainFill).toBe('off');
   });
 
   it('round-trips the colour through #rrggbbaa', () => {

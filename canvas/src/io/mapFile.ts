@@ -46,11 +46,11 @@ const v2 = z
   .passthrough();
 
 /** 3.x: the same top level throughout; each step since moved fields inside layers (migration.ts). */
-const v3 = (version: Exclude<Version, '2.0'>) =>
+const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings) =>
   z
     .object({
       version: z.literal(version),
-      mapSettings,
+      mapSettings: settings,
       grid: grid.optional(),
       layers: z.array(layer),
       levels: z.array(z.object({ id: z.string() }).passthrough()).optional(),
@@ -66,6 +66,11 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.2': v3('3.2'),
   '3.3': v3('3.3'),
   '3.4': v3('3.4'),
+  // 3.5 adds the terrain's smooth blending switch; absent, the blend is the ragged one.
+  '3.5': v3(
+    '3.5',
+    mapSettings.extend({ terrain: z.object({ smoothBlend: z.boolean().optional() }).passthrough().optional() }),
+  ),
 };
 
 /** The first problem with a document, said plainly. */

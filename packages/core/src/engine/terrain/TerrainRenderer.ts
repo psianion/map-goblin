@@ -1,6 +1,7 @@
 import {
   BufferImageSource,
   Container,
+  Graphics,
   Mesh,
   MeshGeometry,
   Rectangle,
@@ -80,7 +81,9 @@ const VERTEX_SRC = `
 
 // Dungeondraft-style splat blending: per-slot weights from the splatmap
 // channels, sharpened by per-pixel texture luminance (pseudo-height) so
-// boundaries interlock naturally instead of crossfading.
+// boundaries interlock naturally instead of crossfading. With smooth blending
+// on (uSmooth 1, the terrain's own switch) the weights are plain and the edge
+// a soft fade; off, both the seams and the edge onto the floor run ragged.
 const FRAGMENT_SRC = `
   in vec2 vUV;
   out vec4 finalColor;
@@ -101,6 +104,7 @@ const FRAGMENT_SRC = `
   uniform vec2 uTile3;
   uniform vec2 uTile4;
   uniform vec2 uTile5;
+  uniform float uSmooth;
 
   float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -121,21 +125,29 @@ const FRAGMENT_SRC = `
     vec3 c5 = texture(uTex5, fract(wp / uTile5)).rgb;
 
     float e = 0.35;
-    float w0 = pow(s0.r * (e + lum(c0)), 3.0);
-    float w1 = pow(s0.g * (e + lum(c1)), 3.0);
-    float w2 = pow(s0.b * (e + lum(c2)), 3.0);
-    float w3 = pow(s1.r * (e + lum(c3)), 3.0);
-    float w4 = pow(s1.g * (e + lum(c4)), 3.0);
-    float w5 = pow(s1.b * (e + lum(c5)), 3.0);
+    float k = mix(3.0, 1.0, uSmooth);
+    float w0 = pow(s0.r * mix(e + lum(c0), 1.0, uSmooth), k);
+    float w1 = pow(s0.g * mix(e + lum(c1), 1.0, uSmooth), k);
+    float w2 = pow(s0.b * mix(e + lum(c2), 1.0, uSmooth), k);
+    float w3 = pow(s1.r * mix(e + lum(c3), 1.0, uSmooth), k);
+    float w4 = pow(s1.g * mix(e + lum(c4), 1.0, uSmooth), k);
+    float w5 = pow(s1.b * mix(e + lum(c5), 1.0, uSmooth), k);
     float sum = w0 + w1 + w2 + w3 + w4 + w5 + 1e-6;
 
     vec3 col = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3 + c4 * w4 + c5 * w5) / sum;
+    float height = lum(col);
     // Brush tint layer: premultiplied colour in rgb, coverage in alpha. An
     // untinted texel (a=0) leaves the blend untouched, so maps saved before
     // the layer existed render exactly as they always did.
     vec4 tnt = texture(uSplatTint, vUV);
     col = mix(col, col * (tnt.rgb / max(tnt.a, 0.004)), tnt.a);
-    float alpha = clamp(raw * 2.5, 0.0, 1.0);
+    // A smooth ramp, steepest at nothing, so every amount of paint shows and more paint
+    // shows more (it used to saturate at 0.4). Ragged lets the bright texels of the
+    // paint through first, so thin paint reads as patches rather than a wash.
+    float r = 1.0 - min(raw, 1.0);
+    float ramp = 1.0 - r * r;
+    float ragged = clamp((ramp - (1.0 - height) * 0.5) * 2.0, 0.0, 1.0);
+    float alpha = mix(ragged, ramp, uSmooth);
     finalColor = vec4(col * alpha, alpha);
   }
 `;
@@ -333,6 +345,7 @@ export class TerrainRenderer {
         terrainUniforms: {
           uExtentMin: { value: new Float32Array([min, min]), type: 'vec2<f32>' },
           uExtentSize: { value: WORLD_SIZE, type: 'f32' },
+          uSmooth: { value: useStore.getState().mapSettings.terrain?.smoothBlend ? 1 : 0, type: 'f32' },
           ...tiles,
         },
         // Empty until the first paint/restore allocates the real splatmaps —
@@ -817,22 +830,23 @@ export class TerrainRenderer {
   }
 
   /**
-   * Stamp the brush once. The stamp widens the stroke's coverage mask, and the splats
-   * under it are re-laid from the pre-stroke copy as a lerp towards the slot (or, erasing,
-   * towards nothing) by strength × coverage: see strokePasses. Strength is therefore the
-   * stroke's ceiling; a second stroke builds on the first.
+   * Stamp the brush once, laying `amount` of paint (0 to 1) at its centre, less towards
+   * its rim. The stamp adds to the stroke's coverage mask, which is the paint the stroke
+   * has laid so far, and the splats under it are re-laid from the pre-stroke copy as a
+   * lerp towards the slot (or, erasing, towards nothing) by that mask: see strokePasses.
+   * A held brush stamps again every tick (TerrainTool), so the paint builds with time.
    *
-   * `tint`/`tintOpacity` drive the brush-tint layer: each stamp blends the
-   * current tint colour into the tint map at `strength * tintOpacity`, so the
-   * colour a stroke was painted with stays with those texels — later strokes
-   * with a different tint only recolour what they cover. A zero opacity leaves
+   * `tint`/`tintOpacity` drive the brush-tint layer: the tint mask builds like the
+   * paint, and the tint map is re-laid as its pre-stroke copy plus mask × colour ×
+   * opacity, so the colour a stroke was painted with stays with those texels; later
+   * strokes with a different tint only recolour what they cover. A zero opacity leaves
    * the layer alone (paint without touching existing tint).
    */
   paintStamp(
     wx: number,
     wy: number,
     radius: number,
-    strength: number,
+    amount: number,
     slot: number,
     erase: boolean,
     tint = 0xffffff,
@@ -849,32 +863,21 @@ export class TerrainRenderer {
     sprite.width = texelRadius * 2;
     sprite.height = texelRadius * 2;
 
-    // The stamp widens the stroke's coverage mask; the splats under it are then re-laid from
-    // their pre-stroke copy at strength × coverage (strokePasses), so strength is the stroke's
-    // ceiling and overlapping stamps never compound it.
-    if (!this.strokeMask) {
-      this.strokeMask = RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 });
-    }
+    // The stamp adds its paint to the stroke's coverage mask (the eight-bit target clamps
+    // it at full); the splats under it are then re-laid from their pre-stroke copy through
+    // the mask, so the paint is exactly what the mask holds.
     sprite.tint = 0xffffff;
-    sprite.alpha = 1;
-    sprite.blendMode = 'normal';
-    this.engine.renderToTexture(holder, this.strokeMask, false);
+    sprite.alpha = Math.min(1, Math.max(0, amount));
+    sprite.blendMode = 'add';
+    this.engine.renderToTexture(holder, this.ensureMask(), false);
     const pad = texelRadius + 2;
-    if (this.strokeBackup) this.compositeStroke(t.x - pad, t.y - pad, t.x + pad, t.y + pad, strokePasses(slot, strength, erase));
+    if (this.strokeBackup) this.compositeStroke(t.x - pad, t.y - pad, t.x + pad, t.y + pad, strokePasses(slot, erase));
 
     if (!erase && tintOpacity > 0) {
-      // Tint opacity is a per-stroke ceiling, not per-stamp flow — the
-      // overlapping stamps of one drag must not compound 10% into near-100%.
-      // Stamps build a white coverage mask in a scratch RT; the live tint map
-      // is then re-laid below as backup + mask × colour × opacity.
-      if (!this.tintScratch) {
-        this.tintScratch = RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 });
-      }
+      // The tint mask builds with the paint; the live tint map is re-laid below as
+      // backup + mask × colour × opacity, so no texel passes `tintOpacity`.
       sprite.texture = this.tintMaskTexture!;
-      sprite.tint = 0xffffff;
-      sprite.alpha = Math.min(1, strength);
-      sprite.blendMode = 'normal';
-      this.engine.renderToTexture(holder, this.tintScratch, false);
+      this.engine.renderToTexture(holder, this.ensureTintMask(), false);
       sprite.texture = this.brushTexture!;
       // Texture swap resets the sprite's size — restore the stamp footprint
       // for whoever stamps next.
@@ -894,6 +897,49 @@ export class TerrainRenderer {
 
     // Live feedback: refresh the bake cache under the stamp only.
     this.bakeRegion(t.x - pad, t.y - pad, t.x + pad, t.y + pad);
+  }
+
+  private ensureMask(): RenderTexture {
+    this.strokeMask ??= RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 });
+    return this.strokeMask;
+  }
+
+  private ensureTintMask(): RenderTexture {
+    this.tintScratch ??= RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 });
+    return this.tintScratch;
+  }
+
+  /**
+   * Fill enclosed floor: lay the slot at full over one floor (its outer ring less its
+   * holes, world units) as a stroke of its own. Call between beginStroke and endStroke;
+   * the caller makes the stroke one undo step. The brush tint goes with it, as a stroke's.
+   */
+  fillRegion(outer: [number, number][], holes: [number, number][][], slot: number, tint = 0xffffff, tintOpacity = 0): void {
+    const toTexel = (ring: [number, number][]) => ring.flatMap(([x, y]) => {
+      const t = this.worldToTexel(x, y);
+      return [t.x, t.y];
+    });
+    const g = new Graphics();
+    g.poly(toTexel(outer)).fill({ color: 0xffffff });
+    for (const hole of holes) g.poly(toTexel(hole)).cut();
+    this.engine.renderToTexture(g, this.ensureMask(), false);
+    if (tintOpacity > 0) this.engine.renderToTexture(g, this.ensureTintMask(), false);
+    g.destroy();
+
+    const xs = outer.map(([x, y]) => this.worldToTexel(x, y));
+    const d = {
+      minX: Math.min(...xs.map((p) => p.x)) - 2,
+      minY: Math.min(...xs.map((p) => p.y)) - 2,
+      maxX: Math.max(...xs.map((p) => p.x)) + 2,
+      maxY: Math.max(...xs.map((p) => p.y)) + 2,
+    };
+    if (this.strokeBackup) this.compositeStroke(d.minX, d.minY, d.maxX, d.maxY, strokePasses(slot, false));
+    const was = this.strokeDirty;
+    this.strokeDirty = was
+      ? { minX: Math.min(was.minX, d.minX), minY: Math.min(was.minY, d.minY), maxX: Math.max(was.maxX, d.maxX), maxY: Math.max(was.maxY, d.maxY) }
+      : d;
+    if (tintOpacity > 0 && this.strokeBackup) this.compositeTint(tint, tintOpacity);
+    this.bakeRegion(d.minX, d.minY, d.maxX, d.maxY);
   }
 
   /**
@@ -1296,6 +1342,20 @@ export class TerrainRenderer {
       { fireImmediately: true },
     );
     this.unsubscribers.push(unsubPalette);
+
+    // Smooth blending is the terrain's own switch: a new look for every painted texel.
+    const unsubSmooth = useStore.subscribe(
+      (s) => s.mapSettings.terrain?.smoothBlend === true,
+      (smooth) => this.setSmoothBlend(smooth),
+    );
+    this.unsubscribers.push(unsubSmooth);
+  }
+
+  /** Switch the blend and re-bake what is painted; nothing to do on a map with no paint. */
+  private setSmoothBlend(smooth: boolean): void {
+    if (!this.shader) return;
+    this.shader.resources.terrainUniforms.uniforms.uSmooth = smooth ? 1 : 0;
+    if (this.bakeRT) this.bakeBounds(useStore.getState().mapSettings.terrain?.bounds ?? null);
   }
 
   destroy(): void {

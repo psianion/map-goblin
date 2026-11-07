@@ -81,7 +81,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('3.4');
+    expect(data.version).toBe('3.5');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.customImages).toEqual({});
@@ -214,7 +214,7 @@ describe('getSerializableState / loadFromFile — prep', () => {
   });
 
   it('writes version 3.2', () => {
-    expect(useStore.getState().getSerializableState().version).toBe('3.4');
+    expect(useStore.getState().getSerializableState().version).toBe('3.5');
   });
 
   it('omits the prep key entirely when nothing was ever authored', () => {

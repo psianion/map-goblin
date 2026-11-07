@@ -20,20 +20,27 @@ async function rgb(page: Page, x: number, y: number): Promise<{ r: number; g: nu
 
 const lum = (c: { r: number; g: number; b: number }) => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
 
-/** A stroke across Warren Hall's floor at height `y`, then the pointer off the map so the ring is gone. */
-async function stroke(page: Page, y: number): Promise<void> {
-  await page.mouse.move(480, y)
+/** Hold the brush still on one spot of Warren Hall's floor for `ms`, then take the pointer off the map. */
+async function hold(page: Page, x: number, y: number, ms: number): Promise<void> {
+  await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.mouse.move(640, y, { steps: 16 })
+  await page.waitForTimeout(ms)
   await page.mouse.up()
   await page.mouse.move(1390, 700)
   await waitFrame(page, 8)
 }
 
-// The Terrain brush: its dock and panel, then three strokes on the warren's hall,
-// at the lowest strength, at full strength and tinted, each changing what is painted, and
-// undo taking all three back.
-test('terrain brush: strength and colour alpha change the paint, and undo takes it back', { tag: '@terrain' }, async ({ page }) => {
+/** Intensity through its dock slider: Home is the lowest, End full. */
+async function setIntensity(page: Page, key: 'Home' | 'End'): Promise<void> {
+  const slider = page.getByTestId('shell-dock').getByRole('group', { name: 'Intensity' }).getByRole('slider')
+  await slider.focus()
+  await page.keyboard.press(key)
+}
+
+// The Terrain brush, Dungeondraft style: holding the brush still adds paint over time,
+// Intensity setting how fast. One second held at the lowest intensity lays a little, one
+// second at full lays the texture solid; the colour tints a hold; undo takes all three back.
+test('terrain brush: a held brush builds paint at the intensity set, and undo takes it back', { tag: '@terrain' }, async ({ page }) => {
   await openEditor(page)
   await pickFromFlyout(page, 'Terrain', 'Terrain brush')
   await page.evaluate(() =>
@@ -41,11 +48,13 @@ test('terrain brush: strength and colour alpha change the paint, and undo takes 
   )
   await waitFrame(page, 10)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Size', 'Strength', 'slots'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Size', 'Intensity', 'slots'])
   const panel = page.getByTestId('shell-tool-panel')
-  await expect(panel.locator('[data-setting="edit.erase"]')).toBeVisible()
+  await expect(panel.locator('[data-setting="terrain.mode"]')).toBeVisible()
+  await expect(panel.locator('[data-setting="terrain.smoothBlend"]')).toBeVisible()
+  await expect(panel.locator('[data-setting="terrain.fill"]')).toBeVisible()
   await expect(panel.locator('[data-setting="terrain.colour"]')).toBeVisible()
-  await expect(page.getByTestId('shell-status-hint')).toContainText('Drag to paint')
+  await expect(page.getByTestId('shell-status-hint')).toContainText('Hold to build up')
 
   // Size: ] and the wheel step it.
   const r0 = (await brush(page)).radius
@@ -56,44 +65,44 @@ test('terrain brush: strength and colour alpha change the paint, and undo takes 
   await waitFrame(page, 2)
   expect((await brush(page)).radius).toBe(r0)
 
-  // Where each stroke is read: clear floor, away from the hall's label, props and rocks.
-  const rows = [415, 485, 560]
-  const xs = [500, 500, 640]
-  const bare = await Promise.all(rows.map((y, i) => rgb(page, xs[i], y)))
+  // Where each hold is read: clear floor, away from the hall's label, props and rocks.
+  const spots: [number, number][] = [
+    [520, 415],
+    [520, 485],
+    [640, 560],
+  ]
+  const bare = await Promise.all(spots.map(([x, y]) => rgb(page, x, y)))
 
-  // Strength at its lowest blends the texture in over the floor.
-  const strength = page.getByTestId('shell-dock').getByRole('group', { name: 'Strength' }).getByRole('slider')
-  await strength.focus()
-  await page.keyboard.press('Home')
+  // One second at the lowest intensity lays a little paint.
+  await setIntensity(page, 'Home')
   expect((await brush(page)).strength).toBe(0.1)
-  await stroke(page, rows[0])
-  const low = await rgb(page, xs[0], rows[0])
+  await hold(page, ...spots[0], 1000)
+  const low = await rgb(page, ...spots[0])
 
-  // At full strength the same stroke lays the texture solid.
-  await strength.focus()
-  await page.keyboard.press('End')
+  // One second at full intensity lays the texture solid.
+  await setIntensity(page, 'End')
   expect((await brush(page)).strength).toBe(1)
-  await stroke(page, rows[1])
-  const full = await rgb(page, xs[1], rows[1])
-  expect(Math.abs(lum(full) - lum(bare[1])), 'full strength paints').toBeGreaterThan(30)
-  expect(Math.abs(lum(low) - lum(bare[0])), 'low strength paints a little').toBeGreaterThan(5)
-  expect(Math.abs(lum(full) - lum(low)), 'strength changes the paint').toBeGreaterThan(20)
+  await hold(page, ...spots[1], 1000)
+  const full = await rgb(page, ...spots[1])
+  expect(Math.abs(lum(low) - lum(bare[0])), 'a second at low intensity paints a little').toBeGreaterThan(3)
+  expect(Math.abs(lum(full) - lum(bare[1])), 'a second at full intensity paints').toBeGreaterThan(30)
+  expect(Math.abs(lum(full) - lum(low)), 'intensity changes how fast paint builds').toBeGreaterThan(15)
 
-  // One colour with alpha: red at 80% tints the stroke.
+  // One colour with alpha: red at 80% tints a hold.
   await panel.locator('[data-setting="terrain.colour"]').getByRole('button', { name: 'Colour' }).click()
   await page.getByRole('textbox', { name: 'Colour hex' }).fill('#ff0000cc')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('textbox', { name: 'Colour hex' })).toBeHidden()
   expect(await brush(page)).toMatchObject({ tint: '#ff0000', alpha: 0.8 })
-  await stroke(page, rows[2])
-  const red = await rgb(page, xs[2], rows[2])
-  expect(red.r - red.g, 'the stroke is tinted').toBeGreaterThan(40)
+  await hold(page, ...spots[2], 1000)
+  const red = await rgb(page, ...spots[2])
+  expect(red.r - red.g, 'the hold is tinted').toBeGreaterThan(40)
   await shot(page, '11-terrain')
 
-  // Undo takes the three strokes back, last first.
+  // Undo takes the three holds back, last first.
   const undo = page.getByTestId('shell-top-actions').getByRole('button', { name: 'Undo' })
   for (const i of [2, 1, 0]) {
     await undo.click()
-    await expect.poll(async () => Math.abs(lum(await rgb(page, xs[i], rows[i])) - lum(bare[i]))).toBeLessThan(3)
+    await expect.poll(async () => Math.abs(lum(await rgb(page, ...spots[i])) - lum(bare[i]))).toBeLessThan(3)
   }
 })

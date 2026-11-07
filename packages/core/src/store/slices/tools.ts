@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, ToolsSlice } from '../types';
 
 /** Single source of truth for the clamps below — UI sliders read these too. */
 export const TERRAIN_BRUSH_RANGES = {
@@ -25,6 +25,7 @@ function clamp(v: number, { min, max }: { min: number; max: number }): number {
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
+  setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -49,6 +50,8 @@ export const createToolsSlice: StateCreator<
   setActiveTool: (tool) =>
     set((state) => {
       state.tools.activeTool = tool;
+      // An armed Fill is the Terrain brush's one-shot; another tool puts it down.
+      if (tool !== 'terrain') state.tools.terrainFill = 'off';
       // Node handles belong to the wall being finished, not to whatever tool
       // the DM reaches for next — switching tools drops out of edit mode.
       state.tools.nodeEditWallId = null;
@@ -108,6 +111,10 @@ export const createToolsSlice: StateCreator<
   setEraseMode: (enabled) =>
     set((state) => {
       state.tools.eraseMode = enabled;
+    }),
+  setTerrainFill: (fill) =>
+    set((state) => {
+      state.tools.terrainFill = fill;
     }),
   setCurveMode: (enabled) =>
     set((state) => {

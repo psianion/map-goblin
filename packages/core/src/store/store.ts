@@ -139,6 +139,7 @@ export const useStore = create<MapBuilderStore>()(
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
           state.tools.curveMode = false;
+          state.tools.terrainFill = 'off';
           // Node-edit targets are ids into the map that was open. A floor ring
           // id in particular is just `floor:<n>`, so left alone it rebinds to
           // whatever ring n happens to be in the map being loaded.

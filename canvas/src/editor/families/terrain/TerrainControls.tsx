@@ -1,5 +1,5 @@
-// The Terrain brush's own controls: a compact Strength slider for the dock, the brush
-// colour with its alpha for the panel, and the six texture slots with From library.
+// The Terrain brush's own controls: a compact Intensity slider for the dock, Fill and the
+// brush colour with its alpha for the panel, and the six texture slots with From library.
 
 import { useState } from 'react';
 import { HexAlphaColorPicker } from 'react-colorful';
@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { AddTile, DockColumn, SettingRow, Swatch, Tile } from '@/editor/components';
+import { AddTile, DockColumn, SecondaryButton, SettingRow, Swatch, Tile } from '@/editor/components';
 import { Input } from '@/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Slider } from '@/ui/slider';
@@ -19,8 +19,8 @@ import { isHex8 } from './colour';
 
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
-/** Strength in the dock: a short track and its percentage, the column's caption naming it. */
-export function StrengthControl({ def, value, onChange }: SettingProps<number>) {
+/** Intensity in the dock: a short track and its percentage, the column's caption naming it. */
+export function IntensityControl({ def, value, onChange }: SettingProps<number>) {
   const r = def.range;
   return (
     <span className="flex w-[132px] items-center gap-2">
@@ -35,6 +35,22 @@ export function StrengthControl({ def, value, onChange }: SettingProps<number>) 
       />
       <span className="w-8 text-right font-mono text-[11px] text-text tabular-nums">{percent(value)}</span>
     </span>
+  );
+}
+
+const armFill = () => {
+  const s = useStore.getState();
+  s.setTerrainFill(s.tools.terrainFill === 'off' ? 'armed' : 'off');
+};
+
+/** Fill enclosed floor: the row's Fill button, ringed while armed. */
+export function FillField({ def, value, onChange }: SettingProps<boolean>) {
+  return (
+    <SettingRow label={def.label}>
+      <SecondaryButton active={value} onClick={() => onChange(!value)}>
+        Fill
+      </SecondaryButton>
+    </SettingRow>
   );
 }
 
@@ -80,9 +96,19 @@ export function SlotsColumn() {
   const palette = useStore(useShallow((s) => s.mapSettings.terrain?.palette ?? DEFAULT_TERRAIN_PALETTE));
   // Pack thumbnails arrive after boot; re-read the catalogue when the pack list moves.
   useStore((s) => s.packs.installedPacks);
+  const armed = useStore((s) => s.tools.terrainFill !== 'off');
   const pick = (i: number) => useStore.getState().updateTerrainBrushSettings({ slot: i });
   return (
-    <DockColumn title="Textures" data-column="slots" data-testid="terrain-slots">
+    <DockColumn
+      title="Textures"
+      data-column="slots"
+      data-testid="terrain-slots"
+      control={
+        <SecondaryButton className="h-5 px-2" active={armed} onClick={armFill} aria-label="Fill enclosed floor">
+          Fill
+        </SecondaryButton>
+      }
+    >
       {Array.from({ length: TERRAIN_SLOT_COUNT }, (_, i) => {
         const id = palette[i] ?? null;
         const on = slot === i;

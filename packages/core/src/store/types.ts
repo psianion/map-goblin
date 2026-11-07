@@ -37,6 +37,8 @@ export interface TerrainData {
   visible?: boolean;
   /** Global terrain opacity, 0-1. Absent = 1. */
   opacity?: number;
+  /** Soft blending between textures and onto the floor; off is the ragged edge. Absent = off. */
+  smoothBlend?: boolean;
 }
 
 /** Sentinel activeLayerId for the pinned Terrain row — never a real layer id. */
@@ -346,6 +348,11 @@ export interface ToolsSlice {
   eraseMode: boolean;
   /** Wall/path chains commit as Catmull-Rom curves through the clicked anchors. */
   curveMode: boolean;
+  /**
+   * The Terrain brush's Fill, armed by its button: the next map click floods the floor
+   * there. 'miss' is armed still, after a click that found no floor.
+   */
+  terrainFill: 'off' | 'armed' | 'miss';
   settings: ToolSettings;
   /**
    * Wall whose composed sprite nodes are exposed for hand-editing (GitHub #19).
@@ -636,7 +643,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
@@ -771,6 +778,7 @@ export interface MapBuilderStore {
   // tool actions
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
+  setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;

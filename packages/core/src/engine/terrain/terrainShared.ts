@@ -170,22 +170,94 @@ export interface StrokePass {
 }
 
 /**
- * The passes a stroke lays over the splats it started from. Strength is the stroke's
- * ceiling, not a per-stamp flow: every stamp only widens the coverage mask, and the
- * splats are re-laid from their pre-stroke copy as a lerp towards the slot by
- * strength × coverage. Stamps of one drag overlap five or six deep, so a per-stamp flow
- * compounded to full weight within a single drag at any strength; a ceiling keeps 0.3
- * at 0.3, and a second stroke builds on the first.
+ * The passes a stroke lays over the splats it started from, through its coverage mask.
+ * The mask holds the paint the stroke has added so far (see `accumulate`), so the splats
+ * are re-laid from their pre-stroke copy as a lerp towards the slot by that amount. The
+ * composite is idempotent: paint builds only as the mask does, never by re-laying.
  *
  * Painting lerps the slot's channel towards 1 and every other channel towards 0; erase
  * lerps every channel, and the brush tint, towards 0 (back to the floor's own texture).
  */
-export function strokePasses(slot: number, strength: number, erase: boolean): StrokePass[] {
-  const alpha = Math.min(1, Math.max(0, strength));
-  const decay = (map: SplatMapIndex): StrokePass => ({ map, blend: 'normal', tint: 0x000000, alpha });
-  if (erase) return [decay(0), decay(1), { map: TINT_MAP_INDEX, blend: 'erase', tint: 0xffffff, alpha }];
+export function strokePasses(slot: number, erase: boolean): StrokePass[] {
+  const decay = (map: SplatMapIndex): StrokePass => ({ map, blend: 'normal', tint: 0x000000, alpha: 1 });
+  if (erase) return [decay(0), decay(1), { map: TINT_MAP_INDEX, blend: 'erase', tint: 0xffffff, alpha: 1 }];
   const target = (Math.floor(slot / 3) === 0 ? 0 : 1) as SplatMapIndex;
-  return [decay(0), decay(1), { map: target, blend: 'add', tint: CHANNEL_TINTS[slot % 3], alpha }];
+  return [decay(0), decay(1), { map: target, blend: 'add', tint: CHANNEL_TINTS[slot % 3], alpha: 1 }];
+}
+
+// ─── Holding the brush adds paint over time ───────────────────────────────
+
+/**
+ * The paint a held brush has laid at a texel: intensity is a rate per second, so a still
+ * pointer keeps adding and the frame rate never changes how much. It never passes full;
+ * erase is the same rate taken away, down to nothing.
+ */
+export function accumulate(amount: number, intensity: number, seconds: number, erase = false): number {
+  const step = Math.max(0, intensity) * Math.max(0, seconds);
+  return Math.min(1, Math.max(0, erase ? amount - step : amount + step));
+}
+
+/**
+ * The least one deposit lays. The coverage mask is eight bits a channel, so a sliver of
+ * paint (a slow brush on a fast display) would round away: a still brush waits until it
+ * has this much to lay, and a moving one lays at least this much a stamp.
+ */
+export const MIN_DEPOSIT = 1 / 64;
+
+/**
+ * What one tick of a held brush lays: `pending` paint carried from earlier ticks plus
+ * intensity × seconds, shared between the `stamps` the pointer crossed since the last
+ * tick. With none the pointer is still and the brush stamps where it is, carrying the
+ * paint on while it is under MIN_DEPOSIT.
+ */
+export function depositForTick(
+  pending: number,
+  intensity: number,
+  seconds: number,
+  stamps: number,
+): { each: number; count: number; pending: number } {
+  const total = pending + accumulate(0, intensity, seconds);
+  if (stamps > 0) return { each: Math.max(MIN_DEPOSIT, total / stamps), count: stamps, pending: 0 };
+  if (total < MIN_DEPOSIT) return { each: 0, count: 0, pending: total };
+  return { each: total, count: 1, pending: 0 };
+}
+
+// ─── Fill enclosed floor ──────────────────────────────────────────────────
+
+type Ring = [number, number][];
+
+function inRing(x: number, y: number, ring: Ring): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function ringArea(ring: Ring): number {
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+  return Math.abs(a / 2);
+}
+
+/**
+ * The floor a Fill floods from a point: of a layer's floor union (outer rings and holes
+ * alike), the innermost ring around the point and the holes directly inside it; null when
+ * the point is on no floor (outside every ring, or in a hole). The fill stops at the
+ * floor's own edge, so an island standing in one of its holes is left alone.
+ */
+export function floorRegionAt(rings: readonly Ring[], x: number, y: number): { outer: Ring; holes: Ring[] } | null {
+  const around = rings.filter((r) => r.length >= 3 && inRing(x, y, r));
+  // Even-odd: an even count of rings around the point puts it in a hole or outside.
+  if (around.length % 2 === 0) return null;
+  const outer = around.reduce((a, b) => (ringArea(b) < ringArea(a) ? b : a));
+  const area = ringArea(outer);
+  const inside = rings.filter((r) => r !== outer && r.length >= 3 && ringArea(r) < area && inRing(r[0][0], r[0][1], outer));
+  // Only the rings one level down are its holes; one inside another of them is an island.
+  const holes = inside.filter((r) => !inside.some((o) => o !== r && ringArea(o) > ringArea(r) && inRing(r[0][0], r[0][1], o)));
+  return { outer, holes };
 }
 
 /** One texel of the three splat maps, each RGBA in 0 to 1. */

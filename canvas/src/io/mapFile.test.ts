@@ -200,7 +200,13 @@ describe('the settings the editor dropped', () => {
   it('checks a document against its version', () => {
     expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
     expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
-    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5']);
+  });
+
+  it('reads 3.5 with the terrain blend switch, and refuses one that is not a switch', () => {
+    const doc = (smoothBlend: unknown) => ({ version: '3.5', mapSettings: { name: 'Cellars', terrain: { palette: [], bounds: null, smoothBlend } }, layers: [] });
+    expect(readMapDocument(doc(true)).mapSettings.terrain?.smoothBlend).toBe(true);
+    expect(() => readMapDocument(doc('soft'))).toThrow(/smoothBlend/);
   });
 });
 

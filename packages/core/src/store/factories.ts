@@ -75,7 +75,7 @@ type MapBuilderState = Omit<
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
-  | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'
+  | 'setActiveTool' | 'setEraseMode' | 'setTerrainFill' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'toggleExpandedLayerId'
   | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
@@ -126,6 +126,7 @@ export function createDefaultState(): MapBuilderState {
       activeTool: 'rectangle',
       eraseMode: false,
       curveMode: false,
+      terrainFill: 'off',
       settings: {
         brushRadius: 0.5,
         regularPolygon: { sides: 6 },
