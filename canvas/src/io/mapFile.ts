@@ -105,7 +105,15 @@ const patch = z
 const layer37 = layer36.extend({ children: z.array(child37).optional(), water: water.optional(), materials: z.array(patch).optional() });
 /** 3.8: a prop's below-water flag. */
 const child38 = child37.and(z.object({ belowWater: z.boolean().optional() }).passthrough());
-const layer38 = layer37.extend({ children: z.array(child38).optional() });
+/** 3.8: a trace (background image layer), its picture's key, the file it came from and its fit. */
+const trace = z
+  .object({ type: z.literal('image'), imageKey: z.string().min(1), fileName: z.string(), fit: z.enum(['map', 'original']) })
+  .passthrough();
+const layer38 = layer37.extend({ children: z.array(child38).optional() }).superRefine((l, ctx) => {
+  if (l.type !== 'image') return;
+  const parsed = trace.safeParse(l);
+  if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
+});
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -136,7 +144,7 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   // 3.7 adds a layer's water (absent, dry), its material patches (absent, none) and path
   // children.
   '3.7': v3('3.7', settings35, layer37),
-  // 3.8 adds a prop's below-water flag (absent, drawn as it is).
+  // 3.8 adds a prop's below-water flag (absent, drawn as it is) and trace layers.
   '3.8': v3('3.8', settings35, layer38),
 };
 

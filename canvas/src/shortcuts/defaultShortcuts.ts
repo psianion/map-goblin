@@ -48,6 +48,7 @@ import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys'
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
 import { applyOutlineEdit, exitShapeNodeEdit, resolveOutline } from '@/engine/shapeNodeEdit';
 import { removeHoveredPlateauPoint } from '@dnd/core/src/engine/ringNodeEdit';
+import { traceToggleCommand } from '@dnd/core/src/store/layerCommands';
 
 /** Set by EditorHost so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -908,6 +909,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'view.litPreview', combo: 'i', group: 'View', scope: 'canvas', label: 'Lit preview',
     run: () => {
       notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
+    } },
+  // The level's traces (background image layers): hide them all, or show them again.
+  { id: 'view.traceToggle', combo: 'j', group: 'View', scope: 'canvas', label: 'Hide or show the trace',
+    run: () => {
+      const cmd = traceToggleCommand(useStore.getState());
+      if (!cmd) return;
+      undoManager.execute(cmd);
+      notify.subtle(cmd.label === 'Show trace' ? 'Trace shown' : 'Trace hidden', { icon: 'eye' });
     } },
   // Shift+? lands here too: a shifted punctuation key falls back to the plain key.
   { id: 'view.shortcuts', combo: '?', group: 'View', scope: 'canvas', label: 'Keyboard shortcuts',

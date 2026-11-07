@@ -12,7 +12,7 @@ import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
-import { handleImageImport } from '@/canvas/importImage';
+import { handleImageImport, importTraceImage } from '@/canvas/importImage';
 import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
@@ -27,6 +27,8 @@ export interface EditorChromeActions {
   openExport: () => void;
   openPublish: () => void;
   importImage: () => void;
+  /** The same picker, the picture becoming a trace layer instead of a placed image. */
+  importTrace: () => void;
 }
 
 /** What the chrome drawn over the canvas is handed. */
@@ -56,14 +58,23 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
 
   // Hidden file input for image import (Ctrl+I / Cmd+I)
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  // Whether the picker is open for Import as trace; every open sets it, so a cancelled
+  // trace pick never turns the next Ctrl+I into one.
+  const asTraceRef = useRef(false);
   const openImagePicker = useCallback(() => {
+    asTraceRef.current = false;
+    importInputRef.current?.click();
+  }, []);
+  const openTracePicker = useCallback(() => {
+    asTraceRef.current = true;
     importInputRef.current?.click();
   }, []);
   const onImportChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const singleton = getEngineSingleton();
-    if (singleton) await handleImageImport(file, singleton.engine);
+    if (asTraceRef.current) await importTraceImage(file);
+    else if (singleton) await handleImageImport(file, singleton.engine);
     e.target.value = ''; // reset so same file can be re-picked
   }, []);
 
@@ -150,8 +161,9 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
       openPublish: () => setPublishOpen(true),
       // Through the module ref the Ctrl+I shortcut uses, wired to the picker above.
       importImage: () => importImageRef.current?.(),
+      importTrace: openTracePicker,
     }),
-    [],
+    [openTracePicker],
   );
 
   return (

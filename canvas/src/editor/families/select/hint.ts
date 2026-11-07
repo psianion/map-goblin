@@ -10,6 +10,7 @@ import { isFreestanding } from '@dnd/core/src/shared/freestandingDoor';
 import type { DoorChild } from '@/store/types';
 import { compareLayerIds } from '@/store/selectors';
 import { levelLabel } from '@/editor/surfaces/model';
+import { keyCaption } from '@/shortcuts/formatCombo';
 
 const t = (text: string) => ({ text });
 const k = (text: string) => ({ text, key: true });
@@ -26,6 +27,12 @@ export function selectHint(state: EditorState): HintLine {
   const s = state as MapBuilderStore;
   const ids = s.selection.selectedIds;
   if (ids.length === 0) {
+    // A trace in hand: how see-through it is, and the key that hides and shows it.
+    const trace = s.layers.find((l) => l.id === s.ui.activeLayerId);
+    if (trace?.type === 'image') {
+      const name = trace.name || 'Trace';
+      return { label: 'Select', segments: [t(`${name} ${Math.round(trace.opacity * 100)}% ·`), k(keyCaption('view.traceToggle')), t('toggles the trace')] };
+    }
     const chips = pickOnlyBinding.read(state);
     const names = PICK_CHIPS.filter((c) => chips.includes(c.id)).map((c) => c.label.toLowerCase());
     return {

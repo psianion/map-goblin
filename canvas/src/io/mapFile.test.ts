@@ -246,6 +246,16 @@ describe('the settings the editor dropped', () => {
     expect(readMapDocument(doc(true)).layers).toHaveLength(1);
     expect(() => readMapDocument(doc('deep'))).toThrow(/belowWater/);
   });
+
+  it('reads a 3.8 trace layer, and refuses one with a fit it does not know', () => {
+    const doc = (fit: string) => ({
+      version: '3.8',
+      mapSettings: { name: 'Cellars' },
+      layers: [{ id: 't', type: 'image', imageKey: 'k', fileName: 'sketch.png', fit }],
+    });
+    expect(readMapDocument(doc('map')).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc('stretch'))).toThrow(/fit/);
+  });
 });
 
 describe('the document as written', () => {

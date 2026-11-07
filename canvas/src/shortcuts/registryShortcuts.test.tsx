@@ -63,6 +63,12 @@ describe('the collision test fails when', () => {
     expect(keyCollisions(reg, shellShortcuts(reg)).map((c) => c.combo)).toContain('i');
   });
 
+  it('a tool takes the trace toggle', () => {
+    const reg = design((t) => [t[0], keyed(t[1], 'J'), ...t.slice(2)]);
+    const clash = keyCollisions(reg, shellShortcuts(reg)).find((c) => c.combo === 'j');
+    expect(clash?.ids).toContain('view.traceToggle');
+  });
+
   it('a tool takes a reserved letter', () => {
     const reg = design((t) => [t[0], keyed(t[1], 'N'), ...t.slice(2)]);
     expect(reservedViolations(shellShortcuts(reg)).map((k) => k.combo)).toEqual(['n']);
@@ -90,8 +96,9 @@ describe('the shortcuts sheet', () => {
       const row = sheet.querySelector(`[data-key-row="${id}"]`);
       expect(row?.textContent).toContain(formatCombo(key.toLowerCase()));
     }
-    // And the hand-written chords, from the same table.
+    // And the hand-written chords, from the same table: the trace toggle among them, on J.
     expect(sheet.querySelector('[data-key-row="edit.undo"]')).not.toBeNull();
+    expect(sheet.querySelector('[data-key-row="view.traceToggle"]')?.textContent).toContain('J');
   });
 });
 

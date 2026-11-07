@@ -97,7 +97,7 @@ export interface GridConfig {
 // ─── Layer Children — re-exported from @/shared/types ─────
 
 // ─── Layers ───────────────────────────────────────────────
-export type LayerType = 'dungeon' | 'background';
+export type LayerType = 'dungeon' | 'background' | 'image';
 
 interface BaseLayer {
   id: string;
@@ -216,7 +216,21 @@ export interface BackgroundLayer extends BaseLayer {
   presetLock: boolean;
 }
 
-export type Layer = DungeonLayer | BackgroundLayer;
+/**
+ * A background image layer: a picture to trace over, at the bottom of its level, above the
+ * map background. Never in a PNG export or a publish (shared/traceLayer.ts).
+ */
+export interface ImageLayer extends BaseLayer {
+  type: 'image';
+  /** The picture's key in `customImages`. */
+  imageKey: string;
+  /** The file it came from, as the sheet names it. */
+  fileName: string;
+  /** Map: stretched to the map frame. Original: at the battlemap scale, centred on the frame. */
+  fit: 'map' | 'original';
+}
+
+export type Layer = DungeonLayer | BackgroundLayer | ImageLayer;
 
 // ─── Tools ────────────────────────────────────────────────
 export interface LightDefaults {

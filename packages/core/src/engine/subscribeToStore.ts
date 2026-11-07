@@ -14,7 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { AnyChild, DungeonLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
+import type { AnyChild, DungeonLayer, ImageLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
 import { compareLayerIds, isLayerShown } from '../store/selectors';
@@ -28,6 +28,8 @@ import * as textureLoader from '../assets/textureLoader';
 import { drawLayerWater } from './water/waterRenderer';
 import { drawLayerMaterials } from './material/materialRenderer';
 import { drawLayerPaths, pathsKey } from './path/pathRenderer';
+import { drawTraceLayer } from './trace/traceRenderer';
+import { computeMapFrame } from '../shared/mapBounds';
 
 /** The compare pass's greying, made on first use and shared by every compared layer. */
 let compareGreyFilter: ColorMatrixFilter | null = null;
@@ -504,6 +506,29 @@ export function subscribeToStore(
     { fireImmediately: true },
   );
   unsubscribers.push(unsubPaths);
+
+  // ─── Background image layers (traces) ─────────────────
+  // Each draws its picture over the map frame, which moves as the map is drawn: the layers,
+  // the terrain's bounds and the pinned size all wake it, and the pictures themselves.
+  const unsubTraces = useStore.subscribe(
+    (state) => ({
+      layers: state.layers,
+      images: state.assets.customImages,
+      terrain: state.mapSettings.terrain?.bounds ?? null,
+      fixed: state.mapSettings.fixedSize ?? null,
+    }),
+    ({ layers, images, terrain, fixed }) => {
+      const traces = layers.filter((l): l is ImageLayer => l.type === 'image');
+      if (traces.length === 0) return;
+      const frame = computeMapFrame(layers, terrain, fixed) ?? { minX: -5, minY: -5, maxX: 5, maxY: 5 };
+      for (const layer of traces) drawTraceLayer(layer, images[layer.imageKey], frame);
+    },
+    {
+      fireImmediately: true,
+      equalityFn: (a, b) => a.layers === b.layers && a.images === b.images && a.terrain === b.terrain && a.fixed === b.fixed,
+    },
+  );
+  unsubscribers.push(unsubTraces);
 
   // ─── Layer visibility changes ─────────────────────────
   // Reads effective visibility (own flag narrowed by solo, and the shown level —

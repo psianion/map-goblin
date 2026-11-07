@@ -3,11 +3,13 @@ import type { Layer, SublayerVisibility } from '@/store/types';
 /** What the layer sheet is open on: a layer, or the map-wide terrain paint. */
 export type SheetTarget = Layer | 'terrain';
 
-export type SheetSection = 'name' | 'opacity' | 'show' | 'edges' | 'actions' | 'background' | 'terrain';
+export type SheetSection = 'name' | 'opacity' | 'show' | 'edges' | 'actions' | 'background' | 'terrain' | 'trace';
 
 /** The groups the sheet shows, top to bottom. */
 export function sheetSections(target: SheetTarget): SheetSection[] {
   if (target === 'terrain') return ['terrain'];
+  // A trace's sheet is frame 14's: its own rows, name and opacity among them.
+  if (target.type === 'image') return ['trace'];
   const out: SheetSection[] = ['name'];
   // The background's colour and texture come before its opacity (board L5).
   if (target.type === 'background') out.push('background');

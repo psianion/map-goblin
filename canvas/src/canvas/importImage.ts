@@ -14,6 +14,10 @@ import { AddChildCommand } from '@/store/commands';
 import type { AssetChild } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
+import { AddTraceLayerCommand } from '@dnd/core/src/store/layerCommands';
+import { createImageLayer } from '@dnd/core/src/store/factories';
+import { shownLevelId } from '@/store/selectors';
+import { keyCaption } from '@/shortcuts/formatCombo';
 
 const VALID_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 const MAX_IMPORT_PX = 4096;
@@ -242,6 +246,45 @@ export async function handleImageImport(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     notify.error(`Import failed: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * A picture for a trace layer, stored in `customImages`: validated, shrunk only past the
+ * import limit (a trace is drawn over, so it keeps its detail), and its key handed back with
+ * the file's name. Null, with a toast, when the file is not an image.
+ */
+export async function readTraceFile(input: File): Promise<{ imageKey: string; fileName: string } | null> {
+  const file = await normalizeImageFile(input);
+  if (!file) {
+    notify.error(`Unsupported image format: ${input.type}. Use PNG, JPEG, SVG, or WebP.`);
+    return null;
+  }
+  let base64 = await fileToBase64(file);
+  const bitmap = await createImageBitmap(file);
+  const oversized = bitmap.width > MAX_IMPORT_PX || bitmap.height > MAX_IMPORT_PX;
+  bitmap.close();
+  if (oversized) base64 = await resizeImageToMax(base64, MAX_IMPORT_PX, 'image/webp');
+  const imageKey = crypto.randomUUID();
+  useStore.getState().addCustomImage(imageKey, base64);
+  return { imageKey, fileName: input.name };
+}
+
+/**
+ * The More menu's Import as trace: the picture as a background image layer at the bottom of
+ * the level on show, at 40%, one undo step. Returns the new layer's id, or null.
+ */
+export async function importTraceImage(file: File): Promise<string | null> {
+  try {
+    const picture = await readTraceFile(file);
+    if (!picture) return null;
+    const layer = createImageLayer(shownLevelId(useStore.getState()), picture.imageKey, picture.fileName);
+    undoManager.execute(new AddTraceLayerCommand(layer));
+    notify.success(`Trace added · ${keyCaption('view.traceToggle')} hides and shows it`);
+    return layer.id;
+  } catch (err) {
+    notify.error(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     return null;
   }
 }

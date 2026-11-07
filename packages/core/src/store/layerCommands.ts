@@ -1,8 +1,9 @@
-import type { Command, DungeonLayer, Layer, MapBuilderStore } from './types';
+import type { Command, DungeonLayer, ImageLayer, Layer, MapBuilderStore } from './types';
 import type { AnyChild, Level, Room } from '../shared/types';
 import { conditionZoneId, type RoomKey, type RoomNote, type ScenePrep, type TriggerDef } from '../shared/prep';
 import { useStore } from './store';
-import { RemoveLayerCommand } from './commands';
+import { CompositeCommand, PropertyCommand, RemoveLayerCommand } from './commands';
+import { shownLevelId } from './selectors';
 import { MoveLayerToLevelCommand, RemoveLevelCommand } from './roomCommands';
 import { getChildBounds, getWallBounds } from '../engine/hitTest';
 
@@ -51,10 +52,14 @@ export function layerObjectCount(layer: Layer): number {
 /** The refusal toast for deleting the last layer of a level. */
 export const LAST_LAYER_MESSAGE = 'A level needs one layer. Delete the level instead.';
 
-/** The dungeon layers on a level, in draw order. */
+/** The layers on a level (its dungeon layers and traces), in draw order. */
 export function layersOnLevel(state: Pick<MapBuilderStore, 'layers'>, levelId: string): Layer[] {
   return state.layers.filter((l) => l.type !== 'background' && l.levelId === levelId);
 }
+
+/** How many dungeon layers a level holds: a level keeps one, whatever traces it has. */
+const dungeonCount = (state: Pick<MapBuilderStore, 'layers'>, levelId: string) =>
+  layersOnLevel(state, levelId).filter((l) => l.type === 'dungeon').length;
 
 /** Why a layer may not be deleted right now, or null when it may. */
 export function layerDeleteBlock(state: Pick<MapBuilderStore, 'layers'>, layerId: string): string | null {
@@ -62,16 +67,60 @@ export function layerDeleteBlock(state: Pick<MapBuilderStore, 'layers'>, layerId
   if (!layer) return 'That layer is gone';
   if (layer.type === 'background') return 'The background stays';
   if (layer.locked) return 'Layer is locked';
-  if (layersOnLevel(state, layer.levelId).length <= 1) return LAST_LAYER_MESSAGE;
+  if (layer.type === 'dungeon' && dungeonCount(state, layer.levelId) <= 1) return LAST_LAYER_MESSAGE;
   return null;
 }
 
 /** Why a layer may not move to another level, or null: a level never ends up empty. */
 export function layerMoveBlock(state: Pick<MapBuilderStore, 'layers'>, layerId: string): string | null {
   const layer = state.layers.find((l) => l.id === layerId);
-  if (!layer || layer.type === 'background') return 'Only map layers move between levels';
-  if (layersOnLevel(state, layer.levelId).length <= 1) return LAST_LAYER_MESSAGE;
+  if (!layer || layer.type !== 'dungeon') return 'Only map layers move between levels';
+  if (dungeonCount(state, layer.levelId) <= 1) return LAST_LAYER_MESSAGE;
   return null;
+}
+
+/**
+ * Adds a trace (a background image layer) at the bottom of its level, under the level's
+ * other layers. Its picture is in `customImages` already, outside the undo stack as an
+ * imported image's is.
+ */
+export class AddTraceLayerCommand implements Command {
+  readonly label = 'Import trace';
+  readonly restoresUi = true;
+  private readonly layer: ImageLayer;
+
+  constructor(layer: ImageLayer) {
+    this.layer = structuredClone(layer);
+  }
+
+  execute(): void {
+    const s = useStore.getState();
+    s.addLayer(structuredClone(this.layer));
+    const layers = useStore.getState().layers;
+    const at = layers.findIndex((l) => l.type !== 'background' && l.levelId === this.layer.levelId);
+    const from = layers.findIndex((l) => l.id === this.layer.id);
+    if (at >= 0 && at < from) useStore.getState().reorderLayers(from, at);
+  }
+
+  undo(): void {
+    useStore.getState().removeLayer(this.layer.id);
+  }
+}
+
+/**
+ * The trace toggle: hides every trace on the level on show when any shows, else shows them
+ * all. One undo step; null when the level has none.
+ */
+export function traceToggleCommand(state: Pick<MapBuilderStore, 'layers' | 'levels' | 'ui'>): Command | null {
+  const level = shownLevelId(state);
+  const traces = state.layers.filter((l): l is ImageLayer => l.type === 'image' && (state.levels.length === 0 || l.levelId === level));
+  if (traces.length === 0) return null;
+  const show = !traces.some((l) => l.visible);
+  const label = show ? 'Show trace' : 'Hide trace';
+  return new CompositeCommand(
+    label,
+    traces.map((l) => new PropertyCommand(label, { type: 'layer', layerId: l.id }, { visible: l.visible }, { visible: show })),
+  );
 }
 
 /**
@@ -153,7 +202,7 @@ function cloneLayerContent(source: DungeonLayer, id: string, name: string, ids =
 interface LevelClonePlan {
   level: Level;
   index: number;
-  layers: DungeonLayer[];
+  layers: Layer[];
   keys: RoomKey[];
   notes: RoomNote[];
   triggers: TriggerDef[];
@@ -185,10 +234,10 @@ function clonePrep(prep: ScenePrep | null, ids: Map<string, string>): Pick<Level
 }
 
 /**
- * Clones a level as "<name> copy", directly above it: every layer on it copied with new ids
- * (rooms, zones, doors and lights included, every link inside remapped), and the prep anchored
- * on it (room keys, notes, triggers) copied onto the clone's own rooms, zones and lights. One
- * undo step; the caller shows the clone.
+ * Clones a level as "<name> copy", directly above it: every layer on it, traces too, copied
+ * with new ids (rooms, zones, doors and lights included, every link inside remapped), and the
+ * prep anchored on it (room keys, notes, triggers) copied onto the clone's own rooms, zones and
+ * lights. One undo step; the caller shows the clone.
  */
 export class CloneLevelCommand implements Command {
   readonly label = 'Clone level';
@@ -213,9 +262,12 @@ export class CloneLevelCommand implements Command {
       if (index < 0) return;
       const source = state.levels[index];
       const ids = new Map<string, string>();
-      const layers = layersOnLevel(state, source.id)
-        .filter((l): l is DungeonLayer => l.type === 'dungeon')
-        .map((l) => ({ ...cloneLayerContent(l, crypto.randomUUID(), l.name, ids), levelId: this.newId }));
+      // A trace is copied as it is: its picture is shared, not copied.
+      const layers = layersOnLevel(state, source.id).map((l): Layer =>
+        l.type === 'dungeon'
+          ? { ...cloneLayerContent(l, crypto.randomUUID(), l.name, ids), levelId: this.newId }
+          : { ...structuredClone(l), id: crypto.randomUUID(), levelId: this.newId },
+      );
       const level: Level = { ...structuredClone(source), id: this.newId, name: `${source.name || 'Level'} copy` };
       this.plan = { level, index, layers, ...clonePrep(state.prep, ids) };
       this.hadPrep = state.prep !== null;

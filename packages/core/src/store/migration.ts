@@ -21,7 +21,7 @@ export const CURRENT_VERSION = '3.8' as const
  * is additive too: a wall's and a layer's corner style, a door's freestanding flag. '3.6' →
  * '3.7' adds the new terrain tools' data, all additive: a layer's water, its material patches
  * and path children ('pathway', not the retired 'path'). '3.7' → '3.8' is additive: a prop's
- * below-water flag.)
+ * below-water flag and trace layers (type 'image').)
  */
 export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8']
 

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Container } from 'pixi.js';
 import { BAND_REACH, computeMapWorldBounds, runExportPipeline } from './exportPipeline';
 import type { RenderEngine } from '../RenderEngine';
-import { buildSceneGraph, getLayerEntries, type SceneGraph } from '../sceneGraph';
+import { addLayerToScene, buildSceneGraph, getLayerEntries, removeLayerFromScene, type SceneGraph } from '../sceneGraph';
+import { createDungeonLayer, createImageLayer } from '../../store/factories';
 import { useStore } from '../../store/store';
 import { setAuthoredLookHold, setEditorDesk, type AuthoredLookOptions } from '../editorDesk';
 
@@ -182,6 +183,30 @@ describe('runExportPipeline: the file', () => {
   afterEach(() => {
     setEditorDesk(null);
     setAuthoredLookHold(null);
+  });
+
+  it('leaves trace layers and a compared level out of the file, and shows them again after', async () => {
+    const { engine, sceneGraph } = rig();
+    room();
+    const s = useStore.getState();
+    const trace = createImageLayer(s.levels[0].id, 'sketch', 'sketch.png');
+    s.addLayer(trace);
+    s.addLevel({ id: 'up', name: 'Up' });
+    const up = createDungeonLayer('Up', 'up');
+    useStore.getState().addLayer(up);
+    useStore.getState().setCompare({ levelId: 'up', opacity: 0.4 });
+    const host = { layerContainer: new Container() } as unknown as SceneGraph;
+    const traced = addLayerToScene(engine, host, trace.id, 'image');
+    const compared = addLayerToScene(engine, host, up.id, 'dungeon');
+    const seen: boolean[] = [];
+    (engine as unknown as { renderToTexture: () => void }).renderToTexture = () => {
+      seen.push(traced.container.visible, compared.container.visible);
+    };
+    await runExportPipeline(engine, sceneGraph, useStore.getState().layers, opts);
+    expect(seen).toEqual([false, false]);
+    expect([traced.container.visible, compared.container.visible]).toEqual([true, true]);
+    removeLayerFromScene(host, trace.id);
+    removeLayerFromScene(host, up.id);
   });
 
   it('renders at resolution 1 whatever the screen DPR, and draws the image at the file size', async () => {

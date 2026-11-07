@@ -2,6 +2,7 @@ import type {
   BackgroundLayer,
   DungeonLayer,
   DungeonStyle,
+  ImageLayer,
   MapBuilderStore,
 } from './types';
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds';
@@ -63,6 +64,22 @@ export function createBackgroundLayer(levelId = ''): BackgroundLayer {
     textureScale: 0.25,
     textureTint: '#ffffff',
     presetLock: false,
+  };
+}
+
+/** A trace: the picture under `imageKey` on `levelId`, at 40% so the map drawn over it reads. */
+export function createImageLayer(levelId: string, imageKey: string, fileName: string): ImageLayer {
+  return {
+    id: crypto.randomUUID(),
+    name: 'Trace',
+    type: 'image',
+    levelId,
+    visible: true,
+    locked: false,
+    opacity: 0.4,
+    imageKey,
+    fileName,
+    fit: 'map',
   };
 }
 

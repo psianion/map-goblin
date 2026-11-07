@@ -1,17 +1,20 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Copy, FolderInput, Trash2 } from 'lucide-react';
-import { Caption, ColourRow, InputRow, SecondaryButton, SliderRow, SwitchRow, Tile } from '@/editor/components';
+import { Caption, ColourRow, InputRow, SecondaryButton, Seg, SettingRow, SliderRow, SwitchRow, Tile } from '@/editor/components';
+import { Kbd } from '@/ui/kbd';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/ui/dropdown-menu';
 import { useStore } from '@/store/store';
 import { isOnShownLevel } from '@/store/selectors';
-import { TERRAIN_PANEL_ID, type BackgroundLayer, type DungeonLayer, type Layer, type SublayerVisibility } from '@/store/types';
+import { TERRAIN_PANEL_ID, type BackgroundLayer, type DungeonLayer, type ImageLayer, type Layer, type SublayerVisibility } from '@/store/types';
 import { LayerStyleChangeCommand, PropertyCommand, TerrainAppearanceCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { getEntriesByType } from '@dnd/core/src/assets/packCatalog';
 import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands';
 import { checkRename, rowShown, sheetSections, showRows } from '@/editor/models/layerSheetModel';
-import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleSolo } from '@/editor/models/layerActions';
+import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleLayerVisible, toggleSolo } from '@/editor/models/layerActions';
+import { readTraceFile } from '@/canvas/importImage';
+import { keyCaption } from '@/shortcuts/formatCombo';
 import { SheetFrame } from './SheetFrame';
 import { useLiveEdit } from './liveEdit';
 
@@ -30,8 +33,11 @@ const layerTarget = (layer: Layer) => ({ type: 'layer' as const, layerId: layer.
 /** The layer, live: what the sheet reads at the end of a gesture. */
 const liveLayer = <T extends Layer>(id: string) => useStore.getState().layers.find((l) => l.id === id) as T | undefined;
 
-/** A name that commits on Enter or leaving the field, reverts on Escape, and refuses blank. */
-function NameSection({ layer }: { layer: Layer }) {
+/**
+ * A name that commits on Enter or leaving the field, reverts on Escape, and refuses blank.
+ * `bare`: a row of the section it sits in (the trace's), not a section of its own.
+ */
+function NameSection({ layer, bare = false }: { layer: Layer; bare?: boolean }) {
   const [draft, setDraft] = useState(layer.name);
   const [seen, setSeen] = useState(layer.name);
   // A rename from elsewhere (undo, the layer list) shows at once.
@@ -44,10 +50,10 @@ function NameSection({ layer }: { layer: Layer }) {
     if (out.kind === 'commit') undoManager.execute(new PropertyCommand('Rename layer', layerTarget(layer), { name: layer.name }, { name: out.name }));
     else setDraft(layer.name);
   };
-  return (
-    <Section title="Name">
+  const field = (
+    <>
       <InputRow
-        label="Layer name"
+        label={bare ? 'Name' : 'Layer name'}
         value={draft}
         spellCheck={false}
         aria-invalid={draft.trim() === '' || undefined}
@@ -62,8 +68,9 @@ function NameSection({ layer }: { layer: Layer }) {
         }}
       />
       {draft.trim() === '' && <p className={note}>A layer needs a name. Leave the field to keep the old one.</p>}
-    </Section>
+    </>
   );
+  return bare ? field : <Section title="Name">{field}</Section>;
 }
 
 function OpacitySection({ layer }: { layer: Layer }) {
@@ -231,6 +238,81 @@ function BackgroundSection({ layer }: { layer: BackgroundLayer }) {
   );
 }
 
+const val = 'min-w-[42px] max-w-[150px] truncate text-right font-mono text-[11px] text-text';
+
+const FIT_OPTIONS = [
+  { value: 'map', label: 'Map' },
+  { value: 'original', label: 'Original' },
+];
+
+/**
+ * A trace (background image layer), as frame 14 draws it: its name, kind, Visible and Locked;
+ * Trace, its opacity and the key that hides and shows it; Image, its file, fit and Replace.
+ */
+function TraceBody({ layer }: { layer: ImageLayer }) {
+  const picker = useRef<HTMLInputElement>(null);
+  const opacity = useLiveEdit(
+    () => liveLayer(layer.id)?.opacity ?? layer.opacity,
+    (v: number) => useStore.getState().updateLayer(layer.id, { opacity: v }),
+    (start, end) => undoManager.execute(new PropertyCommand('Trace opacity', layerTarget(layer), { opacity: start }, { opacity: end })),
+  );
+  const setFit = (fit: string) => {
+    if (fit !== layer.fit) undoManager.execute(new PropertyCommand('Trace fit', layerTarget(layer), { fit: layer.fit }, { fit }));
+  };
+  const replace = async (file: File) => {
+    const picture = await readTraceFile(file);
+    if (!picture) return;
+    undoManager.execute(new PropertyCommand('Replace trace image', layerTarget(layer), { imageKey: layer.imageKey, fileName: layer.fileName }, picture));
+  };
+  return (
+    <>
+      <Section>
+        <NameSection layer={layer} bare />
+        <SettingRow label="Kind">
+          <span className={val}>Background image</span>
+        </SettingRow>
+        <SwitchRow label="Visible" checked={layer.visible} onCheckedChange={() => toggleLayerVisible(layer)} />
+        <SwitchRow label="Locked" checked={layer.locked} onCheckedChange={() => toggleLayerLocked(layer)} />
+      </Section>
+      <Section title="Trace">
+        <div {...opacity.wrap}>
+          <SliderRow label="Opacity" value={layer.opacity} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onValueChange={opacity.change} />
+        </div>
+        <SettingRow label="Toggle key">
+          <Kbd>{keyCaption('view.traceToggle')}</Kbd>
+        </SettingRow>
+      </Section>
+      <Section title="Image">
+        <SettingRow label="File">
+          <span className={val} title={layer.fileName}>
+            {layer.fileName}
+          </span>
+        </SettingRow>
+        <SettingRow label="Fit">
+          <Seg aria-label="Fit" options={FIT_OPTIONS} value={layer.fit} onValueChange={setFit} />
+        </SettingRow>
+        <SettingRow label="Replace">
+          <SecondaryButton data-testid="shell-lsheet-trace-replace" onClick={() => picker.current?.click()}>
+            Choose
+          </SecondaryButton>
+        </SettingRow>
+        <input
+          ref={picker}
+          type="file"
+          accept="image/png,image/jpeg,image/svg+xml,image/webp"
+          className="hidden"
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void replace(file);
+          }}
+        />
+      </Section>
+    </>
+  );
+}
+
 function TerrainBody() {
   const visible = useStore((s) => s.mapSettings.terrain?.visible ?? true);
   const opacity = useStore((s) => s.mapSettings.terrain?.opacity ?? 1);
@@ -277,6 +359,7 @@ export function LayerSheet({ target, onClose }: { target: string; onClose: () =>
         {terrain && <TerrainBody />}
         {layer && (
           <>
+            {layer.type === 'image' && sections.includes('trace') && <TraceBody layer={layer} />}
             {sections.includes('name') && <NameSection layer={layer} />}
             {layer.type === 'background' && sections.includes('background') && <BackgroundSection layer={layer} />}
             {sections.includes('opacity') && <OpacitySection layer={layer} />}

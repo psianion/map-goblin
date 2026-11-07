@@ -1,5 +1,6 @@
 import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import type { RenderEngine } from './RenderEngine';
+import type { LayerType } from '../store/types';
 import { GridRenderer } from './grid/GridRenderer';
 import { MapBoundaryRenderer } from './grid/MapBoundaryRenderer';
 import { ToolManager } from './tools/ToolManager';
@@ -89,7 +90,7 @@ export interface DungeonSublayers {
 
 export interface LayerEntry {
   id: string;
-  type: 'dungeon' | 'background';
+  type: LayerType;
   container: Container;
   sublayers: DungeonSublayers | null;
   /** RenderTexture for blend-mode isolation (dungeon layers only) */
@@ -238,7 +239,7 @@ export function addLayerToScene(
   _engine: RenderEngine,
   sceneGraph: SceneGraph,
   layerId: string,
-  layerType: 'dungeon' | 'background',
+  layerType: LayerType,
   index?: number,
 ): LayerEntry {
   const container = new Container();

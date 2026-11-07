@@ -84,6 +84,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
           <DropdownMenuItem onClick={actions.importImage}>
             Import image…<DropdownMenuShortcut>{keyCaption('file.import')}</DropdownMenuShortcut>
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={actions.importTrace}>Import as trace…</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => zoomToFitRef.current?.()}>
             Fit to content<DropdownMenuShortcut>{keyCaption('view.fitToContent')}</DropdownMenuShortcut>

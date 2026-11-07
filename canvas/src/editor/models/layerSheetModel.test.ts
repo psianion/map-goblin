@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { BackgroundLayer, DungeonLayer } from '@/store/types';
+import type { BackgroundLayer, DungeonLayer, ImageLayer } from '@/store/types';
 import { checkRename, sheetSections, showRows } from './layerSheetModel';
 
 const dungeon = (over: Partial<DungeonLayer> = {}): DungeonLayer =>
@@ -26,6 +26,10 @@ describe('sheetSections', () => {
   });
   it('gives a background layer its name, colour and texture, and opacity; no sublayers', () => {
     expect(sheetSections(background)).toEqual(['name', 'background', 'opacity']);
+  });
+  it('gives a trace the rows of its own sheet', () => {
+    const trace = { id: 't', name: 'Trace', type: 'image', opacity: 0.4, imageKey: 'k', fileName: 'a.png', fit: 'map' } as ImageLayer;
+    expect(sheetSections(trace)).toEqual(['trace']);
   });
   it('gives terrain its own group', () => {
     expect(sheetSections('terrain')).toEqual(['terrain']);

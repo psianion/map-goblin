@@ -1,5 +1,5 @@
-// 3.7 → 3.8: additive. A prop's below-water flag. A 3.7 map loads as it was, its props
-// drawn as they are (the flag absent, off), and a 3.8 map round-trips through
+// 3.7 → 3.8: additive. A prop's below-water flag and trace layers. A 3.7 map loads as it
+// was, its props drawn as they are (the flag absent, off), and a 3.8 map round-trips through
 // migrateToLatest, the parser the table loads maps with too.
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import { CURRENT_VERSION, SUPPORTED_VERSIONS, migrateToLatest } from './migratio
 import { useStore } from './store';
 import type { AssetChild, DungeonLayer, SerializedMapData } from './types';
 import { propField } from '../shared/propFields';
+import { createImageLayer } from './factories';
 
 beforeEach(() => useStore.getState().resetToDefault());
 
@@ -49,5 +50,17 @@ describe('map format 3.8', () => {
     useStore.getState().loadFromFile(migrateToLatest(data));
     const prop = dungeon(useStore.getState().getSerializableState()).children.find((c) => c.id === 'b1');
     expect(prop).toEqual(barrel({ belowWater: true }));
+  });
+
+  it('round-trips a trace layer and its picture', () => {
+    const trace = { ...createImageLayer(useStore.getState().levels[0].id, 'sketch', 'cellars-sketch.png'), fit: 'original' as const };
+    useStore.getState().addCustomImage('sketch', 'data:image/png;base64,AAAA');
+    useStore.getState().addLayer(trace);
+    const data = JSON.parse(JSON.stringify(useStore.getState().getSerializableState())) as SerializedMapData;
+    useStore.getState().resetToDefault();
+    useStore.getState().loadFromFile(migrateToLatest(data));
+    const s = useStore.getState();
+    expect(s.layers.find((l) => l.id === trace.id)).toEqual(trace);
+    expect(s.assets.customImages.sketch).toBe('data:image/png;base64,AAAA');
   });
 });
