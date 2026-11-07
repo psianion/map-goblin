@@ -1,6 +1,6 @@
-// The selection verbs (plan 6.6): Flip H, Flip V, Rotate 90, Duplicate, Lock, Unlock, Hide,
-// Delete and More, each shown only when it can act on what is picked (cardActions decides,
-// as on the v2 card). Merge for two walls waits on wall joining (plan 8.5).
+// The selection verbs (plan 6.6): Merge for two walls, Flip H, Flip V, Rotate 90, Duplicate,
+// Lock, Unlock, Hide, Delete and More, each shown only when it can act on what is picked
+// (cardActions decides, as on the v2 card; Merge decides for itself, see merge.ts).
 
 import {
   Copy,
@@ -20,6 +20,7 @@ import { openCanvasMenuRef, type CanvasMenuPayload } from '@/editor/canvasMenuRe
 import { runSelectionVerb, type SelectionVerb } from '@/shortcuts/defaultShortcuts';
 import type { EditorState, Verb } from '@/editor/registry/types';
 import { cardActions, type CardAction } from './cardModels';
+import { mergeVerb } from './merge';
 
 function offers(state: EditorState, action: CardAction): boolean {
   const s = state as MapBuilderStore;
@@ -75,6 +76,7 @@ export const moreVerb: Verb = {
 };
 
 export const SELECTION_VERBS: readonly Verb[] = [
+  mergeVerb,
   verb('flipH', 'Flip horizontal', FlipHorizontal2),
   verb('flipV', 'Flip vertical', FlipVertical2, { bar: false }),
   verb('rotate', 'Rotate 90°', RotateCw),

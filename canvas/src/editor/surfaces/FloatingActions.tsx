@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { FloatBox } from '@/editor/components';
 import { useStore } from '@/store/store';
-import { selectChildById } from '@/store/selectors';
+import { selectChildById, selectWallById } from '@/store/selectors';
 import type { AnyChild } from '@/store/types';
-import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
+import { getWallBounds, unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { VerbButton } from './Card';
 import { liveVerbs } from './model';
@@ -16,11 +16,27 @@ const EDGE = 12;
 /** Where the selection's top centre is on screen, or null while there is nothing to place by. */
 function selectionAnchor(): { x: number; y: number } | null {
   const s = useStore.getState();
-  const children = s.selection.selectedIds.map((id) => selectChildById(s, id)).filter((c): c is AnyChild => c !== undefined);
+  const ids = s.selection.selectedIds;
+  const children = ids.map((id) => selectChildById(s, id)).filter((c): c is AnyChild => c !== undefined);
   const engine = getEngineSingleton()?.engine;
-  if (children.length === 0 || !engine) return null;
-  const b = unionChildBounds(children);
-  if (!b) return null;
+  if (!engine) return null;
+  // Picked walls count too: the bar rides over them as over a child.
+  const boxes = [
+    unionChildBounds(children),
+    ...ids.map((id) => {
+      const found = selectWallById(s, id);
+      return found ? getWallBounds(found.wall) : null;
+    }),
+  ].filter((x): x is NonNullable<typeof x> => !!x);
+  if (boxes.length === 0) return null;
+  const x0 = Math.min(...boxes.map((r) => r.x));
+  const y0 = Math.min(...boxes.map((r) => r.y));
+  const b = {
+    x: x0,
+    y: y0,
+    width: Math.max(...boxes.map((r) => r.x + r.width)) - x0,
+    height: Math.max(...boxes.map((r) => r.y + r.height)) - y0,
+  };
   const tl = engine.worldToScreen(b.x, b.y);
   const br = engine.worldToScreen(b.x + b.width, b.y + b.height);
   return { x: (tl.x + br.x) / 2, y: Math.min(tl.y, br.y) };
@@ -34,9 +50,11 @@ export function FloatingActions() {
   const target = useCardTarget();
   const ref = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
-  // Beside the card, so only while the tool in hand shows one (Select), and one thing is picked.
+  // Beside the card, so only while the tool in hand shows one (Select), and one thing is
+  // picked, or several with a verb live that is meant for them (Merge for two walls).
   const tool = useActiveTool();
   const single = useStore((s) => s.selection.selectedIds.length === 1);
+  const multi = useStore((s) => !!target && liveVerbs(target.card.verbs).some((v) => v.multi && (!v.when || v.when(s))));
 
   useEffect(() => {
     if (!target) return;
@@ -57,7 +75,7 @@ export function FloatingActions() {
     return () => cancelAnimationFrame(raf);
   }, [target]);
 
-  if (!target || !tool?.selectionPanel || !single) return null;
+  if (!target || !tool?.selectionPanel || !(single || multi)) return null;
   const verbs = liveVerbs(target.card.verbs).filter((v) => v.bar !== false);
   if (verbs.length === 0) return null;
   return (

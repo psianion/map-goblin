@@ -187,6 +187,8 @@ export interface Verb {
   danger?: boolean;
   /** false: on the card's action row only, not on the floating bar by the selection. */
   bar?: false;
+  /** Brings the floating bar for a pick of several while it is live (Merge for two walls). */
+  multi?: true;
   /** Shown only when this holds, e.g. Merge with two walls picked. */
   when?: (state: EditorState) => boolean;
   /** Drawn on (the ink ring) while this holds: Node mode while the outline is open. */

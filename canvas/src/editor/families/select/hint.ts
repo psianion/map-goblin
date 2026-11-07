@@ -5,6 +5,7 @@ import { resolveSelection, selectionTitle } from '@dnd/core/src/store/selectionR
 import type { MapBuilderStore } from '@/store/types';
 import type { EditorState, HintLine } from '@/editor/registry/types';
 import { PICK_CHIPS, pickOnlyBinding } from './pickOnly';
+import { mergePlan } from './merge';
 
 const t = (text: string) => ({ text });
 const k = (text: string) => ({ text, key: true });
@@ -24,8 +25,11 @@ export function selectHint(state: EditorState): HintLine {
     return { label: title, segments: [t(`${title} · locked, Unlock in the card`)] };
   }
   const editable = ids.length === 1 && (sel.walls.length === 1 || sel.children[0]?.child.childType === 'shape');
+  // Two walls: whether Merge can join them, and why not when it cannot.
+  const merge = mergePlan(state);
+  const pair = merge ? [t(`${'refusal' in merge ? merge.refusal : 'touching at one point'} ·`)] : [];
   return {
     label: title,
-    segments: [t(`${title} ·`), ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
+    segments: [t(`${title} ·`), ...pair, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
   };
 }

@@ -330,6 +330,8 @@ export interface ToolSettings {
   regularPolygon: { sides: number };
   wallType: WallType;
   wallDirection: WallDirection;
+  /** A wall drawn to another's free end joins it (same set and type). Absent = on. */
+  wallAutoJoin?: boolean;
   wallWidth: number;
   continuousPlacement: boolean;
   lightDefaults: LightDefaults;

@@ -3,7 +3,6 @@
 //
 // Not built yet, and deliberately not registered, so no panel, dock or card shows a
 // control that changes nothing. Each waits on renderer or tool work (plan 8.5):
-//   - Wall Merge on the card and Auto-join at an endpoint in the panel: join on snap.
 //   - Wall Shadow on the card: the renderer casting wall shadows at all.
 //   - Freestanding doors in the Door panel: a door object not bound to a wall edge.
 

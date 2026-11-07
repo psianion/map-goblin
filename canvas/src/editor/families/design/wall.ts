@@ -75,6 +75,21 @@ export const wallCornerStyle = defineSetting<CornerStyle>({
   },
 });
 
+/** A wall drawn to another wall's free end joins it into one wall; off, the two only touch. */
+export const wallAutoJoin = defineSetting<boolean>({
+  id: 'wall.autoJoin',
+  label: 'Auto-join at an endpoint',
+  schema: z.boolean(),
+  default: true,
+  home: 'panel',
+  control: 'switch',
+  section: 'Placement',
+  bind: {
+    read: (s) => s.tools.settings.wallAutoJoin ?? true,
+    write: (store, on) => store.getState().updateToolSettings({ wallAutoJoin: on }),
+  },
+});
+
 const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
@@ -88,7 +103,7 @@ export const wallTool = defineTool({
   icon: BrickWall,
   key: 'W',
   engine: ['wall'],
-  settings: [wallType, wallWidth, wallCornerStyle, editCurve, editNodeMode, gridSnap, gridSnapStep],
+  settings: [wallType, wallWidth, wallCornerStyle, editCurve, editNodeMode, gridSnap, wallAutoJoin, gridSnapStep],
   dock: [wallLookColumn],
   hint: (s) => ({
     label: 'Wall',

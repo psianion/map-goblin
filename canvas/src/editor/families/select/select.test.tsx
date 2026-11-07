@@ -11,6 +11,7 @@ import { Slot } from '@/editor/surfaces/Slot';
 import { pickOnly, selectTool } from './index';
 import { pickOnlyKinds } from './pickOnly';
 import { selectHint } from './hint';
+import { undoManager } from '@/store/undoManager';
 
 const layer = () => useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
 
@@ -122,6 +123,33 @@ describe('card host', () => {
     });
     const { getByTestId } = slot();
     expect(getByTestId('shell-card').dataset.kind).toBe('shape');
+  });
+
+  it('grows Merge for two walls: enabled when they share an end, one wall after, undo gives two', () => {
+    const wall = (id: string, points: [number, number][]) => ({
+      id, points, wallType: 'normal' as const, direction: 'both' as const, color: '#000000', roughness: 0,
+    });
+    act(() => {
+      useStore.getState().addWall(layer().id, wall('a', [[0, 0], [4, 0]]));
+      useStore.getState().addWall(layer().id, wall('b', [[4, 0], [4, 5]]));
+      useStore.getState().addWall(layer().id, wall('c', [[9, 9], [12, 9]]));
+      useStore.getState().setActiveTool('select');
+      useStore.getState().setSelectedIds(['a', 'c']);
+    });
+    const { getByTestId } = slot();
+    expect(getByTestId('shell-card').textContent).toContain('2 walls');
+    const merge = () => getByTestId('shell-card').querySelector<HTMLButtonElement>('button[aria-label="Merge into one wall"]');
+    expect(merge()?.disabled).toBe(true);
+    expect(selectHint(useStore.getState()).segments.map((s) => s.text).join(' ')).toContain('not touching at an end');
+
+    act(() => useStore.getState().setSelectedIds(['a', 'b']));
+    expect(merge()?.disabled).toBe(false);
+    expect(selectHint(useStore.getState()).segments.map((s) => s.text).join(' ')).toContain('touching at one point');
+    act(() => fireEvent.click(merge()!));
+    expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['a', 'c']);
+    expect(useStore.getState().selection.selectedIds).toEqual(['a']);
+    act(() => undoManager.undo());
+    expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['a', 'b', 'c']);
   });
 
   it('belongs to Select: Pan keeps no card', () => {
