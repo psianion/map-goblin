@@ -1,15 +1,18 @@
-// The door card: Name, Style, State, Opens to, Secret, Width, Angle, then the kit fields
+// The door card: Name, Style, State, Freestanding, Opens to, Secret, Width, Angle, then the kit fields
 // (Material, Hinge, Swing, Hinges). Material and the hanging rows list only the door kits
 // an installed pack ships the art for; with none installed they are not shown at all.
 
 import { z } from 'zod';
 import { selectLayerForChild } from '@/store/selectors';
-import { CompositeCommand, UpdateChildCommand, UpdateWallCommand } from '@/store/commands';
-import type { AnyChild, DoorChild, DoorStyle } from '@/store/types';
+import { AddWallCommand, CompositeCommand, RemoveWallCommand, UpdateChildCommand, UpdateWallCommand } from '@/store/commands';
+import type { AnyChild, Command, DoorChild, DoorStyle } from '@/store/types';
 import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
-import { turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
+import { isOwnPiece, turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
+import { anchorFor, doorPlacement, freePiece, isFreestanding } from '@dnd/core/src/shared/freestandingDoor';
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
+import { notify } from '@/lib/toast';
 import { doorwayEditCommand } from '@dnd/core/src/store/doorwayCommands';
-import { doorAngleValue, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
+import { DOOR_ANGLE_STEP, doorAngleValue, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorKitById, isKitStyle, MAX_OPEN_ANGLE, type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { cleanDoorName, DOOR_HINGES, DOOR_STATES, DOOR_SWINGS, doorModel, doorStyleChange, OPEN_ANGLE_STEP, swingChoice, swingValue, type DoorMaterial } from '@/editor/models/selectionModel';
@@ -76,6 +79,73 @@ const doorState = defineCardField<'door', DoorChild['state']>({
   write: (_store, ids, next) => editChildren('Door state', ids, (c) => (c.childType === 'door' ? { state: next } : null)),
 });
 
+/** The fields a conversion rewrites, as they stand, for undo. */
+const placeOf = (d: DoorChild): Partial<AnyChild> =>
+  ({ wallId: d.wallId, position: d.position, angle: d.angle, freestanding: d.freestanding }) as Partial<AnyChild>;
+
+/** On: the door leaves its wall for a piece of its own. */
+function standFree(layerId: string, door: DoorChild, at: { position: [number, number]; angle: number }, look: Parameters<typeof freePiece>[3]): Command {
+  const piece = { ...freePiece(at.position, at.angle, door.width, look), id: crypto.randomUUID() };
+  return new CompositeCommand('Stand door free', [
+    new AddWallCommand('Stand door free', layerId, piece),
+    new UpdateChildCommand('Stand door free', layerId, door.id, placeOf(door), {
+      wallId: piece.id,
+      position: at.position,
+      angle: at.angle,
+      freestanding: true,
+    } as Partial<AnyChild>),
+  ]);
+}
+
+/**
+ * Freestanding, both ways, each door one step. On, the door stands where it is on a piece of
+ * its own; off, it hangs on the nearest wall within one cell and its piece goes, and with no
+ * wall there it stays free and the hint says so.
+ */
+const freestanding = defineCardField<'door', boolean>({
+  id: 'card.door.freestanding',
+  label: 'Freestanding',
+  schema: z.boolean(),
+  default: false,
+  home: 'card',
+  control: 'switch',
+  read: (o) => {
+    const layer = selectLayerForChild(state(), o.id);
+    return !!layer && isFreestanding(layer, o);
+  },
+  write: (_store, ids, on) => {
+    const st = state();
+    const cmds: Command[] = [];
+    let refused = false;
+    for (const id of ids) {
+      const layer = selectLayerForChild(st, id);
+      const door = layer?.children.find((c): c is DoorChild => c.id === id && c.childType === 'door');
+      if (!layer || !door || isFreestanding(layer, door) === on || blockedLayerReason(layer)) continue;
+      if (on) {
+        const { wallType, wallDirection } = st.tools.settings;
+        cmds.push(standFree(layer.id, door, doorPlacement(layer, door), { wallType, direction: wallDirection, color: layer.style.wallColor }));
+        continue;
+      }
+      const to = anchorFor(layer, door);
+      if (!to) {
+        refused = true;
+        continue;
+      }
+      // The piece goes with the door unless another door hangs on it too.
+      const own = isOwnPiece(layer, id);
+      const shared = own && layer.children.some((c) => c.childType === 'door' && c.id !== id && c.wallId === own.id);
+      cmds.push(
+        new CompositeCommand('Anchor door', [
+          new UpdateChildCommand('Anchor door', layer.id, id, placeOf(door), { ...to, freestanding: undefined } as Partial<AnyChild>),
+          ...(own && !shared ? [new RemoveWallCommand(layer.id, own.id)] : []),
+        ]),
+      );
+    }
+    if (refused && cmds.length === 0) notify.warning('No wall within one cell to hang the door on');
+    runEdit(on ? 'Stand door free' : 'Anchor door', cmds);
+  },
+});
+
 const opensTo = defineCardField<'door', number>({
   id: 'card.door.opensTo',
   label: 'Opens to',
@@ -128,7 +198,7 @@ const width = defineCardField<'door', number>({
 const angle = defineCardField<'door', number>({
   id: 'card.door.angle',
   label: 'Angle',
-  schema: z.number().min(0).max(179),
+  schema: z.number().min(0).max(180 - DOOR_ANGLE_STEP),
   default: 0,
   home: 'card',
   control: 'custom',
@@ -222,5 +292,5 @@ export const doorCard = defineCard<'door'>({
   title: (o) => o.name || doorStyleLabel(o.style),
   // A door rides its wall: it is not flipped, turned or copied on its own (cardActions).
   verbs: SELECTION_VERBS,
-  fields: [name, style, doorState, opensTo, secret, width, angle, material, hinge, swing, hinges],
+  fields: [name, style, doorState, freestanding, opensTo, secret, width, angle, material, hinge, swing, hinges],
 });

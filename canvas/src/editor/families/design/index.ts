@@ -2,9 +2,8 @@
 // they draw.
 //
 // Not built yet, and deliberately not registered, so no panel, dock or card shows a
-// control that changes nothing. Each waits on renderer or tool work (plan 8.5):
+// control that changes nothing. It waits on renderer work (plan 8.5):
 //   - Wall Shadow on the card: the renderer casting wall shadows at all.
-//   - Freestanding doors in the Door panel: a door object not bound to a wall edge.
 
 import { PencilRuler } from 'lucide-react';
 import { defineFamily } from '@/editor/registry/define';

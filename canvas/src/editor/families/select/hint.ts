@@ -6,6 +6,8 @@ import type { MapBuilderStore } from '@/store/types';
 import type { EditorState, HintLine } from '@/editor/registry/types';
 import { PICK_CHIPS, pickOnlyBinding } from './pickOnly';
 import { mergePlan } from './merge';
+import { isFreestanding } from '@dnd/core/src/shared/freestandingDoor';
+import type { DoorChild } from '@/store/types';
 
 const t = (text: string) => ({ text });
 const k = (text: string) => ({ text, key: true });
@@ -28,8 +30,10 @@ export function selectHint(state: EditorState): HintLine {
   // Two walls: whether Merge can join them, and why not when it cannot.
   const merge = mergePlan(state);
   const pair = merge ? [t(`${'refusal' in merge ? merge.refusal : 'touching at one point'} ·`)] : [];
+  const only = ids.length === 1 ? sel.children[0] : undefined;
+  const free = only?.child.childType === 'door' && isFreestanding(only.layer, only.child as DoorChild) ? [t('freestanding ·')] : [];
   return {
     label: title,
-    segments: [t(`${title} ·`), ...pair, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
+    segments: [t(`${title} ·`), ...pair, ...free, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
   };
 }

@@ -46,6 +46,11 @@ const v2 = z
   .passthrough();
 
 /** 3.x: the same top level throughout; each step since moved fields inside layers (migration.ts). */
+/** 3.5's additions: the terrain's smooth blending, a floor's own opacity and edge band. */
+const settings35 = mapSettings.extend({ terrain: z.object({ smoothBlend: z.boolean().optional() }).passthrough().optional() });
+const child35 = z.object({ opacity: z.number().min(0).max(1).optional(), edgeBand: z.string().nullable().optional() }).passthrough();
+const cornerStyle = z.enum(['rounded', 'sharp']).optional();
+
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
     .object({
@@ -68,13 +73,16 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.4': v3('3.4'),
   // 3.5 adds the terrain's smooth blending switch (absent, the blend is the ragged one) and a
   // floor's own opacity and edge band (absent, full and the layer's).
-  '3.5': v3(
-    '3.5',
-    mapSettings.extend({ terrain: z.object({ smoothBlend: z.boolean().optional() }).passthrough().optional() }),
+  '3.5': v3('3.5', settings35, layer.extend({ children: z.array(child35).optional() })),
+  // 3.6 adds a wall's and a layer's corner style (absent, sharp) and a door's freestanding
+  // flag (absent, on a wall).
+  '3.6': v3(
+    '3.6',
+    settings35,
     layer.extend({
-      children: z
-        .array(z.object({ opacity: z.number().min(0).max(1).optional(), edgeBand: z.string().nullable().optional() }).passthrough())
-        .optional(),
+      children: z.array(child35.extend({ freestanding: z.boolean().optional() })).optional(),
+      standaloneWalls: z.array(z.object({ cornerStyle }).passthrough()).optional(),
+      style: z.object({ wallCornerStyle: cornerStyle }).passthrough().optional(),
     }),
   ),
 };

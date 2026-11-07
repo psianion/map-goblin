@@ -236,9 +236,9 @@ describe('tool settings', () => {
     expect(st().tools.settings.doorWidth).toBe(2);
     settings.setSetting('door.width', 1);
     expect(st().tools.settings.doorWidth).toBe(2);
-    expect(settings.setSetting('door.angle', 20)).toBe(false);
-    expect(settings.setSetting('door.angle', 45)).toBe(true);
-    expect(st().tools.settings.doorAngle).toBe(45);
+    expect(settings.setSetting('door.angle', 22)).toBe(false);
+    expect(settings.setSetting('door.angle', 35)).toBe(true);
+    expect(st().tools.settings.doorAngle).toBe(35);
   });
 
   it('Elevation height is never flat, and edge lands beside it', () => {
@@ -449,6 +449,41 @@ describe('the door card', () => {
     undoManager.undo();
     undoManager.undo();
     expect(d1()).toMatchObject({ state: 'closed', isSecret: false, name: 'Door 1' });
+  });
+
+  it('stands a door free and anchors it back, each one undo step', () => {
+    expect(read('door', 'card.door.freestanding', d1())).toBe(false);
+    write('door', 'card.door.freestanding', ['d1'], true);
+    expect(d1().freestanding).toBe(true);
+    const piece = layer().standaloneWalls.find((w) => w.id === d1().wallId)!;
+    expect(piece.id).not.toBe('w1');
+    expect(piece.points[0][0]).toBeCloseTo(2);
+    expect(piece.points[1][0]).toBeCloseTo(3);
+    expect(read('door', 'card.door.freestanding', d1())).toBe(true);
+    expect(undoManager.size()).toBe(1);
+
+    // Off: onto the wall under it, within a cell; the piece goes with it.
+    write('door', 'card.door.freestanding', ['d1'], false);
+    expect(d1().wallId).toBe('w1');
+    expect(d1().freestanding).toBeUndefined();
+    expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['w1']);
+    undoManager.undo();
+    expect(d1().wallId).toBe(piece.id);
+    undoManager.undo();
+    expect(d1().wallId).toBe('w1');
+    expect(layer().standaloneWalls).toHaveLength(1);
+  });
+
+  it('refuses to anchor a freestanding door with no wall within one cell', () => {
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.id === 'l1') as DungeonLayer;
+      l.standaloneWalls.push({ ...structuredClone(wall), id: 'p', points: [[19.5, 20], [20.5, 20]] });
+      const d = l.children.find((c) => c.id === 'd1') as DoorChild;
+      Object.assign(d, { wallId: 'p', position: [20, 20], freestanding: true });
+    });
+    write('door', 'card.door.freestanding', ['d1'], false);
+    expect(d1()).toMatchObject({ wallId: 'p', freestanding: true });
+    expect(undoManager.size()).toBe(0);
   });
 
   it('keeps the old name for an empty one', () => {

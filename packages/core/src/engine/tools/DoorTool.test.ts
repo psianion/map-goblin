@@ -193,6 +193,18 @@ describe('DoorTool', () => {
       expect(doors()[0].angle).toBeCloseTo(Math.PI / 2);
     });
 
+    it('is flagged freestanding, and with the panel’s Freestanding on a click by a wall stands free too', () => {
+      click(tool, 5, 50);
+      expect(doors()[0].freestanding).toBe(true);
+      useStore.getState().updateToolSettings({ doorFreestanding: true, doorAngle: 35 });
+      click(tool, 5, 5.1);
+      expect(doors()).toHaveLength(2);
+      expect(doors()[1].wallId).not.toBe('w1');
+      expect(doors()[1].freestanding).toBe(true);
+      expect(doors()[1].position).toEqual([5, 5.1]);
+      expect(doors()[1].angle).toBeCloseTo((35 * Math.PI) / 180);
+    });
+
     it('over a wall in range placement is unchanged, whatever the tool’s angle', () => {
       useStore.getState().updateToolSettings({ doorAngle: 90 });
       click(tool, 5, 5.1);

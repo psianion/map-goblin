@@ -324,6 +324,11 @@ export interface DoorChild extends LayerChild {
    * kit of the wall's own set, or no kit when that set has none.
    */
   kit?: 'stone' | 'wood' | 'cave';
+  /**
+   * Placed free rather than on a wall: the door stands on a piece of wall of its own, its
+   * width, at its own angle (see `shared/freestandingDoor.ts`). Absent = false.
+   */
+  freestanding?: boolean;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */

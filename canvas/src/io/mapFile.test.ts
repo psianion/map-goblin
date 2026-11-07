@@ -200,7 +200,7 @@ describe('the settings the editor dropped', () => {
   it('checks a document against its version', () => {
     expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
     expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
-    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5']);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6']);
   });
 
   it('reads 3.5 with the terrain blend switch, and refuses one that is not a switch', () => {
@@ -217,6 +217,24 @@ describe('the settings the editor dropped', () => {
     });
     expect(readMapDocument(doc(0.5)).layers).toHaveLength(1);
     expect(() => readMapDocument(doc(2))).toThrow(/opacity/);
+  });
+
+  it('reads 3.6 corner styles and freestanding doors, and refuses a corner style it does not know', () => {
+    const doc = (cornerStyle: string) => ({
+      version: '3.6',
+      mapSettings: { name: 'Cellars' },
+      layers: [
+        {
+          id: 'l1',
+          type: 'dungeon',
+          style: { wallCornerStyle: 'rounded' },
+          standaloneWalls: [{ id: 'w', cornerStyle }],
+          children: [{ id: 'd', childType: 'door', freestanding: true }],
+        },
+      ],
+    });
+    expect(readMapDocument(doc('sharp')).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc('bevelled'))).toThrow(/cornerStyle/);
   });
 });
 

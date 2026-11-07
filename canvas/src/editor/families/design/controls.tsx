@@ -32,7 +32,7 @@ export function WallWidthControl({ def, value, onChange }: SettingProps<number>)
   );
 }
 
-/** A free-standing door's angle in 15° steps, and Turn 90° for the common case. */
+/** A free-standing door's angle in 5° steps, and Turn 90° for the common case. */
 export function DoorAngleControl({ def, value, onChange }: SettingProps<number>) {
   const r = def.range;
   return (

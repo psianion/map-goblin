@@ -341,6 +341,8 @@ export interface ToolSettings {
   doorWidth: number;
   /** A free-standing door's angle, degrees: 0 runs along x, 90 along y. Doors on a wall take the wall's. */
   doorAngle: number;
+  /** The Door panel's Freestanding: every click places a door free, never on a wall. Absent = off. */
+  doorFreestanding?: boolean;
   terrainBrush: TerrainBrushSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
@@ -653,7 +655,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];

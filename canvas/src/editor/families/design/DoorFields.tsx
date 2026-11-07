@@ -5,9 +5,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
 import { isOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
-import { DOOR_ANGLE_STEP, turnDoorAngle } from '@dnd/core/src/engine/tools/DoorTool';
+import { DOOR_ANGLE_STEP } from '@dnd/core/src/engine/tools/DoorTool';
 import { type DoorKitId } from '@dnd/core/src/assets/doorKits';
-import { InputRow, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
+import { InputRow, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
 import type { SettingProps } from '@/editor/registry/types';
 import { DOOR_WIDTH_STEP, doorMaterialOptions, doorModel, doorWidthValue } from '@/editor/models/selectionModel';
 import { doorHost, installedDoorKits } from './doorModel';
@@ -59,7 +59,7 @@ export function WidthField({ def, value, onChange }: SettingProps<number>) {
   );
 }
 
-/** A door on its own piece of wall turns here; any other takes its wall's angle. */
+/** A freestanding door, on its own piece of wall, turns here in 5° steps; any other takes its wall's angle. */
 export function AngleField({ def, value, onChange }: SettingProps<number>) {
   const own = useStore((s) => {
     const id = s.selection.selectedIds[0];
@@ -78,8 +78,16 @@ export function AngleField({ def, value, onChange }: SettingProps<number>) {
   return (
     <SettingRow label={def.label}>
       <span className="flex items-center gap-1.5">
-        <Stepper label={def.label} value={value} min={0} max={165} step={DOOR_ANGLE_STEP} format={(v) => `${v}°`} onValueChange={onChange} />
-        <SecondaryButton onClick={() => onChange(turnDoorAngle(value))}>Turn 90°</SecondaryButton>
+        <Stepper
+          label={def.label}
+          value={value}
+          min={0}
+          max={180 - DOOR_ANGLE_STEP}
+          step={DOOR_ANGLE_STEP}
+          format={(v) => `${v}°`}
+          onValueChange={onChange}
+        />
+        <span className="text-[10px] text-text-3">{DOOR_ANGLE_STEP}° steps</span>
       </span>
     </SettingRow>
   );

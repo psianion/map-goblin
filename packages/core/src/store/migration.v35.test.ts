@@ -31,10 +31,10 @@ const floorsOf = (data: SerializedMapData) =>
   );
 
 describe('map format 3.5', () => {
-  it('is the version saved, and 3.4 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.5');
+  it('is still read, as 3.4 is, and saves as the current version', () => {
     expect(SUPPORTED_VERSIONS).toContain('3.4');
-    expect(useStore.getState().getSerializableState().version).toBe('3.5');
+    expect(SUPPORTED_VERSIONS).toContain('3.5');
+    expect(useStore.getState().getSerializableState().version).toBe(CURRENT_VERSION);
   });
 
   it('loads a 3.4 map with no smooth blending, the ragged default', () => {

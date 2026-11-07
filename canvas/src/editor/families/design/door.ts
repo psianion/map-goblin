@@ -1,10 +1,11 @@
-// The Door tool: a click on a wall hangs a door there; on open floor it stands free at the
-// dock's angle. Style, width and angle change per door, so they sit in the dock.
+// The Door tool: a click on a wall hangs a door there; on open floor, or anywhere with the
+// panel's Freestanding on, it stands free at the dock's angle. Style, width and angle change
+// per door, so they sit in the dock.
 
 import { DoorOpen } from 'lucide-react';
 import { z } from 'zod';
 import type { DoorStyle } from '@/store/types';
-import { doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
+import { DOOR_ANGLE_STEP, doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
@@ -51,12 +52,12 @@ export const doorWidth = defineSetting<number>({
 export const doorAngle = defineSetting<number>({
   id: 'door.angle',
   label: 'Angle',
-  schema: z.number().int().min(0).max(165).multipleOf(15),
+  schema: z.number().int().min(0).max(180 - DOOR_ANGLE_STEP).multipleOf(DOOR_ANGLE_STEP),
   default: 0,
   home: 'dock',
   control: 'custom',
   section: 'Angle',
-  range: { min: 0, max: 165, step: 15, unit: '°' },
+  range: { min: 0, max: 180 - DOOR_ANGLE_STEP, step: DOOR_ANGLE_STEP, unit: '°' },
   render: DoorAngleControl,
   path: 'doorAngle',
 });
@@ -72,6 +73,21 @@ export const doorSecret = defineSetting<boolean>({
   path: 'doorSecret',
 });
 
+/** On, every click places a door free on a piece of its own, never on a wall. */
+export const doorFreestanding = defineSetting<boolean>({
+  id: 'door.freestanding',
+  label: 'Freestanding',
+  schema: z.boolean(),
+  default: false,
+  home: 'panel',
+  control: 'switch',
+  section: 'New doors',
+  bind: {
+    read: (s) => s.tools.settings.doorFreestanding ?? false,
+    write: (store, on) => store.getState().updateToolSettings({ doorFreestanding: on }),
+  },
+});
+
 const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
@@ -83,12 +99,16 @@ export const doorTool = defineTool({
   // Not D: that is the Design family's own key.
   key: 'S',
   engine: ['door'],
-  settings: [doorStyle, doorWidth, doorAngle, doorSecret],
+  settings: [doorStyle, doorWidth, doorAngle, doorSecret, doorFreestanding],
   dock: [],
-  hint: () => ({
+  hint: (s) => ({
     label: 'Door',
     segments: [
-      t('Click a wall to hang a door · on open floor it stands free · double-click a door opens or shuts it · '),
+      t(
+        s.tools.settings.doorFreestanding
+          ? 'Click anywhere to stand a door free · double-click a door opens or shuts it · '
+          : 'Click a wall to hang a door · on open floor it stands free · double-click a door opens or shuts it · ',
+      ),
       k('Esc'),
       t(' cancel'),
     ],
