@@ -284,6 +284,25 @@ async function lookAt(page: Page, p: Pt, zoom: number): Promise<void> {
   await waitFrame(page, 4)
 }
 
+/**
+ * The camera centre (for `lookAt`) that puts world `c` midway between the shell's top chrome
+ * (title card, top actions) and the top of the 112 px dock, at `zoom`. The screenshots read the
+ * page, chrome and all, so a world box `reach` cells either side of `c` has to fit that band.
+ */
+async function clearOfChrome(page: Page, c: Pt, zoom: number, reach: number): Promise<Pt> {
+  const band = await page.evaluate(() => {
+    const r = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect()
+    const canvas = (window as Any).__pixiApp.canvas.getBoundingClientRect()
+    return {
+      top: Math.max(r('shell-title-card').bottom, r('shell-top-actions').bottom) - canvas.top,
+      bottom: r('shell-dock').top - canvas.top,
+      centre: canvas.height / 2,
+    }
+  })
+  expect(band.bottom - band.top, 'the ring fits between the top chrome and the dock').toBeGreaterThan(2 * reach * zoom)
+  return { x: c.x, y: c.y + (band.centre - (band.top + band.bottom) / 2) / zoom }
+}
+
 /** One screenshot of the world box a..b, read back as the colour at any world point inside it. */
 async function grab(page: Page, a: Pt, b: Pt): Promise<(p: Pt) => Rgb> {
   const t = await page.evaluate(() => {
@@ -454,8 +473,9 @@ test.describe('the ink set', () => {
       ['star Cave ink line', star, 'GG_Cave_Ink:ledge'],
     ] as const) {
       const errors = await open(page, mapWith([{ ...ring(name, [...pts], 1, 'cliff'), edgeArt }]))
-      // Lifted clear of the dock along the bottom of the canvas.
-      await lookAt(page, { x: c.x, y: c.y + 1 }, 40)
+      // Lifted clear of the dock along the bottom of the canvas: the star's tips reach 5.5 cells
+      // out, and the ring is read from 0.8 in to 0.45 past them.
+      await lookAt(page, await clearOfChrome(page, c, 40, 6), 40)
       const { holes, longest, tips, bareTips } = await ledgeHoles(page, [...pts], c, edgeArt)
       await page.screenshot({ path: test.info().outputPath(`${name.replace(/ /g, '-')}.png`) })
       console.log(`${name}: ${holes.length} holes over 0.05 cell, longest bare stretch ${longest.toFixed(2)} cell; ${bareTips} of ${tips} sharp tips bare`)
@@ -465,6 +485,9 @@ test.describe('the ink set', () => {
     }
   })
 
+  // The reference is re-baselined in the end-of-phase run. It was taken in the old editor; the
+  // framing here does not depend on the chrome (the camera and the clip are both set from the
+  // canvas box, and the chrome is hidden), so what differs is the drawing itself.
   test("leaves the warren's cave wall band as it was drawn before the ink set", { tag: '@render' }, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     const map = structuredClone(WARREN)

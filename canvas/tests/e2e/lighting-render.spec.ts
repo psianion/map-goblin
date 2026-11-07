@@ -31,37 +31,81 @@ test('a placed light visibly brightens its own footprint, not the far corner', {
   // changes the whole canvas, not the light's footprint.
   await page.addInitScript(() => localStorage.setItem('mapbuilder-lit-preview', '1'))
   await gotoApp(page)
-  const canvas = page.locator('canvas').first()
-  const box = (await canvas.boundingBox())!
-  const dpr = await page.evaluate(() => window.devicePixelRatio)
+  // The entry fit animates for 150 ms; the samples below are world points, read through the camera
+  // as it stands at each read, so they stay on the same spot of the map either way.
+  await waitFrame(page, 15)
+
+  // The canvas the shell leaves free: right of the rail, under the title card and the top
+  // actions, above the dock. The map is fitted there, not at the canvas centre.
+  const free = await page.evaluate(() => {
+    const r = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect()
+    const canvas = (window as Any).__pixiApp.canvas.getBoundingClientRect()
+    return {
+      left: r('shell-rail').right,
+      top: Math.max(r('shell-title-card').bottom, r('shell-top-actions').bottom),
+      right: canvas.right,
+      bottom: r('shell-dock').top,
+    }
+  })
+  const mid = { x: (free.left + free.right) / 2, y: (free.top + free.bottom) / 2 }
+  const toWorld = (p: { x: number; y: number }) =>
+    page.evaluate((p) => {
+      const app = (window as Any).__pixiApp
+      const r = app.canvas.getBoundingClientRect()
+      const w = app.stage.children[0]
+      return { x: (p.x - r.left - w.position.x) / w.scale.x, y: (p.y - r.top - w.position.y) / w.scale.x }
+    }, p)
+  /** The drawing buffer's colour over world point `p`, in device pixels as getPixelColor wants. */
+  const colourAt = async (p: { x: number; y: number }) => {
+    const px = await page.evaluate((p) => {
+      const app = (window as Any).__pixiApp
+      const r = app.canvas.getBoundingClientRect()
+      const w = app.stage.children[0]
+      const k = app.canvas.width / r.width
+      return { x: (p.x * w.scale.x + w.position.x) * k, y: (p.y * w.scale.x + w.position.y) * k }
+    }, p)
+    return getPixelColor(page, px.x, px.y)
+  }
+  // Select in hand and nothing picked for both reads, so the Light tool's ghost rings and a
+  // picked light's rings, handles and distance chips are not in either picture.
+  const putDown = async () => {
+    await page.evaluate(() => {
+      const st = (window as Any).__store.getState()
+      st.setActiveTool('select')
+      st.setSelectedIds([])
+    })
+    await waitFrame(page, 5)
+  }
 
   // A floor under the light: a light over bare ground changes nothing by design.
   await pickTool(page, 'rectangle')
-  const mid = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   await drawRect(page, mid.x - 120, mid.y - 90, mid.x + 120, mid.y + 90)
-  await waitFrame(page, 5)
+  await putDown()
 
-  // A few pixels off the centre, which is a grid crossing; the far corner is well outside a torch.
-  const centerPx = { x: Math.round((box.width / 2 + 7) * dpr), y: Math.round((box.height / 2 + 7) * dpr) }
-  const cornerPx = { x: Math.round(10 * dpr), y: Math.round(10 * dpr) }
-  const beforeCenter = await getPixelColor(page, centerPx.x, centerPx.y)
-  const beforeCorner = await getPixelColor(page, cornerPx.x, cornerPx.y)
+  // A few pixels off the light, which stands on a grid crossing; the far corner is the free
+  // canvas's top left, well outside a torch.
+  const foot = await toWorld({ x: mid.x + 7, y: mid.y + 7 })
+  const corner = await toWorld({ x: free.left + 10, y: free.top + 10 })
+  const beforeCenter = await colourAt(foot)
+  const beforeCorner = await colourAt(corner)
 
   await pickTool(page, 'light')
   await firePointer(page, 'pointerdown', mid.x, mid.y, 0.5, 1)
   await firePointer(page, 'pointerup', mid.x, mid.y)
   await waitFrame(page, 3)
   // Intensity and colour to the extreme so the change is unmistakable; the reach stays the tool's.
-  await page.evaluate(() => {
+  const light = await page.evaluate(() => {
     const st = (window as Any).__store.getState()
     const layer = st.layers.find((l: Any) => l.type === 'dungeon')
     const light = layer.children.find((c: Any) => c.childType === 'light')
     st.updateChild(layer.id, light.id, { color: '#ff2222', intensity: 1, featherRadius: 0, falloff: 'quadratic' })
+    return { x: light.position.x as number, y: light.position.y as number, radius: light.radius as number }
   })
-  await waitFrame(page, 5)
+  await putDown()
+  expect(Math.hypot(corner.x - light.x, corner.y - light.y), 'the far corner lies outside the light').toBeGreaterThan(light.radius)
 
-  const afterCenter = await getPixelColor(page, centerPx.x, centerPx.y)
-  const afterCorner = await getPixelColor(page, cornerPx.x, cornerPx.y)
+  const afterCenter = await colourAt(foot)
+  const afterCorner = await colourAt(corner)
   const diff = (a: typeof afterCenter, b: typeof afterCenter) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
   expect(afterCenter.a).toBe(255)
   expect(diff(afterCenter, beforeCenter)).toBeGreaterThan(15)
