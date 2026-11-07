@@ -61,8 +61,8 @@ const HINTS = {
   wallNone: hint('wall', 'Editing wall', 'click a stone · <Shift>+click groups · double-click elsewhere exits'),
   outline: hint(
     'outline',
-    'Editing outline',
-    'drag a corner to move it · click a midpoint to add one · <Delete> removes · <Alt> curves · <Esc> done',
+    'Node mode',
+    'drag a node · drag a midpoint to add · <Del> remove · <Shift> straight · <Esc> done',
   ),
 } as const;
 

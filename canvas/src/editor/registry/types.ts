@@ -189,6 +189,10 @@ export interface Verb {
   bar?: false;
   /** Shown only when this holds, e.g. Merge with two walls picked. */
   when?: (state: EditorState) => boolean;
+  /** Drawn on (the ink ring) while this holds: Node mode while the outline is open. */
+  active?: (state: EditorState) => boolean;
+  /** Drawn disabled while this holds: Delete on a three-node outline. */
+  disabled?: (state: EditorState) => boolean;
   run: (store: CoreStore) => void;
 }
 

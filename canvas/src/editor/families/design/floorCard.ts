@@ -12,7 +12,7 @@ import type { DungeonLayer, DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren, editKey } from './cardWrites';
-import { EDITABLE_VERBS } from './verbs';
+import { FLOOR_VERBS, openOutlineNodes } from './verbs';
 import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
 import { ColourField, EdgeBandField, FillField, LayerField, TextureField } from './FloorFields';
 
@@ -48,6 +48,19 @@ const layer = defineCardField<'shape', string>({
     const cmd = createMoveToLayerCommand([...ids], layerId);
     if (cmd) undoManager.execute(cmd);
   },
+});
+
+/** How many nodes the outline has, while it is open in node mode. */
+const nodes = defineCardField<'shape', string>({
+  id: 'card.floor.nodes',
+  label: 'Nodes',
+  schema: z.string(),
+  default: '',
+  home: 'card',
+  control: 'readout',
+  visibleWhen: (o) => state().tools.shapeNodeEditId === o.id,
+  read: (o) => String(openOutlineNodes(state()) ?? o.contours[0]?.length ?? 0),
+  write: () => {},
 });
 
 /* ── Look ──────────────────────────────────────────────── */
@@ -177,6 +190,6 @@ const edgeBand = defineCardField<'shape', string | null>({
 export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
-  verbs: EDITABLE_VERBS,
-  fields: [size, layer, colour, texture, tint, opacity, fill, edgeBand],
+  verbs: FLOOR_VERBS,
+  fields: [size, layer, nodes, colour, texture, tint, opacity, fill, edgeBand],
 });

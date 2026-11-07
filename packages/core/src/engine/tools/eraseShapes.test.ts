@@ -6,6 +6,8 @@ import { undoManager } from '../../store/undoManager';
 import { createDungeonLayer } from '../../store/factories';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { carveCommands, carveFloors, floorPieces } from './eraseShapes';
+import { computeMergedFloor } from '../mergedFloor';
+import { FLATTEN_TOLERANCE, flattenRing } from '../../shared/bezier';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -125,6 +127,23 @@ describe('carve out', () => {
     const layer = seed([floor('a', [rect(0, 0, 4, 4)], { locked: true }), floor('b', [rect(10, 0, 4, 4)])]);
     expect(carveFloors(layer, 'l1', [rect(1, 1, 2, 2)])).toBe(false);
     expect(undoManager.size()).toBe(0);
+  });
+});
+
+describe('one flattening for every consumer', () => {
+  it('the floor union and the carve both see the curve as flattenRing lays it', () => {
+    const tangents = [[{ tout: [1.5, -2] as [number, number] }, { tin: [2.5, -2] as [number, number] }, null, null]];
+    const curved = floor('a', [rect(0, 0, 4, 4)], { tangents });
+    const flat = flattenRing(rect(0, 0, 4, 4), tangents[0]);
+    expect(flat.length).toBeGreaterThan(4);
+    const layer = seed([curved]);
+    // The union every renderer, hit test and the band read.
+    const union = computeMergedFloor(layer)!;
+    expect(area(union[0])).toBeCloseTo(area(flat), 6);
+    // The carve: the same flattened ring, less the 1 × 1 bite.
+    carveFloors(layer, 'l1', [rect(3, 3, 1, 1)]);
+    expect(area(shapes()[0].contours[0])).toBeCloseTo(area(flat) - 1, 2);
+    expect(FLATTEN_TOLERANCE).toBe(0.05);
   });
 });
 

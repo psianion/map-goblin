@@ -63,6 +63,19 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().tools.activeTool).toBe('wall');
   });
 
+  it('entering node edit on a floor keeps that floor alone picked, for its card', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.getState().addChild(layer.id, {
+      id: 'floor-1', name: 'f', childType: 'shape', visible: true, shapeType: 'rectangle',
+      contours: [[[0, 0], [2, 0], [2, 2], [0, 2]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+    });
+    useStore.getState().setSelectedIds(['some-child', 'floor-1']);
+    useStore.getState().setShapeNodeEdit('floor-1');
+    expect(useStore.getState().selection.selectedIds).toEqual(['floor-1']);
+    useStore.getState().setShapeNodeEdit(null);
+    expect(useStore.getState().selection.selectedIds).toEqual(['floor-1']);
+  });
+
   it('entering node edit clears the selection so the gizmo retires', () => {
     useStore.getState().setSelectedIds(['some-child']);
     useStore.getState().setShapeNodeEdit('shape-1');

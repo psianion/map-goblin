@@ -6,6 +6,8 @@ import { groupBySection } from './sections';
 import { CardField } from './SettingItems';
 
 export function VerbButton({ verb }: { verb: Verb }) {
+  const active = useStore((s) => verb.active?.(s) ?? false);
+  const disabled = useStore((s) => verb.disabled?.(s) ?? false);
   return (
     <IconKeyButton
       size={26}
@@ -13,6 +15,8 @@ export function VerbButton({ verb }: { verb: Verb }) {
       label={verb.label}
       shortcut={verb.key}
       danger={verb.danger}
+      active={active || undefined}
+      disabled={disabled || undefined}
       data-tip={verb.label}
       data-tip-key={verb.key}
       data-tip-side="bottom"
@@ -26,8 +30,10 @@ export function VerbButton({ verb }: { verb: Verb }) {
  * kind's fields under their captions. Fields read the object and write through the def.
  */
 export function Card({ card, object, ids, layerName }: { card: CardDef; object: unknown; ids: readonly string[]; layerName: string | null }) {
-  // Re-render on any store change so `when` and the verbs' state stay current.
+  // Re-render on any store change so `when` and the verbs' state stay current, and on
+  // node mode opening or closing, which fields such as a floor's Nodes follow.
   useStore((s) => s.selection);
+  useStore((s) => s.tools.shapeNodeEditId);
   const title = (card.title as (o: unknown) => string)(object);
   const sections = groupBySection(card.fields);
   return (

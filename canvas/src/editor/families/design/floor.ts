@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { ToolType } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import type { DockColumnDef, EditorState, HintLine } from '@/editor/registry/types';
-import { editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
+import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 import { activeDungeonLayer, setActiveStyle } from './layerStyle';
 import { FloorLook } from './LookColumn';
 import { EdgeBandField } from './FloorFields';
@@ -185,8 +185,9 @@ export const floorTool = defineTool({
   icon: SquareDashed,
   key: 'F',
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
-  // No Curve: the polygon tool draws straight edges only; curveMode reaches walls alone.
-  settings: [floorShape, floorSides, editNodeMode, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
+  // Curve and Node mode share the Edit column, as on walls: Curve smooths a drawn
+  // polygon and bends a dragged edge in node mode.
+  settings: [floorShape, floorSides, editCurve, editNodeMode, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
   hint: (s) => (s.tools.floorMode === 'carve' ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
 });

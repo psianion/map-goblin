@@ -152,7 +152,7 @@ describe('the Design family', () => {
 
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
-    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.nodeMode']);
+    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.curve', 'edit.nodeMode']);
     expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 });
@@ -356,8 +356,35 @@ describe('the floor card', () => {
     const card = DESIGN_CARDS.find((c) => c.kind === 'shape')!;
     const node = card.verbs.find((v) => v.id === 'nodeMode')!;
     expect(node.when!(st())).toBe(true);
+    expect(node.active!(st())).toBe(false);
     node.run(useStore);
     expect(st().tools.shapeNodeEditId).toBe('a');
+    // The card stays: the floor is still picked, alone, and Node mode reads on.
+    expect(st().selection.selectedIds).toEqual(['a']);
+    expect(node.active!(st())).toBe(true);
+  });
+
+  it('shows Nodes only in node mode, and disables Delete at three nodes', () => {
+    const tri = shape('t', { contours: [[[20, 0], [26, 0], [23, 5]]] });
+    seed([shape('a'), tri], ['a']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).mergedFloor = [[[0, 0], [6, 0], [6, 6], [0, 6]], [[20, 0], [26, 0], [23, 5]]];
+    });
+    const card = DESIGN_CARDS.find((c) => c.kind === 'shape')!;
+    const del = card.verbs.find((v) => v.id === 'delete')!;
+    const nodes = field('shape', 'card.floor.nodes');
+    expect(nodes.visibleWhen!(child<ShapeChild>('a'))).toBe(false);
+    expect(del.disabled!(st())).toBe(false);
+    st().setShapeNodeEdit('a');
+    expect(nodes.visibleWhen!(child<ShapeChild>('a'))).toBe(true);
+    expect(read('shape', 'card.floor.nodes', child<ShapeChild>('a'))).toBe('4');
+    // No node picked: nothing for Delete to take.
+    expect(del.disabled!(st())).toBe(true);
+    st().selectVertex(0);
+    expect(del.disabled!(st())).toBe(false);
+    st().setShapeNodeEdit('t');
+    st().selectVertex(0);
+    expect(del.disabled!(st())).toBe(true);
   });
 });
 

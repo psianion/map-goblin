@@ -856,6 +856,13 @@ export class SelectTool implements DrawingTool {
     // Selected walls first, whatever the gizmo does: they have none, their outline is it.
     this.drawSelectedWalls();
     this.followHoveredChild();
+    // A floor in node mode stays picked for its card, but its outline handles are the
+    // chrome then: the box retires, and comes back through the adoption below on exit.
+    if (useStore.getState().tools.shapeNodeEditId) {
+      if (this.gizmo) this.destroyGizmo();
+      if (this.state === 'SELECTED') this.state = 'IDLE';
+      return;
+    }
     // A selection can arrive from outside the canvas — the layer panel writes
     // selectedIds directly, a fresh stamp selects its child — while this tool
     // still thinks it is idle. Adopt it, or the child is selected everywhere

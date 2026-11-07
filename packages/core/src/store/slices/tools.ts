@@ -101,9 +101,15 @@ export const createToolsSlice: StateCreator<
       // Delete fell through to the global binding and removed the whole shape.
       if (state.tools.shapeNodeEditId !== shapeId) state.tools.selectedVertex = null;
       state.tools.shapeNodeEditId = shapeId;
-      // Same as setNodeEditWall: the mode owns the screen, the gizmo must not
-      // stay drawn around whatever the entry double-click selected.
-      if (shapeId) state.selection.selectedIds = [];
+      // The floor whose outline opens stays picked, alone, so its card stays open in node
+      // mode (the selection box retires while the mode is on, see SelectTool). Anything
+      // else picked goes, as for setNodeEditWall: the mode owns the screen.
+      if (shapeId) {
+        const floor = state.layers.some(
+          (l) => l.type === 'dungeon' && l.children.some((c) => c.id === shapeId && c.childType === 'shape'),
+        );
+        state.selection.selectedIds = floor ? [shapeId] : [];
+      }
     }),
   selectVertex: (index) =>
     set((state) => {

@@ -30,6 +30,7 @@ import { toggleFixtureAt } from './doubleClickToggle';
 import {
   applyOutlineEdit,
   beginOutlineDrag,
+  beginInsertDrag,
   updateOutlineDrag,
   endOutlineDrag,
   cancelOutlineDrag,
@@ -258,9 +259,9 @@ export function useCanvasInput(
         // Unsnapped, same as wall nodes: handles sit where they sit, and the
         // grid would drag the pick off one that lies between divisions.
         const hit = outlineHitAt(rawWorld, engine.stage().scale.x);
+        // A midpoint becomes a node and is dragged from there, one undo step.
         if (hit?.kind === 'insert') {
-          useStore.getState().selectVertex(null);
-          applyOutlineEdit({ kind: 'insert', index: hit.index, x: hit.x, y: hit.y }, 'Add vertex');
+          if (beginInsertDrag(hit.index, hit.x, hit.y)) outlineDragStart = rawWorld;
           return;
         }
         if (hit?.kind === 'tangent') {
@@ -273,10 +274,12 @@ export function useCanvasInput(
         if (hit?.kind === 'vertex' || hit?.kind === 'edge') {
           useStore.getState().selectVertex(hit.kind === 'vertex' ? hit.index : null);
           // Alt is the curve modifier: on a vertex it drags out a symmetric
-          // tangent pair, on an edge it bows the run toward the cursor. Plain
+          // tangent pair, on an edge it bows the run toward the cursor. With the
+          // Edit column's Curve on, an edge drag bows too, as on walls. Plain
           // drags keep meaning move.
+          const bend = e.altKey || useStore.getState().tools.curveMode;
           const kind =
-            hit.kind === 'vertex' ? (e.altKey ? 'tangents' : 'vertex') : e.altKey ? 'bow' : 'edge';
+            hit.kind === 'vertex' ? (e.altKey ? 'tangents' : 'vertex') : bend ? 'bow' : 'edge';
           const opts =
             kind === 'tangents' ? { which: 'out' as const, forceMirror: true } : undefined;
           if (beginOutlineDrag(kind, hit.index, opts)) {
@@ -338,7 +341,7 @@ export function useCanvasInput(
         updateOutlineDrag(
           w,
           { x: w.x - outlineDragStart.x, y: w.y - outlineDragStart.y },
-          { alt: e.altKey },
+          { alt: e.altKey, shift: e.shiftKey },
         );
         return;
       }

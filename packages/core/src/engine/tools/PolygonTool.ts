@@ -8,6 +8,7 @@ import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
 import { newFloorLook } from './newFloor';
+import { flattenRing, smoothRing } from '../../shared/bezier';
 import { resolveEditableLayer } from './layerGuard';
 import type { ShapeCommit } from './RectangleTool';
 
@@ -84,6 +85,11 @@ export class PolygonTool implements DrawingTool {
     if (this.currentPoint) {
       pts.push({ x: this.currentPoint.x, y: this.currentPoint.y });
     }
+    // Curve mode previews the curve the floor will take.
+    if (this.curved() && pts.length >= 3) {
+      const ring = pts.map((p): [number, number] => [p.x, p.y]);
+      return { type: 'polygon', points: flattenRing(ring, smoothRing(ring)).map(([x, y]) => ({ x, y })) };
+    }
     return { type: 'polygon', points: pts };
   }
 
@@ -95,6 +101,11 @@ export class PolygonTool implements DrawingTool {
 
   isActive(): boolean {
     return this.vertices.length > 0;
+  }
+
+  /** Curve mode reaches floors only; the room tool's outline stays straight. */
+  private curved(): boolean {
+    return !this.onShape && useStore.getState().tools.curveMode;
   }
 
   private finalize(): void {
@@ -113,9 +124,11 @@ export class PolygonTool implements DrawingTool {
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
     const isErase = (store.tools.floorMode === 'carve' || this.alt) && !this.onShape;
+    // The Edit column's Curve: the outline is smoothed through every point clicked.
+    const tangents = this.curved() ? smoothRing(polyPoints) : undefined;
 
     if (isErase) {
-      carveFloors(activeLayer, activeLayerId, [polyPoints]);
+      carveFloors(activeLayer, activeLayerId, [tangents ? flattenRing(polyPoints, tangents) : polyPoints]);
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()
@@ -128,6 +141,7 @@ export class PolygonTool implements DrawingTool {
         visible: true,
         shapeType: 'polygon',
         contours: [polyPoints],
+        ...(tangents ? { tangents: [tangents] } : {}),
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,

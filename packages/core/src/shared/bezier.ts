@@ -216,3 +216,32 @@ export function projectToCubic(p0: Vec2, c1: Vec2, c2: Vec2, p1: Vec2, p: Vec2):
   }
   return best;
 }
+
+/**
+ * Auto-smooth one vertex of a closed ring: handles along the prev→next chord, a third
+ * of each adjacent edge long (the standard pen-tool smoothing). Null where the
+ * neighbours coincide and there is no direction to take.
+ */
+export function smoothTangentsAt(ring: Vec2[], i: number): VertexTangents | null {
+  const n = ring.length;
+  const p = ring[i];
+  const prev = ring[(i - 1 + n) % n];
+  const next = ring[(i + 1) % n];
+  const dx = next[0] - prev[0];
+  const dy = next[1] - prev[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  const lin = Math.hypot(p[0] - prev[0], p[1] - prev[1]) / 3;
+  const lout = Math.hypot(next[0] - p[0], next[1] - p[1]) / 3;
+  return {
+    tin: [p[0] - ux * lin, p[1] - uy * lin],
+    tout: [p[0] + ux * lout, p[1] + uy * lout],
+  };
+}
+
+/** Every vertex of a closed ring smoothed: the curve a ring drawn in Curve mode takes. */
+export function smoothRing(ring: Vec2[]): RingTangents {
+  return ring.map((_, i) => smoothTangentsAt(ring, i));
+}

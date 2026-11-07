@@ -33,6 +33,7 @@ import {
   flattenRing,
   projectToCubic,
   ringHasCurves,
+  smoothTangentsAt,
   splitCubic,
   type RingTangents,
   type Vec2,
@@ -441,23 +442,9 @@ export function editedCurvedRing(
         tans[i] = null;
         return { ring: pts, tangents: tans };
       }
-      // Auto-smooth: handles along the prev→next chord, a third of each
-      // adjacent edge long — the standard pen-tool smoothing.
-      const p = pts[i];
-      const prev = pts[(i - 1 + n) % n];
-      const next = pts[(i + 1) % n];
-      const dx = next[0] - prev[0];
-      const dy = next[1] - prev[1];
-      const len = Math.hypot(dx, dy);
-      if (len < 1e-9) return null;
-      const ux = dx / len;
-      const uy = dy / len;
-      const lin = Math.hypot(p[0] - prev[0], p[1] - prev[1]) / 3;
-      const lout = Math.hypot(next[0] - p[0], next[1] - p[1]) / 3;
-      tans[i] = {
-        tin: [p[0] - ux * lin, p[1] - uy * lin],
-        tout: [p[0] + ux * lout, p[1] + uy * lout],
-      };
+      const smooth = smoothTangentsAt(pts, i);
+      if (!smooth) return null;
+      tans[i] = smooth;
       return { ring: pts, tangents: tans };
     }
   }
@@ -663,6 +650,8 @@ interface DragSession {
   ownerId: string;
   collapsed: boolean;
   latest: CurvedRing | null;
+  /** Begun on a midpoint: `base` already holds the new node, which commits even unmoved. */
+  inserted: boolean;
 }
 
 let drag: DragSession | null = null;
@@ -720,6 +709,42 @@ export function beginOutlineDrag(
 }
 
 /**
+ * Drag a midpoint: a node is inserted on edge `index` at (x, y), on the curve when the
+ * edge is curved, and dragged from there. Insert and move are one undo step; a click
+ * without a drag still inserts.
+ */
+export function beginInsertDrag(index: number, x: number, y: number): boolean {
+  const shapeId = useStore.getState().tools.shapeNodeEditId;
+  if (!shapeId) return false;
+  const target = resolveOutline(shapeId);
+  if (!target) return false;
+  const inserted = editedCurvedRing(target.outline, target.tangents, { kind: 'insert', index, x, y });
+  if (!inserted) return false;
+  const at = index + 1;
+  if (
+    !startDrag(target, {
+      shapeId,
+      ringIndex: null,
+      base: inserted.ring,
+      baseTangents: inserted.tangents,
+      kind: 'vertex',
+      index: at,
+      indices: [],
+      which: null,
+      mirror: false,
+      mirrorLocked: false,
+    })
+  ) {
+    return false;
+  }
+  drag!.inserted = true;
+  // The new node shows at once, before the pointer moves.
+  preview(inserted);
+  useStore.getState().selectVertex(at);
+  return true;
+}
+
+/**
  * Start a drag that displaces a set of outline vertices together.
  *
  * `base` is the outline the caller wants edited, which for a stone drag has
@@ -755,6 +780,8 @@ function startDrag(
   > & {
     shapeId: string | null;
     base: Polygon;
+    /** Tangents index-aligned with `base` when it is not the target's own ring (an insert). */
+    baseTangents?: RingTangents;
   },
 ): boolean {
   const beforeChildren = structuredClone(target.layer.children) as AnyChild[];
@@ -788,7 +815,7 @@ function startDrag(
     // A group drag's base has anchor vertices the authored ring never had, so
     // its tangent slots are all null by construction (resolveRingOutline never
     // hands out the authored basis).
-    baseTangents: padTangents(target.tangents, session.base.length),
+    baseTangents: session.baseTangents ?? padTangents(target.tangents, session.base.length),
     authored: target.tangents !== undefined,
     rings: { outline: target.outline, holes: target.holes, hole: target.hole },
     kind: session.kind,
@@ -800,6 +827,7 @@ function startDrag(
     ownerId,
     collapsed,
     latest: null,
+    inserted: false,
   };
   return true;
 }
@@ -813,10 +841,19 @@ function startDrag(
 export function updateOutlineDrag(
   world: Point,
   delta: Point,
-  opts?: { alt?: boolean },
+  opts?: { alt?: boolean; shift?: boolean },
 ): void {
   if (!drag) return;
   if (opts?.alt && drag.kind === 'tangents' && !drag.mirrorLocked) drag.mirror = false;
+  // Shift drags straight: a node or an edge keeps to the axis it has moved furthest along.
+  if (opts?.shift && (drag.kind === 'vertex' || drag.kind === 'edge')) {
+    if (Math.abs(delta.x) >= Math.abs(delta.y)) delta = { x: delta.x, y: 0 };
+    else delta = { x: 0, y: delta.y };
+    if (drag.kind === 'vertex') {
+      const [ox, oy] = drag.base[drag.index];
+      world = { x: delta.y === 0 ? world.x : ox, y: delta.x === 0 ? world.y : oy };
+    }
+  }
 
   let next: CurvedRing | null;
   switch (drag.kind) {
@@ -898,6 +935,12 @@ export function updateOutlineDrag(
     }
   }
   if (!next) return;
+  preview(next);
+}
+
+/** Write a preview frame of the drag onto the shape carrying it. */
+function preview(next: CurvedRing): void {
+  if (!drag) return;
   drag.latest = next;
   useStore.getState().updateChild(drag.layerId, drag.ownerId, {
     contours: contoursWith(drag.rings, next.ring),
@@ -922,18 +965,17 @@ export function endOutlineDrag(): void {
   // Always back to the pre-collapse shape: the merged id is gone now.
   if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 
-  if (
-    !final ||
-    (samePolygon(final.ring, session.base) &&
-      sameTangents(final.tangents, session.baseTangents))
-  ) {
-    return;
-  }
+  const unmoved =
+    !final || (samePolygon(final.ring, session.base) && sameTangents(final.tangents, session.baseTangents));
+  // A midpoint clicked, not dragged, still adds its node.
+  if (unmoved && !session.inserted) return;
+  const committed = unmoved ? { ring: session.base, tangents: session.baseTangents } : final!;
 
   const target = reresolve(session);
   if (!target) return;
-  const label =
-    session.kind === 'group'
+  const label = session.inserted
+    ? 'Add vertex'
+    : session.kind === 'group'
       ? 'Move wall'
       : session.kind === 'edge'
         ? 'Move edge'
@@ -942,7 +984,7 @@ export function endOutlineDrag(): void {
           : session.kind === 'bow'
             ? 'Bend edge'
             : 'Move vertex';
-  const ownerId = commitOutline(target, final.ring, label, final.tangents);
+  const ownerId = commitOutline(target, committed.ring, label, committed.tangents);
   if (ownerId && session.originalShapeId) useStore.getState().setShapeNodeEdit(ownerId);
 }
 

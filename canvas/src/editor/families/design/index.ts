@@ -7,8 +7,6 @@
 //   - Wall Merge on the card and Auto-join at an endpoint in the panel: join on snap.
 //   - Wall Shadow on the card: the renderer casting wall shadows at all.
 //   - Freestanding doors in the Door panel: a door object not bound to a wall edge.
-//   - Node mode midpoint handles; until then Node mode opens today's point editing.
-//   - Curve on Floor: the polygon tool draws straight edges; curve mode reaches walls only.
 
 import { PencilRuler } from 'lucide-react';
 import { defineFamily } from '@/editor/registry/define';

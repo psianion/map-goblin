@@ -46,7 +46,7 @@ import { nextFocusMode, toggleLitPreview } from '@/editor/viewPrefs';
 import { acceptAllSuggestions, dismissSuggestions } from '@/editor/models/roomActions';
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
-import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
+import { applyOutlineEdit, exitShapeNodeEdit, resolveOutline } from '@/engine/shapeNodeEdit';
 import { removeHoveredPlateauPoint } from '@dnd/core/src/engine/ringNodeEdit';
 
 /** Set by EditorHost so the shortcut system can trigger the file picker */
@@ -694,6 +694,8 @@ function nodeKey(e?: KeyboardEvent): void {
   if (!e) return;
   const tools = useStore.getState().tools;
   if (tools.shapeNodeEditId && tools.selectedVertex !== null && (e.key === 'Delete' || e.key === 'Backspace')) {
+    // Three nodes is the fewest a floor keeps: Delete does nothing there.
+    if ((resolveOutline(tools.shapeNodeEditId)?.outline.length ?? 0) <= 3) return;
     applyOutlineEdit({ kind: 'delete', index: tools.selectedVertex }, 'Delete vertex');
     useStore.getState().selectVertex(null);
     return;
