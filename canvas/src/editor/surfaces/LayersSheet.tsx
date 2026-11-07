@@ -59,7 +59,7 @@ import {
   toggleLayerVisible,
   toggleSolo,
 } from '@/editor/models/layerActions';
-import { loadLayersSheetFilter, saveLayersSheetFilter } from '@/v2/viewPrefs';
+import { loadLayersSheetFilter, saveLayersSheetFilter } from '@/editor/viewPrefs';
 import { SheetFrame } from './SheetFrame';
 
 const ROW_H = 30;

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { FloatBox, IconKeyButton, PanelHeader } from '@/editor/components';
-import { useEscapeToClose } from '@/v2/useEscapeToClose';
+import { useEscapeToClose } from '@/editor/useEscapeToClose';
 
 /** The right slot: right 12, top 68, 320 wide, ending 12 above the dock as the asset panel does. */
 export const SHEET_W = 320;

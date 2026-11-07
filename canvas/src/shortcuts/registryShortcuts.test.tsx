@@ -5,14 +5,11 @@ import { createRegistry, registry, type FamilyDef, type Registry, type ToolDef }
 import { RegistryProvider } from '@/editor/shell/RegistryProvider';
 import { resetShell, useShell } from '@/editor/shell/shellStore';
 import { shellShortcuts } from '@/editor/shell/shellKeys';
-import { stubInput } from '@/editor/shell/stub/stubRegistry';
-import { withStubs } from '@/editor/shell/stub/withStubs';
 import { ShortcutsSheet } from '@/editor/surfaces/ShortcutsSheet';
 import { handleShortcut, setRegistryShortcuts } from './defaultShortcuts';
 import { formatCombo } from './formatCombo';
 import { keyCollisions, PREVIOUS_TOOL_KEY, reservedViolations, shortcutTable } from './registryShortcuts';
 
-const nextRegistry = createRegistry(withStubs(registry, stubInput));
 
 /** The registry with one family's tools changed. */
 function withFamily(reg: Registry, id: FamilyDef['id'], tools: (t: readonly ToolDef[]) => ToolDef[]): Registry {
@@ -33,7 +30,6 @@ afterEach(() => {
 
 describe.each([
   ['the registered registry', registry],
-  ['the /next registry, stubs filling the families not registered yet', nextRegistry],
 ])('%s', (_name, reg) => {
   it('has no two keys live on one combo at once', () => {
     expect(keyCollisions(reg, shellShortcuts(reg))).toEqual([]);
@@ -75,18 +71,18 @@ describe('the collision test fails when', () => {
 
 describe('the shortcuts sheet', () => {
   it('lists every registered rail, family and tool key from the one table', () => {
-    const keys = shellShortcuts(nextRegistry);
-    const rows = shortcutTable(nextRegistry, keys).flatMap((s) => s.rows);
+    const keys = shellShortcuts(registry);
+    const rows = shortcutTable(registry, keys).flatMap((s) => s.rows);
     const { getByTestId } = render(
-      <RegistryProvider registry={nextRegistry}>
+      <RegistryProvider registry={registry}>
         <ShortcutsSheet onClose={() => {}} />
       </RegistryProvider>,
     );
     const sheet = getByTestId('shell-shortcuts');
     const expected = [
-      ...nextRegistry.rail.map((t) => ({ id: `rail.${t.id}`, key: t.key })),
-      ...nextRegistry.families.map((f) => ({ id: `family.${f.id}`, key: f.key })),
-      ...nextRegistry.families.flatMap((f) => f.tools.map((t) => ({ id: `tool.${t.id}`, key: t.key }))),
+      ...registry.rail.map((t) => ({ id: `rail.${t.id}`, key: t.key })),
+      ...registry.families.map((f) => ({ id: `family.${f.id}`, key: f.key })),
+      ...registry.families.flatMap((f) => f.tools.map((t) => ({ id: `tool.${t.id}`, key: t.key }))),
       { id: 'tool.previous', key: PREVIOUS_TOOL_KEY },
     ];
     for (const { id, key } of expected) {

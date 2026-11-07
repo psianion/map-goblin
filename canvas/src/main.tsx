@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './v2/AppV2.tsx'
+import App from './App'
 import { useStore } from './store/store'
 import { initRecentAssets } from './io/recentAssets'
 import { initFavouriteAssets } from './io/favouriteAssets'
@@ -31,16 +31,6 @@ if (import.meta.env.DEV && window.location.pathname === '/gallery') {
     root.render(
       <StrictMode>
         <GalleryRoute />
-      </StrictMode>,
-    ),
-  )
-} else if (import.meta.env.DEV && window.location.pathname === '/next') {
-  // `/next`: the reworked shell over the same canvas and map, beside the editor at `/`.
-  // Development only, like the gallery, until it replaces the editor.
-  void import('./editor/shell/NextRoute').then(({ NextRoute }) =>
-    root.render(
-      <StrictMode>
-        <NextRoute />
       </StrictMode>,
     ),
   )

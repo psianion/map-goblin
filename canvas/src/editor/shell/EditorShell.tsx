@@ -7,9 +7,10 @@ import type { EditorChromeProps } from '@/editor/EditorHost';
 import { cancelZoomAnimationRef, viewportInsetsRef, zoomToFitRef } from '@/editor/zoomToFitRef';
 import { cancelZoomAnimation, fitToContent } from '@/editor/zoomControl';
 import { editorShellKeysRef } from '@/shortcuts/defaultShortcuts';
-import { stepLevel } from '@/v2/editor/layerActions';
-import { usePanelFade } from '@/v2/editor/usePanelFade';
-import { MapSettingsModal } from '@/v2/MapSettingsModal';
+import { stepLevel } from '@/editor/models/layerActions';
+import { usePanelFade } from './usePanelFade';
+import { MapSettingsModal } from '@/editor/dialogs/MapSettingsModal';
+import { SplitDialog } from '@/editor/dialogs/SplitDialog';
 import { Dock } from '@/editor/surfaces/Dock';
 import { FloatingActions } from '@/editor/surfaces/FloatingActions';
 import { toolForEngine } from '@/editor/surfaces/hooks';
@@ -163,7 +164,7 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
         data-shell
         data-testid="shell"
         data-faded={(faded && !selecting) || undefined}
-        className="group/shell pointer-events-none fixed inset-0 z-20 font-sans text-[12px] leading-[1.4] text-text [&>*]:pointer-events-auto [&>[data-chrome]]:transition-opacity [&>[data-chrome]]:duration-[400ms] data-[faded]:[&>[data-chrome]:not(:has(:focus-visible))]:opacity-[0.35]"
+        className="group/shell pointer-events-none fixed inset-0 z-20 font-sans text-[12px] leading-[1.4] text-text [&>*]:pointer-events-auto [&>[data-chrome]]:transition-opacity [&>[data-chrome]]:duration-[400ms] [&[data-faded]>[data-chrome]:not(:has(:focus-visible))]:opacity-[0.35]"
       >
         {settings}
         <Rail />
@@ -176,6 +177,7 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
         <SheetHost />
         <AssetPanel />
         <Tip />
+        <SplitDialog />
       </div>
     </RegistryProvider>
   );

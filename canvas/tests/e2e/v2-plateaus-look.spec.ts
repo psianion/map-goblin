@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { test, expect, type Page } from '@playwright/test'
-import { waitForBoot, waitFrame } from './helpers'
+import { gotoApp, waitFrame } from './helpers'
 
 /**
  * How a plateau darkens the ground below it, read off the screen: the drop shade every edge
@@ -58,11 +58,7 @@ function mapWith(plateaus: Any[], size = 60): Any {
 async function open(page: Page, map: Any): Promise<string[]> {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
-  await page.goto('/v2?e2e=1')
-  await waitForBoot(page)
-  await page.getByTestId('v2-new-map-card').click()
-  await page.getByTestId('v2-new-map-submit').click()
-  await expect(page.getByTestId('v2-editor')).toBeVisible()
+  await gotoApp(page)
   await page.evaluate(async (data) => {
     const st = (window as Any).__store.getState()
     st.loadFromFile(structuredClone(data))
@@ -137,7 +133,7 @@ const ray = (from: Pt, dir: Pt, step: number, count: number): Pt[] =>
   Array.from({ length: count }, (_, i) => ({ x: from.x + dir.x * step * (i + 0.5), y: from.y + dir.y * step * (i + 0.5) }))
 
 test.describe('the plateau look', () => {
-  test('Edge None darkens the ground below it, and wider for a taller drop', async ({ page }) => {
+  test('Edge None darkens the ground below it, and wider for a taller drop', { tag: '@render' }, async ({ page }) => {
     const errors = await open(page, mapWith([box('none-1', 10, 10, 16, 16, 1, 'none'), box('none-3', 30, 10, 36, 16, 3, 'none')]))
     const west = { x: -1, y: 0 }
     const read = async (x: number) => {
@@ -160,7 +156,7 @@ test.describe('the plateau look', () => {
     expect(errors).toEqual([])
   })
 
-  test('the sun shadow starts on the edge and only lightens outward', async ({ page }) => {
+  test('the sun shadow starts on the edge and only lightens outward', { tag: '@render' }, async ({ page }) => {
     const errors = await open(page, mapWith([box('edge-2', 10, 10, 16, 16, 2, 'none'), box('edge-1', 30, 10, 36, 16, 1, 'none')]))
     // The indoor sun stands at the top left: the shadow runs down and to the right.
     const sun = { x: Math.SQRT1_2, y: Math.SQRT1_2 }
@@ -195,7 +191,7 @@ test.describe('the plateau look', () => {
     return dips
   }
 
-  test('a slope is a smooth ramp in a band outside its outline, with one contour a cell of drop', async ({ page }) => {
+  test('a slope is a smooth ramp in a band outside its outline, with one contour a cell of drop', { tag: '@render' }, async ({ page }) => {
     const { step, row } = await across(page, 2, 1)
     const dips = dipsOf(row)
     console.log(`ramp: ${row.filter((_, i) => i % 6 === 0).map((v) => v.toFixed(0)).join(' ')}; contours ${dips.length}`)
@@ -213,7 +209,7 @@ test.describe('the plateau look', () => {
     expect(row[0] - row[row.length - 10]).toBeGreaterThan(20)
   })
 
-  test('a slope is its card width wide at +1 and +3, one contour a cell of drop inside it', async ({ page }) => {
+  test('a slope is its card width wide at +1 and +3, one contour a cell of drop inside it', { tag: '@render' }, async ({ page }) => {
     for (const height of [1, 3]) {
       const { step, row } = await across(page, height, 2)
       const bare = row[row.length - 1]
@@ -232,7 +228,7 @@ test.describe('the plateau look', () => {
     }
   })
 
-  test('a 4 x 3.5 slope at +3 on a 9 x 9 floor leaves its top as Edge None does and the floor round it bare', async ({ page }) => {
+  test('a 4 x 3.5 slope at +3 on a 9 x 9 floor leaves its top as Edge None does and the floor round it bare', { tag: '@render' }, async ({ page }) => {
     const plateau = (edge: string) => [box('small', 2.5, 2.75, 6.5, 6.25, 3, edge)]
     // The floor's outer frame, 1.25 cells deep (the band ends 1.5 cells in), and the top's centre.
     const frame: Pt[] = []
@@ -366,7 +362,7 @@ test.describe('the ink set', () => {
     return { median: widths[Math.floor(widths.length / 2)], min: widths[0], max: widths[widths.length - 1], n: widths.length }
   }
 
-  test('Cave rock, the default, lays a stone row 0.3 to 0.5 cell wide on a +1 cliff', async ({ page }) => {
+  test('Cave rock, the default, lays a stone row 0.3 to 0.5 cell wide on a +1 cliff', { tag: '@render' }, async ({ page }) => {
     // The stones themselves (ink and grey fill), not the half-clear grounds round them.
     const w = await ledgeWidths(page, undefined, 0.08, isInk)
     console.log(`Cave rock across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
@@ -374,7 +370,7 @@ test.describe('the ink set', () => {
     expect(w.median).toBeLessThanOrEqual(0.5)
   })
 
-  test('Cave ink line lays an ink ribbon 0.12 to 0.30 cell wide on a +1 cliff', async ({ page }) => {
+  test('Cave ink line lays an ink ribbon 0.12 to 0.30 cell wide on a +1 cliff', { tag: '@render' }, async ({ page }) => {
     const w = await ledgeWidths(page, 'GG_Cave_Ink:ledge')
     console.log(`Cave ink line across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
     expect(w.median).toBeGreaterThanOrEqual(0.12)
@@ -443,7 +439,7 @@ test.describe('the ink set', () => {
     return { holes, longest, tips: tips.length, bareTips }
   }
 
-  test('a 12-gon and a five-point star plateau show no ledge hole over 0.05 cell round the ring, in either cliff art', async ({ page }) => {
+  test('a 12-gon and a five-point star plateau show no ledge hole over 0.05 cell round the ring, in either cliff art', { tag: '@render' }, async ({ page }) => {
     const c = { x: 20, y: 20 }
     const gon = Array.from({ length: 12 }, (_, k): [number, number] => [c.x + 5 * Math.cos((k * Math.PI) / 6), c.y + 5 * Math.sin((k * Math.PI) / 6)])
     const star = Array.from({ length: 10 }, (_, k): [number, number] => {
@@ -469,7 +465,7 @@ test.describe('the ink set', () => {
     }
   })
 
-  test("leaves the warren's cave wall band as it was drawn before the ink set", async ({ page }) => {
+  test("leaves the warren's cave wall band as it was drawn before the ink set", { tag: '@render' }, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     const map = structuredClone(WARREN)
     map.grid = { ...map.grid, visible: false }
@@ -477,6 +473,8 @@ test.describe('the ink set', () => {
     // Floors and doors only: the band, with nothing that flickers or moves over it.
     for (const l of map.layers) if (l.children) l.children = l.children.filter((c: Any) => c.childType === 'shape' || c.childType === 'door')
     const errors = await open(page, map)
+    // The shell's panels float over the map; the picture is of the band alone.
+    await page.addStyleTag({ content: '[data-chrome] { visibility: hidden !important; }' })
     await page.waitForTimeout(1000)
     await lookAt(page, { x: 30, y: 23.6 }, 16)
     await page.waitForTimeout(1000)
@@ -505,7 +503,7 @@ test.describe('the ink set', () => {
     expect(errors).toEqual([])
   })
 
-  test('a +2 slope shows exactly 2 walked contour rings across its band', async ({ page }) => {
+  test('a +2 slope shows exactly 2 walked contour rings across its band', { tag: '@render' }, async ({ page }) => {
     const errors = await open(page, mapWith([box('slope', 10, 10, 16, 16, 2, 'slope')]))
     await lookAt(page, { x: 17, y: 13 }, ZOOM)
     const at = await grab(page, { x: 15.5, y: 10.5 }, { x: 17.5, y: 15.5 })

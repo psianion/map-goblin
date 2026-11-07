@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactElement } from 'react';
+import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { useShallow } from 'zustand/react/shallow';
 import { ColourRow, Seg, SettingRow, SwitchRow } from '@/editor/components';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
@@ -36,6 +37,8 @@ export function GridPopover({ trigger }: { trigger: ReactElement }) {
     }
     setOpen(next);
   };
+  // Over a sheet, Escape closes this first: the sheet hears it only once the popover is gone.
+  useEscapeToClose(open, () => onOpenChange(false));
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>

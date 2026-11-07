@@ -6,19 +6,19 @@ import type { AnyChild, DungeonLayer } from '@/store/types';
 import { validateRegistry } from '@/editor/registry/validate';
 import { RegistryProvider } from '@/editor/shell/RegistryProvider';
 import { resetShell, useShell } from '@/editor/shell/shellStore';
-import { stubInput, stubRegistry } from '@/editor/shell/stub/stubRegistry';
+import { registry, type ObjectOf } from '@/editor/registry';
 import { Dock } from './Dock';
 import { Slot } from './Slot';
 import { ToolPanel } from './ToolPanel';
 
-const floor = stubRegistry.toolById('floor')!;
-const ids = (home: 'panel' | 'dock') => stubRegistry.settingsByHome('floor', home).map((s) => s.id);
+const floor = registry.toolById('floor')!;
+const ids = (home: 'panel' | 'dock') => registry.settingsByHome('floor', home).map((s) => s.id);
 const shown = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-setting]')].map((el) => el.dataset.setting);
 const columns = (root: HTMLElement) =>
   [...root.querySelectorAll<HTMLElement>('[data-composite="dock-column"]')].map((el) => el.dataset.column);
 
 function withRegistry(node: React.ReactNode) {
-  return render(<RegistryProvider registry={stubRegistry}>{node}</RegistryProvider>);
+  return render(<RegistryProvider registry={registry}>{node}</RegistryProvider>);
 }
 
 beforeEach(() => {
@@ -28,9 +28,9 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe('the stub registry', () => {
+describe('the registry', () => {
   it('keeps every registry rule', () => {
-    expect(validateRegistry(stubInput, createDefaultState())).toEqual([]);
+    expect(validateRegistry(registry, createDefaultState())).toEqual([]);
   });
 });
 
@@ -39,7 +39,8 @@ describe('ToolPanel', () => {
     const { getByTestId } = withRegistry(<ToolPanel tool={floor} />);
     const panel = getByTestId('shell-tool-panel');
     const captions = [...panel.querySelectorAll<HTMLElement>('[data-section]')].map((el) => el.dataset.section);
-    expect(captions).toEqual(['Mode', 'Placement', 'Edge', 'Defaults for new floors']);
+    // The phase-two settings (Draw or carve, the default opacity) are not registered yet.
+    expect(captions).toEqual(['Placement', 'Edge']);
     expect(shown(panel)).toEqual(ids('panel'));
   });
 
@@ -103,7 +104,10 @@ describe('Card', () => {
     const { getByTestId } = withRegistry(<Slot />);
     const card = getByTestId('shell-card');
     expect(card.dataset.kind).toBe('shape');
-    expect(shown(card)).toEqual(stubRegistry.cardForKind('shape')!.fields.map((f) => f.id));
+    // A field that only means something with a texture (Tint, the Fill fold) stays out for a plain floor.
+    const live = useStore.getState().layers.flatMap((l) => ('children' in l ? l.children : [])).find((c) => c.id === 'floor-1') as ObjectOf<'shape'>;
+    const fields = registry.cardForKind('shape')!.fields;
+    expect(shown(card)).toEqual(fields.filter((f) => !f.visibleWhen || f.visibleWhen(live)).map((f) => f.id));
     expect(card.querySelector('[data-setting="card.floor.size"]')?.textContent).toContain('6 × 4 sq');
     const verbs = [...card.querySelectorAll('[data-composite="action-row"] button')];
     expect(verbs).toHaveLength(8);

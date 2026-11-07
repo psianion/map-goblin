@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ComponentType } from 'react';
-import { Toaster, type ToasterProps } from 'sonner';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Toaster } from 'sonner';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { CanvasContextMenu } from '@/editor/CanvasContextMenu';
 import { GridCalibrationOverlay } from '@/editor/GridCalibrationOverlay';
-import { ExportModal } from '@/v2/ExportModal';
-import { PublishDialog } from '@/v2/editor/PublishDialog';
-import { EditorShell } from '@/v2/editor/EditorShell';
+import { ExportModal } from '@/editor/dialogs/ExportModal';
+import { PublishDialog } from '@/editor/dialogs/PublishDialog';
+import { EditorShell } from '@/editor/shell/EditorShell';
+import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
@@ -16,7 +17,7 @@ import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
-import { initFocusMode } from '@/v2/viewPrefs';
+import { initFocusMode } from '@/editor/viewPrefs';
 
 // Before the first render, so the remembered focus mode is what the editor comes up in.
 initFocusMode();
@@ -35,25 +36,12 @@ export interface EditorChromeProps {
   openSettings: boolean;
 }
 
-/** The toasts as the v2 chrome styles them (`.v2-toaster`), centred in its title-card band. */
-const V2_TOASTER: ToasterProps = {
-  position: 'top-center',
-  visibleToasts: 3,
-  className: 'v2-toaster',
-  toastOptions: { duration: 2000 },
-  offset: 17,
-  gap: 4,
-};
-
 interface EditorHostProps {
   /** The home page is up over the editor: the canvas boots underneath it, with no chrome. */
   home: boolean;
   onHome: () => void;
   /** Entered from a card's "Map settings…": the chrome comes up with that dialog showing. */
   openSettings: boolean;
-  /** The chrome over the canvas: the v2 shell unless another is handed in (the `/next` route). */
-  chrome?: ComponentType<EditorChromeProps>;
-  toaster?: ToasterProps;
 }
 
 /**
@@ -61,7 +49,7 @@ interface EditorHostProps {
  * the export and publish dialogs, toasts and the image picker, and the boot, autosave and
  * thumbnails behind them.
  */
-export function EditorHost({ home, onHome, openSettings, chrome: Chrome = EditorShell, toaster = V2_TOASTER }: EditorHostProps) {
+export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const focusMode = useStore((s) => s.ui.focusMode);
@@ -176,7 +164,7 @@ export function EditorHost({ home, onHome, openSettings, chrome: Chrome = Editor
         <CanvasContextMenu />
       </div>
 
-      {!home && <Chrome actions={chromeActions} onHome={onHome} openSettings={openSettings} />}
+      {!home && <EditorShell actions={chromeActions} onHome={onHome} openSettings={openSettings} />}
     </div>
 
     {/* Modals + overlays outside the layout so they never clip */}
@@ -195,7 +183,7 @@ export function EditorHost({ home, onHome, openSettings, chrome: Chrome = Editor
     />
 
     {/* The chrome styles the toasts as part of it. */}
-    <Toaster {...toaster} />
+    <Toaster {...SHELL_TOASTER} />
     </>
   );
 }

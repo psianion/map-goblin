@@ -19,7 +19,7 @@ import { layerObjectCount } from '@dnd/core/src/store/layerCommands';
 import { TERRAIN_THUMB, startLayerThumbs, useLayerThumb } from '@/editor/models/layerThumbs';
 import { disposeLayerThumbRenderer, renderLayerThumb } from '@/editor/models/layerThumbRender';
 import { layerOnLevel } from '@/editor/models/roomModel';
-import { useDropTarget } from '@/v2/editor/dropToLayer';
+import { useDropTarget } from '@/editor/dropToLayer';
 import {
   addLayerOnShownLevel,
   deleteLayer,

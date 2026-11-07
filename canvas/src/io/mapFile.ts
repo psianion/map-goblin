@@ -85,7 +85,9 @@ export function readMapDocument(doc: unknown): SerializedMapData {
   }
   const parsed = MAP_SCHEMAS[version as Version].safeParse(doc);
   if (!parsed.success) throw new Error(`Invalid map file (${problem(parsed.error)}).`);
-  return parsed.data as SerializedMapData;
+  // The document as it came, not the parse: the schemas only check, and the parse would
+  // reorder each layer's keys, which changes the map's publish hash on every reload.
+  return doc as SerializedMapData;
 }
 
 /**
@@ -99,5 +101,5 @@ export function saveableMap(data: SerializedMapData): SerializedMapData {
   if (!schema) return doc;
   const parsed = schema.safeParse(doc);
   if (!parsed.success) throw new Error(`The map could not be saved (${problem(parsed.error)}).`);
-  return parsed.data as SerializedMapData;
+  return doc;
 }

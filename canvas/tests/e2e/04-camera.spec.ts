@@ -16,7 +16,7 @@ function getCamera(page: import('@playwright/test').Page) {
 }
 
 test.describe('04 - Camera', () => {
-  test('mouse wheel zoom changes canvas content', async ({ page }) => {
+  test('mouse wheel zoom changes canvas content', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
@@ -39,7 +39,7 @@ test.describe('04 - Camera', () => {
     expect((await getCamera(page)).zoom).toBeGreaterThan(before.zoom);
   });
 
-  test('middle-click pan works without crash', async ({ page }) => {
+  test('middle-click pan works without crash', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();

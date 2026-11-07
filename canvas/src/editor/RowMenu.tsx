@@ -4,7 +4,7 @@ import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SliderInput } from '@/editor/SliderInput'
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas'
-import { useEscapeToClose } from '@/v2/useEscapeToClose'
+import { useEscapeToClose } from '@/editor/useEscapeToClose'
 
 export interface ContextMenuItem {
   /** Absent means 'action' — the original plain-verb row every menu already uses. */

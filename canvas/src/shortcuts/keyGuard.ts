@@ -11,7 +11,7 @@
 // Space), and a trigger whose menu is open lets only Escape through, which closes the menu.
 
 /** Containers whose keys are their own: a focused row in one never drives the map. */
-const OWN_KEYS = '[role="menu"], [role="dialog"], [role="tree"], [role="listbox"], .v2-sheet, [contenteditable="true"]';
+const OWN_KEYS = '[role="menu"], [role="dialog"], [role="tree"], [role="listbox"], [data-sheet], [contenteditable="true"]';
 
 /** Keys a focused input or button answers itself. */
 const CONTROL_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' ']);

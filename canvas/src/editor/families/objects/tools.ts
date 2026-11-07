@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { PROPS_RANGES } from '@dnd/core/src/store/slices/tools';
 import type { ScatterBrushSettings } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
+import { editErase } from '@/editor/registry/shared';
 import type { CoreStore, DockColumnDef, EditorState } from '@/editor/registry/types';
 import { AngleChip, CompactSlider, PropsColumn, TintSwatch, TintsField, VariantStepper } from './ObjectsControls';
 import { RANDOM } from './variant';
@@ -313,6 +314,7 @@ export const scatterTool = defineTool({
     scatterAvoidOverlap,
     scatterStayOnFloor,
     placeUnder,
+    editErase,
   ],
   dock: [propsColumn],
   hint: (s) => ({

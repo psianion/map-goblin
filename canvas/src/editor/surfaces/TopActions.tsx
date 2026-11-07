@@ -18,8 +18,8 @@ import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import type { EditorChromeActions } from '@/editor/EditorHost';
-import { useTheme } from '@/v2/theme';
-import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '@/v2/viewPrefs';
+import { useTheme } from '@/theme/theme';
+import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '@/editor/viewPrefs';
 import { useShell } from '@/editor/shell/shellStore';
 
 const FOCUS_LABEL: Record<FocusMode, string> = { auto: 'Auto', manual: 'Manual', fullscreen: 'Fullscreen' };

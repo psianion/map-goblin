@@ -12,6 +12,7 @@ import { Input } from '@/ui/input';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { orderSelectionNow, runSelectionVerb } from '@/shortcuts/defaultShortcuts';
+import { openAssets } from '@/editor/families/design/openAssets';
 import type { BoxValue } from './propModel';
 
 /** A number typed in, landed on Enter or blur; Escape puts it back. */
@@ -119,7 +120,14 @@ export function VariantField({ value, onChange }: SettingProps<string>) {
       ) : (
         <span className="text-[11px] text-text-3">No other variants</span>
       )}
-      <SecondaryButton className="self-start" onClick={() => useStore.getState().setPropReplaceIds([...ids])}>
+      <SecondaryButton
+        className="self-start"
+        onClick={() => {
+          // The library opens on props; the next pick there replaces these.
+          useStore.getState().setPropReplaceIds([...ids]);
+          openAssets('object');
+        }}
+      >
         Replace…
       </SecondaryButton>
     </div>

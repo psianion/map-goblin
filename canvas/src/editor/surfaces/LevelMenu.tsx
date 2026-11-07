@@ -19,7 +19,7 @@ import { undoManager } from '@/store/undoManager';
 import { addLevelWithLayer } from '@/editor/models/roomActions';
 import { layerOnLevel } from '@/editor/models/roomModel';
 import { moveLayerToLevel, reorderLevel } from '@/editor/models/layerActions';
-import { LevelDeleteDialog } from '@/v2/editor/LevelDeleteDialog';
+import { LevelDeleteDialog } from '@/editor/dialogs/LevelDeleteDialog';
 import { useShell } from '@/editor/shell/shellStore';
 import { RenameDialog } from './RenameDialog';
 import { levelLabel } from './model';

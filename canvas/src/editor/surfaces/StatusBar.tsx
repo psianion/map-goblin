@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleHelp, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { IconKeyButton, StatusChip } from '@/editor/components';
@@ -8,14 +8,15 @@ import { useStore } from '@/store/store';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { editHint } from '@/editor/statusHints';
 import { currentZoom, DEFAULT_ZOOM, fitToContent, zoomPercent } from '@/editor/zoomControl';
-import { useDropTarget } from '@/v2/editor/dropToLayer';
+import { useDropTarget } from '@/editor/dropToLayer';
 import { toggleSolo } from '@/editor/models/layerActions';
-import { setLitPreview, useLitPreview } from '@/v2/viewPrefs';
+import { setLitPreview, useLitPreview } from '@/editor/viewPrefs';
 import type { HintLine } from '@/editor/registry';
 import { useShell } from '@/editor/shell/shellStore';
 import { selectChildById } from '@/store/selectors';
 import type { AnyChild } from '@/store/types';
 import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
+import { labelMiss, subscribeLabelMiss } from '@dnd/core/src/engine/tools/TextTool';
 import { GridPopover } from './GridPopover';
 import { useActiveTool } from './hooks';
 
@@ -81,6 +82,8 @@ export function StatusBar() {
   );
   const node = useMemo(() => editHint(nodeTools), [nodeTools]);
   const drop = useDropTarget();
+  // A label click that found no door or room to bind to says why, for a few seconds.
+  const miss = useSyncExternalStore(subscribeLabelMiss, labelMiss, () => null);
   const flyout = useShell((s) => s.flyout !== null);
   const { zoom, ruler } = useLiveView();
   // What is picked, measured: the box round every picked child.
@@ -93,6 +96,7 @@ export function StatusBar() {
   let hint: HintLine | null = toolHint;
   if (drop) hint = { label: 'Move', segments: [{ text: `Release to move to ${drop.name}` }] };
   else if (ruler) hint = { label: 'Measure', segments: [{ text: ruler }] };
+  else if (miss && tool?.engine.includes('text')) hint = { label: 'Label', segments: [{ text: miss }] };
   else if (node) hint = { label: node.label, segments: [{ text: `${node.label} ·` }, ...node.segments] };
   else if (!tool || flyout) hint = { label: '', segments: [{ text: 'Pick a tool' }] };
 

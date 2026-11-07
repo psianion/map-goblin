@@ -7,7 +7,7 @@ import { useStore } from '@/store/store';
 import type { CardDef, FamilyDef, Registry, SettingDef, ToolDef } from '@/editor/registry';
 import type { Settings } from '@/editor/registry/settings';
 import { POINTER_HINTS, SHORTCUT_GROUPS, SHORTCUTS, toTool, type Shortcut } from './defaultShortcuts';
-import { formatCombo } from './formatCombo';
+import { formatCombo, isMac } from './formatCombo';
 
 export type KeyKind = 'rail' | 'family' | 'tool' | 'dock' | 'previous' | 'verb';
 
@@ -233,7 +233,9 @@ function rowsOf(list: readonly { id: string; label: string; combo: string; alias
   for (const s of list) {
     if (s.alias) continue;
     const row = byId.get(s.id);
-    const key = /click|drag/.test(s.combo) ? s.combo.replace('alt+', 'Alt ').replace(/^./, (c) => c.toUpperCase()) : formatCombo(s.combo, mac);
+    const key = /click|drag/.test(s.combo)
+      ? s.combo.replace('alt+', (mac ?? isMac()) ? '⌥ ' : 'Alt ').replace(/^./, (c) => c.toUpperCase())
+      : formatCombo(s.combo, mac);
     if (row) {
       if (!row.keys.includes(key)) row.keys.push(key);
     } else byId.set(s.id, { id: s.id, label: s.label, keys: [key] });

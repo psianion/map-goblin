@@ -42,8 +42,8 @@ import {
 import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/editor/toolConstants';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
-import { nextFocusMode, toggleLitPreview } from '@/v2/viewPrefs';
-import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomActions';
+import { nextFocusMode, toggleLitPreview } from '@/editor/viewPrefs';
+import { acceptAllSuggestions, dismissSuggestions } from '@/editor/models/roomActions';
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
 import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
@@ -776,7 +776,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // No settings: the ruler has nothing to configure.
   { id: 'tool.ruler', combo: 'm', group: 'Tools', legacy: true, scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
   // Shift+E: E is the Plateau tool.
-  { id: 'mode.erase', combo: 'shift+e', group: 'Tools', legacy: true, scope: 'canvas', label: 'Erase mode',
+  { id: 'mode.erase', combo: 'shift+e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
     run: () => {
       const s = useStore.getState();
       const next = !s.tools.eraseMode;

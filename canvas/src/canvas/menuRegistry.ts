@@ -37,7 +37,7 @@ import type {
 import { seedDivideStart } from '@dnd/core/src/engine/tools/DivideTool'
 import { childGroupOf, groupMembers } from '@/store/selectors'
 import { standaloneWallLook } from '@dnd/core/src/shared/wallLook'
-import { wallSetLabel } from '@/v2/editor/assetStrip'
+import { wallSetLabel } from '@/editor/models/assetStrip'
 import {
   canGroupSelection,
   groupSelection,
@@ -61,7 +61,7 @@ import {
   type ZOrderOp,
 } from '@dnd/core/src/store/propEdits'
 import { propField } from '@dnd/core/src/shared/propFields'
-import { LIGHT_PRESETS, LIGHT_RADIUS_FT } from '@/v2/editor/lightWrites'
+import { LIGHT_PRESETS, LIGHT_RADIUS_FT } from '@dnd/core/src/store/lightPresets'
 import { clampDoorWidth } from '@dnd/core/src/engine/tools/DoorTool'
 import { doorOpeningLimitOn } from '@dnd/core/src/shared/wallResolve'
 import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal'
@@ -91,7 +91,7 @@ import {
   toggleLayerVisible,
   toggleSolo,
   zoomToLayer,
-} from '@/v2/editor/layerActions'
+} from '@/editor/models/layerActions'
 
 export interface ChildMenuContext {
   layer: DungeonLayer

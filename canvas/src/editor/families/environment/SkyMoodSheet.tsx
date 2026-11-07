@@ -11,7 +11,7 @@ import { SetAmbientLightCommand, SetEnvironmentSettingsCommand } from '@/store/c
 import { environmentOf, type Environment, type MapEnvironment } from '@dnd/core/src/shared/world';
 import { Caption, ColourRow, Seg, SliderRow, SwitchRow } from '@/editor/components';
 import { runEdit } from '@/editor/families/design/cardWrites';
-import { setLitPreview, useLitPreview } from '@/v2/viewPrefs';
+import { setLitPreview, useLitPreview } from '@/editor/viewPrefs';
 
 const ENVIRONMENTS: { value: Environment; label: string }[] = [
   { value: 'outdoor', label: 'Outdoor' },

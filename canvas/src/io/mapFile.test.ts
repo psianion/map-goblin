@@ -203,3 +203,13 @@ describe('the settings the editor dropped', () => {
     expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']);
   });
 });
+
+describe('the document as written', () => {
+  it('keeps each layer\'s keys in their order through a read and a save, so the publish hash holds', () => {
+    useStore.getState().resetToDefault();
+    const data = useStore.getState().getSerializableState();
+    const keys = (d: SerializedMapData) => d.layers.map((l) => Object.keys(l).join());
+    expect(keys(readMapDocument(structuredClone(data)))).toEqual(keys(data));
+    expect(keys(saveableMap(structuredClone(data)))).toEqual(keys(data));
+  });
+});

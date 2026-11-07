@@ -1,6 +1,30 @@
 # Canvas v2 shell, design system and tool rework
 
-Status: planned 6 November 2026. Nothing in this plan is built yet. The plan is the contract for the builders; the mockups in this folder are the contract for how it looks.
+Status: planned 6 November 2026, built 7 November 2026 on the `canvas-v2-shell` branch. The plan is the contract for the builders; the mockups in this folder are the contract for how it looks. Phase two (section 8.5) is not started.
+
+### Built
+
+| Step | Commit | What landed |
+|---|---|---|
+| Plan | 793c296 | This plan and the three mockups |
+| 1 | 44ba773 | `theme/tokens.css`, Tailwind on the v2 names only, Moss removed |
+| 2 | fea8832 | shadcn primitives regenerated into `ui`, the old ui folder deleted |
+| 3 | 2812ce9 | The composites in `editor/components`, each with a test |
+| 4 | aab249c | The `/gallery` development route |
+| 5 | 1fd4e24 | Registry types, rules test, settings slice with zod writes |
+| 6 | ae38d2d | Shell surfaces from the registry |
+| 10 | 8a759f8 | Design family: Floor, Wall, Door, Elevation |
+| 7 | ef1b96f | Select family: panel, Pick only, cards, Mixed card |
+| 11 | f02a36d | Terrain family, strength that works |
+| 8 | 154c320 | Asset panel on demand, clear of the dock |
+| 9 | 4151ce7 | Rail, family, tool and dock keys from the registry |
+| 12 | 4a7b39f | Objects family: Stamp and Scatter over one pool |
+| Parity | 0e815ee | Layers column, sheets, menus and status bar level with the old editor |
+| 13 | 68debe0 | Environment family, Sky and mood rebuilt, map migration |
+| 14 | f1e4697, d3fb477 | Text family: labels, zones, rooms, rooms list and zone sheets |
+| 15 | this commit | The shell at the root; home in `src/home`, dialogs in `editor/dialogs`, overlays beside the canvas host; `src/v2`, its CSS, `/next` and the stub registry deleted; the Playwright suite rewritten into one spec per scope with scope tags (`pnpm -C canvas e2e --grep @design`). Fixed on the way: a reopened map no longer reads as changed to Publish, Auto focus fades the chrome again, Escape closes a menu or popover before the sheet under it, Scatter has its Erase switch and Shift E works, the group card is back, a label that finds no door or room says why, and Replace opens the library |
+
+Screenshots of each step are in [steps](steps/). The home page is not mocked: it is today's layout carried over one to one onto the tokens.
 
 ## TL;DR
 
@@ -485,6 +509,16 @@ One commit per step, in this order. Commit subjects and bodies stay under 100 wo
 - Playwright (`canvas/tests/e2e`): one spec per frame A to D, one per family covering draw, pick, change a dock control, change a panel setting, undo; the asset panel triggers; the dock never changes height; the asset panel never overlaps the dock; help opens the shortcuts sheet.
 - Visual: the gallery route is compared by eye against `mockups/design-system.html` in review; a screenshot of each frame is saved beside the step's notes for the reviewer.
 
+### 8.4.1 Testing and budget rules
+
+These hold for this step and every later phase.
+
+1. Playwright runs are scoped and counted. While a spec is being rewritten, only that file runs, or one scope through its tag, never the whole suite. The full suite runs once, at the very end, when typecheck, lint and the unit tests are already green, on two workers and with no retries. If it fails, fix it and run only the failed files, then one final full run.
+2. Only a run's summary line and the failing tests' names and errors are read, never the whole log, and never screenshots in a loop.
+3. Screenshots are taken once, in one scripted run, after the suite is green. Nobody re-checks them by eye between runs. The temporary screenshot spec is deleted before the commit.
+4. No helper builders for the rest of a step once this rule applies; the builder on the step finishes it alone.
+5. The Playwright config keeps no retries, at most four workers locally and two in CI, and the one-line reporter so output stays small.
+
 ### 8.5 Phase two: adds that need renderer work
 
 Each item references its Dungeondraft page and the audit card.
@@ -500,7 +534,6 @@ Each item references its Dungeondraft page and the audit card.
 | Colour per region | packs declare colour regions; renderer tints per region; controls follow | Objects tool, colourable assets |
 | Floor opacity | per-floor alpha in the floor renderer | Pattern shape tool, opacity |
 | Terrain fill, blend, erase | flood fill inside a floor, blend mode, erase to floor texture | Terrain brush |
-| Scatter rotation range | two-ended range in the scatter placer | Scatter tool |
 | Wall merge and auto-join | join on endpoint snap, Merge command | Wall tool, CTRL continue |
 | Freestanding doors | a door object not bound to a wall edge | Portal tool, Freestanding |
 | Save as prefab | serialise a group into a pack-local asset | Prefabs tool |
@@ -526,3 +559,13 @@ The table client and the bot, until the canvas has launched. Entitlements, roles
 | 6 Nov 2026 | shadcn stays as the only primitive layer; composites on top with strict spacing; Moss theme and old ui folder deleted; v2 tokens are the design system, verified on the design-system page |
 | 6 Nov 2026 | Canvas only now; the table follows after launch; no entitlements of any kind |
 | 6 Nov 2026 | Everything visual is agreed as a mockup before it is built |
+| 7 Nov 2026 | The registry binds each setting to a path in the core store's tool settings; there is no second settings store, and undo stays with the command layer |
+| 7 Nov 2026 | Settings several tools share (snap, snap step, curve, erase, node mode) are defined once in `registry/shared.ts` and referenced by each tool; Place under is one setting for Stamp and Scatter |
+| 7 Nov 2026 | Controls whose renderer work is phase two (Carve out, default floor opacity, corner style, water, material brush, path) are not registered, so nothing shows that does nothing |
+| 7 Nov 2026 | Regular polygon starts at 6 sides |
+| 7 Nov 2026 | Keys: Select V, Pan G, Measure M; Design D, Terrain T, Objects O, Environment E, Text X; Floor F (shapes R, P, H in the dock), Wall W, Door S, Elevation L; Terrain brush B; Stamp S, Scatter C; Light L; Label A, Zone Z, Rectangle room R, Polygon room P, Divide K; Q goes back from Select to the previous tool |
+| 7 Nov 2026 | The Scatter rotation range was built in step 12, so it left the phase-two list |
+| 7 Nov 2026 | Holding Space pans with any tool and hands the tool back on release |
+| 7 Nov 2026 | Terrain strength: a stroke blends from the paint under it, with strength as its ceiling. Revisiting that model and the 0.4 display threshold is phase two |
+| 7 Nov 2026 | The label Font setting and the level clone and compare controls are phase two |
+| 7 Nov 2026 | Dialogs follow the design system: 320 wide, except New map and Map settings at 440 because their rows do not fit; the home page keeps its layout on the tokens |

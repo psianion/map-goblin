@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { gotoApp, waitFrame } from './helpers';
 
 test.describe('Door Styles Visual Verification', () => {
-  test('all 4 door styles × 3 states render correctly', async ({ page }) => {
+  test('all 4 door styles × 3 states render correctly', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
 
     // Build test scene: 4 styles × 3 states grid of doors
@@ -202,7 +202,7 @@ test.describe('Door Styles Visual Verification', () => {
     expect(secretCount).toBe(2);
   });
 
-  test('door state toggle updates store and re-renders', async ({ page }) => {
+  test('door state toggle updates store and re-renders', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
 
     // Build a simple vertical-wall scene with one door
@@ -336,7 +336,7 @@ test.describe('Door Styles Visual Verification', () => {
     expect(allStyles).toContain('single'); // sanity — door used single style
   });
 
-  test('portcullis and archway distinct styles are stored correctly', async ({ page }) => {
+  test('portcullis and archway distinct styles are stored correctly', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
 
     await page.evaluate(() => {

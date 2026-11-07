@@ -12,11 +12,15 @@ export default defineConfig({
   // tests that pass fine serially once the server is warm. 180s = that 120s worst-case
   // boot plus a minute of test body.
   timeout: 180_000,
+  // A failure is fixed, not retried; a flaky pixel check gets a tolerance instead.
+  retries: 0,
+  workers: process.env.CI ? 2 : 4,
   use: { baseURL: `http://localhost:${port}` },
   webServer: {
     command: `pnpm dev --port ${port}`,
     url: `http://localhost:${port}`,
     reuseExistingServer: true,
   },
-  reporter: 'list',
+  // One line per failure and a summary, so a run's output stays small.
+  reporter: 'line',
 })

@@ -3,12 +3,10 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { marqueeTabKinds } from '@dnd/core/src/engine/marqueeFilter';
-import { registry, type RegistryInput } from '@/editor/registry';
+import { registry } from '@/editor/registry';
 import { bindingOf } from '@/editor/registry/binding';
 import { RegistryProvider } from '@/editor/shell/RegistryProvider';
 import { resetShell, useShell } from '@/editor/shell/shellStore';
-import { stubInput } from '@/editor/shell/stub/stubRegistry';
-import { withStubs } from '@/editor/shell/stub/withStubs';
 import { Slot } from '@/editor/surfaces/Slot';
 import { pickOnly, selectTool } from './index';
 import { pickOnlyKinds } from './pickOnly';
@@ -135,17 +133,5 @@ describe('card host', () => {
     const { queryByTestId } = slot();
     expect(queryByTestId('shell-card')).toBeNull();
     expect(selectTool.selectionPanel).toBeDefined();
-  });
-});
-
-describe('withStubs', () => {
-  it('uses every real family and fills in only the missing ones', () => {
-    const real: RegistryInput = registry;
-    const merged = withStubs(real, stubInput);
-    for (const f of real.families) expect(merged.families).toContain(f);
-    expect(merged.families.map((f) => f.id)).toEqual(['design', 'terrain', 'objects', 'environment', 'text']);
-    expect(merged.rail).toBe(real.rail);
-    const kinds = merged.cards.map((c) => c.kind);
-    expect(new Set(kinds).size).toBe(kinds.length);
   });
 });

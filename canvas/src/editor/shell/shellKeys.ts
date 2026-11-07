@@ -1,5 +1,5 @@
-// The registry's keys, wired to this shell: installed while the shell is up, so the table's
-// old tool keys stand down (the editor at `/` keeps them).
+// The registry's keys, wired to this shell: installed while the shell is up, so the shortcut
+// table's old tool keys stand down.
 
 import { useEffect } from 'react';
 import { useStore } from '@/store/store';
