@@ -109,6 +109,7 @@ Mockups, kept in this folder so they survive. Open them in a browser; they are s
 | Design system: tokens, type, spacing, every control, light and dark side by side | [mockups/design-system.html](mockups/design-system.html) |
 | Shell mockup, round two: four frames of the editor | [mockups/shell.html](mockups/shell.html) |
 | Tool settings audit: every setting, verdict, home and the case for it | [mockups/settings-audit.html](mockups/settings-audit.html) |
+| Phase two: one frame per item, drawn on the shipped shell | [mockups/phase-2.html](mockups/phase-2.html) |
 
 Dungeondraft encyclopaedia, the reference for how each tool behaves and which settings it exposes. Read the page before building the matching tool.
 
@@ -521,7 +522,7 @@ These hold for this step and every later phase.
 
 ### 8.5 Phase two: adds that need renderer work
 
-Each item references its Dungeondraft page and the audit card.
+The phase-two plan, with the order, scope, mockup, test and budget per item, is [phase-2.md](phase-2.md). The table below is the original list; the terrain brush model (time-based build-up, intensity as rate, smooth blending, fill) was added to it on 7 November.
 
 | Item | Needs | Reference |
 |---|---|---|

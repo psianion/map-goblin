@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas phase two mockup: every change on one page</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --v2-bg: #f2f2f2; --v2-dot: #c6c6c6; --v2-sheet: #fbfbfb; --v2-panel: #ffffff; --v2-panel-2: #f7f7f7; --v2-panel-3: #ebebeb;
+  --v2-line: #e0e0e0; --v2-line-strong: #c2c2c2; --v2-text: #1b1b1b; --v2-text-2: #4d4d4d; --v2-text-3: #6b6b6b;
+  --v2-ink: #1b1b1b; --v2-on-ink: #ffffff; --v2-danger: #b3261e;
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --page: #f7f7f5; --page-text: #1b1b1b; --page-text-2: #5a5a5a; --page-line: #e3e3e0; --co: #c2410c;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --map-floor: #d9cfbd; --map-floor-2: #cfc3ad; --map-moss: #a9b08a; --map-water: #9db7bd; --map-deep: #5f8a93; --map-wall: #4a4238; --map-path: #b59b78;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --v2-bg: #2b2b2b; --v2-dot: #4f4f4f; --v2-sheet: #353535; --v2-panel: #333333; --v2-panel-2: #383838; --v2-panel-3: #444444;
+  --v2-line: #474747; --v2-line-strong: #5c5c5c; --v2-text: #ececec; --v2-text-2: #bdbdbd; --v2-text-3: #9c9c9c;
+  --v2-ink: #ececec; --v2-on-ink: #1b1b1b; --v2-danger: #f08a7e;
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+  --page: #202020; --page-text: #ececec; --page-text-2: #b0b0b0; --page-line: #353535;
+  --map-floor: #6e6558; --map-floor-2: #625a4e; --map-moss: #5e6a4c; --map-water: #4e6a70; --map-deep: #30494f; --map-wall: #d8cfc2; --map-path: #8a7458;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--page-text); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 28px 16px 80px; }
+.head { display: flex; align-items: flex-start; gap: 16px; }
+.head > div { flex: 1; }
+h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 18px; font-weight: 600; margin: 56px 0 4px; padding-top: 16px; border-top: 1px solid var(--page-line); }
+h3 { font-size: 15px; font-weight: 600; margin: 36px 0 6px; }
+h3 small { font-weight: 400; color: var(--page-text-2); margin-left: 8px; font-family: var(--mono); font-size: 11px; }
+p.lead { color: var(--page-text-2); margin: 0 0 8px; max-width: 76ch; }
+.theme { font: inherit; font-size: 12px; padding: 6px 12px; border: 1px solid var(--page-line); border-radius: 6px; background: transparent; color: var(--page-text); cursor: pointer; white-space: nowrap; }
+.frame-scroll { overflow-x: auto; border: 1px solid var(--page-line); border-radius: 10px; background: var(--v2-bg); }
+.frame { position: relative; width: 1280px; height: 768px; background: var(--v2-bg); overflow: hidden; font-family: var(--sans); font-size: 12px; color: var(--v2-text); user-select: none; }
+.frame canvas.map { position: absolute; inset: 0; }
+.ico { width: 16px; height: 16px; stroke-width: 1.75; flex-shrink: 0; }
+.ico.sm { width: 14px; height: 14px; }
+kbd { font-family: var(--mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); color: var(--v2-text-3); }
+.ib { position: relative; width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--v2-text-2); flex-shrink: 0; }
+.ib .k { position: absolute; right: 3px; bottom: 2px; font-family: var(--mono); font-size: 8px; line-height: 1; color: var(--v2-text-3); }
+.ib.hk .ico { transform: translate(-1.5px, -1.5px); }
+.ib.on { color: var(--v2-text); box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.ib.on .k { color: var(--v2-text-2); }
+.ib.fam-on { color: var(--v2-text); box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.rail { position: absolute; left: 0; top: 0; bottom: 0; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--v2-panel); border-right: 1px solid var(--v2-line); z-index: 25; }
+.rail .ib { width: 36px; height: 36px; border-radius: 8px; }
+.rail .ib .ico { width: 18px; height: 18px; }
+.rail .ib .k { right: 5px; bottom: 4px; font-size: 9px; }
+.rail .ib.hk .ico { transform: translate(-2px, -2px); }
+.rail hr { width: 24px; border: 0; border-top: 1px solid var(--v2-line); margin: 6px 0; }
+.float { position: absolute; background: var(--v2-panel); border: 1px solid var(--v2-line); border-radius: 8px; box-shadow: var(--v2-e-shadow); z-index: 25; }
+.bar { top: 12px; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+.title { left: 68px; padding: 0 12px 0 6px; }
+.title .name { font-weight: 500; font-size: 13px; }
+.title .lvl { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border: 1px solid var(--v2-line); border-radius: 4px; color: var(--v2-text-2); }
+.title .saved { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.top { right: 12px; gap: 4px; }
+.primary { height: 28px; padding: 0 14px; border-radius: 6px; background: var(--v2-ink); color: var(--v2-on-ink); font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; margin-left: 4px; }
+.slot { left: 68px; top: 68px; width: 272px; display: flex; flex-direction: column; overflow: hidden; }
+.panel .hd { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--v2-line); }
+.panel .hd .crumb { font-size: 11px; color: var(--v2-text-3); }
+.panel .hd .crumb b { color: var(--v2-text); font-weight: 500; font-size: 12px; }
+.panel .hd .sw { margin-left: auto; display: flex; gap: 2px; }
+.panel .hd .sw .ib { width: 26px; height: 26px; }
+.panel .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
+.sec { display: flex; flex-direction: column; gap: 8px; }
+.sec .t { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); }
+.f { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; min-height: 24px; }
+.f label { color: var(--v2-text-2); }
+.f .val { font-family: var(--mono); font-size: 11px; color: var(--v2-text); min-width: 42px; text-align: right; }
+.slider { grid-column: 1 / -1; height: 14px; position: relative; }
+.slider::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--v2-line-strong); border-radius: 1px; }
+.slider i { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--v2-panel); border: 1.5px solid var(--v2-ink); }
+.slider.range::after { content: ""; position: absolute; left: 30%; right: 30%; top: 6px; height: 2px; background: var(--v2-ink); }
+.sw2 { width: 28px; height: 16px; border-radius: 999px; background: var(--v2-line-strong); position: relative; }
+.sw2.on { background: var(--v2-ink); }
+.sw2::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+.sw2.on::after { left: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--v2-line); border-radius: 6px; overflow: hidden; }
+.seg span { padding: 0 10px; height: 22px; display: inline-flex; align-items: center; font-size: 11px; line-height: 1; color: var(--v2-text-2); border-right: 1px solid var(--v2-line); }
+.seg span:last-child { border-right: 0; }
+.seg span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.sel { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; color: var(--v2-text); }
+.input { height: 24px; padding: 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; display: inline-flex; align-items: center; min-width: 60px; color: var(--v2-text); font-family: var(--mono); }
+.btn { height: 24px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; line-height: 1; display: inline-flex; align-items: center; gap: 6px; color: var(--v2-text-2); }
+.btn.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); color: var(--v2-text); }
+.panel .foot { border-top: 1px solid var(--v2-line); padding: 8px 12px; display: flex; gap: 6px; }
+.actrow { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--v2-line); }
+.actrow .ib { width: 26px; height: 26px; }
+.actrow .ib.danger { color: var(--v2-danger); margin-left: auto; }
+.chip { font-size: 11px; line-height: 1; height: 22px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 999px; color: var(--v2-text-2); display: inline-flex; align-items: center; }
+.chip.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); border-color: transparent; color: var(--v2-text); }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.hint { color: var(--v2-text-3); font-size: 12px; line-height: 1.6; }
+.thumb { width: 36px; height: 28px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--map-floor); display: inline-block; vertical-align: middle; }
+.fold { display: flex; align-items: center; gap: 8px; color: var(--v2-text-2); }
+.fold small { color: var(--v2-text-3); font-family: var(--mono); font-size: 10px; }
+.dock { left: 68px; right: 12px; bottom: 40px; width: 1060px; margin: 0 auto; height: 112px; display: flex; overflow: hidden; z-index: 24; }
+.dock .col { display: flex; flex-direction: column; padding: 8px 10px; gap: 6px; border-right: 1px solid var(--v2-line); min-width: 0; }
+.dock .col:last-child { border-right: 0; flex: 1; }
+.dock .t { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dock .t .r { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; display: inline-flex; gap: 4px; align-items: center; }
+.strip { display: flex; gap: 6px; align-items: flex-start; }
+.tile { width: 56px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.tile .th { width: 56px; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); position: relative; overflow: hidden; }
+.tile .th.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.tile .n { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; max-width: 56px; overflow: hidden; text-overflow: ellipsis; }
+.tile .th .lk { position: absolute; right: 3px; top: 3px; color: var(--v2-text-3); }
+.levels { display: flex; flex-direction: column; gap: 2px; }
+.levels span { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 4px; color: var(--v2-text-3); }
+.levels span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.mat { width: 56px; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); }
+.mat.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.mat.empty { background: transparent; border-style: dashed; border-color: var(--v2-line-strong); }
+.addtile { width: 56px; height: 44px; border: 1px dashed var(--v2-line-strong); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--v2-text-3); }
+.tools { display: flex; gap: 4px; align-items: center; }
+.tools .ib { width: 32px; height: 32px; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--v2-line); border-radius: 6px; height: 24px; font-family: var(--mono); font-size: 11px; }
+.stepper span { padding: 0 8px; }
+.stepper i { width: 22px; display: inline-flex; justify-content: center; color: var(--v2-text-3); font-style: normal; border-left: 1px solid var(--v2-line); height: 100%; align-items: center; }
+.stepper i:first-child { border-left: 0; border-right: 1px solid var(--v2-line); }
+.swatch { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--v2-line); }
+.dock .sl { width: 120px; }
+.dock .sl .slider { height: 12px; }
+.dock .rowf { display: flex; align-items: center; gap: 8px; color: var(--v2-text-2); font-size: 11px; }
+.dock .rowf .val { font-family: var(--mono); color: var(--v2-text); }
+.status { position: absolute; left: 56px; right: 0; bottom: 0; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 12px; background: var(--v2-panel); border-top: 1px solid var(--v2-line); font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--v2-text-3); white-space: nowrap; z-index: 25; }
+.status .hint { color: var(--v2-text-2); display: inline-flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: 11px; }
+.status .sp { flex: 1; }
+.status .z { display: inline-flex; gap: 8px; align-items: center; }
+.status .ib { width: 22px; height: 22px; }
+.fab { position: absolute; display: flex; gap: 2px; padding: 4px; z-index: 22; }
+.fab .ib { width: 26px; height: 26px; }
+.fab .ib.danger { color: var(--v2-danger); }
+.selbox { position: absolute; border: 1.5px solid #1b1b1b; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7); }
+.selbox i { position: absolute; width: 7px; height: 7px; background: #fff; border: 1.5px solid #1b1b1b; }
+.node { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; background: #fff; border: 1.5px solid #1b1b1b; border-radius: 1px; z-index: 23; }
+.node.mid { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: #fff; border-color: #6b6b6b; }
+.menu { position: absolute; width: 232px; padding: 6px; background: var(--v2-panel); border: 1px solid var(--v2-line); border-radius: 8px; box-shadow: var(--v2-e-shadow); z-index: 30; }
+.menu .mi { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; font-size: 12px; color: var(--v2-text); }
+.menu .mi.on { background: var(--v2-panel-2); }
+.menu .mi small { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.menu hr { border: 0; border-top: 1px solid var(--v2-line); margin: 6px 0; }
+.menu .cap { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); padding: 6px 8px 2px; }
+.sheet { right: 12px; top: 68px; width: 320px; bottom: 164px; display: flex; flex-direction: column; overflow: hidden; }
+.sheet .hd { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--v2-line); font-size: 12px; font-weight: 500; }
+.sheet .hd .ib { width: 26px; height: 26px; margin-left: auto; }
+.sheet .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.lrow { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px; height: 36px; padding: 0 6px; border-radius: 6px; color: var(--v2-text); }
+.lrow.on { background: var(--v2-panel-2); }
+.lrow .th { width: 36px; height: 28px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); }
+.lrow small { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.assets { right: 12px; top: 68px; width: 320px; bottom: 164px; display: flex; flex-direction: column; overflow: hidden; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 56px); gap: 6px 10px; }
+.parked { display: inline-block; font-family: var(--mono); font-size: 10px; padding: 2px 6px; border: 1px solid var(--page-line); border-radius: 4px; color: var(--page-text-2); margin-left: 8px; vertical-align: middle; }
+.co { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: var(--co); color: #fff; font: 600 11px/20px var(--mono); text-align: center; z-index: 40; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9); }
+.legend { margin: 14px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; }
+.legend li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--page-text-2); }
+.legend li b { color: var(--page-text); font-weight: 500; }
+.legend li .n { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--co); color: #fff; font: 600 11px/20px var(--mono); text-align: center; margin-top: 1px; }
+.toc { margin: 12px 0 0; padding: 0; list-style: none; columns: 2; font-size: 13px; color: var(--page-text-2); }
+.toc li { margin-bottom: 4px; }
+.toc li a { color: var(--page-text); text-decoration: none; }
+.toc li small { font-family: var(--mono); font-size: 11px; margin-left: 6px; }
+@media (max-width: 820px) { .legend { grid-template-columns: 1fr; } .toc { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>Canvas phase two: every change on one page</h1>
+      <p class="lead">One frame per item of the phase-two plan, drawn on the shell that shipped in phase one. Same tokens, same slot, same dock. Frames show the new control where it lives and what the map looks like once the engine draws it. Nothing here is built; building starts when this page is approved.</p>
+    </div>
+    <button class="theme" id="theme" type="button">Switch to dark</button>
+  </div>
+  <ul class="toc">
+    <li><a href="#w1">Wave 1</a><small>1 terrain brush · 2 floor opacity and edge band · 3 carve out · 4 node handles and floor curve</small></li>
+    <li><a href="#w2">Wave 2</a><small>5 corner style · 6 merge and auto-join · 7 freestanding doors</small></li>
+    <li><a href="#w3">Wave 3</a><small>8 water brush · 9 material brush · 10 path</small></li>
+    <li><a href="#w4">Wave 4, parked</a><small>11 colour per region · 12 save as prefab</small></li>
+    <li><a href="#w5">Wave 5</a><small>13 level clone and compare · 14 trace image · 16 below water (15 label font dropped)</small></li>
+  </ul>
+
+  <h2 id="w1">Wave 1. Brushes and floors</h2>
+
+  <h3>1. Terrain brush, Dungeondraft model<small>Terrain / Terrain brush, panel and dock</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f1"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Intensity, not Strength.</b> It is a rate: how fast paint builds while the pointer is held. The slider sits in the dock because it changes mid-stroke.</div></li>
+    <li><span class="n">2</span><div><b>Paint builds up.</b> The three strokes are the same slot held for one, two and four seconds at a low intensity. Nothing is solid after one pass; the organic look comes from holding.</div></li>
+    <li><span class="n">3</span><div><b>Blending in the panel.</b> Smooth blending off gives the ragged organic edge, on gives the soft one. Fill enclosed floor floods the floor under the pointer with the slot's texture in one click.</div></li>
+    <li><span class="n">4</span><div><b>Erase is a mode.</b> Paint back to the floor's own texture; the status hint names the held key.</div></li>
+    <li><span class="n">5</span><div><b>Six slots, Fill beside From library.</b> Right-click empties a slot. Biomes stay out until a pack declares one.</div></li>
+  </ul>
+
+  <h3>2. Floor opacity and per-floor edge band<small>Select / Floor card</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f2"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Opacity does something.</b> The picked floor is at 50%; the moss shows through it. The slider is the same row as today, it just works.</div></li>
+    <li><span class="n">2</span><div><b>Edge band per floor.</b> This floor says None, so no ink band is drawn round it; the floor beside it keeps the layer's Cave ink. The panel's Edge band is the default for new floors.</div></li>
+  </ul>
+
+  <h3>3. Carve out<small>Design / Floor panel, Mode section</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f3"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Mode row returns.</b> Draw or Carve out, as round two drew it. Carve out is the visible truth; holding Alt while drawing is the fast path.</div></li>
+    <li><span class="n">2</span><div><b>A carved rectangle.</b> The dashed shape being drawn subtracts from every floor under it on this layer, as one undo step. The hole shows the ground.</div></li>
+    <li><span class="n">3</span><div><b>Hint carries the key.</b> Alt carves, as the brushes' hint carries Alt for erase.</div></li>
+  </ul>
+
+  <h3>4. Node mode with midpoint handles, floor curve<small>Select / Floor card, Node mode on</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f4"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Two kinds of handle.</b> Square at every node, small round at every midpoint. Drag a round one and it becomes a node.</div></li>
+    <li><span class="n">2</span><div><b>Curve on floors.</b> The Edit column's Curve toggle bends the dragged segment on floors the way it does on walls; the bottom edge here is bent.</div></li>
+    <li><span class="n">3</span><div><b>Hint while in node mode.</b> Enter and Escape leave it, Delete removes a node, Shift drags straight.</div></li>
+  </ul>
+
+  <h2 id="w2">Wave 2. Walls and doors</h2>
+
+  <h3>5. Corner style<small>Design / Wall, dock</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f5"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Corner style in the dock.</b> Rounded or Sharp, per wall, next to Type and Width. The wall set's own corner pieces are used, both ship with every set.</div></li>
+    <li><span class="n">2</span><div><b>Same set, both ways.</b> The left room's corners are rounded, the right room's are sharp.</div></li>
+  </ul>
+
+  <h3>6. Wall merge and auto-join<small>Design / Wall panel; Select with two walls picked</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f6"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Auto-join in the panel.</b> Drawing to another wall's endpoint joins them into one wall. Off, they stay two walls that touch.</div></li>
+    <li><span class="n">2</span><div><b>Merge appears for two walls.</b> The Mixed card's header says 2 walls and the action row grows a Merge verb; the floating bar shows it too.</div></li>
+  </ul>
+
+  <h3>7. Freestanding doors<small>Design / Door panel; a freestanding door's card</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f7"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Freestanding in the panel.</b> On, the next door is placed anywhere, not snapped to a wall edge.</div></li>
+    <li><span class="n">2</span><div><b>Angle is editable.</b> A freestanding door's card unlocks Angle in 5° steps; an anchored door keeps its wall's angle and the field reads only.</div></li>
+    <li><span class="n">3</span><div><b>The door in open ground.</b> Drawn at 35° with its swing arc; light blocking follows its state as today.</div></li>
+  </ul>
+
+  <h2 id="w3">Wave 3. New terrain tools</h2>
+
+  <h3>8. Water brush<small>Terrain / Water brush, panel and dock</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f8"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Brush first, shapes later.</b> Size and a Brush or Shape seg in the dock; Shape is drawn disabled until the shape placer lands.</div></li>
+    <li><span class="n">2</span><div><b>Two colours and a blend distance.</b> Shallow at the edge, Deep inside, blended over the distance in cells. Border draws the thin line along the edge.</div></li>
+    <li><span class="n">3</span><div><b>The water on the map.</b> A painted pool with the shallow rim, the deep middle and the border on.</div></li>
+  </ul>
+
+  <h3>9. Material brush<small>Terrain / Material brush, panel and dock</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f9"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Material swatches in the dock.</b> Each is a pack material with its own border art; Size beside them.</div></li>
+    <li><span class="n">2</span><div><b>One solid piece.</b> A freehand stroke closes into a patch; on release the material's border units are laid round the outline, "like scatter but fuller". Smooth rounds the outline before the border goes on.</div></li>
+  </ul>
+
+  <h3>10. Path<small>Terrain / Path, panel and dock; a path's card</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f10"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Width, Smoothness, Curve, Node mode, pieces.</b> The on-the-fly controls in the dock; the piece swatches are the pack's path units.</div></li>
+    <li><span class="n">2</span><div><b>Transitions and snap in the panel.</b> Hard, Fade, Grow or Shrink at each end; editable later on the card, unlike Dungeondraft.</div></li>
+    <li><span class="n">3</span><div><b>Units along the line.</b> Individual pieces laid along the polyline, never a stretched strip, fading in at the start and hard at the end.</div></li>
+  </ul>
+
+  <h2 id="w4">Wave 4. Colour and prefabs <span class="parked">parked until the pack format is decided</span></h2>
+
+  <h3>11. Colour per region, tint preview in the library<small>Objects / Stamp dock; a prop card</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f11"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>One row per region.</b> Art that declares regions shows them by name, Cloth and Trim here, each with its own colour and alpha. Art without regions keeps the single Tint row.</div></li>
+    <li><span class="n">2</span><div><b>The library tile shows the tint.</b> The picked prop in the asset panel is drawn in the chosen colours before it is placed.</div></li>
+  </ul>
+
+  <h3>12. Save as prefab<small>Select / Mixed card; asset panel</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f12"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>A verb on the Mixed card.</b> Save as prefab turns the picked group into a pack-local asset, placeable like a prop.</div></li>
+    <li><span class="n">2</span><div><b>A Prefabs chip in the library.</b> Saved prefabs list under their own chip with the usual tiles.</div></li>
+  </ul>
+
+  <h2 id="w5">Wave 5. Map-wide</h2>
+
+  <h3>13. Level clone and compare<small>Level menu; Layers sheet</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f13"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Clone in the level menu.</b> New level gains a Clone this level entry beside it; the level menu is the one that already serves the title chip and the dock.</div></li>
+    <li><span class="n">2</span><div><b>Compare in the Layers sheet.</b> Pick another level and an opacity; it draws under the current level, greyed, here L1 Ground at 40%.</div></li>
+  </ul>
+
+  <h3>14. Trace image<small>Layer sheet for a background image layer</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f14"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Opacity on background layers.</b> An imported image at 40% is a trace to draw over. The toggle key hides and shows it; it reads in the keycap and in the shortcuts sheet.</div></li>
+  </ul>
+
+  <h3>15. Label font faces <span class="parked">dropped: one font for everything for now</span><small>Text / Label panel</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f15"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Font in the panel.</b> Three faces that ship with the app: Plex Sans, a serif, a hand. The card gets the same row. The table draws one face until its own pass.</div></li>
+  </ul>
+
+  <h3>16. Below-water layer<small>Select / Prop card, Layering section</small></h3>
+  <div class="frame-scroll"><div class="frame" id="f16"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Below water on the prop card.</b> One switch in Layering; the prop is tinted by the water it stands in, from the water brush's mask.</div></li>
+  </ul>
+</div>
+
+<script>window.LUCIDE_ICONS={"mouse-pointer-2":"<path d=\"M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z\"/>","hand":"<path d=\"M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2\"/><path d=\"M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2\"/><path d=\"M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8\"/><path d=\"M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15\"/>","ruler":"<path d=\"M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z\"/><path d=\"m14.5 12.5 2-2\"/><path d=\"m11.5 9.5 2-2\"/><path d=\"m8.5 6.5 2-2\"/><path d=\"m17.5 15.5 2-2\"/>","house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","undo-2":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","redo-2":"<path d=\"m15 14 5-5-5-5\"/><path d=\"M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13\"/>","ellipsis":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","circle-help":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><path d=\"M12 17h.01\"/>","square":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","pentagon":"<path d=\"M10.83 2.38a2 2 0 0 1 2.34 0l8 5.74a2 2 0 0 1 .73 2.25l-3.04 9.26a2 2 0 0 1-1.9 1.37H7.04a2 2 0 0 1-1.9-1.37L2.1 10.37a2 2 0 0 1 .73-2.25z\"/>","hexagon":"<path d=\"M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z\"/>","spline":"<circle cx=\"19\" cy=\"5\" r=\"2\"/><circle cx=\"5\" cy=\"19\" r=\"2\"/><path d=\"M5 17A12 12 0 0 1 17 5\"/>","git-commit-horizontal":"<circle cx=\"12\" cy=\"12\" r=\"3\"/><line x1=\"3\" x2=\"9\" y1=\"12\" y2=\"12\"/><line x1=\"15\" x2=\"21\" y1=\"12\" y2=\"12\"/>","square-dashed":"<path d=\"M5 3a2 2 0 0 0-2 2\"/><path d=\"M19 3a2 2 0 0 1 2 2\"/><path d=\"M21 19a2 2 0 0 1-2 2\"/><path d=\"M5 21a2 2 0 0 1-2-2\"/><path d=\"M9 3h1\"/><path d=\"M9 21h1\"/><path d=\"M14 3h1\"/><path d=\"M14 21h1\"/><path d=\"M3 9v1\"/><path d=\"M21 9v1\"/><path d=\"M3 14v1\"/><path d=\"M21 14v1\"/>","brick-wall":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 9v6\"/><path d=\"M16 15v6\"/><path d=\"M16 3v6\"/><path d=\"M3 15h18\"/><path d=\"M3 9h18\"/><path d=\"M8 15v6\"/><path d=\"M8 3v6\"/>","door-open":"<path d=\"M11 20H2\"/><path d=\"M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z\"/><path d=\"M11 4H8a2 2 0 0 0-2 2v14\"/><path d=\"M14 12h.01\"/><path d=\"M22 20h-3\"/>","mountain":"<path d=\"m8 3 4 8 5-5 5 15H2L8 3z\"/>","paintbrush":"<path d=\"m14.622 17.897-10.68-2.913\"/><path d=\"M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z\"/><path d=\"M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15\"/>","waves":"<path d=\"M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"/><path d=\"M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"/><path d=\"M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"/>","layers-2":"<path d=\"M13 13.74a2 2 0 0 1-2 0L2.5 8.87a1 1 0 0 1 0-1.74L11 2.26a2 2 0 0 1 2 0l8.5 4.87a1 1 0 0 1 0 1.74z\"/><path d=\"m20 14.285 1.5.845a1 1 0 0 1 0 1.74L13 21.74a2 2 0 0 1-2 0l-8.5-4.87a1 1 0 0 1 0-1.74l1.5-.845\"/>","route":"<circle cx=\"6\" cy=\"19\" r=\"3\"/><path d=\"M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15\"/><circle cx=\"18\" cy=\"5\" r=\"3\"/>","flip-horizontal":"<path d=\"m3 7 5 5-5 5V7\"/><path d=\"m21 7-5 5 5 5V7\"/><path d=\"M12 20v2\"/><path d=\"M12 14v2\"/><path d=\"M12 8v2\"/><path d=\"M12 2v2\"/>","flip-vertical":"<path d=\"m17 3-5 5-5-5h10\"/><path d=\"m17 21-5-5-5 5h10\"/><path d=\"M4 12H2\"/><path d=\"M10 12H8\"/><path d=\"M16 12h-2\"/><path d=\"M22 12h-2\"/>","rotate-cw":"<path d=\"M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>","lock":"<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>","eye-off":"<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>","trash-2":"<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>","merge":"<path d=\"m8 6 4-4 4 4\"/><path d=\"M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22\"/><path d=\"m20 22-5-5\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","type":"<path d=\"M12 4v16\"/><path d=\"M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2\"/><path d=\"M9 20h6\"/>","map-pin":"<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\"/><circle cx=\"12\" cy=\"10\" r=\"3\"/>","scissors":"<circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M8.12 8.12 12 12\"/><path d=\"M20 4 8.12 15.88\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><path d=\"M14.8 14.8 20 20\"/>"};</script>
+<script>
+(function () {
+  function ib(icon, key, cls, size) {
+    return '<span class="ib' + (cls ? ' ' + cls : '') + (key ? ' hk' : '') + '"><i data-lucide="' + icon + '" class="ico' + (size === 'sm' ? ' sm' : '') + '"></i>' + (key ? '<span class="k">' + key + '</span>' : '') + '</span>';
+  }
+  var FAMS = [['pencil-ruler', 'D', 'Design'], ['mountain', 'T', 'Terrain'], ['box', 'O', 'Objects'], ['sun-moon', 'E', 'Environment'], ['type', 'X', 'Text']];
+  function rail(activeTool, activeFam) {
+    var h = '<div class="rail">';
+    h += ib('mouse-pointer-2', 'V', activeTool === 'select' ? 'on' : '');
+    h += ib('hand', 'G', activeTool === 'pan' ? 'on' : '');
+    h += ib('ruler', 'M', activeTool === 'ruler' ? 'on' : '');
+    h += '<hr>';
+    FAMS.forEach(function (f) { h += ib(f[0], f[1], activeFam === f[2] ? 'fam-on' : ''); });
+    return h + '</div>';
+  }
+  function chrome(level) {
+    return '<div class="float bar title">' + ib('house', '') + '<span class="name">Warren of the Pale Moth</span><span class="lvl">' + (level || 'L2 Cellars') + '</span><span class="saved">saved 14:32</span></div>' +
+      '<div class="float bar top">' + ib('undo-2', 'Z') + ib('redo-2', 'Y') + ib('ellipsis', '') + '<span class="primary">Publish</span></div>';
+  }
+  function status(hint, extra) {
+    return '<div class="status"><span>Grid 5 ft</span><span>Snap ½</span><span>Lit · off</span>' +
+      '<span class="hint">' + hint + '</span>' + (extra || '') + '<span class="sp"></span>' +
+      '<span class="z">Fit <kbd>0</kbd> · 100%</span>' + ib('circle-help', '?', '', 'sm') + '</div>';
+  }
+  function levels() {
+    return '<div class="col"><div class="t">Level <span class="r"><i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="levels"><span>L3 Attic</span><span class="on">L2 Cellars</span><span>L1 Ground</span></div></div>';
+  }
+  function layers(active) {
+    var names = ['Walls', 'Terrain', 'Stone floor', 'Water'];
+    var h = '<div class="col"><div class="t">Layers <span class="r"><i data-lucide="plus" class="ico sm"></i></span></div><div class="strip">';
+    names.forEach(function (n, i) { h += '<div class="tile"><div class="th' + (n === active ? ' on' : '') + '">' + (i === 0 ? '<i data-lucide="lock" class="ico sm lk"></i>' : '') + '</div><div class="n">' + n + '</div></div>'; });
+    return h + '</div></div>';
+  }
+  function lookCol() {
+    return '<div class="col"><div class="t">Look <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip">' +
+      '<div class="tile"><div class="mat" style="background:var(--map-floor)"></div><div class="n">Colour</div></div>' +
+      '<div class="tile"><div class="mat on" style="background:#b9ad96"></div><div class="n">Flagstone</div></div>' +
+      '<div class="tile"><div class="mat" style="background:#8b7d66"></div><div class="n">Planks</div></div>' +
+      '<div class="tile"><div class="mat" style="background:#9a9a90"></div><div class="n">Cobbles</div></div>' +
+      '<div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div>' +
+      '</div></div>';
+  }
+  function shapeCols(curveOn, nodeOn) {
+    return '<div class="col"><div class="t">Shape</div><div class="tools">' + ib('square', 'R', '', 'sm') + ib('pentagon', 'P', 'on', 'sm') + ib('hexagon', 'H', '', 'sm') + '</div></div>' +
+      '<div class="col"><div class="t">Edit</div><div class="tools">' + ib('spline', 'C', curveOn ? 'on' : '', 'sm') + ib('git-commit-horizontal', 'N', nodeOn ? 'on' : '', 'sm') + '</div><div class="hint" style="font-size:10px">Curve · Node mode</div></div>';
+  }
+  function map(mode) { return '<canvas class="map" width="1280" height="768" data-mode="' + mode + '"></canvas>'; }
+  function cos(list) { return list.map(function (c, i) { return '<span class="co" style="left:' + c[0] + 'px;top:' + c[1] + 'px">' + (i + 1) + '</span>'; }).join(''); }
+  function sw(active) {
+    return ib('square-dashed', 'F', active === 'floor' ? 'on' : '', 'sm') + ib('brick-wall', 'W', active === 'wall' ? 'on' : '', 'sm') + ib('door-open', 'S', active === 'door' ? 'on' : '', 'sm') + ib('mountain', 'L', active === 'elev' ? 'on' : '', 'sm');
+  }
+  function swT(active) {
+    return ib('paintbrush', 'B', active === 'brush' ? 'on' : '', 'sm') + ib('waves', 'W', active === 'water' ? 'on' : '', 'sm') + ib('layers-2', 'M', active === 'material' ? 'on' : '', 'sm') + ib('route', 'P', active === 'path' ? 'on' : '', 'sm');
+  }
+  function panel(crumb, switcher, body, foot) {
+    return '<div class="float slot panel"><div class="hd"><span class="crumb">' + crumb + '</span><span class="sw">' + switcher + '</span></div><div class="body">' + body + '</div>' + (foot ? '<div class="foot">' + foot + '</div>' : '') + '</div>';
+  }
+  function card(crumb, chip, acts, body) {
+    return '<div class="float slot panel"><div class="hd"><span class="crumb">' + crumb + '</span><span class="sw"><span class="chip" style="font-size:10px">' + chip + '</span></span></div><div class="actrow">' + acts + '</div><div class="body">' + body + '</div></div>';
+  }
+  var ACTS = ib('git-commit-horizontal', 'N', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm');
+  function sec(t, rows) { return '<div class="sec">' + (t ? '<div class="t">' + t + '</div>' : '') + rows + '</div>'; }
+  function f(label, ctl) { return '<div class="f"><label>' + label + '</label>' + ctl + '</div>'; }
+  function sliderRow(label, val, pct) { return '<div class="f"><label>' + label + '</label><span class="val">' + val + '</span><div class="slider"><i style="left:' + pct + '%"></i></div></div>'; }
+  function sw2(on) { return '<span class="sw2' + (on ? ' on' : '') + '"></span>'; }
+  function seg(opts, on) { return '<span class="seg">' + opts.map(function (o) { return '<span' + (o === on ? ' class="on"' : '') + '>' + o + '</span>'; }).join('') + '</span>'; }
+  function sel(v) { return '<span class="sel">' + v + ' <i data-lucide="chevron-down" class="ico sm"></i></span>'; }
+  function swatch(c) { return '<span class="swatch" style="background:' + c + '"></span>'; }
+  function stepper(v) { return '<span class="stepper"><i>−</i><span>' + v + '</span><i>+</i></span>'; }
+  function dockSlider(t, val, pct) { return '<div class="col"><div class="t">' + t + '</div><div class="rowf sl"><div class="slider" style="flex:1"><i style="left:' + pct + '%"></i></div><span class="val">' + val + '</span></div></div>'; }
+  function colTools(t, tools, hint) { return '<div class="col"><div class="t">' + t + '</div><div class="tools">' + tools + '</div>' + (hint ? '<div class="hint" style="font-size:10px">' + hint + '</div>' : '') + '</div>'; }
+  function mats(list, onIdx) { return list.map(function (m, i) { return '<div class="tile"><div class="mat' + (i === onIdx ? ' on' : '') + (m[1] ? '' : ' empty') + '" style="background:' + (m[1] || 'transparent') + '"></div><div class="n">' + m[0] + '</div></div>'; }).join(''); }
+
+  // 1. Terrain brush
+  document.getElementById('f1').innerHTML = map('terrain') + rail('', 'Terrain') + chrome() +
+    panel('Terrain / <b>Terrain brush</b>', swT('brush'),
+      sec('Mode', f('Paint or erase', seg(['Paint', 'Erase'], 'Paint'))) +
+      sec('Blending', f('Smooth blending', sw2(false)) + f('Fill enclosed floor', '<span class="btn">Fill</span>')) +
+      sec('Colour', f('Colour', '<span style="display:inline-flex;gap:6px;align-items:center">' + swatch('#8a9a6a') + '<span class="val">60%</span></span>')),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock">' + levels() + layers('Terrain') +
+    '<div class="col"><div class="t">Size</div><div class="rowf">' + stepper('4 sq') + '<kbd>[</kbd><kbd>]</kbd></div></div>' +
+    dockSlider('Intensity', '25%', 24) +
+    '<div class="col"><div class="t">Textures <span class="r"><span class="btn" style="height:20px;padding:0 8px">Fill</span></span></div><div class="strip">' +
+    mats([['Grass', '#9aa676'], ['Moss', '#7e8a5e'], ['Dirt', '#a08a6a'], ['Gravel', '#9a948a'], ['', ''], ['', '']], 1) +
+    '<div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div></div></div>' +
+    '</div>' +
+    status('Hold to build up · <kbd>Alt</kbd> erase · <kbd>[</kbd><kbd>]</kbd> size') +
+    cos([[560, 612], [760, 300], [318, 150], [318, 86], [1100, 612]]);
+
+  // 2. Floor opacity and edge band
+  document.getElementById('f2').innerHTML = map('opacity') +
+    '<div class="selbox" style="left:768px;top:288px;width:192px;height:192px"><i style="left:-4px;top:-4px"></i><i style="right:-4px;top:-4px"></i><i style="left:-4px;bottom:-4px"></i><i style="right:-4px;bottom:-4px"></i></div>' +
+    '<div class="float fab" style="left:800px;top:246px">' + ib('git-commit-horizontal', 'N', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div>' +
+    rail('select', '') + chrome() +
+    card('Selection / <b>Floor</b>', 'Stone floor', ACTS,
+      sec('', f('Size', '<span class="val">6 × 6 sq</span>') + f('Layer', sel('Stone floor'))) +
+      sec('Look', f('Colour', swatch('var(--map-floor-2)')) + f('Texture', '<span style="display:inline-flex;gap:6px;align-items:center"><span class="thumb"></span><span class="btn">Change</span></span>') + f('Tint', swatch('transparent')) + sliderRow('Opacity', '50%', 48) + '<div class="fold"><i data-lucide="chevron-right" class="ico sm"></i>Fill <small>scale 1 · 0° · offset 0, 0</small></div>') +
+      sec('Edge', f('Edge band', sel('None')))) +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Stone floor') + lookCol() + '</div>' +
+    status('1 floor · <kbd>N</kbd> nodes · <kbd>Del</kbd> delete') +
+    cos([[318, 300], [318, 420]]);
+
+  // 3. Carve out
+  document.getElementById('f3').innerHTML = map('carve') + rail('', 'Design') + chrome() +
+    panel('Design / <b>Floor</b>', sw('floor'),
+      sec('Mode', f('Draw or carve', seg(['Draw', 'Carve out'], 'Carve out'))) +
+      sec('Placement', f('Snap to grid', sw2(true)) + f('Snap step', seg(['1', '½', '¼'], '½'))) +
+      sec('Edge', f('Edge band', sel('Cave ink')) + f('Blend with neighbours', sw2(true))) +
+      sec('Defaults for new floors', sliderRow('Opacity', '100%', 96)),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock">' + levels() + layers('Stone floor') + shapeCols(false, false) + lookCol() + '</div>' +
+    status('Carve out · drag a rectangle · <kbd>Alt</kbd> carves while in Draw') +
+    cos([[318, 86], [660, 300], [560, 732]]);
+
+  // 4. Node mode with midpoints, floor curve
+  var nodes = [[768, 288], [960, 288], [960, 480], [768, 480]];
+  var mids = [[864, 288], [960, 384], [864, 500], [768, 384]];
+  document.getElementById('f4').innerHTML = map('curve') +
+    nodes.map(function (p) { return '<span class="node" style="left:' + p[0] + 'px;top:' + p[1] + 'px"></span>'; }).join('') +
+    mids.map(function (p) { return '<span class="node mid" style="left:' + p[0] + 'px;top:' + p[1] + 'px"></span>'; }).join('') +
+    '<div class="float fab" style="left:800px;top:246px">' + ib('git-commit-horizontal', 'N', 'on', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div>' +
+    rail('select', '') + chrome() +
+    card('Selection / <b>Floor</b>', 'Stone floor', ib('git-commit-horizontal', 'N', 'on', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Size', '<span class="val">6 × 6 sq</span>') + f('Layer', sel('Stone floor')) + f('Nodes', '<span class="val">4</span>')) +
+      sec('Look', f('Colour', swatch('var(--map-floor-2)')) + f('Texture', '<span style="display:inline-flex;gap:6px;align-items:center"><span class="thumb"></span><span class="btn">Change</span></span>') + sliderRow('Opacity', '100%', 96)) +
+      sec('Edge', f('Edge band', sel('Cave ink')))) +
+    '<div class="float dock">' + levels() + layers('Stone floor') + shapeCols(true, true) + lookCol() + '</div>' +
+    status('Node mode · drag a node · drag a midpoint to add · <kbd>Del</kbd> remove · <kbd>Shift</kbd> straight · <kbd>Esc</kbd> done') +
+    cos([[980, 270], [700, 612], [560, 732]]);
+
+  // 5. Corner style
+  document.getElementById('f5').innerHTML = map('corners') + rail('', 'Design') + chrome() +
+    panel('Design / <b>Wall</b>', sw('wall'),
+      sec('Placement', f('Snap to grid', sw2(true)) + f('Auto-join at an endpoint', sw2(true))),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock">' + levels() + layers('Walls') +
+    '<div class="col"><div class="t">Type</div>' + seg(['Solid', 'Window', 'Open'], 'Solid') + '</div>' +
+    '<div class="col"><div class="t">Width</div><div class="rowf">' + stepper('0.5') + '</div></div>' +
+    '<div class="col"><div class="t">Corner style</div>' + seg(['Rounded', 'Sharp'], 'Sharp') + '</div>' +
+    colTools('Edit', ib('spline', 'C', '', 'sm') + ib('git-commit-horizontal', 'N', '', 'sm'), 'Curve · Node mode') +
+    '<div class="col"><div class="t">Look <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip">' + mats([['Tint', '#4a4238'], ['Fieldstone', '#6f665a'], ['Timber', '#7a5c3c'], ['Cave rock', '#5b5751']], 1) + '</div></div>' +
+    '</div>' +
+    status('Click to start a wall · <kbd>Enter</kbd> end · <kbd>Shift</kbd> straight') +
+    cos([[760, 612], [640, 200]]);
+
+  // 6. Merge and auto-join
+  document.getElementById('f6').innerHTML = map('merge') +
+    '<div class="selbox" style="left:416px;top:224px;width:544px;height:8px"><i style="left:-4px;top:-4px"></i><i style="right:-4px;top:-4px"></i></div>' +
+    '<div class="float fab" style="left:620px;top:180px">' + ib('merge', '', 'on', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div>' +
+    rail('select', '') + chrome() +
+    card('Selection / <b>2 walls</b>', 'Walls', ib('merge', '', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Merge', '<span class="btn on">Merge into one wall</span>') + f('Length', '<span class="val">8 + 9 sq</span>') + f('Layer', sel('Walls'))) +
+      sec('Shared', f('Type', seg(['Solid', 'Window', 'Open'], 'Solid')) + f('Set', sel('Fieldstone')) + f('Corner style', seg(['Rounded', 'Sharp'], 'Rounded'))) +
+      sec('Arrange', '<div class="chips"><span class="chip">Move to layer</span><span class="chip">Select only walls</span></div>')) +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Walls') + lookCol() + '</div>' +
+    status('2 walls · touching at one point · <kbd>Del</kbd> delete') +
+    cos([[318, 86], [318, 140]]);
+
+  // 7. Freestanding doors
+  document.getElementById('f7').innerHTML = map('door') +
+    rail('select', '') + chrome() +
+    card('Selection / <b>Door</b>', 'Walls', ib('rotate-cw', '', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Name', '<span class="input" style="min-width:110px">Cellar gate</span>') + f('Style', sel('Single')) + f('State', seg(['Closed', 'Open', 'Locked'], 'Closed')) + f('Freestanding', sw2(true))) +
+      sec('Placement', f('Angle', '<span style="display:inline-flex;gap:6px;align-items:center">' + stepper('35°') + '<span class="hint" style="font-size:10px">5° steps</span></span>') + f('Width', stepper('1 sq'))) +
+      sec('Fittings', f('Material', sel('Oak')) + f('Hinge', sel('Iron strap')) + f('Swing', seg(['In', 'Out'], 'Out')))) +
+    '<div class="float dock">' + levels() + layers('Walls') +
+    '<div class="col"><div class="t">Style</div>' + seg(['Single', 'Double', 'Portcullis', 'Archway'], 'Single') + '</div>' +
+    '<div class="col"><div class="t">Width</div><div class="rowf">' + stepper('1 sq') + '</div></div>' +
+    '<div class="col"><div class="t">Angle</div><div class="rowf">' + stepper('35°') + '<span class="btn">Turn 90</span></div></div>' +
+    '</div>' +
+    '<div class="float" style="left:356px;top:68px;width:200px;padding:8px 12px;display:flex;flex-direction:column;gap:8px"><div class="sec"><div class="t">Door panel</div>' + f('Secret', sw2(false)) + f('Freestanding', sw2(true)) + '</div></div>' +
+    status('1 door · freestanding · <kbd>R</kbd> rotate 5° · <kbd>Del</kbd> delete') +
+    cos([[540, 60], [318, 200], [1030, 390]]);
+
+  // 8. Water brush
+  document.getElementById('f8').innerHTML = map('water') + rail('', 'Terrain') + chrome() +
+    panel('Terrain / <b>Water brush</b>', swT('water'),
+      sec('Mode', f('Paint or erase', seg(['Paint', 'Erase'], 'Paint'))) +
+      sec('Colour', f('Shallow', swatch('var(--map-water)')) + f('Deep', swatch('var(--map-deep)')) + sliderRow('Blend distance', '1.5 sq', 30)) +
+      sec('Edge', f('Border', sw2(true))),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock" style="width:720px">' + levels() + layers('Water') +
+    '<div class="col"><div class="t">Size</div><div class="rowf">' + stepper('3 sq') + '<kbd>[</kbd><kbd>]</kbd></div></div>' +
+    '<div class="col"><div class="t">Place</div>' + seg(['Brush', 'Shape'], 'Brush') + '<div class="hint" style="font-size:10px">Shape comes after the brush</div></div>' +
+    '</div>' +
+    status('Paint water · <kbd>Alt</kbd> erase · <kbd>[</kbd><kbd>]</kbd> size') +
+    cos([[620, 612], [318, 180], [860, 380]]);
+
+  // 9. Material brush
+  document.getElementById('f9').innerHTML = map('material') + rail('', 'Terrain') + chrome() +
+    panel('Terrain / <b>Material brush</b>', swT('material'),
+      sec('Mode', f('Paint or erase', seg(['Paint', 'Erase'], 'Paint'))) +
+      sec('Outline', f('Smooth', sw2(true)) + f('Border', sw2(true))),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock" style="width:900px">' + levels() + layers('Terrain') +
+    '<div class="col"><div class="t">Size</div><div class="rowf">' + stepper('3 sq') + '<kbd>[</kbd><kbd>]</kbd></div></div>' +
+    '<div class="col"><div class="t">Material <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip">' + mats([['Rubble', '#8f877b'], ['Lichen', '#8d9a6f'], ['Mud', '#7d6a52'], ['Sand', '#cbb891']], 1) + '<div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div></div></div>' +
+    '</div>' +
+    status('Paint a patch · release to close it · <kbd>Alt</kbd> erase') +
+    cos([[700, 612], [600, 330]]);
+
+  // 10. Path
+  document.getElementById('f10').innerHTML = map('path') + rail('', 'Terrain') + chrome() +
+    panel('Terrain / <b>Path</b>', swT('path'),
+      sec('Ends', f('Transition in', seg(['Hard', 'Fade', 'Grow'], 'Fade')) + f('Transition out', seg(['Hard', 'Fade', 'Shrink'], 'Hard'))) +
+      sec('Placement', f('Snap to grid', sw2(false)) + f('Block light', sw2(false))),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock">' + levels() + layers('Terrain') +
+    '<div class="col"><div class="t">Width</div><div class="rowf">' + stepper('1 sq') + '</div></div>' +
+    dockSlider('Smoothness', '60%', 58) +
+    colTools('Edit', ib('spline', 'C', 'on', 'sm') + ib('git-commit-horizontal', 'N', '', 'sm'), 'Curve · Node mode') +
+    '<div class="col"><div class="t">Pieces <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip">' + mats([['Flagstones', '#b59b78'], ['Planks', '#8b7d66'], ['Trail', '#a08a6a']], 0) + '<div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div></div></div>' +
+    '</div>' +
+    '<div class="float" style="left:356px;top:68px;width:220px;padding:8px 12px;display:flex;flex-direction:column;gap:8px"><div class="sec"><div class="t">Path card, after placing</div>' + f('Width', stepper('1 sq')) + f('Smoothness', '<span class="val">60%</span>') + f('Transitions', '<span class="val">Fade · Hard</span>') + f('Block light', sw2(false)) + '</div></div>' +
+    status('Click points · <kbd>Enter</kbd> end · <kbd>Shift</kbd> bend') +
+    cos([[640, 612], [318, 86], [900, 330]]);
+
+  // 11. Colour per region
+  document.getElementById('f11').innerHTML = map('plain') + rail('', 'Objects') + chrome() +
+    card('Selection / <b>Prop</b>', 'Props', ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Asset', '<span class="val">Banner, tall</span>') + f('Layer', sel('Props'))) +
+      sec('Colour', f('Cloth', '<span style="display:inline-flex;gap:6px;align-items:center">' + swatch('#7a3b3b') + '<span class="val">100%</span></span>') + f('Trim', '<span style="display:inline-flex;gap:6px;align-items:center">' + swatch('#c9a24a') + '<span class="val">100%</span></span>') + sliderRow('Opacity', '100%', 96)) +
+      sec('Layering', '<div class="chips"><span class="chip">To back</span><span class="chip">Backward</span><span class="chip">Forward</span><span class="chip">To front</span></div>' + f('Overhead', sw2(false)))) +
+    '<div class="float assets"><div class="hd">Assets <span class="hint" style="font-size:11px">825</span>' + ib('x', '', '', 'sm') + '</div><div class="body">' +
+    '<span class="input" style="width:100%;font-family:var(--sans);color:var(--v2-text-3)">Search</span>' +
+    '<div class="chips"><span class="chip">Textures</span><span class="chip on">Props</span><span class="chip">Walls</span><span class="chip">Paths</span><span class="chip">Lights</span></div>' +
+    '<div class="sec"><div class="t">Fieldstone Keep</div><div class="grid4">' +
+    '<div class="tile"><div class="th on" style="background:linear-gradient(#7a3b3b 0 70%, #c9a24a 70%)"></div><div class="n">Banner, tall</div></div>' +
+    '<div class="tile"><div class="th"></div><div class="n">Banner, short</div></div><div class="tile"><div class="th"></div><div class="n">Rug</div></div><div class="tile"><div class="th"></div><div class="n">Tapestry</div></div>' +
+    '<div class="tile"><div class="th"></div><div class="n">Crate</div></div><div class="tile"><div class="th"></div><div class="n">Barrel</div></div><div class="tile"><div class="th"></div><div class="n">Chest</div></div><div class="tile"><div class="th"></div><div class="n">Table</div></div>' +
+    '</div></div></div></div>' +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Props') +
+    '<div class="col"><div class="t">Scale</div><div class="rowf sl"><div class="slider" style="flex:1"><i style="left:50%"></i></div><span class="val">1.0</span></div></div>' +
+    '<div class="col"><div class="t">Tint</div><div class="strip"><div class="tile"><div class="mat" style="background:#7a3b3b"></div><div class="n">Cloth</div></div><div class="tile"><div class="mat" style="background:#c9a24a"></div><div class="n">Trim</div></div></div></div>' +
+    '</div>' +
+    status('Stamp · <kbd>F</kbd> mirror · wheel turns 15°') +
+    cos([[318, 200], [1000, 230]]);
+
+  // 12. Save as prefab
+  document.getElementById('f12').innerHTML = map('plain') + rail('select', '') + chrome() +
+    '<div class="selbox" style="left:520px;top:300px;width:160px;height:120px"><i style="left:-4px;top:-4px"></i><i style="right:-4px;top:-4px"></i><i style="left:-4px;bottom:-4px"></i><i style="right:-4px;bottom:-4px"></i></div>' +
+    card('Selection / <b>3 props</b>', 'Props', ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Save as prefab', '<span class="btn on">Save as prefab</span>') + f('Layer', sel('Props'))) +
+      sec('Arrange', '<div class="chips"><span class="chip">Align</span><span class="chip">Distribute</span><span class="chip">Move to layer</span></div>') +
+      sec('Order', '<div class="chips"><span class="chip">To back</span><span class="chip">Backward</span><span class="chip">Forward</span><span class="chip">To front</span></div>')) +
+    '<div class="float assets"><div class="hd">Assets <span class="hint" style="font-size:11px">4</span>' + ib('x', '', '', 'sm') + '</div><div class="body">' +
+    '<span class="input" style="width:100%;font-family:var(--sans);color:var(--v2-text-3)">Search</span>' +
+    '<div class="chips"><span class="chip">Textures</span><span class="chip">Props</span><span class="chip">Walls</span><span class="chip">Paths</span><span class="chip">Lights</span><span class="chip on">Prefabs</span></div>' +
+    '<div class="sec"><div class="t">This map</div><div class="grid4"><div class="tile"><div class="th on"></div><div class="n">Camp fire</div></div><div class="tile"><div class="th"></div><div class="n">Altar set</div></div><div class="tile"><div class="th"></div><div class="n">Bar counter</div></div><div class="tile"><div class="th"></div><div class="n">Bunk row</div></div></div></div>' +
+    '</div></div>' +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Props') + lookCol() + '</div>' +
+    status('3 props · <kbd>Del</kbd> delete') +
+    cos([[318, 86], [1000, 160]]);
+
+  // 13. Level clone and compare
+  document.getElementById('f13').innerHTML = map('compare') + rail('select', '') + chrome() +
+    '<div class="menu" style="left:214px;top:60px"><div class="cap">Levels</div><div class="mi">L3 Attic</div><div class="mi on">L2 Cellars <small>current</small></div><div class="mi">L1 Ground</div><hr><div class="mi"><i data-lucide="plus" class="ico sm"></i>New level</div><div class="mi"><i data-lucide="copy" class="ico sm"></i>Clone this level</div><div class="mi"><i data-lucide="pencil" class="ico sm"></i>Rename</div><div class="mi"><i data-lucide="settings-2" class="ico sm"></i>Level settings</div><hr><div class="mi" style="color:var(--v2-danger)"><i data-lucide="trash-2" class="ico sm"></i>Delete level</div></div>' +
+    '<div class="float sheet"><div class="hd">Layers' + ib('x', '', '', 'sm') + '</div><div class="body">' +
+    '<div class="sec"><div class="t">L2 Cellars</div>' +
+    '<div class="lrow"><span class="th"></span><span>Walls</span><small>locked</small></div><div class="lrow on"><span class="th"></span><span>Stone floor</span><small>12</small></div><div class="lrow"><span class="th"></span><span>Terrain</span><small></small></div><div class="lrow"><span class="th"></span><span>Water</span><small>1</small></div></div>' +
+    '<div class="sec"><div class="t">Compare</div>' + f('Show another level', sel('L1 Ground')) + sliderRow('Opacity', '40%', 38) + '</div>' +
+    '</div></div>' +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Stone floor') + lookCol() + '</div>' +
+    status('Nothing picked · comparing with L1 Ground at 40%') +
+    cos([[440, 254], [1210, 330]]);
+
+  // 14. Trace image
+  document.getElementById('f14').innerHTML = map('trace') + rail('select', '') + chrome() +
+    '<div class="float sheet"><div class="hd">Layer: Sketch' + ib('x', '', '', 'sm') + '</div><div class="body">' +
+    sec('', f('Name', '<span class="input" style="min-width:110px;font-family:var(--sans)">Sketch</span>') + f('Kind', '<span class="val">Background image</span>') + f('Visible', sw2(true)) + f('Locked', sw2(true))) +
+    sec('Trace', sliderRow('Opacity', '40%', 38) + f('Toggle key', '<kbd>I</kbd>')) +
+    sec('Image', f('File', '<span class="val">cellars-sketch.png</span>') + f('Fit', seg(['Map', 'Original'], 'Map')) + f('Replace', '<span class="btn">Choose</span>')) +
+    '</div></div>' +
+    '<div class="float dock" style="width:420px">' + levels() + layers('Sketch') + '</div>' +
+    status('Sketch 40% · <kbd>I</kbd> toggles the trace') +
+    cos([[1210, 230]]);
+
+  // 15. Label font faces
+  document.getElementById('f15').innerHTML = map('labels') + rail('', 'Text') + chrome() +
+    panel('Text / <b>Label</b>', ib('type', 'A', 'on', 'sm') + ib('map-pin', 'Z', '', 'sm') + ib('square', 'R', '', 'sm') + ib('pentagon', 'P', '', 'sm') + ib('scissors', 'K', '', 'sm'),
+      sec('Font', f('Face', seg(['Sans', 'Serif', 'Hand'], 'Serif'))) +
+      sec('Placement', f('Snap to grid', sw2(false)) + f('Follows what it names', sw2(true))),
+      '<span class="btn">Reset</span><span class="btn">Save as preset</span>') +
+    '<div class="float dock">' + levels() + layers('Labels') +
+    '<div class="col"><div class="t">Size</div><div class="rowf">' + stepper('14') + '</div></div>' +
+    '<div class="col"><div class="t">Colour</div><div class="rowf">' + swatch('#1b1b1b') + '</div></div>' +
+    '<div class="col"><div class="t">Style</div><div class="strip">' + mats([['Room name', '#f1ece2'], ['Door tag', '#e9e4d8'], ['GM note', '#fff5c2'], ['Number pin', '#1b1b1b'], ['Callout', '#ffffff'], ['Custom', '']], 0) + '</div></div>' +
+    '</div>' +
+    status('Click to place a label · <kbd>Enter</kbd> done') +
+    cos([[318, 86]]);
+
+  // 16. Below water
+  document.getElementById('f16').innerHTML = map('below') + rail('select', '') + chrome() +
+    '<div class="selbox" style="left:816px;top:376px;width:48px;height:48px"><i style="left:-4px;top:-4px"></i><i style="right:-4px;top:-4px"></i><i style="left:-4px;bottom:-4px"></i><i style="right:-4px;bottom:-4px"></i></div>' +
+    card('Selection / <b>Prop</b>', 'Props', ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm'),
+      sec('', f('Asset', '<span class="val">Barrel</span>') + f('Layer', sel('Props'))) +
+      sec('Look', f('Tint', swatch('transparent')) + sliderRow('Opacity', '100%', 96)) +
+      sec('Layering', '<div class="chips"><span class="chip">To back</span><span class="chip">Backward</span><span class="chip">Forward</span><span class="chip">To front</span></div>' + f('Overhead', sw2(false)) + f('Below water', sw2(true)) + f('Lock', sw2(false)))) +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Props') + lookCol() + '</div>' +
+    status('1 prop · below water · <kbd>Del</kbd> delete') +
+    cos([[318, 420]]);
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function blob(ctx, cx, cy, r, n, wob, seed) {
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) { var a = i / n * Math.PI * 2; var rr = r * (1 + wob * Math.sin(a * 3 + seed) * 0.5 + wob * Math.cos(a * 5 + seed * 2) * 0.5); var x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.closePath();
+  }
+  function drawMap(c) {
+    var ctx = c.getContext('2d'), W = c.width, H = c.height, g = 32, m = c.dataset.mode;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = css('--v2-bg'); ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css('--v2-dot');
+    for (var x = 56 + g / 2; x < W; x += g) for (var y = g / 2; y < H; y += g) { ctx.beginPath(); ctx.arc(x, y, 1, 0, 6.3); ctx.fill(); }
+    if (m === 'trace') { ctx.save(); ctx.globalAlpha = 0.4; ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 2; ctx.setLineDash([]); ctx.strokeRect(430, 240, 380, 220); ctx.strokeRect(810, 300, 150, 160); ctx.beginPath(); ctx.moveTo(520, 460); ctx.lineTo(520, 560); ctx.lineTo(700, 560); ctx.stroke(); ctx.restore(); return; }
+    // base room
+    ctx.fillStyle = css('--map-floor'); ctx.fillRect(416, 224, 416, 256);
+    if (m !== 'opacity') { ctx.fillStyle = css('--map-floor-2'); ctx.fillRect(768, 288, 192, 192); }
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
+    for (var sx = 416; sx <= 960; sx += 32) { ctx.beginPath(); ctx.moveTo(sx, 224); ctx.lineTo(sx, 480); ctx.stroke(); }
+    for (var sy = 224; sy <= 480; sy += 32) { ctx.beginPath(); ctx.moveTo(416, sy); ctx.lineTo(960, sy); ctx.stroke(); }
+    ctx.fillStyle = css('--map-moss'); ctx.globalAlpha = 0.9;
+    [[520, 300, 54], [566, 330, 46], [612, 350, 50], [650, 338, 38], [480, 420, 40], [530, 440, 34], [820, 360, 60], [900, 420, 48]].forEach(function (p) { if (m === 'opacity' || p[0] < 700) { ctx.beginPath(); ctx.arc(p[0], p[1], p[2], 0, 6.3); ctx.fill(); } });
+    ctx.globalAlpha = 1;
+    if (m === 'opacity') { ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = css('--map-floor-2'); ctx.fillRect(768, 288, 192, 192); ctx.restore(); }
+    if (m === 'carve') { ctx.fillStyle = css('--v2-bg'); ctx.fillRect(544, 288, 128, 96); ctx.fillStyle = css('--v2-dot'); for (var cx = 544 + 8; cx < 672; cx += g) for (var cy = 288 + 8; cy < 384; cy += g) { ctx.beginPath(); ctx.arc(cx, cy, 1, 0, 6.3); ctx.fill(); } ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 3; ctx.strokeRect(544, 288, 128, 96); }
+    // walls
+    ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 6; ctx.lineJoin = m === 'corners' ? 'miter' : 'round';
+    if (m === 'corners') {
+      ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(416, 224); ctx.lineTo(700, 224); ctx.lineTo(700, 480); ctx.lineTo(416, 480); ctx.closePath(); ctx.stroke();
+      ctx.lineJoin = 'miter'; ctx.beginPath(); ctx.moveTo(768, 288); ctx.lineTo(960, 288); ctx.lineTo(960, 480); ctx.lineTo(768, 480); ctx.closePath(); ctx.stroke();
+      ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('rounded', 540, 212); ctx.fillText('sharp', 846, 276);
+    } else if (m === 'merge') {
+      ctx.beginPath(); ctx.moveTo(416, 228); ctx.lineTo(672, 228); ctx.stroke(); ctx.beginPath(); ctx.moveTo(672, 228); ctx.lineTo(960, 228); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(416, 228); ctx.lineTo(416, 480); ctx.lineTo(960, 480); ctx.lineTo(960, 228); ctx.stroke();
+      ctx.fillStyle = css('--v2-panel'); ctx.beginPath(); ctx.arc(672, 228, 5, 0, 6.3); ctx.fill(); ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('two walls meet here', 600, 262);
+    } else if (m === 'curve') {
+      ctx.beginPath(); ctx.moveTo(416, 224); ctx.lineTo(832, 224); ctx.lineTo(832, 288); ctx.lineTo(960, 288); ctx.lineTo(960, 480); ctx.quadraticCurveTo(864, 540, 768, 480); ctx.lineTo(416, 480); ctx.closePath(); ctx.stroke();
+      ctx.fillStyle = css('--map-floor-2'); ctx.beginPath(); ctx.moveTo(768, 288); ctx.lineTo(960, 288); ctx.lineTo(960, 480); ctx.quadraticCurveTo(864, 540, 768, 480); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = css('--v2-ink'); ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      ctx.beginPath(); ctx.moveTo(416, 224); ctx.lineTo(832, 224); ctx.lineTo(832, 288); ctx.lineTo(960, 288); ctx.lineTo(960, 480); ctx.lineTo(768, 480); ctx.lineTo(768, 400); ctx.moveTo(716, 400); ctx.lineTo(416, 400); ctx.lineTo(416, 224); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(416, 400); ctx.lineTo(416, 480); ctx.lineTo(768, 480); ctx.stroke();
+      ctx.fillStyle = '#8a6a3f'; ctx.fillRect(716, 395, 52, 10); ctx.lineWidth = 1.5; ctx.strokeRect(716.5, 395.5, 51, 9);
+    }
+    if (m === 'opacity') { ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 3; ctx.setLineDash([2, 3]); ctx.strokeRect(768, 288, 192, 192); ctx.setLineDash([]); ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('50%, band None', 780, 500); ctx.fillText('100%, Cave ink', 430, 500); }
+    if (m === 'terrain') {
+      ctx.fillStyle = css('--map-moss');
+      [[0.25, 1], [0.45, 2], [0.8, 4]].forEach(function (s, i) { ctx.globalAlpha = s[0]; blob(ctx, 1000 + i * 0, 300 + i * 120, 44 + i * 6, 40, 0.35, i * 2.1); ctx.fill(); });
+      ctx.globalAlpha = 1; ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('held 1 s', 1060, 304); ctx.fillText('held 2 s', 1060, 424); ctx.fillText('held 4 s', 1060, 544);
+      ctx.globalAlpha = 0.85; ctx.fillStyle = css('--map-moss'); blob(ctx, 560, 560, 60, 40, 0.45, 7); ctx.fill();
+      ctx.globalAlpha = 0.85; var gr = ctx.createRadialGradient(760, 580, 10, 760, 580, 70); gr.addColorStop(0, css('--map-moss')); gr.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(760, 580, 70, 0, 6.3); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = css('--v2-text-3'); ctx.fillText('smooth off', 520, 640); ctx.fillText('smooth on', 720, 660);
+    }
+    if (m === 'water') {
+      var wg = ctx.createRadialGradient(860, 400, 20, 860, 400, 90); wg.addColorStop(0, css('--map-deep')); wg.addColorStop(0.7, css('--map-deep')); wg.addColorStop(1, css('--map-water'));
+      ctx.fillStyle = wg; blob(ctx, 860, 400, 90, 48, 0.25, 3); ctx.fill(); ctx.strokeStyle = css('--map-deep'); ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    if (m === 'material') {
+      ctx.fillStyle = '#8f877b'; blob(ctx, 600, 330, 80, 48, 0.3, 5); ctx.fill();
+      ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 1.2; ctx.setLineDash([]);
+      for (var k = 0; k < 48; k++) { var a = k / 48 * Math.PI * 2; var rr = 80 * (1 + 0.3 * Math.sin(a * 3 + 5) * 0.5 + 0.3 * Math.cos(a * 5 + 10) * 0.5); var px = 600 + Math.cos(a) * rr, py = 330 + Math.sin(a) * rr; ctx.save(); ctx.translate(px, py); ctx.rotate(a); ctx.beginPath(); ctx.arc(0, 0, 4 + (k % 3), 0, 6.3); ctx.fillStyle = '#6f675c'; ctx.fill(); ctx.stroke(); ctx.restore(); }
+    }
+    if (m === 'path') {
+      var pts = [[1000, 560], [1060, 470], [1120, 420], [1180, 330], [1220, 260]];
+      for (var q = 0; q < 24; q++) { var t = q / 23; var idx = Math.min(3, Math.floor(t * 4)); var lt = t * 4 - idx; var p0 = pts[idx], p1 = pts[idx + 1]; var px2 = p0[0] + (p1[0] - p0[0]) * lt, py2 = p0[1] + (p1[1] - p0[1]) * lt; var ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]); ctx.save(); ctx.translate(px2, py2); ctx.rotate(ang); ctx.globalAlpha = Math.min(1, t * 4); ctx.fillStyle = css('--map-path'); ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 1; ctx.beginPath(); ctx.rect(-9, -14, 18, 28); ctx.fill(); ctx.stroke(); ctx.restore(); }
+      ctx.globalAlpha = 1; ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('fade in', 940, 600); ctx.fillText('hard end', 1180, 250);
+    }
+    if (m === 'compare') { ctx.save(); ctx.globalAlpha = 0.4; ctx.strokeStyle = css('--v2-text-3'); ctx.lineWidth = 4; ctx.setLineDash([]); ctx.strokeRect(380, 180, 300, 200); ctx.strokeRect(980, 420, 160, 120); ctx.restore(); ctx.fillStyle = css('--v2-text-3'); ctx.font = '11px IBM Plex Mono'; ctx.fillText('L1 Ground at 40%', 384, 172); }
+    if (m === 'labels') { ctx.fillStyle = css('--v2-text'); ctx.font = '500 16px Georgia, serif'; ctx.fillText('Warren Hall', 560, 300); ctx.font = '500 14px IBM Plex Sans'; ctx.fillText('Cellar gate', 690, 420); }
+    if (m === 'below') { ctx.fillStyle = css('--map-water'); ctx.beginPath(); ctx.ellipse(840, 400, 70, 44, 0.3, 0, 6.3); ctx.fill(); ctx.fillStyle = '#6a5a3c'; ctx.fillRect(820, 380, 40, 40); ctx.fillStyle = 'rgba(77,110,118,0.55)'; ctx.fillRect(820, 380, 40, 40); }
+    if (m === 'door') { ctx.strokeStyle = css('--map-wall'); ctx.save(); ctx.translate(1040, 400); ctx.rotate(35 * Math.PI / 180); ctx.fillStyle = '#8a6a3f'; ctx.fillRect(-26, -5, 52, 10); ctx.lineWidth = 1.5; ctx.strokeRect(-26, -5, 52, 10); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(-26, 0, 52, -Math.PI / 2, 0); ctx.stroke(); ctx.restore(); }
+  }
+  var maps = document.querySelectorAll('canvas.map');
+  function all() { maps.forEach(drawMap); }
+  var btn = document.getElementById('theme');
+  function setTheme(t) { document.documentElement.setAttribute('data-theme', t); btn.textContent = t === 'dark' ? 'Switch to light' : 'Switch to dark'; all(); }
+  btn.addEventListener('click', function () { setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); });
+  setTheme('light');
+  document.querySelectorAll('i[data-lucide]').forEach(function (el) { var d = window.LUCIDE_ICONS[el.getAttribute('data-lucide')]; if (!d) return; var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '1.75'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round'); s.setAttribute('class', el.getAttribute('class')); s.innerHTML = d; el.replaceWith(s); });
+})();
+</script>
+</body>
+</html>

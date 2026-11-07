@@ -1,0 +1,254 @@
+# Canvas phase two: the renderer work behind the shell
+
+Status: drafted 7 November 2026; order, scope and rules agreed with the user the same day; the mockup page mockups/phase-2.html was approved by the user on 7 November; the self-review below closes the edge cases; building starts when its open questions are answered. Phase one (the shell, the design system, the registry, every family) is on the `canvas-v2-shell` branch; see [README.md](README.md). Phase two is everything the shell exposes a control for but the engine cannot draw yet, plus the terrain brush model the user asked for after trying the result.
+
+## TL;DR
+
+Sixteen items, grouped into five waves by dependency. Every item is one builder, one mockup frame approved before code, one scoped spec, one or two commits. The waves are ordered by what the user feels first when drawing: the brushes and floors, then walls and doors, then the three new terrain tools, then colour and prefabs, then map-wide helpers. Before any of it, a short closeout commit fixes the three open pixel checks and splits the browser suite into a fast scoped set and a slow render set, so phase two never runs a 40-minute suite again.
+
+## Rules that bind every item
+
+1. **Mockup first.** No control, panel section, dock column or card field is built until its frame is drawn in `mockups/phase-2.html` and the user has said yes. Items that change only the renderer and reuse an existing control (floor opacity, corner style) still get a before-and-after picture in that page.
+2. **One builder per item.** One Opus builder, briefed with this file's row, the Dungeondraft page and the family's phase-two comment. No helper builders. Sonnet only for read-only research through context mode.
+3. **No browser test run without the user's approval.** Unit tests and typecheck run freely. A builder writes its spec but does not run it; at the end of a wave the user approves one run of the specs the wave touched, the failures get one root-cause analysis and one plan of fixes, and the fixes land in one commit. Never a second run on a builder's own decision. Render checks use a fixed viewport, a fixed map, and a tolerance written in the test.
+4. **A budget line per item.** Each brief states the expected commits and the expected number of browser runs (usually two: one while writing the spec, one before the commit). A builder that passes its budget stops and reports instead of pushing on.
+5. **Registry stays the source.** A phase-two control is added by registering the setting the family's phase-two comment already names, with its home from the audit. The panel, dock and card render it; no surface code is written per item.
+6. **Nothing lands half-drawn.** If the renderer cannot finish an item within its budget, the control stays unregistered and the item goes back on this list with a note of what was learned.
+
+## Closeout before phase two (item 0)
+
+One commit on the same branch, then the user reviews phase one.
+
+- Fix the three open render checks from the phase-one suite: the light footprint sample points under the new chrome, the warren band reference fitted to the new viewport, and the plateau ring lift offset for the 112px dock. Fix the helper's wait for the shell test id after navigation so the frame specs pass on four workers.
+- Split the suite: `@render` and `@cdn` specs move to a slow project that runs only on request; everything else is the fast set, under ten minutes on two workers. The scripts: `pnpm -C canvas e2e` for the fast set, `pnpm -C canvas e2e:render` for the slow set.
+- Budget: one builder, one commit, three scoped runs plus one fast-set run with the user's permission.
+
+## Waves
+
+| Wave | Items | Why this order |
+|---|---|---|
+| 1 Brushes and floors | 1 Terrain brush model, 2 Floor opacity and edge band, 3 Carve out, 4 Node mode handles and floor curve, built together as one workstream in that order, one commit each | The first minute of drawing a map is terrain and floors; these are the controls the user already saw in the mockups and found missing; 2 to 4 are small engine changes and go in the same pass as the brush |
+| 2 Walls and doors | 5 Corner style, 6 Wall merge and auto-join, 7 Freestanding doors | Walls are drawn next; both corner pieces exist in the sets already |
+| 3 New terrain tools | 8 Water brush, 9 Material brush, 10 Path | New tools with new masks and renderers; each is its own family entry already named in the flyout list |
+| 4 Colour and prefabs | 11 Colour per region, 12 Save as prefab | Depend on pack declarations; the pack format change is one decision for both |
+| 5 Map-wide | 13 Level compare and clone, 14 Trace image, 16 Below-water layer | Useful but not on the drawing path; 16 waits for 8. 15 Label font faces was dropped on 7 November: one font for everything for now |
+
+## Items
+
+Each row: what the user gets, the engine work, the registry work, the reference, the mockup, the test, the budget. Budget sizes: S is one commit and about two scoped runs; M is two commits; L is three or more and needs a mid-way check-in.
+
+### 1. Terrain brush model (Dungeondraft style)
+
+- **User gets:** holding the brush on a spot keeps adding texture; intensity sets how fast; a low intensity gives the organic look; a Smooth blending switch softens edges; Fill floods the enclosed floor with the slot's texture; Erase mode paints back to the floor's own texture; the 0.4 display threshold goes, so every strength is visible.
+- **Engine:** per-frame accumulation while the pointer is down, with intensity as rate per second; blend mode flag read by the terrain shader; flood fill bounded by the floor outline; erase as negative accumulation; the threshold replaced by a smooth curve.
+- **Registry:** Terrain brush panel gains Smooth blending and Fill enclosed floor; Strength is renamed Intensity; Erase already exists.
+- **Reference:** Terrain brush page, "the longer you click, the more texture is added", smooth blending before and after pictures.
+- **Mockup:** frame B of the Terrain brush with the two new panel rows and the Fill button in the Textures column.
+- **Test:** unit tests on the accumulation function (time, intensity, ceiling, erase); one spec that holds for one second at two intensities and samples a pixel each.
+- **Budget:** M.
+
+### 2. Floor opacity and per-floor edge band
+
+- **User gets:** the Opacity row on the floor card and the default in the Floor panel work; a floor can pick its own edge band instead of the layer's.
+- **Engine:** alpha per floor in the floor renderer; the band renderer reads a per-floor band id with the layer's as fallback.
+- **Registry:** register `floor.opacity` (panel default and card field) and `floor.edgeBand` (panel default and card field), already named in the Design family's phase-two comment.
+- **Reference:** Pattern shape tool, opacity.
+- **Mockup:** frame B and frame D already draw these rows; a before-and-after picture of a floor at 50%.
+- **Test:** a spec that sets 50% and samples; a unit test that the band id falls back to the layer.
+- **Budget:** S.
+
+### 3. Carve out on Floor
+
+- **User gets:** a Mode row in the Floor panel, Draw or Carve out, and Alt while drawing as the fast path shown in the status hint; a carved shape subtracts from floors under it.
+- **Engine:** polygon subtract through the clipper dependency, applied to every floor the shape overlaps on the active layer, as one undo step.
+- **Registry:** register `floor.mode`; the hint shows Alt.
+- **Reference:** Building tool, ALT drag.
+- **Mockup:** frame B with the Mode section, as round two drew it.
+- **Test:** a spec that draws a floor, carves a rectangle out, undoes; unit tests on the subtract across two floors.
+- **Budget:** M.
+
+### 4. Node mode with midpoint handles, and floor curve
+
+- **User gets:** Node mode on the dock and the card shows a handle at every node and a smaller one at every midpoint; dragging a midpoint inserts a node; Curve on floors bends the segment the way it does on walls.
+- **Engine:** midpoint handles in the node editor; the polygon tool honours curve mode; curve handles on floors.
+- **Registry:** register `floor.curve` in the Edit column.
+- **Reference:** Wall tool, Edit Points.
+- **Mockup:** frame D with the handles drawn on the picked floor.
+- **Test:** a spec that enters node mode, drags a midpoint, undoes; unit tests on insert.
+- **Budget:** M.
+
+### 5. Corner style on walls
+
+- **User gets:** a Corner style seg in the Wall dock, Rounded or Sharp, per wall; the wall set's corner pieces are used.
+- **Engine:** the wall renderer picks the corner piece by the wall's corner flag; both pieces exist in the sets from the start.
+- **Registry:** register `wall.cornerStyle` (dock, and a card field).
+- **Reference:** Wall tool, Bevel corners.
+- **Mockup:** the Wall dock with the seg; a picture of the same wall both ways.
+- **Test:** a spec that draws a wall, switches the style, samples a corner.
+- **Budget:** S.
+
+### 6. Wall merge and auto-join
+
+- **User gets:** drawing to another wall's endpoint joins them; two picked walls show Merge on the card and the bar.
+- **Engine:** endpoint snap and join in the wall tool; a Merge command with undo.
+- **Registry:** Auto-join switch in the Wall panel (already named); Merge verb on the Select family, shown for two walls.
+- **Reference:** Wall tool, CTRL continue, Merge.
+- **Mockup:** the Wall panel with Auto-join; frame D with two walls picked and Merge in the row.
+- **Test:** a spec that draws two walls end to end and checks one remains; undo.
+- **Budget:** M.
+
+### 7. Freestanding doors
+
+- **User gets:** a Freestanding switch in the Door panel; a door placed in open space, rotatable in 5° steps.
+- **Engine:** a door object not bound to a wall edge, with its own angle; light blocking follows its state as today.
+- **Registry:** register `door.freestanding`; the card's Angle field becomes editable for these doors.
+- **Reference:** Portal tool, Freestanding.
+- **Mockup:** the Door panel with the switch; a card for a freestanding door.
+- **Test:** a spec that places one and rotates it.
+- **Budget:** M.
+
+### 8. Water brush
+
+- **User gets:** the Water brush in the Terrain flyout: a brush with Size, Shallow and Deep colours, Blend distance, Border on or off, Erase mode.
+- **Engine:** a water mask layer per level, a shader that blends shallow to deep by distance from the mask edge, an optional border line, erase as mask subtraction, save and load of the mask.
+- **Registry:** register the tool and its settings from the Terrain family's phase-two comment.
+- **Reference:** Water brush page.
+- **Mockup:** frame B for the Water brush, dock and panel.
+- **Test:** a spec that paints water, changes Deep colour, samples; unit tests on the mask.
+- **Budget:** L.
+
+### 9. Material brush
+
+- **User gets:** a freehand patch that closes into one solid piece with the pack's border art, "like scatter but fuller"; Size, material swatches, Smooth, Border on or off, Erase.
+- **Engine:** a freehand mask, the cave band renderer generalised to lay a pack's border units along any outline, erase as subtraction.
+- **Registry:** register the tool and its settings.
+- **Reference:** Material brush page.
+- **Mockup:** frame B for the Material brush.
+- **Test:** a spec that paints a patch and checks the border is drawn; unit tests on outline extraction.
+- **Budget:** L.
+
+### 10. Path
+
+- **User gets:** a Path tool: Width, Smoothness, Curve, Node mode, piece swatches; transitions in and out (hard, fade, grow or shrink); Snap; editable after placing; Block light.
+- **Engine:** individual unit pieces laid along a polyline, never stretched strips (decided 2 November); width and smoothness; transitions; a card with the fields.
+- **Registry:** register the tool, its dock, panel and card.
+- **Reference:** Path tool page.
+- **Mockup:** frame B and frame D for Path.
+- **Test:** a spec that draws a path with three nodes and changes its width; unit tests on piece placement along a curve.
+- **Budget:** L.
+
+### 11. Colour per region, and tint preview in the library
+
+- **User gets:** art that declares colour regions shows one colour control per region on the card and in the stamp dock; the library preview shows the chosen tint before placing.
+- **Engine:** packs declare regions (a mask per region); the renderer tints per region; the library tile renders the tint.
+- **Registry:** the colour control already exists as one colour with alpha; it becomes a list when the asset declares regions.
+- **Reference:** Objects tool, colourable assets.
+- **Mockup:** the Stamp dock and the prop card with two region rows; a library tile with the tint.
+- **Test:** unit tests on region tinting; a spec that sets a region colour and samples.
+- **Budget:** L, and needs the pack format decision first.
+
+### 12. Save as prefab
+
+- **User gets:** a picked group becomes a pack-local asset in the library under Prefabs, placeable like a prop.
+- **Engine:** serialise the group's children and their offsets into a pack entry; the library lists and places it.
+- **Registry:** a verb on the Mixed card and the group card; a Prefabs chip in the asset panel.
+- **Reference:** Prefabs tool page.
+- **Mockup:** the Mixed card with Save as prefab; the asset panel with the Prefabs chip.
+- **Test:** a spec that saves a prefab from two props and places it.
+- **Budget:** M, after 11's pack decision.
+
+### 13. Level compare and clone
+
+- **User gets:** Clone on create in the Level column's menu; Compare levels draws another level at a chosen opacity under the current one.
+- **Engine:** render a second level at opacity; clone copies a level's layers and children.
+- **Registry:** the Level column's menu gets the two entries; a Compare row in the Layers sheet.
+- **Reference:** Level settings page.
+- **Mockup:** the level menu and the Layers sheet with Compare.
+- **Test:** a spec that clones a level and compares two.
+- **Budget:** M.
+
+### 14. Trace image
+
+- **User gets:** a background image layer with Opacity and a toggle key, so an imported image works as a trace.
+- **Engine:** opacity on background layers; a key bound through the registry.
+- **Registry:** the Layer sheet gets Opacity for background layers; the shared keys list gets the toggle.
+- **Reference:** Settings tab, trace image.
+- **Mockup:** the Layer sheet for a background layer.
+- **Test:** a spec that imports an image, sets 40%, toggles it.
+- **Budget:** S.
+
+### 15. Label font faces (dropped 7 November: one font for everything for now)
+
+- **User gets:** a Font row in the Label panel with two or three faces; the table renders the same face.
+- **Engine:** the label renderer draws the chosen face here and at the table; the faces ship with the app.
+- **Registry:** register `label.font`.
+- **Reference:** Text tool page.
+- **Mockup:** the Label panel with the Font row.
+- **Test:** a spec that places a label in each face.
+- **Budget:** none; not built in this phase.
+
+### 16. Below-water layer
+
+- **User gets:** props under water are tinted by the water.
+- **Engine:** tint props by the water mask from item 8.
+- **Registry:** a Below water switch on the prop card's Layering section.
+- **Reference:** Water brush page, Below Water layer.
+- **Mockup:** the prop card with the switch; a before-and-after picture.
+- **Test:** a spec that places a prop in water and samples.
+- **Budget:** S, after 8.
+
+## Mockups
+
+One page, `mockups/phase-2.html`, in the same style as `shell.html`, with every frame for every item listed above, drawn before any building. The user reviews the whole page once; building starts after that approval and follows the page to the pixel.
+
+## Tests and budget for the whole phase
+
+- Fast set: the family and shell specs, tagged, under ten minutes on two workers; a builder runs only its item's file.
+- Slow set: `@render` and `@cdn`, run on request only, never by a builder.
+- Expected browser runs for the whole phase: one approved run per wave, five in all, each followed by a root-cause analysis and one fix commit.
+- One builder at a time per wave unless two items touch different engine files and the user agrees to a pair.
+- The watcher runs every twenty minutes and reports a stall after thirty minutes without a file change and without a test process alive.
+
+## Self-review: edge cases and the decisions taken
+
+Reviewed 7 November against the approved mockup page, the phase-one code, and the table client. The table imports the core engine for map rendering, so renderer changes made in `packages/core` reach published maps without table work; the table client itself is never touched in this phase, so the two gaps that leaves are called out below as accepted.
+
+### Across every item
+
+- **Map format.** Each wave that adds data bumps the format version once, in `canvas/src/io/mapFile.ts`, with a fixture test that an old map loads and a new map round-trips. The table reads maps through the same core parser, so item 0 adds a test that the parser the table uses accepts the new version.
+- **Undo.** Every new engine operation (carve, fill, merge, clone, insert node) is a command on the existing command layer with a single undo step.
+- **Export and publish.** The PNG export pipeline and the table both draw through the core renderers; each wave's approved run includes the export spec so water, material, path and opacity are known to reach exports.
+- **Reference images.** The terrain model and the threshold change how existing paint looks, on purpose. The wave-1 approved run re-baselines the warren band and plateau pixel references; a diff there is expected, not a bug, and the builder says so in the report before anyone reads it as a failure.
+- **Keys.** The mockup letters are placeholders. Material brush cannot be M (Measure holds M on the rail, which is always live); the registry's collision test picks a free letter and the report lists it. Water W and Path P are clear (Wall is in another family; Pan is G).
+- **Curves.** Floors and paths can carry curved segments after wave 1. One shared helper flattens curves to segments at a fixed tolerance, used by hit-testing, the clipper, the band renderer and export, so no consumer sees a curve it does not understand.
+- **Budget.** One builder at a time; the watcher checks every twenty minutes; a builder that passes its budget stops and reports.
+
+### Per item
+
+1. **Terrain brush.** Holding still must keep adding, so the tool runs a timer while the pointer is down and adds intensity × elapsed seconds, frame rate independent. Smooth blending is a flag on the terrain layer, saved with the map; toggling it re-renders that layer. Fill needs a floor under the pointer; over none, the hint says "No floor here" and nothing happens. Fill is one undo step. Erase is negative accumulation down to zero. The setting keeps its id so saved prefs load; only the label becomes Intensity. The 0.4 display threshold becomes a smooth ramp, which changes how existing maps look, as agreed.
+2. **Floor opacity and edge band.** Alpha applies to the floor's fill and texture only; its walls, band, props and lights are unaffected and floors below show through. Edge band per floor is None or a band id, falling back to the layer's when unset; the band renderer takes the per-floor value first.
+3. **Carve out.** Carves the active layer only. A carve that splits a floor yields two floors with new ids; a carve that removes a floor entirely deletes it; walls, rooms and doors on the floor are untouched. Regular polygons and rectangles carve as well as polygons. Carving a floor with curved edges flattens those edges first and the hint says so. Alt in Draw mode carves the one shape being drawn.
+4. **Node mode and floor curve.** Dragging a midpoint inserts a node; Delete is disabled at three nodes. Curve handles show only in node mode. N stays reserved.
+5. **Corner style.** Per wall, for all its corners. Where two separate walls meet, the corner is rounded only if both are rounded. A set missing a corner piece falls back to sharp with a development warning, never a crash.
+6. **Merge and auto-join.** Merge is enabled only for two walls that share an endpoint and have the same type and set; otherwise the verb is disabled with a hint. Auto-join joins only to a wall of the same set. The merged wall keeps the first wall's id; doors on either wall keep their place along the new wall; undo restores both walls.
+7. **Freestanding doors.** New door fields (position, angle, freestanding) and a format bump. The table has its own door module for toggling at the table; it is not touched in this phase, so a freestanding door does not draw or toggle at the table until the table pass. Known gap, accepted 7 November. The card's Freestanding switch converts both ways: anchoring snaps to the nearest wall within one cell and refuses with a hint when there is none. Light blocking treats the door as a short segment.
+8. **Water brush.** One mask per level, saved with the map the way terrain paint is. Blend distance is in cells; the border is a thin line in the Deep colour; erase subtracts from the mask. The Shape option is drawn disabled until the shape placer exists. Water sits in the layer order like any layer, so it can go over or under a floor by layer order.
+9. **Material brush.** Needs border units per material from the packs; today only cave ink has them. The brush ships with cave ink as its one material and the swatches fill in as packs arrive; border units per material are on the forge list for when the user asks what to build there next.
+10. **Path.** Units are laid along the flattened polyline at the piece's own spacing; width scales the units; transitions are alpha ramps over the first and last few units. The pack's path entries already exist, so no new art is needed to start.
+11. **Colour per region** and 12. **Save as prefab.** Parked until the pack format carries region masks and prefab entries.
+13. **Level clone and compare.** Clone is a deep copy with new ids and remapped room, zone and prep references. Compare draws the other level's static layers at opacity under the current level, with no interaction, and is never exported or published.
+14. **Trace image.** Opacity on background image layers; the toggle key is registered in the shared keys and covered by the collision test. A background image layer is excluded from PNG export and from publish by default, with a per-layer switch to include it.
+15. **Label font faces.** Dropped: one font for everything for now.
+16. **Below water.** Reads the water mask from item 8; a prop with the switch on but no water under it is drawn normally.
+
+## Open questions
+
+None open. Answered 7 November: the forge is not asked for anything yet, border units per material are noted for later; nothing in the table client is touched until its own pass; background image layers stay out of export and publish by default; one font for everything, so item 15 is dropped; the wave-1 approved run re-baselines the render references.
+
+## Decision log
+
+| Date | Decision |
+|---|---|
+| 7 Nov 2026 | Phase two drafted as five waves, one builder per item, mockup before code, scoped tests only, full suite only with the user's permission |
+| 7 Nov 2026 | Mockup page approved; no forge or table work inside phase two (forge asks and the table door module are noted for their own passes); item 15 dropped, one font for everything; trace layers out of export by default |
+| 7 Nov 2026 | Wave 1 built as one workstream, terrain brush first; wave 4 parked for the pack format; label fonts stay with the table behind; render checks kept; no browser run without approval, one run per wave then one root-cause analysis and one fix commit; one mockup page for all of phase two before any build |
