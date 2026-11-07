@@ -2,6 +2,18 @@
 
 Status: drafted 7 November 2026; order, scope and rules agreed with the user the same day; the mockup page mockups/phase-2.html was approved by the user on 7 November; the self-review below closes the edge cases; building starts when its open questions are answered. Phase one (the shell, the design system, the registry, every family) is on the `canvas-v2-shell` branch; see [README.md](README.md). Phase two is everything the shell exposes a control for but the engine cannot draw yet, plus the terrain brush model the user asked for after trying the result.
 
+## Built
+
+| Item | Commit |
+|---|---|
+| 0 Closeout: render checks pointed at the new shell, helper wait, suite split fast/slow | fe8fad6 |
+| 1 Terrain brush model, Smooth blending, Fill, Intensity, format 3.5 | ffd0074 |
+| 2 Floor opacity and per-floor edge band | 1b569cd |
+| 3 Carve out, Mode row, Alt while drawing | 29f8db5, 8b78712 (Floor mode is its own flag, not the shared erase switch) |
+| 4 Midpoint handles in node mode, Curve for floors, one flattening helper | 701fcd5 |
+
+Specs written and not run in wave 1: terrain-brush, floor-opacity, floor-carve, floor-node-mode, shell-frame-d (updated). Every commit passed typecheck, lint, the unit tests and the build in both packages.
+
 ## TL;DR
 
 Sixteen items, grouped into five waves by dependency. Every item is one builder, one mockup frame approved before code, one scoped spec, one or two commits. The waves are ordered by what the user feels first when drawing: the brushes and floors, then walls and doors, then the three new terrain tools, then colour and prefabs, then map-wide helpers. Before any of it, a short closeout commit fixes the three open pixel checks and splits the browser suite into a fast scoped set and a slow render set, so phase two never runs a 40-minute suite again.
@@ -252,4 +264,5 @@ None open. Answered 7 November: the forge is not asked for anything yet, border 
 | 7 Nov 2026 | Phase two drafted as five waves, one builder per item, mockup before code, scoped tests only, full suite only with the user's permission |
 | 7 Nov 2026 | Mockup page approved; no forge or table work inside phase two (forge asks and the table door module are noted for their own passes); item 15 dropped, one font for everything; trace layers out of export by default |
 | 7 Nov 2026 | Wave 1 built as one workstream, terrain brush first; wave 4 parked for the pack format; render checks kept; one mockup page for all of phase two before any build |
+| 7 Nov 2026 | Wave 1 decisions while building: Fill is a one-shot (click Fill, then click the floor; armed look is the existing toggle-on style, hint "Click a floor to fill · Esc cancels"); the edge band default starts unset and shows the layer's band; Paint or Erase is a terrain-only seg on the shared erase value; Floor's Draw or Carve out is its own flag so it never flips the brushes to Erase; the flattened-curve notice is a toast; in node mode the floor stays picked, the selection box hides, the floating bar and the card stay as frame 4 draws them, the card's Delete removes the picked node and is disabled at three nodes |
 | 7 Nov 2026 | No browser tests at all during the phase: typecheck, lint, unit tests and the production build gate every commit; builders write specs and never run them; one testing plan at the end of the phase, approved by the user, then the runs, one root-cause analysis and one fix commit |
