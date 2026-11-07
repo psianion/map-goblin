@@ -142,8 +142,13 @@ describe('card host', () => {
     expect(merge()?.disabled).toBe(true);
     expect(selectHint(useStore.getState()).segments.map((s) => s.text).join(' ')).toContain('not touching at an end');
 
+    expect(getByTestId('mixed-merge')).toHaveProperty('disabled', true);
+    expect(getByTestId('shell-card').textContent).toContain('4 + 3 sq');
+
     act(() => useStore.getState().setSelectedIds(['a', 'b']));
     expect(merge()?.disabled).toBe(false);
+    expect(getByTestId('mixed-merge')).toHaveProperty('disabled', false);
+    expect(getByTestId('shell-card').textContent).toContain('4 + 5 sq');
     expect(selectHint(useStore.getState()).segments.map((s) => s.text).join(' ')).toContain('touching at one point');
     act(() => fireEvent.click(merge()!));
     expect(layer().standaloneWalls.map((w) => w.id)).toEqual(['a', 'c']);

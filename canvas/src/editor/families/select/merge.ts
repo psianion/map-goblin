@@ -7,6 +7,7 @@ import { MergeWallsCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { MapBuilderStore, WallSegment } from '@/store/types';
 import { joinRefusal, mergeWalls } from '@dnd/core/src/shared/wallJoin';
+import { polylineLength } from '@dnd/core/src/shared/wallResolve';
 import type { EditorState, Verb } from '@/editor/registry/types';
 
 type Plan = { layerId: string; merged: WallSegment; removed: string } | { refusal: string };
@@ -30,6 +31,19 @@ export function mergePlan(state: EditorState): Plan | null {
   if (refusal) return { refusal };
   const merged = mergeWalls(a.wall, b.wall, a.layer.style);
   return merged ? { layerId: a.layer.id, merged, removed: b.wall.id } : { refusal: 'not touching at an end' };
+}
+
+const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+/** For the Mixed card's Merge and Length rows: the two walls' lengths ("8 + 9 sq") and whether they merge. */
+export function mergePair(state: EditorState): { lengths: string; mergeable: boolean } | null {
+  const pair = pickedPair(state);
+  const plan = pair && mergePlan(state);
+  if (!pair || !plan) return null;
+  return {
+    lengths: `${fmt(polylineLength(pair.a.wall.points))} + ${fmt(polylineLength(pair.b.wall.points))} sq`,
+    mergeable: !('refusal' in plan),
+  };
 }
 
 export const mergeVerb: Verb = {
