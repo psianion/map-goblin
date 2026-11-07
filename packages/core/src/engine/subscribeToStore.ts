@@ -25,6 +25,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomRefresh';
 import * as textureLoader from '../assets/textureLoader';
+import { drawLayerWater } from './water/waterRenderer';
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -422,6 +423,31 @@ export function subscribeToStore(
     { fireImmediately: true },
   );
   unsubscribers.push(unsubLayers);
+
+  // ─── Water ────────────────────────────────────────────
+  // Redrawn only for a layer whose water moved: a stroke, an undo, a look change, a load.
+  // After the layer list's subscription, so a new layer's entry already exists.
+  const drawnWater = new Map<string, DungeonLayer['water']>();
+  const unsubWater = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const drawn = drawnWater.has(layer.id);
+        if (drawn ? drawnWater.get(layer.id) === layer.water : !layer.water) {
+          drawnWater.set(layer.id, layer.water);
+          continue;
+        }
+        drawnWater.set(layer.id, layer.water);
+        drawLayerWater(layer);
+      }
+      for (const id of [...drawnWater.keys()]) if (!live.has(id)) drawnWater.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubWater);
 
   // ─── Layer visibility changes ─────────────────────────
   // Reads effective visibility (own flag narrowed by solo, and the shown level —
@@ -853,6 +879,8 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
+        // Water, like plateaus, lies on the ground: it follows the floor.
+        entry.sublayers.water.visible = vis.floor;
         // Plateaus are relief on the floor: they follow it.
         entry.sublayers.plateauTops.visible = vis.floor;
         entry.sublayers.plateauEdges.visible = vis.floor;

@@ -34,6 +34,7 @@ vi.mock('./sceneGraph', () => {
     textureSprite: null,
     sublayers: {
       floor: { visible: true },
+      water: { visible: true },
       plateauTops: { visible: true },
       plateauEdges: { visible: true },
       shadows: { visible: true },

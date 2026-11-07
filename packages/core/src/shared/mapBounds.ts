@@ -4,6 +4,7 @@
 
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
 import { shapeRing } from './plateaus';
+import { waterBounds } from './waterMask';
 import { dropShadeWidth, slopeWidthOf } from './plateauShade';
 
 /** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
@@ -92,6 +93,14 @@ function drawnBounds(
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
       }
+    }
+    // Painted water is map, whether or not a floor lies under it.
+    const water = waterBounds(dl.water);
+    if (water) {
+      minX = Math.min(minX, water.minX);
+      minY = Math.min(minY, water.minY);
+      maxX = Math.max(maxX, water.maxX);
+      maxY = Math.max(maxY, water.maxY);
     }
     // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
     // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and

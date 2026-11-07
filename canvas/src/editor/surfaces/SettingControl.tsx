@@ -87,7 +87,7 @@ export function FieldControl({ meta, value, onChange }: FieldProps): ReactNode {
             aria-label={meta.label}
             value={optionIndex(meta, value)}
             onValueChange={(i) => onChange(fromIndex(meta, i))}
-            options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label }))}
+            options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label, disabled: o.disabled }))}
           />
         </SettingRow>
       );
@@ -97,7 +97,7 @@ export function FieldControl({ meta, value, onChange }: FieldProps): ReactNode {
           label={meta.label}
           value={optionIndex(meta, value)}
           onValueChange={(i) => onChange(fromIndex(meta, i))}
-          options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label }))}
+          options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label, disabled: o.disabled }))}
         />
       );
     case 'stepper':
@@ -167,7 +167,7 @@ export function DockControl({ meta, value, onChange }: FieldProps): ReactNode {
         aria-label={meta.label}
         value={optionIndex(meta, value)}
         onValueChange={(i) => onChange(fromIndex(meta, i))}
-        options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label }))}
+        options={(meta.options ?? []).map((o, i) => ({ value: String(i), label: o.label, disabled: o.disabled }))}
       />
     );
   }

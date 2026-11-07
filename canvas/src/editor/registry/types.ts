@@ -55,6 +55,8 @@ export interface SettingOption<T> {
   label: string;
   icon?: LucideIcon;
   key?: string;
+  /** Drawn disabled: a choice the engine cannot make yet (Water's Shape). */
+  disabled?: boolean;
 }
 
 /** What every setting and card field says about itself, whatever it is bound to. */
@@ -77,6 +79,8 @@ export interface SettingMeta<T> {
   key?: string;
   /** Only for control 'custom'. */
   render?: ComponentType<SettingProps<T>>;
+  /** A dock setting's short line under its control (Water's "Shape comes after the brush"). */
+  note?: string;
 }
 
 /**

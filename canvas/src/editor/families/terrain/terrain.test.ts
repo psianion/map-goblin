@@ -9,6 +9,9 @@ import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
 import { terrain } from './index';
 import { fromHex8, toHex8 } from './colour';
+import { undoManager } from '@/store/undoManager';
+import type { DungeonLayer } from '@/store/types';
+import { emptyWaterGrid, encodeWater, paintWaterDisc } from '@dnd/core/src/shared/waterMask';
 
 const input = () => ({ rail: RAIL_TOOLS, families: [...families], shared: SHARED_SETTINGS, cards: [...cards] });
 const reg = createRegistry(input());
@@ -25,8 +28,14 @@ describe('the Terrain family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds the Terrain brush under T, key B, driving the terrain tool', () => {
-    expect([terrain.key, terrain.tools.map((t) => [t.label, t.key, t.engine])]).toEqual(['T', [['Terrain brush', 'B', ['terrain']]]]);
+  it('holds the Terrain brush and the Water brush under T, keys B and W', () => {
+    expect([terrain.key, terrain.tools.map((t) => [t.label, t.key, t.engine])]).toEqual([
+      'T',
+      [
+        ['Terrain brush', 'B', ['terrain']],
+        ['Water brush', 'W', ['water']],
+      ],
+    ]);
   });
 
   it('keeps Size, Intensity and the slots in the dock; Paint or erase, the blending, Fill and the colour in the panel', () => {
@@ -92,5 +101,47 @@ describe('Terrain brush settings', () => {
 
   it('round-trips the colour through #rrggbbaa', () => {
     expect(fromHex8(toHex8('#FFDD88', 0.6))).toEqual({ colour: '#ffdd88', alpha: 0.6 });
+  });
+});
+
+describe('Water brush settings', () => {
+  beforeEach(() => undoManager.clear());
+  const layer = () => useStore.getState().layers.find((l) => l.id === useStore.getState().ui.activeLayerId) as DungeonLayer;
+
+  it('keeps Size and Brush or Shape in the dock, the mode, colours, blend and border in the panel', () => {
+    const ids = (home: 'dock' | 'panel') => reg.settingsByHome('waterBrush', home).map((s) => s.id);
+    expect(ids('dock')).toEqual(['water.size', 'water.place']);
+    expect(ids('panel')).toEqual(['terrain.mode', 'water.shallow', 'water.deep', 'water.blend', 'water.border']);
+    const place = reg.settingById('water.place')!;
+    expect(place.options?.map((o) => [o.label, o.disabled === true])).toEqual([['Brush', false], ['Shape', true]]);
+    expect(settings.setSetting('water.place', 'shape')).toBe(true);
+    expect(settings.getSetting('water.place')).toBe('brush');
+  });
+
+  it('sets the first stroke\'s look on a dry layer, without an undo step', () => {
+    expect(settings.setSetting('water.deep', '#112233')).toBe(true);
+    expect(useStore.getState().tools.settings.water.deep).toBe('#112233');
+    expect(layer().water).toBeUndefined();
+    expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('changes the look of the water on the layer in hand as one undo step', () => {
+    const body = encodeWater(paintWaterDisc(emptyWaterGrid(), 0, 0, 2, false), useStore.getState().tools.settings.water)!;
+    useStore.getState().updateLayer(layer().id, { water: body });
+    expect(settings.getSetting('water.deep')).toBe('#5f8a93');
+    settings.setSetting('water.deep', '#223344');
+    settings.setSetting('water.deep', '#334455');
+    expect(layer().water?.deep).toBe('#334455');
+    expect(settings.getSetting('water.deep')).toBe('#334455');
+    undoManager.undo();
+    expect(layer().water?.deep).toBe('#5f8a93');
+    expect(layer().water?.runs).toBe(body.runs);
+  });
+
+  it('says how to paint and erase on the status bar', () => {
+    const hint = () => reg.toolById('waterBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    expect(hint()).toBe('Paint water · Alt erase · [ ] size');
+    settings.setSetting('terrain.mode', true);
+    expect(hint()).toBe('Erase water · [ ] size');
   });
 });

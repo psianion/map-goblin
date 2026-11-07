@@ -29,10 +29,10 @@ function saved(patch: (l: DungeonLayer) => void): SerializedMapData {
 }
 
 describe('map format 3.6', () => {
-  it('is the version saved, and 3.5 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.6');
+  it('is still read, as 3.5 is', () => {
+    expect(CURRENT_VERSION).toBe('3.7');
     expect(SUPPORTED_VERSIONS).toContain('3.5');
-    expect(useStore.getState().getSerializableState().version).toBe('3.6');
+    expect(SUPPORTED_VERSIONS).toContain('3.6');
   });
 
   it('loads a 3.5 map with sharp corners and its doors on their walls', () => {

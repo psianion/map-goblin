@@ -47,6 +47,7 @@ function LevelColumn() {
 function SettingColumns({ defs }: { defs: readonly SettingDef[] }) {
   return groupBySection(defs).map((sec, i) => {
     const iconNames = sec.items.filter((d) => d.control === 'switch' && d.icon).map((d) => d.label);
+    const notes = sec.items.flatMap((d) => (d.note ? [d.note] : []));
     return (
       <DockColumn key={sec.title ?? `c${i}`} title={sec.title ?? sec.items[0].label} data-column={sec.title ?? sec.items[0].id}>
         <div className="flex flex-col gap-1.5">
@@ -56,6 +57,11 @@ function SettingColumns({ defs }: { defs: readonly SettingDef[] }) {
             ))}
           </div>
           {iconNames.length > 0 && <div className="text-[10px] text-text-3">{iconNames.join(' · ')}</div>}
+          {notes.map((n) => (
+            <div key={n} className="text-[10px] text-text-3">
+              {n}
+            </div>
+          ))}
         </div>
       </DockColumn>
     );

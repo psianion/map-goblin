@@ -50,6 +50,25 @@ const v2 = z
 const settings35 = mapSettings.extend({ terrain: z.object({ smoothBlend: z.boolean().optional() }).passthrough().optional() });
 const child35 = z.object({ opacity: z.number().min(0).max(1).optional(), edgeBand: z.string().nullable().optional() }).passthrough();
 const cornerStyle = z.enum(['rounded', 'sharp']).optional();
+const layer36 = layer.extend({
+  children: z.array(child35.extend({ freestanding: z.boolean().optional() })).optional(),
+  standaloneWalls: z.array(z.object({ cornerStyle }).passthrough()).optional(),
+  style: z.object({ wallCornerStyle: cornerStyle }).passthrough().optional(),
+});
+/** 3.7: a layer's water, its mask as runs over a texel grid (shared/waterMask.ts) and its look. */
+const water = z
+  .object({
+    x: z.number().int(),
+    y: z.number().int(),
+    w: z.number().int().min(0),
+    h: z.number().int().min(0),
+    runs: z.string(),
+    shallow: z.string(),
+    deep: z.string(),
+    blend: z.number().min(0),
+    border: z.boolean(),
+  })
+  .passthrough();
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -76,15 +95,9 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.5': v3('3.5', settings35, layer.extend({ children: z.array(child35).optional() })),
   // 3.6 adds a wall's and a layer's corner style (absent, sharp) and a door's freestanding
   // flag (absent, on a wall).
-  '3.6': v3(
-    '3.6',
-    settings35,
-    layer.extend({
-      children: z.array(child35.extend({ freestanding: z.boolean().optional() })).optional(),
-      standaloneWalls: z.array(z.object({ cornerStyle }).passthrough()).optional(),
-      style: z.object({ wallCornerStyle: cornerStyle }).passthrough().optional(),
-    }),
-  ),
+  '3.6': v3('3.6', settings35, layer36),
+  // 3.7 adds a layer's water (absent, dry).
+  '3.7': v3('3.7', settings35, layer36.extend({ water: water.optional() })),
 };
 
 /** The first problem with a document, said plainly. */

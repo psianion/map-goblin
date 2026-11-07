@@ -8,6 +8,12 @@ export const TERRAIN_BRUSH_RANGES = {
   tintOpacity: { min: 0, max: 1, step: 0.05 },
 } as const;
 
+/** The Water brush's clamps, read by its dock and panel too. */
+export const WATER_BRUSH_RANGES = {
+  radius: { min: 0.5, max: 12, step: 0.5 },
+  blend: { min: 0, max: 6, step: 0.5 },
+} as const;
+
 /** Props tool clamps — the dock's sliders read these too. */
 export const PROPS_RANGES = {
   brushRadius: { min: 0.5, max: 10, step: 0.5 },

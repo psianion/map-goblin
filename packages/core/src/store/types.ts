@@ -25,6 +25,7 @@ import type { LightPresetId } from './lightPresets';
 import type { MapEnvironment, NightSky } from '../shared/world';
 import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
+import type { WaterBody, WaterLook } from '../shared/waterMask';
 
 // ─── Map Settings ─────────────────────────────────────────
 
@@ -199,6 +200,8 @@ export interface DungeonLayer extends BaseLayer {
    * standalone wall's do.
    */
   floorWallEdits?: Record<string, WallEdits>;
+  /** The Water brush's mask and look, drawn just above this layer's floors. Absent = dry. */
+  water?: WaterBody;
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -251,7 +254,9 @@ export type ToolType =
   /** Draws a threshold (or a wall) across a floor to split a room. */
   | 'divide'
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
-  | 'plateau';
+  | 'plateau'
+  /** Paints the active layer's water mask. */
+  | 'water';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -269,6 +274,12 @@ export interface TerrainBrushSettings {
   tintOpacity: number;
 }
 
+
+/** The Water brush: its size, and the look a layer's first water takes. */
+export interface WaterToolSettings extends WaterLook {
+  /** Brush radius in cells. */
+  radius: number;
+}
 
 /** What the Plateau tool draws next. */
 export interface PlateauToolSettings {
@@ -344,6 +355,7 @@ export interface ToolSettings {
   /** The Door panel's Freestanding: every click places a door free, never on a wall. Absent = off. */
   doorFreestanding?: boolean;
   terrainBrush: TerrainBrushSettings;
+  water: WaterToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
   /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */
@@ -655,7 +667,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];

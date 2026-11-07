@@ -5,7 +5,7 @@ import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
 import { dropRemovedFields } from './removedFields'
 
-export const CURRENT_VERSION = '3.6' as const
+export const CURRENT_VERSION = '3.7' as const
 
 /**
  * Every file version a reader must accept, oldest first. THE one list — the
@@ -18,9 +18,10 @@ export const CURRENT_VERSION = '3.6' as const
  * the Path tool's paths the same way, and the props its kits placed let go of their host.
  * '3.4' → '3.5' is additive: the terrain's smooth blending switch, a floor's own opacity and
  * edge band, curved floor edges; a field a 3.4 map lacks takes its default. '3.5' → '3.6'
- * is additive too: a wall's and a layer's corner style, a door's freestanding flag.)
+ * is additive too: a wall's and a layer's corner style, a door's freestanding flag. '3.6' →
+ * '3.7' adds the new terrain tools' data, all additive: a layer's water.)
  */
-export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6']
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7']
 
 export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
   return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
@@ -77,6 +78,7 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
     result.version !== '3.3' &&
     result.version !== '3.4' &&
     result.version !== '3.5' &&
+    result.version !== '3.6' &&
     result.version !== CURRENT_VERSION
   ) {
     throw new Error(

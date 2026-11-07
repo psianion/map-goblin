@@ -1,6 +1,6 @@
 import { ToggleGroup, ToggleGroupItem } from '@/ui/toggle-group';
 
-export type SegOption = { value: string; label: React.ReactNode; testId?: string };
+export type SegOption = { value: string; label: React.ReactNode; testId?: string; disabled?: boolean };
 
 type SegProps = {
   options: SegOption[];
@@ -25,7 +25,7 @@ function Seg({ options, value, onValueChange, ...props }: SegProps) {
       {...props}
     >
       {options.map((o) => (
-        <ToggleGroupItem key={o.value} value={o.value} data-testid={o.testId}>
+        <ToggleGroupItem key={o.value} value={o.value} data-testid={o.testId} disabled={o.disabled}>
           {o.label}
         </ToggleGroupItem>
       ))}

@@ -181,6 +181,13 @@ export function createDefaultState(): MapBuilderState {
           tintColor: '#ffffff',
           tintOpacity: 0,
         },
+        water: {
+          radius: 3,
+          shallow: '#9db7bd',
+          deep: '#5f8a93',
+          blend: 1.5,
+          border: true,
+        },
         zone: {
           mode: 'point' as const,
         },
