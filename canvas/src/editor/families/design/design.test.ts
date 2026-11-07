@@ -235,13 +235,22 @@ describe('tool settings', () => {
 describe('Carve out', () => {
   const hint = () => reg.toolById('floor')!.hint(st()).segments.map((s) => s.text).join('');
 
-  it('is the Mode the floor tools read, with Alt as the fast path in the hint', () => {
+  it('is the floor tools\' own Mode, with Alt as the fast path in the hint', () => {
     expect(hint()).toBe('Drag a rectangle · Shift square · Alt carves · Esc cancel');
     expect(settings.setSetting('floor.mode', 'carve')).toBe(true);
-    expect(st().tools.eraseMode).toBe(true);
+    expect(st().tools.floorMode).toBe('carve');
     expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
     settings.setSetting('floor.mode', 'draw');
+    expect(st().tools.floorMode).toBe('draw');
+  });
+
+  it('never flips the erase switch the brushes share', () => {
+    settings.setSetting('floor.mode', 'carve');
     expect(st().tools.eraseMode).toBe(false);
+    st().setEraseMode(true);
+    expect(settings.getSetting('floor.mode')).toBe('carve');
+    st().setFloorMode('draw');
+    expect(st().tools.eraseMode).toBe(true);
   });
 });
 

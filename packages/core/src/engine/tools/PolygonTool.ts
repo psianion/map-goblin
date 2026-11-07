@@ -112,7 +112,7 @@ export class PolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
-    const isErase = (store.tools.eraseMode || this.alt) && !this.onShape;
+    const isErase = (store.tools.floorMode === 'carve' || this.alt) && !this.onShape;
 
     if (isErase) {
       carveFloors(activeLayer, activeLayerId, [polyPoints]);

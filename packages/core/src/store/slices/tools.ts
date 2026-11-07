@@ -26,6 +26,7 @@ export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
   setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
+  setFloorMode: (mode: ToolsSlice['floorMode']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -115,6 +116,10 @@ export const createToolsSlice: StateCreator<
   setTerrainFill: (fill) =>
     set((state) => {
       state.tools.terrainFill = fill;
+    }),
+  setFloorMode: (mode) =>
+    set((state) => {
+      state.tools.floorMode = mode;
     }),
   setCurveMode: (enabled) =>
     set((state) => {

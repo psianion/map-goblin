@@ -71,7 +71,7 @@ export const floorSides = defineSetting<number>({
 
 /**
  * Draw, or Carve out: the shape drawn comes off every floor under it on the active layer.
- * It is the erase mode the floor tools have always read, here as the panel's Mode.
+ * The floor tools' own mode, apart from the erase switch the brushes share.
  */
 export const floorMode = defineSetting<'draw' | 'carve'>({
   id: 'floor.mode',
@@ -87,8 +87,8 @@ export const floorMode = defineSetting<'draw' | 'carve'>({
   ],
   persist: false,
   bind: {
-    read: (s) => (s.tools.eraseMode ? 'carve' : 'draw'),
-    write: (store, v) => store.getState().setEraseMode(v === 'carve'),
+    read: (s) => s.tools.floorMode,
+    write: (store, v) => store.getState().setFloorMode(v),
   },
 });
 
@@ -188,5 +188,5 @@ export const floorTool = defineTool({
   // No Curve: the polygon tool draws straight edges only; curveMode reaches walls alone.
   settings: [floorShape, floorSides, editNodeMode, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
-  hint: (s) => (s.tools.eraseMode ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
+  hint: (s) => (s.tools.floorMode === 'carve' ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
 });

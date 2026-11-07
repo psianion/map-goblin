@@ -96,7 +96,7 @@ export class RectangleTool implements DrawingTool {
       [start.x, end.y],
     ];
 
-    const isErase = (store.tools.eraseMode || alt) && !this.onShape;
+    const isErase = (store.tools.floorMode === 'carve' || alt) && !this.onShape;
 
     if (isErase) {
       // Carve out: the rectangle comes off every floor under it, as one undo step.

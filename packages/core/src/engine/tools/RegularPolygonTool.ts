@@ -79,7 +79,7 @@ export class RegularPolygonTool implements DrawingTool {
     const store = useStore.getState();
     const sides = store.tools.settings.regularPolygon.sides;
     const polyPoints = generateRegularPolygon(center.x, center.y, radius, sides);
-    const isErase = store.tools.eraseMode || alt;
+    const isErase = store.tools.floorMode === 'carve' || alt;
 
     if (isErase) {
       carveFloors(activeLayer, activeLayerId, [polyPoints]);

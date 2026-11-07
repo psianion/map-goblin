@@ -356,6 +356,8 @@ export interface ToolsSlice {
    * there. 'miss' is armed still, after a click that found no floor.
    */
   terrainFill: 'off' | 'armed' | 'miss';
+  /** The Floor panel's Mode: the floor tools draw floors, or carve the shape out of them. */
+  floorMode: 'draw' | 'carve';
   settings: ToolSettings;
   /**
    * Wall whose composed sprite nodes are exposed for hand-editing (GitHub #19).
@@ -782,6 +784,7 @@ export interface MapBuilderStore {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
   setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
+  setFloorMode: (mode: ToolsSlice['floorMode']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
