@@ -1,10 +1,10 @@
 // The drawn wall's card: Length, Type, Set (now editable: swap one wall from stone to
-// timber without redrawing it) and Stones. Merge and Shadow wait for phase two.
+// timber without redrawing it), Corner style and Stones. Shadow waits for the renderer.
 
 import { z } from 'zod';
 import { useStore } from '@/store/store';
 import { selectWallById } from '@/store/selectors';
-import type { MapBuilderStore, WallSegment } from '@/store/types';
+import type { CornerStyle, MapBuilderStore, WallSegment } from '@/store/types';
 import { polylineLength } from '@dnd/core/src/shared/wallResolve';
 import { wallTypeGroup, GROUP_WALL_TYPE, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
@@ -12,7 +12,7 @@ import { defineCard, defineCardField } from '@/editor/registry/define';
 import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
 import { editWalls } from './cardWrites';
 import { EDITABLE_VERBS } from './verbs';
-import { LAYER_SET, NO_SET } from './wallLook';
+import { CORNER_STYLE_CHOICES, LAYER_SET, NO_SET, wallCornerStyleOf } from './wallLook';
 import { SetField } from './WallFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
@@ -63,6 +63,18 @@ const set = defineCardField<'wall', string>({
     })),
 });
 
+const cornerStyle = defineCardField<'wall', CornerStyle>({
+  id: 'card.wall.cornerStyle',
+  label: 'Corner style',
+  schema: z.enum(['rounded', 'sharp']),
+  default: 'sharp',
+  home: 'card',
+  control: 'seg',
+  options: CORNER_STYLE_CHOICES,
+  read: (w) => wallCornerStyleOf(state(), w),
+  write: (_store, ids, style) => editWalls('Corner style', ids, () => ({ cornerStyle: style })),
+});
+
 const stones = defineCardField<'wall', string>({
   id: 'card.wall.stones',
   label: 'Stones',
@@ -82,5 +94,5 @@ export const wallCard = defineCard<'wall'>({
   kind: 'wall',
   title: () => 'Wall',
   verbs: EDITABLE_VERBS,
-  fields: [length, type, set, stones],
+  fields: [length, type, set, cornerStyle, stones],
 });

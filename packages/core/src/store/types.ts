@@ -9,6 +9,7 @@ import type {
   WallEdits,
   WallType,
   WallDirection,
+  CornerStyle,
   DoorChild,
   DoorStyle,
   LabelStyleId,
@@ -138,6 +139,8 @@ export interface DungeonStyle {
   showEdgeTransitions: boolean;
   wallTextureSetId?: string;
   wallTextureTint: string;
+  /** Corner pieces for the layer's floor outlines and for drawn walls that pin none. Absent = sharp. */
+  wallCornerStyle?: CornerStyle;
   /**
    * How far past the authored boundary the floor is PAINTED, in world units.
    * Render only — the boundary itself does not move, so sight, rooms, doors and

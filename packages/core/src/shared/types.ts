@@ -22,6 +22,9 @@ export type WallType = 'normal' | 'terrain' | 'invisible' | 'ethereal' | 'window
 export const DEFAULT_TEXTURE_SCALE = 1;
 export type WallDirection = 'both' | 'left' | 'right';
 
+/** Which corner pieces a wall's turns are laid with. Absent everywhere: sharp. */
+export type CornerStyle = 'rounded' | 'sharp';
+
 /**
  * Manual adjustments to a wall's composed sprite nodes (GitHub #19).
  *
@@ -106,6 +109,8 @@ export interface WallSegment extends WallEdits {
    */
   textureSetId?: string;
   textureTint?: string;
+  /** Rounded or sharp corner pieces at this wall's turns. Absent = the layer's `wallCornerStyle`. */
+  cornerStyle?: CornerStyle;
   /**
    * Locked on its own: selectable (with a lock badge), never moved, turned, deleted, cut
    * or moved to another layer. Absent = false. The layer's lock is a separate switch.

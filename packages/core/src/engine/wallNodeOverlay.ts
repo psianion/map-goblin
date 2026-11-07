@@ -7,7 +7,7 @@
 import { Text, TextStyle, type Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
-import type { WallEdits, WallSegment } from '../shared/types';
+import type { CornerStyle, WallEdits, WallSegment } from '../shared/types';
 import type { Point } from '../types/geometry';
 import {
   layoutWall,
@@ -120,6 +120,8 @@ interface RunBase {
    * pin for a ring, else the layer's. The same one `renderNodeWalls` lays it with.
    */
   setId?: string;
+  /** The corner pieces its turns take, as the renderer resolves them. */
+  corner?: CornerStyle;
 }
 
 /**
@@ -159,6 +161,7 @@ function activeWall(): EditableRun | null {
       closed: isClosedSpine(wall.points),
       width: look.width,
       setId: look.setId,
+      corner: look.corner,
       wall,
     };
   }
@@ -176,6 +179,7 @@ function activeWall(): EditableRun | null {
       closed: true,
       width: look.width,
       setId: look.setId,
+      corner: look.corner,
       // Same view the renderer takes: a ring stone's position comes from the
       // outline, so any offset stored against one is dead weight from before
       // that was true, and the handles must not honour it either.
@@ -197,6 +201,7 @@ function activeWall(): EditableRun | null {
     closed: isClosedSpine(wall.points),
     width: look.width,
     setId: look.setId,
+    corner: look.corner,
     edits: wall,
   };
 }
@@ -233,8 +238,9 @@ export function wallStoneCount(layer: DungeonLayer, wall: WallSegment): number |
   const auto = layoutWall(wall.points, isClosedSpine(wall.points), specs, {
     wallWidth: look.width,
     seed: seedForPoints(wall.points),
+    cornerStyle: look.corner,
   });
-  return applyWallEdits(auto, wall, undefined, { pieces: specs, wallWidth: look.width }).length;
+  return applyWallEdits(auto, wall, undefined, { pieces: specs, wallWidth: look.width, cornerStyle: look.corner }).length;
 }
 
 /** Pieces a run's stones come from: its own set, see `RunBase.setId`. */
@@ -337,10 +343,11 @@ export function currentWallNodes(): WallNode[] {
   const auto = layoutWall(run.points, run.closed, specs, {
     wallWidth: run.width,
     seed: seedForPoints(run.points),
+    cornerStyle: run.corner,
   });
   // The same fill the renderer applies, or the handles would not sit on the
   // stones the wall actually shows.
-  return applyWallEdits(auto, run.edits, undefined, { pieces: specs, wallWidth: run.width });
+  return applyWallEdits(auto, run.edits, undefined, { pieces: specs, wallWidth: run.width, cornerStyle: run.corner });
 }
 
 /**

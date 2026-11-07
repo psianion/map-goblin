@@ -62,11 +62,15 @@ describe('wall widths', () => {
 
   it('a wall look is each of its pins over the layer', () => {
     const wall = { id: 'w', points: [], wallType: 'normal' } as unknown as WallSegment;
-    expect(standaloneWallLook(wall, style)).toEqual({ setId: 'GG_Palisade', tint: '#ffffff', width: 0.5 });
+    expect(standaloneWallLook(wall, style)).toEqual({ setId: 'GG_Palisade', tint: '#ffffff', width: 0.5, corner: 'sharp' });
+    // Corner style: the wall's own, else the layer's, else sharp.
+    expect(standaloneWallLook(wall, { ...style, wallCornerStyle: 'rounded' }).corner).toBe('rounded');
+    expect(standaloneWallLook({ ...wall, cornerStyle: 'sharp' }, { ...style, wallCornerStyle: 'rounded' }).corner).toBe('sharp');
     expect(standaloneWallLook({ ...wall, textureSetId: 'GG_Fieldstone', textureTint: '#b09878', width: 0.8 }, style)).toEqual({
       setId: 'GG_Fieldstone',
       tint: '#b09878',
       width: 0.8,
+      corner: 'sharp',
     });
     // An empty set pin is "no stones", not "follow the layer".
     expect(standaloneWallLook({ ...wall, textureSetId: '' }, style).setId).toBeUndefined();
@@ -88,15 +92,15 @@ describe('floor outline look', () => {
   it('takes every floor\'s shared pin when they agree', () => {
     const pin = { wallTextureSetId: 'GG_Fieldstone', wallTextureTint: '#b09878', wallWidth: 0.5 };
     const l = layer([shape('a', 0, pin), shape('b', 10, pin)], [square(0), square(10)]);
-    expect(ringLook(l, 0)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5 });
-    expect(ringLook(l, 1)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5 });
+    expect(ringLook(l, 0)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5, corner: 'sharp' });
+    expect(ringLook(l, 1)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5, corner: 'sharp' });
   });
 
   it('gives each ring its own floor\'s pins when floors differ', () => {
     const pin = { wallTextureSetId: 'GG_Fieldstone', wallTextureTint: '#b09878' };
     const l = layer([shape('old', 0, pin), shape('new', 10)], [square(10), square(0)]);
-    expect(ringLook(l, 0)).toEqual({ setId: 'GG_Palisade', tint: '#ffffff', width: 0.5 });
-    expect(ringLook(l, 1)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5 });
+    expect(ringLook(l, 0)).toEqual({ setId: 'GG_Palisade', tint: '#ffffff', width: 0.5, corner: 'sharp' });
+    expect(ringLook(l, 1)).toEqual({ setId: 'GG_Fieldstone', tint: '#b09878', width: 0.5, corner: 'sharp' });
   });
 
   it('a pinned "no set" keeps a floor drawn bare without stones', () => {

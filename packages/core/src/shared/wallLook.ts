@@ -1,5 +1,5 @@
 import type { DungeonLayer, DungeonStyle, ShapeChild } from '../store/types';
-import type { Room, RoomArea, RoomLook, WallSegment, WallType } from './types';
+import type { CornerStyle, Room, RoomArea, RoomLook, WallSegment, WallType } from './types';
 import { WALL_TYPE_OCCLUSION } from './occlusion';
 import { roomIndexOf } from './roomIndex';
 
@@ -14,6 +14,8 @@ export interface WallLook {
   setId: string | undefined;
   tint: string;
   width: number;
+  /** Which corner pieces its turns take. */
+  corner: CornerStyle;
 }
 
 /**
@@ -125,12 +127,18 @@ export function standaloneWallLook(wall: WallSegment, style: DungeonStyle): Wall
     setId: wall.textureSetId !== undefined ? wall.textureSetId || undefined : style.wallTextureSetId || undefined,
     tint: wall.textureTint ?? style.wallTextureTint,
     width: wallWidthOf(wall, style.wallWidth),
+    corner: wall.cornerStyle ?? style.wallCornerStyle ?? 'sharp',
   };
 }
 
 /** The wall keys of a style, as a look. */
 export function styleWallLook(style: DungeonStyle): WallLook {
-  return { setId: style.wallTextureSetId || undefined, tint: style.wallTextureTint, width: style.wallWidth };
+  return {
+    setId: style.wallTextureSetId || undefined,
+    tint: style.wallTextureTint,
+    width: style.wallWidth,
+    corner: style.wallCornerStyle ?? 'sharp',
+  };
 }
 
 /**

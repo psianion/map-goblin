@@ -219,12 +219,13 @@ function materialisedInserts(run: EditableRun, edits: WallEdits): WallNodeInsert
   const pieces = runSetSpecs(run);
   if (pieces.length === 0) return edits.nodeInserts;
 
-  const fill = { pieces, wallWidth: run.width };
+  const fill = { pieces, wallWidth: run.width, cornerStyle: run.corner };
   const lay = (e: WallEdits): WallNode[] =>
     applyWallEdits(
       layoutWall(run.points, run.closed, pieces, {
         wallWidth: run.width,
         seed: seedForPoints(run.points),
+        cornerStyle: run.corner,
       }),
       e,
       undefined,

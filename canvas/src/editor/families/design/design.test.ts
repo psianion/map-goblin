@@ -205,6 +205,23 @@ describe('tool settings', () => {
     expect(layer().style.wallWidth).toBe(0.5);
   });
 
+  it('Corner style writes the layer when nothing is picked, a picked wall when one is, undoably', () => {
+    expect(settings.getSetting('wall.cornerStyle')).toBe('sharp');
+    settings.setSetting('wall.cornerStyle', 'rounded');
+    expect(layer().style.wallCornerStyle).toBe('rounded');
+    expect(wallOf('w1').cornerStyle).toBeUndefined();
+    useStore.setState((s) => {
+      s.selection.selectedIds = ['w1'];
+    });
+    settings.setSetting('wall.cornerStyle', 'sharp');
+    expect(wallOf('w1').cornerStyle).toBe('sharp');
+    expect(layer().style.wallCornerStyle).toBe('rounded');
+    undoManager.undo();
+    expect(wallOf('w1').cornerStyle).toBeUndefined();
+    undoManager.undo();
+    expect(layer().style.wallCornerStyle).toBeUndefined();
+  });
+
   it('wall Type writes the stored type, keeping one that already acts as the group', () => {
     settings.setSetting('wall.type', 'window');
     expect(st().tools.settings.wallType).toBe('window');
@@ -397,6 +414,15 @@ describe('the wall card', () => {
     expect(wallOf('w1').wallType).toBe('invisible');
     undoManager.undo();
     expect(wallOf('w1').wallType).toBe('normal');
+  });
+
+  it("reads the layer's corner style until the wall picks its own, undoably", () => {
+    expect(read('wall', 'card.wall.cornerStyle', wallOf('w1'))).toBe('sharp');
+    write('wall', 'card.wall.cornerStyle', ['w1'], 'rounded');
+    expect(wallOf('w1').cornerStyle).toBe('rounded');
+    expect(read('wall', 'card.wall.cornerStyle', wallOf('w1'))).toBe('rounded');
+    undoManager.undo();
+    expect(wallOf('w1').cornerStyle).toBeUndefined();
   });
 
   it('makes the set editable: none, then the layer\'s again', () => {

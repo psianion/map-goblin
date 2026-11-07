@@ -7,7 +7,8 @@ import { defineSetting, defineTool } from '@/editor/registry/define';
 import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
 import { WallWidthControl } from './controls';
-import { wallLookValue, setWallLook } from './wallLook';
+import { CORNER_STYLE_CHOICES, cornerStyleValue, setCornerStyle, wallLookValue, setWallLook } from './wallLook';
+import type { CornerStyle } from '@/store/types';
 import { WallLook } from './LookColumn';
 import type { DockColumnDef } from '@/editor/registry/types';
 
@@ -54,6 +55,26 @@ export const wallWidth = defineSetting<number>({
   },
 });
 
+/**
+ * Rounded or sharp corner pieces: the picked walls', else the active layer's, which its
+ * floor outlines and the walls that pin none follow.
+ */
+export const wallCornerStyle = defineSetting<CornerStyle>({
+  id: 'wall.cornerStyle',
+  label: 'Corner style',
+  schema: z.enum(['rounded', 'sharp']),
+  default: 'sharp',
+  home: 'dock',
+  control: 'seg',
+  section: 'Corner style',
+  options: CORNER_STYLE_CHOICES,
+  persist: false,
+  bind: {
+    read: cornerStyleValue,
+    write: (store, style) => setCornerStyle(store.getState(), style),
+  },
+});
+
 const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
@@ -67,7 +88,7 @@ export const wallTool = defineTool({
   icon: BrickWall,
   key: 'W',
   engine: ['wall'],
-  settings: [wallType, wallWidth, editCurve, editNodeMode, gridSnap, gridSnapStep],
+  settings: [wallType, wallWidth, wallCornerStyle, editCurve, editNodeMode, gridSnap, gridSnapStep],
   dock: [wallLookColumn],
   hint: (s) => ({
     label: 'Wall',

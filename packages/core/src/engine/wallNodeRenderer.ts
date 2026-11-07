@@ -5,7 +5,7 @@
 
 import { Sprite, Container, Graphics } from 'pixi.js';
 import type { DungeonStyle, WallSegment } from '../store/types';
-import type { WallEdits } from '../shared/types';
+import type { CornerStyle, WallEdits } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import { standaloneWallLook, styleWallLook, wallTypeGroup, type WallTypeGroup } from '../shared/wallLook';
 import * as textureLoader from '../assets/textureLoader';
@@ -62,6 +62,17 @@ export function referenceBandPx(setId: string): number {
   return longest?.contentRect?.h ?? longest?.naturalHeight ?? 200;
 }
 
+/**
+ * Whether a corner piece turns rounded or sharp. A pack's own 'rounded' or 'sharp' tag
+ * wins; the GG sets declare neither, so their letters answer: Corner_A and Corner_C are
+ * square, B, D and E (the wide arc) round. A corner neither names is sharp.
+ */
+export function cornerShapeOf(entry: Pick<CatalogEntry, 'tags' | 'material'>): CornerStyle {
+  if (entry.tags.includes('rounded')) return 'rounded';
+  if (entry.tags.includes('sharp')) return 'sharp';
+  return /_Corner_[BDE](_|$)/.test(entry.material) ? 'rounded' : 'sharp';
+}
+
 function toSpec(entry: CatalogEntry, role: WallPieceSpec['role'], bandPx: number): WallPieceSpec {
   // resolveTexture trims to contentRect when one exists, so a piece that has one
   // is measured by its own content. One that does not arrives as a full padded
@@ -76,6 +87,7 @@ function toSpec(entry: CatalogEntry, role: WallPieceSpec['role'], bandPx: number
     // 'standalone' marks pieces drawn with chipped free ends (they don't reach
     // their tile edge) — offered for manual swap, never auto-placed.
     swapOnly: entry.tags.includes('standalone') || undefined,
+    cornerShape: role === 'corner' ? cornerShapeOf(entry) : undefined,
   };
 }
 
@@ -685,9 +697,14 @@ export function renderNodeWalls(
       const set = specsFor(looks[0].setId);
       if (!set) return;
       const wallWidth = looks[0].width;
-      const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly) });
+      const cornerStyle = looks[0].corner;
+      const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly), cornerStyle });
       const nodes = withoutDoorGaps(
-        applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, { pieces: set.specs, wallWidth }),
+        applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
+          pieces: set.specs,
+          wallWidth,
+          cornerStyle,
+        }),
         ringDoorGaps,
         set.specById,
         wallWidth,
@@ -744,7 +761,11 @@ export function renderNodeWalls(
       const set = specsFor(look.setId);
       if (!set) continue;
       const w = look.width;
-      const auto = layoutWall(points, false, set.specs, { wallWidth: w, seed: seedForPoints(points) });
+      const auto = layoutWall(points, false, set.specs, {
+        wallWidth: w,
+        seed: seedForPoints(points),
+        cornerStyle: look.corner,
+      });
       place(
         wallsContainer,
         withoutDoorGaps(auto, ringDoorGaps, set.specById, w, [points[0], points[points.length - 1]]),
@@ -778,7 +799,8 @@ export function renderNodeWalls(
     const set = specsFor(look.setId);
     if (!set) continue;
     const wallWidth = look.width;
-    const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly) });
+    const cornerStyle = look.corner;
+    const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly), cornerStyle });
     // A floor ring's stones are hand-editable too; its edits live on the layer
     // because the ring itself is recomputed from the shapes every time. Only
     // the cosmetic ones: a ring stone is moved by moving the outline it
@@ -786,6 +808,7 @@ export function renderNodeWalls(
     const nodes = applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
       pieces: set.specs,
       wallWidth,
+      cornerStyle,
     });
     const gaps = doorGaps.filter((g) => g.ring === i);
     place(
@@ -827,10 +850,11 @@ export function renderNodeWalls(
     const auto = layoutWall(wall.points, closed, set.specs, {
       wallWidth: w,
       seed: seedForPoints(wall.points),
+      cornerStyle: look.corner,
     });
     // Auto-layout first, then the DM's manual adjustments on top. Walls with no
     // edits — the common case — pass straight through.
-    const nodes = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w });
+    const nodes = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w, cornerStyle: look.corner });
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     place(
       parts && group !== 'solid' ? parts[group] : wallsContainer,
