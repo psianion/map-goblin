@@ -153,7 +153,7 @@ describe('the Design family', () => {
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.nodeMode']);
-    expect(ids('panel')).toEqual(['grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
+    expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 });
 
@@ -229,6 +229,19 @@ describe('tool settings', () => {
     settings.setSetting('elevation.height', -2);
     settings.setSetting('elevation.edge', 'slope');
     expect(st().tools.settings.plateau).toEqual({ height: -2, edge: 'slope' });
+  });
+});
+
+describe('Carve out', () => {
+  const hint = () => reg.toolById('floor')!.hint(st()).segments.map((s) => s.text).join('');
+
+  it('is the Mode the floor tools read, with Alt as the fast path in the hint', () => {
+    expect(hint()).toBe('Drag a rectangle · Shift square · Alt carves · Esc cancel');
+    expect(settings.setSetting('floor.mode', 'carve')).toBe(true);
+    expect(st().tools.eraseMode).toBe(true);
+    expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
+    settings.setSetting('floor.mode', 'draw');
+    expect(st().tools.eraseMode).toBe(false);
   });
 });
 

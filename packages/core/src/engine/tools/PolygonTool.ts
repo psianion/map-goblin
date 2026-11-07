@@ -2,9 +2,9 @@ import type { Point } from '../../types/geometry';
 import { snapToAngle } from '../../geometry/drawAssist';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { eraseShapeCommands } from './eraseShapes';
+import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
 import { newFloorLook } from './newFloor';
@@ -34,8 +34,11 @@ export class PolygonTool implements DrawingTool {
   private currentPoint: Point | null = null;
   /** The active layer when the chain started — see WallTool for why. */
   private chainLayerId: string | null = null;
+  /** Alt held at the last pointer or key event: closing the outline then carves it. */
+  private alt = false;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
+    this.alt = event?.altKey === true;
     if (this.vertices.length >= 3) {
       const first = this.vertices[0];
       const dx = point.x - first.x;
@@ -54,6 +57,7 @@ export class PolygonTool implements DrawingTool {
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
+    if (event) this.alt = event.altKey;
     this.currentPoint = this.constrain(point, event);
   }
 
@@ -66,6 +70,7 @@ export class PolygonTool implements DrawingTool {
   onPointerUp(_point: Point): void {}
 
   onKeyDown(event: KeyboardEvent): void {
+    this.alt = event.altKey;
     if (event.key === 'Escape') {
       this.cancel();
     } else if (event.key === 'Enter') {
@@ -107,12 +112,10 @@ export class PolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
-    const isErase = store.tools.eraseMode && !this.onShape;
+    const isErase = (store.tools.eraseMode || this.alt) && !this.onShape;
 
     if (isErase) {
-      const commands = eraseShapeCommands(activeLayer, activeLayerId, [polyPoints]);
-      if (commands.length === 0) return;
-      undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
+      carveFloors(activeLayer, activeLayerId, [polyPoints]);
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()

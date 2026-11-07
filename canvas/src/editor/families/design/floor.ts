@@ -1,5 +1,6 @@
 // The Floor tool: one tool over the rectangle, polygon and regular polygon engine tools.
 // The dock's Shape row picks which of the three is in hand; Sides shows for Regular only.
+// The panel's Mode draws floors or carves them out; Alt while drawing carves the one shape.
 
 import { Hexagon, Pentagon, Square, SquareDashed } from 'lucide-react';
 import { z } from 'zod';
@@ -69,6 +70,29 @@ export const floorSides = defineSetting<number>({
 });
 
 /**
+ * Draw, or Carve out: the shape drawn comes off every floor under it on the active layer.
+ * It is the erase mode the floor tools have always read, here as the panel's Mode.
+ */
+export const floorMode = defineSetting<'draw' | 'carve'>({
+  id: 'floor.mode',
+  label: 'Draw or carve',
+  schema: z.enum(['draw', 'carve']),
+  default: 'draw',
+  home: 'panel',
+  control: 'seg',
+  section: 'Mode',
+  options: [
+    { value: 'draw', label: 'Draw' },
+    { value: 'carve', label: 'Carve out' },
+  ],
+  persist: false,
+  bind: {
+    read: (s) => (s.tools.eraseMode ? 'carve' : 'draw'),
+    write: (store, v) => store.getState().setEraseMode(v === 'carve'),
+  },
+});
+
+/**
  * Edge transitions between floors of different textures on the layer being drawn on: the
  * layer's own switch (also in the layer sheet), so it is not saved with the tool.
  */
@@ -134,12 +158,21 @@ const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
 const FLOOR_HINTS: Record<FloorShape, HintLine> = {
-  rect: { label: 'Floor', segments: [t('Drag a rectangle · '), k('Shift'), t(' square · '), k('Esc'), t(' cancel')] },
+  rect: { label: 'Floor', segments: [t('Drag a rectangle · '), k('Shift'), t(' square · '), k('Alt'), t(' carves · '), k('Esc'), t(' cancel')] },
   polygon: {
     label: 'Floor',
-    segments: [t('Click points · '), k('Enter'), t(' close · '), k('Shift'), t(' 15° steps · '), k('Esc'), t(' cancel')],
+    segments: [t('Click points · '), k('Enter'), t(' close · '), k('Shift'), t(' 15° steps · '), k('Alt'), t(' carves · '), k('Esc'), t(' cancel')],
   },
-  regular: { label: 'Floor', segments: [t('Drag from the centre out · '), k('Esc'), t(' cancel')] },
+  regular: { label: 'Floor', segments: [t('Drag from the centre out · '), k('Alt'), t(' carves · '), k('Esc'), t(' cancel')] },
+};
+
+const whileInDraw = [k('Alt'), t(' carves while in Draw')];
+
+/** Carve out in hand: what to draw, and that Alt is the fast path from Draw. */
+const CARVE_HINTS: Record<FloorShape, HintLine> = {
+  rect: { label: 'Floor', segments: [t('Carve out · drag a rectangle · '), ...whileInDraw] },
+  polygon: { label: 'Floor', segments: [t('Carve out · click points · '), k('Enter'), t(' close · '), ...whileInDraw] },
+  regular: { label: 'Floor', segments: [t('Carve out · drag from the centre out · '), ...whileInDraw] },
 };
 
 /** Colour, the style presets, the texture strip and From library. */
@@ -153,7 +186,7 @@ export const floorTool = defineTool({
   key: 'F',
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
   // No Curve: the polygon tool draws straight edges only; curveMode reaches walls alone.
-  settings: [floorShape, floorSides, editNodeMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
+  settings: [floorShape, floorSides, editNodeMode, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
-  hint: (s) => FLOOR_HINTS[floorShapeOf(s)],
+  hint: (s) => (s.tools.eraseMode ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
 });
