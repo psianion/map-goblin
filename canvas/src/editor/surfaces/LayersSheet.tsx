@@ -30,7 +30,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { IconKeyButton } from '@/editor/components';
+import { Caption, IconKeyButton, SelectRow, SliderRow } from '@/editor/components';
 import { Input } from '@/ui/input';
 import { useStore } from '@/store/store';
 import { TERRAIN_PANEL_ID, type AnyChild, type DungeonLayer, type Layer, type WallSegment } from '@/store/types';
@@ -45,7 +45,7 @@ import { getChildBounds, getWallBounds } from '@dnd/core/src/engine/hitTest';
 import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
 import { standaloneWallLook } from '@dnd/core/src/shared/wallLook';
 import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
-import { isLayerEffectivelyVisible } from '@/store/selectors';
+import { isLayerEffectivelyVisible, shownLevelId } from '@/store/selectors';
 import { useLayerThumb } from '@/editor/models/layerThumbs';
 import { wallSetLabel } from '@/editor/models/assetStrip';
 import { jumpToPoint } from '@/editor/models/jumpTo';
@@ -62,6 +62,7 @@ import {
 } from '@/editor/models/layerActions';
 import { loadLayersSheetFilter, saveLayersSheetFilter } from '@/editor/viewPrefs';
 import { SheetFrame } from './SheetFrame';
+import { levelLabel } from './model';
 
 const ROW_H = 30;
 const INDENT = 12;
@@ -485,6 +486,44 @@ function PinnedRows({ onOpenLayerSettings }: { onOpenLayerSettings: (id: string)
   );
 }
 
+const NO_COMPARE = '';
+
+/**
+ * Compare: another level drawn greyed under the one on show, at an opacity, to line the two
+ * up. View state: never saved, exported or published, and nothing on it can be picked.
+ */
+function CompareSection() {
+  const levels = useStore((s) => s.levels);
+  const shown = useStore((s) => shownLevelId(s));
+  const compare = useStore((s) => s.ui.compare);
+  if (levels.length < 2) return null;
+  const others = levels.map((l, i) => ({ l, i })).filter(({ l }) => l.id !== shown);
+  const value = compare && others.some(({ l }) => l.id === compare.levelId) ? compare.levelId : NO_COMPARE;
+  const opacity = compare?.opacity ?? 0.4;
+  const setCompare = useStore.getState().setCompare;
+  return (
+    <section className="flex flex-col gap-px border-t border-line px-3 py-2" data-testid="shell-layers-compare">
+      <Caption className="mb-1.5">Compare</Caption>
+      <SelectRow
+        label="Show another level"
+        value={value}
+        options={[{ value: NO_COMPARE, label: 'None' }, ...others.map(({ l, i }) => ({ value: l.id, label: levelLabel(i, levels.length, l.name) }))]}
+        onValueChange={(id) => setCompare(id === NO_COMPARE ? null : { levelId: id, opacity })}
+      />
+      <SliderRow
+        label="Opacity"
+        value={opacity}
+        min={0}
+        max={1}
+        step={0.01}
+        format={(v) => `${Math.round(v * 100)}%`}
+        disabled={value === NO_COMPARE}
+        onValueChange={(v) => compare && setCompare({ ...compare, opacity: v })}
+      />
+    </section>
+  );
+}
+
 /** The parent row of `index` (the nearest row above it at a lower depth). */
 function parentIndex(rows: SheetRow[], index: number): number {
   const depthOf = (r: SheetRow) => (r.kind === 'level' ? 0 : r.depth);
@@ -772,7 +811,12 @@ export function LayersSheet({ onClose, onOpenLayerSettings }: { onClose: () => v
       testId="shell-layers-sheet"
       scroll={false}
       actions={<IconKeyButton size={26} icon={Plus} label="Add layer" data-testid="shell-layers-add" onClick={() => addLayerOnShownLevel()} />}
-      footer={<PinnedRows onOpenLayerSettings={onOpenLayerSettings} />}
+      footer={
+        <>
+          <PinnedRows onOpenLayerSettings={onOpenLayerSettings} />
+          <CompareSection />
+        </>
+      }
     >
       <LayersTree onOpenLayerSettings={onOpenLayerSettings} />
     </SheetFrame>

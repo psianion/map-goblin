@@ -1,4 +1,4 @@
-import { Assets, Texture, TilingSprite } from 'pixi.js';
+import { Assets, ColorMatrixFilter, Texture, TilingSprite } from 'pixi.js';
 import { useStore } from '../store/store';
 import { notify } from '../shared/notify';
 import type { SceneGraph, LayerEntry } from './sceneGraph';
@@ -17,7 +17,7 @@ import { preloadWallTextures } from './wallNodeRenderer';
 import type { AnyChild, DungeonLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
-import { isLayerShown } from '../store/selectors';
+import { compareLayerIds, isLayerShown } from '../store/selectors';
 import { propOccluderKey } from '../shared/propOcclusion';
 import type { RingGeometry, ThresholdSegment, WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
@@ -28,6 +28,16 @@ import * as textureLoader from '../assets/textureLoader';
 import { drawLayerWater } from './water/waterRenderer';
 import { drawLayerMaterials } from './material/materialRenderer';
 import { drawLayerPaths, pathsKey } from './path/pathRenderer';
+
+/** The compare pass's greying, made on first use and shared by every compared layer. */
+let compareGreyFilter: ColorMatrixFilter | null = null;
+function compareGrey(): ColorMatrixFilter {
+  if (!compareGreyFilter) {
+    compareGreyFilter = new ColorMatrixFilter();
+    compareGreyFilter.desaturate();
+  }
+  return compareGreyFilter;
+}
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -502,15 +512,28 @@ export function subscribeToStore(
   // makes solo actually hide the other layers on screen. The selector's
   // output changes whenever solo does, even though `state.layers` itself
   // does not, which is what re-fires this on a solo toggle.
+  //
+  // The compare pass rides here too: the compared level's layers (compareLayerIds) are drawn,
+  // greyed, under every layer of the level on show, their own order kept. Only drawn —
+  // isLayerShown stays false for them, so no tool, pick or light ever sees them.
   const unsubVisibility = useStore.subscribe(
-    (state) =>
-      state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerShown(state, l) })),
+    (state) => {
+      const compared = new Set(compareLayerIds(state));
+      return state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerShown(state, l), compared: compared.has(l.id) }));
+    },
     (layerVisibility) => {
-      for (const { id, type, visible } of layerVisibility) {
+      let under = 0;
+      for (const { id, type, visible, compared } of layerVisibility) {
         const entry = getLayerEntry(id);
         if (entry) {
           const displayObj = entry.textureSprite ?? entry.container;
-          displayObj.visible = visible;
+          displayObj.visible = visible || compared;
+          if (compared) {
+            displayObj.filters = [compareGrey()];
+            if (displayObj.parent === sceneGraph.layerContainer) sceneGraph.layerContainer.setChildIndex(displayObj, under++);
+          } else if (displayObj.filters) {
+            displayObj.filters = null;
+          }
         }
         // Background pixels render via bgFill/bgTilingSprite under
         // sceneGraph.backgroundLayer, not this layer's own entry container —
@@ -522,7 +545,7 @@ export function subscribeToStore(
       fireImmediately: true,
       equalityFn: (a, b) =>
         a.length === b.length &&
-        a.every((item, i) => item.id === b[i].id && item.visible === b[i].visible),
+        a.every((item, i) => item.id === b[i].id && item.visible === b[i].visible && item.compared === b[i].compared),
     },
   );
   unsubscribers.push(unsubVisibility);
@@ -530,8 +553,13 @@ export function subscribeToStore(
   // ─── Layer opacity changes ────────────────────────────
   // Opacity isn't affected by solo (only visibility is), so this still reads
   // the raw flag — but background still needs the same extra mirror as above.
+  // A compared layer draws at its own opacity times the compare opacity.
   const unsubOpacity = useStore.subscribe(
-    (state) => state.layers.map((l) => ({ id: l.id, type: l.type, opacity: l.opacity })),
+    (state) => {
+      const compared = new Set(compareLayerIds(state));
+      const factor = state.ui.compare?.opacity ?? 1;
+      return state.layers.map((l) => ({ id: l.id, type: l.type, opacity: compared.has(l.id) ? l.opacity * factor : l.opacity }));
+    },
     (layerOpacities) => {
       for (const { id, type, opacity } of layerOpacities) {
         const entry = getLayerEntry(id);

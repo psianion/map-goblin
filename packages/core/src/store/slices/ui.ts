@@ -28,6 +28,8 @@ export interface UIActions {
   setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
+  /** Draw another level under the one on show, or stop (null). View state, never undoable. */
+  setCompare: (compare: UISlice['compare']) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -182,5 +184,9 @@ export const createUISlice: StateCreator<
   setPropReplaceIds: (ids) =>
     set((state) => {
       state.ui.propReplaceIds = ids;
+    }),
+  setCompare: (compare) =>
+    set((state) => {
+      state.ui.compare = compare;
     }),
 });

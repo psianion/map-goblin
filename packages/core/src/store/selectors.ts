@@ -165,3 +165,16 @@ export function isOnShownLevel(state: Pick<MapBuilderStore, 'levels' | 'ui'>, la
 export function isLayerShown(state: MapBuilderStore, layer: Layer): boolean {
   return isLayerEffectivelyVisible(state, layer) && isOnShownLevel(state, layer);
 }
+
+/**
+ * The layers the compare pass draws, in draw order: the compared level's visible dungeon
+ * layers. None when nothing is compared, when the compared level is gone or is the one on
+ * show. They are drawn only: `isLayerShown` stays false for them, so nothing on them is hit,
+ * picked, lit or exported.
+ */
+export function compareLayerIds(state: Pick<MapBuilderStore, 'levels' | 'layers' | 'ui'>): string[] {
+  const compare = state.ui.compare;
+  if (!compare || compare.levelId === shownLevelId(state)) return [];
+  if (!(state.levels ?? []).some((l) => l.id === compare.levelId)) return [];
+  return state.layers.filter((l) => l.type === 'dungeon' && l.visible && l.levelId === compare.levelId).map((l) => l.id);
+}

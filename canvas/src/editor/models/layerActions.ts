@@ -12,6 +12,7 @@ import {
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@/lib/toast';
 import {
+  CloneLevelCommand,
   DuplicateLayerCommand,
   RemoveLevelCascadeCommand,
   ReorderLevelCommand,
@@ -66,6 +67,19 @@ export function duplicateLayer(layerId: string): string | null {
   useStore.getState().setActiveLayerId(cmd.newId);
   const rooms = (source.rooms?.length ?? 0) > 0;
   notify.subtle(rooms ? `${nameOf(source)} copied. Rooms copied without their key` : `${nameOf(source)} copied`, { icon: 'copy' });
+  return cmd.newId;
+}
+
+/** Clone a level with everything on it, its prep onto the copy, and show the clone. */
+export function cloneLevel(levelId: string): string | null {
+  const source = useStore.getState().levels.find((l) => l.id === levelId);
+  if (!source) return null;
+  const cmd = new CloneLevelCommand(levelId);
+  undoManager.execute(cmd);
+  const s = useStore.getState();
+  s.setActiveLevelId(cmd.newId);
+  s.setSelectedIds([]);
+  notify.subtle(`${source.name || 'Level'} cloned`, { icon: 'copy' });
   return cmd.newId;
 }
 

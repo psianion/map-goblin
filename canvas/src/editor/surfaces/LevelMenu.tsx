@@ -18,7 +18,7 @@ import { RenameLevelCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { addLevelWithLayer } from '@/editor/models/roomActions';
 import { layerOnLevel } from '@/editor/models/roomModel';
-import { moveLayerToLevel, reorderLevel } from '@/editor/models/layerActions';
+import { cloneLevel, moveLayerToLevel, reorderLevel } from '@/editor/models/layerActions';
 import { LevelDeleteDialog } from '@/editor/dialogs/LevelDeleteDialog';
 import { useShell } from '@/editor/shell/shellStore';
 import { RenameDialog } from './RenameDialog';
@@ -28,8 +28,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * The levels menu, on the dock's Level column and the title card's level chip: switch level
- * (Page Up and Page Down do too), add one with a first layer, rename or move the one on show,
- * move the active layer to another, open the level's settings, or delete it.
+ * (Page Up and Page Down do too), add one with a first layer, clone, rename or move the one on
+ * show, move the active layer to another, open the level's settings, or delete it.
  */
 export function LevelMenu({ trigger, align = 'start' }: { trigger: ReactElement; align?: 'start' | 'end' }) {
   const levels = useStore(useShallow((s) => s.levels));
@@ -66,6 +66,7 @@ export function LevelMenu({ trigger, align = 'start' }: { trigger: ReactElement;
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => addLevelWithLayer()}>New level</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cloneLevel(level.id)}>Clone this level</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setRenaming(true)}>Rename level…</DropdownMenuItem>
           <DropdownMenuItem disabled={index === 0} onClick={() => reorderLevel(index, index - 1)}>
             Move level up

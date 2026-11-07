@@ -551,6 +551,11 @@ export interface UISlice {
   marqueeFilter: 'all' | 'tab';
   /** The props browser is replacing these props; null when it is not. View state. */
   propReplaceIds: string[] | null;
+  /**
+   * Another level drawn greyed under the one on show, at `opacity`, to line the two up.
+   * View state: never saved, exported or published, and nothing on it can be picked.
+   */
+  compare: { levelId: string; opacity: number } | null;
 }
 
 /** A Divide cut across one room's face: the threshold and the two faces it makes, larger first. */
@@ -875,6 +880,7 @@ export interface MapBuilderStore {
   setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
+  setCompare: (compare: UISlice['compare']) => void;
 
   // asset actions
   trackRecentUse: (assetId: string) => void;

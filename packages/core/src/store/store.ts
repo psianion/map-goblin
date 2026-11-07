@@ -129,6 +129,7 @@ export const useStore = create<MapBuilderStore>()(
           state.ui.activeLayerId = firstDungeon?.id ?? '';
           state.ui.activeLevelId = firstDungeon?.levelId ?? levels[0]?.id ?? '';
           state.ui.roomSuggestions = null;
+          state.ui.compare = null;
           state.ui.pendingSplit = null;
           state.ui.roomsSheetRoomId = null;
           state.ui.highlightedRoomId = null;

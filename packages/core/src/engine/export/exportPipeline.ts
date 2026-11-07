@@ -4,6 +4,7 @@ import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
 import type { Layer } from '../../store/types';
 import { useStore } from '../../store/store';
+import { compareLayerIds } from '../../store/selectors';
 import {
   EXPORT_RESOLUTION,
   computeExportDimensions,
@@ -140,6 +141,11 @@ export async function runExportPipeline(
     try {
       for (const node of sceneGraph.worldContainer.children ?? []) {
         if (EDITOR_ONLY.includes(node.label)) hide(node);
+      }
+      // A compared level is a view aid drawn under the one on show; it never reaches a file.
+      for (const id of compareLayerIds(useStore.getState())) {
+        const entry = getLayerEntry(id);
+        hide(entry?.textureSprite ?? entry?.container);
       }
       const labels = opts.labels ?? 'all';
       if (labels !== 'all') {
