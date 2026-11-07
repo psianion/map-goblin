@@ -157,10 +157,16 @@ describe('the prop card', () => {
     expect(child().position).toEqual({ x: 3, y: 3 });
   });
 
-  it('switches overhead, lock and the behaviour fields, each undoably', () => {
+  it('puts Below water in Layering, between Overhead and Lock', () => {
+    const layering = OBJECTS_CARDS[0].fields.filter((f) => f.section === 'Layering').map((f) => f.label);
+    expect(layering).toEqual(['Order', 'Overhead', 'Below water', 'Lock']);
+  });
+
+  it('switches overhead, below water, lock and the behaviour fields, each undoably', () => {
     seed([prop()]);
     for (const [id, key] of [
       ['card.prop.overhead', 'overhead'],
+      ['card.prop.belowWater', 'belowWater'],
       ['card.prop.castsShadow', 'castsShadow'],
       ['card.prop.blocksLight', 'blocksLight'],
       ['card.prop.lock', 'locked'],

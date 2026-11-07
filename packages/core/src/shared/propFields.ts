@@ -4,6 +4,7 @@ import type { AnyChild, AssetChild } from './types';
 export type PropFieldKey =
   | 'opacity'
   | 'overhead'
+  | 'belowWater'
   | 'locked'
   | 'castsShadow'
   | 'blocksLight'
@@ -14,6 +15,7 @@ export type PropFieldKey =
 export const PROP_DEFAULTS: { readonly [K in PropFieldKey]-?: NonNullable<AssetChild[K]> } = {
   opacity: 1,
   overhead: false,
+  belowWater: false,
   locked: false,
   castsShadow: true,
   blocksLight: false,

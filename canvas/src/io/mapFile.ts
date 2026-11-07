@@ -101,6 +101,12 @@ const patch = z
   })
   .passthrough();
 
+/** A 3.7 layer: water, material patches and path children. */
+const layer37 = layer36.extend({ children: z.array(child37).optional(), water: water.optional(), materials: z.array(patch).optional() });
+/** 3.8: a prop's below-water flag. */
+const child38 = child37.and(z.object({ belowWater: z.boolean().optional() }).passthrough());
+const layer38 = layer37.extend({ children: z.array(child38).optional() });
+
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
     .object({
@@ -129,11 +135,9 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.6': v3('3.6', settings35, layer36),
   // 3.7 adds a layer's water (absent, dry), its material patches (absent, none) and path
   // children.
-  '3.7': v3(
-    '3.7',
-    settings35,
-    layer36.extend({ children: z.array(child37).optional(), water: water.optional(), materials: z.array(patch).optional() }),
-  ),
+  '3.7': v3('3.7', settings35, layer37),
+  // 3.8 adds a prop's below-water flag (absent, drawn as it is).
+  '3.8': v3('3.8', settings35, layer38),
 };
 
 /** The first problem with a document, said plainly. */

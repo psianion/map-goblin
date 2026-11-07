@@ -30,10 +30,10 @@ const path: PathwayChild = {
 const pool = encodeWater(paintWaterDisc(emptyWaterGrid(), 4, 4, 2, false), { shallow: '#9db7bd', deep: '#112233', blend: 1.5, border: true })!;
 
 describe('map format 3.7', () => {
-  it('is the version saved, and 3.6 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.7');
+  it('is still read, as 3.6 is', () => {
+    expect(CURRENT_VERSION).toBe('3.8');
     expect(SUPPORTED_VERSIONS).toContain('3.6');
-    expect(useStore.getState().getSerializableState().version).toBe('3.7');
+    expect(SUPPORTED_VERSIONS).toContain('3.7');
   });
 
   it('loads a 3.6 map dry and bare', () => {

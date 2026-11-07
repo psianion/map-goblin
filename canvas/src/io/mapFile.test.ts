@@ -200,7 +200,7 @@ describe('the settings the editor dropped', () => {
   it('checks a document against its version', () => {
     expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
     expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
-    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7']);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8']);
   });
 
   it('reads 3.5 with the terrain blend switch, and refuses one that is not a switch', () => {
@@ -235,6 +235,16 @@ describe('the settings the editor dropped', () => {
     });
     expect(readMapDocument(doc('sharp')).layers).toHaveLength(1);
     expect(() => readMapDocument(doc('bevelled'))).toThrow(/cornerStyle/);
+  });
+
+  it('reads 3.8 props below water, and refuses a below-water flag that is not a switch', () => {
+    const doc = (belowWater: unknown) => ({
+      version: '3.8',
+      mapSettings: { name: 'Cellars' },
+      layers: [{ id: 'l1', type: 'dungeon', children: [{ id: 'p', childType: 'asset', belowWater }] }],
+    });
+    expect(readMapDocument(doc(true)).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc('deep'))).toThrow(/belowWater/);
   });
 });
 

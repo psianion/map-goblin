@@ -29,7 +29,7 @@ const V2_BASE = {
 
 describe('migrateToLatest', () => {
   it('exports CURRENT_VERSION as 3.2', () => {
-    expect(CURRENT_VERSION).toBe('3.7')
+    expect(CURRENT_VERSION).toBe('3.8')
   })
 
   it('migrates v2.0 data to v3.0', () => {

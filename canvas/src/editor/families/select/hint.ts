@@ -45,8 +45,9 @@ export function selectHint(state: EditorState): HintLine {
   const pair = merge ? [t(`${'refusal' in merge ? merge.refusal : 'touching at one point'} ·`)] : [];
   const only = ids.length === 1 ? sel.children[0] : undefined;
   const free = only?.child.childType === 'door' && isFreestanding(only.layer, only.child as DoorChild) ? [t('freestanding ·')] : [];
+  const below = only?.child.childType === 'asset' && only.child.belowWater ? [t('below water ·')] : [];
   return {
     label: title,
-    segments: [t(`${title} ·`), ...pair, ...free, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
+    segments: [t(`${title} ·`), ...pair, ...free, ...below, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
   };
 }

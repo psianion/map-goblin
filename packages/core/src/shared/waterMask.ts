@@ -183,6 +183,11 @@ export function waterBlendAt(d: number, blendCells: number): number {
   return Math.min(1, Math.max(0, (d - 0.5) / (blendCells * WATER_TEXELS_PER_CELL)));
 }
 
+/** A wet texel's Shallow (0) to Deep (1), `d` texels from the edge: the border line is Deep. */
+function texelBlend(d: number, look: WaterLook): number {
+  return look.border && d <= WATER_BORDER_TEXELS ? 1 : waterBlendAt(d, look.blend);
+}
+
 /**
  * The water as RGBA pixels, one a texel, over the grid with one dry texel of margin all
  * round (so the drawn edge fades to nothing when the texture is filtered).
@@ -197,8 +202,7 @@ export function waterPixels(g: WaterGrid, look: WaterLook): { width: number; hei
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       if (!wetAt(g, x, y)) continue;
-      const d = dist[y * g.w + x];
-      const t = look.border && d <= WATER_BORDER_TEXELS ? 1 : waterBlendAt(d, look.blend);
+      const t = texelBlend(dist[y * g.w + x], look);
       const o = ((y + 1) * width + (x + 1)) * 4;
       pixels[o] = s[0] + (dp[0] - s[0]) * t;
       pixels[o + 1] = s[1] + (dp[1] - s[1]) * t;
@@ -214,4 +218,44 @@ export function waterBounds(body: WaterBody | null | undefined): { minX: number;
   if (!body || body.w <= 0 || body.h <= 0) return null;
   const t = WATER_TEXELS_PER_CELL;
   return { minX: body.x / t, minY: body.y / t, maxX: (body.x + body.w) / t, maxY: (body.y + body.h) / t };
+}
+
+/** Each saved water's decoded mask and distance field, made once per saved body. */
+const fields = new WeakMap<WaterBody, { grid: WaterGrid; dist: Float32Array }>();
+
+/**
+ * The water's colour at world point (x, y), in cells, as the renderer paints that texel:
+ * Shallow at the edge to Deep inside, Deep on the border line. Null where it is dry.
+ */
+export function waterColourAt(body: WaterBody | null | undefined, x: number, y: number): [number, number, number] | null {
+  if (!body || body.w <= 0 || body.h <= 0) return null;
+  let field = fields.get(body);
+  if (!field) {
+    const grid = decodeWater(body);
+    field = { grid, dist: waterDistance(grid) };
+    fields.set(body, field);
+  }
+  const { grid, dist } = field;
+  const tx = Math.floor(x * WATER_TEXELS_PER_CELL) - grid.x;
+  const ty = Math.floor(y * WATER_TEXELS_PER_CELL) - grid.y;
+  if (!wetAt(grid, tx, ty)) return null;
+  const t = texelBlend(dist[ty * grid.w + tx], body);
+  const s = rgb(body.shallow);
+  const dp = rgb(body.deep);
+  return [0, 1, 2].map((i) => Math.round(s[i] + (dp[i] - s[i]) * t)) as [number, number, number];
+}
+
+/**
+ * The tint a below-water prop draws with: its own tint multiplied by the colour of the water
+ * at its centre, from the first wet body in `waters` (topmost first). Its own tint when every
+ * one is dry there, so it draws as it is.
+ */
+export function belowWaterTint(tint: string, waters: readonly (WaterBody | null | undefined)[], x: number, y: number): string {
+  for (const body of waters) {
+    const water = waterColourAt(body, x, y);
+    if (!water) continue;
+    const own = rgb(tint);
+    return `#${own.map((c, i) => Math.round((c * water[i]) / 255).toString(16).padStart(2, '0')).join('')}`;
+  }
+  return tint;
 }

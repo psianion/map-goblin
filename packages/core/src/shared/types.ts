@@ -263,6 +263,8 @@ export interface AssetChild extends LayerChild {
   opacity?: number;
   /** Drawn above tokens (editor and table), faded for a token standing under it. Absent = false. */
   overhead?: boolean;
+  /** Tinted by the water it stands in (shared/waterMask.ts belowWaterTint); drawn as it is where dry. Absent = false. */
+  belowWater?: boolean;
   /** Unclickable on the map; the layer panel and the Unlock menu still reach it. Absent = false. */
   locked?: boolean;
   /** Drops a sun/moon shadow. Absent = true. */

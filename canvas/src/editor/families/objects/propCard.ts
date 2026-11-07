@@ -1,5 +1,5 @@
 // The prop card: Transform, Look (Tint, Opacity), Layering (the four order steps, Overhead,
-// Lock), Variant with Replace, Behaviour (Casts shadow, Blocks light and sight). Glows and
+// Below water, Lock), Variant with Replace, Behaviour (Casts shadow, Blocks light and sight). Glows and
 // Blocks movement are gone from it: an attached light glows better, and nothing reads
 // movement yet. Old maps that carry either still load; the map format drops them in step 13.
 
@@ -124,6 +124,7 @@ export const propCard = defineCard<'asset'>({
     opacity,
     order,
     sw('card.prop.overhead', 'Overhead', 'overhead', 'Layering'),
+    sw('card.prop.belowWater', 'Below water', 'belowWater', 'Layering'),
     sw('card.prop.lock', 'Lock', 'locked', 'Layering'),
     variant,
     sw('card.prop.castsShadow', 'Casts shadow', 'castsShadow', 'Behaviour'),

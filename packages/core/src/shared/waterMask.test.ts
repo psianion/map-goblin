@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   WATER_TEXELS_PER_CELL as T,
+  belowWaterTint,
   decodeWater,
   emptyWaterGrid,
   encodeWater,
   paintWaterDisc,
   waterBlendAt,
   waterBounds,
+  waterColourAt,
   waterDistance,
   waterPixels,
   type WaterGrid,
@@ -102,5 +104,45 @@ describe('water mask', () => {
     // Changing Deep changes the middle.
     const red = waterPixels(g, { ...look, deep: '#ff0000' });
     expect(px(red.pixels, red.width, 0, 0)).toEqual([255, 0, 0, 255]);
+  });
+});
+
+describe('below-water tint', () => {
+  // A pool of radius 3 at (5, 5), blend 2 cells: Shallow at its rim, Deep from two cells in.
+  const pool = encodeWater(paintWaterDisc(emptyWaterGrid(), 5, 5, 3, false), { shallow: '#c0c0c0', deep: '#204060', blend: 2, border: false })!;
+
+  it('takes Deep in the middle of the water: the prop tint times Deep', () => {
+    expect(waterColourAt(pool, 5, 5)).toEqual([0x20, 0x40, 0x60]);
+    expect(belowWaterTint('#ffffff', [pool], 5, 5)).toBe('#204060');
+    // Its own tint multiplies in: half red stays half of Deep's red.
+    expect(belowWaterTint('#800000', [pool], 5, 5)).toBe('#100000');
+  });
+
+  it('takes Shallow at the edge, with the renderer\'s blend in between', () => {
+    const rim = waterColourAt(pool, 7.95, 5)!;
+    // A rim texel is half a texel into the blend: all but Shallow.
+    expect(rim[0]).toBeGreaterThan(0xb8);
+    const half = waterColourAt(pool, 7, 5)!;
+    expect(half[0]).toBeLessThan(rim[0]);
+    expect(half[0]).toBeGreaterThan(0x20);
+    // The same colour the water's own pixels hold there.
+    const g = decodeWater(pool);
+    const { width, pixels } = waterPixels(g, pool);
+    const tx = Math.floor(7 * T) - g.x;
+    const ty = Math.floor(5 * T) - g.y;
+    expect(pixels[((ty + 1) * width + (tx + 1)) * 4]).toBe(half[0]);
+  });
+
+  it('draws as it is where there is no water, or past the edge', () => {
+    expect(waterColourAt(undefined, 5, 5)).toBeNull();
+    expect(waterColourAt(pool, 8.5, 5)).toBeNull();
+    expect(belowWaterTint('#a0b0c0', [], 5, 5)).toBe('#a0b0c0');
+    expect(belowWaterTint('#a0b0c0', [pool], 20, 20)).toBe('#a0b0c0');
+  });
+
+  it('reads the topmost wet water first', () => {
+    const red = encodeWater(paintWaterDisc(emptyWaterGrid(), 5, 5, 1, false), { shallow: '#ff0000', deep: '#ff0000', blend: 0, border: false })!;
+    expect(belowWaterTint('#ffffff', [red, pool], 5, 5)).toBe('#ff0000');
+    expect(belowWaterTint('#ffffff', [red, pool], 7, 5)).not.toBe('#ff0000');
   });
 });
