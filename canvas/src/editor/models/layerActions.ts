@@ -10,7 +10,7 @@ import {
   ReorderLayerCommand,
 } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import {
   CloneLevelCommand,
   DuplicateLayerCommand,

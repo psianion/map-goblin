@@ -1,9 +1,6 @@
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import type { CrossingKind } from '@dnd/core/src/shared/types';
-import { Button } from '@/ui/button';
-import { Input } from '@/ui/input';
-import { Switch } from '@/ui/switch';
-import { Caption, SecondaryButton, Stepper } from '@/editor/components';
+import { Button, Input, Switch, Caption, SecondaryButton, Stepper } from '@dnd/ui';
 
 /*
  * The map's plateau rules in Map settings: the drop at which a plateau's top hides from

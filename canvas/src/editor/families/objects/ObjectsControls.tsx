@@ -9,11 +9,20 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { MAX_SCATTER_TINTS } from '@dnd/core/src/store/slices/tools';
 import { familyKeyOf, familyPosition, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { AddTile, DockColumn, SecondaryButton, SettingRow, Swatch, Tile } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { Input } from '@/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
-import { Slider } from '@/ui/slider';
+import {
+  AddTile,
+  DockColumn,
+  SecondaryButton,
+  SettingRow,
+  Swatch,
+  Tile,
+  Button,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Slider,
+} from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { pickAssetForTool, propCandidates } from '@/editor/models/assetStrip';

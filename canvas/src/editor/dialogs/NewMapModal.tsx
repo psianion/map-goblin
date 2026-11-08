@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, FolderOpen, Image as ImageIcon, Layers, Map as MapIcon, Square, Upload } from 'lucide-react';
 import { normalizeFixedSize } from '@dnd/core/src/store/slices/mapSettings';
-import { Button } from '@/ui/button';
-import { Checkbox } from '@/ui/checkbox';
-import { Dialog, DialogContent } from '@/ui/dialog';
-import { Input } from '@/ui/input';
-import { cn } from '@/lib/utils';
-import { notify } from '@/lib/toast';
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  Input,
+  cn,
+  PrimaryButton,
+  Seg,
+  SecondaryButton,
+} from '@dnd/ui';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { handleImageImport, importTraceImage, normalizeImageFile } from '@/canvas/importImage';
@@ -18,7 +24,6 @@ import { filesFromDataTransfer, filesFromList, scanFiles, type ScannedMap } from
 import { importMaps } from '@/io/importMap';
 import { loadMap as openMapFile } from '@/io/saveLoad';
 import { MAP_FILE_ACCEPT, isMapFile } from '@/io/mapFile';
-import { PrimaryButton, Seg, SecondaryButton } from '@/editor/components';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
 import { SizeFields, type SizeMode } from './SizeFields';

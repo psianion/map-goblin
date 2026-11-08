@@ -7,6 +7,7 @@ RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY canvas/package.json ./canvas/package.json
 COPY packages/core/package.json ./packages/core/package.json
+COPY packages/ui/package.json ./packages/ui/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY . .

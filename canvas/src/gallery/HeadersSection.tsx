@@ -2,7 +2,7 @@ import {
   BrickWall, Copy, DoorOpen, EyeOff, FlipHorizontal, FlipVertical, GitCommitHorizontal, Lock, Mountain, RotateCw,
   SquareDashed, Trash2,
 } from 'lucide-react';
-import { ActionRow, Chip, FloatBox, FlyoutRow, IconKeyButton, PanelHeader } from '@/editor/components';
+import { ActionRow, Chip, FloatBox, FlyoutRow, IconKeyButton, PanelHeader } from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 // The slot is 272 inside its hairline.

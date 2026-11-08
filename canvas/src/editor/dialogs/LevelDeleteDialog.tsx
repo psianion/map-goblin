@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent } from '@/ui/dialog';
+import { Button, Dialog, DialogContent, PrimaryButton, Seg } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { layerObjectCount, layersOnLevel } from '@dnd/core/src/store/layerCommands';
-import { PrimaryButton, Seg } from '@/editor/components';
 import { deleteLevel } from '@/editor/models/layerActions';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, Field, Hint, SelectField } from './parts';

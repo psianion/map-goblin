@@ -81,7 +81,7 @@ import { pickKind, pickName } from '@dnd/core/src/engine/tools/SelectTool'
 import { currentZoom } from '@/editor/zoomControl'
 import type { Command, Layer } from '@/store/types'
 import { zoomToFitRef } from '@/editor/zoomToFitRef'
-import { notify } from '@/lib/toast'
+import { notify } from '@dnd/ui/toast'
 import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands'
 import {
   deleteLayer,

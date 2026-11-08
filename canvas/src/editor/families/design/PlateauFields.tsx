@@ -4,7 +4,7 @@ import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
 import { absoluteHeight, defaultCrossingId, edgeOf, shapeDrop } from '@dnd/core/src/shared/plateaus';
 import { cliffArtChoices } from '@dnd/core/src/engine/plateauKit';
-import { SelectRow, SettingRow, Stepper } from '@/editor/components';
+import { SelectRow, SettingRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { signed, stepHeight } from './plateauModel';
 import { DEFAULT_ART, EDGE_CROSSING } from './plateauModel';

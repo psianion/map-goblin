@@ -1,9 +1,19 @@
 import { useState } from 'react';
 import { Eraser } from 'lucide-react';
 import {
-  Caption, ColourRow, Fold, InputRow, SecondaryButton, Seg, SelectRow, SettingRow, SliderRow, Swatch, SwitchRow,
-} from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
+  Caption,
+  ColourRow,
+  Fold,
+  InputRow,
+  SecondaryButton,
+  Seg,
+  SelectRow,
+  SettingRow,
+  SliderRow,
+  Swatch,
+  SwitchRow,
+  Kbd,
+} from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 function RowsSection({ theme }: { theme: GalleryTheme }) {

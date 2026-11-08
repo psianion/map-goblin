@@ -13,7 +13,7 @@ import { MIN_ZOOM, MAX_ZOOM } from '@/editor/zoomControl';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
 import { pickAt, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import type { DungeonLayer } from '@/store/types';
 import {

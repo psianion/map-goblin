@@ -1,4 +1,4 @@
-import { ActionRow, Caption, FloatBox, IconKeyButton, PanelHeader } from '@/editor/components';
+import { ActionRow, Caption, FloatBox, IconKeyButton, PanelHeader } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import type { CardDef, Verb } from '@/editor/registry';
 import { liveVerbs } from './model';

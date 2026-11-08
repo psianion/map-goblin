@@ -1,0 +1,33 @@
+/* Minimal Precision slider — uses CSS vars from .dark theme */
+.slider-minimal {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--text-2) var(--slider-fill, 0%),
+    var(--line) var(--slider-fill, 0%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-minimal::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1px solid var(--panel);
+  cursor: pointer;
+}
+
+.slider-minimal::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1px solid var(--panel);
+  cursor: pointer;
+}

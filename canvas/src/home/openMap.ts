@@ -3,7 +3,7 @@ import { switchMap } from '@/store/mapSwitcher';
 import { undoManager } from '@/store/undoManager';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 /**
  * Open a map from the home page. Same save, fog, load, texture-install sequence the

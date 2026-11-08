@@ -6,7 +6,7 @@ import type { MenuRow } from '@/editor/RowMenu';
 import type { DungeonLayer } from '@/store/types';
 import { buildLayerTileMenu } from './menuRegistry';
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: { action: vi.fn(), subtle: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 

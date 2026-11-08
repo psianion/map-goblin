@@ -1,6 +1,5 @@
 import { Eraser } from 'lucide-react';
-import { Chip, PrimaryButton, SecondaryButton } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
+import { Chip, PrimaryButton, SecondaryButton, Kbd } from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 function ButtonsSection({ theme }: { theme: GalleryTheme }) {

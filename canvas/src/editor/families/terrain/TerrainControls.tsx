@@ -7,10 +7,19 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { AddTile, DockColumn, SecondaryButton, SettingRow, Swatch, Tile } from '@/editor/components';
-import { Input } from '@/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
-import { Slider } from '@/ui/slider';
+import {
+  AddTile,
+  DockColumn,
+  SecondaryButton,
+  SettingRow,
+  Swatch,
+  Tile,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Slider,
+} from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { pickTerrainSlotTexture, TERRAIN_SLOT_COUNT } from '@/editor/models/assetStrip';

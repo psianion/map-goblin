@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { SetAmbientLightCommand, SetEnvironmentSettingsCommand } from '@/store/commands';
 import { environmentOf, type Environment, type MapEnvironment } from '@dnd/core/src/shared/world';
-import { Caption, ColourRow, Seg, SliderRow, SwitchRow } from '@/editor/components';
+import { Caption, ColourRow, Seg, SliderRow, SwitchRow } from '@dnd/ui';
 import { runEdit } from '@/editor/families/design/cardWrites';
 import { setLitPreview, useLitPreview } from '@/editor/viewPrefs';
 

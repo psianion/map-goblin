@@ -16,8 +16,19 @@ import { selectLayerForChild } from '@/store/selectors';
 import { UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { importNoteImage } from '@/canvas/importImage';
-import { notify } from '@/lib/toast';
-import { cn } from '@/lib/utils';
+import { notify } from '@dnd/ui/toast';
+import {
+  cn,
+  Caption,
+  IconKeyButton,
+  Seg,
+  SelectRow,
+  SettingRow,
+  SwitchRow,
+  Button,
+  Input,
+  Switch,
+} from '@dnd/ui';
 import { TIMES, WEATHERS, vocabLabel } from '@/store/types';
 import type {
   Ability,
@@ -34,10 +45,6 @@ import type {
   ZoneChild,
   ZoneShape,
 } from '@/store/types';
-import { Caption, IconKeyButton, Seg, SelectRow, SettingRow, SwitchRow } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { Input } from '@/ui/input';
-import { Switch } from '@/ui/switch';
 import { CONDITION_LABELS } from '@/editor/models/prepModel';
 import { AddButton, DraftArea, DraftInput, Note, RemoveButton, Tag } from './sheetFields';
 

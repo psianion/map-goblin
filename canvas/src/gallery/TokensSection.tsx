@@ -1,6 +1,6 @@
 import { Section, type GalleryTheme } from './parts';
 
-// The page's order and roles; the values are read live from src/theme/tokens.css.
+// The page's order and roles; the values are read live from @dnd/ui theme/tokens.css.
 const TOKENS: [string, string][] = [
   ['bg', 'canvas behind the map'],
   ['dot', 'grid dots'],
@@ -26,7 +26,7 @@ function TokensSection({ theme }: { theme: GalleryTheme }) {
     <Section
       id="tokens"
       title="Colour tokens"
-      small="src/theme/tokens.css, read live"
+      small="@dnd/ui theme/tokens.css, read live"
       theme={theme}
       rules="Text on panel uses text for values, text-2 for labels, text-3 for captions and keys. Lines are hairline only, 1px, line for rest and line-strong for slider tracks. Danger is reserved for delete. No second accent anywhere."
     >

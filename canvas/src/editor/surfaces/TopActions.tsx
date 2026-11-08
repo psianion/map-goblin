@@ -1,6 +1,8 @@
 import { Ellipsis, Redo2, Undo2 } from 'lucide-react';
-import { FloatBox, IconKeyButton, PrimaryButton } from '@/editor/components';
 import {
+  FloatBox,
+  IconKeyButton,
+  PrimaryButton,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -12,13 +14,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from '@/ui/dropdown-menu';
+  useTheme,
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import type { EditorChromeActions } from '@/editor/EditorHost';
-import { useTheme } from '@/theme/theme';
 import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '@/editor/viewPrefs';
 import { useShell } from '@/editor/shell/shellStore';
 

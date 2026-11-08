@@ -1,7 +1,13 @@
 import { useState } from 'react';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/ui/dialog';
-import { InputRow, PrimaryButton } from '@/editor/components';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  InputRow,
+  PrimaryButton,
+} from '@dnd/ui';
 
 /** A name changed in place: a level's, a layer's. Enter saves, Escape leaves it as it was. */
 export function RenameDialog({

@@ -29,11 +29,9 @@ import {
 import { undoManager } from '@/store/undoManager';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
 import type { Command, DungeonLayer, Room, RoomArea, ScenePrep } from '@/store/types';
-import { Caption, IconKeyButton } from '@/editor/components';
+import { Caption, IconKeyButton, Input, cn } from '@dnd/ui';
 import { ContextMenu, type ContextMenuItem } from '@/editor/RowMenu';
 import { SheetFrame } from '@/editor/surfaces/SheetFrame';
-import { Input } from '@/ui/input';
-import { cn } from '@/lib/utils';
 import {
   areaPinLabel,
   byNumber,

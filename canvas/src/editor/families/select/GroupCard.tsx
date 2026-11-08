@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react';
-import { ActionRow, Caption, FloatBox, PanelHeader, SecondaryButton, SettingRow, SwitchRow } from '@/editor/components';
-import { Input } from '@/ui/input';
+import {
+  ActionRow,
+  Caption,
+  FloatBox,
+  PanelHeader,
+  SecondaryButton,
+  SettingRow,
+  SwitchRow,
+  Input,
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createDissolveGroupCommand, createRenameGroupCommand, SetGroupMergedCommand } from '@/store/commands';

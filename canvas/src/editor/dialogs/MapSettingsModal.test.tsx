@@ -6,7 +6,7 @@ import type { DungeonLayer } from '@/store/types';
 import { MapSettingsModal } from './MapSettingsModal';
 
 const { notify } = vi.hoisted(() => ({ notify: { success: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/toast', () => ({ notify }));
+vi.mock('@dnd/ui/toast', () => ({ notify }));
 
 /** Put a floor on the open map so `measureGridSize` has something to report. */
 function drawSomething() {

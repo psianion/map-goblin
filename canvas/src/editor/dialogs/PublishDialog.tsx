@@ -1,10 +1,6 @@
 import { useCallback } from 'react';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent } from '@/ui/dialog';
-import { Input } from '@/ui/input';
-import { PrimaryButton, SecondaryButton } from '@/editor/components';
+import { Button, Dialog, DialogContent, Input, PrimaryButton, SecondaryButton, timeAgo } from '@dnd/ui';
 import { usePublishFlow, type PublishChange } from '@/io/publishFlow';
-import { timeAgo } from '@/lib/format';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
 

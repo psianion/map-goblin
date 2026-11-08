@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn } from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 const SCALE = [

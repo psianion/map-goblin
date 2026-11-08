@@ -65,7 +65,7 @@ const MOSS_OTHER = /(?<![\w-])(?:gg-grain|gg-row|shadow-panel|font-display|text-
 
 describe('theme tokens', () => {
   it('defines the 16 tokens with the plan values, light on :root and dark on .dark', async () => {
-    const css = (await loadFs()).readFileSync('src/theme/tokens.css', 'utf8');
+    const css = (await loadFs()).readFileSync('../packages/ui/src/theme/tokens.css', 'utf8');
     const light = block(css, ':root');
     const dark = block(css, '.dark');
     for (const [name, [l, d]] of Object.entries(TOKENS)) {

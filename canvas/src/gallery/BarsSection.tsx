@@ -1,7 +1,5 @@
 import { Box, CircleHelp, Ellipsis, Hand, House, Mountain, MousePointer2, PencilRuler, Redo2, Ruler, SunMoon, Type, Undo2 } from 'lucide-react';
-import { FloatBox, IconKeyButton, KeyHint, PrimaryButton, StatusChip } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
-import { Separator } from '@/ui/separator';
+import { FloatBox, IconKeyButton, KeyHint, PrimaryButton, StatusChip, Kbd, Separator } from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 const bar = 'inline-flex h-11 items-center gap-2 px-2 py-0';

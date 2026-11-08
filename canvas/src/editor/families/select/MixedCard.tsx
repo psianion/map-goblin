@@ -16,7 +16,7 @@ import {
   Lock,
   type LucideIcon,
 } from 'lucide-react';
-import { ActionRow, Caption, FloatBox, IconKeyButton, PanelHeader, SecondaryButton, SelectRow, SettingRow } from '@/editor/components';
+import { ActionRow, Caption, FloatBox, IconKeyButton, PanelHeader, SecondaryButton, SelectRow, SettingRow } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
 import type { AlignEdge, ZOrderOp } from '@dnd/core/src/store/propEdits';

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@dnd/ui'
 import { SliderInput } from '@/editor/SliderInput'
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas'
 import { useEscapeToClose } from '@/editor/useEscapeToClose'

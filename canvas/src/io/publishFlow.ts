@@ -21,7 +21,7 @@ import {
   PublishGoneError,
   type CampaignSummary,
 } from '@/io/publish';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 // The factory behind getMapDB() is always canvas's MapIndexDB (see store/init.ts) — the
 // core-side MapDB interface just doesn't list the publish-state methods added there.

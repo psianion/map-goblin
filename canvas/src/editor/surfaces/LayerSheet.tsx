@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Copy, FolderInput, Trash2 } from 'lucide-react';
-import { Caption, ColourRow, InputRow, SecondaryButton, Seg, SettingRow, SliderRow, SwitchRow, Tile } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/ui/dropdown-menu';
+import {
+  Caption,
+  ColourRow,
+  InputRow,
+  SecondaryButton,
+  Seg,
+  SettingRow,
+  SliderRow,
+  SwitchRow,
+  Tile,
+  Kbd,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { isOnShownLevel } from '@/store/selectors';
 import { TERRAIN_PANEL_ID, type BackgroundLayer, type DungeonLayer, type ImageLayer, type Layer, type SublayerVisibility } from '@/store/types';
@@ -14,7 +27,7 @@ import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands';
 import { checkRename, rowShown, sheetSections, showRows } from '@/editor/models/layerSheetModel';
 import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleLayerVisible, toggleSolo } from '@/editor/models/layerActions';
 import { readTraceFile } from '@/canvas/importImage';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { battlemapPicture, convertToTrace, lineUpPicture, pictureFileName, pictureLine, replacePicture } from '@/editor/models/battlemapActions';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { SheetFrame } from './SheetFrame';

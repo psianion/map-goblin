@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: {
     subtle: vi.fn(),
     action: vi.fn(),
@@ -21,7 +21,7 @@ import {
   AUTOSAVE_PROMPT_DELAY_MS,
   startAutosave,
 } from './autosave.ts';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';

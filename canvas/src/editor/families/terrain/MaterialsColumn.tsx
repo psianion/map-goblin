@@ -3,7 +3,7 @@
 // more. A click picks what the next stroke paints.
 
 import { useStore } from '@/store/store';
-import { DockColumn, Tile } from '@/editor/components';
+import { DockColumn, Tile } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { materialFillId, materialIds, materialLabel } from '@dnd/core/src/assets/materialKit';
 import { getBandSet } from '@dnd/core/src/assets/packCatalog';

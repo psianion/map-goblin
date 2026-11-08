@@ -12,7 +12,7 @@ import {
 } from '@/store/commands'
 import { childGroupOf, namedGroupKey, selectLayerForChild } from '@/store/selectors'
 import type { ChildGroupInfo, DungeonLayer } from '@/store/types'
-import { notify } from '@/lib/toast'
+import { notify } from '@dnd/ui/toast'
 
 const NEED_TWO = 'Select 2+ objects on one unlocked layer to group'
 

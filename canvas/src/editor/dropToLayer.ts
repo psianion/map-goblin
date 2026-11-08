@@ -3,7 +3,7 @@ import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
 import { undoManager } from '@/store/undoManager';
 import { createMoveToLayerCommand } from '@dnd/core/src/store/propEdits';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 /*
  * Drop to layer (board L2): a canvas drag released over a filmstrip tile moves the

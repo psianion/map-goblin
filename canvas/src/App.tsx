@@ -6,7 +6,7 @@ import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk'
 import { openNewMapRef } from '@/editor/toolConstants';
 import { HomeScreen, type EnterOptions } from '@/home/HomeScreen';
 import { NewMapModal } from '@/editor/dialogs/NewMapModal';
-import { initTheme, useTheme } from '@/theme/theme';
+import { initTheme, useTheme } from '@dnd/ui';
 import { readDesk } from '@/theme/desk';
 import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from '@/editor/viewPrefs';
 

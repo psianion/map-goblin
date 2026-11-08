@@ -10,7 +10,7 @@ const { notify, pipeline, download, mapFile } = vi.hoisted(() => ({
   download: vi.fn(),
   mapFile: vi.fn(async () => 'map.mapbuilder'),
 }));
-vi.mock('@/lib/toast', () => ({ notify }));
+vi.mock('@dnd/ui/toast', () => ({ notify }));
 vi.mock('@/engine/engineSingleton', () => ({ getEngineSingleton: () => ({ engine: {}, sceneGraph: {} }) }));
 vi.mock('@/engine/export/exportPipeline', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/engine/export/exportPipeline')>()),

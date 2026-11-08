@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ellipsis, Moon, Plus, Sun, Trash2 } from 'lucide-react';
 import { restoreLastDeletedMap } from '@dnd/core/src/store/slices/maps';
 import { useStore } from '@/store/store';
-import { notify } from '@/lib/toast';
-import { cn } from '@/lib/utils';
-import { timeAgo } from '@/lib/format';
-import { Button } from '@/ui/button';
-import { Input } from '@/ui/input';
+import { notify } from '@dnd/ui/toast';
+import { cn, timeAgo, Button, Input, useTheme } from '@dnd/ui';
 import { ConfirmDialog } from '@/editor/ConfirmDialog';
 import { ContextMenu, useContextMenu, type MenuRow } from '@/editor/RowMenu';
 import { NewMapModal } from '@/editor/dialogs/NewMapModal';
 import type { MapMeta } from '@/store/types';
-import { useTheme } from '@/theme/theme';
 import { openMap } from './openMap';
 
 /** How the editor comes up when the home page hands over to it. */

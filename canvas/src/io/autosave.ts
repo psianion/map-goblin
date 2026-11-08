@@ -7,7 +7,7 @@
 // switch is in flight (the store's isMapSwitching flag).
 
 import { useStore } from '@/store/store';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { ROOM_RUNTIME_KEYS } from '@dnd/core/src/shared/types';
 
 // ─── What counts as an unsaved change ─────────────────────────────────────────

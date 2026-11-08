@@ -3,7 +3,7 @@
 
 import { useStore } from '@/store/store';
 import { turnDoorAngle } from '@dnd/core/src/engine/tools/DoorTool';
-import { SecondaryButton, Stepper } from '@/editor/components';
+import { SecondaryButton, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { wallWidthIgnored } from '@/editor/models/assetStrip';
 import { wallLookValue } from './wallLook';

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { FloatBox, FlyoutRow } from '@/editor/components';
+import { FloatBox, FlyoutRow } from '@dnd/ui';
 import type { FamilyDef } from '@/editor/registry';
 import { useShell } from '@/editor/shell/shellStore';
 import { pickTool, useActiveTool } from './hooks';

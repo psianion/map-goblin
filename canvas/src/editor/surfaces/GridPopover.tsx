@@ -1,8 +1,7 @@
 import { useRef, useState, type ReactElement } from 'react';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { useShallow } from 'zustand/react/shallow';
-import { ColourRow, Seg, SettingRow, SwitchRow } from '@/editor/components';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
+import { ColourRow, Seg, SettingRow, SwitchRow, Popover, PopoverContent, PopoverTrigger } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { selectActiveLayer } from '@/store/selectors';
 import { CompositeCommand, LayerStyleChangeCommand } from '@/store/commands';

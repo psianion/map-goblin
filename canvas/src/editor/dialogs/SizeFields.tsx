@@ -1,6 +1,5 @@
 import { MAX_FIXED_CELLS } from '@dnd/core/src/store/slices/mapSettings';
-import { Input } from '@/ui/input';
-import { Seg } from '@/editor/components';
+import { Input, Seg } from '@dnd/ui';
 import { ErrorLine, Field, Hint } from './parts';
 
 export type SizeMode = 'expanding' | 'fixed';

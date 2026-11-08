@@ -1,6 +1,5 @@
 import { Hand, House, MousePointer2, PencilRuler, Redo2, Undo2 } from 'lucide-react';
-import { FloatBox, IconKeyButton, PanelHeader, PrimaryButton } from '@/editor/components';
-import { Separator } from '@/ui/separator';
+import { FloatBox, IconKeyButton, PanelHeader, PrimaryButton, Separator } from '@dnd/ui';
 import { Section, type GalleryTheme } from './parts';
 
 // The page's gutter labels, in danger so they read as annotations, not chrome.

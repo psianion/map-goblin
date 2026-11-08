@@ -11,7 +11,7 @@ import { useState, type ReactNode } from 'react';
 import { useStore } from '@/store/store';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
 import type { Ability, CheckEntry, MonsterEntry, RoomKey, TrapEntry } from '@/store/types';
-import { Caption } from '@/editor/components';
+import { Caption } from '@dnd/ui';
 import { currentKey, writeRoomKey } from '@/editor/models/roomActions';
 import { AddButton, DraftArea, DraftInput, MiniSelect, RemoveButton } from './sheetFields';
 

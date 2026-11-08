@@ -1,9 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
-import { FloatBox, PrimaryButton, SecondaryButton, Stepper } from '@/editor/components';
+import { FloatBox, PrimaryButton, SecondaryButton, Stepper } from '@dnd/ui';
 import { MAX_FIXED_CELLS } from '@dnd/core/src/store/slices/mapSettings';
 import {
   applyGridCalibration,

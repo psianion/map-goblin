@@ -1,7 +1,6 @@
 import { House } from 'lucide-react';
-import { FloatBox, IconKeyButton } from '@/editor/components';
+import { FloatBox, IconKeyButton, Button } from '@dnd/ui';
 import { useStore } from '@/store/store';
-import { Button } from '@/ui/button';
 import { LevelMenu } from './LevelMenu';
 import { levelLabel } from './model';
 

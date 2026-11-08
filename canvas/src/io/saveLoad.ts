@@ -13,7 +13,7 @@
 
 import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { encodeMapFile, decodeMapFile, decodeAnyMapFile, hasMagicHeader, MAGIC_HEADER } from './mapFormat';

@@ -1,5 +1,4 @@
-import { Chip, SecondaryButton, SettingRow } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
+import { Chip, SecondaryButton, SettingRow, Kbd } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { usePreviousTool } from './previousTool';
 import { PICK_CHIPS, type PickChip } from './pickOnly';

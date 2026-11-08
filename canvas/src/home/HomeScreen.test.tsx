@@ -10,7 +10,7 @@ const { notify, openMap, restoreLastDeletedMap } = vi.hoisted(() => ({
   openMap: vi.fn(async (_id: string) => true),
   restoreLastDeletedMap: vi.fn(),
 }));
-vi.mock('@/lib/toast', () => ({ notify }));
+vi.mock('@dnd/ui/toast', () => ({ notify }));
 vi.mock('./openMap', () => ({ openMap }));
 vi.mock('@dnd/core/src/store/slices/maps', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@dnd/core/src/store/slices/maps')>()),
@@ -247,7 +247,7 @@ describe('HomeScreen cards', () => {
     // The rest of this file stubs notify. This one runs the real helper into a real
     // toaster, so the Undo the DM sees is the one that restores the map.
     it('the delete toast shows an Undo button that restores the map', async () => {
-      const real = await vi.importActual<typeof import('@/lib/toast')>('@/lib/toast');
+      const real = await vi.importActual<typeof import('@dnd/ui/toast')>('@dnd/ui/toast');
       notify.action.mockImplementation(real.notify.action);
       notify.success.mockImplementation(real.notify.success);
       useStore.setState({ saveCurrentMap: vi.fn(async () => {}) } as never);

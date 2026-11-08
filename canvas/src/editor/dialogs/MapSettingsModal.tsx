@@ -8,15 +8,12 @@ import {
 } from '@dnd/core/src/store/slices/mapSettings';
 import type { CrossingKind } from '@dnd/core/src/shared/types';
 import { setCrossingKinds, setSightDropCells } from '@dnd/core/src/store/plateauCommands';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent } from '@/ui/dialog';
-import { Input } from '@/ui/input';
-import { notify } from '@/lib/toast';
+import { Button, Dialog, DialogContent, Input, PrimaryButton, Seg } from '@dnd/ui';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { Command } from '@/store/types';
-import { PrimaryButton, Seg } from '@/editor/components';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
 import { SizeFields, type SizeMode } from './SizeFields';
