@@ -150,8 +150,7 @@ export function hidePill(): void {
 export function librarySize(): number {
   const pm = getAssetPackManager();
   return LIBRARY_ORDER.flatMap((id) => pm.getAssetSetStatus(id))
-    .filter((s) => !s.installed)
-    .reduce((n, s) => n + s.bytes, 0);
+    .reduce((n, s) => n + s.missingBytes, 0);
 }
 
 /** The pill's per-pack lines: packs before the live one are done, after it waiting. */
