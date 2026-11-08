@@ -98,6 +98,9 @@ export interface AssetSetStatus {
   missingBytes: number
 }
 
+/** Files stored per IndexedDB transaction while downloading. */
+const WRITE_BATCH = 16
+
 const IDLE: AssetProgress = { phase: 'idle', filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0 }
 
 export class AssetPackManager {
@@ -110,6 +113,8 @@ export class AssetPackManager {
   // Shared cap for CDN downloads and texture decode/upload; 8 matches what browsers
   // keep in flight per host anyway.
   private downloadLimit = pLimit(8)
+  /** Decodes and uploads, apart from downloads so neither waits on the other. */
+  private decodeLimit = pLimit(4)
   private installTimestamps: number[] = [] // hourly cap tracking
   private packDB: AssetPackDB | undefined
   private cachedIndex: PackIndex | null = null
@@ -127,6 +132,11 @@ export class AssetPackManager {
   private pendingRequests: Set<string> = new Set()
   /** In-flight file downloads, keyed "<packId>/<file>". */
   private fetching: Map<string, Promise<void>> = new Map()
+  /** Downloaded files waiting for the next batched write (see queueWrite). */
+  private writeQueue: Array<{ packId: string; file: string; bytes: Uint8Array; resolve: () => void; reject: (err: unknown) => void }> = []
+  private writeScheduled = false
+  /** Just-downloaded bytes a queued decode is about to use; dropped once it reads them. */
+  private landed: Map<string, Uint8Array> = new Map()
   /**
    * Files stored locally, per pack: the sync mirror of the `files` store's keys, read at
    * rehydrate without the bytes. The truth for "is this set installed": all its files are.
@@ -699,14 +709,14 @@ export class AssetPackManager {
 
   /**
    * Decode one pack file into textures: a loose file registers its entry, an atlas (json
-   * plus image) every frame it holds. Memoised per file and capped by `downloadLimit`.
+   * plus image) every frame it holds. Memoised per file and capped by `decodeLimit`.
    * Resolves without decoding when the file is not stored.
    */
   decodeFile(packId: string, file: string): Promise<void> {
     const key = fileKey(packId, file)
     const known = this.decoding.get(key)
     if (known) return known
-    const run = this.downloadLimit(() => this.decodeNow(packId, file)).then(
+    const run = this.decodeLimit(() => this.decodeNow(packId, file)).then(
       (ok) => {
         if (!ok) this.failedDecodes.add(key)
       },
@@ -726,7 +736,7 @@ export class AssetPackManager {
   private async decodeNow(packId: string, file: string): Promise<boolean> {
     const manifest = this.manifestCache.get(packId)
     if (!manifest) return false
-    const PIXI = await import('pixi.js')
+    const PIXI = await loadPixi()
 
     if (manifest.atlases[file] && file.endsWith('.json')) {
       const jsonBytes = await this.readFile(packId, file)
@@ -767,7 +777,13 @@ export class AssetPackManager {
   }
 
   private async readFile(packId: string, file: string): Promise<Uint8Array | null> {
-    const inMemory = this.files.get(fileKey(packId, file))
+    const key = fileKey(packId, file)
+    const landed = this.landed.get(key)
+    if (landed) {
+      this.landed.delete(key)
+      return landed
+    }
+    const inMemory = this.files.get(key)
     if (inMemory) return inMemory
     return this.packDB ? this.packDB.getFile(packId, file) : null
   }
@@ -790,8 +806,7 @@ export class AssetPackManager {
   private fileIndex(manifest: PackManifest): Map<string, string> {
     const cached = this.fileIndexCache.get(manifest)
     if (cached) return cached
-    const byStem = new Map<string, string>()
-    for (const file of Object.keys(manifest.files)) byStem.set(file.replace(/-[^-]*$/, ''), file)
+    const byStem = looseFiles(manifest)
     const index = new Map<string, string>()
     for (const [entryId, entry] of Object.entries(manifest.entries)) {
       if (entry.atlas) {
@@ -1070,22 +1085,61 @@ export class AssetPackManager {
     let run = this.fetching.get(key)
     if (!run) {
       const verify = typeof globalThis.crypto?.subtle?.digest === 'function'
-      run = this.downloadLimit(async () => {
+      // Only the download holds a network slot; hashing and the batched write run beside it.
+      run = (async () => {
         if (this.presentFiles.get(packId)?.has(file)) return
-        const url = `${this.config.cdnBaseUrl}/${packId}/${file}`
-        const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
-        if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`)
-        const bytes = new Uint8Array(await res.arrayBuffer())
+        const bytes = await this.downloadLimit(async () => {
+          const url = `${this.config.cdnBaseUrl}/${packId}/${file}`
+          const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+          if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`)
+          return new Uint8Array(await res.arrayBuffer())
+        })
         if (verify && ref && (await sha256Hex(bytes)) !== ref.checksum.replace('sha256:', '')) {
           throw new Error(`Checksum mismatch for ${file}`)
         }
-        await this.packDB!.putFiles(packId, new Map([[file, bytes]]))
+        await this.queueWrite(packId, file, bytes)
         this.markPresent(packId, [file])
+        // A texture waiting on this file decodes from these bytes, not a read back.
+        this.landed.set(key, bytes)
+        const before = this.decoding.get(key)
         this.servePending(packId, [file])
-      }).finally(() => this.fetching.delete(key))
+        if (this.decoding.get(key) === before) this.landed.delete(key)
+      })().finally(() => this.fetching.delete(key))
       this.fetching.set(key, run)
     }
     return run.then(() => progress?.advance(1, ref?.size ?? 0))
+  }
+
+  /**
+   * Store one downloaded file. Writes are batched: up to WRITE_BATCH files, or whatever
+   * arrived within one task, go in one transaction per pack.
+   */
+  private queueWrite(packId: string, file: string, bytes: Uint8Array): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.writeQueue.push({ packId, file, bytes, resolve, reject })
+      if (this.writeQueue.length >= WRITE_BATCH) void this.flushWrites()
+      else if (!this.writeScheduled) {
+        this.writeScheduled = true
+        setTimeout(() => void this.flushWrites(), 0)
+      }
+    })
+  }
+
+  private async flushWrites(): Promise<void> {
+    this.writeScheduled = false
+    const batch = this.writeQueue.splice(0)
+    const byPack = new Map<string, typeof batch>()
+    for (const w of batch) byPack.set(w.packId, [...(byPack.get(w.packId) ?? []), w])
+    await Promise.all(
+      [...byPack].map(async ([packId, writes]) => {
+        try {
+          await this.packDB!.putFiles(packId, new Map(writes.map((w) => [w.file, w.bytes])))
+          for (const w of writes) w.resolve()
+        } catch (err) {
+          for (const w of writes) w.reject(err)
+        }
+      }),
+    )
   }
 
   /**
@@ -1130,7 +1184,7 @@ export class AssetPackManager {
       const manifest = this.manifestCache.get(packId)
       if (manifest) {
         try {
-          const PIXI = await import('pixi.js')
+          const PIXI = await loadPixi()
           for (const atlasFile of Object.keys(manifest.atlases)) {
             if (atlasFile.endsWith('.json')) {
               await PIXI.Assets.unload(atlasFile).catch(() => {})
@@ -1267,6 +1321,14 @@ export class AssetPackManager {
   }
 }
 
+let pixi: Promise<typeof import('pixi.js')> | null = null
+
+/** Pixi, imported once on first decode: the manager is on the home path, Pixi is not. */
+function loadPixi(): Promise<typeof import('pixi.js')> {
+  pixi ??= import('pixi.js')
+  return pixi
+}
+
 function fileKey(packId: string, file: string): string {
   return `${packId}/${file}`
 }
@@ -1312,8 +1374,25 @@ function entryFiles(manifest: PackManifest, entry: ManifestEntry): string[] {
     if (jsonName !== entry.atlas) files.push(jsonName)
     return files
   }
-  const prefix = loosePrefixFor(entry)
-  return Object.keys(manifest.files).filter((f) => f.startsWith(prefix))
+  const file = looseFiles(manifest).get(loosePrefixFor(entry).slice(0, -1))
+  return file ? [file] : []
+}
+
+const looseFileCache = new WeakMap<PackManifest, Map<string, string>>()
+
+/**
+ * A manifest's loose files by name less their `-<hash>.<ext>` suffix, which is an
+ * entry's `material_gridSize_variant`. Built once per manifest: scanning every file for
+ * every entry made each set lookup thousands of string compares.
+ */
+function looseFiles(manifest: PackManifest): Map<string, string> {
+  let byStem = looseFileCache.get(manifest)
+  if (!byStem) {
+    byStem = new Map()
+    for (const file of Object.keys(manifest.files)) byStem.set(file.replace(/-[^-]*$/, ''), file)
+    looseFileCache.set(manifest, byStem)
+  }
+  return byStem
 }
 
 /** Every asset set name any entry in the manifest declares. */
@@ -1323,13 +1402,21 @@ function allSetNames(manifest: PackManifest): string[] {
 
 /** Every file (atlas + loose) that belongs to one asset set. */
 function filesForSet(manifest: PackManifest, setName: string): Set<string> {
-  const files = new Set<string>()
-  for (const entry of Object.values(manifest.entries)) {
-    if (entry.set !== setName) continue
-    for (const file of entryFiles(manifest, entry)) files.add(file)
+  let bySet = setFileCache.get(manifest)
+  if (!bySet) {
+    bySet = new Map()
+    for (const entry of Object.values(manifest.entries)) {
+      if (!entry.set) continue
+      const files = bySet.get(entry.set) ?? new Set<string>()
+      for (const file of entryFiles(manifest, entry)) files.add(file)
+      bySet.set(entry.set, files)
+    }
+    setFileCache.set(manifest, bySet)
   }
-  return files
+  return new Set(bySet.get(setName))
 }
+
+const setFileCache = new WeakMap<PackManifest, Map<string, Set<string>>>()
 
 /** File count and manifest bytes of one asset set. */
 function setSize(manifest: PackManifest, setName: string): { files: number; bytes: number } {
