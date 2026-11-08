@@ -35,7 +35,7 @@ export function installTableDesk(setDesk: (desk: EditorDesk | null) => void): ()
   const root = document.documentElement;
   const apply = (): void => {
     const css = getComputedStyle(root);
-    setDesk({ ...readDesk((name) => css.getPropertyValue(name), root.classList.contains('dark')), lit: true });
+    setDesk({ ...readDesk((name) => css.getPropertyValue(name), root.classList.contains('dark')), lit: true, wallMarks: false });
   };
   apply();
   const observer = new MutationObserver(apply);

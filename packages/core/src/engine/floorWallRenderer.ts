@@ -521,8 +521,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // edits because their geometry is derived here rather than read off the child.
   const resolvedWalls = resolveWalls(layer);
   const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
-  // The marks that tell wall types apart are the editor's; the table never installs a desk.
-  const marks = getEditorDesk() ? entry.sublayers.wallMarks : undefined;
+  // The marks that tell wall types apart are the editor's: drawn under a desk unless the desk
+  // turns them off, which the table's does (players never see them).
+  const desk = getEditorDesk();
+  const marks = desk && desk.wallMarks !== false ? entry.sublayers.wallMarks : undefined;
   if (!marks) for (const child of entry.sublayers.wallMarks.removeChildren()) child.destroy({ children: true });
   // The style the walls draw with: the layer's, with its level's look folded in
   // (the rule is in wallLook.ts, `levelStyle`).

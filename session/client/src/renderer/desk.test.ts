@@ -14,7 +14,7 @@ describe('installTableDesk', () => {
   it('installs a lit desk and re-reads it when the dark class flips', async () => {
     const set = vi.fn();
     const undo = installTableDesk(set);
-    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({ lit: true, desk: '#f2f2f2' }));
+    expect(set).toHaveBeenLastCalledWith(expect.objectContaining({ lit: true, wallMarks: false, desk: '#f2f2f2' }));
     document.documentElement.classList.add('dark');
     await new Promise((r) => setTimeout(r, 0));
     expect(set).toHaveBeenLastCalledWith(expect.objectContaining({ lit: true, desk: '#2b2b2b' }));
