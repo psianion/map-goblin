@@ -9,11 +9,5 @@ function Stub({ title }: { title: string }) {
   );
 }
 
-export const FogStub = () => <Stub title="Fog" />;
-export const MapStub = () => <Stub title="Map" />;
-export const TokensStub = () => <Stub title="Tokens" />;
 export const EncounterStub = () => <Stub title="Encounter" />;
-export const StoryStub = () => <Stub title="Story" />;
-export const WorldStub = () => <Stub title="World" />;
-export const ScenesStub = () => <Stub title="Scenes" />;
 export const DiceStub = () => <Stub title="Dice" />;

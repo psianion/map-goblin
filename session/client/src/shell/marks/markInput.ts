@@ -3,7 +3,8 @@ import { mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool, type ToolId } from '../../session/tools';
 import { MARK_TTL_MS, placeMark, sendMark, useMarks, type MarkMsg, type Pt } from './marks';
-import { useLocalPins } from './pins';
+import { useTableShell } from '../tableShell';
+import { addPin, pinAt, pinsNow } from './pins';
 
 type MarkTool = Exclude<ToolId, 'fog'>;
 
@@ -19,8 +20,6 @@ function worldAt(engine: RenderEngine, e: PointerEvent): Pt {
   const rect = engine.canvas().getBoundingClientRect();
   return engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
 }
-
-let pinCounter = 0;
 
 /**
  * The rail's mark tools on the map: Ping (click; Shift+Alt+click by the DM pulls every
@@ -52,7 +51,9 @@ export function attachMarkInput(engine: RenderEngine): () => void {
       return;
     }
     if (tool === 'pin') {
-      useLocalPins.getState().add({ id: `pin-${Date.now()}-${++pinCounter}`, x: at.x, y: at.y, text: '', dmOnly: role === 'dm' });
+      const hit = pinAt(pinsNow(), at.x, at.y);
+      if (hit) useTableShell.getState().openCard(`pin:${hit.id}`);
+      else addPin(at.x, at.y, role === 'dm');
       return;
     }
     const points: [number, number][] = [[at.x, at.y]];

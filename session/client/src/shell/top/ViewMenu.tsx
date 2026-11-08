@@ -9,6 +9,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   applyTheme,
   readThemeChoice,
@@ -17,7 +20,10 @@ import {
 } from '@dnd/ui';
 import { Eye } from '@dnd/ui/icons';
 import { useStore } from '@dnd/core/src/store/store';
+import type { TokensState } from '@dnd/mechanics/tokens';
+import { useModuleState, useSessionStore } from '../../session/store';
 import { useShell } from '../shellStore';
+import { previewAs, previewCandidates, usePreviewing } from './previewAs';
 import { UI_SCALES, applyUiScale, useUiScale, type UiScale } from '../uiScale';
 
 const THEMES: { value: ThemeChoice; label: string }[] = [
@@ -34,6 +40,10 @@ export function ViewMenu() {
   const scale = useUiScale();
   const grid = useStore((s) => s.grid.visible);
   const diagnostics = useShell((s) => s.diagnostics);
+  const dm = useSessionStore((s) => s.you?.role === 'dm');
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const candidates = previewCandidates(useModuleState<TokensState>('tokens'), sceneId);
+  const previewing = usePreviewing();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -45,6 +55,34 @@ export function ViewMenu() {
         }
       />
       <DropdownMenuContent align="end">
+        {dm && (
+          <>
+            <DropdownMenuCheckboxItem
+              checked={previewing !== null}
+              disabled={candidates.length === 0}
+              data-testid="view-player"
+              onCheckedChange={(on) => previewAs(on ? (candidates[0]?.id ?? null) : null)}
+            >
+              Player view
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={candidates.length === 0} data-testid="view-preview-as">
+                Preview as
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup value={previewing ?? ''} onValueChange={(v) => previewAs(v || null)}>
+                  <DropdownMenuRadioItem value="">Nobody (DM view)</DropdownMenuRadioItem>
+                  {candidates.map((t) => (
+                    <DropdownMenuRadioItem key={t.id} value={t.id} data-testid={`preview-as-${t.id}`}>
+                      {t.name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuGroup>
           <DropdownMenuLabel>Theme</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={choice} onValueChange={(v) => applyTheme(v as ThemeChoice)}>

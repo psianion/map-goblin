@@ -4,13 +4,13 @@ import { Clock } from '@dnd/ui/icons';
 import { useTableShell } from '../tableShell';
 import { Dock } from './Dock';
 import { dockTabs, registerDockTab } from './registry';
-import { FogStub } from './stubs';
+import { DiceStub } from './stubs';
 import './tabs';
 
 beforeEach(() => {
   cleanup();
   useTableShell.setState({ dockTab: null, lastDockTab: 'fog', card: null });
-  registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', Body: FogStub });
+  registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', Body: DiceStub });
 });
 
 describe('Dock', () => {
@@ -32,7 +32,7 @@ describe('Dock', () => {
 
   it('shows the open tab context text and its strip, and the chevron folds', () => {
     const Strip = () => <span>rooms strip</span>;
-    registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', Body: FogStub, Strip, context: () => 'on Web Gallery' });
+    registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', Body: DiceStub, Strip, context: () => 'on Web Gallery' });
     render(<Dock />);
     fireEvent.click(screen.getByTestId('dock-tab-fog'));
     expect(screen.getByTestId('dock-context').textContent).toBe('on Web Gallery');

@@ -5,13 +5,26 @@ import { BookOpen, Clapperboard, CloudFog, CloudSun, Dice5, Map as MapIcon, Swor
 import { registerDockTab } from './registry';
 import { TokensBody, TokensStrip } from '../../modules/tokens/TokensTab';
 import { tokensContext } from '../../modules/tokens/play';
-import { DiceStub, EncounterStub, FogStub, MapStub, ScenesStub, StoryStub, WorldStub } from './stubs';
+import { DiceStub, EncounterStub } from './stubs';
+import { FogBody, FogStrip } from '../../modules/fog/FogTab';
+import { MapBody, MapStrip } from '../../modules/map/MapTab';
+import { StoryBody, StoryStrip } from '../../modules/story/StoryTab';
+import { WorldBody, WorldStrip } from '../../modules/world/WorldTab';
+import { ScenesBody, ScenesStrip } from '../../modules/scene/ScenesTab';
+import { useSessionStore } from '../../session/store';
 
-registerDockTab({ id: 'fog', title: 'Fog', icon: CloudFog, key: '1', Body: FogStub });
-registerDockTab({ id: 'map', title: 'Map', icon: MapIcon, key: '2', Body: MapStub });
+/** "on Web Gallery": the live scene the tab is working on. */
+const onScene = (): string | null => {
+  const session = useSessionStore.getState().session;
+  const name = session?.scenes.find((s) => s.id === session.activeSceneId)?.name;
+  return name ? `on ${name}` : null;
+};
+
+registerDockTab({ id: 'fog', title: 'Fog', icon: CloudFog, key: '1', Body: FogBody, Strip: FogStrip, context: onScene });
+registerDockTab({ id: 'map', title: 'Map', icon: MapIcon, key: '2', Body: MapBody, Strip: MapStrip, context: onScene });
 registerDockTab({ id: 'tokens', title: 'Tokens', icon: Users, key: '3', Body: TokensBody, Strip: TokensStrip, context: tokensContext });
 registerDockTab({ id: 'encounter', title: 'Encounter', icon: Swords, key: '4', Body: EncounterStub });
-registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', Body: StoryStub });
-registerDockTab({ id: 'world', title: 'World', icon: CloudSun, key: '6', Body: WorldStub });
-registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', Body: ScenesStub });
+registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', Body: StoryBody, Strip: StoryStrip });
+registerDockTab({ id: 'world', title: 'World', icon: CloudSun, key: '6', Body: WorldBody, Strip: WorldStrip, context: onScene });
+registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', Body: ScenesBody, Strip: ScenesStrip });
 registerDockTab({ id: 'dice', title: 'Dice', icon: Dice5, key: '8', Body: DiceStub });

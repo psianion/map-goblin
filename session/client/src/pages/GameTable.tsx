@@ -10,6 +10,10 @@ import { DoorMenu } from '../modules/doors/DoorMenu';
 import { CrossingMenu } from '../modules/crossings/CrossingMenu';
 import { CrossingChips } from '../modules/crossings/CrossingChips';
 import { LightPopover } from '../modules/lights/LightPopover';
+import { LightCard } from '../modules/lights/LightCard';
+import { DoorCard } from '../modules/doors/DoorCard';
+import { StoryOverlay } from '../modules/story/StoryOverlay';
+import { PinCard } from '../shell/marks/PinCard';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { TableStatusBar } from '../components/TableStatusBar';
 import { LogDrawer } from '../shell/LogDrawer';
@@ -131,11 +135,12 @@ export default function GameTable() {
             <Popover />
           </>
         )}
-        <DoorMenu />
+        {LEGACY && <DoorMenu />}
         <CrossingMenu />
         <CrossingChips />
         <TokenMenu />
-        <LightPopover />
+        {LEGACY ? <LightPopover /> : <LightCard />}
+        {!LEGACY && <DoorCard />}
         {!LEGACY && (
           <>
             <TitleCard />
@@ -146,6 +151,8 @@ export default function GameTable() {
             {role === 'dm' ? <Dock /> : <ZoomPill />}
             <SheetHost />
             <InviteCard />
+            <PinCard />
+            <StoryOverlay />
             <DiagnosticsChip />
             <ConnectionNotice />
             <TableToaster />

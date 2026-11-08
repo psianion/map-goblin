@@ -3,7 +3,7 @@ import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
 import { seatColour } from '../seatColour';
 import { distanceLabel, useMarks, type LiveMark } from './marks';
-import { useLocalPins } from './pins';
+import { usePins } from './pins';
 
 function Mark({ mark }: { mark: LiveMark }) {
   const colour = mark.by === 'me' ? 'var(--ink)' : seatColour(mark.by);
@@ -50,7 +50,7 @@ function Mark({ mark }: { mark: LiveMark }) {
 export function MarksLayer() {
   const group = useRef<SVGGElement>(null);
   const marks = useMarks((s) => s.marks);
-  const pins = useLocalPins((s) => s.pins);
+  const pins = usePins();
 
   useEffect(() => {
     let frame = 0;
@@ -81,8 +81,13 @@ export function MarksLayer() {
           <Mark key={m.id} mark={m} />
         ))}
         {pins.map((p) => (
-          <g key={p.id} data-mark="pin" data-testid="map-pin">
+          <g key={p.id} data-mark="pin" data-testid="map-pin" data-dm-only={p.dmOnly || undefined}>
             <circle cx={p.x} cy={p.y} r={0.3} style={{ fill: 'var(--ink)', stroke: 'var(--panel)', strokeWidth: 2, vectorEffect: 'non-scaling-stroke' }} />
+            {p.text && (
+              <text x={p.x + 0.45} y={p.y + 0.2} fontSize={0.5} style={{ fill: 'var(--ink)' }}>
+                {p.text}
+              </text>
+            )}
           </g>
         ))}
       </g>
