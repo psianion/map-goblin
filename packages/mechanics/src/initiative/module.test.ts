@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { CommandError, ModuleContext } from '../contract'
-import { initiativeModule } from './module'
+import { createInitiativeModule, initiativeModule } from './module'
 import { INITIAL_STATE, isInitiativeRoll, ordered, type InitiativeState } from './types'
 
 const MARRA: PlayerInfo = { identityId: 'i-marra', name: 'Marra', role: 'player', connected: true }
@@ -495,5 +495,62 @@ describe('table v2: previous, end turn, and the round turn the effect timers tic
     s = run(s, DM, 'previous').next
     expect([s.round, s.turn]).toEqual([1, 2])
     expect(s.log.at(-1)?.text).toBe("Back to Goblin's turn (round 1).")
+  })
+})
+
+describe('table v2: End turn follows the token’s owner at the time of the check', () => {
+  it('add to combat, then claim, then end-turn succeeds for the claiming player', () => {
+    // The tokens slice, as the server answers it: who holds each token right now.
+    const owners = new Map<string, string>()
+    const module = createInitiativeModule({ tokenOwnerOf: (_c, _s, tokenId) => owners.get(tokenId) })
+    let state: InitiativeState = INITIAL_STATE
+    const send = (who: PlayerInfo, action: string, payload: unknown = {}) => {
+      if (!module.commands[action]?.includes(who.role)) return { code: 'unauthorized' }
+      return (
+        module.handler(action, payload, {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: { identityId: who.identityId, role: who.role },
+          players: ROSTER,
+          state,
+          setState: (s) => {
+            state = s
+          },
+          broadcast: () => {},
+        }) ?? null
+      )
+    }
+    // Added to combat while nobody held the token: the entry stores no identity.
+    expect(send(DM, 'start', { entries: [{ name: 'Bram', kind: 'pc', tokenId: 't-bram', initiative: 12 }] })).toBeNull()
+    expect(send(DM, 'begin')).toBeNull()
+    expect(state.entries[0].identityId).toBeUndefined()
+    expect(send(MARRA, 'end-turn')).toMatchObject({ code: 'unauthorized' })
+
+    // Marra claims the token afterwards; her End turn now goes through.
+    owners.set('t-bram', MARRA.identityId)
+    expect(send(TOMEN, 'end-turn')).toMatchObject({ code: 'unauthorized' })
+    expect(send(MARRA, 'end-turn')).toBeNull()
+    expect(state.round).toBe(2)
+  })
+
+  it('without a token owner the stored identity still counts', () => {
+    const module = createInitiativeModule({ tokenOwnerOf: () => undefined })
+    let state = gathering()
+    state = { ...state, status: 'running', round: 1, turn: 0 }
+    const error = module.handler('end-turn', {}, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender: { identityId: MARRA.identityId, role: 'player' },
+      players: ROSTER,
+      state,
+      setState: (s) => {
+        state = s
+      },
+      broadcast: () => {},
+    })
+    expect(error).toBeUndefined()
+    expect(state.turn).toBe(1)
   })
 })

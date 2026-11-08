@@ -138,3 +138,14 @@ describe('encounter dock hooks', () => {
     stop();
   });
 });
+
+describe('End turn after a late claim', () => {
+  it('goes to the seat holding the token now, not the identity stored on the entry', () => {
+    const state = running(0);
+    state.entries[0] = { ...state.entries[0], identityId: undefined };
+    const unclaimed = tokensState([{ ...bram, ownerId: null }, ogre]);
+    expect(combatBarOf(state, unclaimed, 'scene-1', { identityId: BRAM.identityId, role: 'player' }).isMyTurn).toBe(false);
+    const claimed = tokensState([bram, ogre]);
+    expect(combatBarOf(state, claimed, 'scene-1', { identityId: BRAM.identityId, role: 'player' }).isMyTurn).toBe(true);
+  });
+});

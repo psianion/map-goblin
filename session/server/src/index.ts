@@ -6,11 +6,11 @@ import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
-import { initiativeModule } from '@dnd/mechanics/initiative'
+import { createInitiativeModule } from '@dnd/mechanics/initiative'
 import { pinsModule } from '@dnd/mechanics/pins'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { storyModule } from '@dnd/mechanics/story'
-import { tokensModule } from '@dnd/mechanics/tokens'
+import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
@@ -123,7 +123,13 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
-  modules.register(initiativeModule)
+  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
+  modules.register(
+    createInitiativeModule({
+      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
+        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
+    }),
+  )
   // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a
   // player's move may not cross, with the DM's live crossing rules.
   const terrainOf = createTerrain(

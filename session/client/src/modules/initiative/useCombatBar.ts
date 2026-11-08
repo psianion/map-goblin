@@ -47,11 +47,13 @@ const next = () => sendInitiative('next');
 const previous = () => sendInitiative('previous');
 const endTurn = () => sendInitiative('end-turn');
 
-/** A combatant is this seat's by identity, or through the token it owns. */
+/**
+ * Whose a combatant is right now: the seat holding its token (a PC claimed after it joined the
+ * fight), else the identity stored on the entry — the same rule the server's End turn checks.
+ */
 export function ownerOf(entry: InitiativeEntry, tokens: TokensState | undefined, sceneId: string | null): string | null {
-  if (entry.identityId) return entry.identityId;
-  if (!entry.tokenId || !sceneId) return null;
-  return tokens?.byScene?.[sceneId]?.[entry.tokenId]?.ownerId ?? null;
+  const holder = entry.tokenId && sceneId ? tokens?.byScene?.[sceneId]?.[entry.tokenId]?.ownerId : undefined;
+  return holder ?? entry.identityId ?? null;
 }
 
 /** The pure part, for tests and non-React readers. */
@@ -82,8 +84,7 @@ export function combatBarOf(
     };
   });
   const dm = you?.role === 'dm';
-  // End turn is the server's to allow, and it reads the entry's own seat (it never sees tokens).
-  const nowEntry = turn >= 0 ? entries[turn] : undefined;
+  const now = turn >= 0 ? order[turn] : undefined;
   return {
     active: order.length > 0,
     gathering: running && state.status === 'gathering',
@@ -91,7 +92,7 @@ export function combatBarOf(
     current: order.length > 0 ? turn : -1,
     round: running ? state.round : 0,
     canAdvance: dm && order.length > 0,
-    isMyTurn: !dm && !!nowEntry && !!you && nowEntry.identityId === you.identityId,
+    isMyTurn: !dm && !!now && !!you && now.identityId === you.identityId,
     next,
     previous,
     endTurn,

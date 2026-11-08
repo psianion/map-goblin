@@ -61,7 +61,18 @@ function andList(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
-export const initiativeModule: GameModule<InitiativeState> = {
+/**
+ * Table v2 — the one read this module makes of another: who holds a combatant's token *now*.
+ * End turn is allowed for the seat that owns the token at the moment of the check (a PC claimed
+ * after it joined the fight), falling back to the identity stored on the entry. The server
+ * answers it from the tokens slice; without it only the stored identity counts.
+ */
+export interface InitiativeDeps {
+  tokenOwnerOf?(campaignId: string, sceneId: string, tokenId: string): string | null | undefined
+}
+
+export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<InitiativeState> {
+  return {
   name: 'initiative',
   commands: {
     start: ['dm'],
@@ -86,7 +97,7 @@ export const initiativeModule: GameModule<InitiativeState> = {
 
   handler(action, payload, ctx) {
     try {
-      run(action, obj(payload ?? {}, 'payload'), ctx)
+      run(action, obj(payload ?? {}, 'payload'), ctx, deps)
     } catch (err) {
       if (err instanceof Reject) return { code: err.code, message: err.message }
       throw err
@@ -107,9 +118,12 @@ export const initiativeModule: GameModule<InitiativeState> = {
     })
     return touched ? { ...state, entries } : state
   },
+  }
 }
 
-function run(action: string, p: Payload, ctx: Ctx): void {
+export const initiativeModule: GameModule<InitiativeState> = createInitiativeModule()
+
+function run(action: string, p: Payload, ctx: Ctx, deps: InitiativeDeps): void {
   switch (action) {
     case 'start':
       return start(p, ctx)
@@ -124,7 +138,7 @@ function run(action: string, p: Payload, ctx: Ctx): void {
     case 'previous':
       return previous(ctx)
     case 'end-turn':
-      return endTurn(ctx)
+      return endTurn(ctx, deps)
     case 'add':
       return add(p, ctx)
     case 'remove':
@@ -269,14 +283,21 @@ function begin(ctx: Ctx): void {
  * The player whose turn it is hands it on — `next`, gated on the current combatant being
  * theirs. The DM may end anyone's turn the same way.
  */
-function endTurn(ctx: Ctx): void {
+function endTurn(ctx: Ctx, deps: InitiativeDeps): void {
   const state = ctx.state
   if (state.status !== 'running') bad('this encounter has not begun')
   const current = state.entries[state.turn]
-  if (ctx.sender.role !== 'dm' && current?.identityId !== ctx.sender.identityId) {
+  if (ctx.sender.role !== 'dm' && currentOwner(current, state, ctx, deps) !== ctx.sender.identityId) {
     denied('it is not your turn')
   }
   next(ctx)
+}
+
+/** Whose turn it is by seat: the token's owner now, else the identity stored on the entry. */
+function currentOwner(entry: InitiativeEntry | undefined, state: InitiativeState, ctx: Ctx, deps: InitiativeDeps): string | undefined {
+  if (!entry) return undefined
+  const owner = entry.tokenId && state.sceneId ? deps.tokenOwnerOf?.(ctx.campaignId, state.sceneId, entry.tokenId) : undefined
+  return owner ?? entry.identityId
 }
 
 /** One turn back; past the top of the order it is the last turn of the round before. */
