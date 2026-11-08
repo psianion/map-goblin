@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
-import { EditorHost } from '@/editor/EditorHost';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useShell } from '@/editor/shell/shellStore';
 import { useStore } from '@/store/store';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { openNewMapRef } from '@/editor/toolConstants';
 import { HomeScreen, type EnterOptions } from '@/home/HomeScreen';
-import { NewMapModal } from '@/editor/dialogs/NewMapModal';
+import { LazyNewMapModal as NewMapModal } from '@/editor/dialogs/LazyNewMapModal';
 import { initTheme, useTheme } from '@dnd/ui';
 import { readDesk } from '@/theme/desk';
 import { refreshPublishTokens } from '@/io/publish';
 import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from '@/editor/viewPrefs';
+
+// The editor and its engine load as their own chunk, so the home page paints without them.
+const EditorHost = lazy(() => import('@/editor/EditorHost').then((m) => ({ default: m.EditorHost })));
 
 // The shell's view state, for the end-to-end specs (the store is already on window in dev).
 if (import.meta.env.DEV) (window as Window & { __shell?: typeof useShell }).__shell = useShell;
@@ -80,7 +82,9 @@ export default function App() {
 
   return (
     <>
-      <EditorHost home={home} onHome={goHome} openSettings={settingsOnEnter} />
+      <Suspense fallback={null}>
+        <EditorHost home={home} onHome={goHome} openSettings={settingsOnEnter} />
+      </Suspense>
       {home && <HomeScreen onEnter={enter} />}
       {!home && <NewMapModal open={newOpen} onOpenChange={setNewOpen} onEnter={enter} />}
     </>

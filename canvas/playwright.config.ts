@@ -16,11 +16,11 @@ export default defineConfig({
   retries: 0,
   workers: process.env.CI ? 2 : 4,
   use: { baseURL: `http://localhost:${port}` },
-  // The fast set is every scope but the pixel and CDN checks, which run only on request
+  // The fast set is every scope but the pixel, CDN and boot-timing checks, which run only on request
   // (`pnpm e2e:render`). `grep` reads a test's tags as well as its title.
   projects: [
-    { name: 'fast', grepInvert: /@render|@cdn/ },
-    { name: 'slow', grep: /@render|@cdn/ },
+    { name: 'fast', grepInvert: /@render|@cdn|@boot/ },
+    { name: 'slow', grep: /@render|@cdn|@boot/ },
   ],
   webServer: {
     command: `pnpm dev --port ${port}`,

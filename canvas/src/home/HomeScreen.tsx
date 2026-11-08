@@ -6,7 +6,7 @@ import { notify } from '@dnd/ui/toast';
 import { cn, timeAgo, Button, Input, useTheme } from '@dnd/ui';
 import { ConfirmDialog } from '@/editor/ConfirmDialog';
 import { ContextMenu, useContextMenu, type MenuRow } from '@/editor/RowMenu';
-import { NewMapModal } from '@/editor/dialogs/NewMapModal';
+import { LazyNewMapModal as NewMapModal } from '@/editor/dialogs/LazyNewMapModal';
 import type { MapMeta } from '@/store/types';
 import { getMapDB } from '@/store/slices/maps';
 import type { MapIndexDB } from '@/io/mapIndexDB';

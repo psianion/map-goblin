@@ -2,13 +2,13 @@ import { useStore } from '@/store/store';
 import { switchMap } from '@/store/mapSwitcher';
 import { undoManager } from '@/store/undoManager';
 import { getEngineSingleton } from '@/engine/engineSingleton';
-import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { notify } from '@dnd/ui/toast';
 
 /**
- * Open a map from the home page. Same save, fog, load, texture-install sequence the
- * v1 maps panel runs, so a map opened from a card is in exactly the state it would be
- * in after a click in the sidebar. Resolves to whether that map is the open one now.
+ * Open a map from the home page. Same save, fog and load sequence the v1 maps panel runs,
+ * so a map opened from a card is in exactly the state it would be in after a click in the
+ * sidebar; its textures download once the editor is up. Resolves to whether that map is
+ * the open one now.
  */
 export async function openMap(id: string): Promise<boolean> {
   const state = useStore.getState();
@@ -23,14 +23,8 @@ export async function openMap(id: string): Promise<boolean> {
       getIsMapSwitching: () => useStore.getState().isMapSwitching,
       setIsMapSwitching: (val) => useStore.setState({ isMapSwitching: val }),
       saveCurrentMap: () => useStore.getState().saveCurrentMap(),
-      loadMap: async (targetId) => {
-        await useStore.getState().loadMap(targetId);
-        try {
-          await getAssetPackManager().ensureTexturesForMap(useStore.getState());
-        } catch (err) {
-          console.warn('[openMap] ensureTexturesForMap failed:', err);
-        }
-      },
+      // The map's sets download once the editor is up (EditorHost), not from the home page.
+      loadMap: (targetId) => useStore.getState().loadMap(targetId),
       clearUndo: () => undoManager.clear(),
       fogIn: fog ? () => fog.fogIn() : () => Promise.resolve(),
       fogOut: fog ? () => fog.fogOut() : () => Promise.resolve(),

@@ -23,6 +23,7 @@ import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import type { EditorChromeActions } from '@/editor/EditorHost';
 import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '@/editor/viewPrefs';
 import { useShell } from '@/editor/shell/shellStore';
+import { AssetDownloadPill } from '@/canvas/AssetDownloadPill';
 
 const FOCUS_LABEL: Record<FocusMode, string> = { auto: 'Auto', manual: 'Manual', fullscreen: 'Fullscreen' };
 
@@ -34,7 +35,7 @@ const ROOM_LABELS: { value: RoomLabels; label: string }[] = [
   { value: 'both', label: 'Numbers and names' },
 ];
 
-/** Top right, 44 tall: Undo, Redo, everything else behind "…", and Publish last. */
+/** Top right, 44 tall: Undo, Redo, everything else behind "…", Publish, then the download pill while art downloads. */
 export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeActions; onOpenSettings: () => void }) {
   const canUndo = useStore((s) => s.ui.canUndo);
   const canRedo = useStore((s) => s.ui.canRedo);
@@ -141,6 +142,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
       <PrimaryButton className="ml-1" data-testid="shell-publish" onClick={actions.openPublish}>
         Publish
       </PrimaryButton>
+      <AssetDownloadPill className="ml-1" />
     </FloatBox>
   );
 }
