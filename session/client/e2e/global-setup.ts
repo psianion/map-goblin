@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { GAME_SERVER, SERVER_PORT } from './ports'
+import { DEV_URL, GAME_SERVER, SERVER_PORT } from './ports'
 
 /**
  * Boots a real `@dnd/game-server` on a clean data directory and captures the admin pass it
@@ -16,7 +16,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const dataDir = mkdtempSync(join(tmpdir(), 'map-goblin-e2e-'))
   const server = spawn('pnpm', ['--filter', '@dnd/game-server', 'start'], {
     cwd: join(import.meta.dirname, '../../..'),
-    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: String(SERVER_PORT), HOST: '127.0.0.1' },
+    // PUBLIC_TABLE_URL: without it the handoff route answers 503 (it cannot say where the table is).
+    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: String(SERVER_PORT), HOST: '127.0.0.1', PUBLIC_TABLE_URL: DEV_URL },
     shell: true,
   })
 

@@ -2,7 +2,7 @@
 // (`hostSession`: a DM page at a live table whose campaign has two PC token types, Bram and
 // Yara, and a starting room; `joinAsPlayer(name)`: a second page seated as that player).
 // Unrun until step T.
-import { expect, test } from './fixtures';
+import { expect, test, tokenPoint } from './fixtures';
 
 test.describe('@play tokens and combat', () => {
   test('PC tokens stand in the starting room when the session opens', async ({ hostSession }) => {
@@ -37,7 +37,10 @@ test.describe('@play tokens and combat', () => {
     await tile.dragTo(canvas, { targetPosition: { x: 300, y: 250 } });
     await page.keyboard.up('Alt');
 
-    await canvas.click({ position: { x: 300, y: 250 } });
+    // Picked where the token actually stands, not where the drop aimed: the drop snaps to a
+    // cell, and a map light may sit at the aimed pixel (a token under the pointer wins anyway).
+    await expect.poll(async () => (await tokenPoint(page, 'Ogre').catch(() => null)) !== null).toBe(true);
+    await canvas.click({ position: await tokenPoint(page, 'Ogre') });
     const card = page.getByTestId('token-card');
     await expect(card).toBeVisible();
     await expect(card).toContainText('Hidden');
@@ -60,7 +63,7 @@ test.describe('@play tokens and combat', () => {
     await expect(page.getByTestId('encounter-round')).toHaveText('Round 1');
 
     // Damage with half on save to the selection.
-    await page.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
+    await page.getByTestId('game-canvas').click({ position: await tokenPoint(page, 'Bram') });
     await page.getByTestId('encounter-amount').fill('9');
     await page.getByRole('switch', { name: 'Half on save' }).click();
     await page.getByTestId('encounter-damage').click();

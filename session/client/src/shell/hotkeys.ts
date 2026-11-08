@@ -109,10 +109,14 @@ export const CAMERA_KEYS: readonly { key: string; label: string }[] = [
 ];
 
 /**
- * Esc, one step per press: the on-map card, then the sheet, then the dock body, then the
- * selection (door, light, token, combat row), then the tool back to Select.
+ * Esc, one step per press: the armed tool back to Select, then the on-map card, the sheet,
+ * the dock body, and last the selection (door, light, token, combat row).
  */
 export function onEscape(): void {
+  // An armed tool goes first: Esc while drawing a fog rectangle means "stop drawing", not
+  // "fold the dock I am drawing from".
+  const tools = useActiveTool.getState();
+  if (tools.activeTool) return tools.setActiveTool(null);
   const shell = useTableShell.getState();
   if (shell.card) return shell.closeCard();
   if (openSheetNow()) return closeSheet();
@@ -124,8 +128,7 @@ export function onEscape(): void {
   const tokens = useTokenInteraction.getState();
   if (tokens.selectedId) return tokens.select(null);
   const combat = useInitiativeSelection.getState();
-  if (combat.selectedKey) return combat.select(null);
-  useActiveTool.getState().setActiveTool(null);
+  if (combat.selectedKey) combat.select(null);
 }
 
 function onKeyDown(e: KeyboardEvent): void {

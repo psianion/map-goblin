@@ -13,7 +13,10 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { isDoubleClick } from '@dnd/core/src/engine/tools/DrawingTool';
 import { useStore } from '@dnd/core/src/store/store';
+import type { TokensState } from '@dnd/mechanics/tokens';
 import { useSessionStore } from '../../session/store';
+import { hitTest } from '../tokens/drag';
+import { tokensOf } from '../tokens/TokenRenderer';
 import { isToolActive } from '../../session/tools';
 import { lightAt, lightById, patchLightLocal } from './lights';
 import { useLightSelection } from './selection';
@@ -68,12 +71,16 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
     const local = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const hit = lightAt(useStore.getState().layers, local);
     if (!hit) return;
+    // The table's rule: a token under the pointer wins over a light. Lights are the DM's
+    // furniture; tokens are what people at the table click. The press falls through to
+    // token input (`tokens/drag.ts`), which listens on the canvas after this.
+    const { session } = useSessionStore.getState();
+    const at = engine.screenToWorld(local.x, local.y);
+    if (hitTest(tokensOf(session?.modules.tokens as TokensState | undefined, session?.activeSceneId), at.x, at.y)) return;
     // Immediate, and from the capture phase: a light is drawn on top of whatever it lights, so
-    // it wins the press outright (the same "lights hit-test first" rule the canvas editor's own
-    // hitTest follows). Plain `stopPropagation` on the canvas would not do it — token drag
-    // (`tokens/drag.ts`) listens on that same element and would still start a drag under the
-    // icon — and the popover's own clear-on-outside-press (`LightPopover.tsx`) would undo the
-    // selection this is making.
+    // it wins the press over doors and the map; a token is the one exception, above. Plain
+    // `stopPropagation` on the canvas would not do it: token drag (`tokens/drag.ts`) listens
+    // on that same element and would still start a drag under the icon.
     e.stopImmediatePropagation();
     e.preventDefault();
     // Double-click flips the light on/off — same command the popover's own switch sends

@@ -89,7 +89,7 @@ describe('table hotkeys', () => {
     expect(useActiveTool.getState().activeTool).toBeNull();
   });
 
-  it('runs the Esc ladder one step per press: sheet, dock body, selection, tool', () => {
+  it('runs the Esc ladder one step per press: tool, card, sheet, dock body, selection', () => {
     renderHook(() => useHotkeys());
     useActiveTool.getState().setActiveTool('pin');
     useTokenInteraction.setState({ selectedId: 't1' });
@@ -97,6 +97,9 @@ describe('table hotkeys', () => {
     openSheet('shortcuts');
     useTableShell.getState().openCard('door:1');
 
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+    expect(useTableShell.getState().card).toBe('door:1');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useTableShell.getState().card).toBeNull();
     expect(openSheetNow()).not.toBeNull();
@@ -108,9 +111,17 @@ describe('table hotkeys', () => {
     expect(useTokenInteraction.getState().selectedId).toBe('t1');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useTokenInteraction.getState().selectedId).toBeNull();
-    expect(useActiveTool.getState().activeTool).toBe('pin');
+  });
+
+  it('Esc with the fog rectangle armed and the Fog tab open disarms and keeps the dock open', () => {
+    renderHook(() => useHotkeys());
+    useTableShell.getState().pickDockTab('fog');
+    fireEvent.keyDown(window, { key: 'R', shiftKey: true });
+    // Rect needs a vision scene with cell memory; arm the tool the way it would be armed.
+    useActiveTool.getState().setActiveTool('fog');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useActiveTool.getState().activeTool).toBeNull();
+    expect(useTableShell.getState().dockTab).toBe('fog');
   });
 
   it('? opens and closes the shortcuts sheet', () => {

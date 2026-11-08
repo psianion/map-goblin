@@ -49,7 +49,9 @@ test.describe('@host host and join', () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${table.token}` },
     });
-    const { code } = (await res.json()) as { code: string };
+    const minted = (await res.json()) as { code?: string; error?: string };
+    expect(res.status, `handoff mint: ${minted.error ?? ''}`).toBe(200);
+    const code = minted.code!;
     await page.goto(`/host?e2e=1#handoff=${code}`);
     await expect(page.getByTestId('host-map')).toBeVisible();
     await expect(page.getByTestId('host-map')).toContainText('Handoff spec');

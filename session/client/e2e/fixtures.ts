@@ -167,3 +167,25 @@ export const test = base.extend<Fixtures>({
     for (const p of opened) await p.context().close();
   },
 });
+
+/**
+ * Where a token on the live scene sits on the map element, by name: its world position through
+ * the camera (`__testProbe.camera`), for a click that picks exactly that token.
+ */
+export async function tokenPoint(page: Page, name: string): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate((wanted) => {
+    const w = window as unknown as {
+      __sessionStore?: { getState(): { session: { activeSceneId: string | null; modules: Record<string, unknown> } | null } };
+      __testProbe?: { camera(): { x: number; y: number; scale: number } | null };
+    };
+    const session = w.__sessionStore?.getState().session;
+    const camera = w.__testProbe?.camera();
+    const tokens = (session?.modules.tokens as { byScene?: Record<string, Record<string, { name: string; x: number; y: number }>> } | undefined)
+      ?.byScene?.[session?.activeSceneId ?? ''];
+    const token = tokens ? Object.values(tokens).find((t) => t.name === wanted) : undefined;
+    if (!token || !camera) return null;
+    return { x: camera.x + token.x * camera.scale, y: camera.y + token.y * camera.scale };
+  }, name);
+  expect(point, `token ${name} on the live scene`).not.toBeNull();
+  return point!;
+}

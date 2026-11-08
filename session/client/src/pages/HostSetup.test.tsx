@@ -120,6 +120,17 @@ describe('HostSetup', () => {
     expect(auth.redeemHandoff).toHaveBeenCalledTimes(1);
   });
 
+  it('redeems the exact code off /host?e2e=1#handoff=, once', async () => {
+    const code = 'Zm9v-YmFy_baz0123456789abcdefABCDEF-_xyz';
+    window.history.replaceState(null, '', `/host?e2e=1#handoff=${code}`);
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY) });
+    render(<HostSetup />);
+    expect(await screen.findByTestId('host-map')).toBeTruthy();
+    expect(vi.mocked(auth.redeemHandoff).mock.calls).toEqual([[code]]);
+    expect(window.location.search).toBe('?e2e=1');
+    expect(window.location.hash).toBe('');
+  });
+
   it('resumes a table that is already open on the Invite step', async () => {
     saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
     vi.mocked(auth.fetchActiveSession).mockResolvedValue({ sessionId: 'x', inviteCode: 'LIVE42' });

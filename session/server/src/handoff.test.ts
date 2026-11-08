@@ -1,7 +1,7 @@
 // Decision 12 and 13 over a real server: the canvas mints a single-use handoff code with its
 // DM token, the table redeems it for a token of its own, and a live DM token refreshes.
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -138,6 +138,33 @@ describe('the handoff routes', () => {
       expect(claims.exp - Date.now()).toBeGreaterThan(DM_TOKEN_TTL_MS - 60_000)
 
       expect((await call(base, 'POST', '/api/handoff/redeem', { body: { code } })).status).toBe(404)
+    })
+  })
+
+  it('redeem for a campaign stood up the way the table e2e fixtures do it', async () => {
+    // The fixtures create the campaign with the admin pass, upload a map, open a session, end
+    // it and open another, all before the DM asks for a code.
+    process.env.PUBLIC_TABLE_URL = 'http://localhost:5612'
+    await withCampaign(async ({ base, campaignId, dmToken }) => {
+      const text = readFileSync(join(import.meta.dirname, '../../testdata/goblin-warren.mapbuilder'), 'utf8')
+      const res = await fetch(`${base}/api/campaigns/${campaignId}/maps`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${dmToken}`, 'content-type': 'application/json' },
+        body: text,
+      })
+      expect(res.ok).toBe(true)
+      const { sceneId } = (await res.json()) as { sceneId: string }
+      const first = await call(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId } })
+      expect(first.status).toBeLessThan(300)
+      const ended = await call(base, 'POST', `/api/sessions/${first.body.sessionId as string}/end`, { token: dmToken })
+      expect(ended.status).toBeLessThan(300)
+      expect((await call(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId } })).status).toBeLessThan(300)
+
+      const minted = await call(base, 'POST', `/api/campaigns/${campaignId}/handoff`, { token: dmToken })
+      expect(minted.status).toBe(200)
+      const redeemed = await call(base, 'POST', '/api/handoff/redeem', { body: { code: minted.body.code } })
+      expect(redeemed.status).toBe(200)
+      expect(redeemed.body.campaignId).toBe(campaignId)
     })
   })
 
