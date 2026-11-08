@@ -66,7 +66,7 @@ test.describe('@play tokens and combat', () => {
     // Picked from the combat bar: the map may sit under the dock or the bar at this point.
     await page.getByLabel('Select Bram').click();
     await page.getByTestId('encounter-amount').fill('9');
-    await page.getByRole('switch', { name: 'Half on save' }).click();
+    await page.getByTestId('encounter-body').getByRole('switch', { name: 'Half on save' }).click();
     await page.getByTestId('encounter-damage').click();
 
     // An effect timer on the selection ticks when the round turns.
