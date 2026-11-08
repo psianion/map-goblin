@@ -13,7 +13,7 @@ import { ensureMapAssets, installLibrary } from './firstBootInstall'
 import { AssetPackDB } from './assetPackDB'
 import { AssetPackManager, type AssetProgress, type PackManifest } from './assetPackManager'
 import { collectMapTextureIds, type MapTextureSource } from './mapTextureRefs'
-import { createDungeonLayer } from '../store/factories'
+import { createDefaultState, createDungeonLayer } from '../store/factories'
 import type { DungeonLayer } from '../store/types'
 
 const loads = vi.hoisted(() => ({ count: 0 }))
@@ -368,6 +368,43 @@ describe('collectMapTextureIds — fixture over the shipped packs', () => {
     expect(setsOf(pm, layer, [tokenId])).toEqual({
       'gg-demo': ['demo-creatures', 'demo-effects'],
       'gg-forge': ['GG_Cave_Floor', 'GG_Cave_Ink', 'GG_Door_Kits', 'GG_Palisade'],
+    })
+  })
+
+  function resolveMap(pm: AssetPackManager, map: MapTextureSource): Record<string, string[]> {
+    const bySet = pm.assetSetsForTextureIds(collectMapTextureIds(map))
+    return Object.fromEntries([...bySet].map(([p, s]) => [p, [...s].sort()]).sort())
+  }
+
+  it('a new blank map resolves to its wall set and its seed floor only', () => {
+    const pm = seedShipped()
+    // The seed floor (factories.ts DEFAULT_DUNGEON_STYLE) is gg-demo's small plaster.
+    expect(resolveMap(pm, createDefaultState())).toEqual({
+      'gg-demo': ['demo-floors'],
+      'gg-forge': ['GG_Fieldstone'],
+    })
+  })
+
+  it('one placed prop adds exactly its own set', () => {
+    const pm = seedShipped()
+    const map = createDefaultState()
+    const layer = map.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+    layer.children = [prop] as unknown as DungeonLayer['children']
+    expect(resolveMap(pm, map)).toEqual({
+      'gg-demo': ['demo-effects', 'demo-floors'],
+      'gg-forge': ['GG_Fieldstone'],
+    })
+  })
+
+  it('the Goblin Warren resolves to the sets its 144 props, cave band and kit doors use', () => {
+    const pm = seedShipped()
+    const warren = JSON.parse(readFileSync(resolve(process.cwd(), '../../session/testdata/goblin-warren.mapbuilder'), 'utf8'))
+    expect(resolveMap(pm, warren)).toEqual({
+      'gg-demo': [
+        'demo-clutter', 'demo-decor', 'demo-effects', 'demo-floors', 'demo-furniture',
+        'demo-gear', 'demo-lighting', 'demo-nature', 'demo-storage', 'demo-traps',
+      ],
+      'gg-forge': ['GG_Cave_Ink', 'GG_Door_Kits'],
     })
   })
 })
