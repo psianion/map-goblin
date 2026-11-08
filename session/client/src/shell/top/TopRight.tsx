@@ -3,8 +3,9 @@ import { InviteButton } from './InviteCard';
 import { Presence } from './Presence';
 import { SessionMenu } from './SessionMenu';
 import { ViewMenu } from './ViewMenu';
+import { TableDownloadPill } from './TableDownloadPill';
 
-/** Top right: presence, Invite (DM), View and Session. */
+/** Top right: presence, Invite (DM), View and Session, then the download pill while art downloads. */
 export function TopRight() {
   return (
     <FloatBox className="absolute top-3 right-3 z-20 flex h-11 items-center gap-1 px-1.5 py-0" data-testid="top-right" data-chrome>
@@ -13,6 +14,7 @@ export function TopRight() {
       <InviteButton />
       <ViewMenu />
       <SessionMenu />
+      <TableDownloadPill />
     </FloatBox>
   );
 }

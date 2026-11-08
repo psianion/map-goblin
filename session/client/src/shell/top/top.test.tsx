@@ -154,6 +154,7 @@ describe('SessionMenu', () => {
     ]);
     expect(screen.getByTestId('session-invite-code').textContent).toBe('ABCD12');
     expect(screen.getByTestId('export-campaign')).toBeTruthy();
+    expect(screen.getByTestId('library-download').textContent).toMatch(/^Download the full library/);
     fireEvent.click(screen.getByTestId('end-session'));
     expect(screen.getByTestId('end-session-confirm')).toBeTruthy();
   });
@@ -165,5 +166,6 @@ describe('SessionMenu', () => {
     expect(await screen.findByTestId('leave-table')).toBeTruthy();
     expect(screen.queryByTestId('end-session')).toBeNull();
     expect(screen.queryByTestId('assign-p1')).toBeNull();
+    expect(screen.queryByTestId('library-download')).toBeNull();
   });
 });

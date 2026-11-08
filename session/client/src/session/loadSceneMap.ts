@@ -2,10 +2,12 @@ import type { AnyChild, DoorChild } from '@dnd/core/src/shared/types';
 import type { MapDelta, Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
+import type { TokensState } from '@dnd/mechanics/tokens';
 import { restoreCustomImages, registerImageBlob } from '@dnd/core/src/assets/textureLoader';
 import { preloadLayerTextures } from '@dnd/core/src/engine/floorWallRenderer';
 import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
-import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
+import { ensureSceneAssets } from '../renderer/assetLoading';
+import { sceneTokens } from '../modules/tokens/play';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -240,22 +242,23 @@ async function getOrFetchSceneDoc(sceneId: string, mapId: string, token: string)
   return doc;
 }
 
+/** The pack art of the scene's tokens, which the map document does not name. */
+function tokenPackAssetIds(sceneId: string): string[] {
+  const tokens = sceneTokens(useSessionStore.getState().session?.modules?.tokens as TokensState | undefined, sceneId);
+  return tokens.flatMap((t) => (t.packAsset ? [`${t.packAsset.packId}:${t.packAsset.assetId}`] : []));
+}
+
 /**
- * Warm everything a rebuild will ask for: floor/wall textures already resident in the
- * bundle (fast, per-layer), and any pack asset sets install-by-need has not fetched yet
- * (network, per map). Both failure modes are soft — a missing texture degrades to the
- * magenta fallback exactly as it always has, and this must never be the reason a table
- * fails to load.
+ * Warm everything a rebuild will ask for: the pack asset sets the scene uses that are not
+ * stored yet (network, per map, progress on the loading screen or the pill), then the
+ * floor/wall textures (decode, per layer). Both failure modes are soft: a missing texture
+ * degrades to the fallback, and this must never be the reason a table fails to load.
  */
-async function warmSceneTextures(doc: SceneDoc): Promise<void> {
+async function warmSceneTextures(doc: SceneDoc, sceneId: string): Promise<void> {
   // Pack sets first: preloadLayerTextures resolves legacy ids against the
   // installed pack, so installing after preloading raced the loader straight
   // onto its dead-path fallback.
-  try {
-    await getAssetPackManager().ensureTexturesForMap(doc.data);
-  } catch (err) {
-    console.warn('[loadSceneMap] ensureTexturesForMap failed:', err);
-  }
+  await ensureSceneAssets(doc.data, tokenPackAssetIds(sceneId));
   try {
     await Promise.all(
       doc.data.layers
@@ -306,7 +309,7 @@ export async function swapSceneMap(
   if (recut) invalidateSceneDocs(sceneId);
 
   const doc = await getOrFetchSceneDoc(sceneId, mapId, token);
-  await warmSceneTextures(doc);
+  await warmSceneTextures(doc, sceneId);
 
   if (gen !== swapGen) return; // superseded by a newer switch mid-flight
 
@@ -325,5 +328,5 @@ export async function swapSceneMap(
  */
 export async function prefetchSceneMap(sceneId: string, mapId: string, token: string): Promise<void> {
   const doc = await getOrFetchSceneDoc(sceneId, mapId, token);
-  await warmSceneTextures(doc);
+  await warmSceneTextures(doc, sceneId);
 }
