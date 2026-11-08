@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { ensureBundledPack, installBundledIndex } from './firstBootInstall'
+import { installBundledIndex } from './firstBootInstall'
 import type { AssetPackManager } from './assetPackManager'
 
 function manifest() {
@@ -179,10 +179,4 @@ describe('installBundledIndex', () => {
     expect(mgr.registerManifest).not.toHaveBeenCalled()
   })
 
-  it('ensureBundledPack still runs it, for callers not yet on bootAssets', async () => {
-    stubManifestFetch()
-    const mgr = fakeManager()
-    expect(await ensureBundledPack(mgr)).toBe(true)
-    expect(mgr.registerManifest).toHaveBeenCalled()
-  })
 })

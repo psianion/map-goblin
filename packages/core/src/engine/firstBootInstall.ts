@@ -148,15 +148,6 @@ export async function installBundledIndex(packManager: AssetPackManager): Promis
 }
 
 /**
- * The old boot entry point, kept while the apps move to `bootAssets`.
- * @deprecated Use `bootAssets` (engine/boot.ts).
- */
-export async function ensureBundledPack(packManager: AssetPackManager): Promise<boolean> {
-  await installBundledIndex(packManager);
-  return true;
-}
-
-/**
  * Tier 2: the asset sets the texture ids `ids` need (see collectMapTextureIds), fetched
  * per pack with progress in phase `map`. Never throws: a set that fails is logged and the
  * map draws with fallbacks.
