@@ -5,20 +5,25 @@
  * A lattice of W by H square cells lies over the whole picture, started where the grid
  * detector (or the file name's size) says the printed grid is. The DM checks it against the
  * picture's own lines, nudges its corner or its cell size, changes W or H, and takes it with
- * "Use this grid": the picture is scaled so one of its cells is one map cell, slid so the
- * lattice's corner sits on the map origin, and the map's fixed size becomes W by H, so the
- * lattice and the map are the same rectangle. The picture's own edge may hang a fraction of
- * a cell past it; the frame cuts that sliver (shared/mapBounds.ts).
+ * "Use this grid": the picture is scaled so one of its cells is one map cell. On a map that
+ * holds nothing else (a map founded on the picture) the lattice's corner goes on the map
+ * origin and the map's fixed size becomes W by H, so the lattice and the map are the same
+ * rectangle. On a map with other content (a re-line-up from the sheet or the card) the corner
+ * goes on the nearest map grid corner, so traced walls keep their place on the picture, and
+ * the fixed size only grows if the lattice now reaches past it. The picture's own edge may
+ * hang a fraction of a cell past the lattice; the frame cuts that sliver (shared/mapBounds.ts).
  *
  * The math here is pure and unit-tested; `GridCalibrationOverlay` draws it.
  */
 
 import { MAX_FIXED_CELLS } from '@dnd/core/src/store/slices/mapSettings';
+import { computeContentBounds } from '@dnd/core/src/shared/mapBounds';
 import { useStore } from '@/store/store';
 import { zoomToChild } from '@/canvas/panToChild';
+import { isBattlemapLayer } from '@/editor/models/layerSheetModel';
 import { undoManager } from '@/store/undoManager';
 import { CompositeCommand, PropertyCommand, UpdateChildCommand } from '@/store/commands';
-import type { AssetChild, Command, DungeonLayer, MapSettings } from '@/store/types';
+import type { AssetChild, Command, DungeonLayer, Layer, MapSettings } from '@/store/types';
 
 /**
  * The lattice, in world units (1 unit == 1 map cell, everywhere): its top-left corner, the
@@ -33,10 +38,14 @@ export interface Lattice {
   rows: number;
 }
 
+/** Where "Use this grid" puts the lattice corner: the map origin, or the nearest grid corner. */
+export type LineUpAnchor = 'origin' | 'nearest';
+
 export interface CalibrationSession {
   layerId: string;
   childId: string;
   lattice: Lattice;
+  anchor: LineUpAnchor;
   /** The picture's own pixel size, before any downscale, for the px per cell readout. */
   sourcePx: { width: number; height: number } | null;
 }
@@ -149,12 +158,13 @@ const MAX_FOOTPRINT_CELLS = 10000;
 /**
  * What "Use this grid" does to the picture, or null if the lattice is degenerate or the
  * result would not be a usable sprite: scaled by 1 / cell, so a lattice cell becomes one map
- * cell, and slid so the lattice's corner lands on the map origin. `scale` is left alone and
- * `width`/`height` carry the change, which is what the transform gizmo writes too.
+ * cell, and slid so the lattice's corner lands on `corner` (a map grid corner). `scale` is
+ * left alone and `width`/`height` carry the change, which is what the transform gizmo writes.
  */
 export function calibrationTransform(
   child: Pick<AssetChild, 'position' | 'width' | 'height' | 'scale'>,
   lattice: Lattice,
+  corner: { x: number; y: number } = { x: 0, y: 0 },
 ): { position: { x: number; y: number }; width: number; height: number } | null {
   if (!Number.isFinite(lattice.x) || !Number.isFinite(lattice.y)) return null;
   if (!(lattice.cell >= MIN_CELL_WORLD)) return null;
@@ -165,8 +175,8 @@ export function calibrationTransform(
   const fh = box.height * k;
   if (fw < MIN_FOOTPRINT_CELLS || fh < MIN_FOOTPRINT_CELLS) return null;
   if (fw > MAX_FOOTPRINT_CELLS || fh > MAX_FOOTPRINT_CELLS) return null;
-  const left = (box.left - lattice.x) * k;
-  const top = (box.top - lattice.y) * k;
+  const left = corner.x + (box.left - lattice.x) * k;
+  const top = corner.y + (box.top - lattice.y) * k;
   const position = { x: left + fw / 2, y: top + fh / 2 };
   if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
   return { position, width: child.width * k, height: child.height * k };
@@ -175,6 +185,44 @@ export function calibrationTransform(
 /** The map's size once the grid is taken: the lattice's whole cells. */
 export function latticeFixedSize(lattice: Pick<Lattice, 'cols' | 'rows'>): { width: number; height: number } {
   return { width: clampCells(lattice.cols), height: clampCells(lattice.rows) };
+}
+
+/**
+ * Everything "Use this grid" changes: the picture's transform, and the fixed size to set
+ * (undefined leaves it alone). From the origin: the lattice is the map. From the nearest
+ * corner: the size grows to take in a lattice that now reaches past it, and an unpinned map
+ * stays unpinned.
+ */
+export function lineUpPlan(
+  child: Pick<AssetChild, 'position' | 'width' | 'height' | 'scale'>,
+  lattice: Lattice,
+  anchor: LineUpAnchor,
+  fixedSize: MapSettings['fixedSize'],
+): { transform: NonNullable<ReturnType<typeof calibrationTransform>>; fixedSize?: { width: number; height: number } } | null {
+  if (anchor === 'origin') {
+    const transform = calibrationTransform(child, lattice);
+    return transform ? { transform, fixedSize: latticeFixedSize(lattice) } : null;
+  }
+  const corner = { x: Math.round(lattice.x), y: Math.round(lattice.y) };
+  const transform = calibrationTransform(child, lattice, corner);
+  if (!transform) return null;
+  if (!fixedSize) return { transform };
+  const width = clampCells(Math.max(fixedSize.width, corner.x + clampCells(lattice.cols)));
+  const height = clampCells(Math.max(fixedSize.height, corner.y + clampCells(lattice.rows)));
+  return width === fixedSize.width && height === fixedSize.height ? { transform } : { transform, fixedSize: { width, height } };
+}
+
+/**
+ * Whether the map holds anything but the picture `childId`: floors, walls, other children,
+ * water, paint. A first line-up anchors on the origin; one over drawn work keeps its place.
+ */
+export function mapHoldsOtherContent(
+  layers: readonly Layer[],
+  childId: string,
+  terrainBounds: Parameters<typeof computeContentBounds>[1] = null,
+): boolean {
+  const without = layers.map((l) => (l.type === 'dungeon' ? { ...l, children: l.children.filter((c) => c.id !== childId) } : l));
+  return computeContentBounds(without, terrainBounds) !== null;
 }
 
 /** The map's pinned size as one undo step. */
@@ -240,7 +288,9 @@ export function startGridCalibration(childId: string, seed: LineUpSeed = {}): bo
   if (!found) return false;
   const own = found.child.imageSource;
   const sourcePx = seed.sourcePx ?? (own ? { width: own.width, height: own.height } : null);
-  emit({ layerId: layer.id, childId, sourcePx, lattice: startLattice(found.child, { ...seed, sourcePx }) });
+  const state = useStore.getState();
+  const anchor: LineUpAnchor = mapHoldsOtherContent(state.layers, childId, state.mapSettings.terrain?.bounds ?? null) ? 'nearest' : 'origin';
+  emit({ layerId: layer.id, childId, sourcePx, anchor, lattice: startLattice(found.child, { ...seed, sourcePx }) });
   // You cannot check a lattice against lines you cannot see, and the DM arrives here on
   // whatever camera the last map left them: frame the picture itself.
   zoomToChild(childId, CALIBRATION_FILL);
@@ -276,16 +326,19 @@ export function endGridCalibration(): void {
 
 /**
  * Take the lattice as one undoable step: the picture's new size and place, the map's fixed
- * size, and the lock that stops a wall trace nudging it. Then frame the picture.
+ * size as lineUpPlan says, and the lock that stops a wall trace nudging it. Then frame the
+ * picture.
  *
- * The image's layer is what gets locked, as before per-child locks existed: the Battlemap
- * layer holds nothing else, and a locked layer keeps every tool's click off it.
+ * On a Battlemap layer the lock is the layer's, though a child can be locked on its own
+ * (LayerChild.locked): a locked child is still picked by a click, while a locked layer keeps
+ * every tool's click and stroke off it, so walls are traced on the layer above and never land
+ * on the Battlemap layer. A picture lined up among other things locks only itself.
  *
  * Returns false when the lattice is degenerate; the mode stays open.
  */
 export function applyGridCalibration(): boolean {
   if (!session) return false;
-  const { layerId, childId, lattice } = session;
+  const { layerId, childId, lattice, anchor } = session;
   const found = findAsset(layerId, childId);
   if (!found) {
     endGridCalibration();
@@ -293,15 +346,18 @@ export function applyGridCalibration(): boolean {
   }
   const { layer, child } = found;
 
-  const next = calibrationTransform(child, lattice);
-  if (!next) return false;
+  const fixedSize = useStore.getState().mapSettings.fixedSize ?? null;
+  const plan = lineUpPlan(child, lattice, anchor, fixedSize);
+  if (!plan) return false;
 
   const label = 'Line up grid';
   undoManager.execute(
     new CompositeCommand(label, [
-      new UpdateChildCommand(label, layerId, childId, { position: { ...child.position }, width: child.width, height: child.height }, next),
-      new FixedSizeCommand(useStore.getState().mapSettings.fixedSize ?? null, latticeFixedSize(lattice)),
-      new PropertyCommand('Lock image layer', { type: 'layer', layerId }, { locked: layer.locked }, { locked: true }),
+      new UpdateChildCommand(label, layerId, childId, { position: { ...child.position }, width: child.width, height: child.height }, plan.transform),
+      ...(plan.fixedSize ? [new FixedSizeCommand(fixedSize, plan.fixedSize)] : []),
+      isBattlemapLayer(layer)
+        ? new PropertyCommand('Lock image layer', { type: 'layer', layerId }, { locked: layer.locked }, { locked: true })
+        : new PropertyCommand('Lock image', { type: 'child', layerId, childId }, { locked: child.locked ?? false }, { locked: true }),
     ]),
   );
   endGridCalibration();

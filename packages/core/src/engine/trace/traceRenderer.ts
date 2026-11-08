@@ -19,9 +19,19 @@ const SPRITE_LABEL = 'trace';
 /** The picture each trace sprite was last asked to show, so a slow load never lands on a newer one. */
 const wanted = new WeakMap<Sprite, string>();
 
-/** Where the picture sits, in cells, for an image `w` by `h` pixels and the map `frame`. */
-export function traceBox(fit: ImageLayer['fit'], frame: WorldBounds, w: number, h: number): { x: number; y: number; width: number; height: number } {
+/**
+ * Where the picture sits, in cells, for an image `w` by `h` pixels and the map `frame`; an
+ * Original fit with a `placement` sits exactly there.
+ */
+export function traceBox(
+  fit: ImageLayer['fit'],
+  frame: WorldBounds,
+  w: number,
+  h: number,
+  placement?: ImageLayer['placement'],
+): { x: number; y: number; width: number; height: number } {
   if (fit === 'map') return { x: frame.minX, y: frame.minY, width: frame.maxX - frame.minX, height: frame.maxY - frame.minY };
+  if (placement) return { ...placement };
   const width = w / BATTLEMAP_PX_PER_CELL;
   const height = h / BATTLEMAP_PX_PER_CELL;
   return { x: (frame.minX + frame.maxX - width) / 2, y: (frame.minY + frame.maxY - height) / 2, width, height };
@@ -54,7 +64,7 @@ export function drawTraceLayer(layer: ImageLayer, src: string | undefined, frame
   const place = (tex: Texture) => {
     target.texture = tex;
     target.visible = true;
-    const b = traceBox(layer.fit, frame, tex.width, tex.height);
+    const b = traceBox(layer.fit, frame, tex.width, tex.height, layer.placement);
     target.position.set(b.x, b.y);
     target.width = b.width;
     target.height = b.height;

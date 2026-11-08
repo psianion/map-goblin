@@ -198,7 +198,7 @@ export function GridCalibrationOverlay() {
 
   const apply = () => {
     if (applyGridCalibration()) {
-      notify.success(`Grid lined up · the map is ${lattice.cols} × ${lattice.rows} and the Battlemap layer is locked`);
+      notify.success('Grid lined up · the picture’s layer is locked, so trace on the layer above');
     } else {
       notify.warning('That grid is too small to line up from · size it over the picture’s own squares');
     }

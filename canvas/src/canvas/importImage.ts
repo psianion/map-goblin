@@ -137,14 +137,11 @@ export interface ImportOptions {
 }
 
 /**
- * Core import pipeline. Validates format, checks dimensions, resizes if >4096px,
- * registers the image in the store and PIXI.Assets, returns an AssetChild.
+ * A picture for a placed image: validated, shrunk past the import limit, stored in
+ * `customImages` and registered with PIXI under a new key, which comes back with the
+ * picture's file name and its own pixel size. Throws for a file that is not an image.
  */
-export async function importImageFile(
-  input: File,
-  viewportCenter: { x: number; y: number },
-  { asBattlemap = false, pxPerCell }: ImportOptions = {},
-): Promise<AssetChild> {
+export async function readPictureFile(input: File): Promise<{ assetId: string; imageSource: NonNullable<AssetChild['imageSource']> }> {
   const file = await normalizeImageFile(input);
   if (!file) {
     throw new Error(`Unsupported image format: ${input.type}. Use PNG, JPEG, SVG, or WebP.`);
@@ -170,6 +167,21 @@ export async function importImageFile(
 
   useStore.getState().addCustomImage(assetId, base64);
   await Assets.load({ alias: assetId, src: base64 });
+  return { assetId, imageSource: { fileName: input.name, width: srcWidth, height: srcHeight } };
+}
+
+/**
+ * Core import pipeline: the picture read by `readPictureFile`, as an AssetChild sized as a
+ * prop or a battlemap.
+ */
+export async function importImageFile(
+  input: File,
+  viewportCenter: { x: number; y: number },
+  { asBattlemap = false, pxPerCell }: ImportOptions = {},
+): Promise<AssetChild> {
+  const { assetId, imageSource } = await readPictureFile(input);
+  const srcWidth = imageSource.width;
+  const srcHeight = imageSource.height;
 
   // World cells per source pixel. `width`/`height` are the footprint in cells and
   // `scale` is the multiplier on top - the convention every consumer reads as
@@ -199,7 +211,7 @@ export async function importImageFile(
     flipX: false,
     flipY: false,
     // The texture may be a downscale; the line-up and the Battlemap sheet read the original.
-    imageSource: { fileName: input.name, width: srcWidth, height: srcHeight },
+    imageSource,
   };
 
   return child;

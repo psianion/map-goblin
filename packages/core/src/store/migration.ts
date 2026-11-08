@@ -22,7 +22,7 @@ export const CURRENT_VERSION = '3.9' as const
  * '3.7' adds the new terrain tools' data, all additive: a layer's water, its material patches
  * and path children ('pathway', not the retired 'path'). '3.7' → '3.8' is additive: a prop's
  * below-water flag and trace layers (type 'image'). '3.8' → '3.9' is additive: an imported
- * picture's file name and source pixel size, `imageSource`.)
+ * picture's file name and source pixel size, `imageSource`, and a trace's `placement`.)
  */
 export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9']
 

@@ -271,6 +271,16 @@ describe('the settings the editor dropped', () => {
     expect(() => readMapDocument(doc({ fileName: 'Crypt.jpg', width: 0, height: 1680 }))).toThrow(/imageSource/);
     expect(() => readMapDocument(doc(undefined, 'stretch'))).toThrow(/fit/);
   });
+
+  it('reads a 3.9 trace with its own placement, and refuses one of no size', () => {
+    const doc = (placement: unknown) => ({
+      version: '3.9',
+      mapSettings: { name: 'Crypt' },
+      layers: [{ id: 't', type: 'image', imageKey: 'k', fileName: 'crypt.png', fit: 'original', placement }],
+    });
+    expect(readMapDocument(doc({ x: -0.3, y: -0.4, width: 36.5, height: 24.7 })).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc({ x: 0, y: 0, width: 0, height: 24 }))).toThrow(/placement/);
+  });
 });
 
 describe('the document as written', () => {

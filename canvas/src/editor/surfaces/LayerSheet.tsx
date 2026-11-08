@@ -14,6 +14,8 @@ import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands';
 import { checkRename, rowShown, sheetSections, showRows } from '@/editor/models/layerSheetModel';
 import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleLayerVisible, toggleSolo } from '@/editor/models/layerActions';
 import { readTraceFile } from '@/canvas/importImage';
+import { notify } from '@/lib/toast';
+import { battlemapPicture, convertToTrace, lineUpPicture, pictureFileName, pictureLine, replacePicture } from '@/editor/models/battlemapActions';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { SheetFrame } from './SheetFrame';
 import { useLiveEdit } from './liveEdit';
@@ -313,6 +315,82 @@ function TraceBody({ layer }: { layer: ImageLayer }) {
   );
 }
 
+/**
+ * A Battlemap layer: its name, kind, Visible, Locked and Opacity; then its picture, the
+ * file with its pixels and cells, Line up grid, Replace (keeping the lattice) and Convert
+ * to trace.
+ */
+function BattlemapBody({ layer }: { layer: DungeonLayer }) {
+  const picker = useRef<HTMLInputElement>(null);
+  const picture = battlemapPicture(layer);
+  const opacity = useLiveEdit(
+    () => liveLayer(layer.id)?.opacity ?? layer.opacity,
+    (v: number) => useStore.getState().updateLayer(layer.id, { opacity: v }),
+    (start, end) => undoManager.execute(new PropertyCommand('Layer opacity', layerTarget(layer), { opacity: start }, { opacity: end })),
+  );
+  const replace = async (id: string, file: File) => {
+    try {
+      await replacePicture(id, file);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'That file is not an image this editor can read.');
+    }
+  };
+  return (
+    <>
+      <Section>
+        <NameSection layer={layer} bare />
+        <SettingRow label="Kind">
+          <span className={val}>Battlemap</span>
+        </SettingRow>
+        <SwitchRow label="Visible" checked={layer.visible} onCheckedChange={() => toggleLayerVisible(layer)} />
+        <SwitchRow label="Locked" checked={layer.locked} onCheckedChange={() => toggleLayerLocked(layer)} />
+        <div {...opacity.wrap}>
+          <SliderRow label="Opacity" value={layer.opacity} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onValueChange={opacity.change} />
+        </div>
+      </Section>
+      {picture && (
+        <Section title="Image">
+          <SettingRow label="File">
+            <span className={val} title={pictureFileName(picture)}>
+              {pictureFileName(picture)}
+            </span>
+          </SettingRow>
+          <p className={`${note} font-mono`} data-testid="shell-lsheet-battlemap-size">
+            {pictureLine(picture)}
+          </p>
+          <SettingRow label="Grid">
+            <SecondaryButton data-testid="shell-lsheet-battlemap-lineup" onClick={() => void lineUpPicture(picture.id)}>
+              Line up grid
+            </SecondaryButton>
+          </SettingRow>
+          <SettingRow label="Replace">
+            <SecondaryButton data-testid="shell-lsheet-battlemap-replace" onClick={() => picker.current?.click()}>
+              Choose
+            </SecondaryButton>
+          </SettingRow>
+          <SettingRow label="Use as">
+            <SecondaryButton data-testid="shell-lsheet-battlemap-trace" onClick={() => convertToTrace(picture.id)}>
+              Convert to trace
+            </SecondaryButton>
+          </SettingRow>
+          <input
+            ref={picker}
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml,image/webp"
+            className="hidden"
+            tabIndex={-1}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) void replace(picture.id, file);
+            }}
+          />
+        </Section>
+      )}
+    </>
+  );
+}
+
 function TerrainBody() {
   const visible = useStore((s) => s.mapSettings.terrain?.visible ?? true);
   const opacity = useStore((s) => s.mapSettings.terrain?.opacity ?? 1);
@@ -360,6 +438,7 @@ export function LayerSheet({ target, onClose }: { target: string; onClose: () =>
         {layer && (
           <>
             {layer.type === 'image' && sections.includes('trace') && <TraceBody layer={layer} />}
+            {layer.type === 'dungeon' && sections.includes('battlemap') && <BattlemapBody layer={layer} />}
             {sections.includes('name') && <NameSection layer={layer} />}
             {layer.type === 'background' && sections.includes('background') && <BackgroundSection layer={layer} />}
             {sections.includes('opacity') && <OpacitySection layer={layer} />}

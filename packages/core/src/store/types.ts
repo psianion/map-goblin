@@ -228,6 +228,11 @@ export interface ImageLayer extends BaseLayer {
   fileName: string;
   /** Map: stretched to the map frame. Original: at the battlemap scale, centred on the frame. */
   fit: 'map' | 'original';
+  /**
+   * Where Original puts the picture, in cells, instead of centring it at 70 px a cell: a
+   * battlemap converted to a trace keeps the place and size it had. Absent before 3.9.
+   */
+  placement?: { x: number; y: number; width: number; height: number };
 }
 
 export type Layer = DungeonLayer | BackgroundLayer | ImageLayer;

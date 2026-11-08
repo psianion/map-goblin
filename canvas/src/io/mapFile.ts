@@ -115,10 +115,18 @@ const traceCheck = (l: { type: string }, ctx: z.RefinementCtx) => {
   if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
 };
 const layer38 = layer37.extend({ children: z.array(child38).optional() }).superRefine(traceCheck);
-/** 3.9: an imported picture's file name and its own pixel size. */
+/** 3.9: an imported picture's file name and its own pixel size, and a trace's placement. */
 const imageSource = z.object({ fileName: z.string(), width: z.number().positive(), height: z.number().positive() }).passthrough();
 const child39 = child38.and(z.object({ imageSource: imageSource.optional() }).passthrough());
-const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine(traceCheck);
+/** 3.9: a trace's own place, for one converted from a battlemap. */
+const trace39 = trace.extend({
+  placement: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).passthrough().optional(),
+});
+const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine((l, ctx) => {
+  if (l.type !== 'image') return;
+  const parsed = trace39.safeParse(l);
+  if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
+});
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z

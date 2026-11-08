@@ -93,6 +93,11 @@ describe('where a trace sits', () => {
     const b = traceBox('original', frame, 7 * BATTLEMAP_PX_PER_CELL, 4 * BATTLEMAP_PX_PER_CELL);
     expect(b).toEqual({ x: 6.5, y: 3, width: 7, height: 4 });
   });
+  it('Fit Original with a placement sits there, as a converted battlemap does; Fit Map still stretches', () => {
+    const placement = { x: -0.3, y: -0.4, width: 36.5, height: 24.7 };
+    expect(traceBox('original', frame, 999, 333, placement)).toEqual(placement);
+    expect(traceBox('map', frame, 999, 333, placement)).toEqual({ x: 0, y: 0, width: 20, height: 10 });
+  });
 });
 
 describe('a publish', () => {

@@ -1,5 +1,5 @@
 // The prop card's custom rows: Transform (X, Y, W, H with the ratio lock, Angle, the two
-// flips), the four Order buttons, and Variant with Replace.
+// flips), the four Order buttons, Variant with Replace, and an imported picture's Image rows.
 
 import { useState } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, FlipHorizontal2, FlipVertical2, Link2, Unlink2, type LucideIcon } from 'lucide-react';
@@ -7,7 +7,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import type { ZOrderOp } from '@dnd/core/src/store/propEdits';
 import { familyMembers } from '@dnd/core/src/assets/packCatalog';
-import { IconKeyButton, SecondaryButton, SettingRow, Tile } from '@/editor/components';
+import { IconKeyButton, SecondaryButton, Seg, SettingRow, Tile } from '@/editor/components';
+import { isBattlemapLayer } from '@/editor/models/layerSheetModel';
+import { convertToTrace, lineUpPicture, moveToBattlemap } from '@/editor/models/battlemapActions';
 import { Input } from '@/ui/input';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
@@ -130,6 +132,40 @@ export function VariantField({ value, onChange }: SettingProps<string>) {
       >
         Replace…
       </SecondaryButton>
+    </div>
+  );
+}
+
+const USE_AS_OPTIONS = [
+  { value: 'battlemap', label: 'Battlemap' },
+  { value: 'trace', label: 'Trace' },
+];
+
+/**
+ * An imported picture's Image rows: Line up grid, and Use as. Battlemap moves it onto a
+ * locked Battlemap layer at the map origin and opens the line-up; Trace makes it a trace
+ * layer in the same place. `value` is the picture's id.
+ */
+export function ImageField({ value }: SettingProps<string>) {
+  const onBattlemap = useStore((s) => {
+    const layer = s.layers.find((l) => l.type === 'dungeon' && l.children.some((c) => c.id === value));
+    return !!layer && isBattlemapLayer(layer);
+  });
+  return (
+    <div className="flex flex-col gap-px">
+      <SettingRow label="Grid">
+        <SecondaryButton data-testid="card-image-lineup" onClick={() => void lineUpPicture(value)}>
+          Line up grid
+        </SecondaryButton>
+      </SettingRow>
+      <SettingRow label="Use as">
+        <Seg
+          aria-label="Use as"
+          options={USE_AS_OPTIONS}
+          value={onBattlemap ? 'battlemap' : ''}
+          onValueChange={(v) => (v === 'trace' ? convertToTrace(value) : moveToBattlemap(value))}
+        />
+      </SettingRow>
     </div>
   );
 }

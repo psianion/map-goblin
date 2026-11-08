@@ -1,5 +1,6 @@
 // The prop card: Transform, Look (Tint, Opacity), Layering (the four order steps, Overhead,
-// Below water, Lock), Variant with Replace, Behaviour (Casts shadow, Blocks light and sight). Glows and
+// Below water, Lock), Variant with Replace, Image for an imported picture (Line up grid, Use
+// as), Behaviour (Casts shadow, Blocks light and sight). Glows and
 // Blocks movement are gone from it: an attached light glows better, and nothing reads
 // movement yet. Old maps that carry either still load; the map format drops them in step 13.
 
@@ -14,7 +15,7 @@ import { SELECTION_VERBS } from '@/editor/families/select';
 import { editKey, runEdit } from '@/editor/families/design/cardWrites';
 import { propBoxModel } from '@/editor/models/selectionModel';
 import { boxOf, pickedProps, type BoxValue } from './propModel';
-import { OrderField, TransformField, VariantField } from './PropFields';
+import { ImageField, OrderField, TransformField, VariantField } from './PropFields';
 
 type FieldPatch = Partial<Pick<AssetChild, PropFieldKey | 'tint'>>;
 
@@ -114,6 +115,21 @@ const variant = defineCardField<'asset', string>({
   write: (_store, ids, id) => run(createSwapPropCommand([...ids], id, 'footprint')),
 });
 
+const image = defineCardField<'asset', string>({
+  id: 'card.prop.image',
+  label: 'Image',
+  schema: z.string(),
+  default: '',
+  home: 'card',
+  control: 'custom',
+  section: 'Image',
+  render: ImageField,
+  // An imported picture can be lined up, or made a battlemap or a trace.
+  visibleWhen: (o) => o.objectType === 'image',
+  read: (o) => o.id,
+  write: () => {},
+});
+
 export const propCard = defineCard<'asset'>({
   kind: 'asset',
   title: (o) => o.name || getCatalogEntry(o.assetId)?.label || 'Prop',
@@ -127,6 +143,7 @@ export const propCard = defineCard<'asset'>({
     sw('card.prop.belowWater', 'Below water', 'belowWater', 'Layering'),
     sw('card.prop.lock', 'Lock', 'locked', 'Layering'),
     variant,
+    image,
     sw('card.prop.castsShadow', 'Casts shadow', 'castsShadow', 'Behaviour'),
     sw('card.prop.blocksLight', 'Blocks light and sight', 'blocksLight', 'Behaviour'),
   ],
