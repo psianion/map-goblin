@@ -18,7 +18,7 @@ vi.mock('../assets/packCatalog', () => ({
 
 import { Container } from 'pixi.js';
 import { rebuildDungeonLayer } from './floorWallRenderer';
-import { setEditorDesk, type EditorDesk } from './editorDesk';
+import { deskSubdividesGrid, setEditorDesk, type EditorDesk } from './editorDesk';
 import type { LayerEntry } from './sceneGraph';
 import { useStore } from '../store/store';
 import type { DungeonLayer, WallSegment } from '../store/types';
@@ -83,5 +83,13 @@ describe('the editor wall marks under a desk', () => {
     const entry = makeEntry();
     rebuildDungeonLayer(layerWithWall(), entry);
     expect(entry.sublayers!.wallMarks.children).toHaveLength(0);
+  });
+});
+
+describe('the grid under a desk', () => {
+  it('shows the snap step under the editor desk, and whole cells under the table desk or none', () => {
+    expect(deskSubdividesGrid(DESK)).toBe(true);
+    expect(deskSubdividesGrid({ ...DESK, lit: true, wallMarks: false, gridSubdivisions: false })).toBe(false);
+    expect(deskSubdividesGrid(null)).toBe(false);
   });
 });

@@ -13,12 +13,13 @@ import type { Layer } from '../store/types';
  *    and sheet, only drawn in the desk's dot colour;
  *  - the editing view is unlit unless `lit` is set, so the map's mood and the hour do not
  *    darken the sheet while it is being drawn;
- *  - the wall-type marks are drawn unless `wallMarks` is false.
+ *  - the wall-type marks are drawn unless `wallMarks` is false;
+ *  - the grid shows the snap step between cells unless `gridSubdivisions` is false.
  *
  * Presentation only. Nothing here touches the store or the saved map, and the export holds
  * the authored look for the length of its render (`holdAuthoredLook`), so files and
  * thumbnails come out the same either way. Nobody installs one by default. The table
- * installs one too, for the desk colour, with `lit: true` and `wallMarks: false`.
+ * installs one too, for the desk colour, with `lit: true`, `wallMarks: false` and `gridSubdivisions: false`.
  */
 export interface EditorDesk {
   /** CSS hex (#rrggbb): the desk around the map (the canvas clear colour). */
@@ -36,6 +37,16 @@ export interface EditorDesk {
    * it false, since those marks are an editing aid players must never see.
    */
   wallMarks?: boolean;
+  /**
+   * Split each grid cell at the snap step. On when absent (the editor); the table sets it
+   * false, since players see whole cells.
+   */
+  gridSubdivisions?: boolean;
+}
+
+/** Whether the grid shows the snap step between whole cells: under a desk that leaves it on. */
+export function deskSubdividesGrid(desk: EditorDesk | null): boolean {
+  return desk !== null && desk.gridSubdivisions !== false;
 }
 
 let current: EditorDesk | null = null;

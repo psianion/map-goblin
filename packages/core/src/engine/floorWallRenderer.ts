@@ -19,7 +19,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
-import { getEditorDesk } from './editorDesk';
+import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
@@ -450,8 +450,8 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     else byColor.set(color, [poly]);
   });
 
-  // Whole cells, and in the editor the snap step between them (the table shows whole cells).
-  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, getEditorDesk() ? gridDivision(useStore.getState().grid) : 1);
+  // Whole cells, and in the editor the snap step between them (the table's desk turns it off).
+  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
   for (const [color, rings] of byColor) {
     // Mask to clip grid lines within floor shape
