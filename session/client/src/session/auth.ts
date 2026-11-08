@@ -254,6 +254,18 @@ export function reorderScenes(
   );
 }
 
+// ─── Handoff and DM token lifetime (decisions 12, 13) ───────
+
+/** `#handoff=<code>` from the canvas → the campaign and a fresh DM token. Single use, no auth. */
+export function redeemHandoff(code: string): Promise<{ campaignId: string; campaignName: string; token: string }> {
+  return request('/api/handoff/redeem', postJson({ code }));
+}
+
+/** A DM token with time left → a new one with the full 30 days. */
+export function refreshDmToken(campaignId: string, token: string): Promise<{ token: string; campaignId: string; exp: number }> {
+  return request(`/api/campaigns/${encodeURIComponent(campaignId)}/dm-token/refresh`, { method: 'POST' }, token);
+}
+
 // ─── Plumbing ───────────────────────────────────────────────
 
 const UNREACHABLE = 'Could not reach the server. Check the address, and that it is running.';

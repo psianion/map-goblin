@@ -31,20 +31,20 @@ export function SheetLinkPrompt() {
   const target = claimed.find((t) => !t.sheet);
   if (!sheet || !target || alreadyLinked || dismissed.has(sheetKey(sheet))) return null;
 
-  const entrance = prefersReducedMotion() ? '' : 'animate-toast-in';
+  const entrance = prefersReducedMotion() ? '' : '';
 
   return (
     <div
       // Same track InitiativePrompt sits on; the two are mutually exclusive in practice (a
       // sheet link is offered outside combat's gather phase) but stack cleanly if they ever
       // do coincide.
-      className="pointer-events-none absolute inset-x-0 bottom-32 z-toolbar flex flex-col items-center px-4 max-sm:bottom-40"
+      className="pointer-events-none absolute inset-x-0 bottom-32 z-20 flex flex-col items-center px-4 max-sm:bottom-40"
     >
       <div
         data-testid="sheet-link-prompt"
         // Neutral surface (chrome-style-guide.md "Overlays neutral, accent themeable") — the
         // accent lives on the Link button alone, never on the card itself.
-        className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded border border-border-default bg-surface-2 px-3 py-2 text-sm text-text-primary shadow-lg shadow-black/50 ${entrance}`}
+        className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded border border-line bg-panel-2 px-3 py-2 text-sm text-text shadow-lg shadow-black/50 ${entrance}`}
       >
         <p className="min-w-0 flex-1 break-words">
           Link {sheet.name} to {target.name}?
@@ -53,7 +53,7 @@ export function SheetLinkPrompt() {
           type="button"
           data-testid="sheet-link-dismiss"
           onClick={() => dismiss(sheetKey(sheet))}
-          className="shrink-0 rounded-chip border border-border-default px-2 py-1 text-xs font-medium text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
+          className="shrink-0 rounded-key border border-line px-2 py-1 text-xs font-medium text-text transition-colors duration-150 ease-out hover:bg-panel-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:bg-panel motion-reduce:transition-none"
         >
           Not now
         </button>
@@ -61,7 +61,7 @@ export function SheetLinkPrompt() {
           type="button"
           data-testid="sheet-link-confirm"
           onClick={() => link(target.id, sheet)}
-          className="shrink-0 rounded-chip border border-accent-active bg-accent-active px-2 py-1 text-xs font-medium text-on-accent transition-colors duration-150 ease-out-quart hover:bg-accent-active/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+          className="shrink-0 rounded-key border border-ink bg-ink px-2 py-1 text-xs font-medium text-on-ink transition-colors duration-150 ease-out hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus motion-reduce:transition-none"
         >
           Link
         </button>

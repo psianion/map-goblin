@@ -35,7 +35,7 @@ export function TabColumn() {
   const fighting = combat?.status === 'running' && combat.sceneId === sceneId;
   const tabs = TABS.filter((t) => t.roles.includes(role) && (!t.combatOnly || fighting) && sheetDef(t.sheet));
   return (
-    <FloatBox className="absolute top-16 right-3 z-20 flex w-11 flex-col items-center gap-1 px-0 py-1.5" data-testid="sheet-tabs" data-chrome>
+    <FloatBox className="absolute top-16 right-3 z-20 flex w-11 max-sm:hidden flex-col items-center gap-1 px-0 py-1.5" data-testid="sheet-tabs" data-chrome>
       {tabs.map((t) => (
         <span key={t.sheet} className="relative">
           <IconKeyButton

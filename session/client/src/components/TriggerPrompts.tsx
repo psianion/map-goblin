@@ -30,14 +30,14 @@ export function TriggerPrompts() {
 
   // Doctrine's own line for reduced motion (see ToastHost): the card is simply already
   // there, rather than a crossfade doing the "already there" job in slow motion.
-  const entrance = prefersReducedMotion() ? '' : 'animate-toast-in';
+  const entrance = prefersReducedMotion() ? '' : '';
 
   return (
     <div
-      // Above the tool indicator (z-toolbar) and clear of the toast's own centred track —
+      // Above the tool indicator (z-20) and clear of the toast's own centred track —
       // parked one strip higher (bottom-20) so a toast firing at the same moment (a fresh
       // trap outcome, say) never lands on top of the card that caused it.
-      className="pointer-events-none absolute inset-x-0 bottom-20 z-toolbar flex flex-col items-center gap-2 px-4 max-sm:bottom-28"
+      className="pointer-events-none absolute inset-x-0 bottom-20 z-20 flex flex-col items-center gap-2 px-4 max-sm:bottom-28"
     >
       {prompts.map(({ prompt, needsDm }) => {
         const meta = promptMeta(prompt);
@@ -45,12 +45,12 @@ export function TriggerPrompts() {
           <div
             key={prompt.id}
             data-testid="trigger-prompt"
-            className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded border border-border-default bg-surface-2 px-3 py-2 text-sm text-text-primary shadow-panel ${entrance}`}
+            className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded border border-line bg-panel-2 px-3 py-2 text-sm text-text shadow-e ${entrance}`}
           >
             <div className="min-w-0 flex-1">
               <p className="truncate">{prompt.text}</p>
               {(meta || needsDm) && (
-                <p className="truncate text-xs text-text-secondary">
+                <p className="truncate text-xs text-text-2">
                   {[meta, needsDm ? 'needs the DM' : null].filter(Boolean).join(' · ')}
                 </p>
               )}
@@ -63,7 +63,7 @@ export function TriggerPrompts() {
                 setRolling(prompt.id);
                 send('roll-prompt', { promptId: prompt.id });
               }}
-              className="shrink-0 rounded-chip border border-border-default px-2 py-1 text-xs font-medium text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:opacity-60 motion-reduce:transition-none"
+              className="shrink-0 rounded-key border border-line px-2 py-1 text-xs font-medium text-text transition-colors duration-150 ease-out hover:bg-panel-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus active:bg-panel disabled:opacity-60 motion-reduce:transition-none"
             >
               {rolling === prompt.id ? 'Rolling…' : 'Roll'}
             </button>
@@ -72,7 +72,7 @@ export function TriggerPrompts() {
                 type="button"
                 aria-label={`Dismiss: ${prompt.text}`}
                 onClick={() => send('dismiss-prompt', { promptId: prompt.id })}
-                className="shrink-0 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+                className="shrink-0 rounded px-1.5 py-1 text-xs text-text-2 transition-colors duration-150 ease-out hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus motion-reduce:transition-none"
               >
                 Dismiss
               </button>

@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { StatusChip } from '@dnd/ui';
 import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useSessionStore } from '../session/store';
-import { useShell } from './shellStore';
+import { useTableShell } from './tableShell';
 
 /** View → Diagnostics (Shift+D): frame rate, frame time and round trip, off by default. */
 export function DiagnosticsChip() {
-  const on = useShell((s) => s.diagnostics);
+  const on = useTableShell((s) => s.diagnostics);
   const latencyMs = useSessionStore((s) => s.latencyMs);
   const [frame, setFrame] = useState<{ fps: string; ms: string }>({ fps: '—', ms: '—' });
   useEffect(() => {

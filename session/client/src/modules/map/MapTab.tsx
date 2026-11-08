@@ -7,6 +7,7 @@ import { Button, Caption, Seg, SliderRow, Switch, SwitchRow } from '@dnd/ui';
 import { frameWorldPoint } from '../../renderer/camera';
 import { openSheet } from '../../shell/sheets/registry';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { CrossingsFold } from '../crossings/CrossingsFold';
 import { DoorActions } from '../doors/DoorActions';
 import { doorLabel, doorStatusLabel } from '../doors/doors';
 import { useDoorSelection } from '../doors/selection';
@@ -70,6 +71,7 @@ export function MapBody() {
       )}
       {family === 'triggers' && <p className="text-xs text-text-3">Fired triggers narrate into the log.</p>}
       {family === 'levels' && <p className="text-xs text-text-3">Go shows you a level. Seats follow their tokens unless pinned in World.</p>}
+      {family === 'rooms' && <CrossingsFold />}
       {family === 'labels' && (
         <SwitchRow label="Show map labels" className="w-full" checked={!labelsHidden} onCheckedChange={(on) => useStore.getState().setLabelsHidden(!on)} />
       )}

@@ -64,13 +64,13 @@ export function CrossingMenu() {
       data-testid="crossing-menu"
       onPointerDown={(e) => e.stopPropagation()}
       style={{ visibility: 'hidden' }}
-      className="fixed z-toolbar flex min-w-[180px] flex-col gap-1.5 rounded-md border border-border-structure bg-surface-1 px-2.5 py-2 text-xs shadow-panel motion-safe:animate-panel-in"
+      className="fixed z-20 flex min-w-[180px] flex-col gap-1.5 rounded-md border border-line-strong bg-panel px-2.5 py-2 text-xs shadow-e"
     >
-      <span className="text-text-secondary">{WHAT[target.what] ?? 'Edge'} · crossing</span>
+      <span className="text-text-2">{WHAT[target.what] ?? 'Edge'} · crossing</span>
       <select
         aria-label="Crossing"
         data-testid="crossing-menu-kind"
-        className="rounded border border-border-default bg-surface-0 px-1.5 py-1 text-text-primary"
+        className="rounded border border-line bg-bg px-1.5 py-1 text-text"
         value={live ?? ''}
         onChange={(e) => send(e.target.value === '' ? null : e.target.value)}
       >

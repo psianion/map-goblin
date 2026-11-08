@@ -10,6 +10,9 @@ type MarkTool = Exclude<ToolId, 'fog'>;
 
 /** Least gap between two sends of a mark still being dragged, so a ruler is not a firehose. */
 const SEND_EVERY_MS = 80;
+/** How long a touch has to stay down to ping, and how far it may wander. */
+export const LONG_PRESS_MS = 500;
+const PRESS_SLOP_PX = 8;
 
 const armedMarkTool = (): MarkTool | null => {
   const tool = useActiveTool.getState().activeTool;
@@ -29,6 +32,13 @@ function worldAt(engine: RenderEngine, e: PointerEvent): Pt {
  */
 export function attachMarkInput(engine: RenderEngine): () => void {
   let drag: { tool: MarkTool; start: Pt; points: [number, number][]; id: string; sentAt: number } | null = null;
+  // A long press on a touch screen pings, with no tool in hand (board 8): held still for
+  // LONG_PRESS_MS. A drag on the way is a pan, and calls it off.
+  let press: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null;
+  const cancelPress = (): void => {
+    if (press) clearTimeout(press.timer);
+    press = null;
+  };
 
   const msgFor = (tool: MarkTool, start: Pt, at: Pt, points: [number, number][]): MarkMsg | null => {
     if (tool === 'measure') return { kind: 'ruler', from: start, to: at };
@@ -41,7 +51,13 @@ export function attachMarkInput(engine: RenderEngine): () => void {
   const onDown = (e: PointerEvent): void => {
     if (e.button !== 0 || e.target !== engine.canvas()) return;
     const tool = armedMarkTool();
-    if (!tool) return;
+    if (!tool) {
+      if (e.pointerType !== 'touch' || useActiveTool.getState().activeTool === 'fog') return;
+      cancelPress();
+      const at = worldAt(engine, e);
+      press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => { press = null; placeMark({ kind: 'ping', x: at.x, y: at.y }); }, LONG_PRESS_MS) };
+      return;
+    }
     e.stopPropagation();
     e.preventDefault();
     const at = worldAt(engine, e);
@@ -62,6 +78,7 @@ export function attachMarkInput(engine: RenderEngine): () => void {
   };
 
   const onMove = (e: PointerEvent): void => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PRESS_SLOP_PX) cancelPress();
     if (!drag) return;
     e.stopPropagation();
     e.preventDefault();
@@ -78,6 +95,7 @@ export function attachMarkInput(engine: RenderEngine): () => void {
   };
 
   const onUp = (e: PointerEvent): void => {
+    cancelPress();
     if (!drag) return;
     e.stopPropagation();
     const { tool, id } = drag;
@@ -93,6 +111,7 @@ export function attachMarkInput(engine: RenderEngine): () => void {
   document.addEventListener('pointerup', onUp, true);
   document.addEventListener('pointercancel', onUp, true);
   return () => {
+    cancelPress();
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('pointermove', onMove, true);
     document.removeEventListener('pointerup', onUp, true);

@@ -44,10 +44,11 @@ function capture(): Sent[] {
 beforeEach(cleanup);
 
 describe('CombatBar', () => {
-  it('stays away until an encounter runs on this scene', () => {
+  it('says initiative is being rolled while gathering, with no Next yet', () => {
     useSessionStore.setState({ you: dm, session: session('gathering') });
     render(<CombatBar />);
-    expect(screen.queryByTestId('combat-bar')).toBeNull();
+    expect(screen.getByTestId('combat-round').textContent).toBe('Rolling initiative');
+    expect(screen.queryByTestId('combat-next')).toBeNull();
   });
 
   it('shows the order with the current chip marked, the round, previous and Next for the DM', () => {

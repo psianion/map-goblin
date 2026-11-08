@@ -4,7 +4,7 @@ import { useSessionStore } from '../session/store';
 import { showToast, useToasts } from '../session/toasts';
 import { BANNER_AFTER_S, ConnectionNotice } from './Connection';
 import { DiagnosticsChip } from './DiagnosticsChip';
-import { useShell } from './shellStore';
+import { useTableShell } from './tableShell';
 import { TableToaster } from './TableToaster';
 import { applyUiScale, readUiScale } from './uiScale';
 import { ZoomPill } from './ZoomPill';
@@ -38,10 +38,10 @@ describe('connection notice', () => {
 
 describe('diagnostics', () => {
   it('shows only when switched on', () => {
-    useShell.setState({ diagnostics: false });
+    useTableShell.setState({ diagnostics: false });
     const { rerender } = render(<DiagnosticsChip />);
     expect(screen.queryByTestId('diagnostics')).toBeNull();
-    act(() => useShell.setState({ diagnostics: true }));
+    act(() => useTableShell.setState({ diagnostics: true }));
     rerender(<DiagnosticsChip />);
     expect(screen.getByTestId('diagnostics').textContent).toContain('FPS');
   });

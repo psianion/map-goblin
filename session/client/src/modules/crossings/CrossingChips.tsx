@@ -48,12 +48,12 @@ export function CrossingChips() {
           data-testid="crossing-chip"
           data-refused={chip.refused || undefined}
           style={{ visibility: 'hidden', transform: 'translate(-50%, calc(-100% - 10px))' }}
-          className={`pointer-events-none fixed z-toolbar max-w-[220px] rounded-md border px-2 py-1 text-xs shadow-panel motion-safe:animate-panel-in ${
-            chip.refused ? 'border-danger bg-surface-1 text-text-primary' : 'border-border-structure bg-surface-1 text-text-primary'
+          className={`pointer-events-none fixed z-20 max-w-[220px] rounded-md border px-2 py-1 text-xs shadow-e ${
+            chip.refused ? 'border-danger bg-panel text-text' : 'border-line-strong bg-panel text-text'
           }`}
         >
           <div className="font-medium">{chip.title}</div>
-          {chip.note && <div className="text-text-secondary">{chip.note}</div>}
+          {chip.note && <div className="text-text-2">{chip.note}</div>}
         </div>
       ))}
     </>

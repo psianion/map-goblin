@@ -35,8 +35,8 @@ export function SheetFrame({
   return (
     <FloatBox
       className={cn(
-        'absolute top-16 right-16 z-30 flex w-80 flex-col overflow-hidden p-0',
-        dm && dockOpen ? 'bottom-72' : 'bottom-20',
+        'absolute top-16 right-16 z-30 flex w-80 flex-col overflow-hidden p-0 max-sm:right-2 max-sm:left-2 max-sm:w-auto',
+        dm && dockOpen ? 'bottom-72' : 'bottom-20 max-sm:bottom-16',
       )}
       data-testid={testId}
       data-chrome

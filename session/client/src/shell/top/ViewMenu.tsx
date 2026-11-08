@@ -22,7 +22,7 @@ import { Eye } from '@dnd/ui/icons';
 import { useStore } from '@dnd/core/src/store/store';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { useShell } from '../shellStore';
+import { useTableShell } from '../tableShell';
 import { previewAs, previewCandidates, usePreviewing } from './previewAs';
 import { UI_SCALES, applyUiScale, useUiScale, type UiScale } from '../uiScale';
 
@@ -39,7 +39,7 @@ export function ViewMenu() {
   const choice = readThemeChoice();
   const scale = useUiScale();
   const grid = useStore((s) => s.grid.visible);
-  const diagnostics = useShell((s) => s.diagnostics);
+  const diagnostics = useTableShell((s) => s.diagnostics);
   const dm = useSessionStore((s) => s.you?.role === 'dm');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const candidates = previewCandidates(useModuleState<TokensState>('tokens'), sceneId);
@@ -115,7 +115,7 @@ export function ViewMenu() {
         <DropdownMenuCheckboxItem
           checked={diagnostics}
           data-testid="view-diagnostics"
-          onCheckedChange={() => useShell.getState().toggleDiagnostics()}
+          onCheckedChange={() => useTableShell.getState().toggleDiagnostics()}
         >
           Diagnostics<DropdownMenuShortcut>Shift+D</DropdownMenuShortcut>
         </DropdownMenuCheckboxItem>

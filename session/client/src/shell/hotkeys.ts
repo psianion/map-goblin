@@ -13,7 +13,6 @@ import { findMyToken } from './findMyToken';
 import { railToolsFor } from './rail/registry';
 import { pickRailTool } from './rail/tools';
 import { closeSheet, openSheetNow, toggleSheet } from './sheets/registry';
-import { useShell } from './shellStore';
 import { useTableShell } from './tableShell';
 
 /** Keys belong to whoever is typing, not to the shell. Same guard as `cameraInput.ts`'s. */
@@ -98,7 +97,7 @@ export const BINDINGS: readonly Binding[] = [
   { key: '/', roles: ALL, group: 'Dice', label: 'Type a roll', run: focusRollField },
   { key: 'p', shift: true, roles: DM, group: 'Table', label: 'Pause the table', run: togglePause },
   { key: 'f', roles: ALL, group: 'View', label: 'Find my token', run: () => void findMyToken() },
-  { key: 'd', shift: true, roles: ALL, group: 'View', label: 'Diagnostics', run: () => useShell.getState().toggleDiagnostics() },
+  { key: 'd', shift: true, roles: ALL, group: 'View', label: 'Diagnostics', run: () => useTableShell.getState().toggleDiagnostics() },
   { key: '?', roles: ALL, group: 'Help', label: 'Keyboard shortcuts', run: () => toggleSheet('shortcuts') },
 ];
 
@@ -111,13 +110,9 @@ export const CAMERA_KEYS: readonly { key: string; label: string }[] = [
 
 /**
  * Esc, one step per press: the on-map card, then the sheet, then the dock body, then the
- * selection (door, light, token, combat row), then the tool back to Select. The old
- * popover and drawer go first while the old shell is mounted.
+ * selection (door, light, token, combat row), then the tool back to Select.
  */
 export function onEscape(): void {
-  const old = useShell.getState();
-  if (old.openPanel) return old.closePanel();
-  if (old.drawerOpen) return old.setDrawer(false);
   const shell = useTableShell.getState();
   if (shell.card) return shell.closeCard();
   if (openSheetNow()) return closeSheet();

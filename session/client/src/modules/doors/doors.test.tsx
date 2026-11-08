@@ -1,6 +1,6 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 import { Container } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
@@ -28,7 +28,6 @@ import {
   liveDoors,
   visibleDoorChips,
 } from './doors';
-import { DoorFooter, DoorPanel } from './DoorPanel';
 import { mountDoorLayer, trackDoorIds } from './DoorRenderer';
 import { useDoorSelection } from './selection';
 
@@ -91,22 +90,11 @@ function captureCommands(): Sent[] {
   return sent;
 }
 
-/** `[data-door-id]` chips inside `door-list`, in the order the popover draws them. */
-const chipIds = (): string[] =>
-  Array.from(screen.getByTestId('door-list').querySelectorAll('[data-door-id]')).map(
-    (el) => el.getAttribute('data-door-id')!,
-  );
-
 /** The overlay's glyph container — one sprite per door the seat may work. */
 const marksOf = (overlay: Container): Container =>
   (overlay.children.find((c) => String(c.label) === 'doorOverlay') as Container).children.find(
     (c) => String(c.label) === 'doorMarks',
   ) as Container;
-
-const chipButton = (id: string): HTMLButtonElement =>
-  screen
-    .getByTestId('door-list')
-    .querySelector(`[data-door-id="${id}"] button`) as HTMLButtonElement;
 
 beforeEach(() => {
   cleanup();
@@ -583,233 +571,6 @@ describe('grouping, filtering and the popover ceiling (M3 §Doors)', () => {
   });
 });
 
-describe('DoorPanel', () => {
-  it('lists the scene’s doors grouped, and selects one on click, without touching its state', () => {
-    useSessionStore.setState({ session: session(), you: player });
-    const sent = captureCommands();
-    render(<DoorPanel />);
-
-    expect(chipIds().sort()).toEqual(['d1', 'd2', 'd3']);
-    expect(screen.getByText('Closed · 2')).not.toBeNull();
-    expect(screen.getByText('Secret · 1')).not.toBeNull();
-    expect(screen.queryByText(/^Open ·/)).toBeNull();
-
-    const row = screen.getByTestId('door-list').querySelector('[data-door-id="d2"]')!;
-    expect(row.getAttribute('data-locked')).toBe('true');
-    const secretRow = screen.getByTestId('door-list').querySelector('[data-door-id="d3"]')!;
-    expect(secretRow.getAttribute('data-secret')).toBe('true');
-
-    fireEvent.click(chipButton('d1'));
-    expect(sent).toHaveLength(0);
-    expect(useDoorSelection.getState().selectedId).toBe('d1');
-  });
-
-  it('brings the picked door into view, on this client only', () => {
-    useSessionStore.setState({ session: session(), you: player });
-    const sent = captureCommands();
-    render(<DoorPanel />);
-
-    const btn = chipButton('d2');
-    // A real <button>, so Enter and Space reach the same handler the pointer does — the
-    // keyboard route to a door needs no separate key handling.
-    expect(btn.tagName).toBe('BUTTON');
-    fireEvent.click(btn);
-
-    expect(framed.mock.calls).toEqual([[10, 4]]);
-    // Framing is local: nothing about it goes on the wire, so no other seat moves.
-    expect(sent).toHaveLength(0);
-  });
-
-  it('hides an empty group instead of drawing "Open · 0"', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorPanel />);
-    expect(screen.queryByText(/Open ·/)).toBeNull();
-  });
-
-  it('says there are no doors, and nothing else, when the scene has none', () => {
-    useStore.setState({ layers: [dungeonLayer([])] });
-    useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
-    expect(screen.getByText('No doors on this scene.')).not.toBeNull();
-    expect(screen.queryByTestId('door-list')).toBeNull();
-  });
-});
-
-describe('DoorPanel — the no-scroll ceiling', () => {
-  const plainDoors = (n: number) =>
-    Array.from({ length: n }, (_, i) => door({ id: `d${i}`, name: `Door ${i}`, position: [i, 0] }));
-
-  it('9 doors: no filter field, every chip on screen', () => {
-    useStore.setState({ layers: [dungeonLayer(plainDoors(9))] });
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorPanel />);
-    expect(screen.queryByTestId('door-filter')).toBeNull();
-    expect(chipIds()).toHaveLength(9);
-    expect(screen.queryByText(/more$/)).toBeNull();
-  });
-
-  it('24 doors: still fits, still no filter field', () => {
-    useStore.setState({ layers: [dungeonLayer(plainDoors(24))] });
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorPanel />);
-    expect(screen.queryByTestId('door-filter')).toBeNull();
-    expect(chipIds()).toHaveLength(24);
-    expect(screen.queryByText(/more$/)).toBeNull();
-  });
-
-  it('40 doors: filter field appears, chips cap at 24, the rest count themselves', () => {
-    useStore.setState({ layers: [dungeonLayer(plainDoors(40))] });
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorPanel />);
-    expect(screen.getByTestId('door-filter')).not.toBeNull();
-    expect(chipIds()).toHaveLength(DOOR_CHIP_CEILING);
-    expect(screen.getByText('+16 more')).not.toBeNull();
-  });
-
-  it('40 doors: typing in the filter narrows the chips and the overflow count with them', () => {
-    const mixed = Array.from({ length: 40 }, (_, i) =>
-      door({ id: `d${i}`, name: i < 30 ? `Vault ${i}` : `Chamber ${i}`, position: [i, 0] }),
-    );
-    useStore.setState({ layers: [dungeonLayer(mixed)] });
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorPanel />);
-
-    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'Chamber' } });
-    expect(chipIds()).toHaveLength(10);
-    expect(screen.queryByText(/more$/)).toBeNull();
-
-    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'Vault' } });
-    expect(chipIds()).toHaveLength(DOOR_CHIP_CEILING);
-    expect(screen.getByText('+6 more')).not.toBeNull();
-
-    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'nothing here' } });
-    expect(chipIds()).toHaveLength(0);
-    expect(screen.getByText('No doors match “nothing here”.')).not.toBeNull();
-  });
-});
-
-describe('DoorFooter', () => {
-  it('says to pick a door when nothing is selected', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<DoorFooter />);
-    expect(screen.getByText('Select a door, or click one on the map.')).not.toBeNull();
-    expect(screen.queryByTestId('door-actions')).toBeNull();
-
-    // A player has no map click to be pointed at — the panel is their only route to a door.
-    cleanup();
-    useSessionStore.setState({ you: player });
-    render(<DoorFooter />);
-    expect(screen.getByText('Select a door to frame it.')).not.toBeNull();
-  });
-
-  it('names the selected door and its state, secret or not', () => {
-    const revealed: DoorsState = {
-      byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },
-    };
-    useSessionStore.setState({ session: session({ doors: revealed }), you: dm });
-    useDoorSelection.getState().select('d3');
-    render(<DoorFooter />);
-    expect(screen.getByText('Hidden Door')).not.toBeNull();
-    expect(screen.getByText('· Closed')).not.toBeNull();
-  });
-
-  it('toggles the selected door only via the explicit control', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    useDoorSelection.getState().select('d1');
-    const sent = captureCommands();
-    render(<DoorFooter />);
-
-    fireEvent.click(screen.getByTestId('door-toggle'));
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
-  });
-
-  it('offers toggle, lock and reveal-secret to the DM only, and frame to anyone', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    useDoorSelection.getState().select('d3');
-    render(<DoorFooter />);
-    expect(screen.getByTestId('door-toggle')).not.toBeNull();
-    expect(screen.getByTestId('door-lock').textContent).toBe('Lock');
-    expect(screen.getByTestId('door-reveal-secret')).not.toBeNull();
-    expect(screen.getByTestId('door-frame')).not.toBeNull();
-
-    cleanup();
-    useSessionStore.setState({ you: player });
-    render(<DoorFooter />);
-    expect(screen.getByTestId('door-frame')).not.toBeNull();
-    expect(screen.queryByTestId('door-toggle')).toBeNull();
-    expect(screen.queryByTestId('door-lock')).toBeNull();
-    expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
-  });
-
-  it('unlocks what is locked, and reveals a secret once', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    useDoorSelection.getState().select('d2');
-    const sent = captureCommands();
-    render(<DoorFooter />);
-
-    expect(screen.getByTestId('door-lock').textContent).toBe('Unlock');
-    fireEvent.click(screen.getByTestId('door-lock'));
-    expect(sent[0]).toMatchObject({ action: 'unlock', payload: { id: 'd2' } });
-    // A plain door has no secret to reveal.
-    expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
-  });
-
-  /**
-   * The gate walk's finding: Open on a locked door did nothing a DM could see. The command
-   * is refused server-side whatever the seat, so the button says the state instead of
-   * spending a round trip to be told — Unlock is the next move and sits right beside it.
-   */
-  it('says Locked on the toggle of a locked door, and will not send it', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    useDoorSelection.getState().select('d2');
-    const sent = captureCommands();
-    render(<DoorFooter />);
-
-    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
-    expect(toggle.textContent).toBe('Locked');
-    expect(toggle.disabled).toBe(true);
-    fireEvent.click(toggle);
-    expect(sent.filter((s) => s.action === 'toggle')).toEqual([]);
-  });
-
-  /**
-   * A player used to keep a live Open button — rattling a locked door was the discovery. The
-   * server refuses every player toggle now (D2), so a button that can only be refused is a
-   * worse answer than no button: they ask the DM, and the answer is the door swinging.
-   */
-  it('gives a player no toggle to be refused for', () => {
-    useSessionStore.setState({ session: session(), you: player });
-    useDoorSelection.getState().select('d2');
-    render(<DoorFooter />);
-
-    expect(screen.queryByTestId('door-toggle')).toBeNull();
-    expect(screen.getByTestId('door-frame')).not.toBeNull();
-  });
-
-  it('disables reveal-secret once the secret is out', () => {
-    const state: DoorsState = {
-      byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },
-    };
-    useSessionStore.setState({ session: session({ doors: state }), you: dm });
-    useDoorSelection.getState().select('d3');
-    render(<DoorFooter />);
-    const button = screen.getByTestId('door-reveal-secret') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.textContent).toBe('Secret revealed');
-  });
-
-  it('frames the door on this client only, and never sends anything', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    useDoorSelection.getState().select('d3');
-    const sent = captureCommands();
-    render(<DoorFooter />);
-    fireEvent.click(screen.getByTestId('door-frame'));
-    expect(framed.mock.calls).toEqual([[16, 4]]);
-    expect(sent).toHaveLength(0);
-  });
-});
-
 describe('the reveal beat — which doors are new enough to fade in', () => {
   it('fades nothing on a first paint: a fresh mount is not a reveal', () => {
     expect(trackDoorIds(null, ['d1', 'd2'])).toEqual({
@@ -921,7 +682,6 @@ describe('a refused door', () => {
 
   it('stays quiet for refusals that are not a door’s', () => {
     useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
     act(() =>
       useSessionStore.setState({
         lastError: { code: 'invalid-command', message: 'tokens: no such token', at: 2 },

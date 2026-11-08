@@ -8,10 +8,9 @@
 // host, which is what GameTable gives every seat.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '@dnd/mechanics/doors';
 import { MOVE_BLOCKED, OUTSIDE_MAP, ROOM_UNEXPLORED } from '@dnd/mechanics/tokens';
-import { ToastHost } from '../components/Toast';
 import { useToasts } from './toasts';
 import { useSessionStore } from './store';
 import { refusalToast, useRefusalToasts } from './useRefusalToasts';
@@ -56,12 +55,9 @@ function Ear() {
 describe('the cue a player actually sees', () => {
   it('toasts a refused move with no panel open at all', () => {
     render(
-      <>
-        <Ear />
-        <ToastHost />
-      </>,
+      <Ear />,
     );
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(useToasts.getState().toast).toBeNull();
 
     act(() => {
       useSessionStore.setState({
@@ -69,15 +65,12 @@ describe('the cue a player actually sees', () => {
       });
     });
 
-    expect(screen.getByText('You have not been that way yet.')).toBeTruthy();
+    expect(useToasts.getState().toast?.message).toBe('You have not been that way yet.');
   });
 
   it('leaves the table alone for a refusal with no words for the player', () => {
     render(
-      <>
-        <Ear />
-        <ToastHost />
-      </>,
+      <Ear />,
     );
     act(() => {
       useSessionStore.setState({
