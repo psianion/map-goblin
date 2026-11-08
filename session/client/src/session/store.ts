@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { notify } from '@dnd/ui/toast';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type {
   Mark,
@@ -155,6 +156,19 @@ const modeOf = (state: unknown, sceneId: string): FogMode => {
   return scene ? fogModeOf(scene) : 'rooms';
 };
 
+/**
+ * 4.3 Republish notice: the live scene stayed the same and its map changed under it, so the
+ * canvas published over it. Said once per (scene, map), whichever message carries it first.
+ */
+let announcedMap: string | null = null;
+function announceRepublish(prev: SessionState | null, sceneId: string, mapId: string): void {
+  if (!prev || prev.activeSceneId !== sceneId) return;
+  const before = prev.scenes.find((s) => s.id === sceneId)?.mapId;
+  if (!before || before === mapId || announcedMap === `${sceneId}:${mapId}`) return;
+  announcedMap = `${sceneId}:${mapId}`;
+  notify.info('Map updated from the canvas');
+}
+
 /** The scenes whose fog mode differs between the state this seat held and the one just sent. */
 function fogModeFlips(prev: unknown, next: unknown): string[] {
   const scenes = (next as FogState | undefined)?.byScene;
@@ -228,10 +242,13 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     applyingRemote = true;
     try {
       switch (msg.type) {
-        case 'session-state':
+        case 'session-state': {
           // §2.5: the snapshot replaces client state wholesale. No deltas, ever.
+          const live = msg.state.scenes.find((s) => s.id === msg.state.activeSceneId);
+          if (live) announceRepublish(get().session, live.id, live.mapId);
           set({ session: msg.state, you: msg.you });
           break;
+        }
 
         case 'state-update': {
           const session = get().session;
@@ -300,6 +317,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // The held document stays: GameRenderer sees active ≠ loaded and swaps to the new
           // scene's document without ever rendering nothing (F1). `mapId` keeps the scene
           // list honest when the change is a republish of the scene being played.
+          announceRepublish(session, msg.sceneId, msg.mapId);
           const scenes = session.scenes.map((s) =>
             s.id === msg.sceneId ? { ...s, mapId: msg.mapId } : s,
           );

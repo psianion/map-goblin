@@ -29,6 +29,14 @@ import { mountMarkInputWhenReady } from '../shell/marks/markInput';
 import { TableRail } from '../shell/rail/Rail';
 import { SheetHost } from '../shell/sheets/SheetHost';
 import { TopRight } from '../shell/top/TopRight';
+import { TitleCard } from '../shell/top/TitleCard';
+import { InviteCard } from '../shell/top/InviteCard';
+import { CombatBar } from '../shell/combat/CombatBar';
+import { TabColumn } from '../shell/sheets/TabColumn';
+import { ConnectionNotice } from '../shell/Connection';
+import { DiagnosticsChip } from '../shell/DiagnosticsChip';
+import { TableToaster } from '../shell/TableToaster';
+import { ZoomPill } from '../shell/ZoomPill';
 import { useOverlayMode, useShell } from '../shell/shellStore';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
@@ -109,15 +117,11 @@ export default function GameTable() {
           <MarksLayer />
         </div>
 
-        <ReconnectingBanner />
-        {role === 'player' && (
-          <>
-            <TurnPill />
-            <RollBar />
-          </>
-        )}
+        {role === 'player' && <RollBar />}
         {LEGACY && (
           <>
+            <ReconnectingBanner />
+            {role === 'player' && <TurnPill />}
             {role === 'dm' && <PartyStrip />}
             <Ticker />
             <LogDrawer />
@@ -134,13 +138,20 @@ export default function GameTable() {
         <LightPopover />
         {!LEGACY && (
           <>
+            <TitleCard />
             <TableRail />
             <TopRight />
-            {role === 'dm' && <Dock />}
+            <CombatBar />
+            <TabColumn />
+            {role === 'dm' ? <Dock /> : <ZoomPill />}
             <SheetHost />
+            <InviteCard />
+            <DiagnosticsChip />
+            <ConnectionNotice />
+            <TableToaster />
           </>
         )}
-        <ToastHost />
+        {LEGACY && <ToastHost />}
         <TriggerPrompts />
         <InitiativePrompt />
         <SheetLinkPrompt />

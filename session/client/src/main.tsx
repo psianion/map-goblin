@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { useSessionStore } from './session/store'
 import { installTestProbe } from './testProbe'
+import { initUiScale } from './shell/uiScale'
 
 // One of the two e2e handles onto what a tab actually holds — the map store (`__STORE__`,
 // exposed by @dnd/core the same way) is the other. Unguarded, because the §2.6 memory-dump
@@ -17,6 +18,7 @@ installTestProbe()
 
 // Before the first render, so neither theme flashes on load.
 initTheme()
+initUiScale()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
