@@ -36,7 +36,9 @@ Audit findings: the Image start never read the image, scaled it by a 70 px guess
 | 4a7924d | Battlemap layer sheet (Image section: file, Line up grid, Replace, Convert to trace); image card gets Line up grid and Use as; re-line-up snaps to the nearest grid corner; child lock when the layer holds other things; ImageLayer.placement in 3.9 |
 | 6b773ae | VTT and Foundry starts pin to the nearest whole cell and fix the downscale drift |
 
-Open after the wave: Ctrl+I, drop and paste still scale a picture to 5 cells as a prop (Use as Battlemap on its card is the route); multi-selections, floors and walls keep the delta snap; the grid over pictures draws whole cells only; VTT battlemaps carry no imageSource; the Battlemap sheet and the line-up bar had no mockup frame and await the user's visual review. Spec written and not run: battlemap-image (6 tests).
+Open after the wave: Ctrl+I, drop and paste still scale a picture to 5 cells as a prop (Use as Battlemap on its card is the route); multi-selections, floors and walls keep the delta snap; VTT battlemaps carry no imageSource; the Battlemap sheet and the line-up bar had no mockup frame and await the user's visual review. Spec written and not run: battlemap-image (6 tests).
+
+Second review (8 November), one commit 1e72f46: the lattice box drifted because any mouse button started a drag that never checked for a held button; the grid over pictures read the Battlemap layer's wall colour while the swatch edited the active layer, and no grid read the snap step; the lattice floated with its own cell size so W and H never changed the map. Now the map frame is the W by H cells of the canvas grid, written live; the picture is scaled so one printed cell is one canvas cell and nudged by left-drag, arrows and a px-per-cell stepper; the floating box is gone; one camera animation path; the Grid lines swatch colours the active layer and every picture layer on the level; both grids draw one-pixel lines with half-strength lines at the snap step while Snap is on (the table keeps whole cells).
 
 ## Testing plan (end of phase two, awaiting the user's approval)
 
