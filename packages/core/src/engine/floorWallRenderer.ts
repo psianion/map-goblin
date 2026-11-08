@@ -20,6 +20,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { getEditorDesk } from './editorDesk';
+import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
@@ -449,28 +450,17 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     else byColor.set(color, [poly]);
   });
 
+  // Whole cells, and in the editor the snap step between them (the table shows whole cells).
+  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, getEditorDesk() ? gridDivision(useStore.getState().grid) : 1);
+
   for (const [color, rings] of byColor) {
     // Mask to clip grid lines within floor shape
     const maskG = new Graphics();
     fillPolygonsWithHoles(maskG, rings, { color: 0xffffff });
 
-    // Grid lines
-    const gridG = new Graphics();
-    gridG.setStrokeStyle({ color: Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, width: 0.02, alpha: 0.25 });
-
-    for (let x = gridMinX; x <= gridMaxX; x++) {
-      gridG.moveTo(x, gridMinY);
-      gridG.lineTo(x, gridMaxY);
-    }
-    for (let y = gridMinY; y <= gridMaxY; y++) {
-      gridG.moveTo(gridMinX, y);
-      gridG.lineTo(gridMaxX, y);
-    }
-    gridG.stroke();
-
     const gridContainer = new Container();
     gridContainer.addChild(maskG);
-    gridContainer.addChild(gridG);
+    gridContainer.addChild(...gridStrokes(Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, lines));
     gridContainer.mask = maskG;
     gridSub.addChild(gridContainer);
   }

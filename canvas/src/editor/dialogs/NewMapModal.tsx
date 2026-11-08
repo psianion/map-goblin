@@ -758,12 +758,13 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
 /**
  * Where the line-up starts: the squares the dialog settled on, and the printed grid when
  * the detector is sure of it. A size typed over the filled one seeds the detector again,
- * so its lines are searched near what the DM said.
+ * so its lines are searched near what the DM said, and that answer is the one kept: the
+ * grid found for the old size (or the name) never seeds a size the DM retyped.
  */
 function lineUpSeed(info: ImageInfo | null, wanted: { width: number; height: number } | null, sample: GridSample | null) {
   if (!info) return { cells: wanted };
   const cells = wanted ?? info.cells;
   const retyped = cells.width !== info.cells.width || cells.height !== info.cells.height;
-  const grid = retyped && sample ? detectGrid(sample, { seed: cells, source: info.px }) : info.grid;
+  const grid = retyped ? (sample ? detectGrid(sample, { seed: cells, source: info.px }) : null) : info.grid;
   return { cells, sourcePx: info.px, grid: grid && grid.confidence >= MIN_DETECT_CONFIDENCE ? grid : null };
 }

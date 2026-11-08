@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BackgroundLayer, DungeonLayer, ImageLayer } from '@/store/types';
-import { checkRename, sheetSections, showRows } from './layerSheetModel';
+import { checkRename, gridColourLayerIds, sheetSections, showRows } from './layerSheetModel';
 
 const dungeon = (over: Partial<DungeonLayer> = {}): DungeonLayer =>
   ({
@@ -54,5 +54,25 @@ describe('checkRename', () => {
   it('refuses blank and ignores the same name', () => {
     expect(checkRename('   ', 'Hall')).toEqual({ kind: 'empty' });
     expect(checkRename('Hall ', 'Hall')).toEqual({ kind: 'unchanged' });
+  });
+});
+
+describe('gridColourLayerIds', () => {
+  const pic = { id: 'img', childType: 'asset', objectType: 'image', visible: true } as unknown as DungeonLayer['children'][number];
+  const prop = { id: 'p', childType: 'asset', objectType: 'asset', visible: true } as unknown as DungeonLayer['children'][number];
+  const tracing = dungeon({ id: 'trace', levelId: 'l1' });
+  const battlemap = dungeon({ id: 'bm', name: 'Battlemap', levelId: 'l1', children: [pic] });
+  const props = dungeon({ id: 'props', levelId: 'l1', children: [prop] });
+  const below = dungeon({ id: 'below', levelId: 'l2', children: [pic] });
+  const layers = [battlemap, tracing, props, below, background];
+
+  it('is the active layer, then the picture layers on its level, so the grid over a battlemap follows the swatch', () => {
+    expect(gridColourLayerIds(layers, tracing)).toEqual(['trace', 'bm']);
+    expect(gridColourLayerIds(layers, battlemap)).toEqual(['bm']);
+  });
+
+  it('is nothing without an active dungeon layer', () => {
+    expect(gridColourLayerIds(layers, null)).toEqual([]);
+    expect(gridColourLayerIds(layers, background)).toEqual([]);
   });
 });

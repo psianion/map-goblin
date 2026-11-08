@@ -1,264 +1,192 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { Assets, type Texture } from 'pixi.js';
+import { useEffect, useSyncExternalStore } from 'react';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
-import type { AssetChild, DungeonLayer } from '@/store/types';
+import { canvasKeysAllowed } from '@/shortcuts/keyGuard';
 import { FloatBox, PrimaryButton, SecondaryButton, Stepper } from '@/editor/components';
 import { MAX_FIXED_CELLS } from '@dnd/core/src/store/slices/mapSettings';
 import {
-  MIN_CELL_WORLD,
   applyGridCalibration,
-  assetFootprint,
-  calibrationTransform,
   endGridCalibration,
   getGridCalibration,
-  pxPerCell,
+  lineUpBox,
+  nudgeCalibration,
+  pxPerCellRange,
   setCalibrationCells,
-  setCalibrationLattice,
+  setCalibrationOffset,
+  setCalibrationPxPerCell,
   subscribeGridCalibration,
-  type Lattice,
 } from '@/canvas/gridCalibration';
 
-/** Arrow-key nudge, as a share of a cell. Shift moves a whole cell. */
-const NUDGE = 1 / 20;
-/** Plus and minus grow and shrink the cell by this share; Shift by ten times it. */
-const GROW = 0.005;
+/** Arrow-key nudge, as a share of a cell; Shift nudges by the larger one. */
+const NUDGE = 0.05;
+const NUDGE_SHIFT = 0.25;
+/** The px per cell stepper's step. */
+const PX_STEP = 0.5;
 
-type DragMode = 'move' | 'tl' | 'br';
+const ARROWS: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
-function worldAt(clientX: number, clientY: number): { x: number; y: number } | null {
-  return getEngineSingleton()?.engine.screenToWorld(clientX, clientY) ?? null;
-}
-
-/** The texture's own pixel width, when the picture carries no source size. 0 when not resolved yet. */
-function texturePxWidth(assetId: string): number {
-  try {
-    return Assets.get<Texture>(assetId)?.width ?? 0;
-  } catch {
-    return 0;
-  }
+/** The next step of `PX_STEP` from `from` in the direction the stepper moved to `to`. */
+function halfStep(from: number, to: number): number {
+  return to > from ? Math.ceil((from + 1e-6) / PX_STEP) * PX_STEP : Math.floor((from - 1e-6) / PX_STEP) * PX_STEP;
 }
 
 const Sep = () => <span aria-hidden className="h-[22px] w-px bg-line" />;
 
 /**
- * The grid line-up: a lattice of W by H square cells over the battlemap, its corner and
- * size dragged or nudged until it sits on the picture's own lines, and a bar with W and H,
- * the px per cell, Skip and Use this grid.
+ * The grid line-up: the map frame is W by H cells of the canvas grid, and the picture under
+ * it is dragged (left button, anywhere on it) or nudged with the arrow keys until its printed
+ * lines sit on the canvas grid. The bar holds W and H, the px per cell, Skip and Use this grid.
  *
- * Chrome, not canvas overlay: it wants DOM focus semantics and the theme ink. The container
- * is pointer-transparent so pan and zoom still work underneath while the mode is up.
+ * There is no box of its own over the canvas: a left press on the picture is taken at the
+ * window before the tools see it, and every other press (a middle-button pan, a right-click
+ * menu, a click off the picture, anything with the Pan tool) goes through untouched.
  */
 export function GridCalibrationOverlay() {
   const session = useSyncExternalStore(subscribeGridCalibration, getGridCalibration, getGridCalibration);
   const active = session !== null;
-  const boxRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ mode: DragMode; start: { x: number; y: number }; lattice: Lattice } | null>(null);
-
-  const child = useStore((s) => {
-    if (!session) return null;
-    const layer = s.layers.find((l): l is DungeonLayer => l.type === 'dungeon' && l.id === session.layerId);
-    const found = layer?.children.find((c) => c.id === session.childId);
-    return found?.childType === 'asset' ? (found as AssetChild) : null;
+  const hasChild = useStore((s) => {
+    if (!session) return false;
+    const layer = s.layers.find((l) => l.type === 'dungeon' && l.id === session.layerId);
+    return layer?.type === 'dungeon' && layer.children.some((c) => c.id === session.childId && c.childType === 'asset');
   });
 
   // Escape leaves the mode, ahead of the canvas's own document-level handler so one press
-  // does not also cancel a tool. Standing rule: Escape exits.
+  // does not also cancel a tool (standing rule: Escape exits). The arrows nudge the picture
+  // wherever the canvas keys would be heard, and not in the canvas's own nudge as well.
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        endGridCalibration();
+        return;
+      }
+      const dir = ARROWS[e.key];
+      if (!dir || e.ctrlKey || e.metaKey || e.altKey || !canvasKeysAllowed(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      endGridCalibration();
+      const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
+      nudgeCalibration(dir[0] * step, dir[1] * step);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [active]);
 
-  // The camera moves without a store update, so the lattice's screen rect is recomputed
-  // every frame from world coordinates rather than held in state.
+  // Drag the picture: a left press on it, followed until the button lifts, the pointer is
+  // cancelled or its capture is lost. Move events check the button too, so a release the
+  // window never heard (a context menu swallowing it) cannot leave the picture on the pointer.
   useEffect(() => {
     if (!active) return;
-    let raf = 0;
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      const el = boxRef.current;
-      const s = getGridCalibration();
-      const engine = getEngineSingleton()?.engine;
-      if (!el || !s || !engine) return;
-      const { x, y, cell, cols, rows } = s.lattice;
-      const tl = engine.worldToScreen(x, y);
-      const br = engine.worldToScreen(x + cols * cell, y + rows * cell);
-      const w = Math.max(1, br.x - tl.x);
-      const h = Math.max(1, br.y - tl.y);
-      el.style.transform = `translate(${tl.x}px, ${tl.y}px)`;
-      el.style.width = `${w}px`;
-      el.style.height = `${h}px`;
-      // Every cell's lines, so the fit against the picture's own lines is plain to see.
-      const step = w / cols;
-      const line = 'color-mix(in srgb, var(--ink) 60%, transparent)';
-      el.style.backgroundImage =
-        step >= 3
-          ? `repeating-linear-gradient(to right, ${line} 0 1px, transparent 1px ${step}px),` +
-            `repeating-linear-gradient(to bottom, ${line} 0 1px, transparent 1px ${h / rows}px)`
-          : 'none';
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [active]);
-
-  const onPointerDown = useCallback(
-    (mode: DragMode) => (e: React.PointerEvent) => {
-      const s = getGridCalibration();
-      const start = worldAt(e.clientX, e.clientY);
-      if (!s || !start) return;
-      e.preventDefault();
-      e.stopPropagation();
-      dragRef.current = { mode, start, lattice: s.lattice };
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [],
-  );
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const w = worldAt(e.clientX, e.clientY);
-    if (!w) return;
-    const l = d.lattice;
-    if (d.mode === 'move') {
-      setCalibrationLattice({ x: l.x + (w.x - d.start.x), y: l.y + (w.y - d.start.y), cell: l.cell });
-      return;
-    }
-    // A corner sizes the cell, kept square: the mean of what the two axes ask for.
-    if (d.mode === 'br') {
-      const cell = Math.max(MIN_CELL_WORLD, ((w.x - l.x) / l.cols + (w.y - l.y) / l.rows) / 2);
-      setCalibrationLattice({ x: l.x, y: l.y, cell });
-      return;
-    }
-    const brX = l.x + l.cols * l.cell;
-    const brY = l.y + l.rows * l.cell;
-    const cell = Math.max(MIN_CELL_WORLD, ((brX - w.x) / l.cols + (brY - w.y) / l.rows) / 2);
-    setCalibrationLattice({ x: brX - l.cols * cell, y: brY - l.rows * cell, cell });
-  }, []);
-
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-  }, []);
-
-  // Zoom is bound to the canvas element, and the lattice sits on top of it: without this
-  // you cannot scroll-zoom onto the very lines you are checking.
-  const onWheel = useCallback((e: React.WheelEvent) => {
     const canvas = getEngineSingleton()?.engine.canvas();
     if (!canvas) return;
-    canvas.dispatchEvent(
-      new WheelEvent('wheel', {
-        deltaX: e.deltaX,
-        deltaY: e.deltaY,
-        deltaMode: e.deltaMode,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        ctrlKey: e.ctrlKey,
-        cancelable: true,
-      }),
-    );
-  }, []);
-
-  const onBoxKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const s = getGridCalibration();
-    if (!s) return;
-    const l = s.lattice;
-    const step = e.shiftKey ? l.cell : l.cell * NUDGE;
-    const grow = 1 + (e.shiftKey ? 10 * GROW : GROW);
-    const moves: Record<string, Pick<Lattice, 'x' | 'y' | 'cell'>> = {
-      ArrowLeft: { x: l.x - step, y: l.y, cell: l.cell },
-      ArrowRight: { x: l.x + step, y: l.y, cell: l.cell },
-      ArrowUp: { x: l.x, y: l.y - step, cell: l.cell },
-      ArrowDown: { x: l.x, y: l.y + step, cell: l.cell },
-      '+': { x: l.x, y: l.y, cell: l.cell * grow },
-      '=': { x: l.x, y: l.y, cell: l.cell * grow },
-      '-': { x: l.x, y: l.y, cell: l.cell / grow },
+    let drag: { pointerId: number; start: { x: number; y: number }; offset: { x: number; y: number } } | null = null;
+    const worldAt = (e: PointerEvent) => getEngineSingleton()?.engine.screenToWorld(e.clientX, e.clientY) ?? null;
+    const stop = (e: Event) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
     };
-    const next = moves[e.key];
-    if (!next) return;
-    e.preventDefault();
-    setCalibrationLattice(next);
-  }, []);
+    const release = () => {
+      if (!drag) return;
+      const id = drag.pointerId;
+      drag = null;
+      if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture(id);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.target !== canvas || e.button !== 0 || drag) return;
+      if (useStore.getState().tools.activeTool === 'pan') return;
+      const s = getGridCalibration();
+      const box = s ? lineUpBox(s) : null;
+      const w = worldAt(e);
+      if (!s || !box || !w) return;
+      if (w.x < box.left || w.x > box.left + box.width || w.y < box.top || w.y > box.top + box.height) return;
+      stop(e);
+      drag = { pointerId: e.pointerId, start: w, offset: { x: s.offsetX, y: s.offsetY } };
+      canvas.setPointerCapture?.(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      stop(e);
+      if ((e.buttons & 1) === 0) {
+        release();
+        return;
+      }
+      const w = worldAt(e);
+      if (w) setCalibrationOffset(drag.offset.x + (w.x - drag.start.x), drag.offset.y + (w.y - drag.start.y));
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      stop(e);
+      release();
+    };
+    const onLost = (e: PointerEvent) => {
+      if (drag && e.pointerId === drag.pointerId) drag = null;
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+    canvas.addEventListener('lostpointercapture', onLost);
+    return () => {
+      release();
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onUp, true);
+      canvas.removeEventListener('lostpointercapture', onLost);
+    };
+  }, [active]);
 
-  if (!session || !child) return null;
+  if (!session || !hasChild) return null;
 
-  const { lattice } = session;
-  const foot = assetFootprint(child);
-  const perCell = pxPerCell(lattice, foot.width, session.sourcePx?.width ?? texturePxWidth(child.assetId));
-  const canApply = calibrationTransform(child, lattice) !== null;
+  const range = pxPerCellRange(session.sourcePx);
 
   const apply = () => {
     if (applyGridCalibration()) {
       notify.success('Grid lined up · the picture’s layer is locked, so trace on the layer above');
     } else {
-      notify.warning('That grid is too small to line up from · size it over the picture’s own squares');
+      notify.warning('That picture has no size to line up');
     }
   };
 
+  // Above the dock (12 from the edge, 112 tall), centred; LINE_UP_BAR_CLEARANCE keeps the
+  // framing clear of it.
   return (
-    <div className="pointer-events-none fixed inset-0 z-40">
-      <div
-        ref={boxRef}
-        tabIndex={0}
-        role="group"
-        aria-label="Grid lattice · drag to move, arrow keys to nudge, plus and minus to resize"
-        data-testid="grid-lineup-lattice"
-        onPointerDown={onPointerDown('move')}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onWheel={onWheel}
-        onKeyDown={onBoxKeyDown}
-        className="pointer-events-auto absolute left-0 top-0 cursor-move border-2 border-ink outline-none focus-visible:ring-3 focus-visible:ring-focus"
-      >
-        <span
-          onPointerDown={onPointerDown('tl')}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          className="absolute -left-1.5 -top-1.5 size-3 cursor-nwse-resize rounded-sm border border-bg bg-ink"
-        />
-        <span
-          onPointerDown={onPointerDown('br')}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize rounded-sm border border-bg bg-ink"
-        />
-      </div>
-
-      {/* Above the dock (12 from the edge, 112 tall), centred. */}
-      <FloatBox
-        role="group"
-        aria-label="Line up the grid"
-        data-testid="grid-lineup-bar"
-        className="pointer-events-auto absolute bottom-[136px] left-1/2 flex -translate-x-1/2 items-center gap-2 py-1.5 text-[12px]"
-      >
-        <span className="pl-1 text-text">Line up the grid</span>
-        <Sep />
-        <Stepper label="Squares across" value={lattice.cols} min={1} max={MAX_FIXED_CELLS} onValueChange={(v) => setCalibrationCells(v, lattice.rows)} />
-        <span className="text-text-3">×</span>
-        <Stepper label="Squares down" value={lattice.rows} min={1} max={MAX_FIXED_CELLS} onValueChange={(v) => setCalibrationCells(lattice.cols, v)} />
-        <span className="text-text-2">cells</span>
-        <Sep />
-        <span className="font-mono text-[11px] tabular-nums text-text-2" aria-live="polite" data-testid="grid-lineup-px">
-          {perCell === null ? '- px per cell' : `${Math.round(perCell)} px per cell`}
-        </span>
-        <Sep />
-        <SecondaryButton onClick={endGridCalibration}>Skip</SecondaryButton>
-        <PrimaryButton disabled={!canApply} onClick={apply}>
-          Use this grid
-        </PrimaryButton>
-      </FloatBox>
-    </div>
+    <FloatBox
+      role="group"
+      aria-label="Line up the grid"
+      data-testid="grid-lineup-bar"
+      className="fixed bottom-[136px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 py-1.5 text-[12px]"
+    >
+      <span className="pl-1 text-text">Line up the grid</span>
+      <Sep />
+      <Stepper label="Squares across" value={session.cols} min={1} max={MAX_FIXED_CELLS} onValueChange={(v) => setCalibrationCells(v, session.rows)} />
+      <span className="text-text-3">×</span>
+      <Stepper label="Squares down" value={session.rows} min={1} max={MAX_FIXED_CELLS} onValueChange={(v) => setCalibrationCells(session.cols, v)} />
+      <span className="text-text-2">cells</span>
+      <Sep />
+      <Stepper
+        label="Pixels per cell"
+        value={session.pxPerCell}
+        min={range.min}
+        max={range.max}
+        step={PX_STEP}
+        format={(v) => String(Math.round(v * 10) / 10)}
+        // Onto the half-pixel steps, so a detected 70.37 steps to 70.5 or 70, not 70.87.
+        onValueChange={(v) => setCalibrationPxPerCell(halfStep(session.pxPerCell, v))}
+      />
+      <span className="text-text-2" data-testid="grid-lineup-px">
+        px per cell
+      </span>
+      <Sep />
+      <SecondaryButton onClick={endGridCalibration}>Skip</SecondaryButton>
+      <PrimaryButton onClick={apply}>Use this grid</PrimaryButton>
+    </FloatBox>
   );
 }

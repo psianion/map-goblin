@@ -73,3 +73,17 @@ export function checkRename(draft: string, current: string): RenameOutcome {
   if (name === current) return { kind: 'unchanged' };
   return { kind: 'commit', name };
 }
+
+/**
+ * The layers the grid popover's Grid lines colour goes to: the active layer, whose floor grid
+ * draws in it, and every layer on the same level holding a picture, whose grid over the
+ * picture draws in its own layer's colour (a battlemap's layer is not the active one once it
+ * is lined up, so without this the swatch would change nothing over the picture). Active
+ * layer first; none when the active layer is not a dungeon layer.
+ */
+export function gridColourLayerIds(layers: readonly Layer[], active: Layer | null): string[] {
+  if (!active || active.type !== 'dungeon') return [];
+  const holdsPicture = (l: Layer) => l.type === 'dungeon' && l.children.some((c) => c.childType === 'asset' && c.objectType === 'image');
+  const others = layers.filter((l) => l.id !== active.id && l.levelId === active.levelId && holdsPicture(l)).map((l) => l.id);
+  return [active.id, ...others];
+}

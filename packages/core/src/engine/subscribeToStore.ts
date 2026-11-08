@@ -11,7 +11,8 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, redrawGrid, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
+import { gridDivision } from './imageGridRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { AnyChild, DungeonLayer, ImageLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
@@ -1090,6 +1091,22 @@ export function subscribeToStore(
     },
   );
   unsubscribers.push(unsubGridVis);
+
+  // ─── Snap step → redraw the floor grid's lines between the cells ─
+  // (The grid over pictures keys on the step itself, in subscribeToAssets.)
+  const unsubGridStep = useStore.subscribe(
+    (state) => (state.grid ? gridDivision(state.grid) : 1),
+    () => {
+      for (const layer of useStore.getState().layers) {
+        if (layer.type !== 'dungeon') continue;
+        const entry = getLayerEntry(layer.id);
+        if (!entry) continue;
+        redrawGrid(layer, entry);
+        markRenderCacheDirty(layer.id);
+      }
+    },
+  );
+  unsubscribers.push(unsubGridStep);
 
   // ─── Style changes → mark render cache dirty + rebuild ─
   const unsubStyle = useStore.subscribe(

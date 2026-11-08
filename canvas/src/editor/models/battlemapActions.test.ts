@@ -133,7 +133,7 @@ describe('Line up grid', () => {
   it('opens the line-up seeded with the squares in the file name', async () => {
     useStore.getState().addChild(base().id, picture());
     expect(await lineUpPicture('img')).toBe(true);
-    expect(getGridCalibration()!.lattice).toMatchObject({ cols: 36, rows: 24 });
+    expect(getGridCalibration()).toMatchObject({ cols: 36, rows: 24 });
     expect(getGridCalibration()!.sourcePx).toEqual({ width: 2520, height: 1680 });
   });
 });

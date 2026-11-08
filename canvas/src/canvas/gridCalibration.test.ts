@@ -14,21 +14,22 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { AssetChild, DungeonLayer } from '@/store/types';
 import {
-  MIN_CELL_WORLD,
   applyGridCalibration,
-  calibrationTransform,
   clampCells,
+  clampPxPerCell,
   endGridCalibration,
   getGridCalibration,
-  latticeFixedSize,
-  lineUpPlan,
+  lineUpBox,
+  lineUpFixedSize,
+  lineUpPlacement,
   mapHoldsOtherContent,
-  pxPerCell,
+  nudgeCalibration,
+  pxPerCellRange,
   setCalibrationCells,
-  setCalibrationLattice,
+  setCalibrationOffset,
+  setCalibrationPxPerCell,
   startGridCalibration,
-  startLattice,
-  type Lattice,
+  startLineUp,
 } from './gridCalibration';
 
 /**
@@ -57,138 +58,73 @@ function image(over: Partial<AssetChild> = {}): AssetChild {
 }
 
 const SOURCE = { width: 2520, height: 1680 };
+/** 105 px squares with their lines 35 px in: a third of a cell. */
+const GRID = { pxPerCell: 105, originX: 35, originY: 35 };
 
-describe('startLattice', () => {
-  it('starts on the detected grid, scaled onto the picture as placed', () => {
-    // The printed squares are 105 px with lines 35 px in: 1.5 cells as placed, 0.5 in.
-    const l = startLattice(image(), { cells: { width: 24, height: 16 }, grid: { pxPerCell: 105, originX: 35, originY: 35 }, sourcePx: SOURCE });
-    expect(l.cell).toBeCloseTo(1.5, 9);
-    expect(l.x).toBeCloseTo(0.5, 9);
-    expect(l.y).toBeCloseTo(0.5, 9);
-    expect([l.cols, l.rows]).toEqual([24, 16]);
+describe('startLineUp', () => {
+  it('takes the detected squares, one printed cell to one canvas cell, the first line on the frame edge', () => {
+    const l = startLineUp(image(), { cells: { width: 24, height: 16 }, grid: GRID, sourcePx: SOURCE });
+    expect(l).toMatchObject({ cols: 24, rows: 16, pxPerCell: 105 });
+    // The picture hangs a third of a cell past the frame's top-left, so its line is on 0.
+    expect(l.offsetX).toBeCloseTo(-1 / 3, 9);
+    expect(l.offsetY).toBeCloseTo(-1 / 3, 9);
   });
 
-  it('reads a line found at the far end of a cell as the picture edge, so the lattice stays on it', () => {
-    const l = startLattice(image(), { cells: { width: 36, height: 24 }, grid: { pxPerCell: 70, originX: 68, originY: 2 }, sourcePx: SOURCE });
-    expect(l.x).toBeCloseTo(-2 / 70, 9);
-    expect(l.y).toBeCloseTo(2 / 70, 9);
+  it('reads a line found at the far end of a cell as the picture edge, keeping the picture on the frame', () => {
+    const l = startLineUp(image(), { cells: { width: 24, height: 16 }, grid: { ...GRID, originX: 100 }, sourcePx: SOURCE });
+    expect(l.offsetX).toBeCloseTo(5 / 105, 9);
   });
 
-  it('without a grid, spreads the squares across the picture from its corner', () => {
-    const l = startLattice(image(), { cells: { width: 30, height: 20 } });
-    expect(l).toEqual({ x: 0, y: 0, cell: 36 / 30, cols: 30, rows: 20 });
+  it('without a grid, spreads the squares across the picture from the origin', () => {
+    expect(startLineUp(image(), { cells: { width: 24, height: 16 }, sourcePx: SOURCE })).toEqual({ cols: 24, rows: 16, pxPerCell: 105, offsetX: 0, offsetY: 0 });
   });
 
-  it('with nothing, starts on the map grid from the first line on the picture', () => {
-    const l = startLattice(image({ position: { x: 17.7, y: 11.6 } }));
-    expect(l.cell).toBe(1);
-    expect(l.x).toBeCloseTo(0, 9);
-    expect(l.y).toBeCloseTo(0, 9);
-    expect([l.cols, l.rows]).toEqual([36, 24]);
+  it('with nothing, keeps the scale the picture is placed at and its whole cells', () => {
+    expect(startLineUp(image(), { sourcePx: SOURCE })).toEqual({ cols: 36, rows: 24, pxPerCell: 70, offsetX: 0, offsetY: 0 });
+  });
+
+  it('over drawn work: puts the first line on the nearest grid line and keeps a pinned size', () => {
+    const moved = image({ position: { x: 2.6 + 18, y: 3.3 + 12 } });
+    const pinned = startLineUp(moved, { grid: GRID, sourcePx: SOURCE }, 'nearest', { width: 40, height: 30 });
+    expect(pinned.offsetX).toBeCloseTo(3 - 1 / 3, 9);
+    expect(pinned.offsetY).toBeCloseTo(4 - 1 / 3, 9);
+    expect(pinned).toMatchObject({ cols: 40, rows: 30 });
+    // Unpinned: the frame starts round the picture.
+    expect(startLineUp(moved, { grid: GRID, sourcePx: SOURCE }, 'nearest', null)).toMatchObject({ cols: 27, rows: 20 });
   });
 });
 
-describe('calibrationTransform', () => {
-  const lattice: Lattice = { x: 0.5, y: 0.25, cell: 1.5, cols: 23, rows: 15 };
-
-  it('makes one lattice cell one map cell and puts the lattice corner on the map origin', () => {
-    const t = calibrationTransform(image(), lattice)!;
-    const k = 1 / 1.5;
-    expect(t.width * 0.5).toBeCloseTo(36 * k, 9);
-    expect(t.height * 0.5).toBeCloseTo(24 * k, 9);
-    const left = t.position.x - (t.width * 0.5) / 2;
-    const top = t.position.y - (t.height * 0.5) / 2;
-    // Every lattice line lands on a whole map cell: the corner on 0, the tenth line on 10.
-    expect((0.5 - 0) * k + left).toBeCloseTo(0, 9);
-    expect((0.25 - 0) * k + top).toBeCloseTo(0, 9);
-    expect((0.5 + 10 * 1.5) * k + left).toBeCloseTo(10, 9);
-  });
-
-  it('leaves the picture corner hanging the fraction of a cell it starts before the lattice', () => {
-    const t = calibrationTransform(image(), lattice)!;
-    expect(t.position.x - (t.width * 0.5) / 2).toBeCloseTo(-0.5 / 1.5, 9);
+describe('lineUpPlacement', () => {
+  it('scales the picture to source / px per cell, keeping its aspect, its corner on the offset', () => {
+    const p = lineUpPlacement(image(), SOURCE, { offsetX: -1 / 3, offsetY: 0.5, pxPerCell: 105 })!;
+    expect(p.width * 0.5).toBeCloseTo(24, 9);
+    expect(p.height * 0.5).toBeCloseTo(16, 9);
+    expect(p.position.x - 12).toBeCloseTo(-1 / 3, 9);
+    expect(p.position.y - 8).toBeCloseTo(0.5, 9);
   });
 
   it('is a no-op for a picture already lined up', () => {
-    const t = calibrationTransform(image(), { x: 0, y: 0, cell: 1, cols: 36, rows: 24 })!;
-    expect(t.position).toEqual({ x: 18, y: 12 });
-    expect(t.width).toBe(72);
+    expect(lineUpPlacement(image(), SOURCE, { offsetX: 0, offsetY: 0, pxPerCell: 70 })).toEqual({ position: { x: 18, y: 12 }, width: 72, height: 48 });
   });
 
-  it('refuses a degenerate lattice, a zero picture, or a result off the scale', () => {
-    expect(calibrationTransform(image(), { ...lattice, cell: 0 })).toBeNull();
-    expect(calibrationTransform(image(), { ...lattice, cell: MIN_CELL_WORLD / 2 })).toBeNull();
-    expect(calibrationTransform(image(), { ...lattice, x: NaN })).toBeNull();
-    expect(calibrationTransform(image({ width: 0 }), lattice)).toBeNull();
-    expect(calibrationTransform(image(), { ...lattice, cell: 100 })).toBeNull();
-    // Past MIN_CELL_WORLD but a picture over ten thousand cells across.
-    expect(calibrationTransform(image(), { ...lattice, cell: 0.03 })).not.toBeNull();
-    expect(calibrationTransform({ ...image(), width: 800 }, { ...lattice, cell: 0.03 })).toBeNull();
+  it('refuses a picture of no size or a broken offset', () => {
+    expect(lineUpPlacement(image({ width: 0 }), SOURCE, { offsetX: 0, offsetY: 0, pxPerCell: 70 })).toBeNull();
+    expect(lineUpPlacement(image(), SOURCE, { offsetX: NaN, offsetY: 0, pxPerCell: 70 })).toBeNull();
   });
 });
 
-describe('lineUpPlan', () => {
-  const lattice: Lattice = { x: 2.6, y: 3.3, cell: 1.5, cols: 20, rows: 12 };
-
-  it('on an otherwise empty map: corner on the origin, the map W by H', () => {
-    const plan = lineUpPlan(image(), lattice, 'origin', null)!;
-    expect(plan.fixedSize).toEqual({ width: 20, height: 12 });
-    const left = plan.transform.position.x - (plan.transform.width * 0.5) / 2;
-    expect(left + 2.6 / 1.5).toBeCloseTo(0, 9);
+describe('px per cell bounds and whole cells', () => {
+  it('keeps the picture between half a cell and the largest map, never NaN', () => {
+    expect(pxPerCellRange(SOURCE)).toEqual({ min: 1, max: 3360 });
+    expect(clampPxPerCell(0, SOURCE)).toBe(1);
+    expect(clampPxPerCell(1e6, SOURCE)).toBe(3360);
+    expect(clampPxPerCell(NaN, SOURCE)).toBe(2520);
   });
 
-  it('over drawn work: corner on the nearest grid corner, scaled about it, the size left alone', () => {
-    const plan = lineUpPlan(image(), lattice, 'nearest', { width: 40, height: 30 })!;
-    expect(plan.fixedSize).toBeUndefined();
-    const left = plan.transform.position.x - (plan.transform.width * 0.5) / 2;
-    const top = plan.transform.position.y - (plan.transform.height * 0.5) / 2;
-    // The lattice corner (2.6, 3.3) lands on (3, 3), and its lines on whole cells from there.
-    expect(left + 2.6 / 1.5).toBeCloseTo(3, 9);
-    expect(top + 3.3 / 1.5).toBeCloseTo(3, 9);
-    expect(plan.transform.width * 0.5).toBeCloseTo(36 / 1.5, 9);
-  });
-
-  it('over drawn work: grows a pinned size the lattice now reaches past, never shrinks it', () => {
-    expect(lineUpPlan(image(), lattice, 'nearest', { width: 20, height: 30 })!.fixedSize).toEqual({ width: 23, height: 30 });
-    expect(lineUpPlan(image(), lattice, 'nearest', null)!.fixedSize).toBeUndefined();
-  });
-});
-
-describe('mapHoldsOtherContent', () => {
-  beforeEach(() => useStore.getState().resetToDefault());
-
-  it('is false for a map holding only the picture, true once a wall is drawn', () => {
-    useStore.getState().addChild(layer().id, image());
-    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(false);
-    useStore.setState((s) => {
-      const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
-      l.standaloneWalls.push({ id: 'w', points: [[0, 0], [4, 0]] } as DungeonLayer['standaloneWalls'][number]);
-    });
-    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(true);
-  });
-});
-
-describe('latticeFixedSize and clampCells', () => {
-  it('is the lattice in whole cells, within what a fixed size accepts', () => {
-    expect(latticeFixedSize({ cols: 36, rows: 24 })).toEqual({ width: 36, height: 24 });
-    expect(clampCells(0)).toBe(1);
-    expect(clampCells(NaN)).toBe(1);
-    expect(clampCells(12.4)).toBe(12);
+  it('is the frame in whole cells, within what a fixed size accepts', () => {
+    expect(lineUpFixedSize({ cols: 12.4, rows: 0 })).toEqual({ width: 12, height: 1 });
     expect(clampCells(5000)).toBe(1000);
-  });
-});
-
-describe('pxPerCell', () => {
-  it('reads the picture’s own pixels, not the downscaled texture’s', () => {
-    // A 5040 px original shrunk to a 2048 texture, placed 36 cells wide: 140 px a cell.
-    expect(pxPerCell({ cell: 1 }, 36, 5040)).toBeCloseTo(140, 9);
-  });
-
-  it('reads degenerate input as null, never NaN or Infinity', () => {
-    expect(pxPerCell({ cell: 0 }, 36, 5040)).toBeNull();
-    expect(pxPerCell({ cell: 1 }, 0, 5040)).toBeNull();
-    expect(pxPerCell({ cell: 1 }, 36, 0)).toBeNull();
-    expect(pxPerCell({ cell: NaN }, 36, 5040)).toBeNull();
+    expect(clampCells(NaN)).toBe(1);
   });
 });
 
@@ -206,12 +142,31 @@ function placed(): AssetChild {
   return c;
 }
 
+const left = (c: AssetChild) => c.position.x - (c.width * c.scale) / 2;
+const top = (c: AssetChild) => c.position.y - (c.height * c.scale) / 2;
+const original = () => image({ imageSource: { fileName: 'crypt.png', ...SOURCE } });
+
+describe('mapHoldsOtherContent', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  it('is false for a map holding only the picture, true once a wall is drawn', () => {
+    useStore.getState().addChild(layer().id, image());
+    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(false);
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
+      l.standaloneWalls.push({ id: 'w', points: [[0, 0], [4, 0]] } as DungeonLayer['standaloneWalls'][number]);
+    });
+    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(true);
+  });
+});
+
 describe('grid line-up session', () => {
   beforeEach(() => {
     endGridCalibration();
     undoManager.clear();
     useStore.getState().resetToDefault();
-    useStore.getState().addChild(layer().id, image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
+    useStore.getState().setGridVisible(false);
+    useStore.getState().addChild(layer().id, original());
   });
 
   it('refuses to start on an id that is not an asset child', () => {
@@ -219,77 +174,103 @@ describe('grid line-up session', () => {
     expect(getGridCalibration()).toBeNull();
   });
 
-  it('measures against the picture’s own source size when the caller gives none', () => {
-    startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: { pxPerCell: 105, originX: 35, originY: 35 } });
+  it('writes the start at once: the picture on the grid, the frame W by H, Show grid on, no undo step', () => {
+    expect(startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: GRID })).toBe(true);
+    // The picture's own source size, when the caller gives none.
     expect(getGridCalibration()!.sourcePx).toEqual(SOURCE);
-    expect(getGridCalibration()!.lattice.cell).toBeCloseTo(1.5, 9);
+    expect(placed().width * placed().scale).toBeCloseTo(24, 9);
+    expect(left(placed())).toBeCloseTo(-1 / 3, 9);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 24, height: 16 });
+    expect(useStore.getState().grid.visible).toBe(true);
+    expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('reflows W and H from the corner, in whole cells', () => {
+  it('W and H are the map size, live; the picture keeps its scale and place', () => {
     startGridCalibration('img', { cells: { width: 24, height: 16 } });
     setCalibrationCells(25, 0);
-    expect(getGridCalibration()!.lattice).toMatchObject({ x: 0, y: 0, cols: 25, rows: 1 });
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 25, height: 1 });
+    expect(placed().width * placed().scale).toBeCloseTo(24, 9);
+    expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('takes the grid as one undo step: picture, fixed size, lock; then undoes all three', () => {
+  it('px per cell rescales about the picture’s corner; a drag or nudge moves the corner', () => {
     startGridCalibration('img', { cells: { width: 24, height: 16 } });
-    setCalibrationLattice({ x: 0.5, y: 0.25, cell: 1.5 });
+    setCalibrationOffset(0.5, 0.25);
+    setCalibrationPxPerCell(52.5);
+    expect(placed().width * placed().scale).toBeCloseTo(48, 9);
+    expect(placed().height * placed().scale).toBeCloseTo(32, 9);
+    expect(left(placed())).toBeCloseTo(0.5, 9);
+    expect(top(placed())).toBeCloseTo(0.25, 9);
+    nudgeCalibration(-0.05, 0.25);
+    expect(left(placed())).toBeCloseTo(0.45, 9);
+    expect(top(placed())).toBeCloseTo(0.5, 9);
+    expect(lineUpBox(getGridCalibration()!)).toMatchObject({ left: 0.45, top: 0.5 });
+    expect(lineUpBox(getGridCalibration()!)!.width).toBeCloseTo(48, 9);
+  });
+
+  it('takes the grid as one undo step: picture, fixed size, lock; Show grid goes back; undo restores all', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationOffset(-1 / 3, 0);
     setCalibrationCells(23, 15);
 
     expect(applyGridCalibration()).toBe(true);
     expect(getGridCalibration()).toBeNull();
     const after = placed();
     expect(after.width * after.scale).toBeCloseTo(24, 9);
-    expect(after.position.x - (after.width * after.scale) / 2).toBeCloseTo(-1 / 3, 9);
+    expect(left(after)).toBeCloseTo(-1 / 3, 9);
     expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 23, height: 15 });
     expect(layer().locked).toBe(true);
+    expect(useStore.getState().grid.visible).toBe(false);
 
     undoManager.undo();
-    expect(placed()).toEqual(image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
+    expect(placed()).toEqual(original());
     expect(useStore.getState().mapSettings.fixedSize).toBeNull();
     expect(layer().locked).toBe(false);
+    expect(undoManager.canUndo()).toBe(false);
     expect(undoManager.canRedo()).toBe(true);
   });
 
-  it('refuses an impossible lattice and stays in the mode', () => {
-    startGridCalibration('img');
-    // A lattice cell bigger than the whole picture would shrink it below half a cell.
-    setCalibrationLattice({ x: 0, y: 0, cell: 100 });
-
-    expect(applyGridCalibration()).toBe(false);
-    expect(getGridCalibration()).not.toBeNull();
-    expect(layer().locked).toBe(false);
-    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
-    expect(undoManager.canUndo()).toBe(false);
-  });
-
-  it('a re-line-up over drawn work keeps the picture on the grid corner and the size', () => {
+  it('a re-line-up over drawn work keeps the picture on a grid line and the pinned size', () => {
     useStore.getState().setFixedSize({ width: 40, height: 30 });
     useStore.setState((s) => {
       const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
       l.standaloneWalls.push({ id: 'w', points: [[1, 1], [5, 1]] } as DungeonLayer['standaloneWalls'][number]);
     });
-    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    useStore.getState().updateChild(layer().id, 'img', { position: { x: 18 + 2.6, y: 12 + 3.3 } });
+    startGridCalibration('img', { grid: GRID });
     expect(getGridCalibration()!.anchor).toBe('nearest');
-    setCalibrationLattice({ x: 2.6, y: 3.3, cell: 1.5 });
     expect(applyGridCalibration()).toBe(true);
     const after = placed();
-    expect(after.position.x - (after.width * after.scale) / 2 + 2.6 / 1.5).toBeCloseTo(3, 9);
+    // The printed line a third of a cell in lands on a whole cell.
+    expect(left(after) + 1 / 3).toBeCloseTo(3, 9);
+    expect(top(after) + 1 / 3).toBeCloseTo(4, 9);
     expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 40, height: 30 });
     // The layer holds a wall too, so only the picture locks.
     expect(layer().locked).toBe(false);
     expect(after.locked).toBe(true);
   });
 
-  it('Skip leaves the image as placed, unlocked, and the size alone', () => {
-    startGridCalibration('img');
-    setCalibrationLattice({ x: 2, y: 2, cell: 0.5 });
+  it('Skip puts the picture, the size and Show grid back, unlocked, with no undo step', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: GRID });
+    setCalibrationOffset(2, 2);
+    setCalibrationPxPerCell(50);
+    setCalibrationCells(10, 10);
     endGridCalibration();
 
     expect(getGridCalibration()).toBeNull();
-    expect(placed()).toEqual(image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
+    expect(placed()).toEqual(original());
     expect(layer().locked).toBe(false);
     expect(useStore.getState().mapSettings.fixedSize).toBeNull();
+    expect(useStore.getState().grid.visible).toBe(false);
     expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('a picture gone from the map leaves the map alone on the way out', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    useStore.getState().resetToDefault();
+    useStore.getState().setFixedSize({ width: 5, height: 5 });
+    endGridCalibration();
+    expect(getGridCalibration()).toBeNull();
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 5, height: 5 });
   });
 });

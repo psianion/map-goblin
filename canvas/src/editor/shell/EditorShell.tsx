@@ -29,7 +29,7 @@ import { RegistryProvider } from './RegistryProvider';
 import { useRegistryKeys } from './shellKeys';
 import { useSpacePan } from './spacePan';
 import { resetShell, useShell } from './shellStore';
-import { frameGridCalibration } from '@/canvas/gridCalibration';
+import { getGridCalibration } from '@/canvas/gridCalibration';
 
 /** Air between the map and the chrome around it when the map is fitted. */
 const FIT_PAD = 32;
@@ -133,11 +133,11 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
   }, [updateInsets]);
 
   // Frame the map on the way in and when another map opens. A map founded on a battlemap
-  // arrives in the grid line-up, which frames its picture instead.
+  // arrives in the grid line-up, which has framed its picture and frame already.
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       updateInsets();
-      if (!frameGridCalibration()) fitToContent();
+      if (!getGridCalibration()) fitToContent();
     });
     return () => cancelAnimationFrame(raf);
   }, [activeMapId, hidden, updateInsets]);

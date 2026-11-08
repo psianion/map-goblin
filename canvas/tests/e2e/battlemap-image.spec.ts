@@ -119,12 +119,22 @@ test('the line-up starts on the found grid and Use this grid sets the map to W b
   await expect(bar.getByText('Line up the grid')).toBeVisible()
   await expect(bar.getByRole('group', { name: 'Squares across' })).toContainText('12')
   await expect(bar.getByRole('group', { name: 'Squares down' })).toContainText('8')
-  await expect(page.getByTestId('grid-lineup-px')).toHaveText('50 px per cell')
+  await expect(bar.getByRole('group', { name: 'Pixels per cell' })).toContainText('50')
+  await expect(page.getByTestId('grid-lineup-px')).toHaveText('px per cell')
+  // The frame is the map, written as it goes; the canvas grid is up to check against.
+  expect(await store(page, `(s) => s.mapSettings.fixedSize`)).toEqual({ width: 12, height: 8 })
+  expect(await store(page, `(s) => s.grid.visible`)).toBe(true)
 
-  // One more column, then take it.
+  // One more column: the map grows at once. Then back, and take it.
   await bar.getByRole('button', { name: 'Increase Squares across' }).click()
   await expect(bar.getByRole('group', { name: 'Squares across' })).toContainText('13')
+  expect(await store(page, `(s) => s.mapSettings.fixedSize`)).toEqual({ width: 13, height: 8 })
   await bar.getByRole('button', { name: 'Decrease Squares across' }).click()
+  // Half a pixel up and back: the picture rescales about its corner and returns.
+  await bar.getByRole('button', { name: 'Increase Pixels per cell' }).click()
+  await expect(bar.getByRole('group', { name: 'Pixels per cell' })).toContainText('50.5')
+  await bar.getByRole('button', { name: 'Decrease Pixels per cell' }).click()
+  await expect(bar.getByRole('group', { name: 'Pixels per cell' })).toContainText('50')
   await bar.getByRole('button', { name: 'Use this grid' }).click()
   await expect(bar).toHaveCount(0)
 
@@ -132,10 +142,49 @@ test('the line-up starts on the found grid and Use this grid sets the map to W b
   const layer = await store(page, `(s) => s.layers.find((l) => l.name === 'Battlemap')`)
   expect(layer.locked).toBe(true)
   const child = layer.children[0]
-  // One printed square is one map cell, the lattice corner on the origin.
+  // One printed square is one map cell, the first printed line on the frame's edge.
   expect(child.width * child.scale).toBeCloseTo(620 / 50, 1)
   expect(child.position.x - (child.width * child.scale) / 2).toBeCloseTo(-0.4, 1)
   expect(child.position.y - (child.height * child.scale) / 2).toBeCloseTo(-0.4, 1)
+})
+
+test('a left drag on the picture slides it; a middle drag pans past it', { tag: '@home' }, async ({ page }) => {
+  const modal = await openDialog(page)
+  const png = await gridPng(page, 600, 400, 50)
+  const chooser = page.waitForEvent('filechooser')
+  await modal.getByTestId('v2-image-drop').click()
+  await (await chooser).setFiles({ name: 'Crypt 12x8.png', mimeType: 'image/png', buffer: png })
+  await modal.getByTestId('v2-new-map-submit').click()
+  const bar = page.getByTestId('grid-lineup-bar')
+  await expect(bar).toBeVisible({ timeout: 30_000 })
+  // No box of its own over the canvas any more.
+  await expect(page.getByTestId('grid-lineup-lattice')).toHaveCount(0)
+
+  const leftEdge = () => store<number>(page, `(s) => { const c = s.layers.find((l) => l.name === 'Battlemap').children[0]; return c.position.x - (c.width * c.scale) / 2 }`)
+  // The picture is framed in the middle of the gap, so the canvas centre is on it.
+  const box = (await page.locator('canvas').first().boundingBox())!
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2 - 60
+  expect(await leftEdge()).toBeCloseTo(0, 3)
+
+  // A middle-button drag pans the camera and leaves the picture where it is.
+  await page.mouse.move(cx, cy)
+  await page.mouse.down({ button: 'middle' })
+  await page.mouse.move(cx + 80, cy, { steps: 4 })
+  await page.mouse.up({ button: 'middle' })
+  expect(await leftEdge()).toBeCloseTo(0, 3)
+  await expect(bar).toBeVisible()
+
+  // The canvas moved under the pan: the centre is still on the picture.
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 80, cy, { steps: 4 })
+  await page.mouse.up()
+  expect(await leftEdge()).toBeGreaterThan(0.2)
+  // Hovering after the release moves nothing.
+  const settled = await leftEdge()
+  await page.mouse.move(cx + 200, cy + 40, { steps: 4 })
+  expect(await leftEdge()).toBeCloseTo(settled, 6)
 })
 
 test('Skip leaves the battlemap as placed, unlocked', { tag: '@home' }, async ({ page }) => {
@@ -147,8 +196,12 @@ test('Skip leaves the battlemap as placed, unlocked', { tag: '@home' }, async ({
   await modal.getByTestId('v2-new-map-submit').click()
   const bar = page.getByTestId('grid-lineup-bar')
   await expect(bar).toBeVisible({ timeout: 30_000 })
+  // A column more, written to the map at once, then Skip: the size the dialog set comes back.
+  await bar.getByRole('button', { name: 'Increase Squares across' }).click()
+  expect(await store(page, `(s) => s.mapSettings.fixedSize`)).toEqual({ width: 13, height: 8 })
   await bar.getByRole('button', { name: 'Skip' }).click()
   await expect(bar).toHaveCount(0)
+  expect(await store(page, `(s) => s.mapSettings.fixedSize`)).toEqual({ width: 12, height: 8 })
   const layer = await store(page, `(s) => s.layers.find((l) => l.name === 'Battlemap')`)
   expect(layer.locked).toBe(false)
 })

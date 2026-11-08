@@ -68,7 +68,6 @@ export function fitToBounds(bounds: { minX: number; minY: number; maxX: number; 
   const singleton = getEngineSingleton();
   if (!singleton) return;
 
-  const stage = singleton.engine.stage();
   const vp = singleton.engine.viewport();
 
   let worldWidth = bounds.maxX - bounds.minX;
@@ -94,7 +93,18 @@ export function fitToBounds(bounds: { minX: number; minY: number; maxX: number; 
   const targetX = insets.left + vpWidth / 2 - centerX * newZoom;
   const targetY = top + vpHeight / 2 - centerY * newZoom;
 
-  // Animate to the target position
+  animateCamera(targetX, targetY, newZoom);
+}
+
+/**
+ * Ease the stage to a position and zoom over 150 ms. The one camera animation: fit, frame and
+ * pan-into-view all run through it, so a new one always replaces the last and
+ * {@link cancelZoomAnimation} (a wheel or a pan) stops whichever is running.
+ */
+export function animateCamera(targetX: number, targetY: number, targetZoom: number): void {
+  const singleton = getEngineSingleton();
+  if (!singleton) return;
+  const stage = singleton.engine.stage();
   cancelAnimationFrame(animationRafId);
 
   const startZoom = stage.scale.x;
@@ -108,7 +118,7 @@ export function fitToBounds(bounds: { minX: number; minY: number; maxX: number; 
     const t = Math.min(elapsed / duration, 1);
     const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
 
-    stage.scale.set(startZoom + (newZoom - startZoom) * ease);
+    stage.scale.set(startZoom + (targetZoom - startZoom) * ease);
     stage.position.x = startX + (targetX - startX) * ease;
     stage.position.y = startY + (targetY - startY) * ease;
 
