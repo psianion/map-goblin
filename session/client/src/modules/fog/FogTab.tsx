@@ -6,7 +6,7 @@ import { Button, Caption, Chip, Fold, KeyHint, Seg, SecondaryButton, SliderRow, 
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
-import { armFogBrush, armFogHide, armFogReveal, brushAvailable, useFogBrush } from './brush';
+import { armBrushShape, armFogHide, armFogReveal, brushPossible, useFogBrush } from './brush';
 import { FOG_STATUS_LABEL, hideAllRooms, revealAllRooms, roomFog, sceneFog, serverRooms } from './fog';
 import { setHighlightedRoom } from './FogOverlay';
 import { FOG_PRESETS } from './livingFog';
@@ -40,7 +40,8 @@ export function FogBody() {
   const [confirmReset, setConfirmReset] = useState(false);
   const mode = fogModeOf(fog);
   const armed = activeTool === 'fog';
-  const canBrush = mode === 'vision' && brushAvailable();
+  // A rooms-mode scene that can keep cell memory switches to Vision on the brush's first use.
+  const canBrush = useMemo(() => brushPossible(), [mapData]); // eslint-disable-line react-hooks/exhaustive-deps
   const lookPreset = fog.look?.preset ?? authoredLook?.preset ?? null;
 
   const bulk = (next: Record<string, RoomFog>, message: string): void => {
@@ -62,10 +63,7 @@ export function FogBody() {
           active={armed && brushOn && shape === 'stroke'}
           disabled={!canBrush}
           data-testid="fog-brush"
-          onClick={() => {
-            useFogBrush.getState().setShape('stroke');
-            armFogBrush();
-          }}
+          onClick={() => armBrushShape('stroke')}
         >
           <KeyHint keys="W">Brush</KeyHint>
         </SecondaryButton>
@@ -73,10 +71,7 @@ export function FogBody() {
           active={armed && brushOn && shape === 'box'}
           disabled={!canBrush}
           data-testid="fog-rect"
-          onClick={() => {
-            useFogBrush.getState().setShape('box');
-            armFogBrush();
-          }}
+          onClick={() => armBrushShape('box')}
         >
           <KeyHint keys="Shift+R">Rect</KeyHint>
         </SecondaryButton>

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
-import { armFogBrush, armFogHide, armFogReveal, useFogBrush } from '../modules/fog/brush';
+import { armBrushShape, armFogHide, armFogReveal } from '../modules/fog/brush';
 import { useDoorSelection } from '../modules/doors/selection';
 import { useInitiativeSelection } from '../modules/initiative/selection';
 import { useLightSelection } from '../modules/lights/selection';
@@ -76,10 +76,7 @@ export const BINDINGS: readonly Binding[] = [
     roles: DM,
     group: 'Fog',
     label: 'Brush',
-    run: () => {
-      useFogBrush.getState().setShape('stroke');
-      armFogBrush();
-    },
+    run: () => armBrushShape('stroke'),
   },
   {
     key: 'r',
@@ -87,10 +84,7 @@ export const BINDINGS: readonly Binding[] = [
     roles: DM,
     group: 'Fog',
     label: 'Rectangle',
-    run: () => {
-      useFogBrush.getState().setShape('box');
-      armFogBrush();
-    },
+    run: () => armBrushShape('box'),
   },
   { key: 'n', roles: DM, group: 'Combat', label: 'Next turn', run: () => stepTurn('next') },
   { key: 'n', shift: true, roles: DM, group: 'Combat', label: 'Previous turn', run: () => stepTurn('previous') },

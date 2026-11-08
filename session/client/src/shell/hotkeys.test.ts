@@ -6,6 +6,7 @@ import { useDoorSelection } from '../modules/doors/selection';
 import { useTokenInteraction } from '../modules/tokens/drag';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
+import { useFogBrush } from '../modules/fog/brush';
 import { closeSheet, openSheet, openSheetNow } from './sheets/registry';
 import { useTableShell } from './tableShell';
 import { keyClaims, useHotkeys } from './hotkeys';
@@ -153,6 +154,24 @@ describe('table hotkeys', () => {
     useSessionStore.setState({ session: session({ table: { paused: false } }) });
     fireEvent.keyDown(window, { key: 'P', shiftKey: true });
     expect(sent[0]).toMatchObject({ module: 'table', action: 'pause', payload: { on: true } });
+  });
+
+  it('Shift+R on a rooms-mode scene switches it to Vision and arms the rectangle', () => {
+    const sent = captureCommands();
+    const square = (x: number) => [[x, 0], [x + 4, 0], [x + 4, 4], [x, 4]];
+    useSessionStore.setState({
+      mapData: { frame: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, layers: [{ id: 'L', type: 'dungeon', children: [], rooms: [{ id: 'r1', name: 'Hall', boundary: square(0) }] }] },
+      session: { ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true } } } }), activeSceneId: 's' },
+    });
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'R', shiftKey: true });
+    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'set-mode', payload: { mode: 'vision' } });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+    useSessionStore.setState({
+      session: { ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true, mode: 'vision' } } } }), activeSceneId: 's' },
+    });
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    expect(useFogBrush.getState()).toMatchObject({ on: true, shape: 'box' });
   });
 
   it('R arms the fog reveal for the DM', () => {

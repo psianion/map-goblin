@@ -1,6 +1,8 @@
 import { FloatBox, IconKeyButton, PrimaryButton, cn } from '@dnd/ui';
 import { ChevronLeft } from '@dnd/ui/icons';
 import { useCombatBar } from '../../modules/initiative/useCombatBar';
+import { useTokenInteraction } from '../../modules/tokens/drag';
+import { useRole } from '../../session/store';
 import { TokenPortrait } from '../../modules/tokens/TokenPortrait';
 import { seatColour } from '../seatColour';
 
@@ -12,6 +14,7 @@ import { seatColour } from '../seatColour';
  */
 export function CombatBar() {
   const bar = useCombatBar();
+  const dm = useRole() === 'dm';
   if (!bar.active) return null;
   return (
     <FloatBox
@@ -35,7 +38,20 @@ export function CombatBar() {
             className={cn('shrink-0 rounded-pill', c.current && 'ring-2 ring-ink ring-offset-2 ring-offset-panel', c.down && 'opacity-40')}
             style={c.identityId ? { boxShadow: `0 0 0 2px ${seatColour(c.identityId)}` } : undefined}
           >
-            <TokenPortrait name={c.name} assetId={c.imageAssetId} className={c.current ? 'size-10' : 'size-8'} />
+            {dm && c.tokenId ? (
+              // The DM picks a combatant from the bar: it selects that token, for damage and effects.
+              <button
+                type="button"
+                aria-label={`Select ${c.name}`}
+                data-testid="combat-chip-select"
+                className="block rounded-pill"
+                onClick={() => useTokenInteraction.getState().select(c.tokenId)}
+              >
+                <TokenPortrait name={c.name} assetId={c.imageAssetId} className={c.current ? 'size-10' : 'size-8'} />
+              </button>
+            ) : (
+              <TokenPortrait name={c.name} assetId={c.imageAssetId} className={c.current ? 'size-10' : 'size-8'} />
+            )}
           </li>
         ))}
       </ol>

@@ -16,6 +16,8 @@ test.describe('@map fog and map', () => {
     await expect(room).not.toHaveAttribute('data-fog-status', 'revealed');
 
     await page.getByRole('button', { name: 'Vision' }).click();
+    // The rectangle is a vision-mode tool: wait for the mode to come back from the server.
+    await expect(page.getByTestId('fog-rect')).toBeEnabled();
     await page.keyboard.press('Shift+R');
     await expect(page.getByTestId('fog-rect')).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.press('Escape');

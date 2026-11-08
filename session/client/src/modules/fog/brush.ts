@@ -111,3 +111,38 @@ export function armFogBrush(): void {
   useActiveTool.getState().setActiveTool('fog');
   useFogBrush.getState().setOn(true);
 }
+
+/** The scene can keep cell memory at all (a frame with a region), whatever its mode now. */
+export function brushPossible(): boolean {
+  const frame = fogFrame(useSessionStore.getState().mapData);
+  return frame !== null && regionOf(frame) !== undefined;
+}
+
+/** How long a mode switch may take to come back before the brush gives up waiting for it. */
+const MODE_WAIT_MS = 3000;
+
+/**
+ * W, Shift+R and the dock's Brush and Rect: the brush in the given shape. On a rooms-mode
+ * scene that can keep cell memory, this switches the scene to Vision first (the brush is a
+ * vision-mode tool) and arms once the switch is back from the server.
+ */
+export function armBrushShape(shape: BrushShape): void {
+  useFogBrush.getState().setShape(shape);
+  if (brushAvailable()) {
+    armFogBrush();
+    return;
+  }
+  if (!brushPossible()) return;
+  const store = useSessionStore.getState();
+  store.sendCommand('fog', 'set-mode', { mode: 'vision' });
+  const timer = setTimeout(() => unsub(), MODE_WAIT_MS);
+  const unsub = useSessionStore.subscribe(() => {
+    if (!brushAvailable()) return;
+    clearTimeout(timer);
+    unsub();
+    useFogBrush.getState().setShape(shape);
+    // Arm, never toggle off: the switch was made to arm it.
+    useActiveTool.getState().setActiveTool('fog');
+    useFogBrush.getState().setOn(true);
+  });
+}

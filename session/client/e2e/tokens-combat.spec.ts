@@ -63,7 +63,8 @@ test.describe('@play tokens and combat', () => {
     await expect(page.getByTestId('encounter-round')).toHaveText('Round 1');
 
     // Damage with half on save to the selection.
-    await page.getByTestId('game-canvas').click({ position: await tokenPoint(page, 'Bram') });
+    // Picked from the combat bar: the map may sit under the dock or the bar at this point.
+    await page.getByLabel('Select Bram').click();
     await page.getByTestId('encounter-amount').fill('9');
     await page.getByRole('switch', { name: 'Half on save' }).click();
     await page.getByTestId('encounter-damage').click();

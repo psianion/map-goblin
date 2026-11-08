@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
+import { useTokenInteraction } from '../../modules/tokens/drag';
 import { CombatBar } from './CombatBar';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
@@ -23,7 +24,7 @@ function session(status: 'gathering' | 'running', turn = 0): SessionState {
         round: 3,
         turn,
         entries: [
-          { key: 'k1', name: 'Pia', kind: 'pc', identityId: 'p1', initiative: 18 },
+          { key: 'k1', name: 'Pia', kind: 'pc', identityId: 'p1', tokenId: 'tok-pia', initiative: 18 },
           { key: 'k2', name: 'Goblin', kind: 'npc', initiative: 12, hp: { current: 0, max: 7 } },
         ],
         log: [],
@@ -62,6 +63,17 @@ describe('CombatBar', () => {
     fireEvent.click(screen.getByTestId('combat-next'));
     expect(sent.map((m) => m.action)).toEqual(['previous', 'next']);
     expect(screen.queryByTestId('combat-end-turn')).toBeNull();
+  });
+
+  it('selects a combatant token when the DM picks its chip, and not for a player', () => {
+    useSessionStore.setState({ you: dm, session: session('running', 0) });
+    const { unmount } = render(<CombatBar />);
+    fireEvent.click(screen.getByLabelText('Select Pia'));
+    expect(useTokenInteraction.getState().selectedId).toBe('tok-pia');
+    unmount();
+    useSessionStore.setState({ you: pia });
+    render(<CombatBar />);
+    expect(screen.queryByLabelText('Select Pia')).toBeNull();
   });
 
   it('gives End turn to the player whose turn it is, and only then', () => {
