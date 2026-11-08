@@ -9,14 +9,20 @@ import { installBundledIndex } from './firstBootInstall';
 
 let booting: Promise<void> | null = null;
 
-/** Rehydrate pack metadata, then register the bundled index. Never rejects. */
+/**
+ * Rehydrate pack metadata, then register the bundled index. Never rejects. Where there is
+ * no IndexedDB or no fetch (a test environment) that step is skipped without a word.
+ */
 export function bootAssets(packManager: AssetPackManager): Promise<void> {
   booting ??= (async () => {
-    try {
-      await packManager.rehydrate();
-    } catch (err) {
-      console.warn('[bootAssets] Rehydrating stored packs failed:', err);
+    if (typeof indexedDB !== 'undefined') {
+      try {
+        await packManager.rehydrate();
+      } catch (err) {
+        console.warn('[bootAssets] Rehydrating stored packs failed:', err);
+      }
     }
+    if (typeof fetch !== 'function') return;
     try {
       await installBundledIndex(packManager);
     } catch (err) {

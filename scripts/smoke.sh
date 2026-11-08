@@ -65,6 +65,19 @@ pass "the tunnel entrances are not published"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$DOCKER_EDITOR_PORT/")" = 200 ] || fail "editor :$DOCKER_EDITOR_PORT"
 pass "editor and table answer on the LAN ports"
 
+# ─── Static delivery: gzip, immutable hashed files, no-cache entry points ─────
+header() { curl -s -o /dev/null -D - -H 'Accept-Encoding: gzip' "$1" | tr -d '\r' | grep -i "^$2:" | head -1; }
+for port in "$DOCKER_EDITOR_PORT" "$DOCKER_TABLE_PORT"; do
+  base="http://127.0.0.1:$port"
+  case "$(header "$base/index.html" cache-control)" in *no-cache*) ;; *) fail ":$port index.html is not no-cache" ;; esac
+  case "$(header "$base/packs/index.json" cache-control)" in *no-cache*) ;; *) fail ":$port packs/index.json is not no-cache" ;; esac
+  asset=$(curl -s "$base/" | grep -o '/assets/[^"]*\.js' | head -1)
+  [ -n "$asset" ] || fail ":$port index.html names no hashed script"
+  case "$(header "$base$asset" cache-control)" in *immutable*) ;; *) fail ":$port $asset is not immutable" ;; esac
+  case "$(header "$base$asset" content-encoding)" in *gzip*) ;; *) fail ":$port $asset is not gzipped" ;; esac
+done
+pass "hashed assets are immutable and gzipped, index.html and packs/index.json are no-cache"
+
 # ─── Inside the Docker network ────────────────────────────────────────────────
 # One long-lived probe container rather than one per request: its address must stay the
 # same across the whole run, since that is the address :80 counts against.

@@ -215,7 +215,7 @@ describe('lazy decode', () => {
     expect(loads.count).toBe(1)
     expect(pm.textureVersion).toBe(1)
 
-    pm.getTexture(id)
+    pm.getTexture(id, () => ({ width: 1 }) as never)
     pm.getTextureOrNull(id)
     expect(loads.count).toBe(1)
 

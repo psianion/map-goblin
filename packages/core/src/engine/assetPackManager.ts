@@ -1,5 +1,5 @@
 // src/engine/assetPackManager.ts
-import { Texture } from 'pixi.js'
+import type { Texture } from 'pixi.js'
 import pLimit from 'p-limit'
 import type { AssetPackDB, StoredPackMeta } from './assetPackDB'
 import { bumpAssetSetLRU } from './assetPackDB'
@@ -109,7 +109,6 @@ export class AssetPackManager {
   private packDB: AssetPackDB | undefined
   private cachedIndex: PackIndex | null = null
   private manifestCache: Map<string, PackManifest> = new Map()
-  private static FALLBACK_TEXTURE: Texture | null = null
 
   /** File bytes held in memory, keyed "<packId>/<file>". Only used without a packDB. */
   private files: Map<string, Uint8Array> = new Map()
@@ -213,24 +212,15 @@ export class AssetPackManager {
   }
 
   /**
-   * Returns the cached texture for entryId, or a 1x1 magenta fallback, and asks for the
+   * Returns the cached texture for entryId, or `fallback` (the caller's missing-texture
+   * indicator; the manager loads no Pixi of its own until it decodes), and asks for the
    * texture to be decoded. Never returns null — safe for use in the render loop.
    */
-  getTexture(entryId: string): Texture {
+  getTexture(entryId: string, fallback: () => Texture): Texture {
     const cached = this.textureCache.get(entryId)
     if (cached) return cached
     this.requestTexture(entryId)
-
-    // Return 1x1 magenta fallback (visible "missing texture" indicator)
-    if (!AssetPackManager.FALLBACK_TEXTURE) {
-      const canvas = document.createElement('canvas')
-      canvas.width = canvas.height = 1
-      const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = '#ff00ff'
-      ctx.fillRect(0, 0, 1, 1)
-      AssetPackManager.FALLBACK_TEXTURE = Texture.from(canvas)
-    }
-    return AssetPackManager.FALLBACK_TEXTURE
+    return fallback()
   }
 
   /**
