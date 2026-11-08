@@ -82,3 +82,14 @@ test('Use as Trace founds the map at the size with a trace layer and no line-up'
   expect(await store(page, `(s) => s.layers.some((l) => l.name === 'Battlemap')`)).toBe(false)
   await expect(page.getByRole('group', { name: 'Grid calibration' })).toHaveCount(0)
 })
+
+test('without a size in the name the printed grid sets the squares', { tag: '@home' }, async ({ page }) => {
+  const modal = await openDialog(page)
+  const png = await gridPng(page, 900, 600, 45)
+  const chooser = page.waitForEvent('filechooser')
+  await modal.getByTestId('v2-image-drop').click()
+  await (await chooser).setFiles({ name: 'cellar.png', mimeType: 'image/png', buffer: png })
+  // 45 px squares, not the 70 px guess (which would read 13 × 9).
+  await expect(modal.getByText('900 × 600 px · 20 × 13 squares')).toBeVisible()
+  await expect(modal.getByLabel('Width in squares')).toHaveValue('20')
+})

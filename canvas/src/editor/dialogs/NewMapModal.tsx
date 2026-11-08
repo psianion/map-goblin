@@ -11,6 +11,7 @@ import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { handleImageImport, importTraceImage, normalizeImageFile } from '@/canvas/importImage';
 import { battlemapCells, parseSizeHint, pickedImageLine, type CellFill } from '@/canvas/battlemapSize';
+import { detectGrid, sampleForDetection, type GridEstimate } from '@/canvas/detectGrid';
 import { startGridCalibration } from '@/canvas/gridCalibration';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { filesFromDataTransfer, filesFromList, scanFiles, type ScannedMap } from '@/io/importFolder';
@@ -46,9 +47,10 @@ const USE_AS_HINT: Record<UseAs, string> = {
   trace: 'A picture to draw over, at 40 percent. Never exported or published.',
 };
 
-/** A picked image's pixel size and the squares it implies. */
+/** A picked image's pixel size, the grid found printed on it, and the squares they imply. */
 interface ImageInfo {
   px: { width: number; height: number };
+  grid: GridEstimate | null;
   cells: CellFill;
 }
 
@@ -237,14 +239,18 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     }
     setError(null);
     setImage(normalized);
-    // The pixel size, so the squares can be filled in now rather than guessed at submit.
-    // A picture the browser will not decode here (an SVG without a size) keeps the size
-    // fields as they are.
+    // The pixel size and the printed grid, so the squares can be filled in now rather than
+    // guessed at submit. A picture the browser will not decode here (an SVG without a size)
+    // keeps the size fields as they are.
+    const hint = parseSizeHint(file.name);
     let px: ImageInfo['px'] | null = null;
+    let grid: GridEstimate | null = null;
     try {
       const bitmap = await createImageBitmap(normalized);
       px = { width: bitmap.width, height: bitmap.height };
+      const sample = sampleForDetection(bitmap);
       bitmap.close();
+      if (sample) grid = detectGrid(sample, { seed: hint, source: px });
     } catch {
       px = null;
     }
@@ -252,8 +258,8 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
       setImageInfo(null);
       return;
     }
-    const cells = battlemapCells(px, parseSizeHint(file.name));
-    setImageInfo({ px, cells });
+    const cells = battlemapCells(px, hint, grid);
+    setImageInfo({ px, grid, cells });
     setSizeMode('fixed');
     setWidthText(String(cells.width));
     setHeightText(String(cells.height));

@@ -28,6 +28,12 @@ vi.mock('@/io/importFolder', async (importOriginal) => ({
   scanFiles,
 }));
 vi.mock('@/io/importMap', () => ({ importMaps }));
+// No canvas in the test DOM: the detector's pixels and its answer are set per test.
+const { sampleForDetection, detectGrid } = vi.hoisted(() => ({
+  sampleForDetection: vi.fn((_bitmap: unknown): unknown => null),
+  detectGrid: vi.fn((_sample: unknown, _options?: unknown) => ({ pxPerCell: 0, originX: 0, originY: 0, confidence: 0 })),
+}));
+vi.mock('@/canvas/detectGrid', () => ({ sampleForDetection, detectGrid }));
 
 /** A file that is one of the editor's own maps by its header, whatever it is called. */
 function mapFile(name: string) {
@@ -368,6 +374,29 @@ describe('NewMapModal: image source', () => {
     await pick(png('cellar.png'), { width: 1400, height: 700 });
     await screen.findByText('1400 × 700 px · 20 × 10 squares');
     expect(sizeOf()).toEqual(['20', '10']);
+  });
+
+  it('uses the detected grid without a hint, seeded with nothing; a weak one falls back', async () => {
+    sampleForDetection.mockReturnValue({ width: 1, height: 1, data: [] });
+    detectGrid.mockReturnValueOnce({ pxPerCell: 105, originX: 3, originY: 4, confidence: 0.8 });
+    await pick(png('cellar.png'), { width: 2520, height: 1680 });
+    await screen.findByText('2520 × 1680 px · 24 × 16 squares');
+    expect(detectGrid.mock.calls[0][1]).toEqual({ seed: null, source: { width: 2520, height: 1680 } });
+    cleanup();
+
+    detectGrid.mockReturnValueOnce({ pxPerCell: 105, originX: 3, originY: 4, confidence: 0.4 });
+    await pick(png('vault.png'), { width: 2520, height: 1680 });
+    await screen.findByText('2520 × 1680 px · 36 × 24 squares');
+    sampleForDetection.mockReturnValue(null);
+  });
+
+  it('seeds the detector with the name hint, and the hint sets the squares', async () => {
+    sampleForDetection.mockReturnValue({ width: 1, height: 1, data: [] });
+    detectGrid.mockReturnValueOnce({ pxPerCell: 105, originX: 3, originY: 4, confidence: 0.9 });
+    await pick(png('Crypt 36x24.png'), { width: 2520, height: 1680 });
+    await screen.findByText('2520 × 1680 px · 36 × 24 squares');
+    expect(detectGrid.mock.calls[0][1]).toEqual({ seed: { width: 36, height: 24 }, source: { width: 2520, height: 1680 } });
+    sampleForDetection.mockReturnValue(null);
   });
 
   it('offers Battlemap or Trace, Battlemap first, each with its line', async () => {
