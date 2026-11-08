@@ -6,6 +6,7 @@ export { Caption } from './Caption';
 export { Chip } from './Chip';
 export { ColourRow } from './ColourRow';
 export { DockColumn } from './DockColumn';
+export { DownloadPill, type DownloadPillPack } from './DownloadPill';
 export { FloatBox } from './FloatBox';
 export { FlyoutRow } from './FlyoutRow';
 export { Fold } from './Fold';
@@ -13,6 +14,7 @@ export { IconKeyButton, IconKeyGlyph, iconKeyBoxVariants, type IconKeySize, type
 export { InputRow } from './InputRow';
 export { KeyHint } from './KeyHint';
 export { LevelList, type LevelListItem } from './LevelList';
+export { LoadingScreen } from './LoadingScreen';
 export { PanelHeader } from './PanelHeader';
 export { PrimaryButton } from './PrimaryButton';
 export { SecondaryButton } from './SecondaryButton';
