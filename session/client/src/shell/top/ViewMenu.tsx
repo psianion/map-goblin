@@ -1,0 +1,52 @@
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  applyTheme,
+  readThemeChoice,
+  useTheme,
+  type ThemeChoice,
+} from '@dnd/ui';
+import { Eye } from '@dnd/ui/icons';
+
+const THEMES: { value: ThemeChoice; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+];
+
+/** The View menu, top right: theme first (light by default, dark one click away). */
+export function ViewMenu() {
+  // Subscribes, so the radio follows a change made anywhere.
+  useTheme();
+  const choice = readThemeChoice();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" data-testid="view-menu">
+            <Eye aria-hidden strokeWidth={1.75} className="size-4" />
+            View
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Theme</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={choice} onValueChange={(v) => applyTheme(v as ThemeChoice)}>
+            {THEMES.map((t) => (
+              <DropdownMenuRadioItem key={t.value} value={t.value} data-testid={`theme-${t.value}`}>
+                {t.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { initTheme } from '@dnd/ui'
 import './index.css'
 import App from './App.tsx'
 import { useSessionStore } from './session/store'
@@ -13,6 +14,9 @@ import { installTestProbe } from './testProbe'
 const debug = window as Window & { __sessionStore?: typeof useSessionStore }
 debug.__sessionStore = useSessionStore
 installTestProbe()
+
+// Before the first render, so neither theme flashes on load.
+initTheme()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

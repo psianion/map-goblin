@@ -20,17 +20,24 @@ import { RollBar } from '../shell/RollBar';
 import { Sidebar } from '../shell/Sidebar';
 import { Ticker } from '../shell/Ticker';
 import { TurnPill } from '../shell/TurnPill';
+import { Dock } from '../shell/dock/Dock';
+import { useDockMounts } from '../shell/dock/useDockTabs';
 import { useHotkeys } from '../shell/hotkeys';
+import { legacyShellOn } from '../shell/legacy';
+import { MarksLayer } from '../shell/marks/MarksLayer';
+import { mountMarkInputWhenReady } from '../shell/marks/markInput';
+import { TableRail } from '../shell/rail/Rail';
+import { SheetHost } from '../shell/sheets/SheetHost';
+import { TopRight } from '../shell/top/TopRight';
 import { useOverlayMode, useShell } from '../shell/shellStore';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
 import { useRefusalToasts } from '../session/useRefusalToasts';
 import { useTriggerToasts } from '../session/useTriggerToasts';
 
-// Side-effect imports: each of these calls `registerPanel` at module scope. This
-// list is the only thing a new module adds to the shell (D8) — the rail below
-// never learns their names. Module folders (`src/modules/*`) register from their
-// own index; nothing here needs to change for them.
+// Side-effect imports: each of these calls `registerPanel` at module scope. The panels' map
+// companions (token layer, door layer, fog overlay) still mount through them; the popovers
+// themselves only show with the old shell (`legacyShellOn`).
 import '../components/GameLog';
 import '../modules/initiative';
 import '../modules/rolls/beyond20';
@@ -43,16 +50,21 @@ import '../modules/scene';
 import '../modules/triggers';
 import '../modules/world';
 import '../shell/SessionPopover';
+// The new chrome's registries: dock tabs, rail tools, sheets.
+import '../shell/dock/tabs';
+import '../shell/rail/tools';
+import '../shell/sheets';
+
+const LEGACY = legacyShellOn();
 
 /**
- * §2.6 — the table. Renderer owns the whole viewport; every registered panel lives behind
- * the icon rail as an anchored popover (M1) instead of a permanent sidebar.
+ * §2.6 — the table. The renderer owns the whole viewport and the chrome floats over it:
+ * title card and rail on the left, presence and menus top right, the DM's dock along the
+ * bottom, sheets on the right.
  *
  * D9: the whole page is `h-full` off `#root`, never `100vh`.
  */
 export default function GameTable() {
-  // M4 — the player shell swaps the party strip for a turn pill + roll bar; the DM keeps the
-  // strip and gets neither (InitiativePanel/PartyStrip already answer both questions there).
   const role = useRole();
 
   // A refresh unmounts everything but the seat is in sessionStorage — take it back.
@@ -60,73 +72,74 @@ export default function GameTable() {
     resumeSeat();
   }, []);
 
-  // The table's ear for trigger narration (§useTriggerToasts) — mounted once here rather
-  // than inside a panel, because it has to run whether or not the triggers panel (DM-only)
-  // or any panel at all is open.
+  // Trigger narration and refused commands: both have to be heard whatever is open.
   useTriggerToasts();
-
-  // Same reason, for the answer to a command the server refused: the panels that used to
-  // carry this only render while their popover is open, so a player with the rail closed —
-  // the normal way to play — got no word at all that their move had been turned down.
   useRefusalToasts();
 
-  // Mounted here rather than from a panel for the same reason: whose turn it is has to be
-  // marked on the map for every seat, however the rail happens to be filtered.
+  // Whose turn it is is marked on the map for every seat.
   useEffect(() => mountTurnRingWhenReady(), []);
+  // The rail's mark tools (ping, measure, template, draw, pin) on the map.
+  useEffect(() => mountMarkInputWhenReady(), []);
 
-  // Every module's map-side companion (token layer, door layer, fog overlay) — a popover
-  // renders only while open, so the overlays mount from here, once per seat.
+  // Every module's map-side companion (token layer, door layer, fog overlay), once per seat.
   const panels = usePanels(role);
   useEffect(() => {
     const downs = panels.map((p) => p.mount?.()).filter((d): d is () => void => typeof d === 'function');
     return () => downs.forEach((d) => d());
   }, [panels]);
+  // …and the dock tabs' own, for the DM.
+  useDockMounts(role);
 
-  // One shell-wide keydown listener (panel letters, G, L, Shift+D, Esc order) — see hotkeys.ts.
+  // One shell-wide keydown listener (registries plus board 9's fixed keys) — see hotkeys.ts.
   useHotkeys();
 
-  // table-shell-redesign D1/D2 — the renderer's inset grows on both sides now: left when the
-  // sidebar insets (never in overlay mode, where it floats over the map instead), right when
-  // the log drawer opens (it moved from a bottom drawer to a column left of the rail, D2).
   const sidebarOpen = useShell((s) => s.sidebarOpen);
   const drawerOpen = useShell((s) => s.drawerOpen);
   const overlay = useOverlayMode();
-  const leftInset = sidebarOpen && !overlay;
+  const inset = LEGACY
+    ? `${sidebarOpen && !overlay ? 'left-[300px]' : 'left-0'} ${drawerOpen ? 'right-[356px]' : 'right-14'}`
+    : '';
 
   return (
-    <div data-page="table" className="relative h-full bg-surface-0 text-text-primary">
+    <div data-page="table" className="relative h-full bg-bg text-text">
       <main className="relative h-full">
-        {/* Inset by the rail's own width (and the sidebar/drawer, when open) so the
-            renderer's true pixel size — and therefore fit-to-screen — matches what is
-            actually visible (D9). */}
-        <div
-          className={`absolute inset-0 transition-[left,right] duration-200 ease-settle motion-reduce:transition-none ${
-            leftInset ? 'left-[300px]' : 'left-0'
-          } ${drawerOpen ? 'right-[356px]' : 'right-14'}`}
-        >
+        {/* The renderer's true pixel size is what is visible, so fit-to-screen fits (D9). */}
+        <div className={`absolute inset-0 ${inset}`}>
           <GameRenderer />
+          <MarksLayer />
         </div>
 
         <ReconnectingBanner />
-        {role === 'player' ? (
+        {role === 'player' && (
           <>
             <TurnPill />
             <RollBar />
           </>
-        ) : (
-          <PartyStrip />
         )}
-        <Ticker />
-        <LogDrawer />
-        <TableStatusBar />
+        {LEGACY && (
+          <>
+            {role === 'dm' && <PartyStrip />}
+            <Ticker />
+            <LogDrawer />
+            <TableStatusBar />
+            <Sidebar />
+            <Rail />
+            <Popover />
+          </>
+        )}
         <DoorMenu />
         <CrossingMenu />
         <CrossingChips />
         <TokenMenu />
         <LightPopover />
-        <Sidebar />
-        <Rail />
-        <Popover />
+        {!LEGACY && (
+          <>
+            <TableRail />
+            <TopRight />
+            {role === 'dm' && <Dock />}
+            <SheetHost />
+          </>
+        )}
         <ToastHost />
         <TriggerPrompts />
         <InitiativePrompt />

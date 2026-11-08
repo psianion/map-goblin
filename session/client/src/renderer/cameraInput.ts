@@ -95,6 +95,20 @@ export function fitMap(engine: RenderEngine): boolean {
   return true;
 }
 
+/** The zoom `fitMap` would pick right now; null with nothing to frame. The zoom pill's 100%. */
+export function fitZoom(engine: RenderEngine): number | null {
+  const extent = mapExtent();
+  if (!extent) return null;
+  const { width, height } = engine.viewport();
+  return zoomThatFits(extent, width, height);
+}
+
+/** One `+` (1) or `-` (-1) step about the viewport centre: the keys' step, for the zoom buttons. */
+export function zoomStep(engine: RenderEngine, dir: 1 | -1): void {
+  const { width, height } = engine.viewport();
+  zoomAbout(engine.stage(), width / 2, height / 2, dir > 0 ? KEY_STEP : 1 / KEY_STEP, minZoom(engine), MAX_ZOOM);
+}
+
 /**
  * Scale about a point in viewport space, leaving the world point under it exactly where it
  * is. This is the whole of "zoom towards the cursor", which is why it is exported: it is the
