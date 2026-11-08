@@ -19,13 +19,14 @@ const CHANGED: Record<PublishChange, string> = {
 export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   const flow = usePublishFlow({ open, onClose: close });
-  const { mode, busy, busyLabel, error, summary, campaigns, adminPass, newCampaignName } = flow;
+  const { mode, busy, busyLabel, error, summary, published, campaigns, adminPass, newCampaignName } = flow;
   useEscapeToClose(open, close, busy);
 
   const unchanged = summary?.changed === 'none';
   const submit = () => {
     if (busy) return;
     if (mode === 'summary') void flow.publish(unchanged);
+    else if (mode === 'published') void flow.openTable();
     else if (mode === 'error') flow.retryCheck();
     else if (mode === 'password' && adminPass) void flow.connect();
     else if (mode === 'campaigns' && newCampaignName.trim()) void flow.create();
@@ -36,7 +37,9 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       ? unchanged
         ? 'Publish anyway'
         : 'Publish'
-      : mode === 'error'
+      : mode === 'published'
+        ? 'Open the table'
+        : mode === 'error'
         ? 'Retry'
         : mode === 'password'
           ? 'Continue'
@@ -79,6 +82,15 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 {summary.changed === 'map' && <Hint>Light edits made at the table are kept on republish.</Hint>}
               </div>
             </>
+          )}
+
+          {mode === 'published' && published && (
+            <Field label="Campaign">
+              <p className="m-0 text-text" data-testid="v2-publish-done">
+                Published to {published.campaignLabel}.
+              </p>
+              <Hint>Open the table to run it; you are signed in there as the DM.</Hint>
+            </Field>
           )}
 
           {mode === 'password' && (
@@ -141,11 +153,11 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
         <Actions>
           <Button variant="outline" disabled={busy} onClick={close}>
-            {unchanged && mode === 'summary' ? 'Close' : 'Cancel'}
+            {(unchanged && mode === 'summary') || mode === 'published' ? 'Close' : 'Cancel'}
           </Button>
           {primary && (
             <PrimaryButton
-              data-testid="v2-publish-go"
+              data-testid={mode === 'published' ? 'v2-publish-open-table' : 'v2-publish-go'}
               autoFocus={mode !== 'password'}
               disabled={busy || (mode === 'password' && !adminPass)}
               onClick={submit}

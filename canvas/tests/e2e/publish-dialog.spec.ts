@@ -32,7 +32,10 @@ async function openPublish(page: Page) {
   return dialog(page)
 }
 
-async function expectClosed(page: Page): Promise<void> {
+/** A publish ends on the done step; Close dismisses it. */
+async function closeAfterPublish(page: Page): Promise<void> {
+  await expect(dialog(page).getByTestId('v2-publish-done')).toBeVisible({ timeout: 5000 })
+  await dialog(page).getByRole('button', { name: 'Close' }).last().click()
   await expect(dialog(page)).toBeHidden({ timeout: 5000 })
 }
 
@@ -81,7 +84,7 @@ async function seedFirstPublish(page: Page): Promise<void> {
   await d.getByRole('button', { name: 'Continue' }).click()
   await d.getByLabel('Create new campaign').fill('Seed Campaign')
   await d.getByRole('button', { name: 'Create' }).click()
-  await expectClosed(page)
+  await closeAfterPublish(page)
   await page.unroute('**/api/**')
 }
 
@@ -113,7 +116,7 @@ test.describe('publish dialog', () => {
     await expect(d.getByText(HINT)).toHaveCount(0)
     await d.getByLabel('Create new campaign').fill('My Campaign')
     await d.getByLabel('Create new campaign').press('Enter')
-    await expectClosed(page)
+    await closeAfterPublish(page)
     await expect(page.getByText(/^Published ".*" to My Campaign — first publish$/)).toBeVisible()
 
     const createCall = calls.find((c) => c.method === 'POST' && c.path === '/api/campaigns')
@@ -129,6 +132,35 @@ test.describe('publish dialog', () => {
     const record = await publishRecord(page)
     expect(record['camp-1']).toMatchObject({ sceneId: 'scene-1', campaignName: 'My Campaign' })
     expect(typeof record['camp-1'].publishedAt).toBe('number')
+  })
+
+  test('Open the table after a publish opens the handoff link in a new tab', { tag: '@publish' }, async ({ page }) => {
+    await gotoApp(page)
+    await seedFirstPublish(page)
+    await renameMap(page)
+    const tableUrl = 'http://127.0.0.1:9/host#handoff=code-1'
+    const calls = await installStubs(page, [
+      {
+        method: 'PUT',
+        path: new RegExp(`^/api/scenes/${SCENE}/publish$`),
+        respond: () => ({ json: { sceneId: SCENE, mapId: 'map-seed', name: 'Renamed Map', sizeBytes: 1 } }),
+      },
+      {
+        method: 'POST',
+        path: new RegExp(`^/api/campaigns/${CAMPAIGN}/handoff$`),
+        respond: () => ({ json: { code: 'code-1', tableUrl } }),
+      },
+    ])
+
+    const d = await openPublish(page)
+    await d.getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(d.getByTestId('v2-publish-done')).toHaveText('Published to Seed Campaign.')
+    const [tab] = await Promise.all([page.waitForEvent('popup'), d.getByTestId('v2-publish-open-table').click()])
+    await expect.poll(() => tab.url()).toContain('#handoff=code-1')
+    await expect(dialog(page)).toBeHidden()
+
+    const handoff = calls.find((c) => c.method === 'POST' && c.path === `/api/campaigns/${CAMPAIGN}/handoff`)
+    expect(handoff?.headers['authorization']).toBe(`Bearer ${TOKEN}`)
   })
 
   test('a map change republishes through the stored token', { tag: '@publish' }, async ({ page }) => {
@@ -149,7 +181,7 @@ test.describe('publish dialog', () => {
     await expect(d.getByTestId('v2-publish-campaign')).toHaveText('Seed Campaign')
     await expect(d.getByText(/^Last published/)).toBeVisible()
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expectClosed(page)
+    await closeAfterPublish(page)
 
     const put = calls.find((c) => c.method === 'PUT' && c.path === `/api/scenes/${SCENE}/publish`)
     expect(put?.headers['authorization']).toBe(`Bearer ${TOKEN}`)
@@ -169,7 +201,7 @@ test.describe('publish dialog', () => {
     await expect(d.getByTestId('v2-publish-change')).toHaveText('Only trigger prep has changed.')
     await expect(d.getByText(HINT)).toHaveCount(0)
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expectClosed(page)
+    await closeAfterPublish(page)
 
     const prepCall = calls.find((c) => c.method === 'PUT' && c.path === `/api/scenes/${SCENE}/prep`)
     expect(JSON.parse(prepCall!.bodyBuffer!.toString())).toEqual({ version: 1, triggers: [] })
@@ -192,7 +224,7 @@ test.describe('publish dialog', () => {
     await expect(d.getByText(HINT)).toHaveCount(0)
     await expect(d.getByRole('button', { name: 'Close' }).last()).toBeVisible()
     await d.getByRole('button', { name: 'Publish anyway' }).click()
-    await expectClosed(page)
+    await closeAfterPublish(page)
 
     const put = calls.find((c) => c.method === 'PUT' && c.path === `/api/scenes/${SCENE}/publish`)
     expect(put?.headers['authorization']).toBe(`Bearer ${TOKEN}`)
@@ -232,7 +264,7 @@ test.describe('publish dialog', () => {
 
     const d = await openPublish(page)
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expectClosed(page)
+    await closeAfterPublish(page)
 
     const upload = calls.find((c) => c.method === 'POST' && c.path === `/api/campaigns/${CAMPAIGN}/maps`)
     expect(upload?.headers['authorization']).toBe(`Bearer ${TOKEN}`)
@@ -300,7 +332,7 @@ test.describe('publish dialog', () => {
 
     down = false
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expectClosed(page)
+    await closeAfterPublish(page)
     expect(calls.filter((c) => c.method === 'PUT').length).toBe(2)
   })
 
@@ -344,7 +376,7 @@ test.describe('publish dialog', () => {
     expect(await dialogHeight(page)).toBe(passHeight)
     await d.getByLabel('Create new campaign').fill('Gamma')
     await d.getByLabel('Create new campaign').press('Enter')
-    await expectClosed(page)
+    await closeAfterPublish(page)
 
     await renameMap(page)
     await openPublish(page)

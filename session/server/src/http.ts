@@ -11,12 +11,14 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isIP, type Socket } from 'node:net'
 import {
+  DM_TOKEN_TTL_MS,
   isAdminPass,
   issueToken,
   resolveInviteCode,
   startSession,
   verifyToken,
 } from './auth'
+import { createHandoffStore, type HandoffStore } from './handoff'
 import {
   MAX_ASSET_BYTES,
   MAX_MAP_BYTES,
@@ -58,7 +60,7 @@ const JSON_BODY_LIMIT = 64 * 1024
 const MISSES = 10
 const MISS_WINDOW_MS = 60_000
 
-type RouteDeps = HttpDeps & { budgets: Budgets }
+type RouteDeps = HttpDeps & { budgets: Budgets; handoffs: HandoffStore }
 
 export function createRequestHandler(deps: HttpDeps) {
   // Per handler, not per module: the test suite runs several servers in one process and
@@ -68,13 +70,15 @@ export function createRequestHandler(deps: HttpDeps) {
     admin: createBudget('admin', MISSES, MISS_WINDOW_MS),
     waitlist: createBudget('waitlist', MISSES, MISS_WINDOW_MS),
   }
+  // Per handler for the same reason, and in memory on purpose: a code lives for a minute.
+  const handoffs = createHandoffStore()
   return (req: IncomingMessage, res: ServerResponse): void => {
     cors(res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
       return
     }
-    route({ ...deps, budgets }, req, res).catch((error: unknown) => {
+    route({ ...deps, budgets, handoffs }, req, res).catch((error: unknown) => {
       console.error('request failed:', error)
       if (!res.headersSent) json(res, 500, { error: 'internal error' })
       else res.end()
@@ -91,8 +95,13 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
 
   if (method === 'GET' && resource === 'campaigns' && !id) return listCampaigns(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
-  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token')
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token' && sub2 === 'refresh')
+    return refreshDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token' && !sub2)
     return mintDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'handoff' && !sub2)
+    return mintHandoff(deps, req, res, id)
+  if (method === 'POST' && resource === 'handoff' && id === 'redeem' && !sub) return redeemHandoff(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'service-token')
     return mintServiceToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
@@ -193,6 +202,62 @@ function mintDmToken(
   })
 }
 
+/**
+ * POST /api/campaigns/:id/dm-token/refresh — a live DM token in, a fresh one out (decision
+ * 12). Both apps call it when the token they hold has under a week left, so a DM who plays
+ * at all keeps their seat without the admin pass.
+ */
+function refreshDmToken(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+  const token = issueToken(deps.hmacSecret, dm.id, campaignId, 'dm')
+  json(res, 200, { token, campaignId, exp: verifyToken(deps.hmacSecret, token)?.exp })
+}
+
+/** Where players and the DM reach the table; the bot's invite links read the same setting. */
+function publicTableUrl(): string | null {
+  const url = process.env.PUBLIC_TABLE_URL?.trim()
+  return url ? url.replace(/\/+$/, '') : null
+}
+
+/**
+ * POST /api/campaigns/:id/handoff — DM token in, a single-use code and the table link that
+ * carries it out (decision 13). The code rides in the fragment, which no server log sees.
+ */
+function mintHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+  const base = publicTableUrl()
+  if (!base) return json(res, 503, { error: 'This table server has no PUBLIC_TABLE_URL set, so it cannot say where the table is.' })
+  const code = deps.handoffs.mint(campaignId, dm.id)
+  json(res, 200, { code, tableUrl: `${base}/host#handoff=${code}` })
+}
+
+/**
+ * POST /api/handoff/redeem — public; `{code}` in, the campaign and a fresh DM token out. A
+ * code answers once. Unknown, used and expired codes all spend a miss, like a wrong invite.
+ */
+async function redeemHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (overBudget(deps, req, res, deps.budgets.invite, 'handoff')) return
+  const body = await readJson(req, res)
+  if (!body) return
+  const code = text(body.code)
+  if (!code) return json(res, 400, { error: 'code is required' })
+
+  const handoff = deps.handoffs.redeem(code)
+  const dm = handoff ? deps.stores.identities.get(handoff.identityId) : undefined
+  const campaign = handoff ? deps.stores.campaigns.get(handoff.campaignId) : undefined
+  if (!handoff || !dm || dm.banned === 1 || dm.role !== 'dm' || !campaign) {
+    miss(deps, req, deps.budgets.invite, 'handoff')
+    return json(res, 404, { error: 'that link has expired; open the table from the canvas again' })
+  }
+  json(res, 200, {
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    token: issueToken(deps.hmacSecret, dm.id, campaign.id, 'dm'),
+  })
+}
+
 /** The Discord bot's seat at a campaign. Named, so a second mint reuses it rather than
  * leaving a new permanent credential behind on every call. */
 const SERVICE_IDENTITY_NAME = 'Goblin Bot'
@@ -229,7 +294,7 @@ async function mintServiceToken(
       .find((i) => i.name === SERVICE_IDENTITY_NAME && i.role === role && i.banned === 0) ??
     deps.stores.identities.mint(randomUUID(), campaignId, SERVICE_IDENTITY_NAME, role)
   json(res, 200, {
-    token: issueToken(deps.hmacSecret, bot.id, campaignId, role),
+    token: issueToken(deps.hmacSecret, bot.id, campaignId, role, undefined, DM_TOKEN_TTL_MS),
     campaignId,
     role,
     name: SERVICE_IDENTITY_NAME,

@@ -327,7 +327,7 @@ export async function loadMap(preselected?: File): Promise<boolean> {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function downloadBytes(bytes: Uint8Array, filename: string): void {
+export function downloadBytes(bytes: Uint8Array, filename: string): void {
   const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

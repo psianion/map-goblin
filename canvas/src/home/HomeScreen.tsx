@@ -8,6 +8,10 @@ import { ConfirmDialog } from '@/editor/ConfirmDialog';
 import { ContextMenu, useContextMenu, type MenuRow } from '@/editor/RowMenu';
 import { NewMapModal } from '@/editor/dialogs/NewMapModal';
 import type { MapMeta } from '@/store/types';
+import { getMapDB } from '@/store/slices/maps';
+import type { MapIndexDB } from '@/io/mapIndexDB';
+import { downloadAllMaps } from '@/io/downloadAll';
+import { lastPublishedTo } from '@/io/publish';
 import { openMap } from './openMap';
 
 /** How the editor comes up when the home page hands over to it. */
@@ -58,6 +62,38 @@ export function HomeScreen({ onEnter }: HomeScreenProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [menuMapId, setMenuMapId] = useState<string | null>(null);
   const menu = useContextMenu();
+  // Each map's "Published · <campaign>" chip, read from its publish record.
+  const [publishedTo, setPublishedTo] = useState<Record<string, string>>({});
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const db = (await getMapDB()) as unknown as MapIndexDB;
+      const entries = await Promise.all(
+        mapIndex.map(async (m) => [m.id, lastPublishedTo(await db.getPublishState(m.id))] as const),
+      );
+      if (cancelled) return;
+      setPublishedTo(Object.fromEntries(entries.filter((e): e is readonly [string, string] => e[1] !== null)));
+    })().catch((err) => console.warn('[HomeScreen] publish records unreadable:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [mapIndex]);
+
+  const handleDownloadAll = useCallback(async () => {
+    setDownloading(true);
+    try {
+      const count = await downloadAllMaps();
+      if (count === 0) notify.info('No maps to download yet');
+      else notify.success(count === 1 ? 'Downloaded 1 map' : `Downloaded ${count} maps`);
+    } catch (err) {
+      console.error('[HomeScreen] download all failed:', err);
+      notify.error('Failed to download the maps');
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
 
   // The canvas listens for tool shortcuts on the document. While the home page is up,
   // a key pressed with nothing focused must not pick a tool underneath it; keys typed
@@ -228,6 +264,23 @@ export function HomeScreen({ onEnter }: HomeScreenProps) {
             </span>
           </div>
 
+          <div
+            data-testid="v2-home-notice"
+            className="mt-4 flex items-center justify-between gap-3 rounded-control border border-line bg-panel px-3 py-2 text-[12px] leading-[1.4] text-text-2"
+          >
+            <span>Maps live in this browser. Publish to a campaign or download them to keep them safe.</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              data-testid="v2-download-all"
+              disabled={downloading || sorted.length === 0}
+              onClick={() => void handleDownloadAll()}
+            >
+              {downloading ? 'Downloading…' : 'Download all'}
+            </Button>
+          </div>
+
           <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(152px,1fr))] gap-4 max-sm:grid-cols-[repeat(auto-fill,minmax(136px,1fr))] max-sm:gap-3">
             <Button
               variant="outline"
@@ -256,6 +309,7 @@ export function HomeScreen({ onEnter }: HomeScreenProps) {
                 key={map.id}
                 map={map}
                 active={map.id === activeMapId}
+                publishedTo={publishedTo[map.id] ?? null}
                 busy={opening === map.id}
                 menuOpen={menu.pos !== null && menuMapId === map.id}
                 renaming={renamingId === map.id}
@@ -334,6 +388,8 @@ const CORNER = cn(
 interface MapTileProps {
   map: MapMeta;
   active: boolean;
+  /** The campaign it was last published to, for the card's chip; null if never. */
+  publishedTo: string | null;
   busy: boolean;
   menuOpen: boolean;
   renaming: boolean;
@@ -349,6 +405,7 @@ interface MapTileProps {
 function MapTile({
   map,
   active,
+  publishedTo,
   busy,
   menuOpen,
   renaming,
@@ -433,6 +490,15 @@ function MapTile({
             className="absolute top-1.5 left-1.5 rounded-key border border-line bg-panel px-[5px] py-[3px] font-mono text-[9px] leading-none tracking-[0.08em] text-text-2 uppercase"
           >
             Open
+          </span>
+        )}
+        {publishedTo && (
+          <span
+            data-testid="v2-card-published"
+            title={`Published · ${publishedTo}`}
+            className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-key border border-line bg-panel px-[5px] py-[3px] font-mono text-[9px] leading-none tracking-[0.04em] text-text-2"
+          >
+            Published · {publishedTo}
           </span>
         )}
       </div>

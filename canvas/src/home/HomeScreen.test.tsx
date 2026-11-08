@@ -5,16 +5,20 @@ import { useStore } from '@/store/store';
 import type { MapMeta } from '@/store/types';
 import { HomeScreen } from './HomeScreen';
 
-const { notify, openMap, restoreLastDeletedMap } = vi.hoisted(() => ({
+const { notify, openMap, restoreLastDeletedMap, getPublishState, downloadAllMaps } = vi.hoisted(() => ({
   notify: { success: vi.fn(), error: vi.fn(), info: vi.fn(), action: vi.fn() },
   openMap: vi.fn(async (_id: string) => true),
   restoreLastDeletedMap: vi.fn(),
+  getPublishState: vi.fn(async (_id: string): Promise<unknown> => null),
+  downloadAllMaps: vi.fn(async () => 2),
 }));
 vi.mock('@dnd/ui/toast', () => ({ notify }));
 vi.mock('./openMap', () => ({ openMap }));
+vi.mock('@/io/downloadAll', () => ({ downloadAllMaps }));
 vi.mock('@dnd/core/src/store/slices/maps', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@dnd/core/src/store/slices/maps')>()),
   restoreLastDeletedMap,
+  getMapDB: async () => ({ getPublishState }),
 }));
 
 function meta(id: string, name: string, updatedAt: number): MapMeta {
@@ -104,6 +108,35 @@ describe('HomeScreen cards', () => {
       fireEvent.keyDown(screen.getByTestId('v2-card-rename'), { key: ' ' });
       await new Promise((r) => setTimeout(r, 300));
       expect(openMap).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('keeping maps safe', () => {
+    it('says maps live in the browser, and Download all downloads them', async () => {
+      render(<HomeScreen onEnter={() => {}} />);
+      expect(screen.getByTestId('v2-home-notice').textContent).toContain(
+        'Maps live in this browser. Publish to a campaign or download them to keep them safe.',
+      );
+      fireEvent.click(screen.getByTestId('v2-download-all'));
+      await waitFor(() => expect(notify.success).toHaveBeenCalledWith('Downloaded 2 maps'));
+      expect(downloadAllMaps).toHaveBeenCalledOnce();
+    });
+
+    it('marks a published map with the campaign it last went to', async () => {
+      getPublishState.mockImplementation(async (id: string) =>
+        id === 'm2'
+          ? {
+              a: { sceneId: 's1', mapHash: 'h', prepHash: 'p', campaignName: 'Old Campaign', publishedAt: 1 },
+              b: { sceneId: 's2', mapHash: 'h', prepHash: 'p', campaignName: 'Emberhold', publishedAt: 5 },
+            }
+          : null,
+      );
+      render(<HomeScreen onEnter={() => {}} />);
+      const chip = await within(card('Guard Barracks')).findByTestId('v2-card-published');
+      expect(chip.textContent).toBe('Published · Emberhold');
+      expect(within(card('Sunken Chapel')).queryByTestId('v2-card-published')).toBeNull();
+      getPublishState.mockReset();
+      getPublishState.mockResolvedValue(null);
     });
   });
 
