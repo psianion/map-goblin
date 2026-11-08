@@ -1,5 +1,5 @@
 // src/io/saveLoad.ts
-// Native .mapbuilder save/load pipeline.
+// Native .ggvtt save/load pipeline (older .mapbuilder files still open).
 //
 // File format:
 //   [MAGIC_HEADER bytes] + [gzip-compressed UTF-8 JSON of SerializedMapData]
@@ -17,7 +17,8 @@ import { notify } from '@dnd/ui/toast';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { encodeMapFile, decodeMapFile, decodeAnyMapFile, hasMagicHeader, MAGIC_HEADER } from './mapFormat';
-import { readMapDocument, saveableMap } from './mapFile';
+import { MAP_FILE_ACCEPT, readMapDocument, saveableMap } from './mapFile';
+import { MAP_FILE_EXTENSION } from '@dnd/core/src/shared/mapFile';
 
 export { MAGIC_HEADER };
 
@@ -138,14 +139,14 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
-/** Map name reduced to a filesystem-safe `.mapbuilder` filename. */
+/** Map name reduced to a filesystem-safe `.ggvtt` filename. */
 function mapFilename(data: SerializedMapData): string {
   const mapName = data.mapSettings.name || 'untitled-map';
-  return `${mapName.replace(/[^a-z0-9\-_ ]/gi, '_')}.mapbuilder`;
+  return `${mapName.replace(/[^a-z0-9\-_ ]/gi, '_')}${MAP_FILE_EXTENSION}`;
 }
 
 /**
- * Write the current map to a `.mapbuilder` download — same container bytes as
+ * Write the current map to a `.ggvtt` download — same container bytes as
  * `saveMap`, delivered through a blob anchor instead of the native file picker.
  *
  * This is the Export dialog's map-file option. It exists because the picker is
@@ -161,7 +162,7 @@ export async function downloadMapFile(): Promise<string> {
 }
 
 /**
- * Save the current store state to a .mapbuilder file.
+ * Save the current store state to a .ggvtt file.
  *
  * On Chrome/Edge: uses File System Access API.
  *   - If `_currentFileHandle` is set, overwrites silently (Ctrl+S behavior).
@@ -200,7 +201,7 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
         types: [
           {
             description: 'Map Builder File',
-            accept: { 'application/octet-stream': ['.mapbuilder'] },
+            accept: { 'application/octet-stream': [MAP_FILE_EXTENSION] },
           },
         ],
       });
@@ -221,7 +222,7 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
 }
 
 /**
- * Open a .mapbuilder file picker and load the selected file into the store.
+ * Open a .ggvtt (or older .mapbuilder) file picker and load the selected file into the store.
  * In multi-map mode, creates a new map entry in IndexedDB and associates the file handle.
  * Returns true on success, false if the user cancelled.
  *
@@ -241,7 +242,7 @@ export async function loadMap(preselected?: File): Promise<boolean> {
         types: [
           {
             description: 'Map Builder File',
-            accept: { 'application/octet-stream': ['.mapbuilder'] },
+            accept: { 'application/octet-stream': ['.ggvtt', '.mapbuilder'] },
           },
         ],
         multiple: false,
@@ -340,7 +341,7 @@ function pickFileViaInput(): Promise<Uint8Array | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.mapbuilder';
+    input.accept = MAP_FILE_ACCEPT;
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) {

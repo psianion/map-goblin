@@ -5,6 +5,7 @@ import { useSessionStore } from '../../session/store';
 import { Icon } from '../../shell/icons';
 import { Portal } from '../../shell/Portal';
 import { useSceneLibrary } from './store';
+import { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
 
 /**
  * §2.4.2 — the DM's corner of the table: the scene library (activate, visibility, rename,
@@ -155,7 +156,7 @@ function SceneRowMenu({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".mapbuilder,.json,application/json"
+          accept={MAP_FILE_ACCEPT}
           disabled={busy}
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -466,7 +467,7 @@ export function SceneFooter() {
         {busy ? 'Working…' : 'Import map file'}
         <input
           type="file"
-          accept=".mapbuilder,.json,application/json"
+          accept={MAP_FILE_ACCEPT}
           disabled={busy}
           aria-label="Import a map file"
           data-testid="scene-upload"

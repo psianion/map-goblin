@@ -1,5 +1,5 @@
 // Import scanned maps one after another through the same path `loadMap` uses for a
-// `.mapbuilder` file: build the document, restore its images, create the map entry,
+// `.ggvtt` (or older `.mapbuilder`) file: build the document, restore its images, create the map entry,
 // load it into the store, save. Each map stands alone — one failing never stops the rest.
 
 import { importedMapToDocument } from '@dnd/core/src/shared/import/toDocument';

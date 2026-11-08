@@ -209,7 +209,7 @@ describe('saveLoad — downloadMapFile', () => {
     // both sides — everything else, container and payload, has to match.
     expect(withoutGzipMtime(bytes)).toEqual(withoutGzipMtime(await serializeToBytes(SAMPLE_DATA)));
     expect(anchorClicked).toBe(1);
-    expect(filename).toBe('Test Dungeon.mapbuilder');
+    expect(filename).toBe('Test Dungeon.ggvtt');
   });
 
   it('sanitises the map name into the filename', async () => {
@@ -217,6 +217,6 @@ describe('saveLoad — downloadMapFile', () => {
       ...SAMPLE_DATA,
       mapSettings: { ...SAMPLE_DATA.mapSettings, name: 'Crypt: level 2/3' },
     });
-    expect(filename).toBe('Crypt_ level 2_3.mapbuilder');
+    expect(filename).toBe('Crypt_ level 2_3.ggvtt');
   });
 });

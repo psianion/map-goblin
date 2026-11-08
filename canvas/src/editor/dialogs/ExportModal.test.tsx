@@ -8,7 +8,7 @@ const { notify, pipeline, download, mapFile } = vi.hoisted(() => ({
   notify: { success: vi.fn(), error: vi.fn() },
   pipeline: vi.fn(async () => ({ blob: new Blob(), filename: 'map.png' })),
   download: vi.fn(),
-  mapFile: vi.fn(async () => 'map.mapbuilder'),
+  mapFile: vi.fn(async () => 'map.ggvtt'),
 }));
 vi.mock('@dnd/ui/toast', () => ({ notify }));
 vi.mock('@/engine/engineSingleton', () => ({ getEngineSingleton: () => ({ engine: {}, sceneGraph: {} }) }));

@@ -288,7 +288,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </Hint>
           </>
         ) : (
-          <Hint>The editable map, the same file Ctrl+S saves. Open it here again or load it on the table.</Hint>
+          <Hint>The editable map as a .ggvtt, the same file Ctrl+S saves. Open it here again or load it on the table.</Hint>
         )}
 
         {error && <ErrorLine>{error}</ErrorLine>}

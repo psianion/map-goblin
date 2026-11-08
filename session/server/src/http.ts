@@ -263,7 +263,7 @@ async function uploadMap(
   // Unpacked against the unpacked cap: a map with imported art gzips to well under the wire
   // limit and still expands past it (see MAX_MAP_JSON_BYTES).
   const text = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
-  if (text === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+  if (text === null) return json(res, 400, { error: 'could not read that .ggvtt file' })
 
   const map = parseMapFile(text)
   if (!map.ok) return json(res, 400, { error: map.error })
@@ -417,7 +417,7 @@ async function publishScene(
   if (!body.ok) return failBody(req, res, body)
 
   const raw = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
-  if (raw === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+  if (raw === null) return json(res, 400, { error: 'could not read that .ggvtt file' })
   const map = parseMapFile(raw)
   if (!map.ok) return json(res, 400, { error: map.error })
 

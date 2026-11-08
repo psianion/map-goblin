@@ -15,6 +15,7 @@ import {
   type DmSession,
   type SceneMeta,
 } from '../session/auth';
+import { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
 import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 
@@ -444,7 +445,7 @@ export default function HostSetup() {
               <input
                 id="map-file"
                 type="file"
-                accept=".mapbuilder,.json,application/json"
+                accept={MAP_FILE_ACCEPT}
                 disabled={busy}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
