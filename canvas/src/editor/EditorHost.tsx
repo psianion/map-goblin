@@ -9,6 +9,7 @@ import { EditorShell } from '@/editor/shell/EditorShell';
 import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
+import { restoreOpenMap, trackOpenMap } from '@/io/openMapPref';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
@@ -111,6 +112,9 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
           notify.error(result.warning);
         }
 
+        // The map that was open, not merely the last one saved (see io/openMapPref.ts).
+        await restoreOpenMap(db);
+        if (cancelled) return;
         await useStore.getState().loadMapIndex();
         if (cancelled) return;
 
@@ -140,6 +144,8 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
     if (home || !activeMapId) return;
     void loadMapAssets(useStore.getState());
   }, [home, activeMapId]);
+
+  useEffect(() => trackOpenMap(), []);
 
   useEffect(() => {
     const cleanup = startAutosave(
