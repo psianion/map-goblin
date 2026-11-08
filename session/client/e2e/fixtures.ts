@@ -19,9 +19,12 @@ export { expect };
 export const SERVER_URL = process.env.E2E_SERVER_URL ?? GAME_SERVER;
 export const ADMIN_PASS = (): string => process.env.E2E_ADMIN_PASS ?? '';
 
-/** The fixture map every spec hosts on unless it brings its own. */
-export const DEMO_MAP = join(import.meta.dirname, '../../testdata/demo-dungeon.mapbuilder');
-export const DEMO_NAME = 'Demo Dungeon';
+/** The fixture map every spec hosts on unless it brings its own: seven rooms, doors and lights. */
+export const DEMO_MAP = join(import.meta.dirname, '../../testdata/goblin-warren.mapbuilder');
+export const DEMO_NAME = 'Goblin Warren';
+/** A second, small map (West Hall, East Vault), for a scene that must not share the first one's name. */
+export const SECOND_MAP = join(import.meta.dirname, '../../testdata/vision-two-rooms.mapbuilder');
+export const SECOND_NAME = 'Two Rooms';
 
 async function api<T>(path: string, init: RequestInit, credential?: string): Promise<T> {
   const res = await fetch(`${SERVER_URL}${path}`, {

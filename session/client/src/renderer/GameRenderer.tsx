@@ -281,7 +281,8 @@ export function GameRenderer() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-bg">
-      <div ref={containerRef} className="h-full w-full touch-none" data-testid="game-canvas" />
+      {/* Hidden until the engine is up: Pixi clears to black before the desk is installed. */}
+      <div ref={containerRef} className={`h-full w-full touch-none ${engine ? "" : "opacity-0"}`} data-testid="game-canvas" />
       {status && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <p className="rounded-float border border-line bg-panel px-4 py-2 text-sm text-text-2 shadow-e">

@@ -97,9 +97,10 @@ describe('player side', () => {
     expect(screen.queryByTestId('story-handout')).toBeNull();
   });
 
-  it('keeps shown handouts in the Journal', () => {
-    useSessionStore.setState({ you: pia });
+  it('keeps shown handouts and title cards in the Journal', () => {
+    useSessionStore.setState({ you: pia, session: session({ ...story, journal: [...story.journal, { id: 'j2', sharedAt: 1, kind: 'title', ref: 'Night falls' }] }) });
     render(<JournalSheet />);
     expect(screen.getByTestId('journal-handout').textContent).toContain('Letter');
+    expect(screen.getByTestId('journal-feed').textContent).toContain('Night falls');
   });
 });

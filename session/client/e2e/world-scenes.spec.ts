@@ -1,5 +1,5 @@
 // @scenes: the World and Scenes tabs, and the campaign export (plan section 7). Unrun until step T.
-import { DEMO_MAP, expect, test } from './fixtures';
+import { DEMO_NAME, SECOND_MAP, SECOND_NAME, expect, test } from './fixtures';
 
 test.describe('@scenes world and scenes', () => {
   test('World: clock jumps, weather, darkness, and the title card chip follows', async ({ hostSession }) => {
@@ -31,15 +31,16 @@ test.describe('@scenes world and scenes', () => {
   test('Scenes: import, Prepare then Switch now, delete behind its confirm', async ({ hostSession }) => {
     const { page } = hostSession;
     await page.keyboard.press('7');
-    await page.getByTestId('scene-import-input').setInputFiles(DEMO_MAP);
+    await page.getByTestId('scene-import-input').setInputFiles(SECOND_MAP);
     await expect(page.getByTestId('scene-card')).toHaveCount(2);
-    const other = page.getByTestId('scene-card').filter({ hasNot: page.getByTestId('scene-live') }).first();
+    // Pinned by name: a filter on Live would stop matching the moment the card goes live.
+    const other = page.getByTestId('scene-card').filter({ hasText: SECOND_NAME });
     await other.getByTestId('scene-prepare').click();
     await expect(other.getByTestId('scene-ready')).toBeVisible();
     await other.getByTestId('scene-switch').click();
     await expect(other.getByTestId('scene-live')).toBeVisible();
 
-    const old = page.getByTestId('scene-card').filter({ hasNot: page.getByTestId('scene-live') }).first();
+    const old = page.getByTestId('scene-card').filter({ hasText: DEMO_NAME });
     await old.locator('button').first().click();
     await page.getByTestId('scene-delete').click();
     await expect(page.getByTestId('scene-delete-confirm')).toContainText('Fog, tokens and notes go too.');

@@ -1,5 +1,5 @@
 // @player: the player shell, and the phone layout at 390×844 (plan section 7). Unrun until step T.
-import { expect, test } from './fixtures';
+import { assertMapLoaded, expect, test } from './fixtures';
 
 test.describe('@player player shell', () => {
   test('a player gets the title card without a switcher, three rail tools, no dock', async ({ joinAsPlayer }) => {
@@ -30,6 +30,8 @@ test.describe('@player player shell', () => {
     await phone.locator('#player-name').fill('Yara');
     await phone.getByRole('button', { name: 'Join' }).click();
     await expect(phone.getByTestId('phone-bar')).toBeVisible({ timeout: 30_000 });
+    // The mark tools attach once the engine is up: a press before then lands on nothing.
+    await assertMapLoaded(phone);
     await expect(phone.getByTestId('sheet-tabs')).toBeHidden();
     await phone.getByTestId('phone-tab-log').click();
     await expect(phone.getByTestId('log-sheet')).toBeVisible();
@@ -40,7 +42,6 @@ test.describe('@player player shell', () => {
     if (box) {
       const x = box.x + box.width / 2;
       const y = box.y + box.height / 2;
-      await phone.touchscreen.tap(x, y);
       await phone.evaluate(
         ({ x, y }) => {
           const canvas = document.querySelector('[data-testid="game-canvas"] canvas')!;
@@ -48,6 +49,7 @@ test.describe('@player player shell', () => {
         },
         { x, y },
       );
+      // A long press: held past the threshold with no pointerup and no movement.
       await expect(phone.locator('[data-mark="ping"]')).toHaveCount(1, { timeout: 3000 });
     }
     await context.close();

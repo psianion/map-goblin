@@ -2,6 +2,7 @@
 // held; the canvas's handoff landing on the Map step; the starting room on the call that opens
 // the table.
 
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { endpoints } from '../endpoints';
@@ -105,6 +106,18 @@ describe('HostSetup', () => {
     expect(auth.redeemHandoff).toHaveBeenCalledWith('abc123');
     expect(window.location.hash).toBe('');
     await waitFor(() => expect(localStorage.getItem('gg.table.dm.c1')).not.toBeNull());
+  });
+
+  it('spends a single-use handoff code once, even mounted twice', async () => {
+    window.location.hash = '#handoff=once42';
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY) });
+    render(
+      <StrictMode>
+        <HostSetup />
+      </StrictMode>,
+    );
+    expect(await screen.findByTestId('host-map')).toBeTruthy();
+    expect(auth.redeemHandoff).toHaveBeenCalledTimes(1);
   });
 
   it('resumes a table that is already open on the Invite step', async () => {

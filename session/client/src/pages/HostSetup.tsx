@@ -51,12 +51,28 @@ function serverUrlError(value: string): string | null {
   return null;
 }
 
-/** `#handoff=<code>` from the canvas's Open the table; read once, then cleared from the bar. */
-function takeHandoffCode(): string | null {
+/** `#handoff=<code>` from the canvas's Open the table. */
+function readHandoffCode(): string | null {
   const match = /(?:^#|&)handoff=([^&]+)/.exec(window.location.hash);
-  if (!match) return null;
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+function clearHandoffCode(): void {
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
-  return decodeURIComponent(match[1]!);
+}
+
+/**
+ * The code is single use, and the page can mount more than once for one load (StrictMode in
+ * dev runs effects twice): every mount for the same code shares the one redeem.
+ */
+const redeems = new Map<string, ReturnType<typeof redeemHandoff>>();
+function redeemOnce(code: string): ReturnType<typeof redeemHandoff> {
+  let pending = redeems.get(code);
+  if (!pending) {
+    pending = redeemHandoff(code);
+    redeems.set(code, pending);
+  }
+  return pending;
 }
 
 /** A blank map: the editor's own default document, under a plain name. */
@@ -161,10 +177,11 @@ export default function HostSetup() {
   useEffect(() => {
     if (handoff.current) return;
     handoff.current = true;
-    const code = takeHandoffCode();
+    const code = readHandoffCode();
     if (!code) return;
     void run(async () => {
-      const res = await redeemHandoff(code);
+      const res = await redeemOnce(code);
+      clearHandoffCode();
       saveDmToken({ campaignId: res.campaignId, name: res.campaignName, server: endpoints.httpBase }, res.token);
       await enterCampaign({ campaignId: res.campaignId, name: res.campaignName, token: res.token }, false);
     });

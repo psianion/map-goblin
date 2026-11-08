@@ -45,6 +45,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   process.env.E2E_ADMIN_PASS = adminPass
   process.env.E2E_SERVER_URL = GAME_SERVER
+  process.env.E2E_DATA_DIR = dataDir
 
   return async () => {
     // `pnpm` spawns `tsx` spawns node: killing the shell leaves the server holding the port,

@@ -71,9 +71,9 @@ export function ViewMenu() {
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup value={previewing ?? ''} onValueChange={(v) => previewAs(v || null)}>
-                  <DropdownMenuRadioItem value="">Nobody (DM view)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem closeOnClick value="">Nobody (DM view)</DropdownMenuRadioItem>
                   {candidates.map((t) => (
-                    <DropdownMenuRadioItem key={t.id} value={t.id} data-testid={`preview-as-${t.id}`}>
+                    <DropdownMenuRadioItem closeOnClick key={t.id} value={t.id} data-testid={`preview-as-${t.id}`}>
                       {t.name}
                     </DropdownMenuRadioItem>
                   ))}
@@ -87,7 +87,7 @@ export function ViewMenu() {
           <DropdownMenuLabel>Theme</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={choice} onValueChange={(v) => applyTheme(v as ThemeChoice)}>
             {THEMES.map((t) => (
-              <DropdownMenuRadioItem key={t.value} value={t.value} data-testid={`theme-${t.value}`}>
+              <DropdownMenuRadioItem closeOnClick key={t.value} value={t.value} data-testid={`theme-${t.value}`}>
                 {t.label}
               </DropdownMenuRadioItem>
             ))}
@@ -98,7 +98,7 @@ export function ViewMenu() {
           <DropdownMenuLabel>UI scale</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={String(scale)} onValueChange={(v) => applyUiScale(Number(v) as UiScale)}>
             {UI_SCALES.map((s) => (
-              <DropdownMenuRadioItem key={s} value={String(s)} data-testid={`ui-scale-${s}`}>
+              <DropdownMenuRadioItem closeOnClick key={s} value={String(s)} data-testid={`ui-scale-${s}`}>
                 {s}%
               </DropdownMenuRadioItem>
             ))}

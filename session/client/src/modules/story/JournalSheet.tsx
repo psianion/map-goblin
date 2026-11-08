@@ -34,14 +34,16 @@ export function JournalSheet() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const entries = triggers ? journalOf(triggers) : [];
   useMarkJournalSeen(entries);
-  const handouts = (story?.journal ?? [])
-    .filter((j) => j.kind === 'handout')
-    .map((j) => ({ j, h: story?.handouts.find((h) => h.id === j.ref) }))
-    .filter((x) => !!x.h);
+  // Read-alouds arrive as cards in the triggers journal above; handouts and title cards are the story's own.
+  const shared = (story?.journal ?? []).flatMap((j) => {
+    if (j.kind === 'title') return [{ id: j.id, at: j.sharedAt, title: j.ref, text: undefined as string | undefined, kind: 'Title card' }];
+    const h = j.kind === 'handout' ? story?.handouts.find((x) => x.id === j.ref) : undefined;
+    return h ? [{ id: j.id, at: j.sharedAt, title: h.caption, text: h.text, kind: 'Handout' }] : [];
+  });
   return (
     <SheetFrame title="Journal" onClose={closeSheet} testId="journal-sheet">
       <div className="flex flex-col gap-2.5 px-3 py-2.5" data-testid="journal-feed">
-        {entries.length === 0 && handouts.length === 0 && (
+        {entries.length === 0 && shared.length === 0 && (
           <p className="py-6 text-center text-xs text-text-3" data-testid="journal-empty">
             Nothing shared yet. What the world tells you will be kept here.
           </p>
@@ -49,12 +51,12 @@ export function JournalSheet() {
         {[...entries].reverse().map((c) => (
           <Card key={c.id} entry={c} sceneId={sceneId} />
         ))}
-        {handouts.length > 0 && <Caption>Handouts</Caption>}
-        {[...handouts].reverse().map(({ j, h }) => (
-          <article key={j.id} className="rounded-control border border-line bg-panel-2 px-2.5 py-2" data-testid="journal-handout">
-            <p className="text-sm font-medium text-text">{h!.caption}</p>
-            {h!.text && <p className="text-xs whitespace-pre-wrap text-text-2">{h!.text}</p>}
-            <time className="font-mono text-xs text-text-3">{clock(j.sharedAt)}</time>
+        {[...shared].reverse().map((x) => (
+          <article key={x.id} className="rounded-control border border-line bg-panel-2 px-2.5 py-2" data-testid={x.kind === 'Handout' ? 'journal-handout' : 'journal-title'}>
+            <Caption>{x.kind}</Caption>
+            <p className="text-sm font-medium text-text">{x.title}</p>
+            {x.text && <p className="text-xs whitespace-pre-wrap text-text-2">{x.text}</p>}
+            <time className="font-mono text-xs text-text-3">{clock(x.at)}</time>
           </article>
         ))}
       </div>

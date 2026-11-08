@@ -19,7 +19,7 @@ export function ZoomControls({ className }: { className?: string }) {
     <div className={cn('flex items-center gap-0.5', className)} data-testid="zoom-controls">
       <IconKeyButton size={28} icon={Minus} label="Zoom out" onClick={zoomOut} data-testid="zoom-out" />
       <span className="w-12 text-center font-mono text-xs text-text-2" data-testid="zoom-percent">
-        {pct === null ? '—' : `${pct}%`}
+        {pct === null ? '' : `${pct}%`}
       </span>
       <IconKeyButton size={28} icon={Plus} label="Zoom in" onClick={zoomIn} data-testid="zoom-in" />
       <IconKeyButton size={28} icon={Maximize} label="Fit map" shortcut="0" onClick={zoomFit} data-testid="zoom-fit" />
