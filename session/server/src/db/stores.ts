@@ -366,6 +366,13 @@ export class SessionStore {
     this.#setScene.run(sceneId, sessionId)
   }
 
+  /** Table v2 — the DM's pause and movement lock (migration 006), written by the `table` module. */
+  setTableFlags(sessionId: string, flags: { paused: boolean; movementLocked: boolean }): void {
+    this.#db
+      .prepare<[number, number, string]>('UPDATE sessions SET paused = ?, movement_locked = ? WHERE id = ?')
+      .run(flags.paused ? 1 : 0, flags.movementLocked ? 1 : 0, sessionId)
+  }
+
   /** #47 — a deleted scene stops being anyone's active one, in whatever session had it. */
   clearActiveScene(sceneId: string): void {
     this.#clearScene.run(sceneId)

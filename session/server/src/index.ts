@@ -10,7 +10,6 @@ import { initiativeModule } from '@dnd/mechanics/initiative'
 import { pinsModule } from '@dnd/mechanics/pins'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { storyModule } from '@dnd/mechanics/story'
-import { tableModule, type TableState } from '@dnd/mechanics/table'
 import { tokensModule } from '@dnd/mechanics/tokens'
 import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
@@ -29,6 +28,7 @@ import { afterWrites, effectsTick } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
+import { sessionTable } from './modules/table'
 import { createTriggerDeps } from './triggers/prepResolver'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
@@ -130,12 +130,11 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
-  // Table v2: the DM's pause and movement lock stop a player's move. ponytail: read from the
-  // table module's own row until migration 006 gives them columns on `sessions` (plan 4.3).
-  const tableOf = ({ campaignId }: { campaignId: string }) =>
-    (stores.moduleState.get(campaignId, 'table') as TableState | undefined) ?? null
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, tableOf))
-  modules.register(tableModule)
+  // Table v2: the DM's pause and movement lock stop a player's move, read off the session's
+  // row (migration 006), which the table module writes through.
+  const table = sessionTable(stores)
+  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf))
+  modules.register(table.module)
   modules.register(pinsModule)
   // Read-aloud goes out through the triggers module's existing share path; story journals it.
   modules.register(
@@ -194,6 +193,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     // that is sitting there rather than reconnecting.
     sessionActive: (id) => stores.sessions.get(id)?.active === 1,
     isBanned: (identityId) => stores.identities.isBanned(identityId),
+    tableFlags: table.flagsOf,
     ...options,
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })

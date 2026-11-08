@@ -53,6 +53,11 @@ export interface SessionManagerOptions {
   sessionActive?: (sessionId: string) => boolean
   /** Has this identity been banned since it connected? Defaults to no, for the same reason. */
   isBanned?: (identityId: string) => boolean
+  /**
+   * Table v2 — the session row's pause and movement lock. When a session opens in this process
+   * the `table` slice is set from it (internal `table.sync`), so the seats are shown the row.
+   */
+  tableFlags?: (sessionId: string) => { paused: boolean; movementLocked: boolean } | null
   /** P4 — how often each open session's world clock is checked. Test seam only. */
   worldTickMs?: number
 }
@@ -68,6 +73,7 @@ export class SessionManager {
   private readonly scenes: SceneSource
   private readonly sessionActive: (sessionId: string) => boolean
   private readonly isBanned: (identityId: string) => boolean
+  private readonly tableFlags: NonNullable<SessionManagerOptions['tableFlags']>
 
   constructor(
     /** Already populated — boot owns which modules exist (§2.3.8). */
@@ -80,6 +86,7 @@ export class SessionManager {
       scenes = () => ({ scenes: [], activeSceneId: null }),
       sessionActive = () => true,
       isBanned = () => false,
+      tableFlags = () => null,
       worldTickMs,
     }: SessionManagerOptions = {},
   ) {
@@ -87,6 +94,7 @@ export class SessionManager {
     this.scenes = scenes
     this.sessionActive = sessionActive
     this.isBanned = isBanned
+    this.tableFlags = tableFlags
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
@@ -333,6 +341,7 @@ export class SessionManager {
     // and a `let` that started out possibly-undefined stays possibly-undefined inside a closure.
     const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false }
     this.sessions.set(id, session)
+    this.syncTable(session)
     // P4 — the world clock is campaign-global and ticks for as long as the table is open,
     // unaffected by which scene is active or who is in it (read fresh on every tick below).
     this.worldTicker.start({
@@ -343,6 +352,21 @@ export class SessionManager {
       broadcast: (msg) => this.broadcaster.broadcast(session.id, msg),
     })
     return session
+  }
+
+  /** Table v2 — the `table` slice set from the session's row, before anyone is sent a snapshot. */
+  private syncTable(session: Session): void {
+    const flags = this.tableFlags(session.id)
+    if (!flags) return
+    const error = this.modules.dispatchInternal('table', 'sync', flags, {
+      campaignId: session.campaignId,
+      sessionId: session.id,
+      activeSceneId: null,
+      sender: { role: 'dm', identityId: 'server' },
+      players: [],
+      broadcast: (msg) => this.broadcaster.broadcast(session.id, msg),
+    })
+    if (error) console.warn(`[table] sync refused: ${error.message}`)
   }
 
   /** Scenes and the active one are read fresh: an upload between joins must show up. */

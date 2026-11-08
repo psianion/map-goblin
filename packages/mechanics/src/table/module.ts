@@ -2,9 +2,10 @@
 // `tokens.move` is refused while either is on (the tokens module reads this through its
 // `tableOf` seam).
 //
-// ponytail: persisted in `module_state` per campaign for now. Plan 4.3 moves the two flags to
-// `sessions` columns (migration 006); when that lands the server wires `tableOf` to the row and
-// this module's writes mirror into it — the wire shape below does not change.
+// The truth is the session's row (`sessions.paused`, `movement_locked`, migration 006): the
+// server mirrors every write there and answers refusals from it. This slice is what the seats
+// are shown; `sync` (internal, absent from `commands`) sets it from the row when a session
+// opens, so a new session never inherits the last one's pause.
 
 import type { GameModule } from '../contract'
 import { Reject, bad, bool, obj } from '../tokens/validate'
@@ -22,6 +23,9 @@ export const tableModule: GameModule<TableState> = {
   handler(action, payload, ctx) {
     try {
       const p = obj(payload ?? {}, 'payload')
+      if (action === 'sync') {
+        return ctx.setState({ paused: bool(p.paused, 'paused'), movementLocked: bool(p.movementLocked, 'movementLocked') })
+      }
       const on = bool(p.on, 'on')
       if (action === 'pause') ctx.setState({ ...ctx.state, paused: on })
       else if (action === 'lock-movement') ctx.setState({ ...ctx.state, movementLocked: on })

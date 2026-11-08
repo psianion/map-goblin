@@ -67,3 +67,23 @@ describe('table', () => {
     expect(t.run(DM, 'pause', {})).toMatchObject({ code: 'invalid-command' })
   })
 })
+
+describe('table sync', () => {
+  it('is internal and sets both flags from the session row', () => {
+    expect(tableModule.commands.sync).toBeUndefined()
+    let state: TableState = { paused: true, movementLocked: true }
+    tableModule.handler('sync', { paused: false, movementLocked: false }, {
+      campaignId: 'c1',
+      sessionId: 's1',
+      activeSceneId: null,
+      sender: DM,
+      players: [],
+      state,
+      setState: (next) => {
+        state = next
+      },
+      broadcast: () => {},
+    })
+    expect(state).toEqual({ paused: false, movementLocked: false })
+  })
+})
