@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readUvtt, uvttColor } from './uvtt';
+import { importedMapToDocument } from './toDocument';
+import { computeMapFrame } from '../mapBounds';
 
 const FILE = {
   format: 0.3,
@@ -81,6 +83,24 @@ describe('readUvtt', () => {
     // A light off the edge still lights the map from there
     expect(m.lights[0]).toMatchObject({ x: 30, y: 33.5 });
     expect(m.warnings).toContain('3 wall points outside the map were pulled to its edge');
+  });
+
+  it('pins a map of part cells to its nearest whole cells, walls on the pinned edge, no void past the picture', () => {
+    const m = readUvtt(
+      {
+        resolution: { map_origin: { x: 0, y: 0 }, map_size: { x: 36.4, y: 24 }, pixels_per_grid: 50 },
+        line_of_sight: [[{ x: 30, y: 5 }, { x: 36.4, y: 5 }]],
+        image: 'iVBORw0KGgo=',
+      },
+      'Crypt',
+    );
+    expect(m.size).toEqual({ width: 36, height: 24 });
+    expect(m.image).toMatchObject({ width: 1820, pxPerCell: 50 });
+    expect(m.walls[0].points).toEqual([[30, 5], [36, 5]]);
+    const doc = importedMapToDocument(m);
+    // The picture's 0.4 cell past the pinned edge is cut, not grown into a ring of void.
+    expect(computeMapFrame(doc.layers, null, doc.mapSettings.fixedSize)).toEqual({ minX: 0, minY: 0, maxX: 36, maxY: 24 });
+    expect(readUvtt({ resolution: { map_size: { x: 36.6, y: 0.2 }, pixels_per_grid: 50 } }, 'x').size).toEqual({ width: 37, height: 1 });
   });
 
   it('says nothing about the edge when every point is on the map', () => {

@@ -101,6 +101,15 @@ export function edgeClamp(width: number, height: number) {
   };
 }
 
+/**
+ * The fixed size an imported map pins: its cell count rounded to the nearest whole cell, at
+ * least one. Rounding up left a sliver of void past the picture's far edge; a picture that
+ * runs a fraction past a rounded-down edge is cut there (mapBounds' image overhang rule).
+ */
+export function pinnedCells(width: number, height: number): { width: number; height: number } {
+  return { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) };
+}
+
 /** The one warning for points `edgeClamp` moved, or nothing when none were. */
 export function pulledWarning(n: number, what: string): string[] {
   return n ? [`${n} ${what} outside the map were pulled to its edge`] : [];

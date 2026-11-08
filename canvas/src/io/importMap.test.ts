@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { IMPORT_MAX_PX, importMaps } from './importMap';
+import { IMPORT_MAX_PX, downscaledImage, importMaps } from './importMap';
 import type { ScannedMap } from './importFolder';
 import type { ImportedMap } from '@dnd/core/src/shared/import/types';
 import type { DungeonLayer } from '@/store/types';
@@ -95,5 +95,17 @@ describe('importMaps', () => {
     expect(results).toHaveLength(1);
     expect(results[0].ok).toBe(true);
     expect(state.createNewMap).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('downscaledImage', () => {
+  it('keeps the picture on the same cells after the floor of the shrunk width', () => {
+    // 9001 px across at 137 px a cell, shrunk by 0.4551: 65.7 cells before and after.
+    const scale = 0.4551;
+    const out = downscaledImage({ width: 9001, height: 6000, pxPerCell: 137 }, scale);
+    expect(out.width).toBe(Math.floor(9001 * scale));
+    expect(out.width / out.pxPerCell).toBeCloseTo(9001 / 137, 9);
+    // The old figure, pxPerCell * scale, lands off by a fraction of a pixel.
+    expect(out.width / (137 * scale)).not.toBeCloseTo(9001 / 137, 9);
   });
 });

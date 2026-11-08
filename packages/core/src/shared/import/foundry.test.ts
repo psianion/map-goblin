@@ -50,6 +50,8 @@ describe('readFoundryScene', () => {
   it('shifts the padding off and divides by the grid', () => {
     expect(foundryPadding(AXEHOLM)).toEqual({ x: 1680, y: 1540 });
     expect(map.size).toEqual({ width: 47, height: 42 });
+    // A scene of part cells pins to the nearest whole ones, not always up.
+    expect(readFoundryScene({ ...AXEHOLM, width: 6580 + 50, height: 5880 + 90 }, null).size).toEqual({ width: 47, height: 43 });
     expect(map.walls[0]).toEqual({ points: [[21, 26.5], [21.5, 26.5]], wallType: 'normal', direction: 'both' });
   });
 
