@@ -14,22 +14,25 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { AssetChild, DungeonLayer } from '@/store/types';
 import {
-  MIN_BOX_WORLD,
+  MIN_CELL_WORLD,
   applyGridCalibration,
   calibrationTransform,
-  clampSpans,
+  clampCells,
   endGridCalibration,
   getGridCalibration,
+  latticeFixedSize,
   pxPerCell,
-  setCalibrationBox,
-  setCalibrationSpans,
+  setCalibrationCells,
+  setCalibrationLattice,
   startGridCalibration,
+  startLattice,
+  type Lattice,
 } from './gridCalibration';
 
 /**
- * A 1000px-square image whose world footprint (width * scale, the number both
- * the sprite sync and the hit test use) is exactly 10 cells, centred on (5, 5).
- * Its top-left corner therefore sits on the world origin.
+ * A 2520 by 1680 px battlemap imported at the 70 px guess: a 36 by 24 cell footprint
+ * (width * scale, the number the sprite sync and the hit test use) with its top-left corner
+ * on the map origin. `scale` is 0.5 to keep the legacy multiplier honest.
  */
 function image(over: Partial<AssetChild> = {}): AssetChild {
   return {
@@ -39,11 +42,11 @@ function image(over: Partial<AssetChild> = {}): AssetChild {
     visible: true,
     objectType: 'image',
     assetId: 'asset-1',
-    position: { x: 5, y: 5 },
+    position: { x: 18, y: 12 },
     rotation: 0,
     scale: 0.5,
-    width: 20,
-    height: 20,
+    width: 72,
+    height: 48,
     tint: '#ffffff',
     flipX: false,
     flipY: false,
@@ -51,123 +54,98 @@ function image(over: Partial<AssetChild> = {}): AssetChild {
   };
 }
 
-describe('calibrationTransform', () => {
-  it('scales so the box measures exactly `spans` cells', () => {
-    // A box 1.5 cells across that the DM says covers 3 of the image's squares:
-    // the image has to double in size.
-    const t = calibrationTransform(image(), { x: 0, y: 0, size: 1.5 }, 3);
-    expect(t).not.toBeNull();
-    expect(t!.width * 0.5).toBeCloseTo(20, 6); // footprint 10 cells -> 20
-    expect(t!.height * 0.5).toBeCloseTo(20, 6);
+const SOURCE = { width: 2520, height: 1680 };
+
+describe('startLattice', () => {
+  it('starts on the detected grid, scaled onto the picture as placed', () => {
+    // The printed squares are 105 px with lines 35 px in: 1.5 cells as placed, 0.5 in.
+    const l = startLattice(image(), { cells: { width: 24, height: 16 }, grid: { pxPerCell: 105, originX: 35, originY: 35 }, sourcePx: SOURCE });
+    expect(l.cell).toBeCloseTo(1.5, 9);
+    expect(l.x).toBeCloseTo(0.5, 9);
+    expect(l.y).toBeCloseTo(0.5, 9);
+    expect([l.cols, l.rows]).toEqual([24, 16]);
   });
 
-  it('leaves the box top-left on a grid intersection, snapping to the nearest', () => {
-    // Box at (2.3, 4.8): after the transform its corner must land on (2, 5).
-    const child = image();
-    const box = { x: 2.3, y: 4.8, size: 1 };
-    const t = calibrationTransform(child, box, 1)!;
-    const k = 1 / box.size;
-    const newTopLeft = {
-      x: t.position.x - (t.width * child.scale) / 2,
-      y: t.position.y - (t.height * child.scale) / 2,
-    };
-    // Where the box corner ends up: the same point of the image, rescaled.
-    const boxOffsetInImage = { x: box.x - 0, y: box.y - 0 }; // image corner is at world 0,0
-    expect(newTopLeft.x + boxOffsetInImage.x * k).toBeCloseTo(2, 6);
-    expect(newTopLeft.y + boxOffsetInImage.y * k).toBeCloseTo(5, 6);
+  it('reads a line found at the far end of a cell as the picture edge, so the lattice stays on it', () => {
+    const l = startLattice(image(), { cells: { width: 36, height: 24 }, grid: { pxPerCell: 70, originX: 68, originY: 2 }, sourcePx: SOURCE });
+    expect(l.x).toBeCloseTo(-2 / 70, 9);
+    expect(l.y).toBeCloseTo(2 / 70, 9);
   });
 
-  it('is a no-op when the box already spans one whole cell on a lattice point', () => {
-    const child = image();
-    const t = calibrationTransform(child, { x: 3, y: 3, size: 1 }, 1)!;
-    expect(t.position.x).toBeCloseTo(child.position.x, 6);
-    expect(t.position.y).toBeCloseTo(child.position.y, 6);
-    expect(t.width).toBeCloseTo(child.width, 6);
-    expect(t.height).toBeCloseTo(child.height, 6);
+  it('without a grid, spreads the squares across the picture from its corner', () => {
+    const l = startLattice(image(), { cells: { width: 30, height: 20 } });
+    expect(l).toEqual({ x: 0, y: 0, cell: 36 / 30, cols: 30, rows: 20 });
   });
 
-  it('divides the alignment error by the span count', () => {
-    // The image is already correct (1 cell = 1 cell), so the ideal transform is
-    // a no-op. Both boxes overshoot the far edge by the same 0.05 cells; the
-    // 3-cell box carries a third of the error into the scale.
-    const err = 0.05;
-    const one = calibrationTransform(image(), { x: 0, y: 0, size: 1 + err }, 1)!;
-    const three = calibrationTransform(image(), { x: 0, y: 0, size: 3 + err }, 3)!;
-    const errOne = Math.abs(one.width / 20 - 1);
-    const errThree = Math.abs(three.width / 20 - 1);
-    expect(errThree).toBeLessThan(errOne / 2.5);
-  });
-
-  it('refuses a zero or near-zero box rather than exploding the sprite', () => {
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 0 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: -2 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: MIN_BOX_WORLD / 2 }, 1)).toBeNull();
-  });
-
-  it('refuses non-finite geometry', () => {
-    expect(calibrationTransform(image(), { x: NaN, y: 0, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: Infinity, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: NaN }, 1)).toBeNull();
-  });
-
-  it('refuses a zero-footprint child', () => {
-    expect(calibrationTransform(image({ scale: 0 }), { x: 0, y: 0, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image({ width: 0 }), { x: 0, y: 0, size: 1 }, 1)).toBeNull();
-  });
-
-  it('refuses a result that would be smaller than half a cell or bigger than a continent', () => {
-    // Box far bigger than the image: the image would shrink to nothing.
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 400 }, 1)).toBeNull();
-    // Smallest legal box called 64 cells: the image would blow past the ceiling.
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: MIN_BOX_WORLD }, 64)).toBeNull();
-  });
-
-  it('treats a nonsense span as one cell rather than dividing by zero', () => {
-    const zero = calibrationTransform(image(), { x: 0, y: 0, size: 2 }, 0)!;
-    const one = calibrationTransform(image(), { x: 0, y: 0, size: 2 }, 1)!;
-    expect(zero.width).toBeCloseTo(one.width, 9);
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 2 }, NaN)!.width).toBeCloseTo(
-      one.width,
-      9,
-    );
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 2 }, -5)!.width).toBeCloseTo(
-      one.width,
-      9,
-    );
+  it('with nothing, starts on the map grid from the first line on the picture', () => {
+    const l = startLattice(image({ position: { x: 17.7, y: 11.6 } }));
+    expect(l.cell).toBe(1);
+    expect(l.x).toBeCloseTo(0, 9);
+    expect(l.y).toBeCloseTo(0, 9);
+    expect([l.cols, l.rows]).toEqual([36, 24]);
   });
 });
 
-describe('clampSpans', () => {
-  it('keeps spans a whole number of at least one', () => {
-    expect(clampSpans(0)).toBe(1);
-    expect(clampSpans(-3)).toBe(1);
-    expect(clampSpans(NaN)).toBe(1);
-    expect(clampSpans(Infinity)).toBe(1);
-    expect(clampSpans(2.9)).toBe(2);
-    expect(clampSpans(1e9)).toBe(64);
+describe('calibrationTransform', () => {
+  const lattice: Lattice = { x: 0.5, y: 0.25, cell: 1.5, cols: 23, rows: 15 };
+
+  it('makes one lattice cell one map cell and puts the lattice corner on the map origin', () => {
+    const t = calibrationTransform(image(), lattice)!;
+    const k = 1 / 1.5;
+    expect(t.width * 0.5).toBeCloseTo(36 * k, 9);
+    expect(t.height * 0.5).toBeCloseTo(24 * k, 9);
+    const left = t.position.x - (t.width * 0.5) / 2;
+    const top = t.position.y - (t.height * 0.5) / 2;
+    // Every lattice line lands on a whole map cell: the corner on 0, the tenth line on 10.
+    expect((0.5 - 0) * k + left).toBeCloseTo(0, 9);
+    expect((0.25 - 0) * k + top).toBeCloseTo(0, 9);
+    expect((0.5 + 10 * 1.5) * k + left).toBeCloseTo(10, 9);
+  });
+
+  it('leaves the picture corner hanging the fraction of a cell it starts before the lattice', () => {
+    const t = calibrationTransform(image(), lattice)!;
+    expect(t.position.x - (t.width * 0.5) / 2).toBeCloseTo(-0.5 / 1.5, 9);
+  });
+
+  it('is a no-op for a picture already lined up', () => {
+    const t = calibrationTransform(image(), { x: 0, y: 0, cell: 1, cols: 36, rows: 24 })!;
+    expect(t.position).toEqual({ x: 18, y: 12 });
+    expect(t.width).toBe(72);
+  });
+
+  it('refuses a degenerate lattice, a zero picture, or a result off the scale', () => {
+    expect(calibrationTransform(image(), { ...lattice, cell: 0 })).toBeNull();
+    expect(calibrationTransform(image(), { ...lattice, cell: MIN_CELL_WORLD / 2 })).toBeNull();
+    expect(calibrationTransform(image(), { ...lattice, x: NaN })).toBeNull();
+    expect(calibrationTransform(image({ width: 0 }), lattice)).toBeNull();
+    expect(calibrationTransform(image(), { ...lattice, cell: 100 })).toBeNull();
+    // Past MIN_CELL_WORLD but a picture over ten thousand cells across.
+    expect(calibrationTransform(image(), { ...lattice, cell: 0.03 })).not.toBeNull();
+    expect(calibrationTransform({ ...image(), width: 800 }, { ...lattice, cell: 0.03 })).toBeNull();
+  });
+});
+
+describe('latticeFixedSize and clampCells', () => {
+  it('is the lattice in whole cells, within what a fixed size accepts', () => {
+    expect(latticeFixedSize({ cols: 36, rows: 24 })).toEqual({ width: 36, height: 24 });
+    expect(clampCells(0)).toBe(1);
+    expect(clampCells(NaN)).toBe(1);
+    expect(clampCells(12.4)).toBe(12);
+    expect(clampCells(5000)).toBe(1000);
   });
 });
 
 describe('pxPerCell', () => {
-  it('reads the image’s own pixels per cell off the box', () => {
-    // 10-cell-wide footprint from a 1000px texture = 100 image px per cell.
-    // A box 3 cells wide covering 3 of them reads back exactly 100.
-    expect(pxPerCell({ boxSize: 3, footprintWidth: 10, nativePx: 1000, spans: 3 })).toBeCloseTo(
-      100,
-      9,
-    );
-    expect(pxPerCell({ boxSize: 1.41, footprintWidth: 10, nativePx: 1000, spans: 3 })).toBeCloseTo(
-      47,
-      9,
-    );
+  it('reads the picture’s own pixels, not the downscaled texture’s', () => {
+    // A 5040 px original shrunk to a 2048 texture, placed 36 cells wide: 140 px a cell.
+    expect(pxPerCell({ cell: 1 }, 36, 5040)).toBeCloseTo(140, 9);
   });
 
-  it('never returns NaN or Infinity — degenerate input reads as null', () => {
-    expect(pxPerCell({ boxSize: 0, footprintWidth: 10, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 0, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 10, nativePx: 0, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: NaN, footprintWidth: 10, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 10, nativePx: 1000, spans: 0 })).not.toBeNull();
+  it('reads degenerate input as null, never NaN or Infinity', () => {
+    expect(pxPerCell({ cell: 0 }, 36, 5040)).toBeNull();
+    expect(pxPerCell({ cell: 1 }, 0, 5040)).toBeNull();
+    expect(pxPerCell({ cell: 1 }, 36, 0)).toBeNull();
+    expect(pxPerCell({ cell: NaN }, 36, 5040)).toBeNull();
   });
 });
 
@@ -185,12 +163,12 @@ function placed(): AssetChild {
   return c;
 }
 
-describe('grid calibration session', () => {
+describe('grid line-up session', () => {
   beforeEach(() => {
     endGridCalibration();
     undoManager.clear();
     useStore.getState().resetToDefault();
-    useStore.getState().addChild(layer().id, image());
+    useStore.getState().addChild(layer().id, image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
   });
 
   it('refuses to start on an id that is not an asset child', () => {
@@ -198,72 +176,59 @@ describe('grid calibration session', () => {
     expect(getGridCalibration()).toBeNull();
   });
 
-  it('starts with the box on the image’s top-left corner', () => {
-    expect(startGridCalibration('img')).toBe(true);
-    const s = getGridCalibration()!;
-    expect(s.box.x).toBeCloseTo(0, 6);
-    expect(s.box.y).toBeCloseTo(0, 6);
-    expect(s.spans).toBe(3);
-    // Visibly on the image and a useful fraction of it: a 10-cell map opens with
-    // a 3-cell box, so the readout reads back the grid it was sized against.
-    expect(s.box.size).toBeCloseTo(3, 6);
+  it('measures against the picture’s own source size when the caller gives none', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: { pxPerCell: 105, originX: 35, originY: 35 } });
+    expect(getGridCalibration()!.sourcePx).toEqual(SOURCE);
+    expect(getGridCalibration()!.lattice.cell).toBeCloseTo(1.5, 9);
   });
 
-  it('keeps the box inside a small image rather than swallowing it', () => {
-    // Footprint 2x2 — half of it, not the 3-cell default that would overhang.
-    useStore.getState().updateChild(layer().id, 'img', { width: 4, height: 4 });
-    startGridCalibration('img');
-    expect(getGridCalibration()!.box.size).toBeCloseTo(1, 6);
+  it('reflows W and H from the corner, in whole cells', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationCells(25, 0);
+    expect(getGridCalibration()!.lattice).toMatchObject({ x: 0, y: 0, cols: 25, rows: 1 });
   });
 
-  it('clamps a box dragged to nothing and a nonsense span', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 1, y: 1, size: 0 });
-    expect(getGridCalibration()!.box.size).toBe(MIN_BOX_WORLD);
-    setCalibrationSpans(-4);
-    expect(getGridCalibration()!.spans).toBe(1);
-  });
-
-  it('applies scale, offset and the lock as one undoable step', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 2.3, y: 4.8, size: 1.5 });
-    setCalibrationSpans(3);
+  it('takes the grid as one undo step: picture, fixed size, lock; then undoes all three', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationLattice({ x: 0.5, y: 0.25, cell: 1.5 });
+    setCalibrationCells(23, 15);
 
     expect(applyGridCalibration()).toBe(true);
     expect(getGridCalibration()).toBeNull();
-
     const after = placed();
-    expect(after.width * after.scale).toBeCloseTo(20, 6);
-    // No per-child lock exists in this codebase — the image's layer is what locks.
+    expect(after.width * after.scale).toBeCloseTo(24, 9);
+    expect(after.position.x - (after.width * after.scale) / 2).toBeCloseTo(-1 / 3, 9);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 23, height: 15 });
     expect(layer().locked).toBe(true);
 
     undoManager.undo();
-    const back = placed();
-    expect(back.width * back.scale).toBeCloseTo(10, 6);
-    expect(back.position).toEqual({ x: 5, y: 5 });
+    expect(placed()).toEqual(image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
     expect(layer().locked).toBe(false);
     expect(undoManager.canRedo()).toBe(true);
   });
 
-  it('refuses an impossible calibration and stays in the mode', () => {
+  it('refuses an impossible lattice and stays in the mode', () => {
     startGridCalibration('img');
-    setCalibrationBox({ x: 0, y: 0, size: MIN_BOX_WORLD });
-    setCalibrationSpans(64);
+    // A lattice cell bigger than the whole picture would shrink it below half a cell.
+    setCalibrationLattice({ x: 0, y: 0, cell: 100 });
 
     expect(applyGridCalibration()).toBe(false);
     expect(getGridCalibration()).not.toBeNull();
     expect(layer().locked).toBe(false);
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
     expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('skipping leaves the image untouched and unlocked', () => {
+  it('Skip leaves the image as placed, unlocked, and the size alone', () => {
     startGridCalibration('img');
-    setCalibrationBox({ x: 2, y: 2, size: 0.5 });
+    setCalibrationLattice({ x: 2, y: 2, cell: 0.5 });
     endGridCalibration();
 
     expect(getGridCalibration()).toBeNull();
-    expect(placed()).toEqual(image());
+    expect(placed()).toEqual(image({ imageSource: { fileName: 'crypt.png', ...SOURCE } }));
     expect(layer().locked).toBe(false);
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
     expect(undoManager.canUndo()).toBe(false);
   });
 });

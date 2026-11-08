@@ -30,7 +30,7 @@ function saved(patch: (l: DungeonLayer) => void): SerializedMapData {
 
 describe('map format 3.6', () => {
   it('is still read, as 3.5 is', () => {
-    expect(CURRENT_VERSION).toBe('3.8');
+    expect(CURRENT_VERSION).toBe('3.9');
     expect(SUPPORTED_VERSIONS).toContain('3.5');
     expect(SUPPORTED_VERSIONS).toContain('3.6');
   });

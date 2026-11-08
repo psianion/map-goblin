@@ -80,7 +80,7 @@ test('Use as Trace founds the map at the size with a trace layer and no line-up'
   const trace = await store(page, `(s) => s.layers.find((l) => l.type === 'image') || null`)
   expect(trace).toMatchObject({ fit: 'map', fileName: 'sketch 12x8.png' })
   expect(await store(page, `(s) => s.layers.some((l) => l.name === 'Battlemap')`)).toBe(false)
-  await expect(page.getByRole('group', { name: 'Grid calibration' })).toHaveCount(0)
+  await expect(page.getByTestId('grid-lineup-bar')).toHaveCount(0)
 })
 
 test('without a size in the name the printed grid sets the squares', { tag: '@home' }, async ({ page }) => {
@@ -92,4 +92,63 @@ test('without a size in the name the printed grid sets the squares', { tag: '@ho
   // 45 px squares, not the 70 px guess (which would read 13 × 9).
   await expect(modal.getByText('900 × 600 px · 20 × 13 squares')).toBeVisible()
   await expect(modal.getByLabel('Width in squares')).toHaveValue('20')
+})
+
+test('the line-up starts on the found grid and Use this grid sets the map to W by H', { tag: '@home' }, async ({ page }) => {
+  const modal = await openDialog(page)
+  // 50 px squares with lines 20 px in: the picture hangs 0.4 of a cell past the lattice.
+  const b64 = await page.evaluate(() => {
+    const c = document.createElement('canvas')
+    c.width = 620
+    c.height = 420
+    const g = c.getContext('2d')!
+    g.fillStyle = '#c8b89a'
+    g.fillRect(0, 0, 620, 420)
+    g.fillStyle = '#3a3026'
+    for (let x = 20; x < 620; x += 50) g.fillRect(x, 0, 2, 420)
+    for (let y = 20; y < 420; y += 50) g.fillRect(0, y, 620, 2)
+    return c.toDataURL('image/png').split(',')[1]
+  })
+  const chooser = page.waitForEvent('filechooser')
+  await modal.getByTestId('v2-image-drop').click()
+  await (await chooser).setFiles({ name: 'Ruin 12x8.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') })
+  await modal.getByTestId('v2-new-map-submit').click()
+
+  const bar = page.getByTestId('grid-lineup-bar')
+  await expect(bar).toBeVisible({ timeout: 30_000 })
+  await expect(bar.getByText('Line up the grid')).toBeVisible()
+  await expect(bar.getByRole('group', { name: 'Squares across' })).toContainText('12')
+  await expect(bar.getByRole('group', { name: 'Squares down' })).toContainText('8')
+  await expect(page.getByTestId('grid-lineup-px')).toHaveText('50 px per cell')
+
+  // One more column, then take it.
+  await bar.getByRole('button', { name: 'Increase Squares across' }).click()
+  await expect(bar.getByRole('group', { name: 'Squares across' })).toContainText('13')
+  await bar.getByRole('button', { name: 'Decrease Squares across' }).click()
+  await bar.getByRole('button', { name: 'Use this grid' }).click()
+  await expect(bar).toHaveCount(0)
+
+  expect(await store(page, `(s) => s.mapSettings.fixedSize`)).toEqual({ width: 12, height: 8 })
+  const layer = await store(page, `(s) => s.layers.find((l) => l.name === 'Battlemap')`)
+  expect(layer.locked).toBe(true)
+  const child = layer.children[0]
+  // One printed square is one map cell, the lattice corner on the origin.
+  expect(child.width * child.scale).toBeCloseTo(620 / 50, 1)
+  expect(child.position.x - (child.width * child.scale) / 2).toBeCloseTo(-0.4, 1)
+  expect(child.position.y - (child.height * child.scale) / 2).toBeCloseTo(-0.4, 1)
+})
+
+test('Skip leaves the battlemap as placed, unlocked', { tag: '@home' }, async ({ page }) => {
+  const modal = await openDialog(page)
+  const png = await gridPng(page, 600, 400, 50)
+  const chooser = page.waitForEvent('filechooser')
+  await modal.getByTestId('v2-image-drop').click()
+  await (await chooser).setFiles({ name: 'Crypt 12x8.png', mimeType: 'image/png', buffer: png })
+  await modal.getByTestId('v2-new-map-submit').click()
+  const bar = page.getByTestId('grid-lineup-bar')
+  await expect(bar).toBeVisible({ timeout: 30_000 })
+  await bar.getByRole('button', { name: 'Skip' }).click()
+  await expect(bar).toHaveCount(0)
+  const layer = await store(page, `(s) => s.layers.find((l) => l.name === 'Battlemap')`)
+  expect(layer.locked).toBe(false)
 })

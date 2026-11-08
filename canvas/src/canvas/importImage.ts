@@ -198,6 +198,8 @@ export async function importImageFile(
     tint: '#ffffff',
     flipX: false,
     flipY: false,
+    // The texture may be a downscale; the line-up and the Battlemap sheet read the original.
+    imageSource: { fileName: input.name, width: srcWidth, height: srcHeight },
   };
 
   return child;

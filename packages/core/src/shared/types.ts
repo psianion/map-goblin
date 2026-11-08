@@ -277,6 +277,12 @@ export interface AssetChild extends LayerChild {
   glows?: boolean;
   /** How the glow burns while `glows` is on. Absent = strength 0.9, steady (`GLOW_DEFAULT`). */
   glow?: { strength: number; animation?: LightAnimation };
+  /**
+   * An imported picture's file name and its own pixel size, before any downscale for the
+   * texture: what the Battlemap sheet names and the grid line-up measures against. Absent on
+   * pack assets and on pictures imported before 3.9 (the texture's size stands in).
+   */
+  imageSource?: { fileName: string; width: number; height: number };
 }
 
 /** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */

@@ -109,11 +109,16 @@ const child38 = child37.and(z.object({ belowWater: z.boolean().optional() }).pas
 const trace = z
   .object({ type: z.literal('image'), imageKey: z.string().min(1), fileName: z.string(), fit: z.enum(['map', 'original']) })
   .passthrough();
-const layer38 = layer37.extend({ children: z.array(child38).optional() }).superRefine((l, ctx) => {
+const traceCheck = (l: { type: string }, ctx: z.RefinementCtx) => {
   if (l.type !== 'image') return;
   const parsed = trace.safeParse(l);
   if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
-});
+};
+const layer38 = layer37.extend({ children: z.array(child38).optional() }).superRefine(traceCheck);
+/** 3.9: an imported picture's file name and its own pixel size. */
+const imageSource = z.object({ fileName: z.string(), width: z.number().positive(), height: z.number().positive() }).passthrough();
+const child39 = child38.and(z.object({ imageSource: imageSource.optional() }).passthrough());
+const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine(traceCheck);
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -146,6 +151,7 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.7': v3('3.7', settings35, layer37),
   // 3.8 adds a prop's below-water flag (absent, drawn as it is) and trace layers.
   '3.8': v3('3.8', settings35, layer38),
+  '3.9': v3('3.9', settings35, layer39),
 };
 
 /** The first problem with a document, said plainly. */

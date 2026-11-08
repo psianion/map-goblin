@@ -10,8 +10,8 @@ import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { handleImageImport, importTraceImage, normalizeImageFile } from '@/canvas/importImage';
-import { battlemapCells, parseSizeHint, pickedImageLine, type CellFill } from '@/canvas/battlemapSize';
-import { detectGrid, sampleForDetection, type GridEstimate } from '@/canvas/detectGrid';
+import { MIN_DETECT_CONFIDENCE, battlemapCells, parseSizeHint, pickedImageLine, type CellFill } from '@/canvas/battlemapSize';
+import { detectGrid, sampleForDetection, type GridEstimate, type GridSample } from '@/canvas/detectGrid';
 import { startGridCalibration } from '@/canvas/gridCalibration';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { filesFromDataTransfer, filesFromList, scanFiles, type ScannedMap } from '@/io/importFolder';
@@ -178,6 +178,9 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
   // Read by importMaps between maps; a ref so the running loop sees the click.
   const stopRef = useRef(false);
   const mapFileRef = useRef<HTMLInputElement>(null);
+  // The picked image's pixels as the detector reads them, kept so a size typed over the
+  // filled one can seed it again at submit.
+  const sampleRef = useRef<GridSample | null>(null);
 
   // Every open starts clean. Reading the store imperatively keeps a running submit
   // from resetting the form underneath itself.
@@ -245,11 +248,13 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     const hint = parseSizeHint(file.name);
     let px: ImageInfo['px'] | null = null;
     let grid: GridEstimate | null = null;
+    sampleRef.current = null;
     try {
       const bitmap = await createImageBitmap(normalized);
       px = { width: bitmap.width, height: bitmap.height };
       const sample = sampleForDetection(bitmap);
       bitmap.close();
+      sampleRef.current = sample;
       if (sample) grid = detectGrid(sample, { seed: hint, source: px });
     } catch {
       px = null;
@@ -428,7 +433,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
           const across = wanted?.width ?? imageInfo?.cells.width;
           const pxPerCell = imageInfo && across ? imageInfo.px.width / across : undefined;
           const childId = await handleImageImport(image!, singleton.engine, { asBattlemap: true, pxPerCell });
-          if (childId) startGridCalibration(childId);
+          if (childId) startGridCalibration(childId, lineUpSeed(imageInfo, wanted, sampleRef.current));
           useStore.getState().setActiveLayerId(tracing.id);
         }
       }
@@ -748,4 +753,17 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * Where the line-up starts: the squares the dialog settled on, and the printed grid when
+ * the detector is sure of it. A size typed over the filled one seeds the detector again,
+ * so its lines are searched near what the DM said.
+ */
+function lineUpSeed(info: ImageInfo | null, wanted: { width: number; height: number } | null, sample: GridSample | null) {
+  if (!info) return { cells: wanted };
+  const cells = wanted ?? info.cells;
+  const retyped = cells.width !== info.cells.width || cells.height !== info.cells.height;
+  const grid = retyped && sample ? detectGrid(sample, { seed: cells, source: info.px }) : info.grid;
+  return { cells, sourcePx: info.px, grid: grid && grid.confidence >= MIN_DETECT_CONFIDENCE ? grid : null };
 }

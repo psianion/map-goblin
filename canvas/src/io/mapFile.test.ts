@@ -200,7 +200,7 @@ describe('the settings the editor dropped', () => {
   it('checks a document against its version', () => {
     expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
     expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
-    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8']);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9']);
   });
 
   it('reads 3.5 with the terrain blend switch, and refuses one that is not a switch', () => {
@@ -255,6 +255,21 @@ describe('the settings the editor dropped', () => {
     });
     expect(readMapDocument(doc('map')).layers).toHaveLength(1);
     expect(() => readMapDocument(doc('stretch'))).toThrow(/fit/);
+  });
+
+  it('reads a 3.9 picture with its source size, still checks traces, and refuses a size that is not one', () => {
+    const doc = (imageSource: unknown, fit = 'map') => ({
+      version: '3.9',
+      mapSettings: { name: 'Crypt' },
+      layers: [
+        { id: 'l1', type: 'dungeon', children: [{ id: 'p', childType: 'asset', objectType: 'image', imageSource }] },
+        { id: 't', type: 'image', imageKey: 'k', fileName: 'sketch.png', fit },
+      ],
+    });
+    expect(readMapDocument(doc({ fileName: 'Crypt 36x24.jpg', width: 2520, height: 1680 })).layers).toHaveLength(2);
+    expect(readMapDocument(doc(undefined)).layers).toHaveLength(2);
+    expect(() => readMapDocument(doc({ fileName: 'Crypt.jpg', width: 0, height: 1680 }))).toThrow(/imageSource/);
+    expect(() => readMapDocument(doc(undefined, 'stretch'))).toThrow(/fit/);
   });
 });
 
