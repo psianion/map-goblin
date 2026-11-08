@@ -6,3 +6,5 @@
 import './TokenPanel';
 // M4 — the player's own "Me" panel; registers itself the same way.
 import './MePanel';
+// Table v2 — the Token type and Party sheets.
+import './sheets';

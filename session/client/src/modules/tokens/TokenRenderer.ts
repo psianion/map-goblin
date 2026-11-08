@@ -118,6 +118,8 @@ function loadTexture(assetId: string): Promise<Texture | null> {
 interface View {
   container: Container;
   outline: Graphics;
+  /** The name under the token; shown per its `nameplate` (table v2). Null when `never`. */
+  label: Text | null;
   token: Token;
   /** Everything but position; a change rebuilds the sprite. */
   sig: string;
@@ -139,16 +141,67 @@ const signature = (t: Token, isDm: boolean): string =>
     t.ownerId,
     ownerName(t.ownerId),
     isDm,
+    // Table v2: the pool, the conditions and the nameplate rule all draw on the sprite.
+    t.hp ? `${t.hp.current}/${t.hp.max}` : '',
+    (t.conditions ?? []).join(','),
+    t.nameplate ?? 'hover',
   ].join('|');
 
+/** How faint a hidden token draws on the DM's seat (board 3: ghosted, with its badge). */
+export const HIDDEN_ALPHA = 0.5;
+
+/** Whether the name shows: `always`, `never`, or (`hover`, the default) while pointed at or selected. */
+export function nameplateShown(token: Token, hovered: boolean, selected: boolean): boolean {
+  const mode = token.nameplate ?? 'hover';
+  return mode === 'always' || (mode === 'hover' && (hovered || selected));
+}
+
 /**
- * How a token draws for the viewer. The alpha is here so it can be pinned: PRODUCT
- * principle 3 says a hidden token on the DM's map is drawn at full strength with a badge,
- * never faded — Owlbear's ghosting is the anti-reference the whole redaction model exists
- * to refuse. Players never receive a hidden token at all (D4), so the badge is the DM's.
+ * How a token draws for the viewer. Table v2's board 3 ghosts a hidden token on the DM's map
+ * and keeps the badge, so the DM reads "the players cannot see this one" at a glance. Players
+ * never receive a hidden token at all (D4), so both are the DM's.
  */
 export function tokenAppearance(token: Token, isDm: boolean): { alpha: number; badge: 'hidden' | null } {
-  return { alpha: 1, badge: isDm && token.hidden ? 'hidden' : null };
+  const hidden = isDm && token.hidden;
+  return { alpha: hidden ? HIDDEN_ALPHA : 1, badge: hidden ? 'hidden' : null };
+}
+
+/** The HP bar under the disc: a dark track, the pool left in white, danger red at a third. */
+function hpBar(token: Token, r: number): Graphics | null {
+  if (!token.hp || token.hp.max <= 0) return null;
+  const left = Math.max(0, Math.min(1, token.hp.current / token.hp.max));
+  const w = r * 1.6;
+  const h = Math.max(0.06, r * 0.14);
+  const g = new Graphics();
+  g.rect(-w / 2, 0, w, h).fill({ color: 0x111827, alpha: 0.85 });
+  if (left > 0) g.rect(-w / 2, 0, w * left, h).fill({ color: left <= 1 / 3 ? 0xdc2626 : 0xf5f5f5 });
+  g.position.set(0, r * 0.82);
+  g.label = 'hp-bar';
+  return g;
+}
+
+/** Up to four condition badges along the top edge, each its condition's first letter. */
+function conditionBadges(token: Token, r: number): Container | null {
+  const conditions = token.conditions ?? [];
+  if (conditions.length === 0) return null;
+  const row = new Container();
+  row.label = 'conditions';
+  const d = r * 0.42;
+  const shown = conditions.slice(0, 4);
+  shown.forEach((c, i) => {
+    const badge = new Container();
+    badge.addChild(new Graphics().circle(0, 0, d / 2).fill({ color: 0x111827 }).stroke({ width: d * 0.08, color: 0xffffff }));
+    const letter = new Text({
+      text: (conditions.length > 4 && i === 3 ? '+' : c.charAt(0)).toUpperCase(),
+      style: { fill: 0xffffff, fontFamily: 'sans-serif', fontSize: 32, fontWeight: 'bold' },
+    });
+    letter.anchor.set(0.5);
+    letter.scale.set((d * 0.62) / (letter.height || 32));
+    badge.addChild(letter);
+    badge.position.set((i - (shown.length - 1) / 2) * d * 1.05, -r * 0.95);
+    row.addChild(badge);
+  });
+  return row;
 }
 
 function buildView(token: Token, isDm: boolean): View {
@@ -206,6 +259,11 @@ function buildView(token: Token, isDm: boolean): View {
   container.alpha = look.alpha;
   if (look.badge === 'hidden') container.addChild(eyeSlash(r));
 
+  const bar = hpBar(token, r);
+  if (bar) container.addChild(bar);
+  const badges = conditionBadges(token, r);
+  if (badges) container.addChild(badges);
+
   const owner = ownerName(token.ownerId);
   const label = new Text({
     text: tokenLabelText(token.name, owner),
@@ -213,8 +271,10 @@ function buildView(token: Token, isDm: boolean): View {
   });
   label.anchor.set(0.5, 0);
   label.scale.set(0.28 / (label.height || 32));
-  label.position.set(0, r * 1.05);
+  label.position.set(0, r * 1.05 + (bar ? r * 0.12 : 0));
   container.addChild(label);
+  const nameplate = token.nameplate ?? 'hover';
+  if (nameplate === 'never') label.visible = false;
 
   const outline = new Graphics().circle(0, 0, r * 1.18).stroke({ width: r * 0.08, color: 0xffffff });
   outline.visible = false;
@@ -224,6 +284,7 @@ function buildView(token: Token, isDm: boolean): View {
   return {
     container,
     outline,
+    label: nameplate === 'never' ? null : label,
     token,
     sig: signature(token, isDm),
     target: { x: token.x, y: token.y },
@@ -264,6 +325,8 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   let lastSlice: unknown;
   let lastScene: string | null | undefined;
   let lastSelected: string | null | undefined;
+  let lastPicked: readonly string[] | undefined;
+  let lastHovered: string | null | undefined;
 
   const drop = (view: View) => {
     if (!view.container.destroyed) view.container.destroy({ children: true });
@@ -272,7 +335,7 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   const sync = () => {
     const { session, you } = useSessionStore.getState();
     const isDm = you?.role === 'dm';
-    const selected = useTokenInteraction.getState().selectedId;
+    const { selectedId: selected, selectedIds, hoveredId } = useTokenInteraction.getState();
     tokens = activeTokens();
 
     const live = new Set<string>();
@@ -291,7 +354,9 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       }
       view.token = token;
       view.container.zIndex = drawOrder(token);
-      view.outline.visible = token.id === selected;
+      const picked = token.id === selected || selectedIds.includes(token.id);
+      view.outline.visible = picked;
+      if (view.label) view.label.visible = nameplateShown(token, token.id === hoveredId, picked);
       // §4: inbound positions never fight a drag in progress, and a just-dropped token
       // holds its optimistic spot until the server confirms (or SETTLE_MS expires).
       if (view.dragging) continue;
@@ -310,6 +375,8 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     lastSlice = session?.modules?.tokens;
     lastScene = session?.activeSceneId;
     lastSelected = selected;
+    lastPicked = selectedIds;
+    lastHovered = hoveredId;
   };
 
   // The store fires on every ping too — only the three things this layer draws from
@@ -319,7 +386,9 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     return (
       session?.modules?.tokens !== lastSlice ||
       session?.activeSceneId !== lastScene ||
-      useTokenInteraction.getState().selectedId !== lastSelected
+      useTokenInteraction.getState().selectedId !== lastSelected ||
+      useTokenInteraction.getState().selectedIds !== lastPicked ||
+      useTokenInteraction.getState().hoveredId !== lastHovered
     );
   };
   const onChange = () => {

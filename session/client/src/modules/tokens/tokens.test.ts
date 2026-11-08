@@ -28,7 +28,7 @@ import {
 import { mapScale, toCells, toUnits } from './sight';
 import { TokenPanel } from './TokenPanel';
 import { useTokenLibraryUi, useTokensUi } from './tokensUi';
-import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
+import { DISPOSITION_COLOR, HIDDEN_ALPHA, initials, nameplateShown, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
   id: 't1',
@@ -157,17 +157,13 @@ describe('initials + disposition colours (portrait-less fallback, D11)', () => {
   });
 });
 
-describe('tokenAppearance (D11 — the DM never loses visibility)', () => {
-  it('draws a hidden token at full opacity with a badge, never ghosted', () => {
-    expect(tokenAppearance(token({ hidden: true }), true)).toEqual({ alpha: 1, badge: 'hidden' });
+describe('tokenAppearance (board 3 — hidden is ghosted for the DM, with its badge)', () => {
+  it('draws a hidden token ghosted with a badge on the DM seat', () => {
+    expect(tokenAppearance(token({ hidden: true }), true)).toEqual({ alpha: HIDDEN_ALPHA, badge: 'hidden' });
   });
 
-  it('never dims a token, hidden or not, for either seat', () => {
-    for (const hidden of [true, false]) {
-      for (const isDm of [true, false]) {
-        expect(tokenAppearance(token({ hidden }), isDm).alpha).toBe(1);
-      }
-    }
+  it('never dims a visible token for either seat', () => {
+    for (const isDm of [true, false]) expect(tokenAppearance(token({ hidden: false }), isDm).alpha).toBe(1);
   });
 
   it('badges nothing a player can see — they never receive a hidden token anyway (D4)', () => {
@@ -939,5 +935,15 @@ describe('Tokens · Library ceiling (M3 no-scroll ledger)', () => {
     act(() => useTokenLibraryUi.getState().openNew());
     expect(screen.getByTestId('token-def-form')).toBeTruthy();
     expect(screen.queryAllByText(/^Def \d+$/)).toHaveLength(0);
+  });
+});
+
+describe('nameplateShown (table v2)', () => {
+  it('always shows, never hides, and hover shows while pointed at or selected', () => {
+    expect(nameplateShown(token({ nameplate: 'always' }), false, false)).toBe(true);
+    expect(nameplateShown(token({ nameplate: 'never' }), true, true)).toBe(false);
+    expect(nameplateShown(token({ nameplate: 'hover' }), false, false)).toBe(false);
+    expect(nameplateShown(token({ nameplate: 'hover' }), true, false)).toBe(true);
+    expect(nameplateShown(token({}), false, true)).toBe(true);
   });
 });
