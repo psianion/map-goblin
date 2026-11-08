@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssetProgress } from './assetBoot';
 
 // A mocked manager behind the adapter: every tier call is a spy the test drives.
-const SETS: Record<string, { set: string; installed: boolean; files: number; bytes: number }[]> = {
+const SETS: Record<string, { set: string; installed: boolean; files: number; bytes: number; missingFiles: number; missingBytes: number }[]> = {
   'gg-forge': [
-    { set: 'GG_Fieldstone', installed: true, files: 2, bytes: 1_000_000 },
-    { set: 'GG_Palisade', installed: false, files: 2, bytes: 1_000_000 },
+    { set: 'GG_Fieldstone', installed: true, files: 2, bytes: 1_000_000, missingFiles: 0, missingBytes: 0 },
+    { set: 'GG_Palisade', installed: false, files: 2, bytes: 1_000_000, missingFiles: 1, missingBytes: 600_000 },
   ],
-  'gg-demo': [{ set: 'demo-nature', installed: false, files: 100, bytes: 18_000_000 }],
-  'from-file': [{ set: 'x', installed: false, files: 1, bytes: 5 }],
+  'gg-demo': [{ set: 'demo-nature', installed: false, files: 100, bytes: 18_000_000, missingFiles: 100, missingBytes: 18_000_000 }],
+  'from-file': [{ set: 'x', installed: false, files: 1, bytes: 5, missingFiles: 1, missingBytes: 5 }],
 };
 const pm = { getAssetSetStatus: vi.fn((packId: string) => SETS[packId] ?? []) };
 const boot = {
@@ -102,6 +102,6 @@ describe('table assets', () => {
   });
 
   it('sizes the library as what the bundled packs still lack', () => {
-    expect(librarySize()).toBe(19_000_000);
+    expect(librarySize()).toBe(18_600_000);
   });
 });
