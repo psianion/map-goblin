@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { InitiativePrompt } from '../components/InitiativePrompt';
 import { SheetLinkPrompt } from '../components/SheetLinkPrompt';
 import { TriggerPrompts } from '../components/TriggerPrompts';
 import { CrossingChips } from '../modules/crossings/CrossingChips';
@@ -99,7 +98,6 @@ export default function GameTable() {
         <TableToaster />
 
         <TriggerPrompts />
-        <InitiativePrompt />
         <SheetLinkPrompt />
       </main>
     </div>

@@ -1,9 +1,9 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
-import type { Token, TokenDef } from '@dnd/mechanics/tokens';
+import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { Layer } from '@dnd/core/src/store/types';
 import { liveDoors } from '../doors/doors';
@@ -12,7 +12,6 @@ import { useToasts, type Toast } from '../../session/toasts';
 import { useRefusalToasts } from '../../session/useRefusalToasts';
 import { tokenLabelText } from './TokenRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
-import type { WebSocketClient } from '../../session/WebSocketClient';
 import {
   SETTLE_MS,
   approach,
@@ -26,8 +25,6 @@ import {
   type TokenLayer,
 } from './drag';
 import { mapScale, toCells, toUnits } from './sight';
-import { TokenPanel } from './TokenPanel';
-import { useTokenLibraryUi, useTokensUi } from './tokensUi';
 import { DISPOSITION_COLOR, HIDDEN_ALPHA, initials, nameplateShown, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
@@ -46,14 +43,6 @@ const token = (over: Partial<Token> = {}): Token => ({
   hidden: false,
   ownerId: null,
   ...over,
-});
-
-// The tab/filter/editing state a popover would normally remember between opens is
-// module-level (M3 — the footer is a sibling component, not a child, and needs the same
-// tab); every test starts from the same place regardless of what an earlier one left it at.
-beforeEach(() => {
-  useTokensUi.setState({ tab: 'map', mapFilter: '', detailExpanded: false });
-  useTokenLibraryUi.setState({ filter: '', editingId: null });
 });
 
 describe('move throttle (D9 — ~10 Hz + a final on drop)', () => {
@@ -239,7 +228,12 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
   });
 
   it('says nothing when the move was taken — a slow echo is not a refusal', () => {
-    render(createElement(TokenPanel));
+    render(
+      createElement(function Ear() {
+        useRefusalToasts();
+        return null;
+      }),
+    );
     act(() => useSessionStore.setState({ session: session([token({ x: 4.5, y: 6.5 })]) }));
     expect(useToasts.getState().toast).toBeNull();
   });
@@ -596,345 +590,6 @@ describe('mapScale / the unit a DM reads ranges in', () => {
     // No scale on the document ⇒ cells, which is honest rather than a guessed 5 ft.
     expect(mapScale(null)).toEqual({ value: 1, unit: 'cells' });
     expect(mapScale({ mapSettings: { cellScale: { value: 0, unit: 'ft' } } }).value).toBe(1);
-  });
-});
-
-describe('TokenPanel — On map tab, the DM’s detail block (owner, sight & light)', () => {
-  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
-  const player: PlayerInfo = { identityId: 'p-1', name: 'Borin', role: 'player', connected: true };
-
-  const scene = (tokens: Token[]): SessionState => ({
-    protocolVersion: PROTOCOL_VERSION,
-    sessionId: 's1',
-    campaignId: 'c1',
-    activeSceneId: 'scene-1',
-    scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
-    players: [dm, player],
-    modules: {
-      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
-    },
-  });
-
-  interface Sent {
-    module: string;
-    action: string;
-    payload: Record<string, unknown>;
-  }
-
-  /** Renders the panel with `tokens` on the scene and the first one selected. */
-  function panel(tokens: Token[], you: PlayerInfo = dm): Sent[] {
-    const sent: Sent[] = [];
-    useSessionStore.setState({
-      session: scene(tokens),
-      you,
-      lastError: null,
-      mapData: { mapSettings: { cellScale: { value: 5, unit: 'ft' } } },
-      client: { send: (m: Sent) => sent.push(m) } as unknown as WebSocketClient,
-    });
-    useTokenInteraction.getState().select(tokens[0].id);
-    render(createElement(TokenPanel));
-    return sent;
-  }
-
-  beforeEach(() => {
-    cleanup();
-    useToasts.setState({ toast: null });
-    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
-  });
-
-  it('is the DM’s section alone — a player who owns the token never sees it', () => {
-    panel([token({ ownerId: 'p-1' })], player);
-    expect(screen.queryByTestId('token-sight')).toBeNull();
-    expect(screen.queryByLabelText('Owner')).toBeNull();
-  });
-
-  /**
-   * The way out of the join deadlock: a seat with no token is sent no tokens in vision mode,
-   * so there is nothing on its list to claim. The DM hands one over from here instead.
-   */
-  it('hands a token to a player from the Owner select, and takes it back', () => {
-    const sent = panel([token()]);
-    const select = screen.getByLabelText('Owner');
-    // The seats, and only the seats — the DM is not an owner you can pick.
-    expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
-      'Unassigned',
-      'Borin',
-    ]);
-    expect(select).toHaveProperty('value', '');
-
-    fireEvent.change(select, { target: { value: 'p-1' } });
-    expect(sent[0]).toMatchObject({
-      module: 'tokens',
-      action: 'assign',
-      payload: { id: 't1', identityId: 'p-1' },
-    });
-
-    // With an owner stored the select reads it back, and "Unassigned" clears it.
-    cleanup();
-    const held = panel([token({ ownerId: 'p-1' })]);
-    expect(screen.getByLabelText('Owner')).toHaveProperty('value', 'p-1');
-    fireEvent.change(screen.getByLabelText('Owner'), { target: { value: '' } });
-    expect(held[0].payload).toEqual({ id: 't1', identityId: null });
-  });
-
-  it('gives a token sight and takes it away again, in the map’s own unit', () => {
-    const sent = panel([token()]);
-    // Nothing to edit until it has some: sight is nullable and starts null.
-    expect(screen.queryByLabelText('Sight range')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('token-sight-add'));
-    expect(sent[0]).toMatchObject({
-      module: 'tokens',
-      action: 'update',
-      payload: { id: 't1', sight: { range: 6, angle: 360, visionMode: 'normal' } },
-    });
-
-    // …and with sight on the token, the field reads 30 ft for those 6 cells.
-    cleanup();
-    const withSight = panel([token({ sight: { range: 6, angle: 360, visionMode: 'normal' } })]);
-    expect(screen.getByLabelText('Sight range')).toHaveProperty('value', '30');
-
-    // A range commits on blur, never per keystroke (every update is a sweep + a broadcast).
-    fireEvent.change(screen.getByLabelText('Sight range'), { target: { value: '60' } });
-    expect(withSight).toEqual([]);
-    fireEvent.blur(screen.getByLabelText('Sight range'));
-    expect(withSight[0].payload.sight).toEqual({ range: 12, angle: 360, visionMode: 'normal' });
-
-    fireEvent.change(screen.getByLabelText('Vision mode'), { target: { value: 'darkvision' } });
-    expect(withSight[1].payload.sight).toMatchObject({ visionMode: 'darkvision' });
-
-    fireEvent.click(screen.getByTestId('token-sight-clear'));
-    expect(withSight[2].payload).toEqual({ id: 't1', sight: null });
-  });
-
-  it('edits the carried light the same way, colour included', () => {
-    const sent = panel([token({ light: { dim: 8, bright: 4, color: '#ffbb66', angle: 360 } })]);
-    expect(screen.getByLabelText('Dim light radius')).toHaveProperty('value', '40');
-    expect(screen.getByLabelText('Bright light radius')).toHaveProperty('value', '20');
-
-    fireEvent.change(screen.getByLabelText('Bright light radius'), { target: { value: '10' } });
-    fireEvent.blur(screen.getByLabelText('Bright light radius'));
-    expect(sent[0].payload.light).toEqual({ dim: 8, bright: 2, color: '#ffbb66', angle: 360 });
-
-    fireEvent.change(screen.getByLabelText('Light colour'), { target: { value: '#3366ff' } });
-    expect(sent[1].payload.light).toMatchObject({ color: '#3366ff' });
-
-    fireEvent.click(screen.getByTestId('token-light-clear'));
-    expect(sent[2].payload).toEqual({ id: 't1', light: null });
-  });
-
-  it('commits a range once, on the way out — and never commits an emptied field', () => {
-    const sent = panel([token({ sight: { range: 6, angle: 360, visionMode: 'normal' }, light: null })]);
-    const range = screen.getByLabelText('Sight range');
-
-    // Typing "120" one key at a time: three updates would be three party sweeps and three
-    // fog broadcasts, and the table would spend the middle of them playing on a 10 ft range.
-    for (const value of ['1', '12', '120']) fireEvent.change(range, { target: { value } });
-    expect(sent).toEqual([]);
-
-    fireEvent.blur(range);
-    expect(sent).toHaveLength(1);
-    expect(sent[0].payload.sight).toEqual({ range: 24, angle: 360, visionMode: 'normal' });
-
-    // Clearing the field to type a new number reads as NaN, which used to commit as 0 —
-    // sight range zero collapses every player's mask mid-keystroke. Nothing is sent, and the
-    // field falls back to the value the table is still playing on.
-    fireEvent.change(range, { target: { value: '' } });
-    fireEvent.blur(range);
-    expect(sent).toHaveLength(1);
-    expect(range).toHaveProperty('value', '30');
-
-    // Enter commits from the keyboard, exactly once — it blurs rather than sending beside it.
-    fireEvent.change(range, { target: { value: '45' } });
-    fireEvent.keyDown(range, { key: 'Enter' });
-    expect(sent).toHaveLength(2);
-    expect(sent[1].payload.sight).toMatchObject({ range: 9 });
-  });
-
-  it('links a token to another and unlinks it from the chip', () => {
-    const familiar = token({ id: 't2', name: 'Hawk' });
-    const sent = panel([token(), familiar]);
-    // The picker is tucked behind "Link sight" until there is something to show.
-    fireEvent.click(screen.getByTestId('token-link-toggle'));
-    // Offered, not linked: no chip yet.
-    expect(screen.getByTestId('token-links').querySelector('[data-link-id]')).toBeNull();
-
-    fireEvent.change(screen.getByLabelText('Link a token'), { target: { value: 't2' } });
-    expect(sent[0]).toMatchObject({
-      module: 'tokens',
-      action: 'set-sight-link',
-      payload: { id: 't1', otherId: 't2', linked: true },
-    });
-
-    // With the link stored, the picker starts open on its own and the chip names the other
-    // token; its × unlinks.
-    cleanup();
-    const linked = panel([token({ sharesSightWith: ['t2'] }), familiar]);
-    expect(screen.getByTestId('token-links').textContent).toContain('Hawk');
-    fireEvent.click(screen.getByLabelText('Unlink Hawk'));
-    expect(linked[0]).toMatchObject({
-      action: 'set-sight-link',
-      payload: { id: 't1', otherId: 't2', linked: false },
-    });
-    // A token cannot be offered to itself, nor offered twice.
-    expect(screen.queryByLabelText('Link a token')).toBeNull();
-  });
-});
-
-// ── M3 no-scroll ledger — Tokens · On map / Library ─────────────────────────
-
-describe('Tokens · On map ceiling (M3 no-scroll ledger)', () => {
-  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
-  const many = (n: number) => Array.from({ length: n }, (_, i) => token({ id: `t${i}`, name: `Token ${i}` }));
-
-  function renderTokens(n: number) {
-    const tokens = many(n);
-    useSessionStore.setState({
-      session: {
-        protocolVersion: PROTOCOL_VERSION,
-        sessionId: 's1',
-        campaignId: 'c1',
-        activeSceneId: 'scene-1',
-        scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
-        players: [dm],
-        modules: { tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } } },
-      },
-      you: dm,
-      lastError: null,
-      mapData: null,
-      client: { send: () => {} } as unknown as WebSocketClient,
-    });
-    return render(createElement(TokenPanel));
-  }
-
-  beforeEach(() => {
-    cleanup();
-    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
-  });
-
-  it('shows every row and no filter under the ceiling (10 tokens)', () => {
-    renderTokens(10);
-    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(10);
-    expect(screen.queryByTestId('token-filter')).toBeNull();
-  });
-
-  it('collapses the detail block to one line once the list passes 13, expandable per row', () => {
-    renderTokens(13);
-    fireEvent.click(screen.getByText('Token 0'));
-
-    expect(screen.getByTestId('token-detail-toggle')).toBeTruthy();
-    expect(screen.queryByTestId('token-owner')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('token-detail-toggle'));
-    expect(screen.getByTestId('token-owner')).toBeTruthy();
-
-    // Picking a different row starts collapsed again rather than carrying the expansion over.
-    fireEvent.click(screen.getByText('Token 1'));
-    expect(screen.queryByTestId('token-owner')).toBeNull();
-  });
-
-  // A token whose owner is no longer at the table used to read "Unassigned" in the select
-  // while staying that seat's — and picking "Unassigned" was then no change at all.
-  it('names an owner who left, so the token can actually be unassigned', () => {
-    const sent: { action: string; payload: unknown }[] = [];
-    renderTokens(1);
-    useSessionStore.setState((s) => ({
-      session: {
-        ...s.session!,
-        modules: {
-          tokens: { library: {}, byScene: { 'scene-1': { t0: token({ id: 't0', name: 'Token 0', ownerId: 'gone' }) } } },
-        },
-      },
-      client: { send: (m: { action: string; payload: unknown }) => sent.push(m) } as unknown as WebSocketClient,
-    }));
-    fireEvent.click(screen.getByText('Token 0'));
-    const owner = screen.getByTestId('token-owner') as HTMLSelectElement;
-    expect(owner.value).toBe('gone');
-    expect(owner.options[owner.selectedIndex].textContent).toBe('Someone who left');
-
-    fireEvent.change(owner, { target: { value: '' } });
-    expect(sent[0]).toMatchObject({ action: 'assign', payload: { id: 't0', identityId: null } });
-  });
-
-  it('adds a filter and caps the visible rows once the list passes 21 (25 tokens)', () => {
-    renderTokens(25);
-    expect(screen.getByTestId('token-filter')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(20);
-    expect(screen.getByText('+5 more')).toBeTruthy();
-
-    fireEvent.change(screen.getByTestId('token-filter'), { target: { value: 'Token 24' } });
-    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(1);
-  });
-});
-
-describe('Tokens · Library ceiling (M3 no-scroll ledger)', () => {
-  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
-  const manyDefs = (n: number): Record<string, TokenDef> =>
-    Object.fromEntries(
-      Array.from({ length: n }, (_, i): [string, TokenDef] => [
-        `d${i}`,
-        {
-          id: `d${i}`,
-          name: `Def ${i}`,
-          imageAssetId: null,
-          size: 'medium',
-          disposition: 'neutral',
-          sight: null,
-          light: null,
-        },
-      ]),
-    );
-
-  function renderLibrary(n: number) {
-    useSessionStore.setState({
-      session: {
-        protocolVersion: PROTOCOL_VERSION,
-        sessionId: 's1',
-        campaignId: 'c1',
-        activeSceneId: 'scene-1',
-        scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
-        players: [dm],
-        modules: { tokens: { library: manyDefs(n), byScene: {} } },
-      },
-      you: dm,
-      lastError: null,
-      mapData: null,
-      client: { send: () => {} } as unknown as WebSocketClient,
-    });
-    useTokensUi.setState({ tab: 'library' });
-    return render(createElement(TokenPanel));
-  }
-
-  beforeEach(() => {
-    cleanup();
-    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
-  });
-
-  it('fits every def with no filter under the ceiling (16 defs)', () => {
-    renderLibrary(16);
-    expect(screen.queryByTestId('token-library-filter')).toBeNull();
-    expect(screen.getAllByText(/^Def \d+$/)).toHaveLength(16);
-  });
-
-  it('adds a filter and caps rows once the library passes 17 (30 defs), and editing collapses the list', () => {
-    renderLibrary(30);
-    expect(screen.getByTestId('token-library-filter')).toBeTruthy();
-    expect(screen.getAllByText(/^Def \d+$/).length).toBeLessThanOrEqual(16);
-
-    fireEvent.click(screen.getAllByLabelText(/^Edit Def \d+$/)[0]);
-    expect(screen.getByTestId('token-def-form')).toBeTruthy();
-    // Only the row being edited remains — the rest of the list made room for the form.
-    expect(screen.getAllByText(/^Def \d+$/)).toHaveLength(1);
-  });
-
-  it('hides the list entirely for a brand-new def', () => {
-    // "New token" lives in the popover's footer (`PanelDef.footer`, a sibling of this body —
-    // see `Popover.tsx`), not inside `TokenPanel` itself; driving the same store action it
-    // calls exercises exactly what that click does.
-    renderLibrary(30);
-    act(() => useTokenLibraryUi.getState().openNew());
-    expect(screen.getByTestId('token-def-form')).toBeTruthy();
-    expect(screen.queryAllByText(/^Def \d+$/)).toHaveLength(0);
   });
 });
 

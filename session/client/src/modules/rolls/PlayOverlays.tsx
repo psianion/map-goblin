@@ -1,7 +1,7 @@
 import { useSessionStore } from '../../session/store';
-import { PlayerRollBar, RollChips, RollPromptCard } from './PlayerRolls';
+import { InitiativePromptCard, PlayerRollBar, RollChips, RollPromptCard } from './PlayerRolls';
 
-/** The on-map roll surfaces: result chips for every seat; the roll bar and prompt card for players. */
+/** The on-map roll surfaces: result chips for every seat; for players the roll bar, the DM's roll prompt and the initiative prompt. */
 export function PlayOverlays() {
   const player = useSessionStore((s) => s.you?.role === 'player');
   return (
@@ -11,6 +11,7 @@ export function PlayOverlays() {
         <>
           <PlayerRollBar />
           <RollPromptCard />
+          <InitiativePromptCard />
         </>
       )}
     </>

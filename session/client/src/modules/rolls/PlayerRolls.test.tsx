@@ -5,7 +5,7 @@ import { useDetectedSheet } from '../../session/detectedSheet';
 import { BRAM, DM, seat, sent, token, tokensState } from '../tokens/playTestSeat';
 import { CharacterSheet } from './CharacterSheet';
 import { PlayOverlays } from './PlayOverlays';
-import { PlayerRollBar, RollChips, RollPromptCard } from './PlayerRolls';
+import { InitiativePromptCard, PlayerRollBar, RollChips, RollPromptCard } from './PlayerRolls';
 import { beyond20State, owedRequests } from './dice';
 
 vi.mock('@dnd/ui/toast', () => ({ notify: { info: vi.fn(), error: vi.fn() } }));
@@ -112,5 +112,44 @@ describe('Character sheet', () => {
   it('beyond20State: linked, seen, or not connected', () => {
     expect(beyond20State('Bram', 'x').label).toBe('Beyond20: Bram');
     expect(beyond20State(undefined, undefined)).toEqual({ label: 'Beyond20 not connected', live: false });
+  });
+});
+
+describe('initiative prompt card', () => {
+  const gathering = {
+    status: 'gathering',
+    sceneId: 'scene-1',
+    round: 0,
+    turn: 0,
+    entries: [{ key: 'e1', name: 'Bram', kind: 'pc', identityId: BRAM.identityId, initiative: null }],
+    log: [],
+  };
+
+  it('asks the player for their number and sets it, typed or from the last roll', () => {
+    const spy = seat(
+      {
+        initiative: gathering,
+        rolls: { log: [{ id: 'r', at: 1, identityId: BRAM.identityId, playerName: 'Sam', source: 'server', visibility: 'public', total: 15, title: 'Initiative' }] },
+      },
+      BRAM,
+    );
+    render(<InitiativePromptCard />);
+    fireEvent.click(screen.getByTestId('initiative-prompt-last'));
+    fireEvent.change(screen.getByTestId('initiative-prompt-value'), { target: { value: '12' } });
+    fireEvent.keyDown(screen.getByTestId('initiative-prompt-value'), { key: 'Enter' });
+    expect(sent(spy)).toEqual([
+      ['initiative', 'set', { key: 'e1', value: 15 }],
+      ['initiative', 'set', { key: 'e1', value: 12 }],
+    ]);
+  });
+
+  it('is gone once the entry has a number, and never shows for someone else’s', () => {
+    seat({ initiative: { ...gathering, entries: [{ ...gathering.entries[0], initiative: 9 }] } }, BRAM);
+    render(<InitiativePromptCard />);
+    expect(screen.queryByTestId('initiative-prompt')).toBeNull();
+    cleanup();
+    seat({ initiative: gathering }, DM);
+    render(<InitiativePromptCard />);
+    expect(screen.queryByTestId('initiative-prompt')).toBeNull();
   });
 });

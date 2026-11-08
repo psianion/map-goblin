@@ -8,12 +8,9 @@
 import {
   INITIATIVE_MAX,
   INITIATIVE_MIN,
-  conditionLabel,
   isInitiativeRoll,
-  ordered,
   type InitiativeEntry,
   type InitiativeState,
-  type InitiativeStatus,
 } from '@dnd/mechanics/initiative';
 import type { RollEvent } from '@dnd/mechanics/rolls';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
@@ -24,25 +21,6 @@ export interface Combatant {
   name: string;
   kind: 'pc' | 'npc';
   identityId?: string;
-}
-
-export interface TrackerRow {
-  key: string;
-  name: string;
-  initiative: number | null;
-  /** Whose turn it is. Never set while the order is still being gathered. */
-  current: boolean;
-  /** "5/12" for a pool this seat may read, "down" for a redacted NPC at 0, else null. */
-  hp: string | null;
-  /** At 0 HP — however this seat learned it. */
-  down: boolean;
-  conditions: string[];
-}
-
-export interface TrackerView {
-  status: Exclude<InitiativeStatus, 'idle'>;
-  round: number;
-  rows: TrackerRow[];
 }
 
 /** Wire data: the slice is absent before the join snapshot and untrusted after it. */
@@ -88,38 +66,6 @@ export function combatantCandidates(
         : { kind: 'npc' as const }),
     }))
     .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'pc' ? -1 : 1));
-}
-
-/**
- * What this seat's tracker shows, or `null` when it shows nothing: no encounter, or one
- * running on a scene the DM has walked away from — the fight is still on, it is just not on
- * this table right now, and it picks itself back up on the way back.
- *
- * Sorts only while gathering. Once running, `entries` *is* the order and `turn` indexes into
- * it, so re-sorting here would point the highlight at the wrong combatant.
- */
-export function trackerView(
-  state: InitiativeState | undefined,
-  sceneId: string | null,
-): TrackerView | null {
-  if (!state || state.status === 'idle') return null;
-  if (!sceneId || state.sceneId !== sceneId) return null;
-  const running = state.status === 'running';
-  const entries = running ? entriesOf(state) : ordered(entriesOf(state));
-  return {
-    status: running ? 'running' : 'gathering',
-    round: state.round,
-    rows: entries.map((e, i) => ({
-      key: e.key,
-      name: e.name,
-      initiative: e.initiative,
-      current: running && i === state.turn,
-      // A redacted NPC arrives as `{0, 0}`: the module's "down" bit, not a real pool.
-      hp: !e.hp ? null : e.hp.max === 0 ? 'down' : `${e.hp.current}/${e.hp.max}`,
-      down: !!e.hp && e.hp.current === 0,
-      conditions: Array.isArray(e.conditions) ? e.conditions.map(conditionLabel) : [],
-    })),
-  };
 }
 
 /**

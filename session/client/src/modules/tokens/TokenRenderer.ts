@@ -47,10 +47,9 @@ export function initials(name: string): string {
 
 /**
  * The tokens this seat has claimed on the active scene. Not component-local so a hook-only
- * consumer (`SheetLinkPrompt`, alongside `MePanel`) can import it without pulling in a
- * component export — mixing the two in one file breaks Fast Refresh's per-component reload
- * (`react-refresh/only-export-components`), the same reason `tokensUi.ts` sits outside
- * `TokenPanel.tsx`.
+ * consumer (`SheetLinkPrompt`) can import it without pulling in a component export — mixing
+ * the two in one file breaks Fast Refresh's per-component reload
+ * (`react-refresh/only-export-components`).
  */
 export function useClaimedTokens(): Token[] {
   const state = useModuleState<TokensState>('tokens');
