@@ -67,11 +67,11 @@ describe('editHint', () => {
     it('shows the outline key map', () => {
       const h = hintFor({ shapeNodeEditId: 'shape-1' });
       expect(h?.kind).toBe('outline');
-      expect(h?.label).toBe('Editing outline');
+      expect(h?.label).toBe('Node mode');
       expect(h?.text).toBe(
-        'drag a corner to move it · click a midpoint to add one · Delete removes · Alt curves · Esc done',
+        'drag a node · drag a midpoint to add · Del remove · Shift straight · Esc done',
       );
-      expect(h?.segments.filter((s) => s.key).map((s) => s.text)).toEqual(['Delete', 'Alt', 'Esc']);
+      expect(h?.segments.filter((s) => s.key).map((s) => s.text)).toEqual(['Del', 'Shift', 'Esc']);
     });
   });
 

@@ -17,7 +17,7 @@ const MOCK_MANIFEST = {
 }
 
 test.describe('Asset Pack Integration', () => {
-  test('pack loading: fetches index, installs pack, registers in memory', async ({ page }) => {
+  test('pack loading: fetches index, installs pack, registers in memory', { tag: '@assets' }, async ({ page }) => {
     await gotoApp(page)
 
     // Intercept CDN requests
@@ -74,7 +74,7 @@ test.describe('Asset Pack Integration', () => {
     expect(result.cacheLimitMB).toBe(200)
   })
 
-  test('offline behavior: cached data survives CDN failure', async ({ page }) => {
+  test('offline behavior: cached data survives CDN failure', { tag: '@assets' }, async ({ page }) => {
     await gotoApp(page)
 
     const result = await page.evaluate(async () => {

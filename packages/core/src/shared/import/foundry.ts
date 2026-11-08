@@ -6,7 +6,7 @@
 
 import type { DoorState, WallDirection, WallType } from '../types';
 import type { ImportedDoor, ImportedImage, ImportedLight, ImportedMap, ImportedWall } from './types';
-import { ambientForDarkness, edgeClamp, pulledWarning, round3 } from './types';
+import { ambientForDarkness, edgeClamp, pinnedCells, pulledWarning, round3 } from './types';
 
 export interface FoundryWall {
   c: [number, number, number, number];
@@ -196,7 +196,10 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
   // Walls drawn out in the scene padding are off the image, and a wall past the pinned edge
   // grows the frame past the picture — pull them onto it. Lights stay put: they never grow
   // the frame, and moving one would change what it lights.
-  const wallEdge = edgeClamp((scene.width ?? 0) / g, (scene.height ?? 0) / g);
+  const cellsX = (scene.width ?? 0) / g;
+  const cellsY = (scene.height ?? 0) / g;
+  const pinned = pinnedCells(cellsX, cellsY);
+  const wallEdge = edgeClamp(Math.min(cellsX, pinned.width), Math.min(cellsY, pinned.height));
 
   const allWalls = scene.walls ?? [];
   const keep = keptBands(allWalls);
@@ -276,7 +279,7 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
 
   return {
     name: scene.name?.trim() || 'Imported scene',
-    size: { width: Math.ceil((scene.width ?? 0) / g), height: Math.ceil((scene.height ?? 0) / g) },
+    size: pinned,
     image,
     walls,
     doors,

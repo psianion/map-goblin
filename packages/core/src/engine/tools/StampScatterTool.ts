@@ -89,6 +89,8 @@ interface StampPlacement {
   width: number;
   height: number;
   flipX: boolean;
+  /** The tint the prop is placed with; white is untinted. */
+  tint: string;
 }
 
 type Stroke =
@@ -280,7 +282,7 @@ export class StampScatterTool implements DrawingTool {
       grid.snapEnabled !== this.ctrlHeld,
       grid.snapDivision,
     );
-    return { assetId, position, rotation: s.stampRotation, width, height, flipX: s.stampFlipX };
+    return { assetId, position, rotation: s.stampRotation, width, height, flipX: s.stampFlipX, tint: s.stampTint ?? '#ffffff' };
   }
 
   private showGhost(cursor: Point, s: ScatterBrushSettings): void {
@@ -296,6 +298,7 @@ export class StampScatterTool implements DrawingTool {
     ghost.position.set(at.position.x, at.position.y);
     ghost.rotation = at.rotation;
     ghost.scale.set(((at.flipX ? -1 : 1) * at.width) / tex.width, at.height / tex.height);
+    ghost.tint = at.tint;
     ghost.visible = true;
 
     const zoom = this.zoom();
@@ -360,7 +363,7 @@ export class StampScatterTool implements DrawingTool {
     const at = this.stampAt(cursor, settings);
     if (!at) return;
     const name = nextAssetName(at.assetId, layer.children.map((c) => c.name));
-    const child = makeChild(name, at.assetId, at.position, at.rotation, at.width, at.height, '#ffffff', at.flipX);
+    const child = makeChild(name, at.assetId, at.position, at.rotation, at.width, at.height, at.tint, at.flipX);
     undoManager.execute(
       createPlacePropsCommand(layer.id, [child], { under: settings.placeUnder, label: 'Place prop' }),
     );

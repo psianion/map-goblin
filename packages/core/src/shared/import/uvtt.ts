@@ -3,7 +3,7 @@
 // mostly a rename; the image rides along as base64 with no data: prefix.
 
 import type { ImportedDoor, ImportedLight, ImportedMap, ImportedWall } from './types';
-import { edgeClamp, pulledWarning, round3 } from './types';
+import { edgeClamp, pinnedCells, pulledWarning, round3 } from './types';
 
 interface Pt {
   x: number;
@@ -66,7 +66,8 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
   // Walls sit on the image. Dungeondraft hugs the outer ones a fraction of a cell outside
   // it, which would grow the pinned frame a cell or two past the picture. Lights stay put:
   // they never grow the frame, and one just off the edge still lights the map.
-  const wallEdge = edgeClamp(size.x, size.y);
+  const pinned = pinnedCells(size.x, size.y);
+  const wallEdge = edgeClamp(Math.min(size.x, pinned.width), Math.min(size.y, pinned.height));
   const wallPt = (p: Pt): [number, number] => wallEdge.point(...pt(p));
   const poly = (ring: Pt[]): ImportedWall | null =>
     ring.length >= 2
@@ -142,7 +143,7 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
 
   return {
     name,
-    size: { width: Math.ceil(size.x), height: Math.ceil(size.y) },
+    size: pinned,
     image,
     walls,
     doors,

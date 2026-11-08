@@ -1,4 +1,4 @@
-import { Assets, Texture, TilingSprite } from 'pixi.js';
+import { Assets, ColorMatrixFilter, Texture, TilingSprite } from 'pixi.js';
 import { useStore } from '../store/store';
 import { notify } from '../shared/notify';
 import type { SceneGraph, LayerEntry } from './sceneGraph';
@@ -11,13 +11,14 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, redrawDoors, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, redrawGrid, redrawRoomFills, preloadLayerTextures } from './floorWallRenderer';
+import { gridDivision } from './imageGridRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
-import type { AnyChild, DungeonLayer, LightChild, RoomLook, ShapeChild } from '../store/types';
+import type { AnyChild, DungeonLayer, ImageLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
-import { isLayerShown } from '../store/selectors';
+import { compareLayerIds, isLayerShown } from '../store/selectors';
 import { propOccluderKey } from '../shared/propOcclusion';
 import type { RingGeometry, ThresholdSegment, WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
@@ -25,6 +26,21 @@ import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomRefresh';
 import * as textureLoader from '../assets/textureLoader';
+import { drawLayerWater } from './water/waterRenderer';
+import { drawLayerMaterials } from './material/materialRenderer';
+import { drawLayerPaths, pathsKey } from './path/pathRenderer';
+import { drawTraceLayer } from './trace/traceRenderer';
+import { computeMapFrame } from '../shared/mapBounds';
+
+/** The compare pass's greying, made on first use and shared by every compared layer. */
+let compareGreyFilter: ColorMatrixFilter | null = null;
+function compareGrey(): ColorMatrixFilter {
+  if (!compareGreyFilter) {
+    compareGreyFilter = new ColorMatrixFilter();
+    compareGreyFilter.desaturate();
+  }
+  return compareGreyFilter;
+}
 
 /**
  * A number per object identity, for folding "this array is a new one" into a
@@ -230,11 +246,11 @@ function editsDigest(edits: WallEdits): number {
  */
 function wallEditsKeyOf(layer: DungeonLayer): string {
   // The per-wall style pins ride along here rather than in `wallSignature`, for the
-  // reason the stone edits do: a wall that changes texture set or tint moves no room
+  // reason the stone edits do: a wall that changes texture set, tint or corner style moves no room
   // boundary and casts no new shadow, so it must re-lay its stones without dragging
   // room detection and every light's occlusion sweep along with it.
   const walls = layer.standaloneWalls
-    .map((w) => `${editsDigest(w)}:${w.textureSetId ?? ''}:${w.textureTint ?? ''}`)
+    .map((w) => `${editsDigest(w)}:${w.textureSetId ?? ''}:${w.textureTint ?? ''}:${w.cornerStyle ?? ''}`)
     .join(',');
   const rings = Object.entries(layer.floorWallEdits ?? {})
     .map(([ring, edits]) => `${ring}:${editsDigest(edits)}`)
@@ -365,6 +381,7 @@ function scheduleRedrawFills(layerId: string): void {
 function applyGridVisibility(entry: LayerEntry, perLayerGridVisible: boolean, globalVisible: boolean): void {
   if (!entry.sublayers) return;
   entry.sublayers.grid.visible = globalVisible && perLayerGridVisible;
+  entry.sublayers.imageGrid.visible = entry.sublayers.grid.visible;
 }
 
 /**
@@ -423,6 +440,98 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubLayers);
 
+  // ─── Water ────────────────────────────────────────────
+  // Redrawn only for a layer whose water moved: a stroke, an undo, a look change, a load.
+  // After the layer list's subscription, so a new layer's entry already exists.
+  const drawnWater = new Map<string, DungeonLayer['water']>();
+  const unsubWater = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const drawn = drawnWater.has(layer.id);
+        if (drawn ? drawnWater.get(layer.id) === layer.water : !layer.water) {
+          drawnWater.set(layer.id, layer.water);
+          continue;
+        }
+        drawnWater.set(layer.id, layer.water);
+        drawLayerWater(layer);
+      }
+      for (const id of [...drawnWater.keys()]) if (!live.has(id)) drawnWater.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubWater);
+
+  // ─── Material patches ─────────────────────────────────
+  // The same, for a layer's Material brush patches.
+  const drawnPatches = new Map<string, DungeonLayer['materials']>();
+  const unsubPatches = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const drawn = drawnPatches.has(layer.id);
+        const same = drawn ? drawnPatches.get(layer.id) === layer.materials : !layer.materials?.length;
+        drawnPatches.set(layer.id, layer.materials);
+        if (!same) drawLayerMaterials(layer);
+      }
+      for (const id of [...drawnPatches.keys()]) if (!live.has(id)) drawnPatches.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubPatches);
+
+  // ─── Paths ────────────────────────────────────────────
+  // A layer's paths redraw when any of its path children is a new object (immer hands out a
+  // new one exactly when it changed), or one comes or goes.
+  const drawnPaths = new Map<string, PathwayChild[]>();
+  const unsubPaths = useStore.subscribe(
+    (state) => state.layers,
+    (layers) => {
+      const live = new Set<string>();
+      for (const layer of layers) {
+        if (layer.type !== 'dungeon') continue;
+        live.add(layer.id);
+        const now = pathsKey(layer);
+        const was = drawnPaths.get(layer.id) ?? [];
+        drawnPaths.set(layer.id, now);
+        if (now.length === was.length && now.every((p, i) => p === was[i])) continue;
+        drawLayerPaths(layer);
+      }
+      for (const id of [...drawnPaths.keys()]) if (!live.has(id)) drawnPaths.delete(id);
+    },
+    { fireImmediately: true },
+  );
+  unsubscribers.push(unsubPaths);
+
+  // ─── Background image layers (traces) ─────────────────
+  // Each draws its picture over the map frame, which moves as the map is drawn: the layers,
+  // the terrain's bounds and the pinned size all wake it, and the pictures themselves.
+  const unsubTraces = useStore.subscribe(
+    (state) => ({
+      layers: state.layers,
+      images: state.assets.customImages,
+      terrain: state.mapSettings.terrain?.bounds ?? null,
+      fixed: state.mapSettings.fixedSize ?? null,
+    }),
+    ({ layers, images, terrain, fixed }) => {
+      const traces = layers.filter((l): l is ImageLayer => l.type === 'image');
+      if (traces.length === 0) return;
+      const frame = computeMapFrame(layers, terrain, fixed) ?? { minX: -5, minY: -5, maxX: 5, maxY: 5 };
+      for (const layer of traces) drawTraceLayer(layer, images[layer.imageKey], frame);
+    },
+    {
+      fireImmediately: true,
+      equalityFn: (a, b) => a.layers === b.layers && a.images === b.images && a.terrain === b.terrain && a.fixed === b.fixed,
+    },
+  );
+  unsubscribers.push(unsubTraces);
+
   // ─── Layer visibility changes ─────────────────────────
   // Reads effective visibility (own flag narrowed by solo, and the shown level —
   // see isLayerShown), not the raw flag: soloing never writes
@@ -430,15 +539,28 @@ export function subscribeToStore(
   // makes solo actually hide the other layers on screen. The selector's
   // output changes whenever solo does, even though `state.layers` itself
   // does not, which is what re-fires this on a solo toggle.
+  //
+  // The compare pass rides here too: the compared level's layers (compareLayerIds) are drawn,
+  // greyed, under every layer of the level on show, their own order kept. Only drawn —
+  // isLayerShown stays false for them, so no tool, pick or light ever sees them.
   const unsubVisibility = useStore.subscribe(
-    (state) =>
-      state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerShown(state, l) })),
+    (state) => {
+      const compared = new Set(compareLayerIds(state));
+      return state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerShown(state, l), compared: compared.has(l.id) }));
+    },
     (layerVisibility) => {
-      for (const { id, type, visible } of layerVisibility) {
+      let under = 0;
+      for (const { id, type, visible, compared } of layerVisibility) {
         const entry = getLayerEntry(id);
         if (entry) {
           const displayObj = entry.textureSprite ?? entry.container;
-          displayObj.visible = visible;
+          displayObj.visible = visible || compared;
+          if (compared) {
+            displayObj.filters = [compareGrey()];
+            if (displayObj.parent === sceneGraph.layerContainer) sceneGraph.layerContainer.setChildIndex(displayObj, under++);
+          } else if (displayObj.filters) {
+            displayObj.filters = null;
+          }
         }
         // Background pixels render via bgFill/bgTilingSprite under
         // sceneGraph.backgroundLayer, not this layer's own entry container —
@@ -450,7 +572,7 @@ export function subscribeToStore(
       fireImmediately: true,
       equalityFn: (a, b) =>
         a.length === b.length &&
-        a.every((item, i) => item.id === b[i].id && item.visible === b[i].visible),
+        a.every((item, i) => item.id === b[i].id && item.visible === b[i].visible && item.compared === b[i].compared),
     },
   );
   unsubscribers.push(unsubVisibility);
@@ -458,8 +580,13 @@ export function subscribeToStore(
   // ─── Layer opacity changes ────────────────────────────
   // Opacity isn't affected by solo (only visibility is), so this still reads
   // the raw flag — but background still needs the same extra mirror as above.
+  // A compared layer draws at its own opacity times the compare opacity.
   const unsubOpacity = useStore.subscribe(
-    (state) => state.layers.map((l) => ({ id: l.id, type: l.type, opacity: l.opacity })),
+    (state) => {
+      const compared = new Set(compareLayerIds(state));
+      const factor = state.ui.compare?.opacity ?? 1;
+      return state.layers.map((l) => ({ id: l.id, type: l.type, opacity: compared.has(l.id) ? l.opacity * factor : l.opacity }));
+    },
     (layerOpacities) => {
       for (const { id, type, opacity } of layerOpacities) {
         const entry = getLayerEntry(id);
@@ -853,6 +980,10 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
+        // Patches and water, like plateaus, lie on the ground: they follow the floor.
+        entry.sublayers.materials.visible = vis.floor;
+        entry.sublayers.water.visible = vis.floor;
+        entry.sublayers.paths.visible = vis.floor;
         // Plateaus are relief on the floor: they follow it.
         entry.sublayers.plateauTops.visible = vis.floor;
         entry.sublayers.plateauEdges.visible = vis.floor;
@@ -866,8 +997,8 @@ export function subscribeToStore(
         // follow the "walls" visibility toggle — same as when they lived
         // inside the walls container.
         entry.sublayers.doors.visible = vis.walls;
-        // Absent on layers saved before the row existed: shown.
-        entry.sublayers.labels.visible = vis.labels !== false;
+        // Absent on layers saved before the row existed: shown. The View menu can hide them all.
+        entry.sublayers.labels.visible = vis.labels !== false && !useStore.getState().ui.labelsHidden;
       }
     },
     { fireImmediately: true },
@@ -960,6 +1091,22 @@ export function subscribeToStore(
     },
   );
   unsubscribers.push(unsubGridVis);
+
+  // ─── Snap step → redraw the floor grid's lines between the cells ─
+  // (The grid over pictures keys on the step itself, in subscribeToAssets.)
+  const unsubGridStep = useStore.subscribe(
+    (state) => (state.grid ? gridDivision(state.grid) : 1),
+    () => {
+      for (const layer of useStore.getState().layers) {
+        if (layer.type !== 'dungeon') continue;
+        const entry = getLayerEntry(layer.id);
+        if (!entry) continue;
+        redrawGrid(layer, entry);
+        markRenderCacheDirty(layer.id);
+      }
+    },
+  );
+  unsubscribers.push(unsubGridStep);
 
   // ─── Style changes → mark render cache dirty + rebuild ─
   const unsubStyle = useStore.subscribe(

@@ -1,13 +1,9 @@
 import { getEngineSingleton } from '@/engine/engineSingleton'
 import { getChildBounds } from '@dnd/core/src/engine/hitTest'
 import { useStore } from '@/store/store'
-import { cancelZoomAnimationRef, viewportInsetsRef } from '@/editor/zoomToFitRef'
-import { MIN_ZOOM, MAX_ZOOM } from '@/editor/zoomControl'
+import { viewportInsetsRef } from '@/editor/zoomToFitRef'
+import { MIN_ZOOM, MAX_ZOOM, animateCamera } from '@/editor/zoomControl'
 import type { AnyChild } from '@/store/types'
-
-const DURATION_MS = 150
-
-let rafId = 0
 
 function findChild(childId: string): AnyChild | null {
   for (const layer of useStore.getState().layers) {
@@ -18,41 +14,21 @@ function findChild(childId: string): AnyChild | null {
   return null
 }
 
-// Same ease-out rAF pattern as ZoomSlider's fit-to-content, sharing its
-// cancel ref so a wheel/pan interrupt kills this animation too.
-function animateTo(targetX: number, targetY: number, targetZoom: number): void {
-  const singleton = getEngineSingleton()
-  if (!singleton) return
-  const stage = singleton.engine.stage()
-  cancelZoomAnimationRef.current?.()
-  cancelAnimationFrame(rafId)
-  const startX = stage.position.x
-  const startY = stage.position.y
-  const startZoom = stage.scale.x
-  const startTime = performance.now()
-  function tick(): void {
-    const t = Math.min((performance.now() - startTime) / DURATION_MS, 1)
-    const ease = 1 - Math.pow(1 - t, 3)
-    stage.position.x = startX + (targetX - startX) * ease
-    stage.position.y = startY + (targetY - startY) * ease
-    stage.scale.set(startZoom + (targetZoom - startZoom) * ease)
-    if (t < 1) rafId = requestAnimationFrame(tick)
-    else rafId = 0
-  }
-  rafId = requestAnimationFrame(tick)
-}
-
-/** The screen-space rect the overlaid chrome leaves visible. */
-function visibleRect() {
+/**
+ * The screen-space rect the overlaid chrome leaves visible: right of the rail, under the
+ * title card, above the dock, and above `clearBottom` px from the window's foot when a bar
+ * floats over the dock (the grid line-up's).
+ */
+function visibleRect(clearBottom = 0) {
   const singleton = getEngineSingleton()
   if (!singleton) return null
   const vp = singleton.engine.viewport()
   const insets = viewportInsetsRef.current
   return {
     left: insets.left,
-    top: 0,
+    top: insets.top ?? 0,
     right: vp.width - insets.right,
-    bottom: vp.height - insets.bottom,
+    bottom: vp.height - Math.max(insets.bottom, clearBottom),
     stage: singleton.engine.stage(),
   }
 }
@@ -79,11 +55,11 @@ export function panBoundsIntoView(b: Bounds): void {
   const sx2 = (b.x + b.width) * zoom + stage.position.x
   const sy2 = (b.y + b.height) * zoom + stage.position.y
 
-  // Asymmetric margins: the top toolbar and bottom zoom HUD float over the
-  // canvas and aren't in viewportInsetsRef — "technically on screen" parked
-  // objects under the HUD.
+  // Asymmetric margins: the bottom zoom HUD floats over the canvas and isn't in
+  // viewportInsetsRef — "technically on screen" parked objects under the HUD.
+  // The top toolbar is in it once the shell has measured it.
   const mx = 24
-  const mTop = 56
+  const mTop = rect.top > 0 ? mx : 56
   const mBot = 72
   let dx = 0
   let dy = 0
@@ -97,7 +73,7 @@ export function panBoundsIntoView(b: Bounds): void {
   if (sy2 - sy1 > rect.bottom - rect.top - mTop - mBot) dy = (rect.top + rect.bottom) / 2 - (sy1 + sy2) / 2
   if (dx === 0 && dy === 0) return
 
-  animateTo(stage.position.x + dx, stage.position.y + dy, zoom)
+  animateCamera(stage.position.x + dx, stage.position.y + dy, zoom)
 }
 
 /**
@@ -105,8 +81,8 @@ export function panBoundsIntoView(b: Bounds): void {
  * The default picks a box out of its surroundings; pass a bigger fraction when the
  * box is the thing being worked on rather than merely located.
  */
-export function zoomToBounds(b: Bounds, fill = 0.4): void {
-  const rect = visibleRect()
+export function zoomToBounds(b: Bounds, fill = 0.4, clearBottom = 0): void {
+  const rect = visibleRect(clearBottom)
   if (!rect) return
   const worldW = Math.max(b.width, 1)
   const worldH = Math.max(b.height, 1)
@@ -115,7 +91,7 @@ export function zoomToBounds(b: Bounds, fill = 0.4): void {
   const zoom = Math.min(Math.max(Math.min(gapW / worldW, gapH / worldH) * fill, MIN_ZOOM), MAX_ZOOM)
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
-  animateTo(
+  animateCamera(
     rect.left + gapW / 2 - cx * zoom,
     rect.top + gapH / 2 - cy * zoom,
     zoom,

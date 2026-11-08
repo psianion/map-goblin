@@ -33,6 +33,9 @@ function makeEntry(id: string): LayerEntry {
     container: new Container(),
     sublayers: {
       floor: new Container(),
+      materials: new Container(),
+      water: new Container(),
+      paths: new Container(),
       plateauTops: new Container(),
       plateauEdges: new Container(),
       shadows: new Container(),
@@ -41,6 +44,7 @@ function makeEntry(id: string): LayerEntry {
       wallMarks: new Container(),
       doors: new Container(),
       objects: new Container(),
+      imageGrid: new Container(),
       labels: new Container(),
     },
     renderTexture: null,

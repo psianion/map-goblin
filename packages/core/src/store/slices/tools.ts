@@ -1,11 +1,28 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, ToolsSlice } from '../types';
 
 /** Single source of truth for the clamps below — UI sliders read these too. */
 export const TERRAIN_BRUSH_RANGES = {
   radius: { min: 0.5, max: 12, step: 0.5 },
   strength: { min: 0.1, max: 1, step: 0.05 },
   tintOpacity: { min: 0, max: 1, step: 0.05 },
+} as const;
+
+/** The Water brush's clamps, read by its dock and panel too. */
+export const WATER_BRUSH_RANGES = {
+  radius: { min: 0.5, max: 12, step: 0.5 },
+  blend: { min: 0, max: 6, step: 0.5 },
+} as const;
+
+/** The Material brush's clamps, read by its dock too. */
+export const MATERIAL_BRUSH_RANGES = {
+  radius: { min: 0.5, max: 12, step: 0.5 },
+} as const;
+
+/** The Path tool's clamps, read by its dock, panel and card too. */
+export const PATH_RANGES = {
+  width: { min: 0.25, max: 8, step: 0.25 },
+  smoothness: { min: 0, max: 1, step: 0.05 },
 } as const;
 
 /** Props tool clamps — the dock's sliders read these too. */
@@ -25,6 +42,8 @@ function clamp(v: number, { min, max }: { min: number; max: number }): number {
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
+  setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
+  setFloorMode: (mode: ToolsSlice['floorMode']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -49,6 +68,8 @@ export const createToolsSlice: StateCreator<
   setActiveTool: (tool) =>
     set((state) => {
       state.tools.activeTool = tool;
+      // An armed Fill is the Terrain brush's one-shot; another tool puts it down.
+      if (tool !== 'terrain') state.tools.terrainFill = 'off';
       // Node handles belong to the wall being finished, not to whatever tool
       // the DM reaches for next — switching tools drops out of edit mode.
       state.tools.nodeEditWallId = null;
@@ -56,6 +77,7 @@ export const createToolsSlice: StateCreator<
       state.tools.selectedNodeTs = [];
       state.tools.shapeNodeEditId = null;
       state.tools.selectedVertex = null;
+      state.tools.pathNodeEditId = null;
     }),
   setNodeEditWall: (wallId) =>
     set((state) => {
@@ -97,9 +119,15 @@ export const createToolsSlice: StateCreator<
       // Delete fell through to the global binding and removed the whole shape.
       if (state.tools.shapeNodeEditId !== shapeId) state.tools.selectedVertex = null;
       state.tools.shapeNodeEditId = shapeId;
-      // Same as setNodeEditWall: the mode owns the screen, the gizmo must not
-      // stay drawn around whatever the entry double-click selected.
-      if (shapeId) state.selection.selectedIds = [];
+      // The floor whose outline opens stays picked, alone, so its card stays open in node
+      // mode (the selection box retires while the mode is on, see SelectTool). Anything
+      // else picked goes, as for setNodeEditWall: the mode owns the screen.
+      if (shapeId) {
+        const floor = state.layers.some(
+          (l) => l.type === 'dungeon' && l.children.some((c) => c.id === shapeId && c.childType === 'shape'),
+        );
+        state.selection.selectedIds = floor ? [shapeId] : [];
+      }
     }),
   selectVertex: (index) =>
     set((state) => {
@@ -108,6 +136,14 @@ export const createToolsSlice: StateCreator<
   setEraseMode: (enabled) =>
     set((state) => {
       state.tools.eraseMode = enabled;
+    }),
+  setTerrainFill: (fill) =>
+    set((state) => {
+      state.tools.terrainFill = fill;
+    }),
+  setFloorMode: (mode) =>
+    set((state) => {
+      state.tools.floorMode = mode;
     }),
   setCurveMode: (enabled) =>
     set((state) => {

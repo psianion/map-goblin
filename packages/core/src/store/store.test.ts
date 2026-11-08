@@ -63,6 +63,19 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().tools.activeTool).toBe('wall');
   });
 
+  it('entering node edit on a floor keeps that floor alone picked, for its card', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.getState().addChild(layer.id, {
+      id: 'floor-1', name: 'f', childType: 'shape', visible: true, shapeType: 'rectangle',
+      contours: [[[0, 0], [2, 0], [2, 2], [0, 2]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+    });
+    useStore.getState().setSelectedIds(['some-child', 'floor-1']);
+    useStore.getState().setShapeNodeEdit('floor-1');
+    expect(useStore.getState().selection.selectedIds).toEqual(['floor-1']);
+    useStore.getState().setShapeNodeEdit(null);
+    expect(useStore.getState().selection.selectedIds).toEqual(['floor-1']);
+  });
+
   it('entering node edit clears the selection so the gizmo retires', () => {
     useStore.getState().setSelectedIds(['some-child']);
     useStore.getState().setShapeNodeEdit('shape-1');
@@ -81,7 +94,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('3.4');
+    expect(data.version).toBe('3.9');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.customImages).toEqual({});
@@ -214,7 +227,7 @@ describe('getSerializableState / loadFromFile — prep', () => {
   });
 
   it('writes version 3.2', () => {
-    expect(useStore.getState().getSerializableState().version).toBe('3.4');
+    expect(useStore.getState().getSerializableState().version).toBe('3.9');
   });
 
   it('omits the prep key entirely when nothing was ever authored', () => {

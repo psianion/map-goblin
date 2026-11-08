@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { undoManager } from '@/store/undoManager';
-import type { MenuRow } from '@/ui/context-menu';
+import type { MenuRow } from '@/editor/RowMenu';
 import type { DungeonLayer } from '@/store/types';
 import { buildLayerTileMenu } from './menuRegistry';
 

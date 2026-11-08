@@ -6,12 +6,15 @@
 import { Assets, Sprite, Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
-import type { AssetChild } from '../store/types';
+import type { AssetChild, Layer } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
 import { syncPropShadows } from './shadowPass';
 import { isLayerShown } from '../store/selectors';
 import { propField } from '../shared/propFields';
+import { belowWaterTint, type WaterBody } from '../shared/waterMask';
 import type { Obb } from './tools/propPlacement';
+import { gridDivision, gridImages, syncImageGrid } from './imageGridRenderer';
+import { getEditorDesk } from './editorDesk';
 
 /** Overhead props while the DM looks under them (`ui.seeUnderOverhead`). */
 export const SEE_UNDER_ALPHA = 0.35;
@@ -42,12 +45,27 @@ function applyAlpha(sprite: Sprite, childId: string): void {
 }
 
 /**
+ * The water a prop on `layers[index]` stands in, topmost first: its own layer's, then each
+ * visible layer under it on the same level.
+ */
+function watersUnder(layers: readonly Layer[], index: number): WaterBody[] {
+  const own = layers[index];
+  const out: WaterBody[] = [];
+  for (let i = index; i >= 0; i--) {
+    const l = layers[i];
+    if (l.type !== 'dungeon' || l.levelId !== own.levelId || (i !== index && !l.visible)) continue;
+    if (l.water) out.push(l.water);
+  }
+  return out;
+}
+
+/**
  * Apply all transform/style properties from an AssetChild onto an existing Sprite.
  * Uses width/height for non-uniform scaling.
  * Note: sprite.width/height setters compute scale relative to the current texture, so
  * this must be called again after a texture swap (async load).
  */
-function syncSprite(sprite: Sprite, obj: AssetChild): void {
+function syncSprite(sprite: Sprite, obj: AssetChild, waters: readonly WaterBody[]): void {
   sprite.visible = obj.visible && (looks.get(sprite)?.shown ?? true);
   applyAlpha(sprite, obj.id);
   sprite.position.set(obj.position.x, obj.position.y);
@@ -63,7 +81,9 @@ function syncSprite(sprite: Sprite, obj: AssetChild): void {
   // and every layer update syncs every sprite.
   sprite.scale.x = Math.abs(sprite.scale.x) * (obj.flipX ? -1 : 1);
   sprite.scale.y = Math.abs(sprite.scale.y) * (obj.flipY ? -1 : 1);
-  sprite.tint = parseInt(obj.tint.replace('#', ''), 16);
+  // Below water, the prop takes the colour of the water at its centre; dry, its own tint.
+  const tint = propField(obj, 'belowWater') ? belowWaterTint(obj.tint, waters, obj.position.x, obj.position.y) : obj.tint;
+  sprite.tint = parseInt(tint.replace('#', ''), 16);
 }
 
 /**
@@ -105,7 +125,7 @@ export function refreshAssetTextures(): void {
 }
 
 /** Resolve and assign the child's texture; async-loads uncached custom images. */
-function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sprite>): void {
+function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sprite>, waters: readonly WaterBody[]): void {
   texturedAs.set(sprite, obj.assetId);
   const isCustomImage = obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:');
   if (!isCustomImage) {
@@ -130,7 +150,7 @@ function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sp
       // second swap while the load was in flight must not be overwritten.
       if (spriteMap.get(obj.id) === sprite && texturedAs.get(sprite) === obj.assetId) {
         sprite.texture = tex;
-        syncSprite(sprite, obj);
+        syncSprite(sprite, obj, waters);
       }
     })
     .catch((err: unknown) => {
@@ -220,6 +240,10 @@ export function subscribeToAssets(): () => void {
                 opacity: l.opacity,
                 seeUnder: state.ui.seeUnderOverhead,
                 assets: l.children.filter((c): c is AssetChild => c.childType === 'asset'),
+                gridColor: l.style?.wallColor,
+                // The table shows whole cells; the editor adds the snap step.
+                gridDivision: getEditorDesk() ? gridDivision(state.grid) : 1,
+                waters: watersUnder(state.layers, index),
               },
             ]
           : [],
@@ -287,8 +311,8 @@ export function subscribeToAssets(): () => void {
           // Covers both a fresh sprite and a swapped assetId on an existing
           // one. Texture before syncSprite: the width/height setters compute
           // scale relative to whatever texture the sprite holds.
-          if (texturedAs.get(sprite) !== obj.assetId) applyTexture(sprite, obj, spriteMap);
-          syncSprite(sprite, obj);
+          if (texturedAs.get(sprite) !== obj.assetId) applyTexture(sprite, obj, spriteMap, layer.waters);
+          syncSprite(sprite, obj, layer.waters);
           sprite.zIndex = isOverhead ? layer.index * LAYER_Z + i : i;
         }
 
@@ -299,6 +323,8 @@ export function subscribeToAssets(): () => void {
           layer.id,
           layer.assets.map((obj) => ({ sprite: spriteMap.get(obj.id)!, obj })),
         );
+        // The grid over its pictures, which their opaque art would otherwise hide.
+        syncImageGrid(entry.sublayers.imageGrid, gridImages(layer.assets), layer.gridColor, layer.gridDivision);
       }
     },
     { fireImmediately: true },

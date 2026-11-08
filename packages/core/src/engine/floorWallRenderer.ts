@@ -20,6 +20,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { getEditorDesk } from './editorDesk';
+import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
@@ -117,7 +118,7 @@ function pointInPolygon(px: number, py: number, poly: Polygon): boolean {
  * holes individually — otherwise cut() can't associate holes with the
  * correct outer.
  */
-function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
+export function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
   const outers: Polygon[] = [];
   const holes: Polygon[] = [];
   for (const poly of polygons) {
@@ -209,6 +210,9 @@ function fillRings(shape: ShapeChild, bleed: number): Polygon[] {
   return grown.length > 0 ? grown : [ring];
 }
 
+/** A floor's own alpha, fill and texture only. */
+const floorAlpha = (shape: ShapeChild): number => Math.min(1, Math.max(0, shape.opacity ?? 1));
+
 function renderTexturedShape(
   parent: Container,
   shape: ShapeChild,
@@ -216,7 +220,9 @@ function renderTexturedShape(
   bleed: number,
 ): void {
   const tint = shape.textureTint && shape.textureTint !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
+  const alpha = floorAlpha(shape);
   paintTiled(parent, fillRings(shape, bleed), texture, {
+    alpha: alpha < 1 ? alpha : undefined,
     // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
     scale: shape.textureScale || 1,
     rotation: shape.textureFillRotation,
@@ -334,7 +340,7 @@ function renderSolidShape(
 ): void {
   const g = new Graphics();
   for (const r of fillRings(shape, bleed)) traceSinglePolygon(g, r);
-  g.fill({ color });
+  g.fill({ color, alpha: floorAlpha(shape) });
   parent.addChild(g);
 }
 
@@ -444,28 +450,17 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     else byColor.set(color, [poly]);
   });
 
+  // Whole cells, and in the editor the snap step between them (the table shows whole cells).
+  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, getEditorDesk() ? gridDivision(useStore.getState().grid) : 1);
+
   for (const [color, rings] of byColor) {
     // Mask to clip grid lines within floor shape
     const maskG = new Graphics();
     fillPolygonsWithHoles(maskG, rings, { color: 0xffffff });
 
-    // Grid lines
-    const gridG = new Graphics();
-    gridG.setStrokeStyle({ color: Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, width: 0.02, alpha: 0.25 });
-
-    for (let x = gridMinX; x <= gridMaxX; x++) {
-      gridG.moveTo(x, gridMinY);
-      gridG.lineTo(x, gridMaxY);
-    }
-    for (let y = gridMinY; y <= gridMaxY; y++) {
-      gridG.moveTo(gridMinX, y);
-      gridG.lineTo(gridMaxX, y);
-    }
-    gridG.stroke();
-
     const gridContainer = new Container();
     gridContainer.addChild(maskG);
-    gridContainer.addChild(gridG);
+    gridContainer.addChild(...gridStrokes(Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, lines));
     gridContainer.mask = maskG;
     gridSub.addChild(gridContainer);
   }
@@ -585,7 +580,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Fast-path detection: check if ANY shape has styleOverrides before
   // enabling per-shape resolution (avoids overhead in the common case).
   const hasStyleOverrides = shapeChildren.some((sh) => sh.styleOverrides && Object.keys(sh.styleOverrides).length > 0);
-  const perShape = hasTexturedShapes || hasStyleOverrides;
+  // A floor below full opacity is painted on its own, so what is under it shows through.
+  const perShape = hasTexturedShapes || hasStyleOverrides || shapeChildren.some((sh) => floorAlpha(sh) < 1);
   // The mask grows by the widest bleed any fill takes, or it would crop that fill back.
   const bleed = perShape
     ? shapeChildren.reduce((m, sh) => Math.max(m, bleedOf(sh)), 0)

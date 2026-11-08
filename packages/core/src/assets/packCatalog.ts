@@ -8,6 +8,7 @@
 // cheap to query from render paths.
 
 import { getAssetPackManager } from '../engine/assetPackInstance';
+import { setBandSetTest } from '../shared/wallLook';
 import type { EntryRect } from '../engine/assetPackManager';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
@@ -272,6 +273,9 @@ export function getBandSet(setId: string): CatalogEntry[] {
 export function isBandSet(setId: string | undefined): boolean {
   return !!setId && current().bandSets.has(setId);
 }
+
+// A floor's edge band set to None takes off only a band (shared/wallLook.ts).
+setBandSetTest(isBandSet);
 
 /**
  * The art a band set offers per kit piece, keyed the way the kit joins

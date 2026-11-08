@@ -3,8 +3,9 @@ import type { SerializedMapData } from './types'
 import type { Level } from '../shared/types'
 import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
+import { dropRemovedFields } from './removedFields'
 
-export const CURRENT_VERSION = '3.4' as const
+export const CURRENT_VERSION = '3.9' as const
 
 /**
  * Every file version a reader must accept, oldest first. THE one list — the
@@ -14,9 +15,16 @@ export const CURRENT_VERSION = '3.4' as const
  * ('3.0' → '3.1' is purely additive — optional `prep` — so no migration step.
  * '3.1' → '3.2' drops the old water bodies, see `dropRetiredBodies`. '3.2' → '3.3' moves
  * height off floors onto plateau children, see `plateausFromShapes`. '3.3' → '3.4' drops
- * the Path tool's paths the same way, and the props its kits placed let go of their host.)
+ * the Path tool's paths the same way, and the props its kits placed let go of their host.
+ * '3.4' → '3.5' is additive: the terrain's smooth blending switch, a floor's own opacity and
+ * edge band, curved floor edges; a field a 3.4 map lacks takes its default. '3.5' → '3.6'
+ * is additive too: a wall's and a layer's corner style, a door's freestanding flag. '3.6' →
+ * '3.7' adds the new terrain tools' data, all additive: a layer's water, its material patches
+ * and path children ('pathway', not the retired 'path'). '3.7' → '3.8' is additive: a prop's
+ * below-water flag and trace layers (type 'image'). '3.8' → '3.9' is additive: an imported
+ * picture's file name and source pixel size, `imageSource`, and a trace's `placement`.)
  */
-export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4']
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9']
 
 export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
   return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
@@ -71,6 +79,11 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
     result.version !== '3.1' &&
     result.version !== '3.2' &&
     result.version !== '3.3' &&
+    result.version !== '3.4' &&
+    result.version !== '3.5' &&
+    result.version !== '3.6' &&
+    result.version !== '3.7' &&
+    result.version !== '3.8' &&
     result.version !== CURRENT_VERSION
   ) {
     throw new Error(
@@ -82,7 +95,8 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
   if (retired.removed > 0) result = { ...result, layers: retired.layers } as SerializedMapData
   const plateaus = plateausFromShapes((result as SerializedMapData).layers)
   if (plateaus !== (result as SerializedMapData).layers) result = { ...result, layers: plateaus } as SerializedMapData
-  const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(result as SerializedMapData)))
+  // The settings dropped in the editor rework go too (removedFields.ts).
+  const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(dropRemovedFields(result as SerializedMapData))))
   if (!caveKit) return migrated
   const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
   return layers === migrated.layers ? migrated : { ...migrated, layers }

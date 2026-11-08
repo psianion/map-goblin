@@ -11,10 +11,15 @@ import { TERRAIN_PANEL_ID, type DungeonLayer } from '../../store/types';
  * DoorTool.onPointerDown) instead of forking the string per call site.
  */
 export function noEditableLayerMessage(): string {
-  return useStore.getState().ui.activeLayerId === TERRAIN_PANEL_ID
+  const { ui, layers } = useStore.getState();
+  if (layers.some((l) => l.id === ui.activeLayerId && l.type === 'image')) return TRACE_LAYER_MESSAGE;
+  return ui.activeLayerId === TERRAIN_PANEL_ID
     ? 'Terrain is selected — pick a layer to draw on'
     : 'Select a layer first';
 }
+
+/** The refusal when the layer in hand is a trace (a background image layer): nothing is drawn on one. */
+export const TRACE_LAYER_MESSAGE = 'Trace layer · pick a dungeon layer to draw';
 
 /**
  * Null when `layer` may be edited; otherwise the warning that belongs to why
@@ -46,11 +51,10 @@ export function resolveEditableLayer(
   layerId: string | null | undefined,
   missingMessage = 'Layer was removed',
 ): DungeonLayer | null {
-  const layer = useStore.getState().layers.find(
-    (l): l is DungeonLayer => l.id === layerId && l.type === 'dungeon',
-  );
+  const found = useStore.getState().layers.find((l) => l.id === layerId);
+  const layer = found?.type === 'dungeon' ? found : undefined;
   if (!layer) {
-    notify.warning(missingMessage);
+    notify.warning(found?.type === 'image' ? TRACE_LAYER_MESSAGE : missingMessage);
     return null;
   }
   const reason = blockedLayerReason(layer);

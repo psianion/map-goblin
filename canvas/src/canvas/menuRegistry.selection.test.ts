@@ -6,7 +6,7 @@ vi.mock('sonner', () => ({
 
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { MenuRow } from '@/ui/context-menu';
+import type { MenuRow } from '@/editor/RowMenu';
 import type { AnyChild, DungeonLayer, SerializedMapData } from '@/store/types';
 import type { WallSegment } from '@/shared/types';
 import { buildChildMenu, buildMultiMenu, buildWallMenu, selectBehindRow } from './menuRegistry';

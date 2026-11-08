@@ -14,11 +14,13 @@ import {
   editedOutline,
   editedCurvedRing,
   beginOutlineDrag,
+  beginInsertDrag,
   updateOutlineDrag,
   endOutlineDrag,
   toggleShapeNodeEditAt,
 } from './shapeNodeEdit';
 import { useStore } from '../store/store';
+import { undoManager } from '../store/undoManager';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 
 import type { Polygon } from '../types/geometry';
@@ -287,5 +289,62 @@ describe('tangent drags', () => {
     const vt = editedShape().tangents![0][1]!;
     expect(vt.tout).toEqual([13, -4]);
     expect(vt.tin).toEqual([7, 4]);
+  });
+});
+
+describe('dragging a midpoint', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+    useStore.setState((s) => {
+      s.grid.snapEnabled = false;
+    });
+  });
+
+  it('inserts a node there and drags it, insert and move as one undo step', () => {
+    seedShape();
+    expect(beginInsertDrag(0, 5, 0)).toBe(true);
+    expect(useStore.getState().tools.selectedVertex).toBe(1);
+    // The new node shows before the pointer moves.
+    expect(editedShape().contours[0]).toHaveLength(5);
+    updateOutlineDrag({ x: 5, y: -3 }, { x: 0, y: -3 });
+    endOutlineDrag();
+    expect(editedShape().contours[0]).toEqual([[0, 0], [5, -3], [10, 0], [10, 10], [0, 10]]);
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(editedShape().contours[0]).toEqual(SQUARE);
+  });
+
+  it('still adds the node when the midpoint is clicked, not dragged', () => {
+    seedShape();
+    beginInsertDrag(1, 10, 5);
+    endOutlineDrag();
+    expect(editedShape().contours[0]).toEqual([[0, 0], [10, 0], [10, 5], [10, 10], [0, 10]]);
+    expect(undoManager.size()).toBe(1);
+  });
+
+  it('lands the node on a curved edge without changing the curve', () => {
+    seedShape([[{ tout: [3, -4] }, { tin: [7, -4] }, null, null]]);
+    beginInsertDrag(0, 5, -3);
+    endOutlineDrag();
+    const shape = editedShape();
+    expect(shape.contours[0]).toHaveLength(5);
+    const before = flattenRing(SQUARE, [{ tout: [3, -4] }, { tin: [7, -4] }, null, null]);
+    const after = flattenRing(shape.contours[0], shape.tangents![0]);
+    // Every point of the new outline lies on the old curve, within the flattening tolerance.
+    const near = (p: [number, number]) => before.some((q, i) => {
+      const r = before[(i + 1) % before.length];
+      const t = Math.max(0, Math.min(1, ((p[0] - q[0]) * (r[0] - q[0]) + (p[1] - q[1]) * (r[1] - q[1])) / ((r[0] - q[0]) ** 2 + (r[1] - q[1]) ** 2 || 1)));
+      return Math.hypot(p[0] - (q[0] + t * (r[0] - q[0])), p[1] - (q[1] + t * (r[1] - q[1]))) < 0.06;
+    });
+    expect(after.every(near)).toBe(true);
+  });
+
+  it('keeps a Shift drag straight along the axis it moved most', () => {
+    seedShape();
+    beginOutlineDrag('vertex', 1);
+    updateOutlineDrag({ x: 14, y: 1 }, { x: 4, y: 1 }, { shift: true });
+    endOutlineDrag();
+    expect(editedShape().contours[0][1]).toEqual([14, 0]);
   });
 });

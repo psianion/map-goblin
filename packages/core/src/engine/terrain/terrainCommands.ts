@@ -37,13 +37,14 @@ function release(cmd: TerrainStrokeCommand, bytes: number): void {
  * cleanup() frees the buffers when the command falls off undo history.
  */
 export class TerrainStrokeCommand implements Command {
-  readonly label = 'Paint terrain';
+  readonly label: string;
   private snapshots: StrokeRegionSnapshot[] | null;
   private bytes: number;
   /** The stroke already painted the live RT — first execute() is a no-op. */
   private applied = true;
 
-  constructor(snapshots: StrokeRegionSnapshot[]) {
+  constructor(snapshots: StrokeRegionSnapshot[], label = 'Paint terrain') {
+    this.label = label;
     this.snapshots = snapshots;
     this.bytes = snapshots.reduce((n, s) => n + s.before.byteLength + s.after.byteLength, 0);
     retain(this, this.bytes);

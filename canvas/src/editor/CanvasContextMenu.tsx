@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { ContextMenu } from '@/ui/context-menu'
+import { ContextMenu } from '@/editor/RowMenu'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '@/store/store'
 import { selectLayerForChild, selectWallById } from '@/store/selectors'

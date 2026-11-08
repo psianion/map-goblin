@@ -245,6 +245,15 @@ describe('placing a stamp', () => {
     expect(useStore.getState().tools.activeTool).toBe('scatterBrush');
   });
 
+  it('places with the tint set before placing, and the ghost shows it', () => {
+    set({ stampTint: '#cc3322' });
+    const at = { x: 2, y: 2 };
+    tool.onPointerMove(at, pointer());
+    expect(shown()[0].tint).toBe(0xcc3322);
+    tool.onPointerDown(at, pointer());
+    expect(props()[0].tint).toBe('#cc3322');
+  });
+
   it('a middle-button press places nothing', () => {
     tool.onPointerDown({ x: 1, y: 1 }, pointer({ button: 1 }));
     expect(props()).toHaveLength(0);

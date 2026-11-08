@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool settings audit</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* v2 light tokens; layout: sticky filter row, then one card per setting grouped by family. */
+  --bg: #f7f7f5; --panel: #ffffff; --panel-2: #f2f2f0; --line: #e0e0dd; --text: #1b1b1b; --text-2: #4d4d4d; --text-3: #6b6b6b; --ink: #1b1b1b; --on-ink: #ffffff;
+  --keep: #e9f1e8; --keep-t: #2f5d33; --drop: #f7e6e4; --drop-t: #8f2a22; --add: #e4edf6; --add-t: #1f4f7a; --ask: #f6efd9; --ask-t: #7a5600; --move: #ece8f3; --move-t: #4b3a7a;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #202020; --panel: #2b2b2b; --panel-2: #333333; --line: #444444; --text: #ececec; --text-2: #bdbdbd; --text-3: #9c9c9c; --ink: #ececec; --on-ink: #1b1b1b;
+  --keep: #2c3b2c; --keep-t: #b9d9b7; --drop: #43302e; --drop-t: #f0a79c; --add: #2b3a49; --add-t: #a9cbe8; --ask: #413a26; --ask-t: #ead79a; --move: #373046; --move-t: #cdbff0;
+  color-scheme: dark;
+}}
+:root[data-theme="dark"] {
+  --bg: #202020; --panel: #2b2b2b; --panel-2: #333333; --line: #444444; --text: #ececec; --text-2: #bdbdbd; --text-3: #9c9c9c; --ink: #ececec; --on-ink: #1b1b1b;
+  --keep: #2c3b2c; --keep-t: #b9d9b7; --drop: #43302e; --drop-t: #f0a79c; --add: #2b3a49; --add-t: #a9cbe8; --ask: #413a26; --ask-t: #ead79a; --move: #373046; --move-t: #cdbff0;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 28px 16px 80px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+p.lead { color: var(--text-2); margin: 0 0 14px; max-width: 72ch; }
+.filters { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 12px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); margin-right: 2px; }
+.filters .gap { width: 12px; }
+button.f { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text-2); cursor: pointer; }
+button.f b { font-family: var(--mono); font-weight: 500; margin-left: 4px; color: var(--text-3); }
+button.f.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+button.f.on b { color: var(--on-ink); opacity: 0.7; }
+button.f:focus-visible { outline: 2px solid var(--text-3); outline-offset: 1px; }
+h2.fam { font-size: 15px; font-weight: 600; margin: 28px 0 8px; display: flex; align-items: baseline; gap: 10px; }
+h2.fam span { font-size: 12px; font-weight: 400; color: var(--text-3); font-family: var(--mono); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; }
+.card .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.card .name { font-weight: 600; font-size: 14px; }
+.card .tool { font-size: 12px; color: var(--text-3); }
+.card .meta { grid-column: 2; grid-row: 1 / span 3; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.chip { display: inline-block; font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.keep { background: var(--keep); color: var(--keep-t); }
+.chip.drop { background: var(--drop); color: var(--drop-t); }
+.chip.add { background: var(--add); color: var(--add-t); }
+.chip.ask { background: var(--ask); color: var(--ask-t); }
+.chip.move { background: var(--move); color: var(--move-t); }
+.home { font-family: var(--mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.card .row { font-size: 13px; color: var(--text-2); }
+.card .row b { color: var(--text); font-weight: 500; }
+.card .cmp { font-size: 12px; color: var(--text-3); }
+.card .cmp b { font-weight: 500; color: var(--text-3); }
+.empty { color: var(--text-3); padding: 24px 0; }
+@media (max-width: 600px) { .card { grid-template-columns: 1fr; } .card .meta { grid-column: 1; grid-row: auto; flex-direction: row; align-items: center; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tool settings audit</h1>
+  <p class="lead">Every setting the v2 editor shows today plus the Dungeondraft tools we lack. Filter by verdict. Each card says what the setting does, what exists on both sides, the case for the verdict, and the home it would get under the rail, panel, dock, card split.</p>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+</div>
+<script>
+// [family, tool, setting, verdict, home, does, today, dungeondraft, why]
+var D = [
+// ───────── Design
+["Design","Floor shapes","Shape mode","move","Dock","Picks whether a floor is a dragged rectangle, clicked polygon points, or a regular polygon with N sides.","Three separate rail tools: Rectangle (R), Polygon (P), Regular polygon (H).","One Building tool with Rect, Circle, Freeform buttons.","Decided 6 Nov: one Floor tool with a shape row in the dock (rectangle, polygon, regular polygon). Three tools for one outcome cost three flyout rows and three copies of the same settings. R, P and H become one key plus a shape cycle."],
+["Design","Floor shapes","Floor colour","keep","Dock","Fill colour of an untextured floor, or the tint under a textured one.","Quick setting in the dock row.","Floor colour box with a reset arrow.","It is the first thing changed after drawing and every floor has one. A colour is a swatch, so it belongs in the dock by the rule we agreed."],
+["Design","Floor shapes","Sides","keep","Dock","Number of sides of a regular polygon, 3 to 32.","Stepper, shown for Regular polygon only.","None.","Changes per shape (octagon tower, hexagonal shrine). On-the-fly, so dock."],
+["Design","Floor shapes","Wall width","move","Panel (Walls)","Thickness of the wall ring, 0.05 to 1 cell.","Slider on the floor tools labelled Wall, and on the Wall tool labelled Width. Both edit the layer's wall width, not the floor.","No wall width.","Floors no longer draw walls in the new model, Rooms and Walls do. The slider on the floor tool edits something the floor does not own, which is why the two labels differ. One control on the Walls tool removes the duplicate and the mislabel."],
+["Design","Floor shapes","Style presets","keep","Dock","One click sets floor texture, wall set and tint together: Fieldstone Keep, Timber Palisade, Cave, Classic Dungeon, Dark Stone.","Five swatches. The All styles popover can never open because the row holds seven.","Separate wall and floor pickers.","Fastest way to a coherent look. Delete the dead popover with it."],
+["Design","Floor shapes","Texture strip","keep","Dock","Recent floor textures with More into the library.","Strip in the dock.","Floor library in the right panel.","Swatches are the dock's job. The strip also becomes the way into the asset panel."],
+["Design","Floor shapes","Walls with floor","keep","none","Whether drawing a floor also draws its wall ring.","Floors draw floor only. Rooms draw floor plus walls.","Building draws both; an X on the wall picker turns walls off.","Decided 6 Nov: Floors stay floor only. The base terrain floor, courtyards and outdoor ground must exist without walls. Rooms is the floor-plus-walls tool."],
+["Design","Floor shapes","Carve out","add","Panel","An Erase mode on the shape tools: the rectangle or polygon you draw is cut out of existing floors.","None. Cutting a hole means node editing.","Hold ALT and draw to remove an area.","A courtyard inside a keep, a pillar hole, a pit in a floor. Today each is a node-editing job. Dungeondraft hides it on ALT. A visible Erase toggle in the panel, same as every brush, reuses the shape tools you already have."],
+["Design","Floor shapes","Node mode","add","Dock","A toggle that puts the selected floor, wall or path into point editing, with its keys shown.","Enter on a selection enters node editing. Nothing on screen says so.","An Edit Points button; the whole shape updates when a point moves.","People ask how to move one corner. A toggle in the dock is discoverable, shows the state and replaces the global Curve mode once midpoint handles exist."],
+["Design","Floor shapes","Corner style","add","Dock","Rounded or sharp wall corners, per wall.","None.","A Bevel Corners toggle.","Decided 6 Nov: add. Wall sets must ship with curved and sharp corner pieces from the start so a wall can turn a soft corner where it needs one and a mitre where it does not. On-the-fly while drawing, so dock."],
+["Design","Floor shapes","Curve segment","move","Dock","Lets the next segment bend into an arc.","Global Curve mode on the rail that most v2 tools ignore.","Hold SHIFT before placing a point, then move to bend.","A global mode that only three tools honour is confusing. Make it a per-tool toggle on polygon, wall and path. Once Node mode has midpoint handles it can go entirely."],
+["Design","Floor card","Colour, Texture, Tint","keep","Card","The look of one floor after it is placed.","Colour with Reset, texture thumbnail with Change, tint.","Pattern colour and opacity.","Per object, after placement. That is what the card is for."],
+["Design","Floor card","Fill fold","keep","Card","How the texture tiles on this floor: Scale, Rotate, Offset X and Y.","Fold on the card.","Texture rotation only.","Lining up planks or flagstones with the grid or a neighbour has no substitute. Rare, so it stays folded."],
+["Design","Floor card","Opacity","add","Card","A see-through floor.","None on floors. The layer sheet has opacity.","Pattern opacity slider.","Decided 6 Nov: add, and it has to work. Reported the same day: the terrain brush strength, opacity and fill sliders do nothing today. Fix those in the same pass."],
+["Design","Floor card","Outline","drop","none","A stroke around a floor shape.","None.","Pattern outline toggle.","The layer sheet's Edges blending handles floor meets floor and the cave band renderer handles cave edges. A hard outline fights both."],
+["Design","Wall","Type","keep","Dock","Solid blocks sight, Window lets sight through, Open is a gap that blocks nothing.","Segmented control in the dock.","Picked by wall style.","Changes while drawing one room (windows on the south side). On-the-fly, so dock."],
+["Design","Wall","Width","keep","Dock","Wall thickness, 0.05 to 1.","Slider.","None.","Same reason as Type. One label, Width, everywhere."],
+["Design","Wall","Wall tint","keep","Dock","Recolours the wall set.","Shown only when a wall set is present.","Colour box with reset.","A swatch; dock."],
+["Design","Wall","Presets and set strip","keep","Dock","Wall set swatches.","Strip in the dock.","Wall library.","Swatches; dock."],
+["Design","Wall","Merge and continue","add","Card","Starting a wall on an existing end joins them; a Merge verb joins two picked walls.","None. Two walls that meet stay two walls.","CTRL while drawing continues an existing wall; Merge button in Select.","A room drawn in two goes has a seam that renders as two end caps and reads as a gap to lighting. Auto-join on an endpoint snap plus a Merge verb on the card is visible, unlike CTRL."],
+["Design","Wall","Over or under","drop","none","Draw order per wall.","None.","A sorting tab per wall.","Layer order and the walls layer already define stacking. A per-wall sort is a second system for the same thing."],
+["Design","Wall","Shadow","add","Card","Per-wall drop shadow on the floor.","None.","Per-wall toggle.","Gate it on the renderer casting wall shadows at all. Then it must be per wall: interior partitions look wrong with a shadow, outer walls look flat without one."],
+["Design","Wall","Block light","keep","none","Walls stop light and sight.","Always.","Always.","No setting needed. Windows are a Type."],
+["Design","Wall","Card fields","keep","Card","Length, Type, Set, Stones.","Set and Stones are read only.","Colour, shadow, merge.","Make Set editable. Swapping one wall from stone to timber is a common fix and today means redrawing it."],
+["Design","Door","Style","keep","Dock","Single, Double, Portcullis, Archway.","Segmented control.","Portal library, first entry is a plain hole.","Changes per door while placing; dock."],
+["Design","Door","Width","keep","Dock","Door width, 1 to 4 cells in quarter steps.","Slider.","None (resized through Objects).","Changes per door; dock."],
+["Design","Door","Angle, Turn 90","keep","Dock","Rotation on the wall in 15° steps, with a quick 90° turn.","Slider and button.","Rotate 180 toggle.","On-the-fly while placing; dock."],
+["Design","Door","Secret","keep","Panel","Hidden from players until revealed.","Toggle in the dock.","None.","Set before placing a run of secret doors, rarely flipped mid-placement. Setup, so panel."],
+["Design","Door","State","keep","Card","Closed, Open, Locked. Drives the leaf angle and light blocking.","On the card.","None.","Per door, after placement."],
+["Design","Door","Opens to, Hinge, Swing","keep","Card","Which side the leaf hangs and which way it swings.","On the card for kit doors.","None.","Per door. The leaf is drawn wrong without it."],
+["Design","Door","Material, Hinges","keep","Card","Material names the leaf look (oak, iron). Hinges is a count of hinge plates.","Two card rows.","None.","Decided 6 Nov: keep, driven by the pack's door assets. The options list what the pack ships; packs carry defaults; both stay customisable per door."],
+["Design","Door","Freestanding","add","Panel","A door not attached to a wall, placed anywhere with free rotation.","Doors live on walls only.","Anchored or Freestanding, 5° steps.","Trapdoors, hatches, a gate in a fence, a portcullis across a corridor with no wall. Today those are props with no state and no light blocking."],
+["Design","Door","Block light","keep","none","Whether light passes.","Follows State.","Per-portal toggle.","State already says it: closed blocks, open passes. No second control."],
+["Design","Elevation","Height","keep","Dock","How many cells the plateau rises or drops. Skips zero.","Stepper.","None. Cliffs are paths.","Changes per plateau; dock."],
+["Design","Elevation","Edge","keep","Dock","None, Slope or Cliff around the plateau.","Segmented control.","None.","Changes per plateau; dock."],
+["Design","Elevation","Cliff art, Slope width, Contour lines","keep","Card","Which cliff pieces, how wide the slope, whether contour lines draw.","Card rows. The slope hint reads 'cells a cell'.","None.","Per plateau. Fix the hint text."],
+["Design","Elevation","Sight","drop","Card","Whether the plateau blocks line of sight.","Auto, Always, Never, where Always means always hides. The undo label says Blocks sight.","None.","A three-way where Always means the opposite of what it reads is a trap, and the undo text contradicts it. One switch, Blocks sight, defaulting to Auto, says the same thing without the trap."],
+["Design","Elevation","Crossing","keep","Card","Which crossing kind (stairs, ladder, rope) joins the levels.","Select from the map's crossing kinds.","None.","Per plateau, and the table reads it."],
+["Design","Elevation","Cave brush","drop","none","Dungeondraft's Dig and Blast Open brush paints cave floor and openings.","None. Cave floors are floors; the cave band renderer draws the ink edge; pits are plateaus.","Brush with Dig and Blast modes.","Decided 6 Nov: no separate tool. Dungeondraft needs one because its caves are their own subsystem with auto walls. Ours are floors with the band renderer, so the Floor tool draws them and Carve out opens them. If polygon points feel slow for organic shapes, a Brush shape on the Floor tool covers it."],
+// ───────── Terrain
+["Terrain","Terrain brush","Size","keep","Dock","Brush radius, 0.5 to 12 cells.","Slider.","Six presets, mouse wheel, [ and ] keys.","On-the-fly; dock. Add [ and ] and the wheel, which every paint tool users know has."],
+["Terrain","Terrain brush","Strength","keep","Dock","How much texture one pass lays down, 10 to 100%.","Slider.","Intensity slider.","Low strength is how you get organic edges. Changed mid-painting; dock."],
+["Terrain","Terrain brush","Colour controls","add","Panel","Recolours a texture or asset. Multi-colour art needs one control per colour region, not one tint over everything.","Tint plus Tint opacity as two sliders. Props have a single Tint.","Custom colour per colorable asset.","Decided 6 Nov: proper colouring controls. One colour with alpha for single-colour art, and a colour per region for multi-colour textures and assets that declare them. The two-slider tint goes."],
+["Terrain","Terrain brush","Texture slots","keep","Dock","Six textures ready to paint with.","Six slots, right-click clears.","Four slots, expandable to eight.","Swatches; dock."],
+["Terrain","Terrain brush","Smooth blending","add","Panel","Soft feathered edge between textures instead of the organic noise edge.","None.","Organic or Smooth toggle.","Snow on stone or sand into grass look wrong with a noisy edge. Set once per map, so panel."],
+["Terrain","Terrain brush","Fill","add","Panel","One click fills an enclosed floor with the current texture.","None.","Fill the whole map.","Painting a 40 by 40 courtyard with a brush takes minutes; fill takes one click. Fill the enclosed floor, not the map, because our terrain sits on floors."],
+["Terrain","Terrain brush","Biomes","keep","Dock","A dropdown that loads a set of textures into the slots.","Planned, not built.","Preset slot sets.","Saves picking five textures out of 825 for every cave map. Stays beside the slots it fills."],
+["Terrain","Terrain brush","Erase","add","Panel","Returns the stroke to the floor's own texture.","None. You paint over with another texture.","Same: paint over.","Painting over means there is no way back to the bare floor. Erase is the one mode every brush must have, visible in the panel, not on a held key."],
+["Terrain","Terrain brush","Terrain on or off","keep","Sheet","Hides the terrain layer, or sets its opacity.","Layer sheet: Visible, Opacity.","Toggle; off exports transparent.","Map-wide view and export; sheet."],
+["Terrain","Water brush","Brush or shape","add","Dock","Paints water as a brush stroke or a drawn shape.","Water was removed from Floors. No tool exists.","Brush sizes or Rect, Circle, Freeform.","Ponds, flooded cellars and streams are in nearly every outdoor and cave map. Brush first, shapes later."],
+["Terrain","Water brush","Shallow and deep colour, blend","add","Panel","Edge colour, centre colour and how far they blend.","None.","Two colours and a blend slider.","This is what makes water read as depth instead of a blue blob. Set once per map; panel."],
+["Terrain","Water brush","Border","add","Panel","Dark edge line on or off.","None.","Disable Border toggle.","Ink style wants the line, painted style does not. Panel."],
+["Terrain","Water brush","Erase","add","Panel","Removes water from the stroke.","None.","ALT while painting.","Same rule as every brush: a visible mode."],
+["Terrain","Water brush","Below water layer","add","none","Props on a layer under the water get tinted and refracted.","None.","Below Water layer.","Decided 6 Nov: add, after the Water brush itself is built and good. Needs the renderer to tint by the water mask."],
+["Terrain","Material brush","Whole tool","add","Dock","Paints a freehand blob of a texture, and when you release, the pack's border art is drawn around the blob's edge: a grass patch with a ragged grass rim, mud with a dark lip, carpet with fringe.","None as a tool. The cave band renderer already does the same trick: a band of edge art along a floor's outline.","Size, layer, Smooth, Move to front. Erase needs the same texture and layer.","Decided 6 Nov: add as its own Terrain tool. Paint a freehand patch and the border art closes it, like scatter but as one solid piece. Size and Smooth in the dock, Erase and the border on or off in the panel. The edge band renderer already does the border."],
+["Terrain","Path","Draw","add","Dock","Click points to lay a line of tiled pieces: road, river bank, cliff edge, fence.","None. A Path floor tool was removed.","Click points, DELETE undoes, SHIFT bends.","No way to draw a road or cliff line today except placing props one by one. The forge notes already settled on unit pieces laid along a path."],
+["Terrain","Path","Width, Smoothness","add","Dock","Piece scale and how much the line curves between points.","None.","Sliders, fixed once placed.","Dungeondraft fixes them after placing, which the guide lists as a pain. Ours stay editable on the card."],
+["Terrain","Path","Transition in and out","add","Panel","Hard, fade, or grow and shrink ends.","None.","Three options each end.","A road that fades into grass versus a cliff that ends hard. Set once per path type; panel."],
+["Terrain","Path","Block light","add","Card","The path acts as a wall for light and sight.","None.","Toggle; exports as a wall.","Cliffs and hedges block sight. Without it every cliff needs an invisible wall drawn on top."],
+["Terrain","Path","Fuzzy search slider","drop","none","A slider between fuzzy and exact text matching in the library.","None.","Fuzzy to Exact slider.","Nobody tunes a search algorithm. A search box that is fuzzy by default and exact in quotes is standard."],
+// ───────── Objects
+["Objects","Stamp","Scale","keep","Dock","Size of the next prop, 0.25 to 4.","Slider plus number box.","ALT and wheel.","On-the-fly; dock."],
+["Objects","Stamp","Angle","keep","Dock","Rotation of the next prop.","Chip: wheel turns 15°, click resets.","Wheel 15°, Z and wheel 5°, right click 90°, slider.","On-the-fly; dock. Add a fine step with a modifier."],
+["Objects","Stamp","Mirror","keep","Dock","Flips the next prop.","Toggle.","A key.","On-the-fly; dock."],
+["Objects","Stamp","Variant and Vary each stamp","drop","Dock","Variant picks which art variant. Vary each stamp picks a random one per click.","Stepper in the dock and a toggle in the popover.","None.","Two controls for one choice. A Random position at the end of the stepper does both. Drop the toggle."],
+["Objects","Stamp","Keep placing","keep","Panel","Stay in the tool after one stamp.","Popover toggle.","Default behaviour.","Set once; panel."],
+["Objects","Stamp","Place under","keep","Panel","New props go under existing ones on the layer.","Appears in both the Stamp and the Scatter popovers and writes one field.","Over or Under per layer.","Keep it once, shared, in the panel."],
+["Objects","Stamp","Colour for colorable","add","Dock","Pick the tint before placing; the library previews it live.","Tint on the card after placing.","Custom colour in the tool; library updates in real time.","Placing 30 banners in the baron's colour today is place, select, tint, 30 times. The tint must be set before the stroke, and the preview tells you which assets take it."],
+["Objects","Stamp","Shadow, Block light","keep","Card","Casts shadow; blocks light and sight.","Card toggles.","Per-object toggles in the tool.","Per prop after placement. The default should come from the asset: a crate blocks, a rug does not."],
+["Objects","Stamp","Library tags and Used","add","Panel","Filter the asset panel by tag set, and show what this map already uses.","Strip of recent, picked, favourites; a search.","Tags, Sets, search, a Used tab.","Thousands of props. Used is how you re-place the same chair; tags are how you find all the barrels."],
+["Objects","Scatter","Radius, Density","keep","Dock","How wide the scatter brush is and how many props per pass.","Two sliders.","Click-drag, Spread -1 to 4.","On-the-fly; dock."],
+["Objects","Scatter","Scale range","keep","Panel","Random size between two values.","Two-ended slider 0.3 to 2.","Two-ended 0.1 to 4.","Set once per scatter job; panel."],
+["Objects","Scatter","Rotation range","add","Panel","Random rotation between two angles.","Single value 0 to 360.","Two-ended range.","A single value is all or nothing. Fallen leaves want plus and minus 180, chairs round a table want plus and minus 15."],
+["Objects","Scatter","Spacing, Avoid overlaps, Stay on floors","keep","Panel","Minimum gap, no overlapping, and no props off the floor.","Popover.","Spread only.","Set once; panel. Stay on floors is the one Dungeondraft lacks and users miss."],
+["Objects","Scatter","Random variant","keep","Panel","Each prop picks a random art variant.","Toggle.","Multi-select a pool with SHIFT.","Keep, and let the pool be several assets, not one asset's variants."],
+["Objects","Scatter","Tints","keep","Panel","Up to four colours picked at random.","Popover with Clear.","Multi-pick colours.","Set once; panel."],
+["Objects","Scatter","Re-roll and seed","drop","Dock","Re-roll regenerates the last scatter; seed is the number behind it.","Button and a visible seed.","Each click re-randomises.","Seeds matter to developers, not to someone dressing a room. Keep the Re-roll button in the dock, hide the number."],
+["Objects","Scatter","See under overhead","move","View menu","Hides overhead props so the floor under them is visible.","Tail toggle on the Props dock.","None.","It changes what you see, not what the tool draws. It belongs with Lit preview and Outlines."],
+["Objects","Prop card","Transform","keep","Card","X, Y, W, H, ratio lock, Angle, Flip.","Card section.","Move, rotate, resize on canvas.","Per prop."],
+["Objects","Prop card","Look","keep","Card","Tint and Opacity.","Card section.","Custom colour.","Per prop."],
+["Objects","Prop card","Layering","keep","Card","Order (to back, backward, forward, to front), Overhead, Lock.","Four order buttons. The Mixed card has two.","Layer, over or under.","Give Mixed the same four."],
+["Objects","Prop card","Glows","drop","none","A built-in glow with strength and animation, a small light on the prop.","Toggle plus Strength, Animation, Speed.","None.","Decided 6 Nov: drop. An attached Light does the same with more control and shows up in the Lights family. Two systems for one glow is one too many."],
+["Objects","Prop card","Blocks movement","drop","none","Marks the prop impassable at the table.","Greyed out, labelled Table pass.","None.","Nothing reads it. A greyed control is a promise. Bring it back when the table has movement rules."],
+["Objects","Group card","Save as prefab","add","Card","Saves a group as a reusable named asset.","Group has Name, Members, Box, Merged, Overhead, Lock, Ungroup. No save.","Make Prefab, name, set, Separate.","A dressed table with chairs or a shrine gets placed ten times a campaign. Groups exist; saving them is the missing half."],
+// ───────── Environment
+["Environment","Light","Bright, Dim","keep","Dock","Bright radius and dim radius in feet.","Sliders 5 to 300. The default bright is 0, below the minimum.","Range slider and wheel.","On-the-fly; dock. Fix the default."],
+["Environment","Light","Colour","keep","Dock","Light colour.","Quick setting.","Colour.","Swatch; dock."],
+["Environment","Light","Intensity","move","Dock","How strong the light is, 0 to 100%.","Card only, after placing.","Tool slider.","A row of torches at 60% is a decision made while placing them, not one at a time afterwards."],
+["Environment","Light","Flicker toggle","drop","none","Shortcut for Effect = Flicker.","Dock switch, duplicating the Effect control in the popover and on the card.","None.","Three controls writing one field. Keep Effect with None, Flicker, Pulse."],
+["Environment","Light","Cone, Direction","keep","Panel","Narrows the light to a cone and points it.","Popover and card.","Cone happens by placing near an asset edge.","Setup for a type of light; panel. Ours is explicit, theirs is a side effect."],
+["Environment","Light","Effect, Speed","keep","Panel","None, Flicker, Pulse and how fast.","Popover.","None.","Setup; panel."],
+["Environment","Light","Through walls","keep","Panel","Ignores walls.","Toggle.","Shadows off per light.","Setup; panel."],
+["Environment","Light","Night only, Darkvision sees through","drop","none","Table-time rules: only at night; darkvision ignores the darkness.","Two toggles on the light card.","None.","Decided 6 Nov: drop with the rest of the environment rework. Neither changes the map, and the day and night system they hang off is going. On at the table stays as the one switch that matters: a light that starts off."],
+["Environment","Light","On at the table","keep","Card","Whether the light starts lit when the map opens at the table.","Toggle under Table on the card.","None.","A dark room the party lights up later needs its torches placed but off. Per light; card."],
+["Environment","Light","Darkness source","keep","Dock","A light that removes light.","A preset and a popover toggle.","None.","The Darkness preset covers it. Drop the toggle, keep the preset."],
+["Environment","Light","Falloff","drop","none","Linear or quadratic brightness curve.","Card select.","None.","Nobody picks quadratic on purpose. Choose the curve that looks right and remove the choice."],
+["Environment","Light","Shape style","drop","none","Light shaped like a window, a candle halo, a lantern beam.","None.","Library of light shapes.","Decided 6 Nov: skip for now. Revisit when light-shape assets arrive. Cone plus direction covers the rest."],
+["Environment","Light","Widget","keep","none","Shows where lights are.","Lights show as icons.","Flame widget toggle.","Always on in Select; no setting."],
+["Environment","Light","Presets","keep","Dock","Torch, Lantern, Candle, Brazier, Magical, Darkness.","Six swatches.","None.","Swatches; dock."],
+["Environment","Light","Attach to prop","keep","Card","The light follows a prop.","Attach or Detach row.","None.","Per light."],
+["Environment","Sky and mood","Environment, Natural shadows, Orientation","keep","Sheet","Outdoor, indoor or underground; sun shadows; which way is east.","Sheet.","None.","Drives the lit preview and the table's day cycle. Map-wide; sheet."],
+["Environment","Sky and mood","Climate","drop","none","Temperate, desert, snow, swamp.","Sheet select.","None.","Decided 6 Nov: drop. It changes nothing on the made map. Bring something back only if it visibly changes the map and the user can tune it."],
+["Environment","Sky and mood","Weather, Night sky, Time of day","drop","none","Starting weather, moon phase, and a clock-driven or fixed hour.","Six weathers, three skies, Follow clock or Fixed hour.","None.","Decided 6 Nov: drop as built. Moon phases change nothing visible and a time of day is rarely useful unless the user can tune what it does. The environment sheet gets rebuilt around what actually renders: environment type, orientation, mood tint, lit preview."],
+["Environment","Sky and mood","Mood tint","keep","Sheet","A colour over the whole map.","Sheet.","Ambient light colour.","Map-wide; sheet."],
+["Environment","Sky and mood","Preview block","keep","Sheet","Hour, Sky, Weather, Lit preview, not saved.","Sheet.","None.","Lets you check a look without changing the map."],
+// ───────── Text
+["Text","Label","Size, Colour","keep","Dock","Text size and colour of the next label.","Quick settings.","Size box, colour.","On-the-fly; dock."],
+["Text","Label","Style tiles","keep","Dock","Room name, Door tag, GM note, Number pin, Callout, Custom.","Swatches.","None.","Swatches; dock."],
+["Text","Label","Font","add","Panel","Pick between two or three typefaces.","One face for everything.","Font dropdown.","Room numbers want a plain face, a tavern sign wants the display face. One font is the one thing labels cannot do now."],
+["Text","Label","Weight, Backdrop, Align, Angle","keep","Card","Bold or regular; none, halo or pill behind; alignment; rotation.","Card rows.","Text box square or rounded, border width, colours.","Backdrop covers their text box. Per label."],
+["Text","Label","Visible to players","keep","Card","Hides the label at the table.","Card toggle.","Visible all toggle.","Keep, and add a hide-all-labels view toggle for the editor."],
+["Text","Label","Bound labels","keep","Card","Follows a room or door name; Unbind breaks the link.","Card.","None.","Room names that rename themselves. Per label."],
+["Text","Label","Edit versus Move modes","keep","none","One tool creates, edits and moves.","One tool.","Two modes.","Ours is simpler. No change."],
+["Text","Zone","Shape","keep","Dock","Point, Circle, Rect.","Segmented control.","None.","Per zone while placing; dock."],
+["Text","Zone","Card","keep","Card","Name, position, size, Triggers count, More, Prep overview.","Card. Shape prints the raw kind (circle, rect).","None.","Per zone. Render the shape name properly."],
+["Text","Rooms","Tools","keep","Dock","Rectangle room, Polygon room, Divide.","Three tools.","None.","Rooms are the stronger model; keep."],
+["Text","Rooms","Divider","keep","Dock","Threshold or Wall between divided rooms.","Segmented control for Divide.","None.","Changes per divide; dock."],
+["Text","Rooms","Outlines, Labels Off Numbers Both","move","View menu","Show room outlines and numbers on the canvas.","Quick settings on the Rooms dock.","None.","They change what you see, not what the tool draws. Same family as Lit preview and See under overhead."],
+["Text","Rooms","Walls With room or None","keep","Panel","Whether a new room draws its walls.","Quick setting.","Building X turns walls off.","Set once per session; panel."],
+["Text","Rooms","Texture strip","add","Dock","Floor textures for the room tools.","Missing. The code comment says it should be there.","Floor library.","A room drawn without a texture gets the layer default and needs a second trip to the card."],
+["Text","Rooms","Suggest rooms","keep","Panel","Finds rooms from drawn walls; Accept all or Dismiss.","Tail button.","None.","A one-time action; panel."],
+["Text","Rooms","Room card","keep","Card","Number, Name, Size, Area, Floor, Walls, Mood, Key.","Card.","None.","Per room."],
+["Text","Rooms","Mood","drop","none","Lit, Dim, Dark per room plus a tint; Dark hides from sight.","Card section on rooms, areas and levels.","None.","Decided 6 Nov: drop. It barely changes the made map today. If a per-room darkness is wanted later, it comes back as a Light-family thing with a visible effect, not a card section."],
+["Text","Rooms","Clone and Compare levels","add","Dock","Clone a level on create; see two levels at once with opacity.","Levels: create, rename, delete, move.","Create with clone, drag reorder, Compare with reference opacity.","Drawing the first floor over the ground floor's walls is the whole point of levels. Without compare you count grid squares."],
+// ───────── Select
+["Select","Select","Verbs","keep","Panel","Flip H, Flip V, Rotate 90, Duplicate, Lock, Unlock, Hide, Delete, More.","Action row.","Copy, Paste, Delete, Mirror, Lock, Make prefab, Previous tool.","Keep, and add Previous tool (X). Bouncing between place and adjust is the main loop."],
+["Select","Select","Filter by kind","add","Panel","Box select picks only props, or only walls.","Mixed card has Select only, after the fact.","Filter by type before selecting.","Box-selecting a cluttered room grabs floors, props and labels together. A kind filter row at the top of the Select panel fixes it before the drag."],
+["Select","Select","Filter by layer","keep","none","Limit picking to some layers.","Lock and Solo on layers.","Layer filter list.","Lock and Solo do the same with fewer controls."],
+["Select","Select","Locked rule","keep","none","How locked objects mix with unlocked in one selection.","A locked member holds the group back; the header says how many.","Locked and unlocked never mix.","Ours tells you why nothing moved. Keep."],
+["Select","Select","Align, Distribute","keep","Panel","Line up and space several objects.","Mixed and multi-prop cards.","None.","Per selection; panel."],
+["Select","Select","Marquee","keep","none","Drag a box to select.","Status chip Marquee picks.","SHIFT box adds.","No change."],
+// ───────── Map wide
+["Map wide","Layers","Trace image","add","Sheet","A reference image under the map at adjustable opacity, toggled with a key.","Import image creates a layer.","Scale, opacity, centre, T toggles, not exported.","Tracing a sketch is how many maps start. The layer exists; it needs opacity and a quick toggle."],
+["Map wide","Layers","Layer sheet","keep","Sheet","Name, Colour, Texture, Scale, Tint, Opacity, Show rows, Edges, Lock, Solo, Duplicate, Move to level, Delete.","Sheet.","Layers are fixed.","Ours is richer. Keep."],
+["Map wide","Map","Camera filter, Building wear","drop","none","Printer-friendly or sepia; dust, grime, noise, scratch overlays.","None.","Map settings.","Export-time looks. If anywhere, the export dialog."],
+["Map wide","Map","Plateau rules","keep","Sheet","Hide tops from below at N cells; crossing kinds.","Map settings sheet.","None.","Map-wide; sheet."]
+];
+
+var FAMS = ["Design","Terrain","Objects","Environment","Text","Select","Map wide"];
+var VERD = [["ask","Ask"],["drop","Drop"],["move","Move"],["add","Add"],["keep","Keep"]];
+var state = { v: "all", f: "all" };
+
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+function count(v, f) { return D.filter(function (r) { return (v === "all" || r[3] === v) && (f === "all" || r[0] === f); }).length; }
+
+function renderFilters() {
+  var h = '<span class="lbl">Verdict</span>';
+  h += '<button class="f' + (state.v === "all" ? " on" : "") + '" data-v="all">All<b>' + count("all", state.f) + '</b></button>';
+  VERD.forEach(function (p) { h += '<button class="f' + (state.v === p[0] ? " on" : "") + '" data-v="' + p[0] + '">' + p[1] + '<b>' + count(p[0], state.f) + '</b></button>'; });
+  h += '<span class="gap"></span><span class="lbl">Family</span>';
+  h += '<button class="f' + (state.f === "all" ? " on" : "") + '" data-f="all">All</button>';
+  FAMS.forEach(function (f) { h += '<button class="f' + (state.f === f ? " on" : "") + '" data-f="' + esc(f) + '">' + esc(f) + '<b>' + count(state.v, f) + '</b></button>'; });
+  document.getElementById("filters").innerHTML = h;
+}
+
+function renderList() {
+  var rows = D.filter(function (r) { return (state.v === "all" || r[3] === state.v) && (state.f === "all" || r[0] === state.f); });
+  var order = { ask: 0, drop: 1, move: 2, add: 3, keep: 4 };
+  var h = "";
+  FAMS.forEach(function (fam) {
+    var rs = rows.filter(function (r) { return r[0] === fam; });
+    if (!rs.length) return;
+    if (state.v === "all") rs.sort(function (a, b) { return order[a[3]] - order[b[3]]; });
+    h += '<h2 class="fam">' + esc(fam) + '<span>' + rs.length + '</span></h2>';
+    rs.forEach(function (r) {
+      var vl = VERD.filter(function (p) { return p[0] === r[3]; })[0][1];
+      h += '<div class="card">' +
+        '<div class="top"><span class="name">' + esc(r[2]) + '</span><span class="tool">' + esc(r[1]) + '</span></div>' +
+        '<div class="meta"><span class="chip ' + r[3] + '">' + vl + '</span><span class="home">' + esc(r[4]) + '</span></div>' +
+        '<div class="row"><b>Does</b> ' + esc(r[5]) + '</div>' +
+        '<div class="cmp"><b>v2 today</b> ' + esc(r[6]) + ' <b>Dungeondraft</b> ' + esc(r[7]) + '</div>' +
+        '<div class="row"><b>Why</b> ' + esc(r[8]) + '</div>' +
+        '</div>';
+    });
+  });
+  document.getElementById("list").innerHTML = h || '<div class="empty">Nothing matches.</div>';
+}
+
+function render() { renderFilters(); renderList(); }
+document.getElementById("filters").addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.v) state.v = b.dataset.v; if (b.dataset.f) state.f = b.dataset.f;
+  var hash = state.v === "all" ? "" : "#" + state.v;
+  if (location.hash !== hash) { try { history.replaceState(null, "", location.pathname + hash); } catch (err) {} }
+  render();
+});
+(function () {
+  var h = (location.hash || "").replace("#", "");
+  if (VERD.some(function (p) { return p[0] === h; })) state.v = h;
+  render();
+})();
+window.addEventListener("hashchange", function () {
+  var h = (location.hash || "").replace("#", "");
+  state.v = VERD.some(function (p) { return p[0] === h; }) ? h : "all"; render();
+});
+</script>
+</body>
+</html>

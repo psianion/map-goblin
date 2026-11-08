@@ -1,6 +1,7 @@
 import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
+import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
@@ -113,15 +114,18 @@ function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
   const doors = reversed.filter((c) => c.childType === 'door');
   // Zones draw as the editor's overlay over the floors: under the props, over the walls.
   const zones = reversed.filter((c) => c.childType === 'zone');
+  // Paths lie on the floors, under everything else.
+  const paths = reversed.filter((c) => c.childType === 'pathway');
   const rest = reversed.filter(
     (c) =>
       c.childType !== 'text' &&
       c.childType !== 'asset' &&
       c.childType !== 'door' &&
       c.childType !== 'light' &&
-      c.childType !== 'zone',
+      c.childType !== 'zone' &&
+      c.childType !== 'pathway',
   );
-  return [...lights, ...labels, ...assets, ...doors, ...zones, ...rest];
+  return [...lights, ...labels, ...assets, ...doors, ...zones, ...paths, ...rest];
 }
 
 /**
@@ -137,6 +141,9 @@ export interface PickOptions {
   includeLockedObjects?: boolean;
   skipOverhead?: boolean;
 }
+
+/** How near a thin path a click must land to pick it, in cells. */
+const PATH_MIN_HIT = 0.3;
 
 /** World radius a point zone answers within. */
 export const ZONE_POINT_HIT_RADIUS = 0.35;
@@ -178,6 +185,9 @@ function* childHits(
         break;
       case 'zone':
         if (pointInZone(child, point)) yield child;
+        break;
+      case 'pathway':
+        if (distanceToLine(pathwayLine(child), { x: point[0], y: point[1] }) <= Math.max(child.width / 2, PATH_MIN_HIT)) yield child;
         break;
       case 'asset':
         if (child.overhead && opts?.skipOverhead) break;
@@ -636,6 +646,10 @@ export function getChildBounds(child: AnyChild): {
   height: number;
 } {
   switch (child.childType) {
+    case 'pathway': {
+      const b = pathwayBounds(child);
+      return b ? { x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY } : { x: 0, y: 0, width: 0, height: 0 };
+    }
     case 'shape':
     case 'plateau': {
       // Flattened: a curve can bow past its anchors, and the gizmo/selection

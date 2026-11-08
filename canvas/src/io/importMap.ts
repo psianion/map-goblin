@@ -57,12 +57,9 @@ async function importOne(row: ScannedMap): Promise<ImportResult> {
     const { width, height } = map.image;
     const longest = Math.max(width, height);
     if (longest > IMPORT_MAX_PX) {
-      const scale = IMPORT_MAX_PX / longest;
       map.image = {
         dataUrl: await resizeImageToMax(map.image.dataUrl, IMPORT_MAX_PX, 'image/webp'),
-        width: Math.floor(width * scale),
-        height: Math.floor(height * scale),
-        pxPerCell: map.image.pxPerCell * scale,
+        ...downscaledImage(map.image, IMPORT_MAX_PX / longest),
       };
       warnings.push(`image downscaled from ${width}×${height} to fit ${IMPORT_MAX_PX}px`);
     }
@@ -80,4 +77,15 @@ async function importOne(row: ScannedMap): Promise<ImportResult> {
   await useStore.getState().saveCurrentMap();
 
   return { name: map.name, ok: true, warnings, bytes };
+}
+
+/**
+ * The pixel size and pixels per cell of an image shrunk by `scale`, as `resizeImageToMax`
+ * rounds it. The cell size comes from the width it really got, so the picture still spans
+ * the same cells; `pxPerCell * scale` drifted up to a pixel off the floored width.
+ */
+export function downscaledImage(image: { width: number; height: number; pxPerCell: number }, scale: number) {
+  const width = Math.floor(image.width * scale);
+  const height = Math.floor(image.height * scale);
+  return { width, height, pxPerCell: width / (image.width / image.pxPerCell) };
 }

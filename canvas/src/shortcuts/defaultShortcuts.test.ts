@@ -23,8 +23,7 @@ import {
   shortcutById,
   SHORTCUTS,
 } from './defaultShortcuts';
-import { formatCombo, keyCaption } from './formatCombo';
-import { DOCK_TABS } from '@/v2/editor/dockTabs';
+import { formatCombo } from './formatCombo';
 import { TERRAIN_PANEL_ID } from '@/store/types';
 import { openNewMapRef } from '@/editor/toolConstants';
 import type { AssetChild, DungeonLayer, LightChild, ShapeChild } from '@/store/types';
@@ -571,11 +570,7 @@ describe('the shortcut table', () => {
     );
   });
 
-  it('gives the rail, the dock and the title menu their keys from the table', () => {
-    for (const tab of DOCK_TABS) {
-      for (const t of tab.tools) expect(t.shortcut, t.tool).toBe(keyCaption(`tool.${t.tool}`));
-    }
-    expect(DOCK_TABS.flatMap((t) => t.tools).every((t) => t.shortcut !== '')).toBe(true);
+  it('keeps the chords the title menu and the status bar show', () => {
     for (const id of ['tool.select', 'tool.pan', 'tool.ruler', 'mode.erase', 'mode.curve', 'edit.undo', 'edit.redo', 'file.export', 'file.import', 'view.fitToContent', 'view.litPreview', 'view.focusMode', 'view.shortcuts']) {
       expect(shortcutById(id), id).toBeDefined();
     }

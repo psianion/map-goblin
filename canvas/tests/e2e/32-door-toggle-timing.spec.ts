@@ -35,7 +35,7 @@ interface Sample {
 
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
 
-test('a state-only door toggle costs no union rebuild and lands within the frame budget', async ({
+test('a state-only door toggle costs no union rebuild and lands within the frame budget', { tag: '@render' }, async ({
   page,
 }) => {
   // Doors have their own sublayer (see subscribeToStore.ts / floorWallRenderer.ts

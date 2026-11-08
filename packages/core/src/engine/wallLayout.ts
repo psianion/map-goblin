@@ -12,7 +12,7 @@
 // fillet arc, each rotated to the local tangent.
 
 import type { Point } from '../types/geometry';
-import type { WallNodeEdit, WallSpanEdit, WallEdits } from '../shared/types';
+import type { CornerStyle, WallNodeEdit, WallSpanEdit, WallEdits } from '../shared/types';
 
 /** Grid unit: 200px = 1 cell (FA standard at 200ppi). */
 export const PX_PER_CELL = 200;
@@ -39,6 +39,8 @@ export interface WallPieceSpec {
    *  arms stop short of the tile edge would leave gaps against the straights
    *  the layout pulls back to make room for them. */
   swapOnly?: boolean;
+  /** Corner pieces only: the shape of the turn. Absent counts as sharp. */
+  cornerShape?: CornerStyle;
 }
 
 export type NodeKind = 'straight' | 'fan' | 'corner' | 'ending' | 'inserted';
@@ -83,6 +85,8 @@ export interface LayoutOptions {
    * rock is narrower than its bounding box almost everywhere.
    */
   overlap?: number;
+  /** Which corner pieces the turns take. Absent: sharp. */
+  cornerStyle?: CornerStyle;
 }
 
 /**
@@ -204,6 +208,32 @@ function elbowFor(
   if (matches.length === 0) return null;
   const seed = (Math.round(x * 16) ^ Math.imul(Math.round(y * 16), 0x9e3779b1)) >>> 0;
   return pick(matches, seed, 0);
+}
+
+/** Sets already warned about a missing rounded corner, so the warning is said once each. */
+const warnedRounded = new Set<string>();
+
+/**
+ * The authored elbows a wall's turns may take for its corner style. A set with no
+ * rounded corner falls back to its sharp ones (with a warning in development); with
+ * no sharp corner either, none, and the layout's own cornerstone takes the turn.
+ */
+export function elbowsFor(pieces: readonly WallPieceSpec[], style: CornerStyle = 'sharp'): WallPieceSpec[] {
+  const elbows = pieces.filter((p) => p.role === 'corner' && !p.swapOnly);
+  const shapeOf = (p: WallPieceSpec): CornerStyle => p.cornerShape ?? 'sharp';
+  const wanted = elbows.filter((p) => shapeOf(p) === style);
+  if (wanted.length > 0 || style === 'sharp') return wanted;
+  const key = pieces.map((p) => p.id).join('|');
+  if (import.meta.env?.DEV && !warnedRounded.has(key)) {
+    warnedRounded.add(key);
+    console.warn(`[walls] no rounded corner piece in ${pieces[0]?.id ?? 'this set'}; using sharp`);
+  }
+  return elbows.filter((p) => shapeOf(p) === 'sharp');
+}
+
+/** Where two separate walls meet, the corner is rounded only if both are. */
+export function junctionCornerStyle(a: CornerStyle, b: CornerStyle): CornerStyle {
+  return a === 'rounded' && b === 'rounded' ? 'rounded' : 'sharp';
 }
 
 function pick<T>(items: T[], seed: number, index: number): T {
@@ -427,8 +457,9 @@ function applyCornerPieces(
   dragged: Set<WallNode>,
   pieces: WallPieceSpec[],
   elbowTol: number,
+  cornerStyle: CornerStyle | undefined,
 ): void {
-  const elbows = pieces.filter((p) => p.role === 'corner' && !p.swapOnly);
+  const elbows = elbowsFor(pieces, cornerStyle);
   const affected = new Set<number>();
   for (let i = 0; i < nodes.length; i++) {
     if (dragged.has(nodes[i])) {
@@ -496,6 +527,7 @@ export function applyWallEdits(
     wallWidth: number;
     overlap?: number;
     elbowTolerance?: number;
+    cornerStyle?: CornerStyle;
   },
 ): WallNode[] {
   if (!edits) return nodes;
@@ -593,7 +625,7 @@ export function applyWallEdits(
   if (!fill || dragged.size === 0) return out;
   // Before the bridging pass, so a seam next to a freshly-made corner is filled
   // from the straight beside it rather than from the cornerstone.
-  applyCornerPieces(out, dragged, fill.pieces, fill.elbowTolerance ?? DEFAULTS.elbowTolerance);
+  applyCornerPieces(out, dragged, fill.pieces, fill.elbowTolerance ?? DEFAULTS.elbowTolerance, fill.cornerStyle);
   return fillNodeGaps(
     out,
     dragged,
@@ -848,7 +880,7 @@ export function layoutWall(
 
   const straights = pieces.filter((p) => p.role === 'straight');
   const rocks = pieces.filter((p) => p.role === 'rock');
-  const elbows = pieces.filter((p) => p.role === 'corner' && !p.swapOnly);
+  const elbows = elbowsFor(pieces, opts.cornerStyle);
   const endings = pieces.filter((p) => p.role === 'ending');
   // Fan material: small pieces from this same set, so the band stays continuous.
   const fanPieces = rocks.length > 0 ? rocks : straights;

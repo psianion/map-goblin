@@ -14,19 +14,16 @@ import { AddChildCommand } from '@/store/commands';
 import type { AssetChild } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
+import { AddTraceLayerCommand } from '@dnd/core/src/store/layerCommands';
+import { createImageLayer } from '@dnd/core/src/store/factories';
+import { shownLevelId } from '@/store/selectors';
+import { keyCaption } from '@/shortcuts/formatCombo';
+import { GUESS_PX_PER_CELL } from '@/canvas/battlemapSize';
 
 const VALID_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 const MAX_IMPORT_PX = 4096;
 const RESIZE_TARGET_PX = 2048;
 const AUTO_SCALE_CELLS = 5;
-/**
- * Assumed image pixels per grid square for a battlemap that arrives with its own
- * printed grid. 70 is Roll20's default cell and the most common figure published
- * battlemaps are drawn at, so a typical map lands within a cell or two of true.
- * ponytail: a fixed guess, not a detector — grid calibration is what makes it
- * exact, and this only has to put the DM in front of something they can drag on.
- */
-const BATTLEMAP_PX_PER_CELL = 70;
 
 /**
  * What the file actually is, read from its first bytes rather than its name.
@@ -132,17 +129,19 @@ export interface ImportOptions {
    * battlemap is assumed to be drawn at, rather than shrinking it to a few cells.
    */
   asBattlemap?: boolean;
+  /**
+   * For a battlemap: the image pixels one grid square measures, from the New map dialog's
+   * size. The 70 px guess when absent; the line-up makes it exact either way.
+   */
+  pxPerCell?: number;
 }
 
 /**
- * Core import pipeline. Validates format, checks dimensions, resizes if >4096px,
- * registers the image in the store and PIXI.Assets, returns an AssetChild.
+ * A picture for a placed image: validated, shrunk past the import limit, stored in
+ * `customImages` and registered with PIXI under a new key, which comes back with the
+ * picture's file name and its own pixel size. Throws for a file that is not an image.
  */
-export async function importImageFile(
-  input: File,
-  viewportCenter: { x: number; y: number },
-  { asBattlemap = false }: ImportOptions = {},
-): Promise<AssetChild> {
+export async function readPictureFile(input: File): Promise<{ assetId: string; imageSource: NonNullable<AssetChild['imageSource']> }> {
   const file = await normalizeImageFile(input);
   if (!file) {
     throw new Error(`Unsupported image format: ${input.type}. Use PNG, JPEG, SVG, or WebP.`);
@@ -168,14 +167,31 @@ export async function importImageFile(
 
   useStore.getState().addCustomImage(assetId, base64);
   await Assets.load({ alias: assetId, src: base64 });
+  return { assetId, imageSource: { fileName: input.name, width: srcWidth, height: srcHeight } };
+}
+
+/**
+ * Core import pipeline: the picture read by `readPictureFile`, as an AssetChild sized as a
+ * prop or a battlemap.
+ */
+export async function importImageFile(
+  input: File,
+  viewportCenter: { x: number; y: number },
+  { asBattlemap = false, pxPerCell }: ImportOptions = {},
+): Promise<AssetChild> {
+  const { assetId, imageSource } = await readPictureFile(input);
+  const srcWidth = imageSource.width;
+  const srcHeight = imageSource.height;
 
   // World cells per source pixel. `width`/`height` are the footprint in cells and
   // `scale` is the multiplier on top - the convention every consumer reads as
   // `width * scale` (sprite sync, hit test, bounds), so the factor belongs in one
   // of the two, never both.
   const cellsPerPx = asBattlemap
-    ? 1 / BATTLEMAP_PX_PER_CELL
+    ? 1 / (pxPerCell && pxPerCell > 0 ? pxPerCell : GUESS_PX_PER_CELL)
     : AUTO_SCALE_CELLS / Math.max(srcWidth, srcHeight);
+  const width = srcWidth * cellsPerPx;
+  const height = srcHeight * cellsPerPx;
 
   const child: AssetChild = {
     id: crypto.randomUUID(),
@@ -184,14 +200,18 @@ export async function importImageFile(
     visible: true,
     objectType: 'image',
     assetId,
-    position: { x: viewportCenter.x, y: viewportCenter.y },
+    // A battlemap is the map: its top-left corner on the map origin, where a fixed size is
+    // anchored, rather than wherever the camera happened to be.
+    position: asBattlemap ? { x: width / 2, y: height / 2 } : { x: viewportCenter.x, y: viewportCenter.y },
     rotation: 0,
     scale: 1,
-    width: srcWidth * cellsPerPx,
-    height: srcHeight * cellsPerPx,
+    width,
+    height,
     tint: '#ffffff',
     flipX: false,
     flipY: false,
+    // The texture may be a downscale; the line-up and the Battlemap sheet read the original.
+    imageSource,
   };
 
   return child;
@@ -242,6 +262,45 @@ export async function handleImageImport(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     notify.error(`Import failed: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * A picture for a trace layer, stored in `customImages`: validated, shrunk only past the
+ * import limit (a trace is drawn over, so it keeps its detail), and its key handed back with
+ * the file's name. Null, with a toast, when the file is not an image.
+ */
+export async function readTraceFile(input: File): Promise<{ imageKey: string; fileName: string } | null> {
+  const file = await normalizeImageFile(input);
+  if (!file) {
+    notify.error(`Unsupported image format: ${input.type}. Use PNG, JPEG, SVG, or WebP.`);
+    return null;
+  }
+  let base64 = await fileToBase64(file);
+  const bitmap = await createImageBitmap(file);
+  const oversized = bitmap.width > MAX_IMPORT_PX || bitmap.height > MAX_IMPORT_PX;
+  bitmap.close();
+  if (oversized) base64 = await resizeImageToMax(base64, MAX_IMPORT_PX, 'image/webp');
+  const imageKey = crypto.randomUUID();
+  useStore.getState().addCustomImage(imageKey, base64);
+  return { imageKey, fileName: input.name };
+}
+
+/**
+ * The More menu's Import as trace: the picture as a background image layer at the bottom of
+ * the level on show, at 40%, one undo step. Returns the new layer's id, or null.
+ */
+export async function importTraceImage(file: File): Promise<string | null> {
+  try {
+    const picture = await readTraceFile(file);
+    if (!picture) return null;
+    const layer = createImageLayer(shownLevelId(useStore.getState()), picture.imageKey, picture.fileName);
+    undoManager.execute(new AddTraceLayerCommand(layer));
+    notify.success(`Trace added · ${keyCaption('view.traceToggle')} hides and shows it`);
+    return layer.id;
+  } catch (err) {
+    notify.error(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     return null;
   }
 }

@@ -96,6 +96,20 @@ describe('importImageFile — world footprint', () => {
     expect(child.width * child.scale).toBeCloseTo(736 / 70, 6);
     expect(child.height * child.scale).toBeCloseTo(1035 / 70, 6);
   });
+
+  it('sizes a battlemap from the dialog figure and puts its corner on the map origin', async () => {
+    const child = await importImageFile(pngFile(), { x: 40, y: 40 }, { asBattlemap: true, pxPerCell: 92 });
+    expect(child.width * child.scale).toBeCloseTo(736 / 92, 6);
+    expect(child.height * child.scale).toBeCloseTo(1035 / 92, 6);
+    // Position is the centre: half the footprint in from the origin, not the viewport centre.
+    expect(child.position.x - (child.width * child.scale) / 2).toBeCloseTo(0, 9);
+    expect(child.position.y - (child.height * child.scale) / 2).toBeCloseTo(0, 9);
+  });
+
+  it('keeps a prop at the viewport centre', async () => {
+    const child = await importImageFile(pngFile(), { x: 40, y: 12 });
+    expect(child.position).toEqual({ x: 40, y: 12 });
+  });
 });
 
 describe('normalizeImageFile', () => {

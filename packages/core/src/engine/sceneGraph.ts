@@ -1,5 +1,6 @@
 import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import type { RenderEngine } from './RenderEngine';
+import type { LayerType } from '../store/types';
 import { GridRenderer } from './grid/GridRenderer';
 import { MapBoundaryRenderer } from './grid/MapBoundaryRenderer';
 import { ToolManager } from './tools/ToolManager';
@@ -10,6 +11,7 @@ import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { initRingNodeOverlay } from './ringNodeEdit';
+import { initPathNodeOverlay } from './pathNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 
 export interface SceneGraph {
@@ -47,6 +49,12 @@ export interface SceneGraphOptions {
 
 export interface DungeonSublayers {
   floor: Container;
+  /** The layer's Material brush patches (engine/material/materialRenderer.ts), on its floors. */
+  materials: Container;
+  /** The layer's water (engine/water/waterRenderer.ts), just above its floors and patches. */
+  water: Container;
+  /** The layer's paths (engine/path/pathRenderer.ts): units laid along a line, over the water. */
+  paths: Container;
   /** Plateau tops (plateauRenderer.ts): each band's translucent lift, over the floor. */
   plateauTops: Container;
   /**
@@ -76,13 +84,19 @@ export interface DungeonSublayers {
   doors: Container;
   /** Asset sprites. Codifies the pre-existing draw order (assets always drew above walls/doors). */
   objects: Container;
+  /**
+   * The grid lines over each imported picture's footprint (imageGridRenderer.ts): a
+   * battlemap is opaque and has no floor, so the floor grid never shows on it. Shown and
+   * hidden with `grid`.
+   */
+  imageGrid: Container;
   /** Text labels — always the topmost sublayer. */
   labels: Container;
 }
 
 export interface LayerEntry {
   id: string;
-  type: 'dungeon' | 'background';
+  type: LayerType;
   container: Container;
   sublayers: DungeonSublayers | null;
   /** RenderTexture for blend-mode isolation (dungeon layers only) */
@@ -187,6 +201,10 @@ export function buildSceneGraph(
   worldContainer.addChild(ringNodeOverlay);
   initRingNodeOverlay(ringNodeOverlay);
 
+  const pathNodeOverlay = new Graphics();
+  worldContainer.addChild(pathNodeOverlay);
+  initPathNodeOverlay(pathNodeOverlay);
+
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
@@ -227,7 +245,7 @@ export function addLayerToScene(
   _engine: RenderEngine,
   sceneGraph: SceneGraph,
   layerId: string,
-  layerType: 'dungeon' | 'background',
+  layerType: LayerType,
   index?: number,
 ): LayerEntry {
   const container = new Container();
@@ -236,6 +254,9 @@ export function addLayerToScene(
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const materials = new Container(); materials.label = 'sublayer-materials';
+    const water = new Container(); water.label = 'sublayer-water';
+    const paths = new Container(); paths.label = 'sublayer-paths';
     const plateauTops = new Container(); plateauTops.label = 'sublayer-plateau-tops';
     const plateauEdges = new Container(); plateauEdges.label = 'sublayer-plateau-edges';
     const shadows = new Container(); shadows.label = 'sublayer-shadows';
@@ -244,13 +265,14 @@ export function addLayerToScene(
     const wallMarks = new Container(); wallMarks.label = 'sublayer-wall-marks';
     const doors = new Container(); doors.label = 'sublayer-doors';
     const objects = new Container(); objects.label = 'sublayer-objects';
+    const imageGrid = new Container(); imageGrid.label = 'sublayer-image-grid';
     const labels = new Container(); labels.label = 'sublayer-labels';
     // Per-child draw order only means anything within objects/labels — see
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels);
+    sublayers = { floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../../store/store';
-import { createDungeonLayer } from '../../store/factories';
+import { createDungeonLayer, createImageLayer } from '../../store/factories';
+import { setNotify, type NotifyFn } from '../../store/notify';
 import { TERRAIN_PANEL_ID } from '../../store/types';
-import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
+import { TRACE_LAYER_MESSAGE, blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
 
 describe('blockedLayerReason', () => {
   beforeEach(() => {
@@ -65,5 +66,35 @@ describe('noEditableLayerMessage', () => {
   it('is terrain-aware when the Terrain row is active', () => {
     useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
     expect(noEditableLayerMessage()).toBe('Terrain is selected — pick a layer to draw on');
+  });
+});
+
+describe('a trace layer in hand', () => {
+  const warned: string[] = [];
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    warned.length = 0;
+    setNotify({ info: () => {}, success: () => {}, error: () => {}, warning: (m: string) => void warned.push(m) } as unknown as NotifyFn);
+    useStore.getState().addCustomImage('sketch', 'data:image/png;base64,AAAA');
+    const trace = createImageLayer(useStore.getState().levels[0].id, 'sketch', 'sketch.png');
+    useStore.getState().addLayer(trace);
+    useStore.getState().setActiveLayerId(trace.id);
+  });
+
+  it('refuses a drawing tool with the trace message, not "Layer was removed"', () => {
+    const before = JSON.stringify(useStore.getState().layers);
+    expect(resolveEditableLayer(useStore.getState().ui.activeLayerId)).toBeNull();
+    expect(warned).toEqual([TRACE_LAYER_MESSAGE]);
+    expect(TRACE_LAYER_MESSAGE).toBe('Trace layer · pick a dungeon layer to draw');
+    expect(JSON.stringify(useStore.getState().layers)).toBe(before);
+  });
+
+  it('says the same where a tool finds no layer to draw on', () => {
+    expect(noEditableLayerMessage()).toBe(TRACE_LAYER_MESSAGE);
+  });
+
+  it('still says the layer was removed for one that is gone', () => {
+    expect(resolveEditableLayer('gone')).toBeNull();
+    expect(warned).toEqual(['Layer was removed']);
   });
 });

@@ -1,11 +1,12 @@
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { eraseShapeCommands } from './eraseShapes';
+import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function generateRegularPolygon(
@@ -53,9 +54,11 @@ export class RegularPolygonTool implements DrawingTool {
     this.currentPoint = point;
   }
 
-  onPointerUp(point: Point): void {
+  onPointerUp(point: Point, event?: PointerEvent): void {
     if (!this.drawing || !this.center) return;
     this.drawing = false;
+    // Alt at release carves this one polygon, whatever the mode.
+    const alt = event?.altKey === true;
 
     const center = this.center;
     this.center = null;
@@ -76,12 +79,10 @@ export class RegularPolygonTool implements DrawingTool {
     const store = useStore.getState();
     const sides = store.tools.settings.regularPolygon.sides;
     const polyPoints = generateRegularPolygon(center.x, center.y, radius, sides);
-    const isErase = store.tools.eraseMode;
+    const isErase = store.tools.floorMode === 'carve' || alt;
 
     if (isErase) {
-      const commands = eraseShapeCommands(activeLayer, activeLayerId, [polyPoints]);
-      if (commands.length === 0) return;
-      undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
+      carveFloors(activeLayer, activeLayerId, [polyPoints]);
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()
@@ -102,7 +103,7 @@ export class RegularPolygonTool implements DrawingTool {
         textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, child));
+      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 

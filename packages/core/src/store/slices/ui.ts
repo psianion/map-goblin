@@ -24,8 +24,12 @@ export interface UIActions {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  /** Hide or show every label in the editor's view. */
+  setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
+  /** Draw another level under the one on show, or stop (null). View state, never undoable. */
+  setCompare: (compare: UISlice['compare']) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -169,6 +173,10 @@ export const createUISlice: StateCreator<
     set((state) => {
       state.ui.seeUnderOverhead = on;
     }),
+  setLabelsHidden: (hidden) =>
+    set((state) => {
+      state.ui.labelsHidden = hidden;
+    }),
   setMarqueeFilter: (filter) =>
     set((state) => {
       state.ui.marqueeFilter = filter;
@@ -176,5 +184,9 @@ export const createUISlice: StateCreator<
   setPropReplaceIds: (ids) =>
     set((state) => {
       state.ui.propReplaceIds = ids;
+    }),
+  setCompare: (compare) =>
+    set((state) => {
+      state.ui.compare = compare;
     }),
 });

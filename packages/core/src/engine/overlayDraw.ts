@@ -139,19 +139,18 @@ export function drawTangentArm(
   g.stroke({ color: OVERLAY_INK, width: 1.25 / z, alpha: HANDLE_BORDER_ALPHA });
 }
 
-/** Small "+" puck marking an insert point on a hovered/idle edge. */
+/** The caption grey of the design system (text-3, light), the midpoint handle's ring. */
+const MIDPOINT_RING = 0x6b6b6b;
+
+/**
+ * The midpoint handle on an edge being edited: a small round one, 7 px across with a
+ * grey ring, smaller than a node's square. Dragging it inserts a node there.
+ */
 export function drawInsertPuck(g: Graphics, x: number, y: number, zoom: number): void {
   const z = zoom > 0 ? zoom : 1;
-  const r = 4.5 / z;
-  const arm = 2.2 / z;
-  g.circle(x, y, r);
-  g.fill({ color: OVERLAY_INK, alpha: 0.8 });
-  g.stroke({ color: OVERLAY_WHITE, width: 1 / z, alpha: 0.9 });
-  g.moveTo(x - arm, y);
-  g.lineTo(x + arm, y);
-  g.moveTo(x, y - arm);
-  g.lineTo(x, y + arm);
-  g.stroke({ color: OVERLAY_WHITE, width: 1 / z, alpha: 1 });
+  g.circle(x, y, 3.5 / z);
+  g.fill({ color: OVERLAY_WHITE, alpha: 1 });
+  g.stroke({ color: MIDPOINT_RING, width: 1.5 / z, alpha: 1 });
 }
 
 /**

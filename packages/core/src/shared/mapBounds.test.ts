@@ -228,6 +228,21 @@ describe('computeMapFrame', () => {
     });
   });
 
+  it('cuts a lined-up battlemap hanging under a cell past its pinned edges instead of growing', () => {
+    // 36x24 lined up with its grid 0.3 cells in from the picture's left and 0.4 from its top:
+    // the picture runs from -0.3 to 36.2 and -0.4 to 24.3.
+    const battlemap = { ...makeAsset(17.95, 11.95), objectType: 'image' as const, width: 36.5, height: 24.7 };
+    expect(computeMapFrame([{ ...layerWith(null), children: [battlemap] }], null, { width: 36, height: 24 })).toEqual({
+      minX: 0, minY: 0, maxX: 36, maxY: 24,
+    });
+    // A whole cell or more past the edge is drawn content, and still grows the frame.
+    const wide = { ...battlemap, position: { x: 17.95 - 1.2, y: 11.95 } };
+    expect(computeMapFrame([{ ...layerWith(null), children: [wide] }], null, { width: 36, height: 24 })!.minX).toBeLessThan(-1);
+    // And anything else past the edge grows it as before: a prop, not a picture.
+    const prop = { ...battlemap, objectType: 'asset' as const };
+    expect(computeMapFrame([{ ...layerWith(null), children: [prop] }], null, { width: 36, height: 24 })!.minX).toBeLessThan(0);
+  });
+
   it('grows a pinned map out to the left and top as well', () => {
     const frame = computeMapFrame(
       [{ ...layerWith(null), standaloneWalls: [makeWall([[-4, -3], [10, -3]])] }],

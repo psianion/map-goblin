@@ -22,6 +22,9 @@ export type WallType = 'normal' | 'terrain' | 'invisible' | 'ethereal' | 'window
 export const DEFAULT_TEXTURE_SCALE = 1;
 export type WallDirection = 'both' | 'left' | 'right';
 
+/** Which corner pieces a wall's turns are laid with. Absent everywhere: sharp. */
+export type CornerStyle = 'rounded' | 'sharp';
+
 /**
  * Manual adjustments to a wall's composed sprite nodes (GitHub #19).
  *
@@ -106,6 +109,8 @@ export interface WallSegment extends WallEdits {
    */
   textureSetId?: string;
   textureTint?: string;
+  /** Rounded or sharp corner pieces at this wall's turns. Absent = the layer's `wallCornerStyle`. */
+  cornerStyle?: CornerStyle;
   /**
    * Locked on its own: selectable (with a lock badge), never moved, turned, deleted, cut
    * or moved to another layer. Absent = false. The layer's lock is a separate switch.
@@ -130,7 +135,8 @@ export type ChildType =
   | 'door'
   | 'plateau'
   | 'text'
-  | 'zone';
+  | 'zone'
+  | 'pathway';
 
 export interface LayerChild {
   id: string;
@@ -182,6 +188,13 @@ export interface ShapeChild extends LayerChild {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
+  /** The fill's and texture's alpha, 0 to 1; walls, band, props and lights keep theirs. Absent = 1. */
+  opacity?: number;
+  /**
+   * The cave band round this floor: a band set id, or null for none (stone walls stay).
+   * Absent = the layer's band.
+   */
+  edgeBand?: string | null;
 }
 
 /**
@@ -207,6 +220,28 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   crossingId?: string;
 }
 
+/**
+ * A path drawn with the Path tool: its nodes as one open ring (`contours[0]`, so moving,
+ * turning and scaling it work as for any ring child), laid with a pack's path units along
+ * the line (shared/pathway.ts). Not 'path': that child type is the retired Path tool's and
+ * is dropped on load.
+ */
+export interface PathwayChild extends LayerChild, RingGeometry {
+  childType: 'pathway';
+  /** The path unit laid along it: a pack-scoped catalogue id (a wall set's 'path' piece). */
+  pieceId: string;
+  /** Cells across; scales the units. */
+  width: number;
+  /** 0 keeps the corners sharp, 1 rounds them fully. */
+  smoothness: number;
+  /** The line runs through its nodes as a spline. */
+  curve: boolean;
+  transitionIn: 'hard' | 'fade' | 'grow';
+  transitionOut: 'hard' | 'fade' | 'shrink';
+  /** The path's line blocks light, like a wall. */
+  blocksLight: boolean;
+}
+
 /** Per-ring curve tangents — see shared/bezier.ts. */
 export type { RingTangents, VertexTangents } from './bezier';
 
@@ -228,6 +263,8 @@ export interface AssetChild extends LayerChild {
   opacity?: number;
   /** Drawn above tokens (editor and table), faded for a token standing under it. Absent = false. */
   overhead?: boolean;
+  /** Tinted by the water it stands in (shared/waterMask.ts belowWaterTint); drawn as it is where dry. Absent = false. */
+  belowWater?: boolean;
   /** Unclickable on the map; the layer panel and the Unlock menu still reach it. Absent = false. */
   locked?: boolean;
   /** Drops a sun/moon shadow. Absent = true. */
@@ -240,6 +277,12 @@ export interface AssetChild extends LayerChild {
   glows?: boolean;
   /** How the glow burns while `glows` is on. Absent = strength 0.9, steady (`GLOW_DEFAULT`). */
   glow?: { strength: number; animation?: LightAnimation };
+  /**
+   * An imported picture's file name and its own pixel size, before any downscale for the
+   * texture: what the Battlemap sheet names and the grid line-up measures against. Absent on
+   * pack assets and on pictures imported before 3.9 (the texture's size stands in).
+   */
+  imageSource?: { fileName: string; width: number; height: number };
 }
 
 /** Flicker or pulse, on a light or a glowing prop. `speed` 0.25..4, 1 = the default pace. */
@@ -312,6 +355,11 @@ export interface DoorChild extends LayerChild {
    * kit of the wall's own set, or no kit when that set has none.
    */
   kit?: 'stone' | 'wood' | 'cave';
+  /**
+   * Placed free rather than on a wall: the door stands on a piece of wall of its own, its
+   * width, at its own angle (see `shared/freestandingDoor.ts`). Absent = false.
+   */
+  freestanding?: boolean;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */
@@ -461,7 +509,8 @@ export type AnyChild =
   | DoorChild
   | PlateauChild
   | TextChild
-  | ZoneChild;
+  | ZoneChild
+  | PathwayChild;
 
 // ---- Room Types ----
 

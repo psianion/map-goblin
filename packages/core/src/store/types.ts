@@ -9,6 +9,7 @@ import type {
   WallEdits,
   WallType,
   WallDirection,
+  CornerStyle,
   DoorChild,
   DoorStyle,
   LabelStyleId,
@@ -24,6 +25,8 @@ import type { LightPresetId } from './lightPresets';
 import type { MapEnvironment, NightSky } from '../shared/world';
 import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
+import type { WaterBody, WaterLook } from '../shared/waterMask';
+import type { MaterialPatch } from '../shared/materialPatch';
 
 // ─── Map Settings ─────────────────────────────────────────
 
@@ -37,6 +40,8 @@ export interface TerrainData {
   visible?: boolean;
   /** Global terrain opacity, 0-1. Absent = 1. */
   opacity?: number;
+  /** Soft blending between textures and onto the floor; off is the ragged edge. Absent = off. */
+  smoothBlend?: boolean;
 }
 
 /** Sentinel activeLayerId for the pinned Terrain row — never a real layer id. */
@@ -92,7 +97,7 @@ export interface GridConfig {
 // ─── Layer Children — re-exported from @/shared/types ─────
 
 // ─── Layers ───────────────────────────────────────────────
-export type LayerType = 'dungeon' | 'background';
+export type LayerType = 'dungeon' | 'background' | 'image';
 
 interface BaseLayer {
   id: string;
@@ -136,6 +141,8 @@ export interface DungeonStyle {
   showEdgeTransitions: boolean;
   wallTextureSetId?: string;
   wallTextureTint: string;
+  /** Corner pieces for the layer's floor outlines and for drawn walls that pin none. Absent = sharp. */
+  wallCornerStyle?: CornerStyle;
   /**
    * How far past the authored boundary the floor is PAINTED, in world units.
    * Render only — the boundary itself does not move, so sight, rooms, doors and
@@ -194,6 +201,10 @@ export interface DungeonLayer extends BaseLayer {
    * standalone wall's do.
    */
   floorWallEdits?: Record<string, WallEdits>;
+  /** The Water brush's mask and look, drawn just above this layer's floors. Absent = dry. */
+  water?: WaterBody;
+  /** The Material brush's patches, drawn on this layer's floors, under its water. Absent = none. */
+  materials?: MaterialPatch[];
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -205,7 +216,26 @@ export interface BackgroundLayer extends BaseLayer {
   presetLock: boolean;
 }
 
-export type Layer = DungeonLayer | BackgroundLayer;
+/**
+ * A background image layer: a picture to trace over, at the bottom of its level, above the
+ * map background. Never in a PNG export or a publish (shared/traceLayer.ts).
+ */
+export interface ImageLayer extends BaseLayer {
+  type: 'image';
+  /** The picture's key in `customImages`. */
+  imageKey: string;
+  /** The file it came from, as the sheet names it. */
+  fileName: string;
+  /** Map: stretched to the map frame. Original: at the battlemap scale, centred on the frame. */
+  fit: 'map' | 'original';
+  /**
+   * Where Original puts the picture, in cells, instead of centring it at 70 px a cell: a
+   * battlemap converted to a trace keeps the place and size it had. Absent before 3.9.
+   */
+  placement?: { x: number; y: number; width: number; height: number };
+}
+
+export type Layer = DungeonLayer | BackgroundLayer | ImageLayer;
 
 // ─── Tools ────────────────────────────────────────────────
 export interface LightDefaults {
@@ -246,7 +276,13 @@ export type ToolType =
   /** Draws a threshold (or a wall) across a floor to split a room. */
   | 'divide'
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
-  | 'plateau';
+  | 'plateau'
+  /** Paints the active layer's water mask. */
+  | 'water'
+  /** Paints Material brush patches on the active layer. */
+  | 'material'
+  /** Draws a path: units laid along a line of clicked nodes. */
+  | 'path';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -264,6 +300,33 @@ export interface TerrainBrushSettings {
   tintOpacity: number;
 }
 
+
+/** The Water brush: its size, and the look a layer's first water takes. */
+export interface WaterToolSettings extends WaterLook {
+  /** Brush radius in cells. */
+  radius: number;
+}
+
+/** The Material brush: what the next stroke paints. */
+export interface MaterialToolSettings {
+  /** The band set painted with ('GG_Cave_Ink'). */
+  material: string;
+  /** Brush radius in cells. */
+  radius: number;
+  smooth: boolean;
+  border: boolean;
+}
+
+/** The Path tool: what the next path is drawn with. */
+export interface PathToolSettings {
+  /** The path unit, a pack-scoped id; null takes the first installed. */
+  pieceId: string | null;
+  width: number;
+  smoothness: number;
+  transitionIn: 'hard' | 'fade' | 'grow';
+  transitionOut: 'hard' | 'fade' | 'shrink';
+  blocksLight: boolean;
+}
 
 /** What the Plateau tool draws next. */
 export interface PlateauToolSettings {
@@ -297,6 +360,8 @@ export interface ScatterBrushSettings {
   stampScale: number;
   /** Mirror (F). */
   stampFlipX: boolean;
+  /** The tint the next stamp is placed with, set before placing; white places untinted. */
+  stampTint: string;
   /** Each stamp re-rolls the next ghost's variant within its family. */
   stampVary: boolean;
   /** 0.5..10. */
@@ -323,6 +388,8 @@ export interface ToolSettings {
   regularPolygon: { sides: number };
   wallType: WallType;
   wallDirection: WallDirection;
+  /** A wall drawn to another's free end joins it (same set and type). Absent = on. */
+  wallAutoJoin?: boolean;
   wallWidth: number;
   continuousPlacement: boolean;
   lightDefaults: LightDefaults;
@@ -332,9 +399,17 @@ export interface ToolSettings {
   doorWidth: number;
   /** A free-standing door's angle, degrees: 0 runs along x, 90 along y. Doors on a wall take the wall's. */
   doorAngle: number;
+  /** The Door panel's Freestanding: every click places a door free, never on a wall. Absent = off. */
+  doorFreestanding?: boolean;
   terrainBrush: TerrainBrushSettings;
+  water: WaterToolSettings;
+  material: MaterialToolSettings;
+  path: PathToolSettings;
   zone: ZoneToolSettings;
   label: LabelToolSettings;
+  /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */
+  floorOpacity?: number;
+  floorEdgeBand?: string | null;
   /** Absent on settings saved before the plateau tool: its defaults. */
   plateau?: PlateauToolSettings;
 }
@@ -344,6 +419,13 @@ export interface ToolsSlice {
   eraseMode: boolean;
   /** Wall/path chains commit as Catmull-Rom curves through the clicked anchors. */
   curveMode: boolean;
+  /**
+   * The Terrain brush's Fill, armed by its button: the next map click floods the floor
+   * there. 'miss' is armed still, after a click that found no floor.
+   */
+  terrainFill: 'off' | 'armed' | 'miss';
+  /** The Floor panel's Mode: the floor tools draw floors, or carve the shape out of them. */
+  floorMode: 'draw' | 'carve';
   settings: ToolSettings;
   /**
    * Wall whose composed sprite nodes are exposed for hand-editing (GitHub #19).
@@ -371,6 +453,8 @@ export interface ToolsSlice {
   shapeNodeEditId: string | null;
   /** Vertex index within that outline currently selected. */
   selectedVertex: number | null;
+  /** The picked path whose nodes are out for editing (node mode); null when none is. */
+  pathNodeEditId: string | null;
 }
 
 // ─── Selection ───────────────────────────────────────────
@@ -477,6 +561,8 @@ export interface UISlice {
    * view preference; never saved with the map.
    */
   seeUnderOverhead: boolean;
+  /** Hide every label in the editor's view (the View menu). Never saved with the map; the table and exports keep them. */
+  labelsHidden: boolean;
   /**
    * What a marquee picks: every kind, or only the active dock tab's kinds. Persisted as a
    * view preference; never saved with the map.
@@ -484,6 +570,11 @@ export interface UISlice {
   marqueeFilter: 'all' | 'tab';
   /** The props browser is replacing these props; null when it is not. View state. */
   propReplaceIds: string[] | null;
+  /**
+   * Another level drawn greyed under the one on show, at `opacity`, to line the two up.
+   * View state: never saved, exported or published, and nothing on it can be picked.
+   */
+  compare: { levelId: string; opacity: number } | null;
 }
 
 /** A Divide cut across one room's face: the threshold and the two faces it makes, larger first. */
@@ -632,7 +723,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7' | '3.8' | '3.9';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
@@ -767,6 +858,8 @@ export interface MapBuilderStore {
   // tool actions
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
+  setTerrainFill: (fill: ToolsSlice['terrainFill']) => void;
+  setFloorMode: (mode: ToolsSlice['floorMode']) => void;
   setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -803,8 +896,10 @@ export interface MapBuilderStore {
   setRoomWalls: (walls: UISlice['roomWalls']) => void;
   setPendingSplit: (split: PendingSplit | null) => void;
   setSeeUnderOverhead: (on: boolean) => void;
+  setLabelsHidden: (hidden: boolean) => void;
   setMarqueeFilter: (filter: UISlice['marqueeFilter']) => void;
   setPropReplaceIds: (ids: string[] | null) => void;
+  setCompare: (compare: UISlice['compare']) => void;
 
   // asset actions
   trackRecentUse: (assetId: string) => void;

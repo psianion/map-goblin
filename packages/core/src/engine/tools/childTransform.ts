@@ -136,8 +136,10 @@ export type ChildSnapshot =
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
+    // A path's nodes are one open ring: it moves, turns and scales point by point too.
     case 'shape':
     case 'plateau':
+    case 'pathway':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
     case 'asset':
     case 'text':

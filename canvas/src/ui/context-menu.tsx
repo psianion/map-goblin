@@ -1,599 +1,268 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { Check, ChevronDown, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { SliderInput } from '@/ui/SliderInput'
-import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas'
-import { useEscapeToClose } from '@/v2/useEscapeToClose'
+import * as React from "react"
+import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
+import { cn } from "@/lib/utils"
+import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
-export interface ContextMenuItem {
-  /** Absent means 'action' — the original plain-verb row every menu already uses. */
-  type?: 'action'
-  label: string
-  onSelect: () => void
-  danger?: boolean
-  /** Render a divider above this item. */
-  separatorBefore?: boolean
-  /** Greyed out and inert — e.g. Delete on a locked layer. */
-  disabled?: boolean
-  /** Small leading icon. */
-  icon?: ReactNode
-  /** Right-aligned shortcut hint, e.g. "Ctrl D" (the shortcut table's key, through formatCombo). */
-  kbd?: string
-  /**
-   * Marks the row as one choice of a set (a door's style): renders a real
-   * check glyph and announces as menuitemradio, instead of a ' ✓' pasted into
-   * the label that no assistive tech can perceive.
-   */
-  checked?: boolean
+function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
+  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
 }
 
-/** Identity line pinned at the top: what was clicked, in words. */
-export interface MenuHeaderRow {
-  type: 'header'
-  label: string
-  sublabel?: string
-  icon?: ReactNode
-}
-
-export interface MenuToggleRow {
-  type: 'toggle'
-  label: string
-  checked: boolean
-  onToggle: (next: boolean) => void
-  /** Drawn as a switch (the default) or as a checkbox, empty until checked. */
-  look?: 'switch' | 'check'
-  separatorBefore?: boolean
-  disabled?: boolean
-}
-
-export interface MenuSliderRow {
-  type: 'slider'
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  /** Live preview while dragging — no undo entry per tick. */
-  onChange: (v: number) => void
-  /** One undoable step from the value the drag started at. */
-  onCommit: (next: number, start: number) => void
-  separatorBefore?: boolean
-  disabled?: boolean
-}
-
-export interface MenuSwatchesRow {
-  type: 'swatches'
-  label: string
-  value: string
-  options: string[]
-  /** Human names for `options`, index-aligned — a screen reader says
-   *  "Candlelight", not "hash f f d d 8 8". */
-  optionNames?: string[]
-  onPick: (color: string) => void
-  separatorBefore?: boolean
-  disabled?: boolean
-}
-
-export interface MenuThumbStripRow {
-  type: 'thumbStrip'
-  label: string
-  items: { id: string; src: string; title: string; active?: boolean }[]
-  onPick: (id: string) => void
-  /** Close the menu after a pick: the pick is a verb (a swap), not a setting. */
-  closeOnPick?: boolean
-  /** Optional trailing verb, e.g. "More…" into the full browser. */
-  trailing?: { label: string; onSelect: () => void }
-  separatorBefore?: boolean
-  disabled?: boolean
-}
-
-/** Expands inline below its row rather than flying out — clamps and keyboard nav stay trivial. */
-export interface MenuSubmenuRow {
-  type: 'submenu'
-  label: string
-  icon?: ReactNode
-  rows: MenuRow[]
-  separatorBefore?: boolean
-  disabled?: boolean
-}
-
-export type MenuRow =
-  | ContextMenuItem
-  | MenuHeaderRow
-  | MenuToggleRow
-  | MenuSliderRow
-  | MenuSwatchesRow
-  | MenuThumbStripRow
-  | MenuSubmenuRow
-
-/**
- * Tracks right-click position; open() opens the menu at the cursor,
- * openAt() opens it at an explicit point (e.g. a row's bounding rect, for
- * the keyboard-triggered Shift+F10 / ContextMenu-key opener), close()
- * dismisses it.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function useContextMenu() {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
-  const open = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setPos({ x: e.clientX, y: e.clientY })
-  }, [])
-  const openAt = useCallback((x: number, y: number) => setPos({ x, y }), [])
-  const close = useCallback(() => setPos(null), [])
-  return { pos, open, openAt, close }
-}
-
-/**
- * All enabled, focusable controls inside a menu container, in DOM order.
- * Range inputs come from SliderInput and are focusable as-is: Up/Down move
- * between rows (handled below), Left/Right adjust the focused slider.
- */
-function menuItemEls(container: HTMLElement | null): HTMLElement[] {
-  if (!container) return []
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      '[data-menu-focusable]:not(:disabled), input[type="range"]:not(:disabled)',
-    ),
+function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props) {
+  return (
+    <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />
   )
 }
 
-/**
- * L3: clamp a menu's top-left so it stays fully inside the viewport, on both
- * axes — the same cheap clamp covers both the mouse opener (open) and the
- * keyboard opener (openAt), since neither picks a position with the menu's
- * own size in mind.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function clampMenuPosition(
-  pos: { x: number; y: number },
-  size: { width: number; height: number },
-  viewport: { width: number; height: number },
-): { left: number; top: number } {
-  return {
-    left: Math.max(0, Math.min(pos.x, viewport.width - size.width)),
-    top: Math.max(0, Math.min(pos.y, viewport.height - size.height)),
-  }
-}
-
-/**
- * Thumbnail with the asset browser's fallback: manifest paths are dev-only
- * (production nginx serves index.html for them, so the img decodes to
- * nothing without a 404) — on error the texture renders straight from the
- * rehydrated pack, the same source the canvas draws from.
- */
-function MenuThumb({ id, src }: { id: string; src: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed || !src) return <PackThumbnailCanvas textureId={id} />
+function ContextMenuTrigger({
+  className,
+  ...props
+}: ContextMenuPrimitive.Trigger.Props) {
   return (
-    <img
-      src={src}
-      alt=""
-      className="h-full w-full object-contain"
-      draggable={false}
-      onError={() => setFailed(true)}
+    <ContextMenuPrimitive.Trigger
+      data-slot="context-menu-trigger"
+      className={cn("select-none", className)}
+      {...props}
     />
   )
 }
 
-function ActionRow({ item, onClose, returnFocus }: {
-  item: ContextMenuItem
-  onClose: () => void
-  returnFocus: () => void
+function ContextMenuContent({
+  className,
+  align = "start",
+  alignOffset = 4,
+  side = "right",
+  sideOffset = 0,
+  ...props
+}: ContextMenuPrimitive.Popup.Props &
+  Pick<
+    ContextMenuPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset"
+  >) {
+  return (
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Positioner
+        className="isolate z-50 outline-none"
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+      >
+        <ContextMenuPrimitive.Popup
+          data-slot="context-menu-content"
+          className={cn("z-50 max-h-[var(--available-height)] w-[232px] origin-[var(--transform-origin)] overflow-x-hidden overflow-y-auto rounded-float border border-line bg-panel p-1.5 text-text shadow-e outline-none transition-opacity duration-100 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0", className)}
+          {...props}
+        />
+      </ContextMenuPrimitive.Positioner>
+    </ContextMenuPrimitive.Portal>
+  )
+}
+
+function ContextMenuGroup({ ...props }: ContextMenuPrimitive.Group.Props) {
+  return (
+    <ContextMenuPrimitive.Group data-slot="context-menu-group" {...props} />
+  )
+}
+
+function ContextMenuLabel({
+  className,
+  inset,
+  ...props
+}: ContextMenuPrimitive.GroupLabel.Props & {
+  inset?: boolean
 }) {
   return (
-    <button
-      type="button"
-      role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
-      aria-checked={item.checked}
-      data-menu-focusable
-      disabled={item.disabled}
-      aria-disabled={item.disabled}
-      onClick={(e) => {
-        // L4: this button lives in the row's React tree even though its
-        // DOM is portaled to <body> — React bubbles synthetic events
-        // through the component tree, not the real DOM, so an
-        // un-stopped click here still reaches the row's own onClick
-        // (e.g. re-selecting a child this same click just deleted).
-        e.stopPropagation()
-        if (item.disabled) return
-        onClose()
-        // H1: restore focus to the invoking row first — if the item
-        // itself moves focus (Rename's autofocus input), that happens
-        // after and wins the race; if it doesn't, this is where focus
-        // was always meant to land.
-        returnFocus()
-        item.onSelect()
-      }}
+    <ContextMenuPrimitive.GroupLabel
+      data-slot="context-menu-label"
+      data-inset={inset}
       className={cn(
-        'flex w-full items-center gap-2 text-left px-3 py-1.5 text-sm gg-row',
-        'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
-        item.danger ? 'text-danger' : 'text-text-primary',
-        // 60%, not 50: composited on surface-1 the danger/muted inks fell to
-        // ~2.6:1 at half opacity — dim enough to read disabled, not illegible.
-        item.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
+        "flex h-6 items-center px-2 text-[10px] font-medium tracking-[0.04em] text-text-3 uppercase data-[inset]:pl-7",
+        className
       )}
-    >
-      {item.icon || item.kbd || item.checked !== undefined ? (
-        <>
-          {item.icon && <span className="shrink-0 text-text-muted">{item.icon}</span>}
-          <span className="flex-1">{item.label}</span>
-          {item.checked && <Check size={12} className="shrink-0 text-text-secondary" aria-hidden />}
-          {item.kbd && (
-            <span className="font-mono text-panel-small text-text-muted">{item.kbd}</span>
-          )}
-        </>
-      ) : (
-        // Plain verbs keep the label as the button's own text node — existing
-        // menus (and their tests) address rows by text and expect the button.
-        item.label
-      )}
-    </button>
+      {...props}
+    />
   )
 }
 
-function Row({ row, onClose, returnFocus, onResize }: {
-  row: MenuRow
-  onClose: () => void
-  returnFocus: () => void
-  /** A submenu opened or closed: the menu changed height and is kept on screen again. */
-  onResize?: () => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const kind = 'type' in row && row.type ? row.type : 'action'
-  const resized = useRef(expanded)
-  useLayoutEffect(() => {
-    if (resized.current === expanded) return
-    resized.current = expanded
-    onResize?.()
-  }, [expanded, onResize])
-
-  switch (kind) {
-    case 'header': {
-      const r = row as MenuHeaderRow
-      return (
-        <div className="flex items-center gap-2 px-3 pt-1.5 pb-2 border-b border-border-default mb-1">
-          {r.icon && <span className="shrink-0 text-text-muted">{r.icon}</span>}
-          <div className="min-w-0">
-            <div className="truncate text-sm text-text-primary">{r.label}</div>
-            {r.sublabel && (
-              <div className="font-mono text-panel-small uppercase text-text-muted">{r.sublabel}</div>
-            )}
-          </div>
-        </div>
-      )
-    }
-    case 'toggle': {
-      const r = row as MenuToggleRow
-      return (
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          aria-checked={r.checked}
-          data-menu-focusable
-          disabled={r.disabled}
-          onClick={(e) => {
-            e.stopPropagation()
-            // The menu stays open: a toggle is a setting, not a verb.
-            r.onToggle(!r.checked)
-          }}
-          className={cn(
-            'flex w-full items-center justify-between px-3 py-1.5 text-sm gg-row text-text-primary',
-            'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
-            r.disabled && 'opacity-60 pointer-events-none',
-          )}
-        >
-          <span>{r.label}</span>
-          {r.look === 'check' ? (
-            <span
-              aria-hidden
-              data-look="check"
-              className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-structure"
-            >
-              {r.checked && <Check size={10} strokeWidth={3} className="text-text-primary" />}
-            </span>
-          ) : (
-            <span
-              aria-hidden
-              className={cn(
-                'h-3.5 w-6 rounded-full border transition-colors relative',
-                r.checked ? 'bg-accent-dim border-accent-active' : 'bg-surface-2 border-border-default',
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 h-2 w-2 rounded-full bg-text-primary transition-transform',
-                  r.checked ? 'translate-x-3' : 'translate-x-0.5',
-                )}
-              />
-            </span>
-          )}
-        </button>
-      )
-    }
-    case 'slider': {
-      const r = row as MenuSliderRow
-      return (
-        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
-          <SliderInput
-            value={r.value}
-            min={r.min}
-            max={r.max}
-            step={r.step}
-            onChange={r.onChange}
-            onChangeCommit={r.onCommit}
-            disabled={r.disabled}
-            ariaLabel={r.label}
-          />
-        </div>
-      )
-    }
-    case 'swatches': {
-      const r = row as MenuSwatchesRow
-      return (
-        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
-          <div className="flex gap-1.5" role="group" aria-label={r.label}>
-            {r.options.map((color, i) => {
-              const active = color.toLowerCase() === r.value.toLowerCase()
-              const name = r.optionNames?.[i] ?? color
-              return (
-                <button
-                  key={color}
-                  type="button"
-                  role="menuitemradio"
-                  data-menu-focusable
-                  title={name}
-                  aria-label={name}
-                  aria-checked={active}
-                  disabled={r.disabled}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    r.onPick(color)
-                  }}
-                  className={cn(
-                    // 24px minimum touch target; the check carries "selected"
-                    // so state never rides on the ring colour alone.
-                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus',
-                    active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
-                  )}
-                  style={{ backgroundColor: color }}
-                >
-                  {active && <Check size={12} strokeWidth={3} className="text-[#100d09]" aria-hidden />}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )
-    }
-    case 'thumbStrip': {
-      const r = row as MenuThumbStripRow
-      return (
-        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
-          <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
-          {/* Wraps instead of scrolling: a horizontal scroller inside a
-              context menu hid half the choices behind an invisible edge. */}
-          <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
-            {r.items.map((it) => (
-              <button
-                key={it.id}
-                type="button"
-                role="menuitemradio"
-                data-menu-focusable
-                title={it.title}
-                aria-label={it.title}
-                aria-checked={it.active}
-                disabled={r.disabled}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (r.closeOnPick) {
-                    onClose()
-                    returnFocus()
-                  }
-                  r.onPick(it.id)
-                }}
-                className={cn(
-                  'h-9 w-9 shrink-0 overflow-hidden rounded-sm border bg-surface-2',
-                  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus',
-                  it.active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
-                )}
-              >
-                <MenuThumb id={it.id} src={it.src} />
-              </button>
-            ))}
-            {r.trailing && (
-              <button
-                type="button"
-                data-menu-focusable
-                disabled={r.disabled}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onClose()
-                  returnFocus()
-                  r.trailing!.onSelect()
-                }}
-                className="h-9 shrink-0 rounded-sm border border-border-default px-2 text-panel-small text-text-secondary gg-row hover:text-text-primary"
-              >
-                {r.trailing.label}
-              </button>
-            )}
-          </div>
-        </div>
-      )
-    }
-    case 'submenu': {
-      const r = row as MenuSubmenuRow
-      return (
-        <div>
-          <button
-            type="button"
-            role="menuitem"
-            aria-expanded={expanded}
-            data-menu-focusable
-            disabled={r.disabled}
-            aria-disabled={r.disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              setExpanded((v) => !v)
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm gg-row text-text-primary',
-              'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
-              r.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
-            )}
-          >
-            {r.icon && <span className="shrink-0 text-text-muted">{r.icon}</span>}
-            <span className="flex-1">{r.label}</span>
-            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          </button>
-          {expanded && (
-            <div className="ml-3 border-l border-border-default">
-              {r.rows.map((sub, i) => (
-                <Row key={i} row={sub} onClose={onClose} returnFocus={returnFocus} onResize={onResize} />
-              ))}
-            </div>
-          )}
-        </div>
-      )
-    }
-    default:
-      return <ActionRow item={row as ContextMenuItem} onClose={onClose} returnFocus={returnFocus} />
-  }
-}
-
-/**
- * Right-click context menu. Reuses the MapCard menu look-and-feel.
- * Portaled to <body> so it isn't clipped by the layer panel's scroll container.
- *
- * Accepts either the legacy `label + onSelect` items or the full typed row
- * union — the renderer switches on row type and never on what the menu is for.
- *
- * `className` replaces the panel's skin (surface, border, radius, shadow,
- * width) for a chrome with its own look; position and stacking stay.
- * `captureKeys` listens for its keys in the capture phase, for a page that
- * shields the canvas by stopping key events at the document before they
- * reach their target — the menu still hears them, nothing past it does.
- */
-export function ContextMenu({
-  pos,
-  onClose,
-  items,
+function ContextMenuItem({
   className,
-  captureKeys = false,
-}: {
-  pos: { x: number; y: number } | null
-  onClose: () => void
-  items: MenuRow[]
-  className?: string
-  captureKeys?: boolean
+  inset,
+  variant = "default",
+  ...props
+}: ContextMenuPrimitive.Item.Props & {
+  inset?: boolean
+  variant?: "default" | "destructive"
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  // Element focused before the menu opened — Escape returns focus here
-  // rather than leaving it stranded on a now-unmounted menuitem.
-  const returnFocusRef = useRef<HTMLElement | null>(null)
-
-  // Move focus into the menu (first enabled control) the moment it opens.
-  useEffect(() => {
-    if (!pos) return
-    returnFocusRef.current = document.activeElement as HTMLElement | null
-    menuItemEls(ref.current)[0]?.focus()
-  }, [pos])
-
-  // L3: mutates the portaled node's style directly, post-layout, instead of
-  // round-tripping through state — offsetWidth/Height are 0 in jsdom, so
-  // this degrades to a no-op there (see clampMenuPosition's own test for the
-  // actual math, exercised with real sizes).
-  // Run again whenever a submenu opens or closes in place: the rows it adds would
-  // otherwise hang off the bottom of the window (the menu was placed for its first size).
-  const clamp = useCallback(() => {
-    if (!pos || !ref.current) return
-    const el = ref.current
-    const { left, top } = clampMenuPosition(
-      pos,
-      { width: el.offsetWidth, height: el.offsetHeight },
-      { width: window.innerWidth, height: window.innerHeight },
-    )
-    el.style.left = `${left}px`
-    el.style.top = `${top}px`
-  }, [pos])
-  useLayoutEffect(clamp, [clamp])
-
-  // Escape closes the menu alone, on the one Escape stack, if it is the last thing opened.
-  const closeAndReturnFocus = useCallback(() => {
-    onClose()
-    returnFocusRef.current?.focus()
-  }, [onClose])
-  useEscapeToClose(pos !== null, closeAndReturnFocus)
-
-  useEffect(() => {
-    if (!pos) return
-    const onClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Tab isn't trapped — it closes the menu and lets focus continue
-      // its normal course to whatever's next in the document.
-      if (e.key === 'Tab') {
-        onClose()
-        return
-      }
-      const els = menuItemEls(ref.current)
-      if (els.length === 0) return
-      const current = els.indexOf(document.activeElement as HTMLElement)
-      // Left/Right are deliberately untouched: a focused slider consumes them
-      // to adjust its value.
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        els[(current + 1 + els.length) % els.length]?.focus()
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        els[(current - 1 + els.length) % els.length]?.focus()
-      } else if (e.key === 'Home') {
-        e.preventDefault()
-        els[0]?.focus()
-      } else if (e.key === 'End') {
-        e.preventDefault()
-        els[els.length - 1]?.focus()
-      }
-    }
-    document.addEventListener('mousedown', onClickOutside)
-    document.addEventListener('keydown', onKeyDown, captureKeys)
-    return () => {
-      document.removeEventListener('mousedown', onClickOutside)
-      document.removeEventListener('keydown', onKeyDown, captureKeys)
-    }
-  }, [pos, onClose, captureKeys])
-
-  if (!pos) return null
-
-  const returnFocus = () => returnFocusRef.current?.focus()
-
-  return createPortal(
-    <div
-      ref={ref}
-      role="menu"
-      aria-orientation="vertical"
+  return (
+    <ContextMenuPrimitive.Item
+      data-slot="context-menu-item"
+      data-inset={inset}
+      data-variant={variant}
       className={cn(
-        'fixed z-50',
-        className ??
-          'gg-grain min-w-[180px] max-w-[260px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1',
+        "group/context-menu-item relative flex cursor-default items-center h-7 gap-2.5 rounded-control px-2 text-[12px] leading-none text-text outline-none select-none data-[highlighted]:bg-panel-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-[0.38] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 data-[inset]:pl-7 data-[variant=destructive]:text-danger",
+        className
       )}
-      style={{ left: pos.x, top: pos.y }}
-    >
-      {items.map((row, i) => (
-        <div key={i}>
-          {'separatorBefore' in row && row.separatorBefore && (
-            <div role="separator" className="h-px bg-border-default mx-2 my-1" />
-          )}
-          <Row row={row} onClose={onClose} returnFocus={returnFocus} onResize={clamp} />
-        </div>
-      ))}
-    </div>,
-    document.body,
+      {...props}
+    />
   )
+}
+
+function ContextMenuSub({ ...props }: ContextMenuPrimitive.SubmenuRoot.Props) {
+  return (
+    <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} />
+  )
+}
+
+function ContextMenuSubTrigger({
+  className,
+  inset,
+  children,
+  ...props
+}: ContextMenuPrimitive.SubmenuTrigger.Props & {
+  inset?: boolean
+}) {
+  return (
+    <ContextMenuPrimitive.SubmenuTrigger
+      data-slot="context-menu-sub-trigger"
+      data-inset={inset}
+      className={cn(
+        "flex cursor-default items-center h-7 gap-2.5 rounded-control px-2 text-[12px] leading-none text-text outline-none select-none data-[highlighted]:bg-panel-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-[0.38] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 data-[inset]:pl-7 data-[popup-open]:bg-panel-2",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRightIcon className="ml-auto" />
+    </ContextMenuPrimitive.SubmenuTrigger>
+  )
+}
+
+function ContextMenuSubContent({
+  ...props
+}: React.ComponentProps<typeof ContextMenuContent>) {
+  return (
+    <ContextMenuContent
+      data-slot="context-menu-sub-content"
+      className="w-auto min-w-[160px]"
+      side="right"
+      {...props}
+    />
+  )
+}
+
+function ContextMenuCheckboxItem({
+  className,
+  children,
+  checked,
+  inset,
+  ...props
+}: ContextMenuPrimitive.CheckboxItem.Props & {
+  inset?: boolean
+}) {
+  return (
+    <ContextMenuPrimitive.CheckboxItem
+      data-slot="context-menu-checkbox-item"
+      data-inset={inset}
+      className={cn(
+        "relative flex cursor-default items-center h-7 gap-2.5 rounded-control px-2 text-[12px] leading-none text-text outline-none select-none data-[highlighted]:bg-panel-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-[0.38] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 pr-7 data-[inset]:pl-7",
+        className
+      )}
+      checked={checked}
+      {...props}
+    >
+      <span className="pointer-events-none absolute right-2">
+        <ContextMenuPrimitive.CheckboxItemIndicator>
+          <CheckIcon
+          />
+        </ContextMenuPrimitive.CheckboxItemIndicator>
+      </span>
+      {children}
+    </ContextMenuPrimitive.CheckboxItem>
+  )
+}
+
+function ContextMenuRadioGroup({
+  ...props
+}: ContextMenuPrimitive.RadioGroup.Props) {
+  return (
+    <ContextMenuPrimitive.RadioGroup
+      data-slot="context-menu-radio-group"
+      {...props}
+    />
+  )
+}
+
+function ContextMenuRadioItem({
+  className,
+  children,
+  inset,
+  ...props
+}: ContextMenuPrimitive.RadioItem.Props & {
+  inset?: boolean
+}) {
+  return (
+    <ContextMenuPrimitive.RadioItem
+      data-slot="context-menu-radio-item"
+      data-inset={inset}
+      className={cn(
+        "relative flex cursor-default items-center h-7 gap-2.5 rounded-control px-2 text-[12px] leading-none text-text outline-none select-none data-[highlighted]:bg-panel-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-[0.38] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 pr-7 data-[inset]:pl-7",
+        className
+      )}
+      {...props}
+    >
+      <span className="pointer-events-none absolute right-2">
+        <ContextMenuPrimitive.RadioItemIndicator>
+          <CheckIcon
+          />
+        </ContextMenuPrimitive.RadioItemIndicator>
+      </span>
+      {children}
+    </ContextMenuPrimitive.RadioItem>
+  )
+}
+
+function ContextMenuSeparator({
+  className,
+  ...props
+}: ContextMenuPrimitive.Separator.Props) {
+  return (
+    <ContextMenuPrimitive.Separator
+      data-slot="context-menu-separator"
+      className={cn("my-1 h-px bg-line", className)}
+      {...props}
+    />
+  )
+}
+
+function ContextMenuShortcut({
+  className,
+  ...props
+}: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="context-menu-shortcut"
+      className={cn(
+        "ml-auto font-mono text-[10px] text-text-3",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuCheckboxItem,
+  ContextMenuRadioItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuGroup,
+  ContextMenuPortal,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuRadioGroup,
 }

@@ -4,6 +4,8 @@ import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
 import type { Layer } from '../../store/types';
 import { useStore } from '../../store/store';
+import { compareLayerIds } from '../../store/selectors';
+import { traceLayerIds } from '../../shared/traceLayer';
 import {
   EXPORT_RESOLUTION,
   computeExportDimensions,
@@ -141,6 +143,12 @@ export async function runExportPipeline(
       for (const node of sceneGraph.worldContainer.children ?? []) {
         if (EDITOR_ONLY.includes(node.label)) hide(node);
       }
+      // A compared level is a view aid drawn under the one on show, and a trace is a picture
+      // to draw over; neither ever reaches a file.
+      for (const id of [...compareLayerIds(useStore.getState()), ...traceLayerIds(useStore.getState().layers)]) {
+        const entry = getLayerEntry(id);
+        hide(entry?.textureSprite ?? entry?.container);
+      }
       const labels = opts.labels ?? 'all';
       if (labels !== 'all') {
         for (const layer of layers) {
@@ -171,6 +179,7 @@ export async function runExportPipeline(
           if (entry?.sublayers?.grid) {
             savedGridSubVis.push({ id: layer.id, visible: entry.sublayers.grid.visible });
             entry.sublayers.grid.visible = false;
+            entry.sublayers.imageGrid.visible = false;
           }
         }
       }
@@ -223,7 +232,10 @@ export async function runExportPipeline(
       sceneGraph.gridRenderer.container.visible = gridVisible;
       for (const { id, visible } of savedGridSubVis) {
         const entry = getLayerEntry(id);
-        if (entry?.sublayers?.grid) entry.sublayers.grid.visible = visible;
+        if (entry?.sublayers?.grid) {
+          entry.sublayers.grid.visible = visible;
+          entry.sublayers.imageGrid.visible = visible;
+        }
       }
     }
 

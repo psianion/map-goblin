@@ -3,20 +3,21 @@ import { Toaster } from 'sonner';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { CanvasContextMenu } from '@/editor/CanvasContextMenu';
 import { GridCalibrationOverlay } from '@/editor/GridCalibrationOverlay';
-import { ExportModal } from '@/v2/ExportModal';
-import { PublishDialog } from '@/v2/editor/PublishDialog';
-import { EditorShell } from '@/v2/editor/EditorShell';
+import { ExportModal } from '@/editor/dialogs/ExportModal';
+import { PublishDialog } from '@/editor/dialogs/PublishDialog';
+import { EditorShell } from '@/editor/shell/EditorShell';
+import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
-import { handleImageImport } from '@/canvas/importImage';
+import { handleImageImport, importTraceImage } from '@/canvas/importImage';
 import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
-import { initFocusMode } from '@/v2/viewPrefs';
+import { initFocusMode } from '@/editor/viewPrefs';
 
 // Before the first render, so the remembered focus mode is what the editor comes up in.
 initFocusMode();
@@ -26,6 +27,15 @@ export interface EditorChromeActions {
   openExport: () => void;
   openPublish: () => void;
   importImage: () => void;
+  /** The same picker, the picture becoming a trace layer instead of a placed image. */
+  importTrace: () => void;
+}
+
+/** What the chrome drawn over the canvas is handed. */
+export interface EditorChromeProps {
+  actions: EditorChromeActions;
+  onHome: () => void;
+  openSettings: boolean;
 }
 
 interface EditorHostProps {
@@ -48,14 +58,23 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
 
   // Hidden file input for image import (Ctrl+I / Cmd+I)
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  // Whether the picker is open for Import as trace; every open sets it, so a cancelled
+  // trace pick never turns the next Ctrl+I into one.
+  const asTraceRef = useRef(false);
   const openImagePicker = useCallback(() => {
+    asTraceRef.current = false;
+    importInputRef.current?.click();
+  }, []);
+  const openTracePicker = useCallback(() => {
+    asTraceRef.current = true;
     importInputRef.current?.click();
   }, []);
   const onImportChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const singleton = getEngineSingleton();
-    if (singleton) await handleImageImport(file, singleton.engine);
+    if (asTraceRef.current) await importTraceImage(file);
+    else if (singleton) await handleImageImport(file, singleton.engine);
     e.target.value = ''; // reset so same file can be re-picked
   }, []);
 
@@ -142,13 +161,14 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
       openPublish: () => setPublishOpen(true),
       // Through the module ref the Ctrl+I shortcut uses, wired to the picker above.
       importImage: () => importImageRef.current?.(),
+      importTrace: openTracePicker,
     }),
-    [],
+    [openTracePicker],
   );
 
   return (
     <>
-    <div className="relative h-screen w-screen overflow-hidden bg-surface-0" data-focus-mode={focusMode}>
+    <div className="relative h-screen w-screen overflow-hidden bg-bg" data-focus-mode={focusMode}>
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
         <CanvasHost />
@@ -174,16 +194,8 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
       onChange={onImportChange}
     />
 
-    {/* The chrome styles toasts as part of it (`.v2-toaster`); they sit centred in its
-        title-card band, 12px down and 44px tall. */}
-    <Toaster
-      position="top-center"
-      visibleToasts={3}
-      className="v2-toaster"
-      toastOptions={{ duration: 2000 }}
-      offset={17}
-      gap={4}
-    />
+    {/* The chrome styles the toasts as part of it. */}
+    <Toaster {...SHELL_TOASTER} />
     </>
   );
 }

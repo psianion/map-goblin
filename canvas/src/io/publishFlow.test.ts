@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { decidePublish } from './publishFlow';
+import { currentHashes, decidePublish } from './publishFlow';
+import { deserializeFromBytes, serializeToBytes } from './saveLoad';
+import { useStore } from '@/store/store';
+import { createImageLayer } from '@dnd/core/src/store/factories';
 import {
   PublishGoneError,
   UNREACHABLE_MESSAGE,
@@ -74,5 +77,21 @@ describe('a table server that cannot be reached', () => {
   it("keeps the server's own error from a 5xx", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'disk full' }), { status: 500 })));
     await expect(uploadMap('tok', 'c1', new Uint8Array([1]))).rejects.toThrow('disk full');
+  });
+});
+
+describe('what a publish sends', () => {
+  it('leaves the trace layers and their pictures out of the published bytes and the hash', async () => {
+    const s = useStore.getState();
+    s.resetToDefault();
+    const { hash: before } = await currentHashes();
+    s.addCustomImage('sketch', 'data:image/png;base64,AAAA');
+    useStore.getState().addLayer(createImageLayer(s.levels[0].id, 'sketch', 'cellars-sketch.png'));
+    const { data, hash } = await currentHashes();
+    const sent = await deserializeFromBytes(await serializeToBytes(data));
+    expect(sent.layers.some((l) => l.type === 'image')).toBe(false);
+    expect(sent.customImages.sketch).toBeUndefined();
+    // A trace is no change to the map the table holds.
+    expect(hash).toBe(before);
   });
 });

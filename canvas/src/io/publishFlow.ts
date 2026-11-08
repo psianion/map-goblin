@@ -4,6 +4,7 @@ import { getMapDB } from '@/store/slices/maps';
 import type { MapIndexDB, PublishRecord, PublishState } from '@/io/mapIndexDB';
 import { serializeToBytes } from '@/io/saveLoad';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { withoutTraceLayers } from '@dnd/core/src/shared/traceLayer';
 import {
   hashMapForPublish,
   hashPrep,
@@ -54,9 +55,9 @@ export function decidePublish(
   return 'none';
 }
 
-/** The map as it would be published now, with its two hashes. */
-async function currentHashes() {
-  const data = useStore.getState().getSerializableState();
+/** The map as it would be published now (never its trace layers), with its two hashes. */
+export async function currentHashes() {
+  const data = withoutTraceLayers(useStore.getState().getSerializableState());
   // Match serializeToBytes: a stroke still sitting in the terrain worker's buffer
   // must land in the store before pngs is read, or it silently misses the hash.
   await getTerrainRenderer()?.flushPersistNow();

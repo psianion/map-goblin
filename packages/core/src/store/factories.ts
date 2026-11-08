@@ -2,6 +2,7 @@ import type {
   BackgroundLayer,
   DungeonLayer,
   DungeonStyle,
+  ImageLayer,
   MapBuilderStore,
 } from './types';
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds';
@@ -66,6 +67,22 @@ export function createBackgroundLayer(levelId = ''): BackgroundLayer {
   };
 }
 
+/** A trace: the picture under `imageKey` on `levelId`, at 40% so the map drawn over it reads. */
+export function createImageLayer(levelId: string, imageKey: string, fileName: string): ImageLayer {
+  return {
+    id: crypto.randomUUID(),
+    name: 'Trace',
+    type: 'image',
+    levelId,
+    visible: true,
+    locked: false,
+    opacity: 0.4,
+    imageKey,
+    fileName,
+    fit: 'map',
+  };
+}
+
 type MapBuilderState = Omit<
   MapBuilderStore,
   | 'setMapName' | 'setFixedSize' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setMapRules' | 'setTerrainData' | 'setTerrainSplats'
@@ -75,14 +92,14 @@ type MapBuilderState = Omit<
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
-  | 'setActiveTool' | 'setEraseMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'
+  | 'setActiveTool' | 'setEraseMode' | 'setTerrainFill' | 'setFloorMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'toggleExpandedLayerId'
   | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleChildGroup' | 'setRevealChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
   | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
-  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setMarqueeFilter' | 'setPropReplaceIds'
+  | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setLabelsHidden' | 'setMarqueeFilter' | 'setPropReplaceIds' | 'setCompare'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -126,9 +143,11 @@ export function createDefaultState(): MapBuilderState {
       activeTool: 'rectangle',
       eraseMode: false,
       curveMode: false,
+      terrainFill: 'off',
+      floorMode: 'draw',
       settings: {
         brushRadius: 0.5,
-        regularPolygon: { sides: 4 },
+        regularPolygon: { sides: 6 },
         wallType: 'normal' as const,
         wallDirection: 'both' as const,
         wallWidth: 0.5,
@@ -136,7 +155,8 @@ export function createDefaultState(): MapBuilderState {
         lightDefaults: {
           color: '#ffdd88',
           radius: 6,
-          featherRadius: 0,
+          // One cell, 5 ft: the Bright control's minimum, where 0 sat below it.
+          featherRadius: 1,
           // 0.2 predates the diffuse-lighting rework: under the multiply
           // composite it reads as no light at all on real (dark) floor art —
           // the "authored lights don't render" gate finding was exactly a
@@ -151,6 +171,7 @@ export function createDefaultState(): MapBuilderState {
           stampRotation: 0,
           stampScale: 1,
           stampFlipX: false,
+          stampTint: '#ffffff',
           stampVary: false,
           brushRadius: 3,
           // About six props a dab at the default radius, what `count: 5` used to give.
@@ -177,6 +198,27 @@ export function createDefaultState(): MapBuilderState {
           tintColor: '#ffffff',
           tintOpacity: 0,
         },
+        water: {
+          radius: 3,
+          shallow: '#9db7bd',
+          deep: '#5f8a93',
+          blend: 1.5,
+          border: true,
+        },
+        material: {
+          material: 'GG_Cave_Ink',
+          radius: 3,
+          smooth: true,
+          border: true,
+        },
+        path: {
+          pieceId: null,
+          width: 1,
+          smoothness: 0.6,
+          transitionIn: 'fade' as const,
+          transitionOut: 'hard' as const,
+          blocksLight: false,
+        },
         zone: {
           mode: 'point' as const,
         },
@@ -190,6 +232,7 @@ export function createDefaultState(): MapBuilderState {
       selectedNodeTs: [],
       shapeNodeEditId: null,
       selectedVertex: null,
+      pathNodeEditId: null,
     },
     ui: {
       activeLayerId: dungeonLayer.id,
@@ -215,8 +258,10 @@ export function createDefaultState(): MapBuilderState {
       roomWalls: 'with' as const,
       pendingSplit: null,
       seeUnderOverhead: false,
+      labelsHidden: false,
       marqueeFilter: 'all' as const,
       propReplaceIds: null,
+      compare: null,
     },
     assets: {
       manifest: null,

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { gotoApp, waitFrame, getPixelColor } from './helpers';
 
 test.describe('01 - Basic Rendering', () => {
-  test('canvas element exists and is visible', async ({ page }) => {
+  test('canvas element exists and is visible', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
@@ -11,7 +11,7 @@ test.describe('01 - Basic Rendering', () => {
     expect(box!.height).toBeGreaterThan(100);
   });
 
-  test('background renders with default color', async ({ page }) => {
+  test('background renders with default color', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
     await waitFrame(page, 3);
     const canvas = page.locator('canvas').first();
@@ -24,7 +24,7 @@ test.describe('01 - Basic Rendering', () => {
     expect(pixel.r + pixel.g + pixel.b).toBeGreaterThan(100);
   });
 
-  test('Clipper2 WASM loads successfully', async ({ page }) => {
+  test('Clipper2 WASM loads successfully', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page);
     // The window flag, not the `data-clipper-ready` attribute: the attribute mirrors
     // `ui.clipperReady`, which a Strict Mode double-mount race clears again right after

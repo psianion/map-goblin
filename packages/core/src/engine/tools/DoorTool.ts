@@ -13,6 +13,7 @@ import {
   type ResolvedWall,
 } from '../../shared/wallResolve';
 import { renderResolvedDoor } from '../doorRenderer';
+import { freePiece } from '../../shared/freestandingDoor';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import {
@@ -59,9 +60,11 @@ const FLOOR_EDGE_REACH = 0.5;
 
 /**
  * Where a placement click hangs its door: the nearest drawn wall within `SNAP_THRESHOLD`
- * or floor edge within `FLOOR_EDGE_REACH`, or null for open floor.
+ * or floor edge within `FLOOR_EDGE_REACH`, or null for open floor. With the Door panel's
+ * Freestanding on, always null: the door stands free wherever it is placed.
  */
 function placementSnap(point: Point, walls: ResolvedWall[]): WallSnapResult | null {
+  if (useStore.getState().tools.settings.doorFreestanding) return null;
   const at: [number, number] = [point.x, point.y];
   const drawn = snapToNearestWall(at, walls.filter((w) => w.kind !== 'floor'), SNAP_THRESHOLD);
   const edge = snapToNearestWall(at, walls.filter((w) => w.kind === 'floor'), FLOOR_EDGE_REACH);
@@ -121,8 +124,8 @@ export const PLACEABLE_DOOR_STYLES: readonly DoorStyle[] = [
   'archway',
 ];
 
-/** A free-standing door's angle, degrees, as the dock and the card take it: 0 to 180 in 15° steps. */
-export const DOOR_ANGLE_STEP = 15;
+/** A free-standing door's angle, degrees, as the dock and the card take it: 0 to 180 in 5° steps. */
+export const DOOR_ANGLE_STEP = 5;
 
 /** A typed angle held to 0–180 and its step. 180 is 0 the other way round, so it reads 0. */
 export function doorAngleValue(deg: number): number {
@@ -466,18 +469,11 @@ export class DoorTool implements DrawingTool {
     const style = settings.doorStyle ?? 'single';
     const width = Math.max(settings.doorWidth || 1, minDoorWidth(style));
     const angle = ((settings.doorAngle ?? 0) * Math.PI) / 180;
-    const [hx, hy] = [(Math.cos(angle) * width) / 2, (Math.sin(angle) * width) / 2];
-    const piece: WallSegment = {
-      id: '',
-      points: [
-        [point.x - hx, point.y - hy],
-        [point.x + hx, point.y + hy],
-      ],
+    const piece = freePiece([point.x, point.y], angle, width, {
       wallType: settings.wallType,
       direction: settings.wallDirection,
       color: layer.style.wallColor,
-      roughness: 0,
-    };
+    });
     const door: DoorChild = {
       id: '',
       name: '',
@@ -490,6 +486,7 @@ export class DoorTool implements DrawingTool {
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
+      freestanding: true,
     };
     return { door, wall: { ...piece, kind: 'standalone' }, valid: true, piece };
   }

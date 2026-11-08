@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas v2 shell mockup, round two</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Canvas v2 tokens from canvas/src/v2/v2.css. Layout: four 1280x768 frames of the editor, callouts under each. */
+  --v2-bg: #f2f2f2; --v2-dot: #c6c6c6; --v2-sheet: #fbfbfb; --v2-panel: #ffffff; --v2-panel-2: #f7f7f7; --v2-panel-3: #ebebeb;
+  --v2-line: #e0e0e0; --v2-line-strong: #c2c2c2; --v2-text: #1b1b1b; --v2-text-2: #4d4d4d; --v2-text-3: #6b6b6b;
+  --v2-ink: #1b1b1b; --v2-on-ink: #ffffff; --v2-danger: #b3261e;
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 16px -10px rgb(0 0 0 / 0.16);
+  --page: #f7f7f5; --page-text: #1b1b1b; --page-text-2: #5a5a5a; --page-line: #e3e3e0; --co: #c2410c;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --map-floor: #d9cfbd; --map-floor-2: #cfc3ad; --map-moss: #a9b08a; --map-water: #9db7bd; --map-wall: #4a4238;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --v2-bg: #2b2b2b; --v2-dot: #4f4f4f; --v2-sheet: #353535; --v2-panel: #333333; --v2-panel-2: #383838; --v2-panel-3: #444444;
+  --v2-line: #474747; --v2-line-strong: #5c5c5c; --v2-text: #ececec; --v2-text-2: #bdbdbd; --v2-text-3: #9c9c9c;
+  --v2-ink: #ececec; --v2-on-ink: #1b1b1b; --v2-danger: #f08a7e;
+  --v2-e-shadow: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 20px -10px rgb(0 0 0 / 0.55);
+  --page: #202020; --page-text: #ececec; --page-text-2: #b0b0b0; --page-line: #353535;
+  --map-floor: #6e6558; --map-floor-2: #625a4e; --map-moss: #5e6a4c; --map-water: #4e6a70; --map-wall: #d8cfc2;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--page-text); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 28px 16px 80px; }
+.head { display: flex; align-items: flex-start; gap: 16px; }
+.head > div { flex: 1; }
+h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 16px; font-weight: 600; margin: 44px 0 6px; }
+p.lead { color: var(--page-text-2); margin: 0 0 8px; max-width: 72ch; }
+.theme { font: inherit; font-size: 12px; padding: 6px 12px; border: 1px solid var(--page-line); border-radius: 6px; background: transparent; color: var(--page-text); cursor: pointer; white-space: nowrap; }
+.frame-scroll { overflow-x: auto; border: 1px solid var(--page-line); border-radius: 10px; background: var(--v2-bg); }
+.frame { position: relative; width: 1280px; height: 768px; background: var(--v2-bg); overflow: hidden; font-family: var(--sans); font-size: 12px; color: var(--v2-text); user-select: none; }
+.frame canvas.map { position: absolute; inset: 0; }
+.ico { width: 16px; height: 16px; stroke-width: 1.75; flex-shrink: 0; }
+.ico.sm { width: 14px; height: 14px; }
+kbd { font-family: var(--mono); font-size: 10px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); color: var(--v2-text-3); }
+
+/* icon button with the key at its corner, active = outline only */
+.ib { position: relative; width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--v2-text-2); flex-shrink: 0; }
+.ib .k { position: absolute; right: 3px; bottom: 2px; font-family: var(--mono); font-size: 8px; line-height: 1; color: var(--v2-text-3); }
+.ib.hk .ico { transform: translate(-1.5px, -1.5px); }
+.ib.on { color: var(--v2-text); box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.ib.on .k { color: var(--v2-text-2); }
+.ib.fam-on { color: var(--v2-text); box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+
+/* rail */
+.rail { position: absolute; left: 0; top: 0; bottom: 0; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; background: var(--v2-panel); border-right: 1px solid var(--v2-line); z-index: 25; }
+.rail .ib { width: 36px; height: 36px; border-radius: 8px; }
+.rail .ib .ico { width: 18px; height: 18px; }
+.rail .ib .k { right: 5px; bottom: 4px; font-size: 9px; }
+.rail .ib.hk .ico { transform: translate(-2px, -2px); }
+.rail hr { width: 24px; border: 0; border-top: 1px solid var(--v2-line); margin: 6px 0; }
+
+/* floats */
+.float { position: absolute; background: var(--v2-panel); border: 1px solid var(--v2-line); border-radius: 8px; box-shadow: var(--v2-e-shadow); z-index: 25; }
+.bar { top: 12px; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+.title { left: 68px; padding: 0 12px 0 6px; }
+.title .name { font-weight: 500; font-size: 13px; }
+.title .lvl { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border: 1px solid var(--v2-line); border-radius: 4px; color: var(--v2-text-2); }
+.title .saved { font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.top { right: 12px; gap: 4px; }
+.primary { height: 28px; padding: 0 12px; border-radius: 6px; background: var(--v2-ink); color: var(--v2-on-ink); font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; margin-left: 4px; }
+
+/* flyout and panel share one slot */
+.slot { left: 68px; top: 68px; width: 272px; display: flex; flex-direction: column; overflow: hidden; }
+.flyout .cap { display: flex; align-items: center; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--v2-line); font-size: 12px; font-weight: 500; color: var(--v2-text); }
+.flyout .cap small { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--v2-text-3); }
+.flyout .rows { padding: 6px; }
+.flyout .row { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: 6px; color: var(--v2-text); }
+.flyout .row.on { background: var(--v2-panel-2); }
+.flyout .row .ib { width: 32px; height: 32px; }
+.flyout .row .lbl { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.flyout .row .lbl span { font-size: 13px; font-weight: 500; }
+.flyout .row .lbl small { font-size: 11px; color: var(--v2-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel .hd { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--v2-line); }
+.panel .hd .crumb { font-size: 11px; color: var(--v2-text-3); }
+.panel .hd .crumb b { color: var(--v2-text); font-weight: 500; font-size: 12px; }
+.panel .hd .sw { margin-left: auto; display: flex; gap: 2px; }
+.panel .hd .sw .ib { width: 26px; height: 26px; }
+.panel .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
+.sec { display: flex; flex-direction: column; gap: 8px; }
+.sec .t { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); }
+.f { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; }
+.f label { color: var(--v2-text-2); }
+.f .val { font-family: var(--mono); font-size: 11px; color: var(--v2-text); min-width: 42px; text-align: right; }
+.slider { grid-column: 1 / -1; height: 14px; position: relative; }
+.slider::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--v2-line-strong); border-radius: 1px; }
+.slider i { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--v2-panel); border: 1.5px solid var(--v2-ink); }
+.sw2 { width: 28px; height: 16px; border-radius: 999px; background: var(--v2-line-strong); position: relative; }
+.sw2.on { background: var(--v2-ink); }
+.sw2::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+.sw2.on::after { left: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--v2-line); border-radius: 6px; overflow: hidden; }
+.seg span { padding: 0 10px; height: 22px; display: inline-flex; align-items: center; font-size: 11px; line-height: 1; color: var(--v2-text-2); border-right: 1px solid var(--v2-line); }
+.seg span:last-child { border-right: 0; }
+.seg span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.sel { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; color: var(--v2-text); }
+.input { height: 24px; padding: 0 8px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; display: inline-flex; align-items: center; min-width: 60px; color: var(--v2-text); font-family: var(--mono); }
+.btn { height: 24px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 6px; font-size: 11px; line-height: 1; display: inline-flex; align-items: center; gap: 6px; color: var(--v2-text-2); }
+.btn.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); color: var(--v2-text); }
+.panel .foot { border-top: 1px solid var(--v2-line); padding: 8px 12px; display: flex; gap: 6px; }
+.actrow { display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--v2-line); }
+.actrow .ib { width: 26px; height: 26px; }
+.actrow .ib.danger { color: var(--v2-danger); margin-left: auto; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font-size: 11px; line-height: 1; height: 22px; padding: 0 10px; border: 1px solid var(--v2-line); border-radius: 999px; color: var(--v2-text-2); display: inline-flex; align-items: center; }
+.chip.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); border-color: transparent; color: var(--v2-text); }
+.hint { color: var(--v2-text-3); font-size: 12px; line-height: 1.6; }
+.thumb { width: 36px; height: 28px; border-radius: 4px; border: 1px solid var(--v2-line); background: var(--map-floor); display: inline-block; vertical-align: middle; }
+.fold { display: flex; align-items: center; gap: 8px; color: var(--v2-text-2); }
+.fold small { color: var(--v2-text-3); font-family: var(--mono); font-size: 10px; }
+
+/* dock */
+.dock { left: 68px; right: 12px; bottom: 40px; width: 1060px; margin: 0 auto; height: 112px; display: flex; overflow: hidden; z-index: 24; }
+.dock .col { display: flex; flex-direction: column; padding: 8px 10px; gap: 6px; border-right: 1px solid var(--v2-line); min-width: 0; }
+.dock .col:last-child { border-right: 0; flex: 1; }
+.dock .t { font-size: 10px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v2-text-3); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dock .t .r { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; display: inline-flex; gap: 4px; align-items: center; }
+.strip { display: flex; gap: 6px; align-items: flex-start; }
+.tile { width: 56px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.tile .th { width: 56px; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); background: var(--v2-panel-2); position: relative; overflow: hidden; }
+.tile .th.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.tile .n { font-size: 10px; color: var(--v2-text-2); white-space: nowrap; max-width: 56px; overflow: hidden; text-overflow: ellipsis; }
+.tile .th .lk { position: absolute; right: 3px; top: 3px; color: var(--v2-text-3); }
+.levels { display: flex; flex-direction: column; gap: 2px; }
+.levels span { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 4px; color: var(--v2-text-3); }
+.levels span.on { background: var(--v2-panel-3); color: var(--v2-text); }
+.mat { width: 56px; height: 44px; border-radius: 6px; border: 1px solid var(--v2-line); }
+.mat.on { box-shadow: inset 0 0 0 1.5px var(--v2-ink); }
+.addtile { width: 56px; height: 44px; border: 1px dashed var(--v2-line-strong); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--v2-text-3); }
+.tools { display: flex; gap: 4px; align-items: center; }
+.tools .ib { width: 32px; height: 32px; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--v2-line); border-radius: 6px; height: 24px; font-family: var(--mono); font-size: 11px; }
+.stepper span { padding: 0 8px; }
+.stepper i { width: 22px; display: inline-flex; justify-content: center; color: var(--v2-text-3); font-style: normal; border-left: 1px solid var(--v2-line); height: 100%; align-items: center; }
+.stepper i:first-child { border-left: 0; border-right: 1px solid var(--v2-line); }
+.swatch { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--v2-line); }
+
+/* status */
+.status { position: absolute; left: 56px; right: 0; bottom: 0; height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 12px; background: var(--v2-panel); border-top: 1px solid var(--v2-line); font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--v2-text-3); white-space: nowrap; z-index: 25; }
+.status .hint { color: var(--v2-text-2); display: inline-flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: 11px; }
+.status .sp { flex: 1; }
+.status .z { display: inline-flex; gap: 8px; align-items: center; }
+.status .ib { width: 22px; height: 22px; }
+
+/* canvas overlays */
+.fab { position: absolute; display: flex; gap: 2px; padding: 4px; z-index: 22; }
+.fab .ib { width: 26px; height: 26px; }
+.fab .ib.danger { color: var(--v2-danger); }
+.selbox { position: absolute; border: 1.5px solid #1b1b1b; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7); }
+.selbox i { position: absolute; width: 7px; height: 7px; background: #fff; border: 1.5px solid #1b1b1b; }
+.ghost { position: absolute; border: 1.5px dashed rgb(27 27 27 / 0.6); background: rgb(27 27 27 / 0.05); }
+
+/* callouts */
+.co { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: var(--co); color: #fff; font: 600 11px/20px var(--mono); text-align: center; z-index: 40; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9); }
+.legend { margin: 14px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; }
+.legend li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--page-text-2); }
+.legend li b { color: var(--page-text); font-weight: 500; }
+.legend li .n { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--co); color: #fff; font: 600 11px/20px var(--mono); text-align: center; margin-top: 1px; }
+.q { margin: 10px 0 0; padding-left: 20px; color: var(--page-text-2); }
+.q li { margin-bottom: 6px; }
+.q li b { color: var(--page-text); font-weight: 500; }
+@media (max-width: 820px) { .legend { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>Canvas v2 shell mockup, round two</h1>
+      <p class="lead">Design family on the one Floor tool, then the Select tool empty and with a floor picked. Every change from round one is in: keys at the icon corner, outline for active, flyout and panel in one slot, dock holds swatches plus on-the-fly controls, asset panel stops above the dock, help at the bottom right.</p>
+    </div>
+    <button class="theme" id="theme" type="button">Switch to dark</button>
+  </div>
+
+  <h2>Frame A. Design family clicked, flyout open</h2>
+  <div class="frame-scroll"><div class="frame" id="fa"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Keys at the corner.</b> Every icon carries its key as a small letter, rail, flyout, dock and card alike. Keycaps only survive in the status hint.</div></li>
+    <li><span class="n">2</span><div><b>Active is an outline.</b> Design shows a ring on the rail, no fill, no tint. Same ring on every active tile.</div></li>
+    <li><span class="n">3</span><div><b>Flyout in the slot.</b> Four tools: Floor, Wall, Door, Elevation. Pick one and this same box becomes that tool's panel.</div></li>
+    <li><span class="n">4</span><div><b>Dock already follows.</b> Level and layers are there before a tool is picked; the rest fills in on pick.</div></li>
+  </ul>
+
+  <h2>Frame B. Floor tool, panel in the same slot</h2>
+  <div class="frame-scroll"><div class="frame" id="fb"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Panel replaces the flyout.</b> Breadcrumb says Design / Floor; the switcher row changes tool without reopening the flyout. The panel stays open while you draw.</div></li>
+    <li><span class="n">2</span><div><b>Panel is setup only.</b> Draw or Carve out, snap, the edge band, default opacity. Nothing here changes mid-shape.</div></li>
+    <li><span class="n">3</span><div><b>Shape row in the dock.</b> One Floor tool: rectangle, polygon, regular polygon with its Sides stepper beside it. Curve and Node mode are toggles here, not rail modes.</div></li>
+    <li><span class="n">4</span><div><b>Look column.</b> Colour swatch, the five style presets, the texture strip, and From library which opens the asset panel.</div></li>
+    <li><span class="n">5</span><div><b>Polygon in progress.</b> The dashed outline is the shape being clicked out; the hint line carries the keys for it.</div></li>
+    <li><span class="n">6</span><div><b>Help moved.</b> The question mark sits at the end of the status bar and opens the shortcuts sheet.</div></li>
+  </ul>
+
+  <h2>Frame C. Select, nothing picked</h2>
+  <div class="frame-scroll"><div class="frame" id="fc"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>Kind filter first.</b> A box select grabs only the kinds switched on. All is the default; here only Props and Lights are on, so a drag over the room skips the floor.</div></li>
+    <li><span class="n">2</span><div><b>Not an empty box.</b> The panel says how to pick, and offers Previous tool (X) to bounce back to Floor.</div></li>
+    <li><span class="n">3</span><div><b>Dock keeps the last family's swatches.</b> Floor's Look column stays so a texture pick is one click away. Shape and Edit columns go, since Select does not draw.</div></li>
+  </ul>
+
+  <h2>Frame D. Select, a floor picked</h2>
+  <div class="frame-scroll"><div class="frame" id="fd"></div></div>
+  <ul class="legend">
+    <li><span class="n">1</span><div><b>The floor card in the slot.</b> Kind and layer in the header, verbs in the action row, then only the fields that survived the audit: colour, texture, tint, opacity, the Fill fold.</div></li>
+    <li><span class="n">2</span><div><b>Floating action bar stays.</b> Same verbs beside the selection. Node mode (N) lives here too, so a corner drag is one click from the canvas.</div></li>
+    <li><span class="n">3</span><div><b>Dock highlights the layer.</b> Stone floor is the picked floor's layer. Look column still shows Floor's swatches; clicking a texture applies it to the selection.</div></li>
+  </ul>
+
+  <h2>Open questions for round three</h2>
+  <ol class="q">
+    <li><b>Carve out as a mode or a modifier.</b> Drawn as a Draw / Carve out segmented control in the panel. The faster alternative is a held key shown in the hint line, like Alt on the brushes. Both?</li>
+    <li><b>Where Sides lives when the shape is not Regular.</b> Drawn as hidden until Regular polygon is picked. Keeping it visible but disabled holds the dock width steady.</li>
+    <li><b>Edge band on the panel.</b> It affects how a floor's outline is drawn (none, cave ink, a texture's own border). Per floor on the card too, or only as a default here?</li>
+    <li><b>Which family next.</b> Terrain with the material brush would exercise the brush pattern. Objects would exercise the asset panel, tags and colour per region.</li>
+  </ol>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>
+(function () {
+  function ib(icon, key, cls, size) {
+    return '<span class="ib' + (cls ? ' ' + cls : '') + (key ? ' hk' : '') + '"><i data-lucide="' + icon + '" class="ico' + (size === 'sm' ? ' sm' : '') + '"></i>' + (key ? '<span class="k">' + key + '</span>' : '') + '</span>';
+  }
+  var FAMS = [['pencil-ruler', 'D', 'Design'], ['mountain', 'T', 'Terrain'], ['box', 'O', 'Objects'], ['sun-moon', 'E', 'Environment'], ['type', 'X', 'Text']];
+  function rail(activeTool, activeFam) {
+    var h = '<div class="rail">';
+    h += ib('mouse-pointer-2', 'V', activeTool === 'select' ? 'on' : '');
+    h += ib('hand', 'H', activeTool === 'pan' ? 'on' : '');
+    h += ib('ruler', 'M', activeTool === 'ruler' ? 'on' : '');
+    h += '<hr>';
+    FAMS.forEach(function (f) { h += ib(f[0], f[1], activeFam === f[2] ? 'fam-on' : ''); });
+    return h + '</div>';
+  }
+  function chrome(level) {
+    return '<div class="float bar title">' + ib('house', '') + '<span class="name">Warren of the Pale Moth</span><span class="lvl">' + level + '</span><span class="saved">saved 14:32</span></div>' +
+      '<div class="float bar top">' + ib('undo-2', 'Z') + ib('redo-2', 'Y') + ib('ellipsis', '') + '<span class="primary">Publish</span></div>';
+  }
+  function status(hint, extra) {
+    return '<div class="status"><span>Grid 5 ft</span><span>Snap ½</span><span>Lit · off</span>' +
+      '<span class="hint">' + hint + '</span>' + (extra || '') + '<span class="sp"></span>' +
+      '<span class="z">Fit <kbd>0</kbd> · 100%</span>' + ib('circle-help', '?', '', 'sm') + '</div>';
+  }
+  function levels() {
+    return '<div class="col"><div class="t">Level <span class="r"><i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="levels"><span>L3 Attic</span><span class="on">L2 Cellars</span><span>L1 Ground</span></div></div>';
+  }
+  function layers(active) {
+    var names = ['Walls', 'Terrain', 'Stone floor', 'Water'];
+    var h = '<div class="col"><div class="t">Layers <span class="r"><i data-lucide="plus" class="ico sm"></i></span></div><div class="strip">';
+    names.forEach(function (n, i) { h += '<div class="tile"><div class="th' + (n === active ? ' on' : '') + '">' + (i === 0 ? '<i data-lucide="lock" class="ico sm lk"></i>' : '') + '</div><div class="n">' + n + '</div></div>'; });
+    return h + '</div></div>';
+  }
+  function lookCol() {
+    return '<div class="col"><div class="t">Look <span class="r">Fieldstone Keep <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="strip">' +
+      '<div class="tile"><div class="mat" style="background:var(--map-floor)"></div><div class="n">Colour</div></div>' +
+      '<div class="tile"><div class="mat on" style="background:#b9ad96"></div><div class="n">Flagstone</div></div>' +
+      '<div class="tile"><div class="mat" style="background:#8b7d66"></div><div class="n">Planks</div></div>' +
+      '<div class="tile"><div class="mat" style="background:#9a9a90"></div><div class="n">Cobbles</div></div>' +
+      '<div class="tile"><div class="mat" style="background:#7d7a70"></div><div class="n">Cave rock</div></div>' +
+      '<div class="tile"><div class="addtile"><i data-lucide="plus" class="ico sm"></i></div><div class="n">From library</div></div>' +
+      '</div></div>';
+  }
+  function shapeCols() {
+    return '<div class="col"><div class="t">Shape</div><div class="tools">' + ib('square', 'R', '', 'sm') + ib('pentagon', 'P', 'on', 'sm') + ib('hexagon', 'G', '', 'sm') +
+      '<span class="stepper" title="Sides"><i>−</i><span>6</span><i>+</i></span></div><div class="hint" style="font-size:10px">Sides shows for Regular only</div></div>' +
+      '<div class="col"><div class="t">Edit</div><div class="tools">' + ib('spline', 'C', '', 'sm') + ib('git-commit-horizontal', 'N', '', 'sm') + '</div><div class="hint" style="font-size:10px">Curve · Node mode</div></div>';
+  }
+  function map(mode) { return '<canvas class="map" width="1280" height="768" data-mode="' + mode + '"></canvas>'; }
+  var sw = ib('square-dashed', 'F', 'on', 'sm') + ib('brick-wall', 'W', '', 'sm') + ib('door-open', 'D', '', 'sm') + ib('mountain', 'E', '', 'sm');
+
+  // Frame A
+  document.getElementById('fa').innerHTML = map('plain') + rail('', 'Design') + chrome('L2 Cellars') +
+    '<div class="float slot flyout"><div class="cap">Design<small>Esc closes</small></div><div class="rows">' +
+    '<div class="row on">' + ib('square-dashed', 'F') + '<div class="lbl"><span>Floor</span><small>Rectangle, polygon, regular polygon</small></div></div>' +
+    '<div class="row">' + ib('brick-wall', 'W') + '<div class="lbl"><span>Wall</span><small>Solid, window, open</small></div></div>' +
+    '<div class="row">' + ib('door-open', 'D') + '<div class="lbl"><span>Door</span><small>Single, double, portcullis, archway</small></div></div>' +
+    '<div class="row">' + ib('mountain', 'E') + '<div class="lbl"><span>Elevation</span><small>Plateaus, cliffs, slopes, pits</small></div></div>' +
+    '</div></div>' +
+    '<div class="float dock" style="width:420px">' + levels() + layers('Stone floor') + '</div>' +
+    status('Pick a tool') +
+    '<span class="co" style="left:34px;top:48px">1</span><span class="co" style="left:34px;top:174px">2</span><span class="co" style="left:318px;top:60px">3</span><span class="co" style="left:480px;top:612px">4</span>';
+
+  // Frame B
+  document.getElementById('fb').innerHTML = map('poly') +
+    '<div class="ghost" style="left:1000px;top:230px;width:0;height:0"></div>' +
+    rail('', 'Design') + chrome('L2 Cellars') +
+    '<div class="float slot panel"><div class="hd"><span class="crumb">Design / <b>Floor</b></span><span class="sw">' + sw + '</span></div>' +
+    '<div class="body">' +
+    '<div class="sec"><div class="t">Mode</div><div class="f"><label>Draw or carve</label><span class="seg"><span class="on">Draw</span><span>Carve out</span></span></div></div>' +
+    '<div class="sec"><div class="t">Placement</div><div class="f"><label>Snap to grid</label><span class="sw2 on"></span></div><div class="f"><label>Snap step</label><span class="seg"><span>1</span><span class="on">½</span><span>¼</span></span></div></div>' +
+    '<div class="sec"><div class="t">Edge</div><div class="f"><label>Edge band</label><span class="sel">Cave ink <i data-lucide="chevron-down" class="ico sm"></i></span></div><div class="f"><label>Blend with neighbours</label><span class="sw2 on"></span></div></div>' +
+    '<div class="sec"><div class="t">Defaults for new floors</div><div class="f"><label>Opacity</label><span class="val">100%</span><div class="slider"><i style="left:96%"></i></div></div></div>' +
+    '</div><div class="foot"><span class="btn">Reset</span><span class="btn">Save as preset</span></div></div>' +
+    '<div class="float dock">' + levels() + layers('Stone floor') + shapeCols() + lookCol() + '</div>' +
+    status('Click points · <kbd>Enter</kbd> close · <kbd>Backspace</kbd> last point · <kbd>Shift</kbd> bend') +
+    '<span class="co" style="left:318px;top:60px">1</span><span class="co" style="left:318px;top:200px">2</span><span class="co" style="left:532px;top:612px">3</span><span class="co" style="left:860px;top:612px">4</span><span class="co" style="left:1060px;top:218px">5</span><span class="co" style="left:1236px;top:732px">6</span>';
+
+  // Frame C
+  document.getElementById('fc').innerHTML = map('plain') + rail('select', '') + chrome('L2 Cellars') +
+    '<div class="float slot panel"><div class="hd"><span class="crumb"><b>Select</b></span><span class="sw">' + ib('arrow-left', 'X', '', 'sm') + '</span></div>' +
+    '<div class="body">' +
+    '<div class="sec"><div class="t">Pick only</div><div class="chips"><span class="chip">All</span><span class="chip">Floors</span><span class="chip">Walls</span><span class="chip">Doors</span><span class="chip on">Props</span><span class="chip on">Lights</span><span class="chip">Labels</span><span class="chip">Zones</span></div></div>' +
+    '<div class="sec"><div class="hint">Click something, or drag a box.<br><kbd>Shift</kbd> adds to the pick. <kbd>Alt</kbd> drag picks locked things only.<br>Double-click a floor or wall to edit its nodes.</div></div>' +
+    '<div class="sec"><div class="f"><label>Back to Floor</label><span class="btn">Previous tool <kbd>X</kbd></span></div></div>' +
+    '</div></div>' +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Stone floor') + lookCol() + '</div>' +
+    status('Nothing picked', '<span>Marquee picks</span>') +
+    '<span class="co" style="left:318px;top:112px">1</span><span class="co" style="left:318px;top:200px">2</span><span class="co" style="left:740px;top:612px">3</span>';
+
+  // Frame D
+  document.getElementById('fd').innerHTML = map('plain') +
+    '<div class="selbox" style="left:768px;top:288px;width:192px;height:192px"><i style="left:-4px;top:-4px"></i><i style="right:-4px;top:-4px"></i><i style="left:-4px;bottom:-4px"></i><i style="right:-4px;bottom:-4px"></i></div>' +
+    '<div class="float fab" style="left:800px;top:246px">' + ib('git-commit-horizontal', 'N', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div>' +
+    rail('select', '') + chrome('L2 Cellars') +
+    '<div class="float slot panel"><div class="hd"><span class="crumb">Selection / <b>Floor</b></span><span class="sw"><span class="chip" style="font-size:10px">Stone floor</span></span></div>' +
+    '<div class="actrow">' + ib('git-commit-horizontal', 'N', '', 'sm') + ib('flip-horizontal', '', '', 'sm') + ib('flip-vertical', '', '', 'sm') + ib('rotate-cw', '', '', 'sm') + ib('copy', '', '', 'sm') + ib('lock', '', '', 'sm') + ib('eye-off', '', '', 'sm') + ib('trash-2', '', 'danger', 'sm') + '</div>' +
+    '<div class="body">' +
+    '<div class="sec"><div class="f"><label>Size</label><span class="val">6 × 6 sq</span></div><div class="f"><label>Layer</label><span class="sel">Stone floor <i data-lucide="chevron-down" class="ico sm"></i></span></div></div>' +
+    '<div class="sec"><div class="t">Look</div>' +
+    '<div class="f"><label>Colour</label><span class="swatch" style="background:var(--map-floor-2)"></span></div>' +
+    '<div class="f"><label>Texture</label><span style="display:inline-flex;gap:6px;align-items:center"><span class="thumb"></span><span class="btn">Change</span></span></div>' +
+    '<div class="f"><label>Tint</label><span class="swatch" style="background:transparent"></span></div>' +
+    '<div class="f"><label>Opacity</label><span class="val">100%</span><div class="slider"><i style="left:96%"></i></div></div>' +
+    '<div class="fold"><i data-lucide="chevron-right" class="ico sm"></i>Fill <small>scale 1 · 0° · offset 0, 0</small></div></div>' +
+    '<div class="sec"><div class="t">Edge</div><div class="f"><label>Edge band</label><span class="sel">Cave ink <i data-lucide="chevron-down" class="ico sm"></i></span></div></div>' +
+    '</div></div>' +
+    '<div class="float dock" style="width:820px">' + levels() + layers('Stone floor') + lookCol() + '</div>' +
+    status('1 floor · <kbd>N</kbd> nodes · <kbd>Del</kbd> delete') +
+    '<span class="co" style="left:318px;top:60px">1</span><span class="co" style="left:980px;top:238px">2</span><span class="co" style="left:740px;top:612px">3</span>';
+
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function drawMap(c) {
+    var ctx = c.getContext('2d'), W = c.width, H = c.height, g = 32;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = css('--v2-bg'); ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css('--v2-dot');
+    for (var x = 56 + g / 2; x < W; x += g) for (var y = g / 2; y < H; y += g) { ctx.beginPath(); ctx.arc(x, y, 1, 0, 6.3); ctx.fill(); }
+    ctx.fillStyle = css('--map-floor'); ctx.fillRect(416, 224, 416, 256);
+    ctx.fillStyle = css('--map-floor-2'); ctx.fillRect(768, 288, 192, 192);
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
+    for (var sx = 416; sx <= 960; sx += 32) { ctx.beginPath(); ctx.moveTo(sx, 224); ctx.lineTo(sx, 480); ctx.stroke(); }
+    for (var sy = 224; sy <= 480; sy += 32) { ctx.beginPath(); ctx.moveTo(416, sy); ctx.lineTo(960, sy); ctx.stroke(); }
+    ctx.fillStyle = css('--map-moss'); ctx.globalAlpha = 0.9;
+    [[520, 300, 54], [566, 330, 46], [612, 350, 50], [650, 338, 38], [480, 420, 40], [530, 440, 34]].forEach(function (p) { ctx.beginPath(); ctx.arc(p[0], p[1], p[2], 0, 6.3); ctx.fill(); });
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css('--map-water'); ctx.beginPath(); ctx.ellipse(840, 400, 56, 36, 0.3, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 6; ctx.lineJoin = 'miter';
+    ctx.beginPath(); ctx.moveTo(416, 224); ctx.lineTo(832, 224); ctx.lineTo(832, 288); ctx.lineTo(960, 288); ctx.lineTo(960, 480); ctx.lineTo(768, 480); ctx.lineTo(768, 400); ctx.moveTo(716, 400); ctx.lineTo(416, 400); ctx.lineTo(416, 224); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(416, 400); ctx.lineTo(416, 480); ctx.lineTo(768, 480); ctx.stroke();
+    ctx.fillStyle = '#8a6a3f'; ctx.fillRect(716, 395, 52, 10);
+    ctx.strokeStyle = css('--map-wall'); ctx.lineWidth = 1.5; ctx.strokeRect(716.5, 395.5, 51, 9);
+    if (c.dataset.mode === 'poly') {
+      var pts = [[1000, 230], [1120, 230], [1150, 300], [1090, 350], [1000, 320]];
+      ctx.fillStyle = 'rgba(27,27,27,0.06)'; ctx.strokeStyle = css('--v2-ink'); ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); pts.forEach(function (p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }); ctx.stroke(); ctx.fill(); ctx.setLineDash([]);
+      pts.forEach(function (p) { ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, 6.3); ctx.fillStyle = css('--v2-panel'); ctx.fill(); ctx.stroke(); });
+    }
+  }
+  var maps = document.querySelectorAll('canvas.map');
+  function all() { maps.forEach(drawMap); }
+  var btn = document.getElementById('theme');
+  function setTheme(t) { document.documentElement.setAttribute('data-theme', t); btn.textContent = t === 'dark' ? 'Switch to light' : 'Switch to dark'; all(); }
+  btn.addEventListener('click', function () { setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); });
+  setTheme('light');
+  if (window.lucide) lucide.createIcons();
+})();
+</script>
+</body>
+</html>

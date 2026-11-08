@@ -14,22 +14,28 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { AssetChild, DungeonLayer } from '@/store/types';
 import {
-  MIN_BOX_WORLD,
   applyGridCalibration,
-  calibrationTransform,
-  clampSpans,
+  clampCells,
+  clampPxPerCell,
   endGridCalibration,
   getGridCalibration,
-  pxPerCell,
-  setCalibrationBox,
-  setCalibrationSpans,
+  lineUpBox,
+  lineUpFixedSize,
+  lineUpPlacement,
+  mapHoldsOtherContent,
+  nudgeCalibration,
+  pxPerCellRange,
+  setCalibrationCells,
+  setCalibrationOffset,
+  setCalibrationPxPerCell,
   startGridCalibration,
+  startLineUp,
 } from './gridCalibration';
 
 /**
- * A 1000px-square image whose world footprint (width * scale, the number both
- * the sprite sync and the hit test use) is exactly 10 cells, centred on (5, 5).
- * Its top-left corner therefore sits on the world origin.
+ * A 2520 by 1680 px battlemap imported at the 70 px guess: a 36 by 24 cell footprint
+ * (width * scale, the number the sprite sync and the hit test use) with its top-left corner
+ * on the map origin. `scale` is 0.5 to keep the legacy multiplier honest.
  */
 function image(over: Partial<AssetChild> = {}): AssetChild {
   return {
@@ -39,11 +45,11 @@ function image(over: Partial<AssetChild> = {}): AssetChild {
     visible: true,
     objectType: 'image',
     assetId: 'asset-1',
-    position: { x: 5, y: 5 },
+    position: { x: 18, y: 12 },
     rotation: 0,
     scale: 0.5,
-    width: 20,
-    height: 20,
+    width: 72,
+    height: 48,
     tint: '#ffffff',
     flipX: false,
     flipY: false,
@@ -51,123 +57,74 @@ function image(over: Partial<AssetChild> = {}): AssetChild {
   };
 }
 
-describe('calibrationTransform', () => {
-  it('scales so the box measures exactly `spans` cells', () => {
-    // A box 1.5 cells across that the DM says covers 3 of the image's squares:
-    // the image has to double in size.
-    const t = calibrationTransform(image(), { x: 0, y: 0, size: 1.5 }, 3);
-    expect(t).not.toBeNull();
-    expect(t!.width * 0.5).toBeCloseTo(20, 6); // footprint 10 cells -> 20
-    expect(t!.height * 0.5).toBeCloseTo(20, 6);
+const SOURCE = { width: 2520, height: 1680 };
+/** 105 px squares with their lines 35 px in: a third of a cell. */
+const GRID = { pxPerCell: 105, originX: 35, originY: 35 };
+
+describe('startLineUp', () => {
+  it('takes the detected squares, one printed cell to one canvas cell, the first line on the frame edge', () => {
+    const l = startLineUp(image(), { cells: { width: 24, height: 16 }, grid: GRID, sourcePx: SOURCE });
+    expect(l).toMatchObject({ cols: 24, rows: 16, pxPerCell: 105 });
+    // The picture hangs a third of a cell past the frame's top-left, so its line is on 0.
+    expect(l.offsetX).toBeCloseTo(-1 / 3, 9);
+    expect(l.offsetY).toBeCloseTo(-1 / 3, 9);
   });
 
-  it('leaves the box top-left on a grid intersection, snapping to the nearest', () => {
-    // Box at (2.3, 4.8): after the transform its corner must land on (2, 5).
-    const child = image();
-    const box = { x: 2.3, y: 4.8, size: 1 };
-    const t = calibrationTransform(child, box, 1)!;
-    const k = 1 / box.size;
-    const newTopLeft = {
-      x: t.position.x - (t.width * child.scale) / 2,
-      y: t.position.y - (t.height * child.scale) / 2,
-    };
-    // Where the box corner ends up: the same point of the image, rescaled.
-    const boxOffsetInImage = { x: box.x - 0, y: box.y - 0 }; // image corner is at world 0,0
-    expect(newTopLeft.x + boxOffsetInImage.x * k).toBeCloseTo(2, 6);
-    expect(newTopLeft.y + boxOffsetInImage.y * k).toBeCloseTo(5, 6);
+  it('reads a line found at the far end of a cell as the picture edge, keeping the picture on the frame', () => {
+    const l = startLineUp(image(), { cells: { width: 24, height: 16 }, grid: { ...GRID, originX: 100 }, sourcePx: SOURCE });
+    expect(l.offsetX).toBeCloseTo(5 / 105, 9);
   });
 
-  it('is a no-op when the box already spans one whole cell on a lattice point', () => {
-    const child = image();
-    const t = calibrationTransform(child, { x: 3, y: 3, size: 1 }, 1)!;
-    expect(t.position.x).toBeCloseTo(child.position.x, 6);
-    expect(t.position.y).toBeCloseTo(child.position.y, 6);
-    expect(t.width).toBeCloseTo(child.width, 6);
-    expect(t.height).toBeCloseTo(child.height, 6);
+  it('without a grid, spreads the squares across the picture from the origin', () => {
+    expect(startLineUp(image(), { cells: { width: 24, height: 16 }, sourcePx: SOURCE })).toEqual({ cols: 24, rows: 16, pxPerCell: 105, offsetX: 0, offsetY: 0 });
   });
 
-  it('divides the alignment error by the span count', () => {
-    // The image is already correct (1 cell = 1 cell), so the ideal transform is
-    // a no-op. Both boxes overshoot the far edge by the same 0.05 cells; the
-    // 3-cell box carries a third of the error into the scale.
-    const err = 0.05;
-    const one = calibrationTransform(image(), { x: 0, y: 0, size: 1 + err }, 1)!;
-    const three = calibrationTransform(image(), { x: 0, y: 0, size: 3 + err }, 3)!;
-    const errOne = Math.abs(one.width / 20 - 1);
-    const errThree = Math.abs(three.width / 20 - 1);
-    expect(errThree).toBeLessThan(errOne / 2.5);
+  it('with nothing, keeps the scale the picture is placed at and its whole cells', () => {
+    expect(startLineUp(image(), { sourcePx: SOURCE })).toEqual({ cols: 36, rows: 24, pxPerCell: 70, offsetX: 0, offsetY: 0 });
   });
 
-  it('refuses a zero or near-zero box rather than exploding the sprite', () => {
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 0 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: -2 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: MIN_BOX_WORLD / 2 }, 1)).toBeNull();
-  });
-
-  it('refuses non-finite geometry', () => {
-    expect(calibrationTransform(image(), { x: NaN, y: 0, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: Infinity, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: NaN }, 1)).toBeNull();
-  });
-
-  it('refuses a zero-footprint child', () => {
-    expect(calibrationTransform(image({ scale: 0 }), { x: 0, y: 0, size: 1 }, 1)).toBeNull();
-    expect(calibrationTransform(image({ width: 0 }), { x: 0, y: 0, size: 1 }, 1)).toBeNull();
-  });
-
-  it('refuses a result that would be smaller than half a cell or bigger than a continent', () => {
-    // Box far bigger than the image: the image would shrink to nothing.
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 400 }, 1)).toBeNull();
-    // Smallest legal box called 64 cells: the image would blow past the ceiling.
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: MIN_BOX_WORLD }, 64)).toBeNull();
-  });
-
-  it('treats a nonsense span as one cell rather than dividing by zero', () => {
-    const zero = calibrationTransform(image(), { x: 0, y: 0, size: 2 }, 0)!;
-    const one = calibrationTransform(image(), { x: 0, y: 0, size: 2 }, 1)!;
-    expect(zero.width).toBeCloseTo(one.width, 9);
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 2 }, NaN)!.width).toBeCloseTo(
-      one.width,
-      9,
-    );
-    expect(calibrationTransform(image(), { x: 0, y: 0, size: 2 }, -5)!.width).toBeCloseTo(
-      one.width,
-      9,
-    );
+  it('over drawn work: puts the first line on the nearest grid line and keeps a pinned size', () => {
+    const moved = image({ position: { x: 2.6 + 18, y: 3.3 + 12 } });
+    const pinned = startLineUp(moved, { grid: GRID, sourcePx: SOURCE }, 'nearest', { width: 40, height: 30 });
+    expect(pinned.offsetX).toBeCloseTo(3 - 1 / 3, 9);
+    expect(pinned.offsetY).toBeCloseTo(4 - 1 / 3, 9);
+    expect(pinned).toMatchObject({ cols: 40, rows: 30 });
+    // Unpinned: the frame starts round the picture.
+    expect(startLineUp(moved, { grid: GRID, sourcePx: SOURCE }, 'nearest', null)).toMatchObject({ cols: 27, rows: 20 });
   });
 });
 
-describe('clampSpans', () => {
-  it('keeps spans a whole number of at least one', () => {
-    expect(clampSpans(0)).toBe(1);
-    expect(clampSpans(-3)).toBe(1);
-    expect(clampSpans(NaN)).toBe(1);
-    expect(clampSpans(Infinity)).toBe(1);
-    expect(clampSpans(2.9)).toBe(2);
-    expect(clampSpans(1e9)).toBe(64);
+describe('lineUpPlacement', () => {
+  it('scales the picture to source / px per cell, keeping its aspect, its corner on the offset', () => {
+    const p = lineUpPlacement(image(), SOURCE, { offsetX: -1 / 3, offsetY: 0.5, pxPerCell: 105 })!;
+    expect(p.width * 0.5).toBeCloseTo(24, 9);
+    expect(p.height * 0.5).toBeCloseTo(16, 9);
+    expect(p.position.x - 12).toBeCloseTo(-1 / 3, 9);
+    expect(p.position.y - 8).toBeCloseTo(0.5, 9);
+  });
+
+  it('is a no-op for a picture already lined up', () => {
+    expect(lineUpPlacement(image(), SOURCE, { offsetX: 0, offsetY: 0, pxPerCell: 70 })).toEqual({ position: { x: 18, y: 12 }, width: 72, height: 48 });
+  });
+
+  it('refuses a picture of no size or a broken offset', () => {
+    expect(lineUpPlacement(image({ width: 0 }), SOURCE, { offsetX: 0, offsetY: 0, pxPerCell: 70 })).toBeNull();
+    expect(lineUpPlacement(image(), SOURCE, { offsetX: NaN, offsetY: 0, pxPerCell: 70 })).toBeNull();
   });
 });
 
-describe('pxPerCell', () => {
-  it('reads the image’s own pixels per cell off the box', () => {
-    // 10-cell-wide footprint from a 1000px texture = 100 image px per cell.
-    // A box 3 cells wide covering 3 of them reads back exactly 100.
-    expect(pxPerCell({ boxSize: 3, footprintWidth: 10, nativePx: 1000, spans: 3 })).toBeCloseTo(
-      100,
-      9,
-    );
-    expect(pxPerCell({ boxSize: 1.41, footprintWidth: 10, nativePx: 1000, spans: 3 })).toBeCloseTo(
-      47,
-      9,
-    );
+describe('px per cell bounds and whole cells', () => {
+  it('keeps the picture between half a cell and the largest map, never NaN', () => {
+    expect(pxPerCellRange(SOURCE)).toEqual({ min: 1, max: 3360 });
+    expect(clampPxPerCell(0, SOURCE)).toBe(1);
+    expect(clampPxPerCell(1e6, SOURCE)).toBe(3360);
+    expect(clampPxPerCell(NaN, SOURCE)).toBe(2520);
   });
 
-  it('never returns NaN or Infinity — degenerate input reads as null', () => {
-    expect(pxPerCell({ boxSize: 0, footprintWidth: 10, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 0, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 10, nativePx: 0, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: NaN, footprintWidth: 10, nativePx: 1000, spans: 1 })).toBeNull();
-    expect(pxPerCell({ boxSize: 1, footprintWidth: 10, nativePx: 1000, spans: 0 })).not.toBeNull();
+  it('is the frame in whole cells, within what a fixed size accepts', () => {
+    expect(lineUpFixedSize({ cols: 12.4, rows: 0 })).toEqual({ width: 12, height: 1 });
+    expect(clampCells(5000)).toBe(1000);
+    expect(clampCells(NaN)).toBe(1);
   });
 });
 
@@ -185,12 +142,31 @@ function placed(): AssetChild {
   return c;
 }
 
-describe('grid calibration session', () => {
+const left = (c: AssetChild) => c.position.x - (c.width * c.scale) / 2;
+const top = (c: AssetChild) => c.position.y - (c.height * c.scale) / 2;
+const original = () => image({ imageSource: { fileName: 'crypt.png', ...SOURCE } });
+
+describe('mapHoldsOtherContent', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  it('is false for a map holding only the picture, true once a wall is drawn', () => {
+    useStore.getState().addChild(layer().id, image());
+    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(false);
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
+      l.standaloneWalls.push({ id: 'w', points: [[0, 0], [4, 0]] } as DungeonLayer['standaloneWalls'][number]);
+    });
+    expect(mapHoldsOtherContent(useStore.getState().layers, 'img')).toBe(true);
+  });
+});
+
+describe('grid line-up session', () => {
   beforeEach(() => {
     endGridCalibration();
     undoManager.clear();
     useStore.getState().resetToDefault();
-    useStore.getState().addChild(layer().id, image());
+    useStore.getState().setGridVisible(false);
+    useStore.getState().addChild(layer().id, original());
   });
 
   it('refuses to start on an id that is not an asset child', () => {
@@ -198,72 +174,103 @@ describe('grid calibration session', () => {
     expect(getGridCalibration()).toBeNull();
   });
 
-  it('starts with the box on the image’s top-left corner', () => {
-    expect(startGridCalibration('img')).toBe(true);
-    const s = getGridCalibration()!;
-    expect(s.box.x).toBeCloseTo(0, 6);
-    expect(s.box.y).toBeCloseTo(0, 6);
-    expect(s.spans).toBe(3);
-    // Visibly on the image and a useful fraction of it: a 10-cell map opens with
-    // a 3-cell box, so the readout reads back the grid it was sized against.
-    expect(s.box.size).toBeCloseTo(3, 6);
+  it('writes the start at once: the picture on the grid, the frame W by H, Show grid on, no undo step', () => {
+    expect(startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: GRID })).toBe(true);
+    // The picture's own source size, when the caller gives none.
+    expect(getGridCalibration()!.sourcePx).toEqual(SOURCE);
+    expect(placed().width * placed().scale).toBeCloseTo(24, 9);
+    expect(left(placed())).toBeCloseTo(-1 / 3, 9);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 24, height: 16 });
+    expect(useStore.getState().grid.visible).toBe(true);
+    expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('keeps the box inside a small image rather than swallowing it', () => {
-    // Footprint 2x2 — half of it, not the 3-cell default that would overhang.
-    useStore.getState().updateChild(layer().id, 'img', { width: 4, height: 4 });
-    startGridCalibration('img');
-    expect(getGridCalibration()!.box.size).toBeCloseTo(1, 6);
+  it('W and H are the map size, live; the picture keeps its scale and place', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationCells(25, 0);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 25, height: 1 });
+    expect(placed().width * placed().scale).toBeCloseTo(24, 9);
+    expect(undoManager.canUndo()).toBe(false);
   });
 
-  it('clamps a box dragged to nothing and a nonsense span', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 1, y: 1, size: 0 });
-    expect(getGridCalibration()!.box.size).toBe(MIN_BOX_WORLD);
-    setCalibrationSpans(-4);
-    expect(getGridCalibration()!.spans).toBe(1);
+  it('px per cell rescales about the picture’s corner; a drag or nudge moves the corner', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationOffset(0.5, 0.25);
+    setCalibrationPxPerCell(52.5);
+    expect(placed().width * placed().scale).toBeCloseTo(48, 9);
+    expect(placed().height * placed().scale).toBeCloseTo(32, 9);
+    expect(left(placed())).toBeCloseTo(0.5, 9);
+    expect(top(placed())).toBeCloseTo(0.25, 9);
+    nudgeCalibration(-0.05, 0.25);
+    expect(left(placed())).toBeCloseTo(0.45, 9);
+    expect(top(placed())).toBeCloseTo(0.5, 9);
+    expect(lineUpBox(getGridCalibration()!)).toMatchObject({ left: 0.45, top: 0.5 });
+    expect(lineUpBox(getGridCalibration()!)!.width).toBeCloseTo(48, 9);
   });
 
-  it('applies scale, offset and the lock as one undoable step', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 2.3, y: 4.8, size: 1.5 });
-    setCalibrationSpans(3);
+  it('takes the grid as one undo step: picture, fixed size, lock; Show grid goes back; undo restores all', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    setCalibrationOffset(-1 / 3, 0);
+    setCalibrationCells(23, 15);
 
     expect(applyGridCalibration()).toBe(true);
     expect(getGridCalibration()).toBeNull();
-
     const after = placed();
-    expect(after.width * after.scale).toBeCloseTo(20, 6);
-    // No per-child lock exists in this codebase — the image's layer is what locks.
+    expect(after.width * after.scale).toBeCloseTo(24, 9);
+    expect(left(after)).toBeCloseTo(-1 / 3, 9);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 23, height: 15 });
     expect(layer().locked).toBe(true);
+    expect(useStore.getState().grid.visible).toBe(false);
 
     undoManager.undo();
-    const back = placed();
-    expect(back.width * back.scale).toBeCloseTo(10, 6);
-    expect(back.position).toEqual({ x: 5, y: 5 });
+    expect(placed()).toEqual(original());
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
     expect(layer().locked).toBe(false);
+    expect(undoManager.canUndo()).toBe(false);
     expect(undoManager.canRedo()).toBe(true);
   });
 
-  it('refuses an impossible calibration and stays in the mode', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 0, y: 0, size: MIN_BOX_WORLD });
-    setCalibrationSpans(64);
-
-    expect(applyGridCalibration()).toBe(false);
-    expect(getGridCalibration()).not.toBeNull();
+  it('a re-line-up over drawn work keeps the picture on a grid line and the pinned size', () => {
+    useStore.getState().setFixedSize({ width: 40, height: 30 });
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
+      l.standaloneWalls.push({ id: 'w', points: [[1, 1], [5, 1]] } as DungeonLayer['standaloneWalls'][number]);
+    });
+    useStore.getState().updateChild(layer().id, 'img', { position: { x: 18 + 2.6, y: 12 + 3.3 } });
+    startGridCalibration('img', { grid: GRID });
+    expect(getGridCalibration()!.anchor).toBe('nearest');
+    expect(applyGridCalibration()).toBe(true);
+    const after = placed();
+    // The printed line a third of a cell in lands on a whole cell.
+    expect(left(after) + 1 / 3).toBeCloseTo(3, 9);
+    expect(top(after) + 1 / 3).toBeCloseTo(4, 9);
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 40, height: 30 });
+    // The layer holds a wall too, so only the picture locks.
     expect(layer().locked).toBe(false);
-    expect(undoManager.canUndo()).toBe(false);
+    expect(after.locked).toBe(true);
   });
 
-  it('skipping leaves the image untouched and unlocked', () => {
-    startGridCalibration('img');
-    setCalibrationBox({ x: 2, y: 2, size: 0.5 });
+  it('Skip puts the picture, the size and Show grid back, unlocked, with no undo step', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 }, grid: GRID });
+    setCalibrationOffset(2, 2);
+    setCalibrationPxPerCell(50);
+    setCalibrationCells(10, 10);
     endGridCalibration();
 
     expect(getGridCalibration()).toBeNull();
-    expect(placed()).toEqual(image());
+    expect(placed()).toEqual(original());
     expect(layer().locked).toBe(false);
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
+    expect(useStore.getState().grid.visible).toBe(false);
     expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('a picture gone from the map leaves the map alone on the way out', () => {
+    startGridCalibration('img', { cells: { width: 24, height: 16 } });
+    useStore.getState().resetToDefault();
+    useStore.getState().setFixedSize({ width: 5, height: 5 });
+    endGridCalibration();
+    expect(getGridCalibration()).toBeNull();
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 5, height: 5 });
   });
 });

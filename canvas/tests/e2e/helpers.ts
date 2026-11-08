@@ -10,6 +10,7 @@ import { expect, type Page } from '@playwright/test'
  */
 const CLIPPER_TIMEOUT = 60_000
 const ENGINE_TIMEOUT = 60_000
+const SHELL_TIMEOUT = 30_000
 
 /**
  * Wait out the whole boot: Clipper2 WASM, then the engine.
@@ -54,7 +55,13 @@ export async function gotoApp(page: Page): Promise<void> {
   await waitForBoot(page)
   await page.getByTestId('v2-new-map-card').click()
   await page.getByTestId('v2-new-map-submit').click()
-  await expect(page.getByTestId('v2-editor')).toBeVisible()
+  // Creating the map saves it before the editor mounts; on a busy machine running specs in
+  // parallel that takes longer than the default five seconds.
+  await expect(page.getByTestId('shell')).toBeVisible({ timeout: SHELL_TIMEOUT })
+  // The shell's keys (useRegistryKeys) attach from an effect and its insets and entry fit run
+  // on the next frame, so a spec that presses Escape or a rail key the instant the shell paints
+  // can lose it on a loaded worker. Two frames is one commit plus its effects, as in waitForBoot.
+  await waitFrame(page, 2)
 }
 
 /**

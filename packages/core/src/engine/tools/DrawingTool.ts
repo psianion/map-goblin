@@ -16,7 +16,10 @@ export type ToolType =
   | 'roomRect'
   | 'roomPolygon'
   | 'divide'
-  | 'plateau';
+  | 'plateau'
+  | 'water'
+  | 'material'
+  | 'path';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

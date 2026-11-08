@@ -2,7 +2,9 @@ import type { Point } from '../../types/geometry';
 import { snapToAngle, smoothChain } from '../../geometry/drawAssist';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddWallCommand } from '../../store/commands';
+import { AddWallCommand, MergeWallsCommand } from '../../store/commands';
+import { autoJoin } from '../../shared/wallJoin';
+import type { WallSegment } from '../../store/types';
 import { undoManager } from '../../store/undoManager';
 import { resolveEditableLayer } from './layerGuard';
 
@@ -121,16 +123,22 @@ export class WallTool implements DrawingTool {
     }
     if (points.length < 2) return;
 
+    const wall: WallSegment = {
+      id: crypto.randomUUID(),
+      points,
+      wallType: store.tools.settings.wallType,
+      direction: store.tools.settings.wallDirection,
+      color: activeLayer.style.wallColor,
+      // No width: a drawn wall takes the layer's, and follows it when it changes.
+      roughness: 0,
+    };
+    // Auto-join: a chain started or finished on a wall's free end, of the same set and
+    // type, becomes part of that wall rather than a second wall touching it.
+    const joined = store.tools.settings.wallAutoJoin === false ? null : autoJoin(wall, activeLayer.standaloneWalls, activeLayer.style);
     undoManager.execute(
-      new AddWallCommand('Draw wall', activeLayerId, {
-        id: crypto.randomUUID(),
-        points,
-        wallType: store.tools.settings.wallType,
-        direction: store.tools.settings.wallDirection,
-        color: activeLayer.style.wallColor,
-        // No width: a drawn wall takes the layer's, and follows it when it changes.
-        roughness: 0,
-      }),
+      joined
+        ? new MergeWallsCommand('Draw wall', activeLayerId, joined.merged, joined.removed)
+        : new AddWallCommand('Draw wall', activeLayerId, wall),
     );
   }
 }

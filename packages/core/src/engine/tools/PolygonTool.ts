@@ -2,11 +2,13 @@ import type { Point } from '../../types/geometry';
 import { snapToAngle } from '../../geometry/drawAssist';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { eraseShapeCommands } from './eraseShapes';
+import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
+import { flattenRing, smoothRing } from '../../shared/bezier';
 import { resolveEditableLayer } from './layerGuard';
 import type { ShapeCommit } from './RectangleTool';
 
@@ -33,8 +35,11 @@ export class PolygonTool implements DrawingTool {
   private currentPoint: Point | null = null;
   /** The active layer when the chain started — see WallTool for why. */
   private chainLayerId: string | null = null;
+  /** Alt held at the last pointer or key event: closing the outline then carves it. */
+  private alt = false;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
+    this.alt = event?.altKey === true;
     if (this.vertices.length >= 3) {
       const first = this.vertices[0];
       const dx = point.x - first.x;
@@ -53,6 +58,7 @@ export class PolygonTool implements DrawingTool {
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
+    if (event) this.alt = event.altKey;
     this.currentPoint = this.constrain(point, event);
   }
 
@@ -65,6 +71,7 @@ export class PolygonTool implements DrawingTool {
   onPointerUp(_point: Point): void {}
 
   onKeyDown(event: KeyboardEvent): void {
+    this.alt = event.altKey;
     if (event.key === 'Escape') {
       this.cancel();
     } else if (event.key === 'Enter') {
@@ -78,6 +85,11 @@ export class PolygonTool implements DrawingTool {
     if (this.currentPoint) {
       pts.push({ x: this.currentPoint.x, y: this.currentPoint.y });
     }
+    // Curve mode previews the curve the floor will take.
+    if (this.curved() && pts.length >= 3) {
+      const ring = pts.map((p): [number, number] => [p.x, p.y]);
+      return { type: 'polygon', points: flattenRing(ring, smoothRing(ring)).map(([x, y]) => ({ x, y })) };
+    }
     return { type: 'polygon', points: pts };
   }
 
@@ -89,6 +101,11 @@ export class PolygonTool implements DrawingTool {
 
   isActive(): boolean {
     return this.vertices.length > 0;
+  }
+
+  /** Curve mode reaches floors only; the room tool's outline stays straight. */
+  private curved(): boolean {
+    return !this.onShape && useStore.getState().tools.curveMode;
   }
 
   private finalize(): void {
@@ -106,12 +123,12 @@ export class PolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
-    const isErase = store.tools.eraseMode && !this.onShape;
+    const isErase = (store.tools.floorMode === 'carve' || this.alt) && !this.onShape;
+    // The Edit column's Curve: the outline is smoothed through every point clicked.
+    const tangents = this.curved() ? smoothRing(polyPoints) : undefined;
 
     if (isErase) {
-      const commands = eraseShapeCommands(activeLayer, activeLayerId, [polyPoints]);
-      if (commands.length === 0) return;
-      undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
+      carveFloors(activeLayer, activeLayerId, [tangents ? flattenRing(polyPoints, tangents) : polyPoints]);
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()
@@ -124,6 +141,7 @@ export class PolygonTool implements DrawingTool {
         visible: true,
         shapeType: 'polygon',
         contours: [polyPoints],
+        ...(tangents ? { tangents: [tangents] } : {}),
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
         textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
@@ -133,7 +151,7 @@ export class PolygonTool implements DrawingTool {
       };
 
       if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, child));
+      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 }

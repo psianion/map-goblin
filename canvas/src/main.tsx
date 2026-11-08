@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './v2/AppV2.tsx'
+import App from './App'
 import { useStore } from './store/store'
 import { initRecentAssets } from './io/recentAssets'
 import { initFavouriteAssets } from './io/favouriteAssets'
@@ -22,8 +22,22 @@ if (/^\/v2(\/|$)/.test(window.location.pathname)) {
   window.history.replaceState(null, '', `/${window.location.search}${window.location.hash}`)
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+
+// `/gallery` renders the design-system page from the real components, in development only:
+// the DEV check is constant-folded away in a build, so the gallery never ships.
+if (import.meta.env.DEV && window.location.pathname === '/gallery') {
+  void import('./gallery/GalleryRoute').then(({ GalleryRoute }) =>
+    root.render(
+      <StrictMode>
+        <GalleryRoute />
+      </StrictMode>,
+    ),
+  )
+} else {
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+}

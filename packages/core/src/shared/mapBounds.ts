@@ -4,6 +4,9 @@
 
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
 import { shapeRing } from './plateaus';
+import { waterBounds } from './waterMask';
+import { patchesBounds } from './materialPatch';
+import { pathwayBounds } from './pathway';
 import { dropShadeWidth, slopeWidthOf } from './plateauShade';
 
 /** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
@@ -25,8 +28,12 @@ export interface WorldBounds {
  * hitTest. An earlier version took half the diagonal, which is rotation-safe but measures
  * every sprite as a square: an unrotated 16x22 battlemap came out 27x27, and since this
  * feeds the map frame, that slack became export size and fog cells.
+ *
+ * With `pinned`, an imported picture (objectType 'image') that hangs less than one cell past
+ * a pinned edge is measured to that edge: a battlemap lined up on its grid keeps the part
+ * cell at its border, and the frame cuts it rather than growing a ring of void around it.
  */
-export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
+export function assetBounds(layers: readonly Layer[], pinned: WorldBounds | null = null): WorldBounds | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -44,10 +51,20 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
       const sin = Math.abs(Math.sin(a.rotation || 0));
       const rx = halfW * cos + halfH * sin;
       const ry = halfW * sin + halfH * cos;
-      if (a.position.x - rx < minX) minX = a.position.x - rx;
-      if (a.position.y - ry < minY) minY = a.position.y - ry;
-      if (a.position.x + rx > maxX) maxX = a.position.x + rx;
-      if (a.position.y + ry > maxY) maxY = a.position.y + ry;
+      let left = a.position.x - rx;
+      let top = a.position.y - ry;
+      let right = a.position.x + rx;
+      let bottom = a.position.y + ry;
+      if (pinned && a.objectType === 'image') {
+        if (left < pinned.minX && left > pinned.minX - 1) left = pinned.minX;
+        if (top < pinned.minY && top > pinned.minY - 1) top = pinned.minY;
+        if (right > pinned.maxX && right < pinned.maxX + 1) right = pinned.maxX;
+        if (bottom > pinned.maxY && bottom < pinned.maxY + 1) bottom = pinned.maxY;
+      }
+      if (left < minX) minX = left;
+      if (top < minY) minY = top;
+      if (right > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
     }
   }
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
@@ -61,6 +78,7 @@ export function assetBounds(layers: readonly Layer[]): WorldBounds | null {
 function drawnBounds(
   layers: readonly Layer[],
   terrainBounds: TerrainData['bounds'],
+  pinned: WorldBounds | null = null,
 ): WorldBounds | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -93,6 +111,32 @@ function drawnBounds(
         if (y > maxY) maxY = y;
       }
     }
+    // Painted water is map, whether or not a floor lies under it.
+    const water = waterBounds(dl.water);
+    if (water) {
+      minX = Math.min(minX, water.minX);
+      minY = Math.min(minY, water.minY);
+      maxX = Math.max(maxX, water.maxX);
+      maxY = Math.max(maxY, water.maxY);
+    }
+    // And paths, out to their width.
+    for (const child of dl.children ?? []) {
+      if (child.childType !== 'pathway' || !child.visible) continue;
+      const b = pathwayBounds(child);
+      if (!b) continue;
+      minX = Math.min(minX, b.minX);
+      minY = Math.min(minY, b.minY);
+      maxX = Math.max(maxX, b.maxX);
+      maxY = Math.max(maxY, b.maxY);
+    }
+    // So are Material brush patches.
+    const patches = patchesBounds(dl.materials);
+    if (patches) {
+      minX = Math.min(minX, patches.minX);
+      minY = Math.min(minY, patches.minY);
+      maxX = Math.max(maxX, patches.maxX);
+      maxY = Math.max(maxY, patches.maxY);
+    }
     // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
     // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and
     // reaches no further than its ring.
@@ -124,7 +168,7 @@ function drawnBounds(
   }
 
   // Placed art extends the map too — dropping an asset on empty ground grows the boundary
-  const art = assetBounds(layers);
+  const art = assetBounds(layers, pinned);
   if (art) {
     minX = Math.min(minX, art.minX);
     minY = Math.min(minY, art.minY);
@@ -199,10 +243,10 @@ export function computeMapFrame(
   terrainBounds: TerrainData['bounds'] = null,
   fixedSize: MapSettings['fixedSize'] = null,
 ): WorldBounds | null {
-  const drawn = drawnBounds(layers, terrainBounds);
   const pinned = fixedSize
     ? { minX: 0, minY: 0, maxX: fixedSize.width, maxY: fixedSize.height }
     : null;
+  const drawn = drawnBounds(layers, terrainBounds, pinned);
   if (!drawn) return pinned;
   const pad = strokePad(layers);
   const measured = {

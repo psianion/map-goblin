@@ -42,12 +42,13 @@ import {
 import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/editor/toolConstants';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
-import { nextFocusMode, toggleLitPreview } from '@/v2/viewPrefs';
-import { acceptAllSuggestions, dismissSuggestions } from '@/v2/editor/roomActions';
+import { nextFocusMode, toggleLitPreview } from '@/editor/viewPrefs';
+import { acceptAllSuggestions, dismissSuggestions } from '@/editor/models/roomActions';
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
-import { applyOutlineEdit, exitShapeNodeEdit } from '@/engine/shapeNodeEdit';
+import { applyOutlineEdit, exitShapeNodeEdit, resolveOutline } from '@/engine/shapeNodeEdit';
 import { removeHoveredPlateauPoint } from '@dnd/core/src/engine/ringNodeEdit';
+import { traceToggleCommand } from '@dnd/core/src/store/layerCommands';
 
 /** Set by EditorHost so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -658,7 +659,7 @@ function pickRoomTool(tool: ToolType, label: string): void {
 }
 
 /** The key, to the tool in hand: Enter ends a chain, Escape drops it, F mirrors the stamp. */
-function toTool(e?: KeyboardEvent): void | false {
+export function toTool(e?: KeyboardEvent): void | false {
   if (!e || !activeToolKeyRef.current) return false;
   activeToolKeyRef.current(e);
 }
@@ -694,6 +695,8 @@ function nodeKey(e?: KeyboardEvent): void {
   if (!e) return;
   const tools = useStore.getState().tools;
   if (tools.shapeNodeEditId && tools.selectedVertex !== null && (e.key === 'Delete' || e.key === 'Backspace')) {
+    // Three nodes is the fewest a floor keeps: Delete does nothing there.
+    if ((resolveOutline(tools.shapeNodeEditId)?.outline.length ?? 0) <= 3) return;
     applyOutlineEdit({ kind: 'delete', index: tools.selectedVertex }, 'Delete vertex');
     useStore.getState().selectVertex(null);
     return;
@@ -733,6 +736,11 @@ export interface Shortcut {
   scope: ShortcutScope;
   /** Bound, but not shown in the help: another spelling of a key its row already shows. */
   alias?: true;
+  /**
+   * The old editor's tool, mode and dock keys. The new shell installs the registry's keys in
+   * their place (setRegistryShortcuts); these go when the old editor does.
+   */
+  legacy?: true;
   /** Whether it applies right now; false hands the key to the next binding on the combo. */
   when?: (e?: KeyboardEvent) => boolean;
   /** The action. False: it did not apply after all, and the key falls through. */
@@ -766,10 +774,10 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'node.remove', combo: 'backspace', group: 'Node editing', scope: 'canvas', label: 'Remove the picked stone or corner', when: sessionKey, run: nodeKey },
 
   // Tools: the rail.
-  { id: 'tool.select', combo: 'v', group: 'Tools', scope: 'canvas', label: 'Select', run: () => pickTool('select', 'Select', false) },
-  { id: 'tool.pan', combo: 'g', group: 'Tools', scope: 'canvas', label: 'Pan', run: () => pickTool('pan', 'Pan', false) },
+  { id: 'tool.select', combo: 'v', group: 'Tools', legacy: true, scope: 'canvas', label: 'Select', run: () => pickTool('select', 'Select', false) },
+  { id: 'tool.pan', combo: 'g', group: 'Tools', legacy: true, scope: 'canvas', label: 'Pan', run: () => pickTool('pan', 'Pan', false) },
   // No settings: the ruler has nothing to configure.
-  { id: 'tool.ruler', combo: 'm', group: 'Tools', scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
+  { id: 'tool.ruler', combo: 'm', group: 'Tools', legacy: true, scope: 'canvas', label: 'Measure', run: () => pickTool('ruler', 'Measure', false) },
   // Shift+E: E is the Plateau tool.
   { id: 'mode.erase', combo: 'shift+e', group: 'Tools', scope: 'canvas', label: 'Erase mode',
     run: () => {
@@ -778,7 +786,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
       s.setEraseMode(next);
       notify.subtle(next ? 'Erase mode' : 'Draw mode', { icon: 'tool' });
     } },
-  { id: 'mode.curve', combo: 'c', group: 'Tools', scope: 'canvas', label: 'Curve mode',
+  { id: 'mode.curve', combo: 'c', group: 'Tools', legacy: true, scope: 'canvas', label: 'Curve mode',
     run: () => {
       const s = useStore.getState();
       const next = !s.tools.curveMode;
@@ -787,32 +795,35 @@ export const SHORTCUTS: readonly Shortcut[] = [
     } },
   // Rooms: R and P while the Rooms tab is up (plain floors from every other tab), X from
   // anywhere, where it is free.
-  { id: 'tool.roomRect', combo: 'r', group: 'Tools', scope: 'tab:rooms', label: 'Rectangle room', when: noEditSession,
+  { id: 'tool.roomRect', combo: 'r', group: 'Tools', legacy: true, scope: 'tab:rooms', label: 'Rectangle room', when: noEditSession,
     run: () => pickRoomTool('roomRect', 'Rectangle room') },
-  { id: 'tool.roomPolygon', combo: 'p', group: 'Tools', scope: 'tab:rooms', label: 'Polygon room', when: noEditSession,
+  { id: 'tool.roomPolygon', combo: 'p', group: 'Tools', legacy: true, scope: 'tab:rooms', label: 'Polygon room', when: noEditSession,
     run: () => pickRoomTool('roomPolygon', 'Polygon room') },
-  { id: 'tool.divide', combo: 'x', group: 'Tools', scope: 'canvas', label: 'Divide', when: shellFree,
+  { id: 'tool.divide', combo: 'x', group: 'Tools', legacy: true, scope: 'canvas', label: 'Divide', when: shellFree,
     run: () => pickRoomTool('divide', 'Divide') },
   // Props: F is the tool's own (mirror the next stamp).
-  { id: 'tool.scatterBrush', combo: 'b', group: 'Tools', scope: 'canvas', label: 'Props', run: () => pickTool('scatterBrush', 'Props') },
-  { id: 'tool.propsMirror', combo: 'f', group: 'Tools', scope: 'tool:scatterBrush', label: 'Mirror the stamp', run: toTool },
+  { id: 'tool.scatterBrush', combo: 'b', group: 'Tools', legacy: true, scope: 'canvas', label: 'Props', run: () => pickTool('scatterBrush', 'Props') },
+  { id: 'tool.propsMirror', combo: 'f', group: 'Tools', legacy: true, scope: 'tool:scatterBrush', label: 'Mirror the stamp', run: toTool },
   // Lights: R is the tool's (turn the next light's cone; Shift+R the other way), not Rectangle.
-  { id: 'tool.light', combo: 'l', group: 'Tools', scope: 'canvas', label: 'Light', run: () => pickTool('light', 'Light') },
-  { id: 'tool.lightTurn', combo: 'r', group: 'Tools', scope: 'tool:light', label: 'Turn the cone', run: toTool },
-  { id: 'tool.lightTurn', combo: 'shift+r', group: 'Tools', scope: 'tool:light', label: 'Turn the cone', run: toTool },
+  { id: 'tool.light', combo: 'l', group: 'Tools', legacy: true, scope: 'canvas', label: 'Light', run: () => pickTool('light', 'Light') },
+  { id: 'tool.lightTurn', combo: 'r', group: 'Tools', legacy: true, scope: 'tool:light', label: 'Turn the cone', run: toTool },
+  { id: 'tool.lightTurn', combo: 'shift+r', group: 'Tools', legacy: true, scope: 'tool:light', label: 'Turn the cone', run: toTool },
   // Floors.
-  { id: 'tool.rectangle', combo: 'r', group: 'Tools', scope: 'canvas', label: 'Rectangle', run: () => pickTool('rectangle', 'Rectangle') },
-  { id: 'tool.polygon', combo: 'p', group: 'Tools', scope: 'canvas', label: 'Polygon', run: () => pickTool('polygon', 'Polygon') },
-  { id: 'tool.regularPolygon', combo: 'h', group: 'Tools', scope: 'canvas', label: 'Regular polygon',
+  { id: 'tool.rectangle', combo: 'r', group: 'Tools', legacy: true, scope: 'canvas', label: 'Rectangle', run: () => pickTool('rectangle', 'Rectangle') },
+  { id: 'tool.polygon', combo: 'p', group: 'Tools', legacy: true, scope: 'canvas', label: 'Polygon', run: () => pickTool('polygon', 'Polygon') },
+  { id: 'tool.regularPolygon', combo: 'h', group: 'Tools', legacy: true, scope: 'canvas', label: 'Regular polygon',
     run: () => pickTool('regularPolygon', 'Regular Polygon') },
-  { id: 'tool.plateau', combo: 'e', group: 'Tools', scope: 'canvas', label: 'Plateau', run: () => pickTool('plateau', 'Plateau') },
-  { id: 'tool.terrain', combo: 't', group: 'Tools', scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
+  { id: 'tool.plateau', combo: 'e', group: 'Tools', legacy: true, scope: 'canvas', label: 'Plateau', run: () => pickTool('plateau', 'Plateau') },
+  { id: 'tool.terrain', combo: 't', group: 'Tools', legacy: true, scope: 'canvas', label: 'Terrain', run: () => pickTool('terrain', 'Terrain Brush') },
+  // The terrain brush's size, as the wheel steps it: [ smaller, ] larger.
+  { id: 'tool.terrainSize', combo: '[', group: 'Tools', legacy: true, scope: 'tool:terrain', label: 'Brush size', run: toTool },
+  { id: 'tool.terrainSize', combo: ']', group: 'Tools', legacy: true, scope: 'tool:terrain', label: 'Brush size', run: toTool },
   // Walls.
-  { id: 'tool.wall', combo: 'w', group: 'Tools', scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
-  { id: 'tool.door', combo: 'd', group: 'Tools', scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },
+  { id: 'tool.wall', combo: 'w', group: 'Tools', legacy: true, scope: 'canvas', label: 'Wall', run: () => pickTool('wall', 'Wall') },
+  { id: 'tool.door', combo: 'd', group: 'Tools', legacy: true, scope: 'canvas', label: 'Door', run: () => pickTool('door', 'Door') },
   // Labels. N for note: T is terrain.
-  { id: 'tool.text', combo: 'n', group: 'Tools', scope: 'canvas', label: 'Label', run: () => pickTool('text', 'Label', false) },
-  { id: 'tool.zone', combo: 'z', group: 'Tools', scope: 'canvas', label: 'Zone', run: () => pickTool('zone', 'Zone') },
+  { id: 'tool.text', combo: 'n', group: 'Tools', legacy: true, scope: 'canvas', label: 'Label', run: () => pickTool('text', 'Label', false) },
+  { id: 'tool.zone', combo: 'z', group: 'Tools', legacy: true, scope: 'canvas', label: 'Zone', run: () => pickTool('zone', 'Zone') },
 
   // Selection.
   { id: 'edit.nudge', combo: 'arrowleft', group: 'Selection', scope: 'canvas', label: 'Nudge 1 square', run: () => nudgeSelection(-1, 0) },
@@ -899,6 +910,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
     run: () => {
       notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
     } },
+  // The level's traces (background image layers): hide them all, or show them again.
+  { id: 'view.traceToggle', combo: 'j', group: 'View', scope: 'canvas', label: 'Hide or show the trace',
+    run: () => {
+      const cmd = traceToggleCommand(useStore.getState());
+      if (!cmd) return;
+      undoManager.execute(cmd);
+      notify.subtle(cmd.label === 'Show trace' ? 'Trace shown' : 'Trace hidden', { icon: 'eye' });
+    } },
   // Shift+? lands here too: a shifted punctuation key falls back to the plain key.
   { id: 'view.shortcuts', combo: '?', group: 'View', scope: 'canvas', label: 'Keyboard shortcuts',
     run: () => editorShellKeysRef.current?.openShortcuts() },
@@ -909,7 +928,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'level.down', combo: 'pagedown', group: 'Levels and dock', scope: 'canvas', label: 'Level below', when: shellFree,
     run: () => editorShellKeysRef.current?.stepLevel(1) },
   // Not with focus on a control: there Tab moves between them.
-  { id: 'dock.toggle', combo: 'tab', group: 'Levels and dock', scope: 'canvas', label: 'Fold or open the dock',
+  { id: 'dock.toggle', combo: 'tab', group: 'Levels and dock', legacy: true, scope: 'canvas', label: 'Fold or open the dock',
     when: (e) => shellFree() && !isTypingOrNavigating(e?.target),
     run: () => editorShellKeysRef.current?.toggleDock() },
 
@@ -971,10 +990,28 @@ export function comboOf(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | '
  * to type it depends on the layout.
  */
 function bindingsFor(combo: string): readonly Shortcut[] {
-  const exact = toolKeyMap.get(combo);
+  const map = registryKeyMap ?? toolKeyMap;
+  const exact = map.get(combo);
   if (exact) return exact;
   const shifted = /^shift\+(.)$/.exec(combo)?.[1];
-  return shifted && !/[a-z0-9]/.test(shifted) ? (toolKeyMap.get(shifted) ?? []) : [];
+  return shifted && !/[a-z0-9]/.test(shifted) ? (map.get(shifted) ?? []) : [];
+}
+
+/**
+ * The tool and family keys the new shell generates from the registry (registryShortcuts.ts),
+ * or null. While set they stand in for the table's legacy keys: on a combo the hand-written
+ * chords come first, then these.
+ */
+let registryKeyMap: Map<string, Shortcut[]> | null = null;
+
+export function setRegistryShortcuts(keys: readonly Shortcut[] | null): void {
+  if (!keys) {
+    registryKeyMap = null;
+    return;
+  }
+  const map = new Map<string, Shortcut[]>();
+  for (const s of [...SHORTCUTS.filter((x) => !x.legacy), ...keys]) map.set(s.combo, [...(map.get(s.combo) ?? []), s]);
+  registryKeyMap = map;
 }
 
 function inScope(scope: ShortcutScope): boolean {

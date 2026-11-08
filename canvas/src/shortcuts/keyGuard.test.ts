@@ -83,7 +83,7 @@ describe('canvasKeysAllowed', () => {
   });
 
   it('stops keys from a row in a sheet', () => {
-    const host = mount('<aside class="v2-sheet"><button id="row">Warren Hall</button></aside>');
+    const host = mount('<aside data-sheet><button id="row">Warren Hall</button></aside>');
     expect(canvasKeysAllowed(at(host.querySelector('#row')))).toBe(false);
   });
 

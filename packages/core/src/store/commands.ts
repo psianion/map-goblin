@@ -496,6 +496,63 @@ export class UpdateWallCommand implements Command {
 }
 
 /**
+ * Drawn walls joined into one (Select's Merge, the Wall tool's auto-join): the kept wall
+ * takes the joined line (`merged`, under its own id), the walls in `removedIds` go, and the
+ * doors hung on them follow the kept wall's id; their positions stay, so each keeps its
+ * place along the new wall. Undo puts every wall back where it was in the draw order.
+ */
+export class MergeWallsCommand implements Command {
+  readonly label: string;
+  readonly affectsRooms = true;
+  private readonly layerId: string;
+  private readonly merged: import('./types').WallSegment;
+  private readonly removedIds: readonly string[];
+  private before: { wall: import('./types').WallSegment; index: number } | null = null;
+  private removed: { wall: import('./types').WallSegment; index: number }[] = [];
+  private doors: { id: string; wallId: string }[] = [];
+
+  constructor(label: string, layerId: string, merged: import('./types').WallSegment, removedIds: readonly string[]) {
+    this.label = label;
+    this.layerId = layerId;
+    this.merged = structuredClone(merged);
+    this.removedIds = [...removedIds];
+  }
+
+  execute(): void {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === this.layerId);
+    if (!layer || layer.type !== 'dungeon') return;
+    const walls = (layer as DungeonLayer).standaloneWalls;
+    const at = walls.findIndex((w) => w.id === this.merged.id);
+    if (at < 0) return;
+    this.before = { wall: structuredClone(walls[at]), index: at };
+    this.removed = this.removedIds
+      .map((id) => ({ index: walls.findIndex((w) => w.id === id) }))
+      .filter((r) => r.index >= 0)
+      .map((r) => ({ wall: structuredClone(walls[r.index]), index: r.index }))
+      .sort((a, b) => a.index - b.index);
+    const gone = new Set(this.removed.map((r) => r.wall.id));
+    this.doors = layer.children
+      .filter((c) => c.childType === 'door' && gone.has(c.wallId))
+      .map((c) => ({ id: c.id, wallId: (c as import('./types').DoorChild).wallId }));
+
+    state.removeWall(this.layerId, this.merged.id);
+    state.addWall(this.layerId, structuredClone(this.merged), at);
+    for (const r of [...this.removed].reverse()) state.removeWall(this.layerId, r.wall.id);
+    for (const d of this.doors) state.updateChild(this.layerId, d.id, { wallId: this.merged.id } as Partial<AnyChild>);
+  }
+
+  undo(): void {
+    if (!this.before) return;
+    const state = useStore.getState();
+    for (const d of this.doors) state.updateChild(this.layerId, d.id, { wallId: d.wallId } as Partial<AnyChild>);
+    for (const r of this.removed) state.addWall(this.layerId, structuredClone(r.wall), r.index);
+    state.removeWall(this.layerId, this.merged.id);
+    state.addWall(this.layerId, structuredClone(this.before.wall), this.before.index);
+  }
+}
+
+/**
  * Same job as UpdateWallCommand, for a wall derived from the floor outline.
  * Those rings are recomputed from the shapes on every change, so their hand
  * edits live on the layer keyed by ring index rather than on a WallSegment.

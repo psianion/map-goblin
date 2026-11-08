@@ -1,11 +1,12 @@
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { eraseShapeCommands } from './eraseShapes';
+import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
+import { newFloorLook } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
@@ -66,6 +67,8 @@ export class RectangleTool implements DrawingTool {
   onPointerUp(point: Point, event?: PointerEvent): void {
     if (!this.drawing || !this.startPoint) return;
     this.drawing = false;
+    // Alt at release carves this one rectangle, whatever the mode.
+    const alt = event?.altKey === true;
 
     const start = this.startPoint;
     const end = this.constrain(point, event);
@@ -93,18 +96,11 @@ export class RectangleTool implements DrawingTool {
       [start.x, end.y],
     ];
 
-    const isErase = store.tools.eraseMode && !this.onShape;
+    const isErase = (store.tools.floorMode === 'carve' || alt) && !this.onShape;
 
     if (isErase) {
-      // Erase: boolean-difference the erase rect from each intersecting shape.
-      // If the result is empty → remove shape. Otherwise → update shape's points.
-      const commands = eraseShapeCommands(activeLayer, activeLayerId, [rectPoly]);
-      if (commands.length === 0) return;
-      undoManager.execute(
-        commands.length === 1
-          ? commands[0]
-          : new CompositeCommand('Erase', commands),
-      );
+      // Carve out: the rectangle comes off every floor under it, as one undo step.
+      carveFloors(activeLayer, activeLayerId, [rectPoly]);
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()
@@ -126,7 +122,7 @@ export class RectangleTool implements DrawingTool {
       };
 
       if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, child));
+      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, { ...child, ...newFloorLook() }));
     }
   }
 

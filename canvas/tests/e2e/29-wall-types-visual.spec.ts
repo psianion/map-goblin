@@ -34,7 +34,7 @@ async function getWalls(page: import('@playwright/test').Page) {
 // ========== TESTS ==========
 
 test.describe('Wall Types Visual Verification', () => {
-  test('all 5 wall types render distinctly', async ({ page }) => {
+  test('all 5 wall types render distinctly', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page)
 
     await page.evaluate(() => {
@@ -113,7 +113,7 @@ test.describe('Wall Types Visual Verification', () => {
     walls.forEach((w) => expect(w.direction).toBe('both'))
   })
 
-  test('directional walls have left/right/both variants', async ({ page }) => {
+  test('directional walls have left/right/both variants', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page)
 
     await page.evaluate(() => {
@@ -225,7 +225,7 @@ test.describe('Wall Types Visual Verification', () => {
     expect(directions).toContain('right')
   })
 
-  test('wall IDs are unique across types', async ({ page }) => {
+  test('wall IDs are unique across types', { tag: '@render' }, async ({ page }) => {
     await gotoApp(page)
 
     await page.evaluate(() => {
