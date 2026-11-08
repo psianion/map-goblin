@@ -19,6 +19,9 @@ import {
   verifyToken,
 } from './auth'
 import { createHandoffStore, type HandoffStore } from './handoff'
+import { writeCampaignExport } from './export'
+import { slug, type Mirror } from './mirror'
+import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
   MAX_MAP_BYTES,
@@ -51,6 +54,8 @@ export interface HttpDeps {
   triggerDeps: Pick<TriggerDeps, 'prepOf'>
   /** Whether a socket arrived on the trusted listener — see `clientAddress`. */
   trusted: (socket: Socket) => boolean
+  /** Decision 14 — each scene's .ggvtt on disk. Absent or null, nothing is mirrored. */
+  mirror?: Mirror | null
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -72,13 +77,22 @@ export function createRequestHandler(deps: HttpDeps) {
   }
   // Per handler for the same reason, and in memory on purpose: a code lives for a minute.
   const handoffs = createHandoffStore()
+  // A server makes its handler once, at boot, so this is the startup pass: map rows no
+  // scene points at go, then every scene gets its file and no gone scene keeps one.
+  const swept = deps.stores.maps.deleteUnreferenced()
+  if (swept > 0) console.log(`maps: removed ${swept} map rows no scene uses`)
+  const mirror = deps.mirror ?? null
+  const synced = mirror?.sync()
+  if (synced && synced.written + synced.removed > 0) {
+    console.log(`mirror: wrote ${synced.written}, removed ${synced.removed} under ${mirror!.root}`)
+  }
   return (req: IncomingMessage, res: ServerResponse): void => {
     cors(res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
       return
     }
-    route({ ...deps, budgets, handoffs }, req, res).catch((error: unknown) => {
+    route({ ...deps, mirror, budgets, handoffs }, req, res).catch((error: unknown) => {
       console.error('request failed:', error)
       if (!res.headersSent) json(res, 500, { error: 'internal error' })
       else res.end()
@@ -102,6 +116,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'handoff' && !sub2)
     return mintHandoff(deps, req, res, id)
   if (method === 'POST' && resource === 'handoff' && id === 'redeem' && !sub) return redeemHandoff(deps, req, res)
+  if (method === 'GET' && resource === 'campaigns' && id && sub === 'export' && !sub2)
+    return exportCampaign(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'service-token')
     return mintServiceToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
@@ -258,6 +274,30 @@ async function redeemHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerR
   })
 }
 
+/**
+ * GET /api/campaigns/:id/export — DM token in, the whole campaign out as one zip (decision
+ * 14): every scene's .ggvtt, every module's state, every asset and a manifest. Streamed, so
+ * a campaign of large maps is never held in memory twice. Import is a later version.
+ */
+function exportCampaign(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const campaign = deps.stores.campaigns.get(campaignId)
+  if (!campaign) return json(res, 404, { error: 'no such campaign' })
+  res.writeHead(200, {
+    'content-type': 'application/zip',
+    'content-disposition': `attachment; filename="${slug(campaign.name, 'campaign')}-export.zip"`,
+    'cache-control': 'no-store',
+  })
+  writeCampaignExport(deps.stores, campaign, PROTOCOL_VERSION, {
+    write: (chunk) => res.write(chunk),
+    end: () => res.end(),
+    fail: (error) => {
+      console.error('export failed:', error)
+      res.destroy(error)
+    },
+  })
+}
+
 /** The Discord bot's seat at a campaign. Named, so a second mint reuses it rather than
  * leaving a new permanent credential behind on every call. */
 const SERVICE_IDENTITY_NAME = 'Goblin Bot'
@@ -344,6 +384,7 @@ async function uploadMap(
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, stored)
   const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name, storablePrep(prep))
   deps.stores.campaigns.touch(campaignId)
+  deps.mirror?.writeScene(scene.id)
   deps.sessionManager.refreshScenes(campaignId)
   json(res, 201, {
     mapId: row.id,
@@ -450,6 +491,8 @@ async function patchScene(
     deps.stores.scenes.setVisibleToPlayers(sceneId, body.visibleToPlayers)
   }
   const updated = deps.stores.scenes.get(sceneId)!
+  // A rename moves the scene's file to its new name.
+  if (updated.name !== scene.name) deps.mirror?.writeScene(sceneId)
   deps.sessionManager.refreshScenes(scene.campaign_id)
   json(res, 200, {
     id: updated.id,
@@ -501,6 +544,8 @@ async function publishScene(
     lineage || map.migrated ? JSON.stringify(map.data) : raw,
   )
   deps.stores.scenes.republish(sceneId, row.id)
+  // The row the scene used to render is nobody's now: one map row per scene, always.
+  deps.stores.maps.delete(scene.map_id)
   // M3 — `prep` absent means the author never opened prep in this save, so whatever is
   // already stored survives untouched; an explicit prep (including an emptied-out one)
   // overwrites it. Canvas's own serialization is what makes "absent" and "empty" distinct.
@@ -514,6 +559,7 @@ async function publishScene(
   // the player's own map GET with the scene's old geometry until something else evicted it.
   deps.vision.invalidateScene(sceneId)
   deps.stores.campaigns.touch(scene.campaign_id)
+  deps.mirror?.writeScene(sceneId)
   // The re-published map is live state for anyone at the table — `changedSceneId` is what
   // tells a session playing this scene to drop its map and refetch (see refreshScenes).
   deps.sessionManager.refreshScenes(scene.campaign_id, sceneId)
@@ -566,6 +612,11 @@ function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, 
   if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
 
   deps.stores.scenes.delete(sceneId)
+  // Everything that was only this scene's goes with it: its map row, its file on disk and
+  // its slice of every module's state. Campaign assets stay; another scene may use them.
+  deps.stores.maps.delete(scene.map_id)
+  deps.mirror?.removeScene(scene.campaign_id, sceneId)
+  deps.modules.forgetScene(scene.campaign_id, sceneId)
   // A session that had this scene active does not keep pointing at a scene that no longer
   // exists — `scenesModule`/`sceneMapOf` would both refuse it anyway, but a live table is
   // better told than left silently stuck.

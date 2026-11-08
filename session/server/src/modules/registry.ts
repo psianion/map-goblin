@@ -239,6 +239,19 @@ export class ModuleRegistry {
     say({ type: 'state-update', module: module.name, state: this.load(campaignId, module) })
   }
 
+  /**
+   * A deleted scene's slice out of every module that keeps one (`forgetScene`). Only stored
+   * state is rewritten: a module never written for this campaign has nothing to forget.
+   */
+  forgetScene(campaignId: string, sceneId: string): void {
+    for (const module of this.modules.values()) {
+      const forget = (module as { forgetScene?: (state: unknown, sceneId: string) => unknown }).forgetScene
+      if (!forget) continue
+      const state = this.store.get(campaignId, module.name)
+      if (state !== undefined) this.store.put(campaignId, module.name, forget.call(module, state, sceneId))
+    }
+  }
+
   private load(campaignId: string, module: GameModule<unknown>): unknown {
     return this.store.get(campaignId, module.name) ?? module.initialState
   }

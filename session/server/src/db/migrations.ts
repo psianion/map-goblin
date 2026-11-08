@@ -125,4 +125,11 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE UNIQUE INDEX idx_waitlist_email ON waitlist(email);
   `,
+
+  // 006 — table v2: the DM can pause the table and lock player movement, per session. A
+  // player's token move is refused while either is on (the `table` module reads these).
+  `
+  ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN movement_locked INTEGER NOT NULL DEFAULT 0;
+  `,
 ]

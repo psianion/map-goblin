@@ -493,6 +493,9 @@ importers:
       clipper2-wasm:
         specifier: ^0.2.1
         version: 0.2.1
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       ws:
         specifier: ^8.18.3
         version: 8.21.1
