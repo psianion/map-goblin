@@ -3,7 +3,7 @@ import type { DoorChild } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
-import { getWallPieces } from '../assets/packCatalog';
+import { getCatalogEntry, getWallPieces } from '../assets/packCatalog';
 import {
   DOOR_SLICE_CELLS,
   doorKitFor,
@@ -162,8 +162,22 @@ function doorSpriteTexture(localKey: string): { entryId: string; tex: Texture } 
     const entryId = `${pack.packId}:${localKey}`;
     const tex = manager.getTextureOrNull(entryId);
     if (tex && tex.width > 1) return { entryId, tex };
+    if (getCatalogEntry(entryId)) doorArtMissed = true;
   }
   return null;
+}
+
+/**
+ * Set when a door drew without art a pack declares because its file had not decoded
+ * yet; subscribeToStore redraws the doors once textures land.
+ */
+let doorArtMissed = false;
+
+/** Whether a door missed declared art since the last call; clears the flag. */
+export function takeDoorArtMissed(): boolean {
+  const missed = doorArtMissed;
+  doorArtMissed = false;
+  return missed;
 }
 
 /** Where an entry's paint actually is, and which way round it was drawn. */
@@ -442,7 +456,10 @@ function renderKitJambs(
     // padded tile; none ships one, so a set that did would just go without.
     if (!ending || ending.contentRect) return;
     const tex = resolveTexture(ending.id);
-    if (tex.width <= 1) return;
+    if (tex.width <= 1) {
+      doorArtMissed = true;
+      return;
+    }
     const perPx = wallWidth / referenceBandPx(setId);
     const cap = kit.jamb.capPx * perPx;
     for (const { at, into } of edges) {
@@ -696,6 +713,7 @@ function renderPortalSprite(
 
   const tex = resolveTexture(door.portalTextureId);
   if (tex.width === 0) return;
+  if (tex.width <= 1 && getCatalogEntry(door.portalTextureId)) doorArtMissed = true;
 
   const sprite = new Sprite(tex);
   sprite.anchor.set(0.5);

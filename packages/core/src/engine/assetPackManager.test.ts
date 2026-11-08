@@ -170,8 +170,10 @@ describe('AssetPackManager', () => {
 function createMockDB(packs: StoredPack[]): AssetPackDB {
   return {
     open: vi.fn().mockResolvedValue(undefined),
-    getAllPacks: vi.fn().mockResolvedValue(packs),
-    getPack: vi.fn().mockResolvedValue(null),
+    getAllPackMeta: vi.fn().mockResolvedValue(packs),
+    getFile: vi.fn().mockResolvedValue(null),
+    getFiles: vi.fn().mockResolvedValue(new Map()),
+    getPackMeta: vi.fn().mockResolvedValue(null),
     installPack: vi.fn().mockResolvedValue(undefined),
     deletePack: vi.fn().mockResolvedValue(undefined),
     getCacheUsage: vi.fn().mockResolvedValue({ used: 0, limit: 200 * 1024 * 1024 }),
@@ -439,7 +441,7 @@ describe('AssetPackManager — bundled flag and cache usage', () => {
     // Re-registering every update as bundled: false made an updated bundled pack count in
     // full against the cache, and LRU eviction free to drop it whole.
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({ ...makeStoredPack('gg-demo', '1.0.0'), bundled })
+    db.getPackMeta = vi.fn().mockResolvedValue({ ...makeStoredPack('gg-demo', '1.0.0'), bundled })
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     stubZeroDigest()
@@ -571,7 +573,7 @@ describe('AssetPackManager.ensureAssetSets', () => {
     const db = createMockDB([])
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     await mgr.ensureAssetSets('dungeon-classic', [])
-    expect(db.getPack).not.toHaveBeenCalled()
+    expect(db.getPackMeta).not.toHaveBeenCalled()
   })
 
   it('warns and returns when the pack has no cached manifest', async () => {
@@ -580,13 +582,13 @@ describe('AssetPackManager.ensureAssetSets', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await mgr.ensureAssetSets('unknown-pack', ['GG_Fieldstone'])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no cached manifest'))
-    expect(db.getPack).not.toHaveBeenCalled()
+    expect(db.getPackMeta).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
   it('is a fast no-op when every requested set is already installed — no fetch, no merge', async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: ['GG_Fieldstone', 'GG_Palisade'],
     })
@@ -601,7 +603,7 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it('bumps the asset-set LRU for every requested set, hit or miss', async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: ['GG_Fieldstone'],
     })
@@ -617,7 +619,7 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it("fetches and merges only the missing set's files, checksum-verified", async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: ['GG_Fieldstone'],
     })
@@ -641,7 +643,7 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it('throws on checksum mismatch and never merges', async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: [],
     })
@@ -658,7 +660,7 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it('evicts before writing when the cap would be breached', async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: [],
     })
@@ -753,7 +755,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
 
   it('fetches the missing set once a manifest is cached', async () => {
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue({
+    db.getPackMeta = vi.fn().mockResolvedValue({
       ...makeStoredPack('dungeon-classic', '1.0.0'),
       installedAssetSets: [],
     })
@@ -813,7 +815,10 @@ describe('AssetPackManager.updatePack — asset sets', () => {
       installedAssetSets: ['GG_Fieldstone'], // Palisade was never fetched locally
     }
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue(oldStored)
+    db.getPackMeta = vi.fn().mockResolvedValue(oldStored)
+    db.getFiles = vi.fn(async (_packId: string, files: string[]) =>
+      new Map(files.filter((f) => oldStored.blobs.has(f)).map((f) => [f, oldStored.blobs.get(f)!])),
+    )
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     stubZeroDigest()
     const fetched: string[] = []
@@ -844,7 +849,7 @@ describe('AssetPackManager.updatePack — asset sets', () => {
       // no installedAssetSets — legacy record predating this feature
     }
     const db = createMockDB([])
-    db.getPack = vi.fn().mockResolvedValue(oldStored)
+    db.getPackMeta = vi.fn().mockResolvedValue(oldStored)
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     stubZeroDigest()
     const fetched: string[] = []

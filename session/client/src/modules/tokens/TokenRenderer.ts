@@ -14,7 +14,7 @@ import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { resolveTexture } from '@dnd/core/src/assets/textureLoader';
+import { load as loadPackTexture, resolveTexture } from '@dnd/core/src/assets/textureLoader';
 import { endpoints } from '../../endpoints';
 import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useModuleState, useSessionStore } from '../../session/store';
@@ -226,6 +226,14 @@ function buildView(token: Token, isDm: boolean): View {
     sprite.scale.set((r * 2) / Math.max(1, Math.min(texture.width, texture.height)));
     sprite.mask = mask;
     container.addChildAt(sprite, 1);
+    // Pack art decodes on first use: until it lands this is the fallback, so wait for it.
+    if (texture.width <= 1) {
+      void loadPackTexture(packAssetId).then((loaded) => {
+        if (sprite.destroyed || loaded.width <= 1) return;
+        sprite.texture = loaded;
+        sprite.scale.set((r * 2) / Math.max(1, Math.min(loaded.width, loaded.height)));
+      });
+    }
   } else if (token.imageAssetId) {
     const mask = new Graphics().circle(0, 0, r).fill({ color: 0xffffff });
     container.addChild(mask);

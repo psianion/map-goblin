@@ -9,15 +9,25 @@ import { getLayerEntry } from '../sceneGraph';
 import { load, resolveTexture } from '../../assets/textureLoader';
 import { pathPieceOf, unitSizeOf } from '../../assets/pathKit';
 import { layPathUnits, pathwayLine } from '../../shared/pathway';
+import { getAssetPackManager } from '../assetPackInstance';
 
 /** Layers waiting on a unit's art, and the art already asked for. */
 const waiting = new Set<string>();
 const asked = new Set<string>();
 
+/** Art can land later than one wait: a decode clears `asked` so the next draw asks again. */
+let watching = false;
+function watchTextures(): void {
+  if (watching) return;
+  watching = true;
+  getAssetPackManager().subscribeTextures(() => asked.clear());
+}
+
 const pathsOf = (layer: DungeonLayer): PathwayChild[] =>
   layer.children.filter((c): c is PathwayChild => c.childType === 'pathway');
 
 function awaitArt(layer: DungeonLayer, ids: string[]): void {
+  watchTextures();
   const missing = ids.filter((id) => !asked.has(id));
   if (missing.length === 0 || waiting.has(layer.id)) return;
   waiting.add(layer.id);

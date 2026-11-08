@@ -1,14 +1,11 @@
 // src/engine/firstBootInstall.ts
 //
-// On boot, auto-installs every pack the bundled /packs/index.json lists.
-// This ensures a zero-config first experience with no CDN dependency.
+// The bundled packs, in three tiers. Tier 1 (`installBundledIndex`): the pack index and
+// every manifest, no file. Tier 2 (`ensureMapAssets`): the asset sets one map uses.
+// Tier 3 (`installLibrary`): every other set, in the background.
 
-import pLimit from 'p-limit';
 import { compareSemver } from './assetPackManager';
-import type { AssetPackManager } from './assetPackManager';
-import type { PackManifest } from './assetPackManager';
-
-const FETCH_CONCURRENCY = 8;
+import type { AssetPackManager, AssetProgress, PackManifest } from './assetPackManager';
 
 interface BundledIndex {
   packs?: Record<string, { manifest?: string }>;
@@ -54,9 +51,10 @@ function contentKey(manifest: PackManifest): string {
 }
 
 /**
- * Install or refresh one bundled pack. Returns true if an install happened.
+ * Register or refresh one bundled pack's manifest. Downloads no pack file. Returns true
+ * if the pack was (re)registered.
  */
-async function ensureOneBundledPack(
+async function ensureOneBundledManifest(
   packManager: AssetPackManager,
   packId: string,
   manifestPath: string,
@@ -77,7 +75,6 @@ async function ensureOneBundledPack(
   }
 
   const current = packManager.getInstalledPacks().find((p) => p.packId === packId);
-  const bundledEntryCount = Object.keys(manifest.entries).length;
   const installedManifest = packManager
     .getPackManifests()
     .find((p) => p.packId === packId)?.manifest;
@@ -97,67 +94,29 @@ async function ensureOneBundledPack(
 
     // Same version, byte-for-byte identical — nothing to do. Compared on the full content
     // key, not entry count, so an art swap that forgot a version bump still ships.
-    //
-    // With no cached manifest the copy predates this check and falls through to a
-    // reinstall — the cheap way to get it onto a known content key.
     if (versionDelta === 0 && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
       return false;
     }
 
-    // Outdated copy: drop it so the reinstall below starts clean — no stale
-    // textures lingering under keys the new manifest no longer declares.
+    // Outdated copy: drop it and every file it stored, so nothing stale is kept.
+    // Its sets download again when a map needs them.
     console.info(
-      `[firstBootInstall] Bundled pack "${packId}" outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}${installedManifest ? '' : ', no cached manifest'}) — reinstalling`,
+      `[firstBootInstall] Bundled pack "${packId}" outdated (installed ${current.version}, bundled ${manifest.version}${installedManifest ? '' : ', no cached manifest'}) — re-registering`,
     );
     await packManager.uninstallPack(packId);
   }
 
-  // Download all atlas + file assets from the bundled path
-  const allFiles = [...Object.keys(manifest.atlases), ...Object.keys(manifest.files)];
-  const blobs = new Map<string, Uint8Array>();
-
-  const limit = pLimit(FETCH_CONCURRENCY);
-  try {
-    await Promise.all(
-      allFiles.map((file) =>
-        limit(async () => {
-          const fileRes = await fetch(`/packs/${packId}/${file}`);
-          if (!fileRes.ok) throw new Error(file);
-          blobs.set(file, new Uint8Array(await fileRes.arrayBuffer()));
-        }),
-      ),
-    );
-  } catch (err) {
-    // First failure aborts the install, same as the old serial loop.
-    limit.clearQueue();
-    console.warn(`[firstBootInstall] Failed to fetch bundled file: ${(err as Error).message}`);
-    return false;
-  }
-
-  // Register the bundled pack directly using the already-downloaded data.
-  // We skip checksum verification for bundled — trusted local files.
-  const packSize = [...blobs.values()].reduce((s, b) => s + b.length, 0);
-
-  try {
-    await packManager.registerPack(packId, manifest, blobs, true);
-  } catch {
-    console.warn(`[firstBootInstall] registerPack failed for bundled pack "${packId}" — app will work without it`);
-    return false;
-  }
-
-  console.info(
-    `[firstBootInstall] Installed bundled pack "${packId}" (${bundledEntryCount} entries, ${Math.round(packSize / 1024)}KB)`,
-  );
+  await packManager.registerManifest(packId, manifest);
   return true;
 }
 
 /**
- * Check every bundled pack against the installed state and install/refresh as
- * needed. Called after rehydrate() during boot.
- *
- * @returns true if any bundled pack was installed
+ * Tier 1: the bundled index and every manifest it lists. New packs are registered with no
+ * set installed; a stale pack drops its files; packs this build no longer ships are
+ * removed. Downloads no pack file. Bumps catalogVersion. Throws when the index cannot be
+ * read; one broken pack never costs the others.
  */
-export async function ensureBundledPack(packManager: AssetPackManager): Promise<boolean> {
+export async function installBundledIndex(packManager: AssetPackManager): Promise<void> {
   const index = await fetchBundledIndex();
 
   // Retire bundled packs this build no longer ships (e.g. dungeon-classic
@@ -175,15 +134,125 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
     console.warn('[firstBootInstall] Retired-pack cleanup failed:', err);
   }
 
-  let installedAny = false;
-  for (const [packId, entry] of Object.entries(index.packs ?? {})) {
-    if (!entry.manifest) continue;
-    try {
-      if (await ensureOneBundledPack(packManager, packId, entry.manifest)) installedAny = true;
-    } catch (err) {
-      // One broken pack must not cost the others.
-      console.warn(`[firstBootInstall] Bundled pack "${packId}" install failed:`, err);
+  await Promise.all(
+    Object.entries(index.packs ?? {}).map(async ([packId, entry]) => {
+      if (!entry.manifest) return;
+      try {
+        await ensureOneBundledManifest(packManager, packId, entry.manifest);
+      } catch (err) {
+        console.warn(`[firstBootInstall] Bundled pack "${packId}" install failed:`, err);
+      }
+    }),
+  );
+  packManager.catalogVersion++;
+}
+
+/**
+ * The old boot entry point, kept while the apps move to `bootAssets`.
+ * @deprecated Use `bootAssets` (engine/boot.ts).
+ */
+export async function ensureBundledPack(packManager: AssetPackManager): Promise<boolean> {
+  await installBundledIndex(packManager);
+  return true;
+}
+
+/**
+ * Tier 2: the asset sets the texture ids `ids` need (see collectMapTextureIds), fetched
+ * per pack with progress in phase `map`. Never throws: a set that fails is logged and the
+ * map draws with fallbacks.
+ */
+export async function ensureMapAssets(
+  packManager: AssetPackManager,
+  ids: string[],
+  onProgress?: (p: AssetProgress) => void,
+): Promise<void> {
+  let bySet: Map<string, Set<string>>;
+  try {
+    bySet = packManager.assetSetsForTextureIds(ids);
+  } catch (err) {
+    console.warn('[firstBootInstall] ensureMapAssets: could not resolve the map\'s sets', err);
+    return;
+  }
+
+  let files = 0;
+  let bytes = 0;
+  for (const [packId, sets] of bySet) {
+    for (const s of packManager.getAssetSetStatus(packId)) {
+      if (sets.has(s.set) && !s.installed) {
+        files += s.files;
+        bytes += s.bytes;
+      }
     }
   }
-  return installedAny;
+
+  const job = files > 0 ? packManager.beginProgress('map') : null;
+  job?.addTotal(files, bytes);
+  if (job) onProgress?.(job.progress);
+  const sink = job
+    ? {
+        advance(f: number, b: number) {
+          job.advance(f, b);
+          onProgress?.(job.progress);
+        },
+      }
+    : undefined;
+
+  try {
+    await Promise.all(
+      [...bySet].map(([packId, sets]) =>
+        packManager.ensureAssetSets(packId, [...sets], sink).catch((err) => {
+          console.warn(`[firstBootInstall] ensureMapAssets: sets of pack "${packId}" failed`, err);
+        }),
+      ),
+    );
+  } finally {
+    job?.end();
+  }
+}
+
+/**
+ * Tier 3: every set of the packs in `order` not stored yet, pack by pack, smallest set
+ * first inside a pack. Each set is committed as it lands, so a reload resumes where this
+ * stopped. `signal` pauses it between sets. Never throws.
+ */
+export async function installLibrary(
+  packManager: AssetPackManager,
+  order: string[],
+  onProgress?: (p: AssetProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const plan = order.flatMap((packId) =>
+    packManager
+      .getAssetSetStatus(packId)
+      .filter((s) => !s.installed)
+      .map((s) => ({ packId, ...s })),
+  );
+  if (plan.length === 0) return;
+
+  const job = packManager.beginProgress('library');
+  job.addTotal(
+    plan.reduce((s, p) => s + p.files, 0),
+    plan.reduce((s, p) => s + p.bytes, 0),
+  );
+  onProgress?.(job.progress);
+  const sink = {
+    advance(f: number, b: number) {
+      job.advance(f, b);
+      onProgress?.(job.progress);
+    },
+  };
+
+  try {
+    for (const item of plan) {
+      if (signal?.aborted) break;
+      job.setPack(item.packId);
+      try {
+        await packManager.ensureAssetSets(item.packId, [item.set], sink);
+      } catch (err) {
+        console.warn(`[firstBootInstall] installLibrary: set "${item.set}" of "${item.packId}" failed`, err);
+      }
+    }
+  } finally {
+    job.end();
+  }
 }

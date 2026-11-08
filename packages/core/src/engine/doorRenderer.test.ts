@@ -83,6 +83,7 @@ vi.mock('./assetPackInstance', () => ({
   getAssetPackManager: () => ({
     getTextureOrNull,
     getInstalledPacks: () => [{ packId: 'gg-demo' }],
+    getPackManifests: () => [],
   }),
 }));
 

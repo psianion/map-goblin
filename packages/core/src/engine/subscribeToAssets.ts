@@ -15,6 +15,7 @@ import { belowWaterTint, type WaterBody } from '../shared/waterMask';
 import type { Obb } from './tools/propPlacement';
 import { gridDivision, gridImages, syncImageGrid } from './imageGridRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
+import { getAssetPackManager } from './assetPackInstance';
 
 /** Overhead props while the DM looks under them (`ui.seeUnderOverhead`). */
 export const SEE_UNDER_ALPHA = 0.35;
@@ -330,8 +331,40 @@ export function subscribeToAssets(): () => void {
     { fireImmediately: true },
   );
 
+  // Pack art decodes on first use, so a prop synced before its file landed holds the
+  // fallback: give those sprites their texture once textures arrive.
+  const unsubTextures = getAssetPackManager().subscribeTextures(() => {
+    const layers = useStore.getState().layers;
+    layers.forEach((layer, index) => {
+      const spriteMap = spriteMaps.get(layer.id);
+      if (layer.type !== 'dungeon' || !spriteMap) return;
+      const assets = layer.children.filter((c): c is AssetChild => c.childType === 'asset');
+      let changed = false;
+      for (const obj of assets) {
+        const sprite = spriteMap.get(obj.id);
+        if (!sprite || sprite.destroyed || sprite.texture.width > 1) continue;
+        if (obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:')) continue;
+        const waters = watersUnder(layers, index);
+        applyTexture(sprite, obj, spriteMap, waters);
+        if (sprite.texture.width <= 1) continue;
+        syncSprite(sprite, obj, waters);
+        changed = true;
+      }
+      if (changed) {
+        syncPropShadows(
+          layer.id,
+          assets.flatMap((obj) => {
+            const sprite = spriteMap.get(obj.id);
+            return sprite ? [{ sprite, obj }] : [];
+          }),
+        );
+      }
+    });
+  });
+
   return () => {
     unsub();
+    unsubTextures();
     // Destroy all tracked sprites on cleanup
     for (const spriteMap of spriteMaps.values()) {
       for (const sprite of spriteMap.values()) {

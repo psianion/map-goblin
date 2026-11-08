@@ -13,11 +13,20 @@ import { load, resolveTexture } from '../../assets/textureLoader';
 import { fillPolygonsWithHoles, paintTiled } from '../floorWallRenderer';
 import { useStore } from '../../store/store';
 import { patchOutline, type MaterialPatch } from '../../shared/materialPatch';
+import { getAssetPackManager } from '../assetPackInstance';
 
 /** Layers waiting on art to load, so one redraw follows however many textures land. */
 const waiting = new Set<string>();
 /** Art asked for once already: an id no pack delivers is not asked for again. */
 const asked = new Set<string>();
+
+/** Art can land later than one wait: a decode clears `asked` so the next draw asks again. */
+let watching = false;
+function watchTextures(): void {
+  if (watching) return;
+  watching = true;
+  getAssetPackManager().subscribeTextures(() => asked.clear());
+}
 
 function parseColor(hex: string): number {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -26,6 +35,7 @@ function parseColor(hex: string): number {
 
 /** Each art id the patches need that has not loaded; loads them and redraws the layer once they have. */
 function awaitArt(layer: DungeonLayer, patches: readonly MaterialPatch[]): void {
+  watchTextures();
   const ids = new Set<string>();
   for (const p of patches) {
     const fill = materialFillId(p.material);

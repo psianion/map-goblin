@@ -1,39 +1,48 @@
 // src/engine/assetPackDB.ts
-// IndexedDB wrapper for asset pack storage with atomic install and LRU eviction
+// IndexedDB wrapper for asset pack storage with atomic install and LRU eviction.
+//
+// Two stores: `packs` holds one small metadata record per pack (manifest and set
+// bookkeeping), `files` holds each pack file's bytes under "<packId>/<file>". A boot
+// reads `packs` only; file bytes are read when a texture is first used.
 
 const DB_NAME = 'map-builder-packs'
-const DB_VERSION = 1
-const STORE_NAME = 'packs'
+const DB_VERSION = 2
+const PACKS_STORE = 'packs'
+const FILES_STORE = 'files'
 const CACHE_LIMIT = 200 * 1024 * 1024
 
-export interface StoredPack {
+/** Everything stored about a pack except its file bytes. */
+export interface StoredPackMeta {
   packId: string
   version: string
   bundleSize: number
   manifest: ArrayBuffer
-  blobs: Map<string, Uint8Array>
   lastUsed: number
   bundled: boolean
   /**
-   * Asset sets whose files currently live in `blobs` — the bundle/full-install
-   * baseline plus anything fetched later via AssetPackManager.ensureAssetSets.
+   * Asset sets whose files are in the `files` store: a full install's sets, or
+   * the ones fetched later via AssetPackManager.ensureAssetSets.
    */
   installedAssetSets?: string[]
   /** Byte size of each installed asset set's files, for cache accounting. */
   assetSetBytes?: Record<string, number>
   /**
-   * Which files in `blobs` each installed asset set owns. Recorded at merge
-   * time so eviction can drop exactly the right blobs without re-deriving the
-   * mapping from a manifest the DB layer doesn't have.
+   * Which files each installed asset set owns. Recorded at merge time so
+   * eviction can drop exactly the right files without re-deriving the mapping
+   * from a manifest the DB layer doesn't parse.
    */
   assetSetFiles?: Record<string, string[]>
   /**
    * Subset of `installedAssetSets` that arrived via ensureAssetSets rather
-   * than with the bundle/full install. Only these count toward a bundled
-   * pack's cache usage and are ever evicted — the baseline ships with the app
-   * and never leaves.
+   * than with a full install. For a bundled pack only these count toward cache
+   * usage.
    */
   dynamicAssetSets?: string[]
+}
+
+/** A pack as `installPack` writes it: its metadata plus every file it holds. */
+export interface StoredPack extends StoredPackMeta {
+  blobs: Map<string, Uint8Array>
 }
 
 const ASSET_SET_LRU_KEY = 'asset-set-lru'
@@ -42,10 +51,19 @@ function lruKey(packId: string, setName: string): string {
   return `${packId}:${setName}`
 }
 
+function fileKey(packId: string, file: string): string {
+  return `${packId}/${file}`
+}
+
+/** Every `files` key of one pack. */
+function packFileRange(packId: string): IDBKeyRange {
+  return IDBKeyRange.bound(`${packId}/`, `${packId}/￿`)
+}
+
 /**
  * LRU timestamps for dynamically-fetched asset sets, keyed by `packId:setName`.
- * Lives in localStorage rather than on the pack record — bumping a timestamp
- * on every use must not rewrite an 8MB blob map.
+ * Lives in localStorage rather than on the pack record, so bumping a timestamp
+ * on every use writes nothing to IndexedDB.
  */
 export function getAssetSetLRU(): Record<string, number> {
   try {
@@ -67,6 +85,21 @@ export function removeAssetSetLRU(packId: string, setName: string): void {
   localStorage.setItem(ASSET_SET_LRU_KEY, JSON.stringify(lru))
 }
 
+function done(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+function result<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
 export class AssetPackDB {
   private db: IDBDatabase | null = null
   private dbName: string
@@ -76,120 +109,175 @@ export class AssetPackDB {
   }
 
   async open(): Promise<void> {
+    if (this.db) return
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(this.dbName, DB_VERSION)
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (event) => {
         const db = req.result
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'packId' })
+        if (!db.objectStoreNames.contains(PACKS_STORE)) {
+          db.createObjectStore(PACKS_STORE, { keyPath: 'packId' })
+        } else if (event.oldVersion < 2) {
+          // v1 records carry every file inline. Nothing is migrated: clearing drops them
+          // without reading a byte, and sets download again from /packs when a map needs them.
+          req.transaction!.objectStore(PACKS_STORE).clear()
         }
+        if (!db.objectStoreNames.contains(FILES_STORE)) db.createObjectStore(FILES_STORE)
+      }
+      req.onblocked = () => {
+        console.warn('[AssetPackDB] Upgrade waiting for another tab to close its pack database')
       }
       req.onsuccess = () => {
-        this.db = req.result
+        const db = req.result
+        // A newer tab wants to upgrade: let go so it is not blocked by this one.
+        db.onversionchange = () => {
+          db.close()
+          if (this.db === db) this.db = null
+        }
+        this.db = db
         resolve()
       }
       req.onerror = () => reject(req.error)
     })
   }
 
+  private get conn(): IDBDatabase {
+    if (!this.db) throw new Error('[AssetPackDB] database is not open')
+    return this.db
+  }
+
+  /** Write a pack's metadata and files in one transaction, replacing whatever it held. */
   async installPack(pack: StoredPack): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      // Convert Map to plain object for IDB storage
-      const serialized = { ...pack, blobs: Object.fromEntries(pack.blobs) }
-      store.put(serialized)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
+    const tx = this.conn.transaction([PACKS_STORE, FILES_STORE], 'readwrite')
+    const { blobs, ...meta } = pack
+    const files = tx.objectStore(FILES_STORE)
+    files.delete(packFileRange(pack.packId))
+    for (const [file, bytes] of blobs) files.put(bytes, fileKey(pack.packId, file))
+    tx.objectStore(PACKS_STORE).put(meta)
+    return done(tx)
   }
 
-  async getPack(packId: string): Promise<StoredPack | null> {
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly')
-      const req = tx.objectStore(STORE_NAME).get(packId)
-      req.onsuccess = () => {
-        if (!req.result) {
-          resolve(null)
-          return
-        }
-        const raw = req.result
-        resolve({ ...raw, blobs: new Map(Object.entries(raw.blobs)) })
-      }
-      req.onerror = () => reject(req.error)
-    })
+  async getPackMeta(packId: string): Promise<StoredPackMeta | null> {
+    const tx = this.conn.transaction(PACKS_STORE, 'readonly')
+    return ((await result(tx.objectStore(PACKS_STORE).get(packId))) as StoredPackMeta | undefined) ?? null
   }
 
+  async getAllPackMeta(): Promise<StoredPackMeta[]> {
+    const tx = this.conn.transaction(PACKS_STORE, 'readonly')
+    return (await result(tx.objectStore(PACKS_STORE).getAll())) as StoredPackMeta[]
+  }
+
+  async getFile(packId: string, file: string): Promise<Uint8Array | null> {
+    const tx = this.conn.transaction(FILES_STORE, 'readonly')
+    return ((await result(tx.objectStore(FILES_STORE).get(fileKey(packId, file)))) as Uint8Array | undefined) ?? null
+  }
+
+  /** The files of `files` the store holds; missing ones are left out. */
+  async getFiles(packId: string, files: string[]): Promise<Map<string, Uint8Array>> {
+    const tx = this.conn.transaction(FILES_STORE, 'readonly')
+    const store = tx.objectStore(FILES_STORE)
+    const out = new Map<string, Uint8Array>()
+    await Promise.all(
+      files.map(async (file) => {
+        const bytes = (await result(store.get(fileKey(packId, file)))) as Uint8Array | undefined
+        if (bytes) out.set(file, bytes)
+      }),
+    )
+    return out
+  }
+
+  async putFiles(packId: string, blobs: Map<string, Uint8Array>): Promise<void> {
+    const tx = this.conn.transaction(FILES_STORE, 'readwrite')
+    const store = tx.objectStore(FILES_STORE)
+    for (const [file, bytes] of blobs) store.put(bytes, fileKey(packId, file))
+    return done(tx)
+  }
+
+  async deleteFiles(packId: string, files: string[]): Promise<void> {
+    const tx = this.conn.transaction(FILES_STORE, 'readwrite')
+    const store = tx.objectStore(FILES_STORE)
+    for (const file of files) store.delete(fileKey(packId, file))
+    return done(tx)
+  }
+
+  /** Drop a pack's metadata and every file it holds. */
   async deletePack(packId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite')
-      tx.objectStore(STORE_NAME).delete(packId)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
+    const tx = this.conn.transaction([PACKS_STORE, FILES_STORE], 'readwrite')
+    tx.objectStore(FILES_STORE).delete(packFileRange(packId))
+    tx.objectStore(PACKS_STORE).delete(packId)
+    return done(tx)
   }
 
   /**
-   * Merge additional blobs for newly-fetched asset sets into an already
-   * installed pack record.
-   *
-   * ponytail: read-modify-write of the whole record — fine at current pack
-   * sizes (tens of MB); split blob storage into its own object store if a
-   * pack grows past that.
+   * Store the files of newly-fetched asset sets and mark those sets installed,
+   * in one transaction. A no-op for a pack with no record.
    */
   async mergeAssetSetBlobs(
     packId: string,
     blobs: Map<string, Uint8Array>,
     setFiles: Record<string, string[]>,
   ): Promise<void> {
-    const pack = await this.getPack(packId)
-    if (!pack) return
-    for (const [file, blob] of blobs) pack.blobs.set(file, blob)
+    const tx = this.conn.transaction([PACKS_STORE, FILES_STORE], 'readwrite')
+    const packs = tx.objectStore(PACKS_STORE)
+    const req = packs.get(packId)
+    req.onsuccess = () => {
+      const meta = req.result as StoredPackMeta | undefined
+      if (!meta) return
+      const files = tx.objectStore(FILES_STORE)
+      for (const [file, bytes] of blobs) files.put(bytes, fileKey(packId, file))
 
-    const installedAssetSets = new Set(pack.installedAssetSets ?? [])
-    const dynamicAssetSets = new Set(pack.dynamicAssetSets ?? [])
-    const assetSetBytes = { ...pack.assetSetBytes }
-    const assetSetFiles = { ...pack.assetSetFiles }
-    for (const [setName, files] of Object.entries(setFiles)) {
-      installedAssetSets.add(setName)
-      dynamicAssetSets.add(setName)
-      assetSetBytes[setName] = files.reduce((s, f) => s + (blobs.get(f)?.length ?? 0), 0)
-      assetSetFiles[setName] = files
+      const installedAssetSets = new Set(meta.installedAssetSets ?? [])
+      const dynamicAssetSets = new Set(meta.dynamicAssetSets ?? [])
+      const assetSetBytes = { ...meta.assetSetBytes }
+      const assetSetFiles = { ...meta.assetSetFiles }
+      for (const [setName, names] of Object.entries(setFiles)) {
+        installedAssetSets.add(setName)
+        dynamicAssetSets.add(setName)
+        assetSetBytes[setName] = names.reduce((s, f) => s + (blobs.get(f)?.length ?? 0), 0)
+        assetSetFiles[setName] = names
+      }
+      packs.put({
+        ...meta,
+        installedAssetSets: [...installedAssetSets],
+        dynamicAssetSets: [...dynamicAssetSets],
+        assetSetBytes,
+        assetSetFiles,
+      })
     }
-
-    await this.installPack({
-      ...pack,
-      installedAssetSets: [...installedAssetSets],
-      dynamicAssetSets: [...dynamicAssetSets],
-      assetSetBytes,
-      assetSetFiles,
-    })
+    return done(tx)
   }
 
-  /** Drop one asset set's blobs from a pack record and its LRU entry. */
+  /** Drop one asset set's files from a pack, its bookkeeping and its LRU entry. */
   private async evictAssetSet(packId: string, setName: string): Promise<void> {
-    const pack = await this.getPack(packId)
-    if (!pack) return
-    for (const file of pack.assetSetFiles?.[setName] ?? []) pack.blobs.delete(file)
-
-    const installedAssetSets = (pack.installedAssetSets ?? []).filter((s) => s !== setName)
-    const dynamicAssetSets = (pack.dynamicAssetSets ?? []).filter((s) => s !== setName)
-    const assetSetBytes = { ...pack.assetSetBytes }
-    delete assetSetBytes[setName]
-    const assetSetFiles = { ...pack.assetSetFiles }
-    delete assetSetFiles[setName]
-
-    await this.installPack({ ...pack, installedAssetSets, dynamicAssetSets, assetSetBytes, assetSetFiles })
+    const tx = this.conn.transaction([PACKS_STORE, FILES_STORE], 'readwrite')
+    const packs = tx.objectStore(PACKS_STORE)
+    const req = packs.get(packId)
+    req.onsuccess = () => {
+      const meta = req.result as StoredPackMeta | undefined
+      if (!meta) return
+      const files = tx.objectStore(FILES_STORE)
+      for (const file of meta.assetSetFiles?.[setName] ?? []) files.delete(fileKey(packId, file))
+      const assetSetBytes = { ...meta.assetSetBytes }
+      delete assetSetBytes[setName]
+      const assetSetFiles = { ...meta.assetSetFiles }
+      delete assetSetFiles[setName]
+      packs.put({
+        ...meta,
+        installedAssetSets: (meta.installedAssetSets ?? []).filter((s) => s !== setName),
+        dynamicAssetSets: (meta.dynamicAssetSets ?? []).filter((s) => s !== setName),
+        assetSetBytes,
+        assetSetFiles,
+      })
+    }
+    await done(tx)
     removeAssetSetLRU(packId, setName)
   }
 
   /**
-   * Non-bundled packs count in full, same as always. Bundled packs count only
-   * the asset sets fetched later (`dynamicAssetSets`) — the bundle baseline
-   * shipped with the app and isn't "cache" in the evictable sense.
+   * Non-bundled packs count in full. Bundled packs count only the asset sets
+   * fetched after install (`dynamicAssetSets`).
    */
   async getCacheUsage(): Promise<{ used: number; limit: number }> {
-    const all = await this.getAllPacks()
+    const all = await this.getAllPackMeta()
     let used = 0
     for (const pack of all) {
       if (!pack.bundled) {
@@ -204,16 +292,16 @@ export class AssetPackDB {
   }
 
   /**
-   * Evict oldest-first until `bytesNeeded` is freed, across a unified pool of
-   * whole non-bundled packs (by pack `lastUsed`) and dynamic asset sets of
-   * bundled packs (by the asset-set LRU). Bundle-baseline sets and setless
-   * base files are never candidates.
+   * Evict oldest-first until `bytesNeeded` is freed, across whole non-bundled
+   * packs (by pack `lastUsed`) and their dynamic asset sets (by the asset-set
+   * LRU). Bundled packs are never candidates: their sets ship with the app.
+   * Nor is `keepPackId`, the pack about to be written to.
    *
    * Returns the evicted ids: a bare `packId` for a whole pack, or
    * `packId:setName` for an asset set.
    */
-  async evictLRU(bytesNeeded: number): Promise<string[]> {
-    const all = await this.getAllPacks()
+  async evictLRU(bytesNeeded: number, keepPackId?: string): Promise<string[]> {
+    const all = await this.getAllPackMeta()
     const setLru = getAssetSetLRU()
 
     interface Candidate {
@@ -224,22 +312,23 @@ export class AssetPackDB {
     }
     const candidates: Candidate[] = []
     for (const pack of all) {
-      if (!pack.bundled) {
+      if (pack.bundled || pack.packId === keepPackId) continue
+      const dynamic = pack.dynamicAssetSets ?? []
+      for (const setName of dynamic) {
+        candidates.push({
+          label: lruKey(pack.packId, setName),
+          bytes: pack.assetSetBytes?.[setName] ?? 0,
+          lastUsed: setLru[lruKey(pack.packId, setName)] ?? 0,
+          evict: () => this.evictAssetSet(pack.packId, setName),
+        })
+      }
+      if (dynamic.length === 0) {
         candidates.push({
           label: pack.packId,
           bytes: pack.bundleSize,
           lastUsed: pack.lastUsed,
           evict: () => this.deletePack(pack.packId),
         })
-      } else {
-        for (const setName of pack.dynamicAssetSets ?? []) {
-          candidates.push({
-            label: lruKey(pack.packId, setName),
-            bytes: pack.assetSetBytes?.[setName] ?? 0,
-            lastUsed: setLru[lruKey(pack.packId, setName)] ?? 0,
-            evict: () => this.evictAssetSet(pack.packId, setName),
-          })
-        }
       }
     }
     candidates.sort((a, b) => a.lastUsed - b.lastUsed)
@@ -253,20 +342,5 @@ export class AssetPackDB {
       evicted.push(candidate.label)
     }
     return evicted
-  }
-
-  async getAllPacks(): Promise<StoredPack[]> {
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly')
-      const req = tx.objectStore(STORE_NAME).getAll()
-      req.onsuccess = () =>
-        resolve(
-          (req.result as Array<Record<string, unknown>>).map((r) => ({
-            ...(r as unknown as StoredPack),
-            blobs: new Map(Object.entries(r.blobs as Record<string, Uint8Array>)),
-          })),
-        )
-      req.onerror = () => reject(req.error)
-    })
   }
 }
