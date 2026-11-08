@@ -5,6 +5,7 @@ import {
   constrainProportions,
   rotatePoint,
   snapValueToGrid,
+  snapMoveDelta,
   snapAngle,
   localScaleFor,
   resizeBox,
@@ -186,5 +187,24 @@ describe('resizeBox', () => {
   it('never turns a box inside out', () => {
     const next = resizeBox(box({}), 'e', { x: -10, y: 0 }, free, null);
     expect(next.w).toBeGreaterThan(0);
+  });
+});
+
+describe('snapMoveDelta', () => {
+  it('lands the reference point on the lattice, wherever it started', () => {
+    // A picture whose corner sits 0.3 off the grid, dragged 2.1 cells right and 0.9 down.
+    const d = snapMoveDelta({ x: -0.3, y: 0.45 }, { x: 2.1, y: 0.9 }, 1);
+    expect(-0.3 + d.x).toBeCloseTo(2, 9);
+    expect(0.45 + d.y).toBeCloseTo(1, 9);
+  });
+
+  it('uses the snap step, so half cells land on halves', () => {
+    const d = snapMoveDelta({ x: 1.1, y: 1.1 }, { x: 0.2, y: 0.6 }, 0.5);
+    expect(1.1 + d.x).toBeCloseTo(1.5, 9);
+    expect(1.1 + d.y).toBeCloseTo(1.5, 9);
+  });
+
+  it('leaves the delta alone with no step', () => {
+    expect(snapMoveDelta({ x: 0.3, y: 0.3 }, { x: 1.27, y: 0.5 }, 0)).toEqual({ x: 1.27, y: 0.5 });
   });
 });

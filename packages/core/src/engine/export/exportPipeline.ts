@@ -179,6 +179,7 @@ export async function runExportPipeline(
           if (entry?.sublayers?.grid) {
             savedGridSubVis.push({ id: layer.id, visible: entry.sublayers.grid.visible });
             entry.sublayers.grid.visible = false;
+            entry.sublayers.imageGrid.visible = false;
           }
         }
       }
@@ -231,7 +232,10 @@ export async function runExportPipeline(
       sceneGraph.gridRenderer.container.visible = gridVisible;
       for (const { id, visible } of savedGridSubVis) {
         const entry = getLayerEntry(id);
-        if (entry?.sublayers?.grid) entry.sublayers.grid.visible = visible;
+        if (entry?.sublayers?.grid) {
+          entry.sublayers.grid.visible = visible;
+          entry.sublayers.imageGrid.visible = visible;
+        }
       }
     }
 

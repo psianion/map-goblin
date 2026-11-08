@@ -26,6 +26,7 @@ describe('addLayerToScene', () => {
       'sublayer-wall-marks',
       'sublayer-doors',
       'sublayer-objects',
+      'sublayer-image-grid',
       'sublayer-labels',
     ]);
   });

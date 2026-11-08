@@ -13,6 +13,7 @@ import { isLayerShown } from '../store/selectors';
 import { propField } from '../shared/propFields';
 import { belowWaterTint, type WaterBody } from '../shared/waterMask';
 import type { Obb } from './tools/propPlacement';
+import { gridImages, syncImageGrid } from './imageGridRenderer';
 
 /** Overhead props while the DM looks under them (`ui.seeUnderOverhead`). */
 export const SEE_UNDER_ALPHA = 0.35;
@@ -238,6 +239,7 @@ export function subscribeToAssets(): () => void {
                 opacity: l.opacity,
                 seeUnder: state.ui.seeUnderOverhead,
                 assets: l.children.filter((c): c is AssetChild => c.childType === 'asset'),
+                gridColor: l.style?.wallColor,
                 waters: watersUnder(state.layers, index),
               },
             ]
@@ -318,6 +320,8 @@ export function subscribeToAssets(): () => void {
           layer.id,
           layer.assets.map((obj) => ({ sprite: spriteMap.get(obj.id)!, obj })),
         );
+        // The grid over its pictures, which their opaque art would otherwise hide.
+        syncImageGrid(entry.sublayers.imageGrid, gridImages(layer.assets), layer.gridColor);
       }
     },
     { fireImmediately: true },

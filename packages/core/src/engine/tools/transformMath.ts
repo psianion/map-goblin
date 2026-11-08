@@ -86,6 +86,20 @@ export function snapValueToGrid(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
 }
 
+/**
+ * A move's world translation with the snap on: the one that puts `ref` (the point of the
+ * picked thing that should sit on the lattice) on the nearest lattice point to where the
+ * pointer would carry it. Absolute, the way a resize snaps its edges, so a thing that
+ * started off the lattice lands on it rather than keeping its offset.
+ */
+export function snapMoveDelta(ref: { x: number; y: number }, delta: { x: number; y: number }, step: number): { x: number; y: number } {
+  if (!(step > 0)) return delta;
+  return {
+    x: Math.round((ref.x + delta.x) / step) * step - ref.x,
+    y: Math.round((ref.y + delta.y) / step) * step - ref.y,
+  };
+}
+
 export function snapAngle(angle: number): number {
   return Math.round(angle / SNAP_ANGLE_RAD) * SNAP_ANGLE_RAD;
 }

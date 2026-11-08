@@ -132,6 +132,7 @@ describe('subscribeToAssets', () => {
         walls: new MockContainer(),
         doors: new MockContainer(),
         objects,
+        imageGrid: new MockContainer(),
         labels: new MockContainer(),
       },
     } as never);

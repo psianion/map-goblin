@@ -380,6 +380,7 @@ function scheduleRedrawFills(layerId: string): void {
 function applyGridVisibility(entry: LayerEntry, perLayerGridVisible: boolean, globalVisible: boolean): void {
   if (!entry.sublayers) return;
   entry.sublayers.grid.visible = globalVisible && perLayerGridVisible;
+  entry.sublayers.imageGrid.visible = entry.sublayers.grid.visible;
 }
 
 /**

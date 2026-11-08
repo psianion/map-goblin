@@ -41,6 +41,7 @@ function makeEntry(): LayerEntry {
       wallMarks: new Container(),
       doors: new Container(),
       objects: new Container(),
+      imageGrid: new Container(),
       labels: new Container(),
     },
     renderTexture: null,

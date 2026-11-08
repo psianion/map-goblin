@@ -84,6 +84,12 @@ export interface DungeonSublayers {
   doors: Container;
   /** Asset sprites. Codifies the pre-existing draw order (assets always drew above walls/doors). */
   objects: Container;
+  /**
+   * The grid lines over each imported picture's footprint (imageGridRenderer.ts): a
+   * battlemap is opaque and has no floor, so the floor grid never shows on it. Shown and
+   * hidden with `grid`.
+   */
+  imageGrid: Container;
   /** Text labels — always the topmost sublayer. */
   labels: Container;
 }
@@ -259,13 +265,14 @@ export function addLayerToScene(
     const wallMarks = new Container(); wallMarks.label = 'sublayer-wall-marks';
     const doors = new Container(); doors.label = 'sublayer-doors';
     const objects = new Container(); objects.label = 'sublayer-objects';
+    const imageGrid = new Container(); imageGrid.label = 'sublayer-image-grid';
     const labels = new Container(); labels.label = 'sublayer-labels';
     // Per-child draw order only means anything within objects/labels — see
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels);
-    sublayers = { floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, labels };
+    container.addChild(floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels);
+    sublayers = { floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

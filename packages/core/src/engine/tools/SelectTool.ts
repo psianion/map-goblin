@@ -20,7 +20,7 @@ import { polylineLength } from '../../shared/wallResolve';
 import type { RenderEngine } from '../RenderEngine';
 import { TransformGizmo, type HandleType } from './TransformGizmo';
 import { OVERLAY_INK, OVERLAY_WHITE } from '../overlayPalette';
-import { computeBoundingBox, resizeBox, type OrientedBox, type ResizeHandle } from './transformMath';
+import { computeBoundingBox, resizeBox, snapMoveDelta, type OrientedBox, type ResizeHandle } from './transformMath';
 import {
   anchorForHandle,
   isIdentity,
@@ -204,6 +204,22 @@ const WALL_SELECT_INK_WIDTH = 4.5;
  */
 const wallOutlineCache = new WeakMap<WallSegment, { reach: number; rings: [number, number][][] }>();
 
+/**
+ * The point of a lone picked thing that a snapped move lands on the lattice: a placed
+ * picture's or prop's top-left corner (its footprint, so a battlemap's printed grid stays on
+ * the map grid, and a turned one its box corner), a light's or label's own position. Null
+ * for several things, floors and walls: their box carries stroke padding, so they keep the
+ * snapped pointer delta, which holds vertices already on the lattice there.
+ */
+export function moveSnapPoint(only: AnyChild | null, box: { x: number; y: number }): { x: number; y: number } | null {
+  if (only?.childType === 'asset') {
+    if (only.rotation) return { x: box.x, y: box.y };
+    return { x: only.position.x - (only.width * only.scale) / 2, y: only.position.y - (only.height * only.scale) / 2 };
+  }
+  if (only?.childType === 'light' || only?.childType === 'text') return { ...only.position };
+  return null;
+}
+
 function wallOutline(wall: WallSegment, reach: number): { rings: [number, number][][]; closed: boolean } {
   if (!isClipperReady()) return { rings: [wall.points], closed: false };
   const hit = wallOutlineCache.get(wall);
@@ -263,6 +279,8 @@ export class SelectTool implements DrawingTool {
     box: WorldBox;
     /** A single prop or label is resized on its own axes instead. */
     oriented: OrientedBox | null;
+    /** The point a snapped move puts on the lattice (`moveSnapPoint`); null keeps the snapped delta. */
+    snapRef: { x: number; y: number } | null;
     /** Selected props as they were at the press: what their attached lights follow. */
     hosts: Map<string, AssetChild>;
     entries: {
@@ -1111,7 +1129,7 @@ export class SelectTool implements DrawingTool {
             angle: only.rotation,
           }
         : null;
-    this.transformSession = { handle, start, box, oriented, hosts, entries, walls, floors };
+    this.transformSession = { handle, start, box, oriented, hosts, entries, walls, floors, snapRef: moveSnapPoint(only, box) };
     this.lastT = null;
   }
 
@@ -1173,9 +1191,16 @@ export class SelectTool implements DrawingTool {
         for (const e of session.entries) if (!e.attachedTo) patches.set(e.childId, transformChild(e.snap, t));
       }
     } else {
+      let move = { x: delta.translateX * k, y: delta.translateY * k };
+      if (handle === 'move' && session.snapRef) {
+        const grid = useStore.getState().grid;
+        const snapOn = input.ctrl ? !grid.snapEnabled : grid.snapEnabled;
+        const raw = { x: (input.sx - session.start.x) * k, y: (input.sy - session.start.y) * k };
+        move = snapOn ? snapMoveDelta(session.snapRef, raw, 1 / grid.snapDivision) : raw;
+      }
       const t: WorldTransform = {
-        translateX: delta.translateX * k,
-        translateY: delta.translateY * k,
+        translateX: move.x,
+        translateY: move.y,
         scaleX: 1,
         scaleY: 1,
         rotation: delta.rotation,

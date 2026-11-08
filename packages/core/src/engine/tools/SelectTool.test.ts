@@ -145,7 +145,8 @@ describe('SelectTool — M1 attached-light drag', () => {
     tool.onPointerMove({ x: 6.3, y: 6 }, dragEvent(1, 1));
     tool.onPointerUp({ x: 6.3, y: 6 }, dragEvent(1, 1));
 
-    expect((findChild(light.id) as LightChild).position).toEqual({ x: 6.3, y: 6 });
+    // The move snaps the light's own position onto the half-cell lattice, not the delta.
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 6.5, y: 6 });
     expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 5, y: 5 });
   });
 
