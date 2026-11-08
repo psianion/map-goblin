@@ -88,8 +88,8 @@ export async function standUpTable(name = 'Cragmaw Hideout'): Promise<Omit<Hoste
   // The PC types only stand in the room on a session that opens after they exist.
   const first = await open();
   await sendCommands(campaign.token, [
-    { module: 'tokens', action: 'library-upsert', payload: { name: 'Bram', kind: 'pc', size: 'medium', disposition: 'friendly' } },
-    { module: 'tokens', action: 'library-upsert', payload: { name: 'Yara', kind: 'pc', size: 'medium', disposition: 'friendly' } },
+    { module: 'tokens', action: 'library-upsert', payload: { name: 'Bram', kind: 'pc', size: 'medium', disposition: 'friendly', hp: { max: 24 } } },
+    { module: 'tokens', action: 'library-upsert', payload: { name: 'Yara', kind: 'pc', size: 'medium', disposition: 'friendly', hp: { max: 18 } } },
   ]);
   await api(`/api/sessions/${first.sessionId}/end`, { method: 'POST' }, campaign.token);
   const session = await open();
