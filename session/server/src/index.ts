@@ -7,7 +7,10 @@ import type { GameModule } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
 import { initiativeModule } from '@dnd/mechanics/initiative'
+import { pinsModule } from '@dnd/mechanics/pins'
 import { rollsModule } from '@dnd/mechanics/rolls'
+import { storyModule } from '@dnd/mechanics/story'
+import { tableModule, type TableState } from '@dnd/mechanics/table'
 import { tokensModule } from '@dnd/mechanics/tokens'
 import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
@@ -22,6 +25,7 @@ import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { createMirror, mirrorRootFor } from './mirror'
+import { afterWrites, effectsTick } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
@@ -114,7 +118,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   // §2.3.8 — the whole module table. Rolls and tokens register here the same way, from
   // @dnd/mechanics; nothing else in the server changes when they do (D2).
-  const modules = new ModuleRegistry(stores.moduleState, autoExplore(vision))
+  // Table v2 adds the effect-timer tick on a turned round beside the fog's auto-explore.
+  const modules = new ModuleRegistry(stores.moduleState, afterWrites(autoExplore(vision), effectsTick))
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
@@ -125,7 +130,20 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf))
+  // Table v2: the DM's pause and movement lock stop a player's move. ponytail: read from the
+  // table module's own row until migration 006 gives them columns on `sessions` (plan 4.3).
+  const tableOf = ({ campaignId }: { campaignId: string }) =>
+    (stores.moduleState.get(campaignId, 'table') as TableState | undefined) ?? null
+  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, tableOf))
+  modules.register(tableModule)
+  modules.register(pinsModule)
+  // Read-aloud goes out through the triggers module's existing share path; story journals it.
+  modules.register(
+    storyModule({
+      shareReadAloud: (roomId, sceneId, ctx) =>
+        modules.dispatch('triggers', 'share-card', { roomId, sceneId }, ctx)?.message ?? null,
+    }),
+  )
   modules.register(crossingsModule)
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
