@@ -151,6 +151,11 @@ test.describe('publish dialog', () => {
         respond: () => ({ json: { code: 'code-1', tableUrl } }),
       },
     ])
+    // The stub table host answers with a blank page, so the tab loads and keeps its URL;
+    // an unreachable host leaves it on the browser's error page with the hash gone.
+    await page.context().route('http://127.0.0.1:9/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<html></html>' }),
+    )
 
     const d = await openPublish(page)
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
