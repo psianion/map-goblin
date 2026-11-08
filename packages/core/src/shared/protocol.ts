@@ -4,7 +4,13 @@
 
 import type { AnyChild, Room, WallSegment } from './types';
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
+// v6 (table v2) — `modules` gains { story, pins, table }; tokens carry kind, hp, ac, speed,
+// nameplate, showHp, conditions, effects and a PC's owner (hp/ac redacted by `showHp`); rolls
+// carry a `mode` (public / dm / gmonly / blind, redacted per viewer), roll requests, rollable
+// tables and saved rolls. New frames: `mark` both ways (pings, rulers, templates, drawings:
+// ephemeral, never module state), `roll-requested` to the seats a request names, and
+// `effects-ended` to the DM when a round runs a timer out.
 // `modules` gains { fog: FogState, doors: DoorsState } in snapshots, redacted per viewer.
 // A fog `state-update` may carry a `mapDelta` field: the map slices of the rooms that
 // change just made available to that viewer (S3 D5).
@@ -68,11 +74,53 @@ export interface MapDelta {
   lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
 }
 
+/** A world-space point (1 unit = 1 grid cell). */
+export interface MarkPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * v6 — what a pointer tool draws for everyone, for a moment. Ephemeral by design: the server
+ * validates and relays a mark, never stores it, so a reconnect sees none (plan 4.3).
+ * `pull` (a ping that recentres every player camera), `template` and `draw` are the DM's.
+ */
+export type Mark =
+  | { kind: 'ping'; x: number; y: number; pull?: boolean }
+  | { kind: 'ruler'; from: MarkPoint; to: MarkPoint }
+  /** `toward` aims a cone or a line. */
+  | { kind: 'template'; shape: 'circle' | 'cone' | 'square' | 'line'; origin: MarkPoint; size: number; toward?: MarkPoint }
+  /** `ttl` in ms, clamped by the server. */
+  | { kind: 'draw'; points: [number, number][]; ttl: number };
+
+/** A mark as relayed: stamped by the server with who, when, where and how long it lives. */
+export interface MarkEvent {
+  id: string;
+  from: string;
+  at: number;
+  sceneId: string | null;
+  /** The client drops the mark this long after `at`. */
+  ttlMs: number;
+  mark: Mark;
+}
+
+/** v6 — a DM's roll request as its target seats see it arrive (board 20). */
+export interface RollRequestNotice {
+  requestId: string;
+  label: string;
+  ability?: string;
+  dc?: number;
+  /** null = every player. */
+  targets: string[] | null;
+}
+
 export type ClientMessage =
   // Token already presented at WS upgrade.
   | { type: 'join'; protocolVersion: number }
   | { type: 'command'; module: string; action: string; payload: unknown; seq: number }
-  | { type: 'ping'; t: number };
+  | { type: 'ping'; t: number }
+  // v6 — relayed to the session, never persisted.
+  | { type: 'mark'; mark: Mark };
 
 export type ServerMessage =
   // Full snapshot (join/reconnect).
@@ -94,4 +142,10 @@ export type ServerMessage =
       code: 'protocol-mismatch' | 'unauthorized' | 'invalid-command' | 'banned';
       message: string;
     }
-  | { type: 'pong'; t: number };
+  | { type: 'pong'; t: number }
+  // v6 — a relayed mark, to every seat on the session.
+  | { type: 'mark'; event: MarkEvent }
+  // v6 — to the seats a roll request names (and the DM); the request itself is rolls state.
+  | { type: 'roll-requested'; request: RollRequestNotice }
+  // v6 — DM seats only: timers that ran out when the round turned.
+  | { type: 'effects-ended'; sceneId: string; ended: { tokenId: string; tokenName: string; name: string }[] };

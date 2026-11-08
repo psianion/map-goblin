@@ -8,6 +8,7 @@ import type { ModuleRegistry } from '../modules/registry'
 import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
 import { CommandRouter } from './CommandRouter'
+import { markEvent, parseMark } from './marks'
 import { WorldTicker } from './WorldTicker'
 
 interface Session {
@@ -179,6 +180,15 @@ export class SessionManager {
           activeSceneId: this.scenes(session).activeSceneId,
           players: [...session.players.values()],
         })
+      case 'mark': {
+        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3).
+        const parsed = parseMark(msg.mark, conn.identity.role)
+        if ('error' in parsed) {
+          return this.broadcaster.sendTo(conn, { type: 'error', code: 'invalid-command', message: parsed.error })
+        }
+        const event = markEvent(parsed.mark, parsed.ttlMs, conn.identity.identityId, this.scenes(session).activeSceneId)
+        return this.broadcaster.broadcast(session.id, { type: 'mark', event })
+      }
     }
   }
 

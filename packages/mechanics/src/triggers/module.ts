@@ -9,8 +9,9 @@
 // committed their own write. Dispatching it over the wire must fail the same way an unknown
 // action does, which is exactly what leaving it out of `commands` gets for free.
 
-import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { ANY_ROLE, dropScene, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
+import { ringOffsets } from '../tokens/fan'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
   AMBIENT_DARKNESS,
@@ -82,6 +83,8 @@ export interface EncounterEffects {
     y: number
     size: MonsterEntry['size'] & string
     packAsset?: { packId: string; assetId: string }
+    /** The rolled pool, so the placed token carries it as `hp.max` (table v2). */
+    hp?: number
   }[]
   /** Empty when the action's `seedInitiative` is off. `hp` is already rolled. */
   seed: { name: string; hp?: number; tokenId?: string }[]
@@ -141,6 +144,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       // no 'event' entry — see the file header.
     },
     initialState: { byScene: {} },
+    forgetScene: dropScene,
 
     handler(action, payload, ctx) {
       try {
@@ -1244,6 +1248,7 @@ function runEncounter(
           y,
           size: monster.size ?? 'medium',
           ...(monster.tokenRef ? { packAsset: monster.tokenRef } : {}),
+          ...(hp !== undefined ? { hp } : {}),
         })
         placed++
       }
@@ -1275,19 +1280,6 @@ function runEncounter(
     },
     now,
   )
-}
-
-/** Grid-cell offsets fanning out from the anchor — centre first, then rings out to `rings`. */
-function ringOffsets(rings: number): [number, number][] {
-  const cells: [number, number][] = [[0, 0]]
-  for (let r = 1; r <= rings; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) cells.push([dx, dy])
-      }
-    }
-  }
-  return cells
 }
 
 /** A zone anchor's fan: two rings, 25 cells. A roster past 25 stacks on the last cell (the

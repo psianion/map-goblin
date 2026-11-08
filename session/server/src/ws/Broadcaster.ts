@@ -101,6 +101,22 @@ export class Broadcaster {
   }
 
   sendTo(conn: ClientConnection, msg: ServerMessage): void {
+    if (!reaches(msg, conn.identity)) return
     conn.deliver(JSON.stringify(this.redact(msg, conn.identity)))
   }
+}
+
+/**
+ * v6 — the two frames addressed to some seats only. A roll request's nudge goes to the DM
+ * and the players it names; an `effects-ended` frame names tokens (hidden ones included), so
+ * it goes to DM seats alone. Everything else reaches every seat and is redacted on the way.
+ */
+export function reaches(msg: ServerMessage, viewer: Viewer): boolean {
+  if (viewer.role === 'dm') return true
+  if (msg.type === 'effects-ended') return false
+  if (msg.type === 'roll-requested') {
+    const { targets } = msg.request
+    return targets === null || targets.includes(viewer.identityId)
+  }
+  return true
 }

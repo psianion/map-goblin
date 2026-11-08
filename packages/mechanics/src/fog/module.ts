@@ -6,7 +6,7 @@
 // Rooms live in the map file, not in module state, so the module is built with a lookup
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
-import type { GameModule, ModuleContext } from '../contract'
+import { dropScene, type GameModule, type ModuleContext } from '../contract'
 import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
@@ -93,6 +93,7 @@ export function fogModule(
       // `triggers.event` is. Leaving it out of this map *is* its access control.
     },
     initialState: { byScene: {} },
+    forgetScene: dropScene,
 
     handler(action, payload, ctx) {
       try {

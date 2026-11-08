@@ -952,6 +952,8 @@ describe('encounter action (prep v2)', () => {
     expect(new Set(e.spawn.map((s) => `${s.x},${s.y}`)).size).toBe(4)
     // HP rolled per monster; the Warg authored none.
     expect(e.seed.map((s) => s.hp)).toEqual([10, 10, 10, undefined])
+    // Table v2: the spawned token carries the same rolled pool, so it lands with `hp.max`.
+    expect(e.spawn.map((s) => s.hp)).toEqual([10, 10, 10, undefined])
     // Every seed row names the token it walked in with.
     expect(e.seed.map((s) => s.tokenId)).toEqual(e.spawn.map((s) => s.id))
     // The log line is the DM's alone.

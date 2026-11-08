@@ -11,7 +11,10 @@
     "./fog": "./src/fog/module.ts",
     "./initiative": "./src/initiative/module.ts",
     "./log": "./src/log.ts",
+    "./pins": "./src/pins/module.ts",
     "./rolls": "./src/rolls/module.ts",
+    "./story": "./src/story/module.ts",
+    "./table": "./src/table/module.ts",
     "./tokens": "./src/tokens/module.ts",
     "./triggers": "./src/triggers/module.ts"
   },

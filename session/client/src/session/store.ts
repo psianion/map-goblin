@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import type { MapDelta, PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type {
+  Mark,
+  MapDelta,
+  PlayerInfo,
+  RollRequestNotice,
+  Role,
+  ServerMessage,
+  SessionState,
+} from '@dnd/core/src/shared/protocol';
+import { receiveMark } from '../shell/marks/marks';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
 import {
@@ -89,6 +98,19 @@ export interface SessionStore {
   token: string | null;
   /** Set by HostSetup (C2); GameTable shows it to the DM. */
   inviteCode: string | null;
+  /**
+   * v6 — the last roll request addressed to this seat (`roll-requested`), stamped on arrival.
+   * The request itself lives in the rolls slice; this is the nudge that opens the prompt card.
+   */
+  rollRequested: (RollRequestNotice & { at: number }) | null;
+  /** v6, DM seats — the timers the last turned round ran out (`effects-ended`), for a toast. */
+  effectsEnded: {
+    sceneId: string;
+    ended: { tokenId: string; tokenName: string; name: string }[];
+    at: number;
+  } | null;
+  /** v6, players — where the DM last pulled every camera (Shift+Alt+click ping). */
+  cameraPull: { x: number; y: number; at: number } | null;
 
   connect: (token: string, url?: string) => void;
   disconnect: () => void;
@@ -100,6 +122,8 @@ export interface SessionStore {
   setInviteCode: (code: string | null) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   sendCommand: (module: string, action: string, payload: unknown) => void;
+  /** v6 — a ping, ruler, template or drawing for every seat; relayed, never stored. */
+  sendMark: (mark: Mark) => void;
 }
 
 // The seat survives a refresh: per-tab (sessionStorage dies with the tab, so two
@@ -157,6 +181,9 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   client: null,
   token: null,
   inviteCode: null,
+  rollRequested: null,
+  effectsEnded: null,
+  cameraPull: null,
 
   connect: (token, url) => {
     get().client?.close();
@@ -329,6 +356,34 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           set({ lastError: { code: msg.code, message: msg.message, at: Date.now() } });
           break;
 
+        case 'mark': {
+          // This seat drew its own marks as it made them (`placeMark`); the echo is skipped.
+          const { event } = msg;
+          const me = get().you;
+          if (event.from === me?.identityId) break;
+          receiveMark(event.mark, event.from);
+          // The DM's pull recentres every player camera on the ping (plan 4.3).
+          if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
+            const { x, y } = event.mark;
+            set({ cameraPull: { x, y, at: Date.now() } });
+            // Lazy: the camera reaches into the engine, which the store has no other use for.
+            void import('../renderer/camera')
+              .then(({ frameWorldPoint }) => frameWorldPoint(x, y))
+              .catch(() => {
+                /* no renderer mounted (tests, the lobby): the pull has nothing to move */
+              });
+          }
+          break;
+        }
+
+        case 'roll-requested':
+          set({ rollRequested: { ...msg.request, at: Date.now() } });
+          break;
+
+        case 'effects-ended':
+          set({ effectsEnded: { sceneId: msg.sceneId, ended: msg.ended, at: Date.now() } });
+          break;
+
         default:
           // ponytail: dm-* and pong land here. Nothing reads them from the store —
           // components that care add their cases.
@@ -343,6 +398,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     if (applyingRemote) return; // inbound-driven change: never round-trips back
     seq += 1;
     get().client?.send({ type: 'command', module, action, payload, seq });
+  },
+
+  sendMark: (mark) => {
+    if (applyingRemote) return;
+    get().client?.send({ type: 'mark', mark });
   },
 }));
 

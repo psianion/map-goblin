@@ -5,17 +5,35 @@
 // Role gating is data: the registry checks `commands[action]` before the handler runs, so
 // everything below is the *extra* validation — ownership, ids, field caps, snap.
 
-import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../contract'
+import { refusal as refusalText } from '../doors/types'
+import { fanAround } from './fan'
 import { sightPartyIds } from './links'
-import type { LevelFilterOf, SceneVision, TerrainOf, Token, TokenDef, TokensState, VisionOf } from './types'
+import type {
+  LevelFilterOf,
+  SceneVision,
+  TableOf,
+  TerrainOf,
+  Token,
+  TokenDef,
+  TokenEffect,
+  TokensState,
+  VisionOf,
+} from './types'
 import {
   DISPOSITIONS,
+  HP_VISIBILITY,
   ID_MAX,
+  KINDS,
   LIBRARY_MAX,
   NAME_MAX,
+  NAMEPLATES,
   Reject,
+  ROUNDS_MAX,
   SCENE_TOKENS_MAX,
   SIZES,
+  EFFECT_NAME_MAX,
+  EFFECTS_MAX,
   bad,
   bool,
   occupyRefusal,
@@ -23,29 +41,39 @@ import {
   num,
   obj,
   oneOf,
+  parseAc,
+  parseCondition,
   parseDefFields,
+  parseHp,
   parseLight,
   parseSheet,
   parseSight,
+  parseSpeed,
   snap,
   str,
 } from './validate'
+import { HP_MAX } from '../initiative/types'
 
+export * from './fan'
 export * from './links'
 export * from './types'
 // The client snaps optimistically during a drag (§2.4.6) against the same function the
 // server validates with — one rule, one implementation.
 export { snap } from './validate'
+// Table v2: A's server code reads old rows through this; the client shows defaults through it.
+export { normalizeTokenDef } from './validate'
 
 type Ctx = ModuleContext<TokensState>
 type Payload = Record<string, unknown>
 
 /**
- * Fields `update` accepts; players get `name` and `sheet` alone (D10 + the Beyond20 link).
+ * Fields `update` accepts; players get {@link PLAYER_FIELDS} alone (D10 + the Beyond20 link,
+ * and table v2's name, art and nameplate of a token they own).
  *
  * P4 adds `sight` and `light`, and adding them here is the *whole* of their access control:
- * the guard below refuses a non-DM any field but `name`/`sheet`, so a player cannot grant
- * their own token darkvision or a torch by editing the token they legitimately own.
+ * the guard below refuses a non-DM any field outside the player list, so a player cannot
+ * grant their own token darkvision, a torch or more hit points by editing the token they
+ * legitimately own.
  */
 const UPDATE_FIELDS = [
   'name',
@@ -57,7 +85,22 @@ const UPDATE_FIELDS = [
   'light',
   'sheet',
   'elevationPinned',
+  'imageAssetId',
+  'nameplate',
+  'kind',
+  'hp',
+  'ac',
+  'speed',
+  'showHp',
 ] as const
+const PLAYER_FIELDS: readonly string[] = ['name', 'sheet', 'imageAssetId', 'nameplate']
+
+/** Refusal prefixes for a player's move while the DM holds the table (table v2). */
+export const TABLE_PAUSED = 'table-paused'
+export const MOVEMENT_LOCKED = 'movement-locked'
+
+/** How many tokens one damage/heal/condition/gather command may name. */
+export const TARGETS_MAX = 50
 
 let minted = 0
 const mintId = (prefix: string): string =>
@@ -73,6 +116,7 @@ export function tokensModule(
   visionOf: VisionOf = () => null,
   levelFilterOf: LevelFilterOf = () => null,
   terrainOf: TerrainOf = () => null,
+  tableOf: TableOf = () => null,
 ): GameModule<TokensState> {
   return {
     name: 'tokens',
@@ -88,25 +132,43 @@ export function tokensModule(
       assign: ['dm'],
       'set-sight-link': ['dm'],
       'set-token-level': ['dm'],
+      // Table v2. A player may damage or heal only a token they own (their Character sheet's
+      // quick buttons); everything else here is the DM's.
+      damage: ANY_ROLE,
+      heal: ANY_ROLE,
+      'set-condition': ['dm'],
+      'set-effect': ['dm'],
+      gather: ['dm'],
     },
     initialState: { library: {}, byScene: {} },
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, visionOf, terrainOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, visionOf, terrainOf, tableOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
       }
     },
 
+    forgetScene(state, sceneId) {
+      if (!(sceneId in state.byScene)) return state
+      const byScene = { ...state.byScene }
+      delete byScene[sceneId]
+      return { ...state, byScene }
+    },
+
     // D4: a hidden token is dropped whole for non-DMs — its position is exactly what must
     // not leak, so filtering fields would not be enough. S3 stacks the fog rule on top:
     // a token in a room the party cannot currently see goes the same way. Pure and
     // idempotent: dropping tokens from a state with none left to drop is a no-op.
+    //
+    // Table v2 stacks `showHp` on what survives: hit points (and the armour class beside
+    // them) leave only for the seats the token's setting names.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
-      let dropped = false
+      const library = redactLibrary(state.library, viewer)
+      let dropped = library !== state.library
       const byScene: TokensState['byScene'] = {}
       for (const [sceneId, tokens] of Object.entries(state.byScene)) {
         // P5 — the viewer goes through the seam, so `canSee` is *this* seat's sight in
@@ -142,11 +204,44 @@ export function tokensModule(
           else trimmed.sharesSightWith = kept
           visible[id] = trimmed
         }
+        for (const [id, token] of Object.entries(visible)) {
+          const kept = withoutHp(token, viewer, token.ownerId)
+          if (kept === token) continue
+          dropped = true
+          visible[id] = kept
+        }
         byScene[sceneId] = visible
       }
-      return dropped ? { ...state, byScene } : state
+      return dropped ? { ...state, byScene, library } : state
     },
   }
+}
+
+/**
+ * `showHp` for one viewer: `all` keeps the pool, `owner` keeps it for the owning seat, `dm`
+ * (the default, also for rows that predate the field) never sends it. AC goes with it, as
+ * the other number behind the DM's screen. Same object back when nothing is cut.
+ */
+function withoutHp<T extends TokenDef>(token: T, viewer: Viewer, ownerId: string | null | undefined): T {
+  if (token.hp === undefined && token.ac === undefined) return token
+  const show = token.showHp ?? 'dm'
+  if (show === 'all' || (show === 'owner' && ownerId === viewer.identityId)) return token
+  const cut = { ...token }
+  delete cut.hp
+  delete cut.ac
+  return cut
+}
+
+/** The library under the same `showHp` rule, a PC def's owner standing in for a token's. */
+function redactLibrary(library: TokensState['library'], viewer: Viewer): TokensState['library'] {
+  let touched = false
+  const out: TokensState['library'] = {}
+  for (const [id, def] of Object.entries(library)) {
+    const kept = withoutHp(def, viewer, def.ownerIdentityId)
+    if (kept !== def) touched = true
+    out[id] = kept
+  }
+  return touched ? out : library
 }
 
 /**
@@ -186,7 +281,14 @@ function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<stri
   return room !== null && scene.visible.has(room)
 }
 
-function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
+function run(
+  action: string,
+  p: Payload,
+  ctx: Ctx,
+  visionOf: VisionOf,
+  terrainOf: TerrainOf,
+  tableOf: TableOf,
+): void {
   switch (action) {
     case 'library-upsert':
       return libraryUpsert(p, ctx)
@@ -197,7 +299,7 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf
     case 'spawn':
       return spawn(p, ctx)
     case 'move':
-      return move(p, ctx, visionOf, terrainOf)
+      return move(p, ctx, visionOf, terrainOf, tableOf)
     case 'update':
       return update(p, ctx, terrainOf)
     case 'hide':
@@ -212,6 +314,18 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf
       return setSightLink(p, ctx)
     case 'set-token-level':
       return setTokenLevel(p, ctx)
+    case 'damage':
+      return changeHp(p, ctx, -1)
+    case 'heal':
+      return changeHp(p, ctx, 1)
+    case 'set-condition':
+      return setCondition(p, ctx)
+    case 'set-effect':
+      return setEffect(p, ctx)
+    case 'gather':
+      return gather(p, ctx, terrainOf)
+    case 'tick-effects':
+      return tickEffects(p, ctx)
     default:
       bad(`tokens has no action '${action}'`)
   }
@@ -277,7 +391,13 @@ function propagateDefEdit(
     sight: def.sight,
     light: def.light,
     ...(def.packAsset ? { packAsset: def.packAsset } : {}),
+    // Table v2's def-owned fields. Conditions, effects and the current hit points are the
+    // instance's own (the fight happened to this goblin, not to the type), so they stay.
+    kind: def.kind,
+    nameplate: def.nameplate,
+    showHp: def.showHp,
   }
+  const optionalFields = ['ac', 'speed', 'ownerIdentityId', 'ownerName'] as const
   const out: TokensState['byScene'] = {}
   for (const [sceneId, tokens] of Object.entries(byScene)) {
     const nextTokens: Record<string, Token> = {}
@@ -286,10 +406,22 @@ function propagateDefEdit(
         nextTokens[tokenId] = token
         continue
       }
-      const next = { ...token, ...fields }
+      const next: Token = { ...token, ...fields }
       // An edit that drops pack art has to drop it from the placed copy too — spreading
       // `fields` alone would leave the instance's old value in place.
       if (!def.packAsset) delete next.packAsset
+      for (const key of optionalFields) {
+        if (def[key] === undefined) delete next[key]
+        else (next as unknown as Record<string, unknown>)[key] = def[key]
+      }
+      // A new pool size reaches the placed copy; the damage it has taken does not heal.
+      if (!def.hp) delete next.hp
+      else if (next.hp?.max !== def.hp.max) {
+        const taken = next.hp ? next.hp.max - next.hp.current : 0
+        next.hp = { max: def.hp.max, current: Math.max(0, def.hp.max - taken) }
+      }
+      // A PC def handed to a player hands its placed tokens over too.
+      if (def.ownerIdentityId) next.ownerId = def.ownerIdentityId
       nextTokens[tokenId] = next
     }
     out[sceneId] = nextTokens
@@ -344,7 +476,8 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): 
     ...(p.elevation === undefined ? {} : { elevationPinned: true }),
     z: p.z === undefined ? 0 : num(p.z, 'z'),
     hidden: p.hidden === undefined ? false : bool(p.hidden, 'hidden'),
-    ownerId: null,
+    // A PC def names its player; the token placed from it is theirs from the start.
+    ownerId: fields.ownerIdentityId ?? null,
   }
   const at = { x: token.x, y: token.y }
   const refusal = occupyRefusal(token, at, visionOf(sceneId), ctx.sender.role)
@@ -372,6 +505,10 @@ function spawn(p: Payload, ctx: Ctx): void {
     const t = obj(raw, 'tokens[]')
     const size = t.size === undefined ? 'medium' : oneOf(t.size, SIZES, 'tokens[].size')
     const packAssetRaw = t.packAsset === undefined ? undefined : obj(t.packAsset, 'tokens[].packAsset')
+    // Table v2: the room key's rolled HP (`MonsterEntry.hp`) is the token's pool. A bad
+    // number is dropped rather than refused, like the rest of this trusted path's clamps.
+    const hp =
+      typeof t.hp === 'number' && Number.isInteger(t.hp) && t.hp >= 1 && t.hp <= HP_MAX ? t.hp : undefined
     const token: Token = {
       id: str(t.id, 'tokens[].id', ID_MAX),
       name: str(t.name, 'tokens[].name', NAME_MAX),
@@ -380,6 +517,12 @@ function spawn(p: Payload, ctx: Ctx): void {
       disposition: 'hostile',
       sight: null,
       light: null,
+      kind: 'monster',
+      nameplate: 'hover',
+      showHp: 'dm',
+      conditions: [],
+      effects: [],
+      ...(hp !== undefined ? { hp: { current: hp, max: hp } } : {}),
       ...(packAssetRaw
         ? {
             packAsset: {
@@ -402,10 +545,16 @@ function spawn(p: Payload, ctx: Ctx): void {
   ctx.setState({ ...state, byScene: { ...state.byScene, [sceneId]: existing } })
 }
 
-function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
+function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf, tableOf: TableOf): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm' && token.ownerId !== ctx.sender.identityId) {
     denied('you may only move a token you own')
+  }
+  // Table v2: the DM holding the table stops every player's piece; the DM's own never stop.
+  if (ctx.sender.role !== 'dm') {
+    const table = tableOf({ campaignId: ctx.campaignId, sessionId: ctx.sessionId })
+    if (table?.paused) denied(refusalText(TABLE_PAUSED, null, 'the DM has paused the table'))
+    if (table?.movementLocked) denied(refusalText(MOVEMENT_LOCKED, null, 'the DM has locked token movement'))
   }
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
   const refusal = occupyRefusal(token, pos, visionOf(sceneId), ctx.sender.role)
@@ -423,8 +572,8 @@ function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm') {
     if (token.ownerId !== ctx.sender.identityId) denied('you may only update a token you own')
-    if (UPDATE_FIELDS.some((f) => f !== 'name' && f !== 'sheet' && p[f] !== undefined)) {
-      denied('players may only rename or link their own token')
+    if (UPDATE_FIELDS.some((f) => !PLAYER_FIELDS.includes(f) && p[f] !== undefined)) {
+      denied('players may only change the name, art, nameplate or sheet link of their own token')
     }
   }
   if (UPDATE_FIELDS.every((f) => p[f] === undefined)) {
@@ -464,7 +613,147 @@ function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
     if (p.sheet === null) delete next.sheet
     else next.sheet = parseSheet(p.sheet) ?? bad('sheet needs at least a name')
   }
+  // Table v2. `null` clears the optional numbers; the enums always hold a value.
+  if (p.imageAssetId !== undefined) {
+    next.imageAssetId = p.imageAssetId === null ? null : str(p.imageAssetId, 'imageAssetId', ID_MAX)
+  }
+  if (p.nameplate !== undefined) next.nameplate = oneOf(p.nameplate, NAMEPLATES, 'nameplate')
+  if (p.kind !== undefined) next.kind = oneOf(p.kind, KINDS, 'kind')
+  if (p.showHp !== undefined) next.showHp = oneOf(p.showHp, HP_VISIBILITY, 'showHp')
+  if (p.hp !== undefined) {
+    if (p.hp === null) delete next.hp
+    else next.hp = parseHp(p.hp)
+  }
+  if (p.ac !== undefined) {
+    if (p.ac === null) delete next.ac
+    else next.ac = parseAc(p.ac)
+  }
+  if (p.speed !== undefined) {
+    if (p.speed === null) delete next.speed
+    else next.speed = parseSpeed(p.speed)
+  }
   put(ctx, sceneId, grounded(next, sceneId, terrainOf))
+}
+
+// ─── table v2: hit points, conditions, effects, gather ──────────────────────────
+
+/** Every token a `targets` list names, each looked up the way `find` looks one up. */
+function targetsOf(p: Payload, ctx: Ctx): { sceneId: string; tokens: Token[] } {
+  const sceneId = sceneOf(p, ctx)
+  const raw = p.targets ?? (p.target === undefined ? undefined : [p.target])
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > TARGETS_MAX) {
+    bad(`targets must be an array of 1..${TARGETS_MAX} token ids`)
+  }
+  const ids = [...new Set(raw.map((id, i) => str(id, `targets[${i}]`, ID_MAX)))]
+  const tokens = ids.map((id) => find({ ...p, sceneId, id }, ctx).token)
+  return { sceneId, tokens }
+}
+
+/** One write for many tokens: `setState` persists and broadcasts once. */
+function putAll(ctx: Ctx, sceneId: string, tokens: readonly Token[]): void {
+  const { state } = ctx
+  const scene = { ...state.byScene[sceneId] }
+  for (const token of tokens) scene[token.id] = token
+  ctx.setState({ ...state, byScene: { ...state.byScene, [sceneId]: scene } })
+}
+
+/**
+ * `damage {targets, amount, half?}` / `heal {targets, amount}`. Tokens with no pool are
+ * skipped (a statue in the blast takes nothing); a command that reaches no pool at all is
+ * refused, so a DM who forgot to set HP hears about it. Half on save rounds down, as the
+ * rules do. A player may only touch their own token.
+ */
+function changeHp(p: Payload, ctx: Ctx, sign: 1 | -1): void {
+  const { sceneId, tokens } = targetsOf(p, ctx)
+  if (ctx.sender.role !== 'dm' && tokens.some((t) => t.ownerId !== ctx.sender.identityId)) {
+    denied('you may only change the hit points of a token you own')
+  }
+  const amount = num(p.amount, 'amount')
+  if (!Number.isInteger(amount) || amount < 1 || amount > HP_MAX) bad(`amount must be a whole number in 1..${HP_MAX}`)
+  const half = sign < 0 && p.half !== undefined && bool(p.half, 'half')
+  const delta = sign * (half ? Math.floor(amount / 2) : amount)
+  const changed = tokens.flatMap((t) => {
+    if (!t.hp) return []
+    const current = Math.max(0, Math.min(t.hp.max, t.hp.current + delta))
+    return [{ ...t, hp: { ...t.hp, current } }]
+  })
+  if (changed.length === 0) bad('none of those tokens has hit points set')
+  putAll(ctx, sceneId, changed)
+}
+
+/** `set-condition {target | targets, name, on}` — idempotent both ways. */
+function setCondition(p: Payload, ctx: Ctx): void {
+  const { sceneId, tokens } = targetsOf(p, ctx)
+  const name = parseCondition(p.name)
+  const on = bool(p.on, 'on')
+  const changed = tokens.flatMap((t) => {
+    const had = t.conditions ?? []
+    if (had.includes(name) === on) return []
+    return [{ ...t, conditions: on ? [...had, name] : had.filter((c) => c !== name) }]
+  })
+  if (changed.length > 0) putAll(ctx, sceneId, changed)
+}
+
+/**
+ * `set-effect {target | targets, name, rounds}` — sets (or replaces) a named timer; `rounds`
+ * 0 or null removes it. Ticked down by `tick-effects` each time the encounter's round turns.
+ */
+function setEffect(p: Payload, ctx: Ctx): void {
+  const { sceneId, tokens } = targetsOf(p, ctx)
+  const name = str(p.name, 'name', EFFECT_NAME_MAX)
+  const rounds = p.rounds === null || p.rounds === 0 ? 0 : num(p.rounds, 'rounds')
+  if (!Number.isInteger(rounds) || rounds < 0 || rounds > ROUNDS_MAX) bad(`rounds must be a whole number in 0..${ROUNDS_MAX}`)
+  const changed = tokens.map((t) => {
+    const rest = (t.effects ?? []).filter((e) => e.name !== name)
+    if (rest.length + (rounds > 0 ? 1 : 0) > EFFECTS_MAX) bad(`a token holds at most ${EFFECTS_MAX} effects`)
+    return { ...t, effects: rounds > 0 ? [...rest, { name, roundsLeft: rounds }] : rest }
+  })
+  putAll(ctx, sceneId, changed)
+}
+
+/** `gather {targets, x, y}` — the party, fanned out one cell apart around the point. */
+function gather(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
+  const { sceneId, tokens } = targetsOf(p, ctx)
+  const at = { x: num(p.x, 'x'), y: num(p.y, 'y') }
+  const spots = fanAround(at, tokens.length)
+  putAll(
+    ctx,
+    sceneId,
+    tokens.map((t, i) =>
+      grounded({ ...t, x: snap(spots[i].x, t.size), y: snap(spots[i].y, t.size) }, sceneId, terrainOf),
+    ),
+  )
+}
+
+/** What one round does to a token's timers: one off each, and the ones at zero gone. */
+export function tickEffectList(effects: readonly TokenEffect[]): { kept: TokenEffect[]; ended: string[] } {
+  const kept: TokenEffect[] = []
+  const ended: string[] = []
+  for (const e of effects) {
+    if (e.roundsLeft <= 1) ended.push(e.name)
+    else kept.push({ ...e, roundsLeft: e.roundsLeft - 1 })
+  }
+  return { kept, ended }
+}
+
+/**
+ * Internal only, like `spawn`: the server dispatches it when `initiative.next` turns the
+ * round. Every timer on the scene ticks once; the ones that run out are named to the DM in
+ * an `effects-ended` frame (hidden tokens included, so it never reaches a player).
+ */
+function tickEffects(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const changed: Token[] = []
+  const ended: { tokenId: string; tokenName: string; name: string }[] = []
+  for (const token of Object.values(ctx.state.byScene[sceneId] ?? {})) {
+    if (!token.effects?.length) continue
+    const tick = tickEffectList(token.effects)
+    changed.push({ ...token, effects: tick.kept })
+    for (const name of tick.ended) ended.push({ tokenId: token.id, tokenName: token.name, name })
+  }
+  if (changed.length === 0) return
+  putAll(ctx, sceneId, changed)
+  if (ended.length > 0) ctx.broadcast({ type: 'effects-ended', sceneId, ended })
 }
 
 /**

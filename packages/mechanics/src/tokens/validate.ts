@@ -4,15 +4,20 @@
 
 import type { CommandError, Viewer } from '../contract'
 import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '../doors/types'
+import { CONDITIONS, HP_MAX, type Condition } from '../initiative/types'
 import {
   MOVE_BLOCKED,
   OUTSIDE_MAP,
   ROOM_UNEXPLORED,
   SIZE_CELLS,
   type Disposition,
+  type HpVisibility,
+  type Nameplate,
   type SceneVision,
   type Token,
   type TokenDef,
+  type TokenEffect,
+  type TokenKind,
   type TokenSize,
 } from './types'
 
@@ -235,8 +240,90 @@ function parsePackAsset(v: unknown): TokenDef['packAsset'] {
   return { packId: str(o.packId, 'packAsset.packId', ID_MAX), assetId: str(o.assetId, 'packAsset.assetId', ID_MAX) }
 }
 
+export const KINDS: readonly TokenKind[] = ['pc', 'npc', 'monster']
+export const NAMEPLATES: readonly Nameplate[] = ['hover', 'always', 'never']
+export const HP_VISIBILITY: readonly HpVisibility[] = ['dm', 'owner', 'all']
+export const AC_MAX = 99
+export const SPEED_MAX = 999
+export const EFFECT_NAME_MAX = 40
+export const EFFECTS_MAX = 20
+export const ROUNDS_MAX = 999
+
+function whole(v: unknown, field: string, min: number, max: number): number {
+  const n = num(v, field)
+  if (!Number.isInteger(n) || n < min || n > max) bad(`${field} must be a whole number in ${min}..${max}`)
+  return n
+}
+
+/** `{max, current?}`; `current` defaults to `max` and is clamped into `0..max`. */
+export function parseHp(v: unknown): { current: number; max: number } {
+  const o = obj(v, 'hp')
+  const max = whole(o.max, 'hp.max', 1, HP_MAX)
+  const current = o.current === undefined ? max : whole(o.current, 'hp.current', -HP_MAX, HP_MAX)
+  return { current: Math.max(0, Math.min(max, current)), max }
+}
+
+export function parseCondition(v: unknown, field = 'name'): Condition {
+  return oneOf(v, CONDITIONS, field)
+}
+
+export function parseConditions(v: unknown): string[] {
+  if (!Array.isArray(v)) bad('conditions must be an array')
+  return [...new Set(v.map((c, i) => parseCondition(c, `conditions[${i}]`)))]
+}
+
+export function parseEffects(v: unknown): TokenEffect[] {
+  if (!Array.isArray(v) || v.length > EFFECTS_MAX) bad(`effects must be an array of at most ${EFFECTS_MAX}`)
+  return v.map((raw, i) => {
+    const o = obj(raw, `effects[${i}]`)
+    return {
+      name: str(o.name, `effects[${i}].name`, EFFECT_NAME_MAX),
+      roundsLeft: whole(o.roundsLeft, `effects[${i}].roundsLeft`, 1, ROUNDS_MAX),
+    }
+  })
+}
+
+export function parseAc(v: unknown): number {
+  return whole(v, 'ac', 0, AC_MAX)
+}
+
+export function parseSpeed(v: unknown): number {
+  return whole(v, 'speed', 0, SPEED_MAX)
+}
+
+/**
+ * Table v2 — a def or token with every new field filled: `kind` npc, `nameplate` hover,
+ * `showHp` dm, no conditions, no effects. Rows written before the fields existed read through
+ * this (the server's tokens validator and session spawn call it on old `TokenDef` rows).
+ * Pure; returns the same object when nothing was missing.
+ */
+export function normalizeTokenDef<T extends TokenDef>(def: T): T & Required<Pick<TokenDef, 'kind' | 'nameplate' | 'showHp' | 'conditions' | 'effects'>> {
+  if (def.kind && def.nameplate && def.showHp && def.conditions && def.effects) {
+    return def as T & Required<Pick<TokenDef, 'kind' | 'nameplate' | 'showHp' | 'conditions' | 'effects'>>
+  }
+  return {
+    ...def,
+    kind: def.kind ?? 'npc',
+    nameplate: def.nameplate ?? 'hover',
+    showHp: def.showHp ?? 'dm',
+    conditions: def.conditions ?? [],
+    effects: def.effects ?? [],
+  }
+}
+
+/** Optional numeric/owner fields: present in the payload wins (`null` clears), else the base. */
+function optional<T>(p: Record<string, unknown>, key: string, base: T | undefined, parse: (v: unknown) => T): T | undefined {
+  if (p[key] === undefined) return base
+  return p[key] === null ? undefined : parse(p[key])
+}
+
 export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): DefFields {
   const packAsset = p.packAsset !== undefined ? parsePackAsset(p.packAsset) : base?.packAsset
+  const hp = optional(p, 'hp', base?.hp, parseHp)
+  const ac = optional(p, 'ac', base?.ac, parseAc)
+  const speed = optional(p, 'speed', base?.speed, parseSpeed)
+  const ownerIdentityId = optional(p, 'ownerIdentityId', base?.ownerIdentityId, (v) => str(v, 'ownerIdentityId', ID_MAX))
+  const ownerName = optional(p, 'ownerName', base?.ownerName, (v) => str(v, 'ownerName', NAME_MAX))
   return {
     name: p.name !== undefined ? str(p.name, 'name', NAME_MAX) : (base?.name ?? bad('name is required')),
     imageAssetId:
@@ -251,5 +338,15 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
     sight: p.sight !== undefined ? parseSight(p.sight) : (base?.sight ?? null),
     light: p.light !== undefined ? parseLight(p.light) : (base?.light ?? null),
     ...(packAsset ? { packAsset } : {}),
+    kind: p.kind !== undefined ? oneOf(p.kind, KINDS, 'kind') : (base?.kind ?? 'npc'),
+    nameplate: p.nameplate !== undefined ? oneOf(p.nameplate, NAMEPLATES, 'nameplate') : (base?.nameplate ?? 'hover'),
+    showHp: p.showHp !== undefined ? oneOf(p.showHp, HP_VISIBILITY, 'showHp') : (base?.showHp ?? 'dm'),
+    conditions: p.conditions !== undefined ? parseConditions(p.conditions) : (base?.conditions ?? []),
+    effects: p.effects !== undefined ? parseEffects(p.effects) : (base?.effects ?? []),
+    ...(hp ? { hp } : {}),
+    ...(ac !== undefined ? { ac } : {}),
+    ...(speed !== undefined ? { speed } : {}),
+    ...(ownerIdentityId ? { ownerIdentityId } : {}),
+    ...(ownerName ? { ownerName } : {}),
   }
 }
