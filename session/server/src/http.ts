@@ -1100,6 +1100,22 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       players: [],
       broadcast: () => {},
     })
+    // On a map with several levels the table opens on the starting room's: every seat without
+    // a pick of its own looks there, and the party stands there.
+    const map = deps.vision.sceneMapOf(start.sceneId)?.data
+    const levels = map?.levels ?? []
+    const layer = map?.layers.find((l) => l.type === 'dungeon' && (l.rooms ?? []).some((r) => r.id === start!.roomId))
+    const levelId = levels.length > 1 && layer && levels.some((l) => l.id === layer.levelId) ? layer.levelId : undefined
+    if (levelId) {
+      deps.modules.dispatch('triggers', 'set-start-level', { sceneId: start.sceneId, levelId }, {
+        campaignId,
+        sessionId: session.id,
+        activeSceneId: start.sceneId,
+        sender: { role: 'dm', identityId: dm.id },
+        players: [],
+        broadcast: () => {},
+      })
+    }
     // Decision 16: the party stands in the starting room before anyone is in the door.
     spawnParty(deps.modules, deps.vision, {
       campaignId,
@@ -1107,6 +1123,7 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       sceneId: start.sceneId,
       roomId: start.roomId,
       dmId: dm.id,
+      levelId,
     })
   }
 

@@ -478,6 +478,8 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): 
     ...(p.elevation === undefined ? {} : { elevationPinned: true }),
     z: p.z === undefined ? 0 : num(p.z, 'z'),
     hidden: p.hidden === undefined ? false : bool(p.hidden, 'hidden'),
+    // Absent ⇒ the first level, as `set-level` with null.
+    ...(p.levelId === undefined ? {} : { levelId: str(p.levelId, 'levelId', ID_MAX) }),
     // A PC def names its player; the token placed from it is theirs from the start.
     ownerId: fields.ownerIdentityId ?? null,
   }

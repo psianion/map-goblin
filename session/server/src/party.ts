@@ -15,12 +15,13 @@ const SPARE_SPOTS = 24
  * Places every PC def not already on the scene, fanned out from the starting room's anchor
  * the way an encounter's monsters fan out. Placed as the DM through `tokens.place`, so each
  * token copies its def (art, owner, HP) and lands on the ground under it. A spot the tokens
- * module refuses (taken, a wall) moves on to the next. Returns how many were placed.
+ * module refuses (taken, a wall) moves on to the next. `levelId` is the starting room's level
+ * on a map with several. Returns how many were placed.
  */
 export function spawnParty(
   modules: ModuleRegistry,
   vision: Pick<Vision, 'sceneMapOf'>,
-  at: { campaignId: string; sessionId: string; sceneId: string; roomId: string; dmId: string },
+  at: { campaignId: string; sessionId: string; sceneId: string; roomId: string; dmId: string; levelId?: string },
 ): number {
   const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
   if (!state) return 0
@@ -47,7 +48,12 @@ export function spawnParty(
   for (const def of party) {
     while (next < spots.length) {
       const spot = spots[next++]!
-      const refused = modules.dispatch('tokens', 'place', { sceneId: at.sceneId, defId: def.id, x: spot.x, y: spot.y }, ctx)
+      const refused = modules.dispatch(
+        'tokens',
+        'place',
+        { sceneId: at.sceneId, defId: def.id, x: spot.x, y: spot.y, ...(at.levelId ? { levelId: at.levelId } : {}) },
+        ctx,
+      )
       if (!refused) {
         placed++
         break

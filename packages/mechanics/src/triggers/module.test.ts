@@ -1534,6 +1534,29 @@ describe('levels: the viewed level per seat', () => {
     state = run(mod, state, DM, 'set-seat-level', { identity: 'p-1', levelId: null }).next
     expect(sceneTriggersOf(state, SCENE).seatLevel).toEqual({})
   })
+
+  it('set-start-level records the level, DM only, and ships it to players', () => {
+    const mod = triggersModule(makeDeps())
+    const state = run(mod, empty, DM, 'set-start-level', { levelId: 'L2' }).next
+    expect(sceneTriggersOf(state, SCENE).startLevelId).toBe('L2')
+    expect(mod.redact!(state, P1).byScene[SCENE].startLevelId).toBe('L2')
+    expect(run(mod, empty, P1, 'set-start-level', { levelId: 'L2' }).error?.code).toBe('unauthorized')
+    expect(run(mod, empty, DM, 'set-start-level', {}).error?.code).toBe('invalid-command')
+  })
+
+  it('every seat without a pick of its own looks at the start level', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-start-level', { levelId: 'L2' }).next
+    const seen = (viewer: typeof DM) => viewedLevel(sceneTriggersOf(state, SCENE), tokens, viewer, 'L1')
+    expect(seen(DM)).toBe('L2')
+    expect(seen(P2)).toBe('L2') // owns a token with no level
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), [], P1, 'L1')).toBe('L2') // owns nothing
+    expect(seen(P1)).toBe('L2') // the token's own level
+    state = run(mod, state, DM, 'set-dm-level', { levelId: 'L3' }).next
+    expect(seen(DM)).toBe('L3')
+    state = run(mod, state, DM, 'set-seat-level', { identity: 'p-2', levelId: 'L1' }).next
+    expect(seen(P2)).toBe('L1')
+  })
 })
 
 describe('redact: light edits for unexplored lights stay home', () => {

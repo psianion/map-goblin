@@ -136,6 +136,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-room': ['dm'],
       'set-seat-level': ['dm'],
       'set-dm-level': ['dm'],
+      'set-start-level': ['dm'],
       'roll-prompt': ANY_ROLE,
       'dismiss-prompt': ['dm'],
       'share-note': ['dm'],
@@ -172,7 +173,8 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
         // A light in a room the party has not explored is not on the player's map, so its live
         // edit does not ship either. Room moods are not secrets: `roomEdits` ship whole. The
-        // DM's own level pick stays the DM's; seat pins ship (each seat reads its own).
+        // DM's own level pick stays the DM's; seat pins and the start level ship (each seat
+        // reads its own).
         const kept = deps.keptLightsOf?.(sceneId) ?? null
         byScene[sceneId] = {
           fired: {},
@@ -182,6 +184,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           lightEdits: kept ? keepKeys(scene.lightEdits, kept) : scene.lightEdits,
           ...(scene.roomEdits ? { roomEdits: scene.roomEdits } : {}),
           ...(scene.seatLevel ? { seatLevel: scene.seatLevel } : {}),
+          ...(scene.startLevelId ? { startLevelId: scene.startLevelId } : {}),
           env: scene.env,
           prompts: scene.prompts.filter((p) => p.targetIdentityId === viewer.identityId),
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
@@ -214,6 +217,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return setSeatLevel(p, ctx)
     case 'set-dm-level':
       return setDmLevel(p, ctx)
+    case 'set-start-level':
+      return setStartLevel(p, ctx)
     case 'roll-prompt':
       return rollPrompt(p, ctx, deps)
     case 'dismiss-prompt':
@@ -576,6 +581,13 @@ function setDmLevel(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneTriggersOf(ctx.state, sceneId)
   setScene(ctx, sceneId, { ...scene, dmLevelId: str(p.levelId, 'levelId', ID_MAX) })
+}
+
+/** DM-only: the level of the room the session opened in, where seats look until they pick. */
+function setStartLevel(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  setScene(ctx, sceneId, { ...scene, startLevelId: str(p.levelId, 'levelId', ID_MAX) })
 }
 
 /** Drops a light back to however the map authored it — the DM's whole edit, not one field. */

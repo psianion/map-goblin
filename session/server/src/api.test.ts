@@ -522,6 +522,60 @@ describe('the starting room the DM picks while setting up', () => {
       socket.terminate()
     })
   })
+
+  /** Opens a table on `roomId` of `doc`, with one PC in the library to stand there. */
+  async function openOn(server: RunningServer, base: string, adminPass: string, doc: unknown, roomId: string) {
+    const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+    const campaignId = campaign.body.campaignId as string
+    const dmToken = campaign.body.token as string
+    const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(doc) })
+    const mapId = uploaded.body.mapId as string
+    server.stores.moduleState.put(campaignId, 'tokens', {
+      library: {
+        bram: { id: 'bram', name: 'Bram', imageAssetId: null, size: 'medium', disposition: 'friendly', sight: null, light: null, kind: 'pc' },
+      },
+      byScene: {},
+    })
+    const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, startingRoom: { sceneId: mapId, roomId } } })
+    expect(started.status).toBe(201)
+    const triggers = server.stores.moduleState.get(campaignId, 'triggers') as
+      | { byScene: Record<string, { startLevelId?: string }> }
+      | undefined
+    const tokens = server.stores.moduleState.get(campaignId, 'tokens') as { byScene: Record<string, Record<string, { levelId?: string }>> }
+    return { startLevelId: triggers?.byScene[mapId]?.startLevelId, placed: Object.values(tokens.byScene[mapId] ?? {}) }
+  }
+
+  it("opens a two-level map on the starting room's level, the party standing there", async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const TWO_LEVELS = {
+        ...ROOMED,
+        levels: [
+          { id: 'lv-ground', name: 'Ground' },
+          { id: 'lv-cellar', name: 'Cellar' },
+        ],
+        layers: [
+          { ...ROOMED.layers[0], levelId: 'lv-ground' },
+          {
+            ...MAP.layers[0],
+            id: 'layer-2',
+            levelId: 'lv-cellar',
+            rooms: [{ id: 'r-crypt', name: 'Crypt', boundary: [], centroid: [20, 20], area: 50, isPathway: false }],
+          },
+        ],
+      }
+      const opened = await openOn(server, base, adminPass, TWO_LEVELS, 'r-crypt')
+      expect(opened.startLevelId).toBe('lv-cellar')
+      expect(opened.placed.map((t) => t.levelId)).toEqual(['lv-cellar'])
+    })
+  })
+
+  it('sets no start level on a single-level map', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const opened = await openOn(server, base, adminPass, ROOMED, 'r-hall')
+      expect(opened.startLevelId).toBeUndefined()
+      expect(opened.placed.map((t) => t.levelId)).toEqual([undefined])
+    })
+  })
 })
 
 /** Just enough of each format for the magic-byte sniff to have something to read. */

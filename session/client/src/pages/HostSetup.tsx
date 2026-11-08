@@ -22,7 +22,7 @@ import { forgetDmToken, freshDmToken, saveDmToken, storedCampaigns, type StoredC
 import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 import { inviteLink } from '../shell/top/inviteCode';
-import { startingRoomsOf, type StartingRoomOption } from './startingRoom';
+import { startingRoomsOf, type StartingRoomOption, type StartingRoomPicker } from './startingRoom';
 
 type Step = 'connect' | 'campaign' | 'map' | 'invite';
 
@@ -131,6 +131,7 @@ export default function HostSetup() {
   const [scenes, setScenes] = useState<SceneMeta[]>([]);
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [rooms, setRooms] = useState<StartingRoomOption[]>([]);
+  const [levels, setLevels] = useState<StartingRoomPicker['levels']>([]);
   const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [resumed, setResumed] = useState(false);
@@ -159,6 +160,7 @@ export default function HostSetup() {
     setCampaign(c);
     setSceneId(null);
     setRooms([]);
+    setLevels([]);
     setStartRoomId('');
     const active = resumeLive ? await fetchActiveSession(c.campaignId, c.token).catch(() => null) : null;
     if (active) {
@@ -227,6 +229,7 @@ export default function HostSetup() {
       setSceneId(id);
       const picker = startingRoomsOf(await fetchMapDoc(id, campaign.token));
       setRooms(picker.rooms);
+      setLevels(picker.levels);
       setStartRoomId(picker.defaultRoomId);
     });
 
@@ -238,6 +241,7 @@ export default function HostSetup() {
       setSceneId(uploaded.sceneId);
       const picker = startingRoomsOf(JSON.parse(text));
       setRooms(picker.rooms);
+      setLevels(picker.levels);
       setStartRoomId(picker.defaultRoomId);
     });
 
@@ -250,6 +254,18 @@ export default function HostSetup() {
       setResumed(false);
       setStep('invite');
     });
+
+  const roomTile = (r: StartingRoomOption) => (
+    <Tile
+      key={r.id}
+      name={r.label}
+      active={startRoomId === r.id}
+      data-testid="start-room"
+      data-room-id={r.id}
+      data-level-id={r.levelId}
+      onClick={() => setStartRoomId(r.id)}
+    />
+  );
 
   const enterTable = () => {
     if (!campaign || !inviteCode) return;
@@ -402,10 +418,15 @@ export default function HostSetup() {
                   <Caption>Starting room</Caption>
                   <div className="flex flex-wrap gap-2">
                     <Tile name="Start dark" active={startRoomId === ''} onClick={() => setStartRoomId('')} data-testid="start-room-none" />
-                    {rooms.map((r) => (
-                      <Tile key={r.id} name={r.label} active={startRoomId === r.id} data-testid="start-room" data-room-id={r.id} onClick={() => setStartRoomId(r.id)} />
-                    ))}
+                    {levels.length <= 1 && rooms.map(roomTile)}
                   </div>
+                  {levels.length > 1 &&
+                    levels.map((level) => (
+                      <div key={level.id} className="flex flex-col gap-2" data-testid="start-room-level" data-level-id={level.id}>
+                        <Caption>{level.name}</Caption>
+                        <div className="flex flex-wrap gap-2">{rooms.filter((r) => r.levelId === level.id).map(roomTile)}</div>
+                      </div>
+                    ))}
                   <PrimaryButton className="self-start" disabled={busy} data-testid="host-open" onClick={openTable}>
                     Open the table
                   </PrimaryButton>

@@ -16,9 +16,9 @@ describe('the starting-room picker', () => {
       ]),
     );
     expect(picker.rooms).toEqual([
-      { id: 'r-hall', label: '1 · Hall' },
-      { id: 'r-vault', label: '2 · Vault' },
-      { id: 'r-loose', label: 'Loose end' },
+      { id: 'r-hall', label: '1 · Hall', levelId: '', levelName: '' },
+      { id: 'r-vault', label: '2 · Vault', levelId: '', levelName: '' },
+      { id: 'r-loose', label: 'Loose end', levelId: '', levelName: '' },
     ]);
     expect(picker.defaultRoomId).toBe('');
   });
@@ -37,6 +37,42 @@ describe('the starting-room picker', () => {
     const picker = startingRoomsOf(
       doc([{ id: 'room-abc', name: 'Room 1', boundary: [] }], {}, { roomNameOverrides: { 'room-abc': 'Great Hall' } }),
     );
-    expect(picker.rooms).toEqual([{ id: 'room-abc', label: 'Great Hall' }]);
+    expect(picker.rooms).toEqual([{ id: 'room-abc', label: 'Great Hall', levelId: '', levelName: '' }]);
+  });
+
+  const threeRooms = (prefix: string) => [1, 2, 3].map((n) => ({ id: `${prefix}-${n}`, name: `Room ${n}`, number: n, anchor: [n * 5, 5] }));
+
+  it('tags each room of a two-level map with its level', () => {
+    const picker = startingRoomsOf({
+      mapSettings: { name: 'Keep' },
+      levels: [
+        { id: 'lv-ground', name: 'Ground' },
+        { id: 'lv-cellar', name: 'Cellar' },
+      ],
+      layers: [
+        { id: 'l1', type: 'dungeon', levelId: 'lv-ground', rooms: threeRooms('g') },
+        { id: 'l2', type: 'dungeon', levelId: 'lv-cellar', rooms: threeRooms('c') },
+      ],
+    });
+    expect(picker.rooms).toHaveLength(6);
+    expect(picker.levels).toEqual([
+      { id: 'lv-ground', name: 'Ground' },
+      { id: 'lv-cellar', name: 'Cellar' },
+    ]);
+    const byId = new Map(picker.rooms.map((r) => [r.id, r]));
+    for (const n of [1, 2, 3]) {
+      expect(byId.get(`g-${n}`)).toEqual({ id: `g-${n}`, label: `${n} · Room ${n}`, levelId: 'lv-ground', levelName: 'Ground' });
+      expect(byId.get(`c-${n}`)).toEqual({ id: `c-${n}`, label: `${n} · Room ${n}`, levelId: 'lv-cellar', levelName: 'Cellar' });
+    }
+  });
+
+  it('lists a one-level map as before, every room on that level', () => {
+    const picker = startingRoomsOf({
+      mapSettings: { name: 'Crypt' },
+      levels: [{ id: 'lv-1', name: 'Level 1' }],
+      layers: [{ id: 'l1', type: 'dungeon', levelId: 'lv-gone', rooms: threeRooms('r') }],
+    });
+    expect(picker.rooms.map((r) => r.label)).toEqual(['1 · Room 1', '2 · Room 2', '3 · Room 3']);
+    expect(picker.rooms.every((r) => r.levelId === 'lv-1' && r.levelName === 'Level 1')).toBe(true);
   });
 });
