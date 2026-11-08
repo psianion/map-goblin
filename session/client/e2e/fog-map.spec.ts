@@ -29,7 +29,8 @@ test.describe('@map fog and map', () => {
     const { page } = hostSession;
     await page.keyboard.press('2');
     await page.getByTestId('map-family-doors').click();
-    const door = page.getByTestId('map-doors').locator('[data-door-id]').first();
+    // The first lockable door: an archway (Goblin Warren's first two) has no door to open or lock.
+    const door = page.getByTestId('map-doors').locator('[data-door-id]').filter({ has: page.getByTestId('door-lock') }).first();
     await door.getByTestId('door-toggle').click();
     await expect(door).toHaveAttribute('data-open', 'true');
     await door.getByTestId('door-lock').click();
