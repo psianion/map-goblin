@@ -1,6 +1,5 @@
 import { Mountain, SquareDashed } from 'lucide-react';
-import { Caption, IconKeyButton } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
+import { Caption, IconKeyButton, Kbd } from '@dnd/ui';
 import { Section, type GalleryTheme } from './parts';
 
 function Role({ name, children }: { name: string; children: React.ReactNode }) {

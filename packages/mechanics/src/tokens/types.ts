@@ -20,6 +20,19 @@ export const SIZE_CELLS: Record<TokenSize, number> = {
 
 export type Disposition = 'friendly' | 'neutral' | 'hostile'
 
+/** Table v2: what a token stands for. A `pc` belongs to a seat; npc and monster to the DM. */
+export type TokenKind = 'pc' | 'npc' | 'monster'
+/** When a token's name shows on the map. */
+export type Nameplate = 'hover' | 'always' | 'never'
+/** Who is sent a token's hit points: the DM alone, the DM and the owner, or everyone. */
+export type HpVisibility = 'dm' | 'owner' | 'all'
+
+/** A timed effect (Bless, Hold Person): ticks down once per round, dropped at zero. */
+export interface TokenEffect {
+  name: string
+  roundsLeft: number
+}
+
 /** Library entry (campaign-scoped). */
 export interface TokenDef {
   id: string
@@ -43,6 +56,32 @@ export interface TokenDef {
    * every row written before it existed reads unchanged.
    */
   packAsset?: { packId: string; assetId: string }
+  /*
+   * Table v2 (plan 4.3). Every field below is optional on the type so a row written before
+   * them reads unchanged; `normalizeTokenDef` fills the defaults, and every write through
+   * `parseDefFields` stores them.
+   */
+  /** Default `npc`. */
+  kind?: TokenKind
+  /** Absent = no hit points tracked. `current` is clamped to `0..max`. */
+  hp?: { current: number; max: number }
+  ac?: number
+  /** Feet per round. */
+  speed?: number
+  /** Passive Perception, for the Character sheet (board 5). */
+  passive?: number
+  /** Default `hover`. */
+  nameplate?: Nameplate
+  /** Default `dm`. */
+  showHp?: HpVisibility
+  /** Members of the initiative module's CONDITIONS, each at most once. Default none. */
+  conditions?: string[]
+  /** Default none. */
+  effects?: TokenEffect[]
+  /** A PC def's player: placing the def hands the token to this seat. */
+  ownerIdentityId?: string
+  /** The player's name, so a rejoin under the same name re-attaches the PC (plan 4.3). */
+  ownerName?: string
 }
 
 /** Placed instance (scene-scoped). */
@@ -196,3 +235,13 @@ export interface SceneTerrain {
 export type TerrainOf = (sceneId: string) => SceneTerrain | null
 
 export type LevelFilterOf = (sceneId: string, viewer: Viewer) => ((levelId: string | undefined) => boolean) | null
+
+/**
+ * Table v2 — the DM's pause and movement lock (the `table` module). A player's `move` is
+ * refused while either is on; the DM's never is. Null when nothing is wired, which is "off".
+ */
+export interface TableFlags {
+  paused: boolean
+  movementLocked: boolean
+}
+export type TableOf = (scope: { campaignId: string; sessionId: string }) => TableFlags | null

@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { Caption, SettingRow } from '@/editor/components';
-import { Kbd } from '@/ui/kbd';
+import { Caption, SettingRow, Kbd } from '@dnd/ui';
 import { shortcutTable } from '@/shortcuts/registryShortcuts';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { shellShortcuts } from '@/editor/shell/shellKeys';

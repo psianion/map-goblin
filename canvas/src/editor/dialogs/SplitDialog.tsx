@@ -1,13 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent } from '@/ui/dialog';
-import { Input } from '@/ui/input';
+import { Button, Dialog, DialogContent, Input, PrimaryButton, Seg } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { SplitRoomCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { interiorPoint, nextRoomNumber, pointInRing } from '@dnd/core/src/shared/roomUtils';
 import type { DoorChild, DungeonLayer, PendingSplit, Room } from '@/store/types';
-import { PrimaryButton, Seg } from '@/editor/components';
 import { compassOf, doorsOnFace, halfLabel, halfMeta, otherHalfName } from '@/editor/models/roomModel';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, Field, Hint } from './parts';

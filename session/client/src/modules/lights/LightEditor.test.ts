@@ -63,6 +63,20 @@ beforeEach(() => {
 afterEach(() => document.body.replaceChildren());
 
 describe('mountLightsEditor', () => {
+  it('lets a token under the light take the press (tokens win over lights at the table)', () => {
+    const h = harness();
+    useSessionStore.setState({
+      session: {
+        activeSceneId: 'a',
+        modules: { tokens: { library: {}, byScene: { a: { t1: { id: 't1', name: 'Ogre', x: 52, y: 50, size: 'medium', z: 0, elevation: 0 } } } } },
+      } as never,
+    });
+    press(h.canvas, 52, 50);
+    expect(useLightSelection.getState().selectedId).toBeNull();
+    expect(h.under).toHaveBeenCalled();
+    useSessionStore.setState({ session: null });
+  });
+
   it('takes the press when it lands on a light — nothing under the icon sees it', () => {
     const h = harness();
     press(h.canvas, 52, 50);

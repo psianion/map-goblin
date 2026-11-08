@@ -12,11 +12,11 @@ import { dropRemovedFields } from '@dnd/core/src/store/removedFields';
 import { hasMagicHeader, parsePlainMapJson } from '@/io/mapFormat';
 
 /**
- * It is being renamed from .mapbuilder to .ggvtt; both open. What makes a file one is its
- * content, not its name; the extensions only steer the picker: the container header, or
- * (older .mapbuilder files) a plain JSON map document.
+ * The picker's extensions live in core (shared/mapFile.ts) so the table reads them too.
+ * What makes a file one is its content: the container header, or (older .mapbuilder
+ * files) a plain JSON map document.
  */
-export const MAP_FILE_ACCEPT = '.ggvtt,.mapbuilder';
+export { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
 
 /** Whether the file is one of the editor's map files. Unreadable files (a dropped folder) are not. */
 export async function isMapFile(file: Blob): Promise<boolean> {

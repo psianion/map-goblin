@@ -1,287 +1,142 @@
-// §2.6 — the host flow's starting room. The picker is the only decision in setup that is
-// about *play*, so what is pinned here is the wiring, not the markup: the room the DM chose
-// has to arrive on the call that opens the table, because that call is the only moment the
-// server can light it before anyone is in the door.
+// Board 7: Campaign → Map → Invite with Back; the server and pass step only while no DM pass is
+// held; the canvas's handoff landing on the Map step; the starting room on the call that opens
+// the table.
 
-import { gzipSync } from 'node:zlib';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { endpoints } from '../endpoints';
+import { saveDmToken } from '../session/dmTokens';
 import HostSetup from './HostSetup';
 
 vi.mock('../session/auth', () => ({
   createCampaignAsDm: vi.fn(),
   fetchActiveSession: vi.fn(),
+  fetchMapDoc: vi.fn(),
   listCampaignsAsAdmin: vi.fn(),
   listScenes: vi.fn(),
   mintDmToken: vi.fn(),
-  uploadMapFile: vi.fn(),
+  redeemHandoff: vi.fn(),
+  refreshDmToken: vi.fn(),
   startSession: vi.fn(),
+  uploadMapFile: vi.fn(),
 }));
-const {
-  createCampaignAsDm,
-  fetchActiveSession,
-  listCampaignsAsAdmin,
-  listScenes,
-  mintDmToken,
-  uploadMapFile,
-  startSession,
-} = await import('../session/auth');
+const auth = await import('../session/auth');
 
-/** Two rooms, one of them unnamed — the label fallback has to have something to fall to. */
+const DAY = 24 * 60 * 60 * 1000;
+const tokenFor = (exp: number): string => `${btoa(JSON.stringify({ campaignId: 'c1', role: 'dm', exp })).replace(/=+$/, '')}.sig`;
+
 const MAP = {
   version: '3.0',
   mapSettings: { name: 'Emberhold Crypt' },
   grid: {},
-  layers: [
-    {
-      id: 'layer-1',
-      type: 'dungeon',
-      rooms: [
-        { id: 'r-vestibule', name: 'Vestibule of Ash', isPathway: false },
-        { id: 'r-nameless', name: '', isPathway: false },
-      ],
-    },
-  ],
+  layers: [{ id: 'layer-1', type: 'dungeon', rooms: [{ id: 'r-vestibule', name: 'Vestibule of Ash' }] }],
 };
 
 beforeEach(() => {
   cleanup();
-  vi.mocked(createCampaignAsDm).mockReset().mockResolvedValue({
-    campaignId: 'c1',
-    identityId: 'dm-1',
-    token: 'dm-token',
+  localStorage.clear();
+  window.location.hash = '';
+  vi.mocked(auth.listCampaignsAsAdmin).mockReset().mockResolvedValue({ campaigns: [{ id: 'c9', name: 'Old Keep', createdAt: 0, updatedAt: 0 }] });
+  vi.mocked(auth.createCampaignAsDm).mockReset().mockResolvedValue({ campaignId: 'c1', identityId: 'dm', token: tokenFor(Date.now() + 30 * DAY) });
+  vi.mocked(auth.mintDmToken).mockReset().mockResolvedValue({ campaignId: 'c9', token: tokenFor(Date.now() + 30 * DAY), name: 'Old Keep' });
+  vi.mocked(auth.fetchActiveSession).mockReset().mockRejectedValue(new Error('none'));
+  vi.mocked(auth.listScenes).mockReset().mockResolvedValue({
+    scenes: [{ id: 's1', name: 'Web Gallery', sortIndex: 0, visibleToPlayers: true, mapId: 'm1', updatedAt: Date.now() - 2 * 3600_000 }],
   });
-  // A fresh server has no campaigns yet — the same "create only" step this suite exercises.
-  vi.mocked(listCampaignsAsAdmin).mockReset().mockResolvedValue({ campaigns: [] });
-  // A freshly created campaign has no scenes yet — upload stays the only option on step 3.
-  vi.mocked(listScenes).mockReset().mockResolvedValue({ scenes: [] });
-  vi.mocked(uploadMapFile).mockReset().mockResolvedValue({
-    mapId: 'map-1',
-    sceneId: 'map-1',
-    name: 'Emberhold Crypt',
-    sizeBytes: 2048,
-  });
-  vi.mocked(startSession).mockReset().mockResolvedValue({
-    sessionId: 's1',
-    campaignId: 'c1',
-    inviteCode: 'ABC234',
-  });
-  vi.mocked(mintDmToken).mockReset();
-  vi.mocked(fetchActiveSession).mockReset();
+  vi.mocked(auth.fetchMapDoc).mockReset().mockResolvedValue(MAP);
+  vi.mocked(auth.startSession).mockReset().mockResolvedValue({ sessionId: 'x', campaignId: 'c1', inviteCode: 'ABC234' });
+  vi.mocked(auth.redeemHandoff).mockReset();
+  vi.mocked(auth.refreshDmToken).mockReset();
 });
 
-/** Server → campaign → the uploaded map, which is where the picker appears. */
-async function walkToMap(): Promise<void> {
-  render(<HostSetup />);
-
-  fireEvent.change(screen.getByLabelText('Server address'), {
-    target: { value: 'http://localhost:8787' },
-  });
-  fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-
-  fireEvent.change(await screen.findByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
-  await screen.findByLabelText('Map file');
-
-  const file = new File([JSON.stringify(MAP)], 'crypt.mapbuilder', { type: 'application/json' });
-  fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [file] } });
-  await screen.findByTestId('uploaded-map');
-}
-
-/** …and on to the invite step, which is the one that opens the table. */
-async function startTable(): Promise<void> {
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Start session' }));
-  await screen.findByTestId('invite-code');
-}
-
-describe('HostSetup — the map file', () => {
-  /**
-   * The editor saves `MPBLD\0` + gzip(JSON), and the wizard used to read it with
-   * `file.text()` — which mangles the bytes, so the upload was refused and the room picker
-   * never appeared. The file here is the real container, not a stand-in.
-   */
-  it('takes the editor’s gzipped save and still offers its rooms', async () => {
+describe('HostSetup', () => {
+  it('asks for the server and pass when no DM pass is held, then lists the campaigns', async () => {
     render(<HostSetup />);
-    fireEvent.change(screen.getByLabelText('Server address'), {
-      target: { value: 'http://localhost:8787' },
-    });
-    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByLabelText('Campaign name');
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
-    await screen.findByLabelText('Map file');
-
-    const json = JSON.stringify(MAP);
-    const bytes = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), gzipSync(Buffer.from(json, 'utf8'))]);
-    const file = new File([bytes], 'crypt.mapbuilder');
-    fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [file] } });
-    await screen.findByTestId('uploaded-map');
-
-    // The server is handed the decoded JSON, not the container bytes.
-    expect(vi.mocked(uploadMapFile).mock.calls[0][2]).toBe(json);
-
-    const picker = await screen.findByLabelText<HTMLSelectElement>('Starting room');
-    expect([...picker.options].map((o) => o.text)).toContain('Vestibule of Ash');
+    expect(screen.getByTestId('host-connect')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'pass' } });
+    fireEvent.click(screen.getByText('Continue'));
+    expect(await screen.findByTestId('host-campaign')).toBeTruthy();
+    expect(auth.listCampaignsAsAdmin).toHaveBeenCalledWith(endpoints.httpBase, 'pass');
+    expect(screen.getByText('Old Keep')).toBeTruthy();
   });
-});
 
-describe('HostSetup — the starting room', () => {
-  it('sends the room the DM picked with the call that opens the table', async () => {
-    await walkToMap();
+  it('skips the pass with a held DM token, and Different DM brings it back', async () => {
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
+    render(<HostSetup />);
+    expect(screen.getByTestId('host-campaign')).toBeTruthy();
+    expect(screen.queryByTestId('host-connect')).toBeNull();
+    fireEvent.click(screen.getByTestId('host-different-dm'));
+    expect(screen.getByTestId('host-connect')).toBeTruthy();
+  });
 
-    // The list is the map's own rooms, in the map's own words.
-    const picker = await screen.findByLabelText<HTMLSelectElement>('Starting room');
-    expect([...picker.options].map((o) => o.text)).toEqual([
-      'None — the map starts dark',
-      'Vestibule of Ash',
-      // An unnamed room is still a room a DM can start the party in.
-      'Room 2',
-    ]);
+  it('walks Campaign, Map, Invite with the starting room, and Back returns a step', async () => {
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
+    render(<HostSetup />);
+    fireEvent.click(screen.getByText('Cragmaw'));
+    const card = await screen.findByTestId('library-card');
+    expect(card.textContent).toContain('Published 2h ago');
+    fireEvent.click(card);
+    fireEvent.click(await screen.findByText('Vestibule of Ash'));
+    fireEvent.click(screen.getByTestId('host-open'));
+    expect(await screen.findByTestId('host-invite')).toBeTruthy();
+    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), { sceneId: 's1', roomId: 'r-vestibule' }, 's1');
+    expect(screen.getByTestId('invite-code').textContent).toBe('ABC234');
+    expect(screen.getByTestId('invite-qr')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('host-back'));
+    expect(screen.getByTestId('host-map')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('host-back'));
+    expect(screen.getByTestId('host-campaign')).toBeTruthy();
+  });
 
-    fireEvent.change(picker, { target: { value: 'r-vestibule' } });
-    await startTable();
+  it('refreshes a held DM token with under a week left before using it', async () => {
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 2 * DAY));
+    vi.mocked(auth.refreshDmToken).mockResolvedValue({ token: tokenFor(Date.now() + 30 * DAY), campaignId: 'c1', exp: Date.now() + 30 * DAY });
+    render(<HostSetup />);
+    fireEvent.click(screen.getByText('Cragmaw'));
+    await screen.findByTestId('host-map');
+    expect(auth.refreshDmToken).toHaveBeenCalledWith('c1', expect.any(String));
+  });
 
-    // The scene id is the uploaded map's id: fog is stored per scene, and a scene is a map.
-    await waitFor(() =>
-      expect(startSession).toHaveBeenCalledWith(
-        'c1',
-        'dm-token',
-        { sceneId: 'map-1', roomId: 'r-vestibule' },
-        'map-1',
-      ),
+  it('redeems a handoff from the canvas and lands on the Map step', async () => {
+    window.location.hash = '#handoff=abc123';
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY) });
+    render(<HostSetup />);
+    expect(await screen.findByTestId('host-map')).toBeTruthy();
+    expect(auth.redeemHandoff).toHaveBeenCalledWith('abc123');
+    expect(window.location.hash).toBe('');
+    await waitFor(() => expect(localStorage.getItem('gg.table.dm.c1')).not.toBeNull());
+  });
+
+  it('spends a single-use handoff code once, even mounted twice', async () => {
+    window.location.hash = '#handoff=once42';
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY) });
+    render(
+      <StrictMode>
+        <HostSetup />
+      </StrictMode>,
     );
+    expect(await screen.findByTestId('host-map')).toBeTruthy();
+    expect(auth.redeemHandoff).toHaveBeenCalledTimes(1);
   });
 
-  it('sends nothing when the DM skips it, and the table starts dark as before', async () => {
-    await walkToMap();
-    expect((await screen.findByLabelText<HTMLSelectElement>('Starting room')).value).toBe('');
-
-    await startTable();
-
-    // No room, but still the scene: the table has to open on the map just uploaded even
-    // when the DM lights nothing in it, or a campaign with an older map opens on that one.
-    await waitFor(() =>
-      expect(startSession).toHaveBeenCalledWith('c1', 'dm-token', undefined, 'map-1'),
-    );
-  });
-
-  it('offers no picker for a map nobody zoned', async () => {
-    vi.mocked(uploadMapFile).mockResolvedValue({ mapId: 'map-2', sceneId: 'map-2', name: 'Bare', sizeBytes: 12 });
+  it('redeems the exact code off /host?e2e=1#handoff=, once', async () => {
+    const code = 'Zm9v-YmFy_baz0123456789abcdefABCDEF-_xyz';
+    window.history.replaceState(null, '', `/host?e2e=1#handoff=${code}`);
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY) });
     render(<HostSetup />);
-
-    fireEvent.change(screen.getByLabelText('Server address'), {
-      target: { value: 'http://localhost:8787' },
-    });
-    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByLabelText('Campaign name');
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
-    await screen.findByLabelText('Map file');
-
-    const bare = new File(
-      [JSON.stringify({ ...MAP, layers: [{ id: 'l', type: 'dungeon', rooms: [] }] })],
-      'bare.mapbuilder',
-      { type: 'application/json' },
-    );
-    fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [bare] } });
-    await screen.findByTestId('uploaded-map');
-
-    expect(screen.queryByLabelText('Starting room')).toBeNull();
+    expect(await screen.findByTestId('host-map')).toBeTruthy();
+    expect(vi.mocked(auth.redeemHandoff).mock.calls).toEqual([[code]]);
+    expect(window.location.search).toBe('?e2e=1');
+    expect(window.location.hash).toBe('');
   });
-});
 
-describe('HostSetup — resuming a live session', () => {
-  /** Server step done, sat on step 2 with one existing campaign listed. */
-  async function toExistingCampaign(): Promise<void> {
-    vi.mocked(listCampaignsAsAdmin).mockResolvedValue({
-      campaigns: [{ id: 'c1', name: 'Cragmaw', createdAt: 0, updatedAt: 0 }],
-    });
+  it('resumes a table that is already open on the Invite step', async () => {
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
+    vi.mocked(auth.fetchActiveSession).mockResolvedValue({ sessionId: 'x', inviteCode: 'LIVE42' });
     render(<HostSetup />);
-    fireEvent.change(screen.getByLabelText('Server address'), {
-      target: { value: 'http://localhost:8787' },
-    });
-    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByRole('button', { name: /Cragmaw/ });
-  }
-
-  it('resumes straight to the invite code when a session is already live', async () => {
-    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
-    vi.mocked(fetchActiveSession).mockResolvedValue({ sessionId: 's-live', inviteCode: 'LIVE99' });
-
-    await toExistingCampaign();
-    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
-
-    expect((await screen.findByTestId('invite-code')).textContent).toBe('LIVE99');
-    expect(startSession).not.toHaveBeenCalled();
-    expect(listScenes).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the scene picker when nothing is live', async () => {
-    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
-    vi.mocked(fetchActiveSession).mockRejectedValue(new Error('No active game for that code.'));
-
-    await toExistingCampaign();
-    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
-
-    await screen.findByLabelText('Map file');
-    expect(screen.queryByTestId('invite-code')).toBeNull();
-  });
-
-  it('the escape hatch ends the resumed session and starts a fresh one', async () => {
-    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
-    vi.mocked(fetchActiveSession).mockResolvedValue({ sessionId: 's-live', inviteCode: 'LIVE99' });
-
-    await toExistingCampaign();
-    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
-    await screen.findByTestId('invite-code');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Start a new session instead' }));
-    await screen.findByLabelText('Map file');
-
-    const file = new File([JSON.stringify(MAP)], 'crypt.mapbuilder', { type: 'application/json' });
-    fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [file] } });
-    await screen.findByTestId('uploaded-map');
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Start session' }));
-
-    await waitFor(() => expect(startSession).toHaveBeenCalled());
-  });
-});
-
-/**
- * The field says it is already pointing at this page's own address, and then a cleared field
- * disabled Continue — the copy and the button disagreed, and the DM believed the button.
- */
-describe('HostSetup — the server address is optional', () => {
-  const advance = (serverUrl: string) => {
-    render(<HostSetup />);
-    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: serverUrl } });
-    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
-    return screen.getByRole<HTMLButtonElement>('button', { name: 'Continue' });
-  };
-
-  it('lets an empty address through and falls back to this page’s origin', async () => {
-    expect(advance('').disabled).toBe(false);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.change(await screen.findByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
-    await screen.findByLabelText('Map file');
-
-    expect(vi.mocked(createCampaignAsDm).mock.calls[0][0]).toBe(endpoints.httpBase);
-  });
-
-  it('still refuses an address that was typed and cannot be reached', () => {
-    expect(advance('http://').disabled).toBe(true);
-    expect(screen.queryByTestId('server-url-error')).not.toBeNull();
-  });
-
-  it('takes a bare host:port, the way the address bar does', () => {
-    expect(advance('localhost:8787').disabled).toBe(false);
-    expect(screen.queryByTestId('server-url-error')).toBeNull();
+    fireEvent.click(screen.getByText('Cragmaw'));
+    expect(await screen.findByText('Your table is already open')).toBeTruthy();
+    expect(screen.getByTestId('invite-code').textContent).toBe('LIVE42');
   });
 });

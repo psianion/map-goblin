@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn } from '@dnd/ui';
 
 export type GalleryTheme = 'light' | 'dark';
 

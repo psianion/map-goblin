@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Seg } from '@/editor/components';
-import { TooltipProvider } from '@/ui/tooltip';
+import { Seg, TooltipProvider } from '@dnd/ui';
 import { BarsSection } from './BarsSection';
 import { ButtonsSection } from './ButtonsSection';
 import { ControlsSection } from './ControlsSection';

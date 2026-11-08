@@ -28,8 +28,14 @@ export interface TokenClaims {
   exp: number
 }
 
-/** Long enough that a weekly game does not re-issue mid-campaign, short enough to matter. */
+/** A player's token: long enough that a weekly game does not re-issue mid-campaign, short enough to matter. */
 export const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * A DM's token (decision 12): a month, refreshed on use through `POST .../dm-token/refresh`,
+ * so a DM who plays at all never types the admin pass again. Service tokens get the same.
+ */
+export const DM_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /** `base64url(claims).base64url(hmac)` — a JWT without the header nobody reads. */
 export function signToken(secret: string, claims: TokenClaims): string {
@@ -43,13 +49,14 @@ export function issueToken(
   campaignId: string,
   role: Role,
   sessionId?: string,
+  ttlMs: number = role === 'dm' ? DM_TOKEN_TTL_MS : TOKEN_TTL_MS,
 ): string {
   return signToken(secret, {
     identityId,
     campaignId,
     role,
     ...(sessionId === undefined ? {} : { sessionId }),
-    exp: Date.now() + TOKEN_TTL_MS,
+    exp: Date.now() + ttlMs,
   })
 }
 

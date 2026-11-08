@@ -1,13 +1,25 @@
 import { useState } from 'react';
 import { Download, Keyboard, Maximize, Package, Settings2 } from 'lucide-react';
-import { PrimaryButton, SecondaryButton } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/ui/dialog';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger,
-} from '@/ui/dropdown-menu';
-import { Kbd } from '@/ui/kbd';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
+  PrimaryButton,
+  SecondaryButton,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+  Kbd,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 // The tooltip and the menu are held open, each beside a zero-size anchor at the top left of

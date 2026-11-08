@@ -11,7 +11,7 @@ import { UpdateChildCommand, UpdateWallCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { AnyChild, Command, WallSegment } from '@/store/types';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 /**
  * Commands run as one undo step. With a key, a later CardEdit with the same key appends

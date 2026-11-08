@@ -3,7 +3,7 @@
 // authored door list lives in the map file, so the module is built with a lookup the server
 // backs with its map store — the shape `scenesModule(stores)` already uses.
 
-import { type GameModule, type ModuleContext } from '../contract'
+import { dropScene, type GameModule, type ModuleContext } from '../contract'
 import { actorOf, logged, type LogAction } from '../log'
 import { ID_MAX, Reject, bad, obj, str } from '../tokens/validate'
 import {
@@ -48,6 +48,7 @@ export function doorsModule(
       'reveal-secret': ['dm'],
     },
     initialState: { byScene: {} },
+    forgetScene: dropScene,
 
     handler(action, payload, ctx) {
       try {

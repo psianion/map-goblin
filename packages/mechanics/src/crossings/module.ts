@@ -4,7 +4,7 @@
 // like a door's state and is kept with the campaign's module state. Everyone reads the same
 // rules: the chip a player's drag shows names the kind and its note, so nothing is redacted.
 
-import { type GameModule, type ModuleContext } from '../contract'
+import { dropScene, type GameModule, type ModuleContext } from '../contract'
 import { ID_MAX, Reject, bad, bool, obj, str } from '../tokens/validate'
 
 /** One scene's live overrides. Absent keys fall back to the map. */
@@ -36,6 +36,7 @@ export const crossingsModule: GameModule<CrossingsState> = {
     'set-blocks': ['dm'],
   },
   initialState: { byScene: {} },
+  forgetScene: dropScene,
 
   handler(action, payload, ctx) {
     try {

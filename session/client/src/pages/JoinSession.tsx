@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react';
+import { FloatBox, Input, PrimaryButton } from '@dnd/ui';
 import { navigate } from '../router';
 import { joinAsPlayer, resolveInviteCode } from '../session/auth';
 import { prepareTableForJoin } from '../session/prepareTableForJoin';
 import { useSessionStore } from '../session/store';
 
-
-const field =
-  'w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none';
-const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
-
 /**
- * §2.6 — code + name in, a seat at the table out.
- *
- * ponytail: one form, not a two-step wizard. A code arriving on `/join/:code` is
- * checked against `/api/resolve` on mount and the cursor lands in the name field —
- * that is the "auto-advance", and it keeps the code visible so a wrong one is fixable.
+ * §2.6: code and name in, a seat at the table out. A code arriving on `/join/:code` is checked
+ * on mount and the cursor lands in the name field; the code stays visible so a wrong one is fixable.
  */
 export default function JoinSession({ code: linkCode }: { code?: string }) {
   const [code, setCode] = useState((linkCode ?? '').toUpperCase());
@@ -31,7 +24,6 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
       () => live && setFound(true),
       (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
     );
-    // The page outlives the request when someone edits the code mid-flight.
     return () => {
       live = false;
     };
@@ -55,72 +47,49 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
   };
 
   return (
-    <div
-      data-page="join"
-      className="flex h-full items-center justify-center bg-surface-0 p-6 text-text-primary"
-    >
-      <form
-        className="flex w-full max-w-sm flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void join();
-        }}
-      >
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Join a game</h1>
-          {found && (
-            <p className="mt-1 text-sm text-success">Table found — who are you?</p>
-          )}
-        </header>
-
-        <div>
-          <label className={label} htmlFor="invite-code">
-            Invite code
-          </label>
-          <input
-            id="invite-code"
-            className={`${field} font-mono tracking-[0.3em]`}
-            value={code}
-            maxLength={6}
-            autoFocus={!found}
-            autoComplete="off"
-            placeholder="ABC234"
-            onChange={(e) => {
-              setCode(e.target.value.toUpperCase());
-              setFound(false);
-            }}
-          />
-        </div>
-
-        <div>
-          <label className={label} htmlFor="player-name">
-            Your name
-          </label>
-          <input
-            id="player-name"
-            className={field}
-            value={name}
-            maxLength={64}
-            autoFocus={found}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Borin"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={busy || code.trim().length === 0 || name.trim().length === 0}
-          className="rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40"
+    <div data-page="join" className="flex h-full items-center justify-center bg-bg p-6 text-text">
+      <FloatBox className="w-full max-w-sm p-5">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void join();
+          }}
         >
-          {preparing ? 'Preparing map…' : busy ? 'Joining…' : 'Join'}
-        </button>
-
-        {error && (
-          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
-      </form>
+          <header>
+            <h1 className="text-xl font-medium">Join a game</h1>
+            {found && <p className="mt-1 text-sm text-text-2">Table found. Who are you?</p>}
+          </header>
+          <label className="flex flex-col gap-1 text-xs text-text-2" htmlFor="invite-code">
+            Invite code
+            <Input
+              id="invite-code"
+              className="font-mono tracking-widest"
+              value={code}
+              maxLength={6}
+              autoFocus={!found}
+              autoComplete="off"
+              placeholder="ABC234"
+              onChange={(e) => {
+                setCode(e.target.value.toUpperCase());
+                setFound(false);
+              }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-text-2" htmlFor="player-name">
+            Your name
+            <Input id="player-name" value={name} maxLength={64} autoFocus={found} placeholder="Borin" onChange={(e) => setName(e.target.value)} />
+          </label>
+          <PrimaryButton type="submit" disabled={busy || code.trim().length === 0 || name.trim().length === 0}>
+            {preparing ? 'Preparing map…' : busy ? 'Joining…' : 'Join'}
+          </PrimaryButton>
+          {error && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+        </form>
+      </FloatBox>
     </div>
   );
 }

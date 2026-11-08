@@ -9,6 +9,7 @@
 // token comes back.
 
 import type { ScenePrep, SerializedMapData } from '@/store/types';
+import type { PublishRecord } from './mapIndexDB';
 import { hashMapBytes, sha256Hex } from './mapFormat';
 import { getSaveWorker, callSaveWorker } from './saveLoad';
 
@@ -72,6 +73,57 @@ export function setPublishToken(campaignId: string, token: string): void {
 
 export function clearPublishToken(campaignId: string): void {
   localStorage.removeItem(tokenKey(campaignId));
+}
+
+/** The campaign a map was last published to, from its publish record; null if never. */
+export function lastPublishedTo(record: PublishRecord | null): string | null {
+  const last = Object.values(record ?? {}).sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))[0];
+  return last ? (last.campaignName ?? 'a campaign') : null;
+}
+
+/** A DM token is refreshed once it has less than this left (decision 12). */
+export const REFRESH_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * When a token expires, ms since epoch, read off its payload (JSON before the signature);
+ * null for anything that does not read as one. Only the server can trust it; the client
+ * only uses it to decide when to ask for a fresh one.
+ */
+export function tokenExp(token: string): number | null {
+  try {
+    const payload = token.split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/');
+    const exp = (JSON.parse(atob(payload)) as { exp?: unknown }).exp;
+    return typeof exp === 'number' ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * On load: every stored DM token with under a week left is swapped for a fresh one. One
+ * that has run out is left for the publish dialog to report; a failed refresh changes
+ * nothing, so a server that is down today costs no token.
+ */
+export async function refreshPublishTokens(now = Date.now()): Promise<void> {
+  const prefix = tokenKey('');
+  const campaignIds: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(prefix)) campaignIds.push(key.slice(prefix.length));
+  }
+  await Promise.all(
+    campaignIds.map(async (campaignId) => {
+      const token = getPublishToken(campaignId);
+      const exp = token ? tokenExp(token) : null;
+      if (!token || exp === null || exp <= now || exp - now >= REFRESH_WITHIN_MS) return;
+      try {
+        const fresh = await refreshDmToken(token, campaignId);
+        setPublishToken(campaignId, fresh.token);
+      } catch {
+        /* kept as it is; the next load tries again */
+      }
+    }),
+  );
 }
 
 // ─── Server calls ───────────────────────────────────────────────────────────
@@ -144,6 +196,21 @@ export function mintDmToken(
   return api(`/campaigns/${campaignId}/dm-token`, {
     method: 'POST',
     headers: { authorization: `Bearer ${adminPass}` },
+  });
+}
+
+export function refreshDmToken(dmToken: string, campaignId: string): Promise<{ token: string; campaignId: string; exp: number }> {
+  return api(`/campaigns/${campaignId}/dm-token/refresh`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${dmToken}` },
+  });
+}
+
+/** A single-use code for the table, and the table link that carries it (decision 13). */
+export function mintHandoff(dmToken: string, campaignId: string): Promise<{ code: string; tableUrl: string }> {
+  return api(`/campaigns/${campaignId}/handoff`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${dmToken}` },
   });
 }
 

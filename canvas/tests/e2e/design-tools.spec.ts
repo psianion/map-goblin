@@ -1073,7 +1073,7 @@ test.describe('the test maps export and publish', () => {
       await dialog.getByLabel('Admin pass').press('Enter')
       await dialog.getByLabel('Create new campaign').fill('Plateaus')
       await dialog.getByRole('button', { name: 'Create' }).click()
-      await expect(dialog).toBeHidden({ timeout: 10_000 })
+      await expect(dialog.getByTestId('v2-publish-done')).toBeVisible({ timeout: 10_000 })
       const upload = calls.find((c) => c.method === 'POST' && /\/maps$/.test(c.path))
       expect(upload?.bodyBuffer?.length ?? 0).toBeGreaterThan(100)
       expect(errors).toEqual([])

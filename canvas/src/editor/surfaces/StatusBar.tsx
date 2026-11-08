@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleHelp, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { IconKeyButton, StatusChip } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { Kbd } from '@/ui/kbd';
+import { IconKeyButton, StatusChip, Button, Kbd } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { editHint } from '@/editor/statusHints';

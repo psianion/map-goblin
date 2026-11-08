@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { Assets } from 'pixi.js';
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: {
     subtle: vi.fn(),
     error: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('@/lib/toast', () => ({
   },
 }));
 
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer } from '@/store/types';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Kbd } from '@/ui/kbd';
+import { Kbd } from '@dnd/ui';
 
 interface TipState {
   label: string;

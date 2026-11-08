@@ -1,5 +1,4 @@
-import { IconKeyButton } from '@/editor/components';
-import { Separator } from '@/ui/separator';
+import { IconKeyButton, Separator } from '@dnd/ui';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';
 import { pickTool, useActiveTool } from './hooks';

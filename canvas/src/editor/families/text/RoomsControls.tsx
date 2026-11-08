@@ -5,7 +5,7 @@
 import { useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useStore } from '@/store/store';
-import { Caption, PrimaryButton, SecondaryButton } from '@/editor/components';
+import { Caption, PrimaryButton, SecondaryButton } from '@dnd/ui';
 import { acceptAllSuggestions, activeDungeon, dismissSuggestions, suggestOnActiveLayer } from '@/editor/models/roomActions';
 import { levelDungeons, roomCountText } from '@/editor/models/roomModel';
 

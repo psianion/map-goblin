@@ -2,7 +2,7 @@ import {
   CircleHelp, Copy, Ellipsis, FlipHorizontal, GitCommitHorizontal, Hexagon, Lock, Mountain, Pentagon, Redo2, RotateCw,
   Spline, Square, Trash2, Undo2,
 } from 'lucide-react';
-import { IconKeyButton } from '@/editor/components';
+import { IconKeyButton } from '@dnd/ui';
 import { FOCUS, HOVER, Item, Section, Specimens, type GalleryTheme } from './parts';
 
 function IconButtonsSection({ theme }: { theme: GalleryTheme }) {

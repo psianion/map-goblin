@@ -1,8 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { Caption, Chip, FloatBox, IconKeyButton, PanelHeader, SecondaryButton, Tile } from '@/editor/components';
-import { Input } from '@/ui/input';
+import {
+  Caption,
+  Chip,
+  FloatBox,
+  IconKeyButton,
+  PanelHeader,
+  SecondaryButton,
+  Tile,
+  Input,
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createSwapPropCommand } from '@dnd/core/src/store/propEdits';

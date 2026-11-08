@@ -36,6 +36,9 @@ services:
       # The listener that believes X-Real-IP (session/server/src/http.ts). Never published:
       # only the two nginx proxies in this file dial it, and they write the header.
       TRUSTED_PORT: 8788
+      # Where the canvas's "Open the table" sends the DM (http.ts mintHandoff); the bot's
+      # invite links use the same address.
+      PUBLIC_TABLE_URL: "${PUBLIC_TABLE_URL:-http://localhost:5622}"
     volumes:
       # Named, not a bind mount: the admin pass is printed once and only its hash is kept
       # here, alongside the HMAC secret that signs every session token. Losing this volume

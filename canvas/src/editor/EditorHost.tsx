@@ -15,7 +15,7 @@ import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport, importTraceImage } from '@/canvas/importImage';
 import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { initFocusMode } from '@/editor/viewPrefs';
 

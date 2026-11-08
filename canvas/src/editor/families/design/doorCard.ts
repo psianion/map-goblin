@@ -10,7 +10,7 @@ import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { isOwnPiece, turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
 import { anchorFor, doorPlacement, freePiece, isFreestanding } from '@dnd/core/src/shared/freestandingDoor';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { doorwayEditCommand } from '@dnd/core/src/store/doorwayCommands';
 import { DOOR_ANGLE_STEP, doorAngleValue, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorKitById, isKitStyle, MAX_OPEN_ANGLE, type DoorKitId } from '@dnd/core/src/assets/doorKits';

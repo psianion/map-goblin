@@ -16,8 +16,8 @@ import {
   Stepper,
   Swatch,
   SwitchRow,
-} from '@/editor/components';
-import { Slider } from '@/ui/slider';
+  Slider,
+} from '@dnd/ui';
 import type { SettingMeta } from '@/editor/registry';
 import { formatValue } from './model';
 

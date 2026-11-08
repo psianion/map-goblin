@@ -161,8 +161,11 @@ export interface SceneTriggers {
   roomEdits?: Record<string, RoomEdit>
   /** Seats the DM pinned to a level, by identity (`set-seat-level`). Absent ⇒ none. */
   seatLevel?: Record<string, string>
-  /** The level the DM's own view shows (`set-dm-level`). Absent ⇒ the map's first level. */
+  /** The level the DM's own view shows (`set-dm-level`). Absent ⇒ the start level. */
   dmLevelId?: string
+  /** The level of the room the session opened in (`set-start-level`). Absent ⇒ the map's
+   *  first level. Every seat without a pick of its own looks here. */
+  startLevelId?: string
   /** Narration labels. `weather` here is legacy: the live weather is `world.weather` now.
    *  A row saved before the Lighting pass may still carry an `ambient` key; `worldOf` folds
    *  it into `world.darkness` on read (`legacyDarkness`). */
@@ -294,8 +297,8 @@ export const roomEditsOf = (scene: SceneTriggers): Record<string, RoomEdit> => s
 
 /**
  * The level a seat is looking at: the DM's own pick for the DM; for a player, the level the
- * DM pinned the seat to, else the level of the first token the seat claims, else the map's
- * first level. A token without a level stands on the first level.
+ * DM pinned the seat to, else the level of the first token the seat claims, else the scene's
+ * start level, else the map's first level. A token without a level stands on the start level.
  */
 export function viewedLevel(
   scene: SceneTriggers,
@@ -303,11 +306,12 @@ export function viewedLevel(
   viewer: { role: string; identityId: string },
   firstLevelId: string,
 ): string {
-  if (viewer.role === 'dm') return scene.dmLevelId ?? firstLevelId
+  const fallback = scene.startLevelId ?? firstLevelId
+  if (viewer.role === 'dm') return scene.dmLevelId ?? fallback
   const pinned = scene.seatLevel?.[viewer.identityId]
   if (pinned) return pinned
-  for (const token of tokens) if (token.ownerId === viewer.identityId) return token.levelId ?? firstLevelId
-  return firstLevelId
+  for (const token of tokens) if (token.ownerId === viewer.identityId) return token.levelId ?? fallback
+  return fallback
 }
 
 /** The one reading of the optional slice — a campaign with nothing shared yet reads empty. */

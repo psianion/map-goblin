@@ -1,8 +1,7 @@
 import { forwardRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { DockColumn, FloatBox, LevelList } from '@/editor/components';
-import { Button } from '@/ui/button';
+import { DockColumn, FloatBox, LevelList, Button } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import type { SettingDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';

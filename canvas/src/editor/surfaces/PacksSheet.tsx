@@ -1,19 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Ellipsis } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { IconKeyButton, PrimaryButton, SecondaryButton } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from '@/ui/dropdown-menu';
-import { Input } from '@/ui/input';
+import {
+  IconKeyButton,
+  PrimaryButton,
+  SecondaryButton,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+  Input,
+  cn,
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import type { PackSummary, PackUpdateInfo, PackUpdateState } from '@/store/types';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import { refreshAssetTextures } from '@/engine/subscribeToAssets';
 import { propEntries } from '@dnd/core/src/assets/packCatalog';
-import { notify } from '@/lib/toast';
-import { cn } from '@/lib/utils';
+import { notify } from '@dnd/ui/toast';
 import { PackFileError, readPackFile } from '@/io/packFile';
 import { usedOnMap } from '@/editor/models/propLibrary';
 import { useShell } from '@/editor/shell/shellStore';

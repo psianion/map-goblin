@@ -1,119 +1,134 @@
 import { useEffect } from 'react';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
-import { armFogBrush, armFogHide, armFogReveal } from '../modules/fog/brush';
+import { armBrushShape, armFogHide, armFogReveal } from '../modules/fog/brush';
 import { useDoorSelection } from '../modules/doors/selection';
+import { useInitiativeSelection } from '../modules/initiative/selection';
+import { useLightSelection } from '../modules/lights/selection';
 import { useTokenInteraction } from '../modules/tokens/drag';
-import { panelsForRole } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
-import { isOverlayViewport, useShell } from './shellStore';
+import { dockTabs } from './dock/registry';
+import { findMyToken } from './findMyToken';
+import { railToolsFor } from './rail/registry';
+import { pickRailTool } from './rail/tools';
+import { closeSheet, openSheetNow, toggleSheet } from './sheets/registry';
+import { useTableShell } from './tableShell';
 
 /** Keys belong to whoever is typing, not to the shell. Same guard as `cameraInput.ts`'s. */
 const isTyping = (t: EventTarget | null): boolean =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
-interface Binding {
+const roleNow = (): Role | undefined => useSessionStore.getState().you?.role;
+
+/** A fixed binding (board 9): not a rail tool or a dock tab, which come from their registries. */
+export interface Binding {
+  /** `e.key` lowercased, e.g. 'r', '/', '?'. */
   key: string;
   shift?: boolean;
+  /** Roles it answers for. */
+  roles: readonly Role[];
+  /** Shortcuts sheet group and row. */
+  group: string;
+  label: string;
   run: () => void;
 }
 
-/** DM-only bindings (the fog tools): the fog module is never registered for a player, and
- *  its commands are refused server-side regardless, but a stray press should not arm a tool
- *  a player's shell has no chrome to show. */
-const dmOnly = (run: () => void): void => {
-  if (useSessionStore.getState().you?.role === 'dm') run();
-};
-
-/** Next turn — same guard the footer button uses (DM, and only once the order is locked). */
-function nextTurn(): void {
+/** Next or previous turn: the DM, and only once the order is locked. */
+function stepTurn(action: 'next' | 'previous'): void {
   const store = useSessionStore.getState();
   if (store.you?.role !== 'dm') return;
   const state = store.session?.modules.initiative as InitiativeState | undefined;
   if (state?.status !== 'running') return;
-  store.sendCommand('initiative', 'next', {});
+  store.sendCommand('initiative', action, {});
 }
 
-/** `/` (M4, review finding 2): focuses whichever composer is actually on screen. The drawer's
- *  composer wins whenever the drawer is open — the roll bar unmounts itself in that case
- *  (`RollBar.tsx`), so a player who opened the drawer gets its `Composer`, not a hidden one.
- *  Otherwise a player's roll bar is always mounted (a synchronous DOM read); the DM has no
- *  roll bar at all — this opens the drawer first and focuses its composer once the drawer's
- *  own render has landed (`setDrawer` is a zustand `set`, not a synchronous DOM write, so the
- *  input does not exist yet on the same tick that opens it). */
-function focusComposer(): void {
-  const focusDrawerComposer = (): void => {
-    document.querySelector<HTMLInputElement>('[data-testid="log-drawer"] [data-testid="manual-roll"]')?.focus();
+/** `/`: focus the roll field on screen; the DM's lives in the Dice tab, so it opens first. */
+function focusRollField(): void {
+  const focus = (): void => {
+    document.querySelector<HTMLInputElement>('[data-testid="manual-roll"]')?.focus();
   };
-  if (useShell.getState().drawerOpen) {
-    focusDrawerComposer();
+  if (roleNow() === 'dm' && useTableShell.getState().dockTab !== 'dice') {
+    useTableShell.getState().pickDockTab('dice');
+    requestAnimationFrame(focus);
     return;
   }
-  if (useSessionStore.getState().you?.role === 'dm') {
-    useShell.getState().setDrawer(true);
-    requestAnimationFrame(focusDrawerComposer);
-    return;
-  }
-  document.querySelector<HTMLInputElement>('[data-testid="roll-bar"] [data-testid="manual-roll"]')?.focus();
+  focus();
 }
 
-// Fixed bindings that are not a panel's own `PanelDef.key`. M (Me panel) needs none of these —
-// it is a plain `PanelDef.key` and already flows through the generic lookup below.
-const BINDINGS: Binding[] = [
-  { key: 'd', shift: true, run: () => useShell.getState().toggleDiagnostics() },
-  { key: 'r', run: () => dmOnly(armFogReveal) },
-  { key: 'h', run: () => dmOnly(armFogHide) },
-  { key: 'b', run: () => dmOnly(armFogBrush) },
-  { key: 'n', run: nextTurn },
-  { key: '/', run: focusComposer },
-  // table-shell-redesign D1/D4 — freed from the (now-retired) triggers popover; both roles
-  // get the sidebar, so this is unconditional, unlike the DM-only fog keys above.
-  { key: 'g', run: () => useShell.getState().toggleSidebar() },
+/** Shift+P: pause or resume the table through the `table` module, once the server has one. */
+function togglePause(): void {
+  const store = useSessionStore.getState();
+  const table = store.session?.modules.table as { paused?: boolean } | undefined;
+  if (!table) return;
+  store.sendCommand('table', 'pause', { on: !table.paused });
+}
+
+const DM = ['dm'] as const;
+const ALL = ['dm', 'player'] as const;
+
+export const BINDINGS: readonly Binding[] = [
+  { key: 'b', roles: DM, group: 'Dock', label: 'Fold or open the dock', run: () => useTableShell.getState().toggleDock() },
+  { key: 'r', roles: DM, group: 'Fog', label: 'Reveal', run: armFogReveal },
+  { key: 'h', roles: DM, group: 'Fog', label: 'Hide', run: armFogHide },
+  {
+    key: 'w',
+    roles: DM,
+    group: 'Fog',
+    label: 'Brush',
+    run: () => armBrushShape('stroke'),
+  },
+  {
+    key: 'r',
+    shift: true,
+    roles: DM,
+    group: 'Fog',
+    label: 'Rectangle',
+    run: () => armBrushShape('box'),
+  },
+  { key: 'n', roles: DM, group: 'Combat', label: 'Next turn', run: () => stepTurn('next') },
+  { key: 'n', shift: true, roles: DM, group: 'Combat', label: 'Previous turn', run: () => stepTurn('previous') },
+  { key: '/', roles: ALL, group: 'Dice', label: 'Type a roll', run: focusRollField },
+  { key: 'p', shift: true, roles: DM, group: 'Table', label: 'Pause the table', run: togglePause },
+  { key: 'f', roles: ALL, group: 'View', label: 'Find my token', run: () => void findMyToken() },
+  { key: 'd', shift: true, roles: ALL, group: 'View', label: 'Diagnostics', run: () => useTableShell.getState().toggleDiagnostics() },
+  { key: '?', roles: ALL, group: 'Help', label: 'Keyboard shortcuts', run: () => toggleSheet('shortcuts') },
 ];
 
-/** Esc order: close an open popover; else close an overlay-mode sidebar (table-shell-redesign
- *  — narrow viewport only, where the sidebar floats over the map behind a scrim and behaves
- *  like a modal); else close the drawer; else clear an on-map selection (door, then token);
- *  else disarm the active tool. One listener owns the whole thing (M3 review finding 12) —
- *  neither on-map menu keeps its own window Escape handler anymore, so a single press never
- *  does two of these at once (close the popover *and* drop the selection it was showing). The
- *  drawer sits between the popover and the selections (finding 18): it has its own `Escape`
- *  guarantee too (`Popover`'s dialog gets one; the drawer is not a dialog, so this listener is
- *  the only thing that closes it on Esc). An inset-mode sidebar is not modal — Esc leaves it
- *  open there, same as it leaves any other docked panel alone. */
-function onEscape(): void {
-  const shell = useShell.getState();
-  if (shell.openPanel) {
-    shell.closePanel();
-    return;
-  }
-  if (shell.sidebarOpen && isOverlayViewport()) {
-    shell.setSidebar(false);
-    return;
-  }
-  if (shell.drawerOpen) {
-    shell.setDrawer(false);
-    return;
-  }
+/** Keys the camera answers itself (`renderer/cameraInput.ts`), listed for the sheet only. */
+export const CAMERA_KEYS: readonly { key: string; label: string }[] = [
+  { key: '+', label: 'Zoom in' },
+  { key: '-', label: 'Zoom out' },
+  { key: '0', label: 'Fit the map' },
+];
+
+/**
+ * Esc, one step per press: the armed tool back to Select, then the on-map card, the sheet,
+ * the dock body, and last the selection (door, light, token, combat row).
+ */
+export function onEscape(): void {
+  // An armed tool goes first: Esc while drawing a fog rectangle means "stop drawing", not
+  // "fold the dock I am drawing from".
+  const tools = useActiveTool.getState();
+  if (tools.activeTool) return tools.setActiveTool(null);
+  const shell = useTableShell.getState();
+  if (shell.card) return shell.closeCard();
+  if (openSheetNow()) return closeSheet();
+  if (shell.dockTab) return shell.foldDock();
   const doors = useDoorSelection.getState();
-  if (doors.selectedId) {
-    doors.select(null);
-    return;
-  }
+  if (doors.selectedId) return doors.select(null);
+  const lights = useLightSelection.getState();
+  if (lights.selectedId) return lights.select(null);
   const tokens = useTokenInteraction.getState();
-  if (tokens.selectedId) {
-    tokens.select(null);
-    return;
-  }
-  useActiveTool.getState().setActiveTool(null);
+  if (tokens.selectedId) return tokens.select(null);
+  const combat = useInitiativeSelection.getState();
+  if (combat.selectedKey) combat.select(null);
 }
 
 function onKeyDown(e: KeyboardEvent): void {
   if (e.defaultPrevented) return;
 
-  // Escape always gets through — the old tool-escape guarantee had no typing guard either,
-  // and "get me out of this" should work with focus sitting in a text field.
+  // Escape always gets through, focus in a text field included: "get me out of this".
   if (e.key === 'Escape') {
     e.preventDefault();
     onEscape();
@@ -123,49 +138,52 @@ function onKeyDown(e: KeyboardEvent): void {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (isTyping(e.target)) return;
 
+  const role = roleNow();
+  if (!role) return;
   const key = e.key.toLowerCase();
+  // `?` arrives with Shift held on most layouts; it is its own key here.
+  const shift = e.shiftKey && key !== '?';
 
-  if (e.shiftKey) {
-    const binding = BINDINGS.find((b) => b.shift && b.key === key);
-    if (binding) {
-      e.preventDefault();
-      binding.run();
-    }
-    return; // every other Shift+letter combo is reserved, not consumed
-  }
-
-  const binding = BINDINGS.find((b) => !b.shift && b.key === key);
+  const binding = BINDINGS.find((b) => b.key === key && !!b.shift === shift && b.roles.includes(role));
   if (binding) {
     e.preventDefault();
     binding.run();
     return;
   }
+  if (shift) return; // every other Shift combination is reserved, not consumed
 
-  const role = useSessionStore.getState().you?.role;
-  const panel = panelsForRole(role).find((p) => p.key && p.key.toLowerCase() === key);
-  if (panel) {
+  const tool = railToolsFor(role).find((t) => t.key.toLowerCase() === key);
+  if (tool) {
     e.preventDefault();
-    if (panel.group === 'log') useShell.getState().toggleDrawer();
-    else useShell.getState().togglePanel(panel.id);
+    pickRailTool(tool.id);
+    return;
+  }
+
+  if (role === 'dm') {
+    const tab = dockTabs().find((t) => t.key === key);
+    if (tab) {
+      e.preventDefault();
+      useTableShell.getState().pickDockTab(tab.id);
+    }
   }
 }
 
 /**
- * Every key this shell answers to, per role, and who claims it. `onKeyDown` resolves a press
- * in this order — fixed binding first, then the role's panels in registry order — so a second
- * claim on a letter is not an error anywhere, it is simply never reached. That is how the Log
- * lost `L` to the Lights panel for a whole release: both registered it, Lights sorts first,
- * and nothing said a word. Exported for the collision test.
+ * Every key this shell answers to for a role, and who claims it: the fixed bindings, then the
+ * rail tools, then (DM) the dock tabs, then the camera's own keys. `onKeyDown` resolves a press
+ * in that order, so a second claim on a key is simply never reached. Exported for the
+ * collision test.
  */
 export function keyClaims(role: Role): Map<string, string[]> {
   const claims = new Map<string, string[]>();
   const claim = (key: string, by: string): void => {
-    if (!key) return;
     const k = key.toLowerCase();
     claims.set(k, [...(claims.get(k) ?? []), by]);
   };
-  for (const b of BINDINGS) claim(b.shift ? `shift+${b.key}` : b.key, `shell:${b.key}`);
-  for (const p of panelsForRole(role)) claim(p.key, `panel:${p.id}`);
+  for (const b of BINDINGS) if (b.roles.includes(role)) claim(b.shift ? `shift+${b.key}` : b.key, `shell:${b.label}`);
+  for (const t of railToolsFor(role)) claim(t.key, `rail:${t.id}`);
+  if (role === 'dm') for (const t of dockTabs()) claim(t.key, `dock:${t.id}`);
+  for (const k of CAMERA_KEYS) claim(k.key, `camera:${k.label}`);
   return claims;
 }
 
@@ -174,9 +192,7 @@ function assertNoKeyCollisions(): void {
   for (const role of ['dm', 'player'] as const) {
     for (const [key, by] of keyClaims(role)) {
       if (by.length > 1) {
-        console.error(
-          `[hotkeys] '${key}' is claimed by ${by.join(' and ')} for a ${role} — only ${by[0]} will ever run it.`,
-        );
+        console.error(`[hotkeys] '${key}' is claimed by ${by.join(' and ')} for a ${role}: only ${by[0]} will ever run it.`);
       }
     }
   }

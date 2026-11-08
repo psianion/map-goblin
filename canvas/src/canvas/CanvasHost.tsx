@@ -36,7 +36,7 @@ import { mountLightOverlay } from '@/canvas/lightOverlay';
 import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
 import { setRoomHighlightEnabled } from '@dnd/core/src/engine/roomHighlight';
 import { useStore } from '@/store/store';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { ensureBundledPack } from '@/engine/firstBootInstall';
 import { buildMergedManifest } from '@/engine/manifestBridge';

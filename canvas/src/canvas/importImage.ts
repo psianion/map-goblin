@@ -7,7 +7,7 @@
  */
 
 import { Assets } from 'pixi.js';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { AddChildCommand } from '@/store/commands';

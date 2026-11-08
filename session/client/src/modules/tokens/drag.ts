@@ -62,24 +62,56 @@ interface TokenInteraction {
    * it; it only ever chooses what the DM's fog layer draws (`fogScene`).
    */
   previewSight: boolean;
+  /**
+   * Table v2 — every selected token, `selectedId` last. Shift+click adds or removes one;
+   * two or more open the group card. A plain `select` resets it to the one (or none).
+   */
+  selectedIds: string[];
+  /** The token under the pointer, for `nameplate: 'hover'`. */
+  hoveredId: string | null;
+  /** The next placement lands hidden (Alt held on the drop, or the Tokens tab's arm). */
+  placeHidden: boolean;
   select: (id: string | null) => void;
-  setPlacing: (defId: string | null) => void;
+  /** Shift+click: add the token to the selection, or take it out if it is in. */
+  toggleSelected: (id: string) => void;
+  selectMany: (ids: string[]) => void;
+  setHovered: (id: string | null) => void;
+  setPlacing: (defId: string | null, hidden?: boolean) => void;
   setDraggingId: (id: string | null) => void;
   setPreviewSight: (on: boolean) => void;
 }
 
 // ponytail: a zustand store instead of React context — the Pixi layer is outside
 // React and needs the same values, and zustand is already a dependency.
-export const useTokenInteraction = create<TokenInteraction>()((set) => ({
+export const useTokenInteraction = create<TokenInteraction>()((set, get) => ({
   selectedId: null,
   placingDefId: null,
   draggingId: null,
   previewSight: false,
-  select: (selectedId) => set({ selectedId }),
-  setPlacing: (placingDefId) => set({ placingDefId }),
+  selectedIds: [],
+  hoveredId: null,
+  placeHidden: false,
+  select: (selectedId) => set({ selectedId, selectedIds: selectedId ? [selectedId] : [] }),
+  toggleSelected: (id) => {
+    const had = get().selectedIds;
+    const selectedIds = had.includes(id) ? had.filter((x) => x !== id) : [...had, id];
+    set({ selectedIds, selectedId: selectedIds.at(-1) ?? null });
+  },
+  selectMany: (ids) => set({ selectedIds: ids, selectedId: ids.at(-1) ?? null }),
+  setHovered: (hoveredId) => {
+    if (get().hoveredId !== hoveredId) set({ hoveredId });
+  },
+  setPlacing: (placingDefId, hidden = false) => set({ placingDefId, placeHidden: placingDefId ? hidden : false }),
   setDraggingId: (draggingId) => set({ draggingId }),
   setPreviewSight: (previewSight) => set({ previewSight }),
 }));
+
+/** The drag type a library tile carries onto the map (board 12: drag a tile to place it). */
+export const TOKEN_DEF_DRAG = 'application/x-gg-token-def';
+
+/** Where the pointer last crossed the map, in world units — Gather party's "the cursor". */
+let lastPoint: { x: number; y: number } | null = null;
+export const lastMapPoint = (): { x: number; y: number } | null => lastPoint;
 
 /** D9: ~10 Hz while the pointer is down. */
 export const MOVE_INTERVAL_MS = 100;
@@ -263,10 +295,11 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // click, and token input stands down rather than racing it.
     if (e.button !== 0 || isToolActive()) return;
     const { x, y } = worldOf(e);
-    const { placingDefId, setPlacing, select } = useTokenInteraction.getState();
+    const { placingDefId, placeHidden, setPlacing, select, toggleSelected } = useTokenInteraction.getState();
 
     if (placingDefId) {
-      send('place', { defId: placingDefId, x, y }); // the server snaps and mints the id
+      // The server snaps and mints the id. Alt on the click places hidden, as Alt on a drop does.
+      send('place', { defId: placingDefId, x, y, ...(placeHidden || e.altKey ? { hidden: true } : {}) });
       setPlacing(null);
       claim(e);
       return;
@@ -274,8 +307,14 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
 
     const token = hitTest(layer.tokens(), x, y);
     if (!token) {
-      select(null);
+      if (!e.shiftKey) select(null);
       return; // empty map: let the pan handler have the gesture
+    }
+    // Shift+click builds a group selection (the group card) and never starts a drag.
+    if (e.shiftKey) {
+      toggleSelected(token.id);
+      claim(e);
+      return;
     }
     select(token.id);
     claim(e);
@@ -297,7 +336,15 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   };
 
   const onMove = (e: PointerEvent) => {
-    if (!drag) return;
+    if (!drag) {
+      // Hover only feeds `nameplate: 'hover'`; a plain read, never a claim on the gesture.
+      if (e.buttons === 0) {
+        const { x, y } = worldOf(e);
+        lastPoint = { x, y };
+        useTokenInteraction.getState().setHovered(hitTest(layer.tokens(), x, y)?.id ?? null);
+      }
+      return;
+    }
     claim(e);
     const world = worldOf(e);
     // Snapped with the server's own function, so the optimistic sprite lands exactly
@@ -350,11 +397,32 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
 
+  // Table v2 (board 12) — a library tile dragged onto the map places its def where it drops;
+  // Alt on the drop places it hidden. DM only: `place` is the DM's command anyway.
+  const carriesDef = (e: DragEvent): boolean => !!e.dataTransfer?.types.includes(TOKEN_DEF_DRAG);
+  const onDragOver = (e: DragEvent) => {
+    if (!carriesDef(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (e: DragEvent) => {
+    const defId = e.dataTransfer?.getData(TOKEN_DEF_DRAG);
+    if (!defId) return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const { x, y } = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    send('place', { defId, x, y, ...(e.altKey ? { hidden: true } : {}) });
+  };
+
   canvas.addEventListener('pointerdown', onDown, true);
   canvas.addEventListener('pointermove', onMove, true);
   canvas.addEventListener('pointerup', onUp, true);
   canvas.addEventListener('pointercancel', onUp, true);
+  canvas.addEventListener('dragover', onDragOver);
+  canvas.addEventListener('drop', onDrop);
   return () => {
+    canvas.removeEventListener('dragover', onDragOver);
+    canvas.removeEventListener('drop', onDrop);
     unsubscribe();
     canvas.removeEventListener('pointerdown', onDown, true);
     canvas.removeEventListener('pointermove', onMove, true);

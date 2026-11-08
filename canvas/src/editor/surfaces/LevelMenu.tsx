@@ -12,7 +12,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from '@/ui/dropdown-menu';
+} from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { RenameLevelCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';

@@ -95,6 +95,9 @@ function asClientMessage(value: unknown): ClientMessage | null {
         : null
     case 'ping':
       return typeof msg.t === 'number' ? (msg as unknown as ClientMessage) : null
+    // The mark itself is rebuilt field by field in ws/marks.ts; this only checks the envelope.
+    case 'mark':
+      return typeof msg.mark === 'object' && msg.mark !== null ? (msg as unknown as ClientMessage) : null
     default:
       return null
   }

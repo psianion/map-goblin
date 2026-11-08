@@ -14,7 +14,7 @@ import { propField } from '../shared/propFields';
 import { belowWaterTint, type WaterBody } from '../shared/waterMask';
 import type { Obb } from './tools/propPlacement';
 import { gridDivision, gridImages, syncImageGrid } from './imageGridRenderer';
-import { getEditorDesk } from './editorDesk';
+import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 
 /** Overhead props while the DM looks under them (`ui.seeUnderOverhead`). */
 export const SEE_UNDER_ALPHA = 0.35;
@@ -241,8 +241,8 @@ export function subscribeToAssets(): () => void {
                 seeUnder: state.ui.seeUnderOverhead,
                 assets: l.children.filter((c): c is AssetChild => c.childType === 'asset'),
                 gridColor: l.style?.wallColor,
-                // The table shows whole cells; the editor adds the snap step.
-                gridDivision: getEditorDesk() ? gridDivision(state.grid) : 1,
+                // Whole cells; the editor adds the snap step (the table's desk turns it off).
+                gridDivision: deskSubdividesGrid(getEditorDesk()) ? gridDivision(state.grid) : 1,
                 waters: watersUnder(state.layers, index),
               },
             ]

@@ -10,6 +10,7 @@ import { subscribeToTextLabels } from '@dnd/core/src/engine/subscribeToTextLabel
 import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { listenDprChanges } from '@dnd/core/src/engine/camera';
+import { setEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { LightManager } from '@dnd/core/src/engine/lighting';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
@@ -24,6 +25,7 @@ import { syncDoorsToLighting } from '../modules/doors/doorLighting';
 import { syncLightsToScene } from '../modules/triggers/lightSync';
 import { syncWorldToScene } from '../modules/world/worldSync';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
+import { installTableDesk } from './desk';
 
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
 // live in @dnd/core — the `?url` import is a Vite-bundler feature and core is
@@ -172,6 +174,8 @@ export function GameRenderer() {
   // P2/P3a — and the clock the engine composes its grade and its sun at: the campaign's, not
   // the map's own. The render loop is the only writer of either; this just states the hour.
   useEffect(() => syncWorldToScene(), []);
+  // The v2 desk around the map, in the theme's colours and dot grid; never the black void.
+  useEffect(() => installTableDesk(setEditorDesk), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {
@@ -276,11 +280,12 @@ export function GameRenderer() {
               : null;
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-surface-0">
-      <div ref={containerRef} className="h-full w-full touch-none" data-testid="game-canvas" />
+    <div className="relative h-full w-full overflow-hidden bg-bg">
+      {/* Hidden until the engine is up: Pixi clears to black before the desk is installed. */}
+      <div ref={containerRef} className={`h-full w-full touch-none ${engine ? "" : "opacity-0"}`} data-testid="game-canvas" />
       {status && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <p className="rounded-md bg-surface-1/80 px-4 py-2 text-sm text-text-secondary">
+          <p className="rounded-float border border-line bg-panel px-4 py-2 text-sm text-text-2 shadow-e">
             {status}
           </p>
         </div>

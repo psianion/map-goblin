@@ -7,7 +7,7 @@ import { selectLayerForChild } from '@/store/selectors';
 import { isOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
 import { DOOR_ANGLE_STEP } from '@dnd/core/src/engine/tools/DoorTool';
 import { type DoorKitId } from '@dnd/core/src/assets/doorKits';
-import { InputRow, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
+import { InputRow, SelectRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { DOOR_WIDTH_STEP, doorMaterialOptions, doorModel, doorWidthValue } from '@/editor/models/selectionModel';
 import { doorHost, installedDoorKits } from './doorModel';

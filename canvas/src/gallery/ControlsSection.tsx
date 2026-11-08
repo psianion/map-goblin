@@ -1,9 +1,18 @@
 import { useState } from 'react';
-import { Seg, SliderRow, Stepper, Swatch } from '@/editor/components';
-import { Input } from '@/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select';
-import { Slider } from '@/ui/slider';
-import { Switch } from '@/ui/switch';
+import {
+  Seg,
+  SliderRow,
+  Stepper,
+  Swatch,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Slider,
+  Switch,
+} from '@dnd/ui';
 import { FOCUS, Item, Section, Specimens, type GalleryTheme } from './parts';
 
 const EDGES = [

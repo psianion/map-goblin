@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Minimize2 } from 'lucide-react';
-import { SecondaryButton } from '@/editor/components';
+import { SecondaryButton } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { registry as defaultRegistry, type Registry } from '@/editor/registry';
 import type { EditorChromeProps } from '@/editor/EditorHost';

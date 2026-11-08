@@ -6,10 +6,19 @@ import { Eclipse, Flame, FlameKindling, Lamp, LampWallUp, Sparkles, SunMoon, typ
 import { HexColorPicker } from 'react-colorful';
 import { useStore } from '@/store/store';
 import { LIGHT_PRESETS, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
-import { DockColumn, SecondaryButton, SettingRow, Stepper, Swatch, Tile } from '@/editor/components';
-import { Input } from '@/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
-import { Slider } from '@/ui/slider';
+import {
+  DockColumn,
+  SecondaryButton,
+  SettingRow,
+  Stepper,
+  Swatch,
+  Tile,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Slider,
+} from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { useShell } from '@/editor/shell/shellStore';
 import { LIGHT_RADIUS_FT, toFt } from './lightModel';

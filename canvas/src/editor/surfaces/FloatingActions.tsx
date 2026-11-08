@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FloatBox } from '@/editor/components';
+import { FloatBox } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import { selectChildById, selectWallById } from '@/store/selectors';
 import type { AnyChild } from '@/store/types';

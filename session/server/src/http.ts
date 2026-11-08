@@ -11,12 +11,18 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isIP, type Socket } from 'node:net'
 import {
+  DM_TOKEN_TTL_MS,
   isAdminPass,
   issueToken,
   resolveInviteCode,
   startSession,
   verifyToken,
 } from './auth'
+import { createHandoffStore, type HandoffStore } from './handoff'
+import { writeCampaignExport } from './export'
+import { slug, type Mirror } from './mirror'
+import { fillTokenDefaults, reattachPc, spawnParty } from './party'
+import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
   MAX_MAP_BYTES,
@@ -49,6 +55,8 @@ export interface HttpDeps {
   triggerDeps: Pick<TriggerDeps, 'prepOf'>
   /** Whether a socket arrived on the trusted listener — see `clientAddress`. */
   trusted: (socket: Socket) => boolean
+  /** Decision 14 — each scene's .ggvtt on disk. Absent or null, nothing is mirrored. */
+  mirror?: Mirror | null
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -58,7 +66,7 @@ const JSON_BODY_LIMIT = 64 * 1024
 const MISSES = 10
 const MISS_WINDOW_MS = 60_000
 
-type RouteDeps = HttpDeps & { budgets: Budgets }
+type RouteDeps = HttpDeps & { budgets: Budgets; handoffs: HandoffStore }
 
 export function createRequestHandler(deps: HttpDeps) {
   // Per handler, not per module: the test suite runs several servers in one process and
@@ -68,13 +76,26 @@ export function createRequestHandler(deps: HttpDeps) {
     admin: createBudget('admin', MISSES, MISS_WINDOW_MS),
     waitlist: createBudget('waitlist', MISSES, MISS_WINDOW_MS),
   }
+  // Per handler for the same reason, and in memory on purpose: a code lives for a minute.
+  const handoffs = createHandoffStore()
+  // A server makes its handler once, at boot, so this is the startup pass: map rows no
+  // scene points at go, then every scene gets its file and no gone scene keeps one.
+  const swept = deps.stores.maps.deleteUnreferenced()
+  if (swept > 0) console.log(`maps: removed ${swept} map rows no scene uses`)
+  const filled = fillTokenDefaults(deps.stores)
+  if (filled > 0) console.log(`tokens: filled table v2 defaults for ${filled} campaigns`)
+  const mirror = deps.mirror ?? null
+  const synced = mirror?.sync()
+  if (synced && synced.written + synced.removed > 0) {
+    console.log(`mirror: wrote ${synced.written}, removed ${synced.removed} under ${mirror!.root}`)
+  }
   return (req: IncomingMessage, res: ServerResponse): void => {
     cors(res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
       return
     }
-    route({ ...deps, budgets }, req, res).catch((error: unknown) => {
+    route({ ...deps, mirror, budgets, handoffs }, req, res).catch((error: unknown) => {
       console.error('request failed:', error)
       if (!res.headersSent) json(res, 500, { error: 'internal error' })
       else res.end()
@@ -91,8 +112,15 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
 
   if (method === 'GET' && resource === 'campaigns' && !id) return listCampaigns(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
-  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token')
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token' && sub2 === 'refresh')
+    return refreshDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token' && !sub2)
     return mintDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'handoff' && !sub2)
+    return mintHandoff(deps, req, res, id)
+  if (method === 'POST' && resource === 'handoff' && id === 'redeem' && !sub) return redeemHandoff(deps, req, res)
+  if (method === 'GET' && resource === 'campaigns' && id && sub === 'export' && !sub2)
+    return exportCampaign(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'service-token')
     return mintServiceToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
@@ -193,6 +221,86 @@ function mintDmToken(
   })
 }
 
+/**
+ * POST /api/campaigns/:id/dm-token/refresh — a live DM token in, a fresh one out (decision
+ * 12). Both apps call it when the token they hold has under a week left, so a DM who plays
+ * at all keeps their seat without the admin pass.
+ */
+function refreshDmToken(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+  const token = issueToken(deps.hmacSecret, dm.id, campaignId, 'dm')
+  json(res, 200, { token, campaignId, exp: verifyToken(deps.hmacSecret, token)?.exp })
+}
+
+/** Where players and the DM reach the table; the bot's invite links read the same setting. */
+function publicTableUrl(): string | null {
+  const url = process.env.PUBLIC_TABLE_URL?.trim()
+  return url ? url.replace(/\/+$/, '') : null
+}
+
+/**
+ * POST /api/campaigns/:id/handoff — DM token in, a single-use code and the table link that
+ * carries it out (decision 13). The code rides in the fragment, which no server log sees.
+ */
+function mintHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+  const base = publicTableUrl()
+  if (!base) return json(res, 503, { error: 'This table server has no PUBLIC_TABLE_URL set, so it cannot say where the table is.' })
+  const code = deps.handoffs.mint(campaignId, dm.id)
+  json(res, 200, { code, tableUrl: `${base}/host#handoff=${code}` })
+}
+
+/**
+ * POST /api/handoff/redeem — public; `{code}` in, the campaign and a fresh DM token out. A
+ * code answers once. Unknown, used and expired codes all spend a miss, like a wrong invite.
+ */
+async function redeemHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (overBudget(deps, req, res, deps.budgets.invite, 'handoff')) return
+  const body = await readJson(req, res)
+  if (!body) return
+  const code = text(body.code)
+  if (!code) return json(res, 400, { error: 'code is required' })
+
+  const handoff = deps.handoffs.redeem(code)
+  const dm = handoff ? deps.stores.identities.get(handoff.identityId) : undefined
+  const campaign = handoff ? deps.stores.campaigns.get(handoff.campaignId) : undefined
+  if (!handoff || !dm || dm.banned === 1 || dm.role !== 'dm' || !campaign) {
+    miss(deps, req, deps.budgets.invite, 'handoff')
+    return json(res, 404, { error: 'that link has expired; open the table from the canvas again' })
+  }
+  json(res, 200, {
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    token: issueToken(deps.hmacSecret, dm.id, campaign.id, 'dm'),
+  })
+}
+
+/**
+ * GET /api/campaigns/:id/export — DM token in, the whole campaign out as one zip (decision
+ * 14): every scene's .ggvtt, every module's state, every asset and a manifest. Streamed, so
+ * a campaign of large maps is never held in memory twice. Import is a later version.
+ */
+function exportCampaign(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const campaign = deps.stores.campaigns.get(campaignId)
+  if (!campaign) return json(res, 404, { error: 'no such campaign' })
+  res.writeHead(200, {
+    'content-type': 'application/zip',
+    'content-disposition': `attachment; filename="${slug(campaign.name, 'campaign')}-export.zip"`,
+    'cache-control': 'no-store',
+  })
+  writeCampaignExport(deps.stores, campaign, PROTOCOL_VERSION, {
+    write: (chunk) => res.write(chunk),
+    end: () => res.end(),
+    fail: (error) => {
+      console.error('export failed:', error)
+      res.destroy(error)
+    },
+  })
+}
+
 /** The Discord bot's seat at a campaign. Named, so a second mint reuses it rather than
  * leaving a new permanent credential behind on every call. */
 const SERVICE_IDENTITY_NAME = 'Goblin Bot'
@@ -229,7 +337,7 @@ async function mintServiceToken(
       .find((i) => i.name === SERVICE_IDENTITY_NAME && i.role === role && i.banned === 0) ??
     deps.stores.identities.mint(randomUUID(), campaignId, SERVICE_IDENTITY_NAME, role)
   json(res, 200, {
-    token: issueToken(deps.hmacSecret, bot.id, campaignId, role),
+    token: issueToken(deps.hmacSecret, bot.id, campaignId, role, undefined, DM_TOKEN_TTL_MS),
     campaignId,
     role,
     name: SERVICE_IDENTITY_NAME,
@@ -263,7 +371,7 @@ async function uploadMap(
   // Unpacked against the unpacked cap: a map with imported art gzips to well under the wire
   // limit and still expands past it (see MAX_MAP_JSON_BYTES).
   const text = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
-  if (text === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+  if (text === null) return json(res, 400, { error: 'could not read that .ggvtt file' })
 
   const map = parseMapFile(text)
   if (!map.ok) return json(res, 400, { error: map.error })
@@ -279,6 +387,7 @@ async function uploadMap(
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, stored)
   const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name, storablePrep(prep))
   deps.stores.campaigns.touch(campaignId)
+  deps.mirror?.writeScene(scene.id)
   deps.sessionManager.refreshScenes(campaignId)
   json(res, 201, {
     mapId: row.id,
@@ -385,6 +494,8 @@ async function patchScene(
     deps.stores.scenes.setVisibleToPlayers(sceneId, body.visibleToPlayers)
   }
   const updated = deps.stores.scenes.get(sceneId)!
+  // A rename moves the scene's file to its new name.
+  if (updated.name !== scene.name) deps.mirror?.writeScene(sceneId)
   deps.sessionManager.refreshScenes(scene.campaign_id)
   json(res, 200, {
     id: updated.id,
@@ -417,7 +528,7 @@ async function publishScene(
   if (!body.ok) return failBody(req, res, body)
 
   const raw = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
-  if (raw === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+  if (raw === null) return json(res, 400, { error: 'could not read that .ggvtt file' })
   const map = parseMapFile(raw)
   if (!map.ok) return json(res, 400, { error: map.error })
 
@@ -436,6 +547,8 @@ async function publishScene(
     lineage || map.migrated ? JSON.stringify(map.data) : raw,
   )
   deps.stores.scenes.republish(sceneId, row.id)
+  // The row the scene used to render is nobody's now: one map row per scene, always.
+  deps.stores.maps.delete(scene.map_id)
   // M3 — `prep` absent means the author never opened prep in this save, so whatever is
   // already stored survives untouched; an explicit prep (including an emptied-out one)
   // overwrites it. Canvas's own serialization is what makes "absent" and "empty" distinct.
@@ -449,6 +562,7 @@ async function publishScene(
   // the player's own map GET with the scene's old geometry until something else evicted it.
   deps.vision.invalidateScene(sceneId)
   deps.stores.campaigns.touch(scene.campaign_id)
+  deps.mirror?.writeScene(sceneId)
   // The re-published map is live state for anyone at the table — `changedSceneId` is what
   // tells a session playing this scene to drop its map and refetch (see refreshScenes).
   deps.sessionManager.refreshScenes(scene.campaign_id, sceneId)
@@ -501,6 +615,11 @@ function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, 
   if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
 
   deps.stores.scenes.delete(sceneId)
+  // Everything that was only this scene's goes with it: its map row, its file on disk and
+  // its slice of every module's state. Campaign assets stay; another scene may use them.
+  deps.stores.maps.delete(scene.map_id)
+  deps.mirror?.removeScene(scene.campaign_id, sceneId)
+  deps.modules.forgetScene(scene.campaign_id, sceneId)
   // A session that had this scene active does not keep pointing at a scene that no longer
   // exists — `scenesModule`/`sceneMapOf` would both refuse it anyway, but a live table is
   // better told than left silently stuck.
@@ -620,7 +739,8 @@ async function uploadAsset(
   res: ServerResponse,
   campaignId: string,
 ): Promise<void> {
-  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  // Decision 16: a player uploads their own PC's art, so any seat at the campaign may.
+  if (!requireSession(deps, req, res, { campaignId })) return
 
   const body = await readBody(req, MAX_ASSET_BYTES)
   if (!body.ok) return failBody(req, res, body)
@@ -898,6 +1018,11 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
     name.slice(0, 64),
     'player',
   )
+  // A returning player gets their PC back by name (see `reattachPc`); the seats already at
+  // the table are re-sent the state that shows it.
+  if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name)) {
+    deps.sessionManager.refreshScenes(session.campaign_id)
+  }
   json(res, 200, {
     identityId: identity.id,
     campaignId: session.campaign_id,
@@ -974,6 +1099,31 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       sender: { role: 'dm', identityId: dm.id },
       players: [],
       broadcast: () => {},
+    })
+    // On a map with several levels the table opens on the starting room's: every seat without
+    // a pick of its own looks there, and the party stands there.
+    const map = deps.vision.sceneMapOf(start.sceneId)?.data
+    const levels = map?.levels ?? []
+    const layer = map?.layers.find((l) => l.type === 'dungeon' && (l.rooms ?? []).some((r) => r.id === start!.roomId))
+    const levelId = levels.length > 1 && layer && levels.some((l) => l.id === layer.levelId) ? layer.levelId : undefined
+    if (levelId) {
+      deps.modules.dispatch('triggers', 'set-start-level', { sceneId: start.sceneId, levelId }, {
+        campaignId,
+        sessionId: session.id,
+        activeSceneId: start.sceneId,
+        sender: { role: 'dm', identityId: dm.id },
+        players: [],
+        broadcast: () => {},
+      })
+    }
+    // Decision 16: the party stands in the starting room before anyone is in the door.
+    spawnParty(deps.modules, deps.vision, {
+      campaignId,
+      sessionId: session.id,
+      sceneId: start.sceneId,
+      roomId: start.roomId,
+      dmId: dm.id,
+      levelId,
     })
   }
 

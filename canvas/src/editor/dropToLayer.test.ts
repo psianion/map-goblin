@@ -3,10 +3,10 @@ import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { undoManager } from '@/store/undoManager';
 import type { AnyChild, DungeonLayer } from '@/store/types';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { currentDropTarget, mountDropToLayer, tileLayerAt, type MoveHooks } from './dropToLayer';
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: { action: vi.fn(), subtle: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 

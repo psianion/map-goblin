@@ -51,6 +51,10 @@ export interface SessionRow {
   /** SQLite boolean: 1 while the session is live, 0 once ended. */
   active: number
   created_at: number
+  /** SQLite boolean (migration 006): the DM has paused the table. */
+  paused: number
+  /** SQLite boolean (migration 006): players may not move their tokens. */
+  movement_locked: number
 }
 
 export interface Identity {
@@ -110,8 +114,12 @@ export class MapStore {
   readonly #insert
   readonly #get
   readonly #list
+  readonly #delete
+  readonly #db
 
   constructor(db: Database) {
+    this.#db = db
+    this.#delete = db.prepare<[string]>('DELETE FROM maps WHERE id = ?')
     this.#insert = db.prepare<[string, string, string, string, number, number]>(
       'INSERT INTO maps (id, campaign_id, name, data, size_bytes, imported_at) VALUES (?, ?, ?, ?, ?, ?)',
     )
@@ -147,6 +155,18 @@ export class MapStore {
   /** Metadata only — fetch the payload with {@link get} when a client actually renders it. */
   listByCampaign(campaignId: string): MapMeta[] {
     return this.#list.all(campaignId)
+  }
+
+  /** A map row no scene points at any more: the one a republish replaced, or a deleted scene's. */
+  delete(id: string): void {
+    this.#delete.run(id)
+  }
+
+  /** The startup sweep: every row no scene references. Returns how many went. */
+  deleteUnreferenced(): number {
+    // Prepared here, not in the constructor: a store can be opened on a database that
+    // predates the scenes table (the migration tests do).
+    return this.#db.prepare('DELETE FROM maps WHERE id NOT IN (SELECT map_id FROM scenes)').run().changes
   }
 }
 
@@ -318,6 +338,8 @@ export class SessionStore {
       active_scene_id: null,
       active: 1,
       created_at: Date.now(),
+      paused: 0,
+      movement_locked: 0,
     }
     this.#db.transaction(() => {
       this.#endCampaign.run(campaignId)
@@ -342,6 +364,13 @@ export class SessionStore {
 
   setActiveScene(sessionId: string, sceneId: string | null): void {
     this.#setScene.run(sceneId, sessionId)
+  }
+
+  /** Table v2 — the DM's pause and movement lock (migration 006), written by the `table` module. */
+  setTableFlags(sessionId: string, flags: { paused: boolean; movementLocked: boolean }): void {
+    this.#db
+      .prepare<[number, number, string]>('UPDATE sessions SET paused = ?, movement_locked = ? WHERE id = ?')
+      .run(flags.paused ? 1 : 0, flags.movementLocked ? 1 : 0, sessionId)
   }
 
   /** #47 — a deleted scene stops being anyone's active one, in whatever session had it. */
@@ -455,8 +484,10 @@ export interface AssetRow {
 export class AssetStore {
   readonly #insert
   readonly #get
+  readonly #list
 
   constructor(db: Database) {
+    this.#list = db.prepare<[string], AssetRow>('SELECT * FROM assets WHERE campaign_id = ? ORDER BY created_at')
     this.#insert = db.prepare<[string, string, string, Buffer, number, number]>(
       'INSERT INTO assets (id, campaign_id, mime, bytes, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     )
@@ -480,6 +511,11 @@ export class AssetStore {
   get(id: string): AssetRow | undefined {
     return this.#get.get(id)
   }
+
+  /** Every asset a campaign holds, bytes included — the campaign export reads them all. */
+  listByCampaign(campaignId: string): AssetRow[] {
+    return this.#list.all(campaignId)
+  }
 }
 
 /**
@@ -490,9 +526,13 @@ export class AssetStore {
 export class ModuleStateStore {
   readonly #get
   readonly #put
+  readonly #list
   #revision = 0
 
   constructor(db: Database) {
+    this.#list = db.prepare<[string], { module: string; state: string }>(
+      'SELECT module, state FROM module_state WHERE campaign_id = ? ORDER BY module',
+    )
     this.#get = db.prepare<[string, string], { state: string }>(
       'SELECT state FROM module_state WHERE campaign_id = ? AND module = ?',
     )
@@ -511,6 +551,11 @@ export class ModuleStateStore {
   put(campaignId: string, moduleId: string, state: unknown): void {
     this.#put.run(campaignId, moduleId, JSON.stringify(state))
     this.#revision++
+  }
+
+  /** Every module's slice for a campaign, by module name — the campaign export's state.json. */
+  listByCampaign(campaignId: string): Record<string, unknown> {
+    return Object.fromEntries(this.#list.all(campaignId).map((row) => [row.module, JSON.parse(row.state)]))
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: {
     subtle: vi.fn(),
     error: vi.fn(),

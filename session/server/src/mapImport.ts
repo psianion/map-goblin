@@ -68,7 +68,7 @@ export function parseMapFile(text: string): MapFileResult {
     data = migrateToLatest(map.data)
   } catch {
     // The envelope passed, but a layer inside it is not one the migration can read.
-    return { ok: false, error: 'could not migrate that .mapbuilder file' }
+    return { ok: false, error: 'could not migrate that .ggvtt file' }
   }
   const migrated =
     data.version !== map.data.version ||
@@ -78,11 +78,11 @@ export function parseMapFile(text: string): MapFileResult {
 }
 
 export function validateMapData(value: unknown): MapImportResult {
-  if (!isRecord(value)) return { ok: false, error: 'expected a .mapbuilder object' }
+  if (!isRecord(value)) return { ok: false, error: 'expected a .ggvtt object' }
 
   const { version, mapSettings, grid, layers } = value
   if (typeof version !== 'string' || !SUPPORTED_VERSIONS.includes(version as SerializedMapData['version'])) {
-    return { ok: false, error: `unsupported .mapbuilder version: ${JSON.stringify(version)}` }
+    return { ok: false, error: `unsupported .ggvtt version: ${JSON.stringify(version)}` }
   }
   if (!isRecord(mapSettings)) return { ok: false, error: 'mapSettings must be an object' }
   if (!isRecord(grid)) return { ok: false, error: 'grid must be an object' }

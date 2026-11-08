@@ -4,7 +4,7 @@ const { readPictureFile } = vi.hoisted(() => ({
   readPictureFile: vi.fn(async (_file: File) => ({ assetId: 'night', imageSource: { fileName: 'crypt-night.png', width: 5040, height: 3360 } })),
 }));
 vi.mock('@/canvas/importImage', () => ({ readPictureFile }));
-vi.mock('@/lib/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), subtle: vi.fn() } }));
+vi.mock('@dnd/ui/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), subtle: vi.fn() } }));
 
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';

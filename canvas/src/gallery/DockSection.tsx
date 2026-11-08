@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, Hexagon, Pentagon, Plus, Square } from 'lucide-react';
-import { AddTile, DockColumn, FloatBox, IconKeyButton, LevelList, Stepper, Tile } from '@/editor/components';
+import { AddTile, DockColumn, FloatBox, IconKeyButton, LevelList, Stepper, Tile } from '@dnd/ui';
 import { Section, type GalleryTheme } from './parts';
 
 const LEVELS = [

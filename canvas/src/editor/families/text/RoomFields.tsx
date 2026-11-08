@@ -8,7 +8,7 @@ import { useStore } from '@/store/store';
 import type { MapBuilderStore } from '@/store/types';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
-import { Caption, ColourRow, InputRow, SecondaryButton, SelectRow, SettingRow, SliderRow } from '@/editor/components';
+import { Caption, ColourRow, InputRow, SecondaryButton, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';

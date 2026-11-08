@@ -11,6 +11,7 @@ RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/core/package.json ./packages/core/
 COPY packages/mechanics/package.json ./packages/mechanics/
+COPY packages/ui/package.json ./packages/ui/package.json
 COPY canvas/package.json ./canvas/
 COPY session/client/package.json ./session/client/
 COPY session/server/package.json ./session/server/
@@ -18,6 +19,7 @@ RUN pnpm install --frozen-lockfile --filter @dnd/session-client...
 
 COPY packages/core ./packages/core
 COPY packages/mechanics ./packages/mechanics
+COPY packages/ui ./packages/ui
 COPY session/client ./session/client
 # vite.config.ts points publicDir at canvas/public for the bundled texture packs
 # (`/packs/…`, hardcoded in @dnd/core). `vite build` copies publicDir into dist, so

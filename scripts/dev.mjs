@@ -65,7 +65,12 @@ if (args[0] === 'docker') {
     procs.push(child)
   }
 
-  run('server', '@dnd/game-server', { PORT: String(SERVER_PORT), HOST: '127.0.0.1' })
+  run('server', '@dnd/game-server', {
+    PORT: String(SERVER_PORT),
+    HOST: '127.0.0.1',
+    // Where the canvas's "Open the table" lands the DM.
+    PUBLIC_TABLE_URL: `http://localhost:${TABLE_PORT}`,
+  })
   if (!tableOnly)
     run('canvas', 'map-builder', {
       CANVAS_PORT: String(CANVAS_PORT),

@@ -4,10 +4,17 @@
 
 import { useId } from 'react';
 import { AlertCircle, X } from 'lucide-react';
-import { Button } from '@/ui/button';
-import { DialogFooter, DialogTitle } from '@/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select';
-import { cn } from '@/lib/utils';
+import {
+  Button,
+  DialogFooter,
+  DialogTitle,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  cn,
+} from '@dnd/ui';
 
 /** Title left, a close button right. */
 export function DialogHead({ title, onClose, closeDisabled }: { title: React.ReactNode; onClose: () => void; closeDisabled?: boolean }) {

@@ -17,12 +17,22 @@ import type { DungeonLayer, DungeonStyle, RoomLook } from '@/store/types';
 import { DUNGEON_STYLE_PRESETS, matchPresetId, type MapStylePreset } from '@/store/presetRegistry';
 import { STYLE_TO_LOOK_KEY } from '@dnd/core/src/shared/wallLook';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
-import { AddTile, DockColumn, Tile } from '@/editor/components';
-import { Button } from '@/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
+import {
+  AddTile,
+  DockColumn,
+  Tile,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { MIXED_SWATCH } from '@/editor/models/selectionModel';
 import {
   floorCandidates,

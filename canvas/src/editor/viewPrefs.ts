@@ -3,7 +3,7 @@ import { useStore } from '@/store/store';
 import type { LightDefaults, UISlice } from '@/store/types';
 import { LIGHT_PRESETS, lightPreset, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
 import { onLightPlaced } from '@dnd/core/src/engine/tools/LightTool';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 /**
  * How the editor is viewed, remembered per browser: the focus mode (the store holds the

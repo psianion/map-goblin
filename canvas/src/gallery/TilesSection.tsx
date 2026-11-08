@@ -1,4 +1,4 @@
-import { AddTile, Tile } from '@/editor/components';
+import { AddTile, Tile } from '@dnd/ui';
 import { Item, Section, Specimens, type GalleryTheme } from './parts';
 
 function TilesSection({ theme }: { theme: GalleryTheme }) {

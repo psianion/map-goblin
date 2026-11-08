@@ -4,10 +4,17 @@
 
 import { useRef, useState } from 'react';
 import { Plus, X, type LucideIcon } from 'lucide-react';
-import { IconKeyButton, SecondaryButton } from '@/editor/components';
-import { Input } from '@/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select';
-import { cn } from '@/lib/utils';
+import {
+  IconKeyButton,
+  SecondaryButton,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  cn,
+} from '@dnd/ui';
 
 /** Keys typed in a sheet's field stay out of the canvas shortcuts. */
 const keepKeys = (e: React.KeyboardEvent) => e.stopPropagation();

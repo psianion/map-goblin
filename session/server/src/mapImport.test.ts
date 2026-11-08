@@ -30,7 +30,7 @@ describe('validateMapData', () => {
     const result = validateMapData(doc('4.0'))
     expect(result).toMatchObject({ ok: false })
     if (result.ok) throw new Error('expected rejection')
-    expect(result.error).toMatch(/unsupported \.mapbuilder version/)
+    expect(result.error).toMatch(/unsupported \.ggvtt version/)
   })
 
   it('rejects a payload that is not an object', () => {

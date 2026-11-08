@@ -6,8 +6,9 @@ import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk'
 import { openNewMapRef } from '@/editor/toolConstants';
 import { HomeScreen, type EnterOptions } from '@/home/HomeScreen';
 import { NewMapModal } from '@/editor/dialogs/NewMapModal';
-import { initTheme, useTheme } from '@/theme/theme';
+import { initTheme, useTheme } from '@dnd/ui';
 import { readDesk } from '@/theme/desk';
+import { refreshPublishTokens } from '@/io/publish';
 import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from '@/editor/viewPrefs';
 
 // The shell's view state, for the end-to-end specs (the store is already on window in dev).
@@ -50,6 +51,12 @@ export default function App() {
     setEditorDesk({ ...deskFromTokens(), lit });
   }, [theme, lit]);
   useEffect(() => () => setEditorDesk(null), []);
+
+  // DM tokens close to running out are swapped for fresh ones, so publishing keeps working
+  // without the admin pass for as long as the DM keeps using the canvas.
+  useEffect(() => {
+    void refreshPublishTokens();
+  }, []);
 
   // Ctrl+Shift+N opens the New map dialog here. The home page keeps keys from reaching
   // the shortcuts, so this only fires in the editor.

@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
-import { Caption, FloatBox, IconKeyButton, PanelHeader, SecondaryButton } from '@/editor/components';
+import { Caption, FloatBox, IconKeyButton, PanelHeader, SecondaryButton } from '@dnd/ui';
 import { useStore } from '@/store/store';
 import type { ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';

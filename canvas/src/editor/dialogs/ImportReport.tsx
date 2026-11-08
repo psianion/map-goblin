@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { AlertCircle, Check, ChevronRight, Minus } from 'lucide-react';
-import { Button } from '@/ui/button';
-import { cn } from '@/lib/utils';
-import { formatBytes } from '@/lib/format';
+import { Button, cn, formatBytes } from '@dnd/ui';
 import type { ScannedMap } from '@/io/importFolder';
 import type { ImportResult } from '@/io/importMap';
 import { Hint } from './parts';

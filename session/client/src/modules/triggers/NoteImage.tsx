@@ -54,7 +54,7 @@ export function NoteImage({
     };
   }, [sceneId, imageKey]);
 
-  if (failed) return <p className="px-2.5 py-2 text-[11.5px] text-text-muted">Image unavailable.</p>;
-  if (!url) return <div className={`animate-pulse bg-surface-2 ${VARIANT[variant].skeleton}`} />;
+  if (failed) return <p className="px-2.5 py-2 text-[11.5px] text-text-3">Image unavailable.</p>;
+  if (!url) return <div className={`animate-pulse bg-panel-2 ${VARIANT[variant].skeleton}`} />;
   return <img src={url} alt="" className={VARIANT[variant].img} />;
 }

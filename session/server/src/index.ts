@@ -6,9 +6,11 @@ import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
-import { initiativeModule } from '@dnd/mechanics/initiative'
+import { createInitiativeModule } from '@dnd/mechanics/initiative'
+import { pinsModule } from '@dnd/mechanics/pins'
 import { rollsModule } from '@dnd/mechanics/rolls'
-import { tokensModule } from '@dnd/mechanics/tokens'
+import { storyModule } from '@dnd/mechanics/story'
+import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
@@ -21,9 +23,12 @@ import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
+import { createMirror, mirrorRootFor } from './mirror'
+import { afterWrites, effectsTick } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
+import { sessionTable } from './modules/table'
 import { createTriggerDeps } from './triggers/prepResolver'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
@@ -81,6 +86,9 @@ export interface StartOptions extends SessionManagerOptions {
   dbPath?: string
   /** Registered alongside the built-ins — the seam a test module arrives through. */
   modules?: readonly GameModule[]
+  /** Overrides where each scene's .ggvtt is mirrored; null mirrors nothing. Default: `maps/`
+   *  beside the database, and nothing for `:memory:` (decision 14). */
+  mirrorRoot?: string | null
 }
 
 export interface RunningServer {
@@ -110,18 +118,37 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   // §2.3.8 — the whole module table. Rolls and tokens register here the same way, from
   // @dnd/mechanics; nothing else in the server changes when they do (D2).
-  const modules = new ModuleRegistry(stores.moduleState, autoExplore(vision))
+  // Table v2 adds the effect-timer tick on a turned round beside the fog's auto-explore.
+  const modules = new ModuleRegistry(stores.moduleState, afterWrites(autoExplore(vision), effectsTick))
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
-  modules.register(initiativeModule)
+  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
+  modules.register(
+    createInitiativeModule({
+      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
+        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
+    }),
+  )
   // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a
   // player's move may not cross, with the DM's live crossing rules.
   const terrainOf = createTerrain(
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf))
+  // Table v2: the DM's pause and movement lock stop a player's move, read off the session's
+  // row (migration 006), which the table module writes through.
+  const table = sessionTable(stores)
+  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf))
+  modules.register(table.module)
+  modules.register(pinsModule)
+  // Read-aloud goes out through the triggers module's existing share path; story journals it.
+  modules.register(
+    storyModule({
+      shareReadAloud: (roomId, sceneId, ctx) =>
+        modules.dispatch('triggers', 'share-card', { roomId, sceneId }, ctx)?.message ?? null,
+    }),
+  )
   modules.register(crossingsModule)
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
@@ -172,6 +199,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     // that is sitting there rather than reconnecting.
     sessionActive: (id) => stores.sessions.get(id)?.active === 1,
     isBanned: (identityId) => stores.identities.isBanned(identityId),
+    tableFlags: table.flagsOf,
     ...options,
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
@@ -179,6 +207,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   // tests bind ephemeral ports, and a socket remembers nothing else about where it came in.
   const trustedSockets = new WeakSet<Socket>()
   const trusted = (socket: Socket): boolean => trustedSockets.has(socket)
+  const mirrorRoot = options.mirrorRoot !== undefined ? options.mirrorRoot : mirrorRootFor(options.dbPath ?? config.dbPath)
   const handler = createRequestHandler({
     hmacSecret: config.secrets.hmacSecret,
     stores,
@@ -187,6 +216,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     modules,
     triggerDeps,
     trusted,
+    mirror: mirrorRoot === null ? null : createMirror(mirrorRoot, stores),
   })
   const http = createServer(handler)
   const trustedPort = options.trustedPort ?? config.trustedPort

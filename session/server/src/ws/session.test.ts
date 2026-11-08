@@ -723,3 +723,31 @@ describe('no outbound path bypasses the redactor (D4/D5)', () => {
     expect(callers(/\.deliver\(/)).toEqual(['ws/Broadcaster.ts'])
   })
 })
+
+describe('v6 frames (table v2)', () => {
+  it('relays a mark to the whole session, stamped, and refuses a player template to the sender', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'MK')
+      const onDm = next(dm, 'mark')
+      const onPlayer = next(player, 'mark')
+      player.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 2, y: 3 } }))
+      for (const frame of [await onDm, await onPlayer]) {
+        expect(frame.event).toMatchObject({ from: 'id-bob', mark: { kind: 'ping', x: 2, y: 3 } })
+      }
+
+      player.send(JSON.stringify({ type: 'mark', mark: { kind: 'template', shape: 'circle', origin: { x: 0, y: 0 }, size: 3 } }))
+      expect((await next(player, 'error')).message).toBe('only the DM may place templates')
+    })
+  })
+
+  it('sends a roll request nudge only to the seats it names', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'RQ')
+      const onDm = next(dm, 'roll-requested')
+      const onPlayer = next(player, 'roll-requested')
+      sendCommand(dm, 'rolls', 'request', { targets: ['id-bob'], label: 'Perception check', dc: 14 })
+      expect((await onDm).request).toMatchObject({ label: 'Perception check', dc: 14, targets: ['id-bob'] })
+      expect((await onPlayer).request.label).toBe('Perception check')
+    })
+  })
+})

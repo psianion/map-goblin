@@ -21,7 +21,7 @@ vi.mock('@/io/saveLoad', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/io/saveLoad')>()),
   loadMap,
 }));
-vi.mock('@/lib/toast', () => ({ notify }));
+vi.mock('@dnd/ui/toast', () => ({ notify }));
 // The file walk stays real; the scan and the import are what each test sets up.
 vi.mock('@/io/importFolder', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/io/importFolder')>()),

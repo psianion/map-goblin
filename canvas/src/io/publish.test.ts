@@ -17,6 +17,9 @@ import {
   getPublishToken,
   setPublishToken,
   clearPublishToken,
+  lastPublishedTo,
+  refreshPublishTokens,
+  tokenExp,
 } from './publish';
 import { hashMapBytes } from './mapFormat';
 import type { SerializedMapData } from '@/store/types';
@@ -166,5 +169,60 @@ describe('publish token storage', () => {
     clearPublishToken('camp-1');
     expect(getPublishToken('camp-1')).toBeNull();
     expect(getPublishToken('camp-2')).toBe('tok-xyz');
+  });
+});
+
+describe('DM token refresh', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = 1_000_000_000_000;
+  const tokenFor = (exp: number) =>
+    `${btoa(JSON.stringify({ identityId: 'dm', campaignId: 'c', role: 'dm', exp })).replace(/=+$/, '')}.sig`;
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the expiry off a token, and nothing off junk', () => {
+    expect(tokenExp(tokenFor(NOW + DAY))).toBe(NOW + DAY);
+    expect(tokenExp('junk')).toBeNull();
+  });
+
+  it('refreshes only the tokens with under a week left that have not run out', async () => {
+    setPublishToken('soon', tokenFor(NOW + 3 * DAY));
+    setPublishToken('later', tokenFor(NOW + 20 * DAY));
+    setPublishToken('gone', tokenFor(NOW - DAY));
+    const fetchMock = vi.fn(async (url: string) =>
+      new Response(JSON.stringify({ token: `fresh-for-${url}`, campaignId: 'soon', exp: NOW + 30 * DAY }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await refreshPublishTokens(NOW);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/campaigns/soon/dm-token/refresh');
+    expect(getPublishToken('soon')).toBe('fresh-for-/api/campaigns/soon/dm-token/refresh');
+    expect(getPublishToken('later')).toBe(tokenFor(NOW + 20 * DAY));
+    expect(getPublishToken('gone')).toBe(tokenFor(NOW - DAY));
+  });
+
+  it('keeps the token when the refresh fails', async () => {
+    setPublishToken('soon', tokenFor(NOW + DAY));
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    await refreshPublishTokens(NOW);
+    expect(getPublishToken('soon')).toBe(tokenFor(NOW + DAY));
+  });
+});
+
+describe('lastPublishedTo', () => {
+  it('names the campaign of the newest publish, and nothing for none', () => {
+    expect(lastPublishedTo(null)).toBeNull();
+    expect(
+      lastPublishedTo({
+        a: { sceneId: 's', mapHash: 'h', prepHash: 'p', campaignName: 'Old', publishedAt: 1 },
+        b: { sceneId: 's', mapHash: 'h', prepHash: 'p', campaignName: 'New', publishedAt: 9 },
+      }),
+    ).toBe('New');
+    expect(lastPublishedTo({ a: { sceneId: 's', mapHash: 'h', prepHash: 'p' } })).toBe('a campaign');
   });
 });

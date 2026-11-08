@@ -952,6 +952,8 @@ describe('encounter action (prep v2)', () => {
     expect(new Set(e.spawn.map((s) => `${s.x},${s.y}`)).size).toBe(4)
     // HP rolled per monster; the Warg authored none.
     expect(e.seed.map((s) => s.hp)).toEqual([10, 10, 10, undefined])
+    // Table v2: the spawned token carries the same rolled pool, so it lands with `hp.max`.
+    expect(e.spawn.map((s) => s.hp)).toEqual([10, 10, 10, undefined])
     // Every seed row names the token it walked in with.
     expect(e.seed.map((s) => s.tokenId)).toEqual(e.spawn.map((s) => s.id))
     // The log line is the DM's alone.
@@ -1531,6 +1533,29 @@ describe('levels: the viewed level per seat', () => {
     expect(wire.dmLevelId).toBeUndefined()
     state = run(mod, state, DM, 'set-seat-level', { identity: 'p-1', levelId: null }).next
     expect(sceneTriggersOf(state, SCENE).seatLevel).toEqual({})
+  })
+
+  it('set-start-level records the level, DM only, and ships it to players', () => {
+    const mod = triggersModule(makeDeps())
+    const state = run(mod, empty, DM, 'set-start-level', { levelId: 'L2' }).next
+    expect(sceneTriggersOf(state, SCENE).startLevelId).toBe('L2')
+    expect(mod.redact!(state, P1).byScene[SCENE].startLevelId).toBe('L2')
+    expect(run(mod, empty, P1, 'set-start-level', { levelId: 'L2' }).error?.code).toBe('unauthorized')
+    expect(run(mod, empty, DM, 'set-start-level', {}).error?.code).toBe('invalid-command')
+  })
+
+  it('every seat without a pick of its own looks at the start level', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-start-level', { levelId: 'L2' }).next
+    const seen = (viewer: typeof DM) => viewedLevel(sceneTriggersOf(state, SCENE), tokens, viewer, 'L1')
+    expect(seen(DM)).toBe('L2')
+    expect(seen(P2)).toBe('L2') // owns a token with no level
+    expect(viewedLevel(sceneTriggersOf(state, SCENE), [], P1, 'L1')).toBe('L2') // owns nothing
+    expect(seen(P1)).toBe('L2') // the token's own level
+    state = run(mod, state, DM, 'set-dm-level', { levelId: 'L3' }).next
+    expect(seen(DM)).toBe('L3')
+    state = run(mod, state, DM, 'set-seat-level', { identity: 'p-2', levelId: 'L1' }).next
+    expect(seen(P2)).toBe('L1')
   })
 })
 

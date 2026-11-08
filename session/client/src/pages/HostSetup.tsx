@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { endpoints } from '../endpoints';
-import { startingRoomsOf, type StartingRoomOption } from './startingRoom';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
+import { useStore } from '@dnd/core/src/store/store';
+import { Button, Caption, FloatBox, Input, PrimaryButton, Tile, cn, timeAgo } from '@dnd/ui';
+import { ArrowLeft, FilePlus2, Upload } from '@dnd/ui/icons';
+import { endpoints, setServerUrl } from '../endpoints';
 import { navigate } from '../router';
 import {
   createCampaignAsDm,
@@ -9,26 +12,33 @@ import {
   listCampaignsAsAdmin,
   listScenes,
   mintDmToken,
+  redeemHandoff,
   startSession,
   uploadMapFile,
   type CampaignSummary,
-  type DmSession,
   type SceneMeta,
 } from '../session/auth';
+import { forgetDmToken, freshDmToken, saveDmToken, storedCampaigns, type StoredCampaign } from '../session/dmTokens';
 import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
+import { inviteLink } from '../shell/top/inviteCode';
+import { startingRoomsOf, type StartingRoomOption, type StartingRoomPicker } from './startingRoom';
 
-const STEPS = ['Server', 'Campaign', 'Map', 'Invite'];
+type Step = 'connect' | 'campaign' | 'map' | 'invite';
 
-/**
- * The server address is optional, exactly as the field's own helper copy promises: leave it
- * empty and the server is this page's origin, which in the deployed stack is the right
- * answer (nginx proxies /api and /ws to the game server). Only something actually typed is
- * validated — a blank field used to disable Continue, which contradicted the copy directly.
- *
- * `setServerUrl` assumes http:// for a bare `host:port`, so the same leniency applies here;
- * anything that still will not parse is a typo worth naming before a request is fired at it.
- */
+const STEPS: { id: Exclude<Step, 'connect'>; label: string }[] = [
+  { id: 'campaign', label: 'Campaign' },
+  { id: 'map', label: 'Map' },
+  { id: 'invite', label: 'Invite' },
+];
+
+interface Campaign {
+  campaignId: string;
+  name: string;
+  token: string;
+}
+
+/** Anything typed into the server field must be an address the browser can reach. */
 function serverUrlError(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -36,60 +46,101 @@ function serverUrlError(value: string): string | null {
     const { protocol } = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
     if (protocol !== 'http:' && protocol !== 'https:') throw new Error('scheme');
   } catch {
-    return 'That is not an address the browser can reach — try http://localhost:5620';
+    return 'That is not an address the browser can reach. Try http://localhost:5620';
   }
   return null;
 }
 
-const field =
-  'w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none';
-const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
-const primary =
-  'rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40';
-const secondary =
-  'rounded-md border border-border-default bg-surface-1 px-4 py-2 text-sm font-medium text-text-secondary hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40';
+/** `#handoff=<code>` from the canvas's Open the table. */
+function readHandoffCode(): string | null {
+  const match = /(?:^#|&)handoff=([^&]+)/.exec(window.location.hash);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+function clearHandoffCode(): void {
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+}
 
 /**
- * §2.6 — the DM's four steps: server → campaign → map → invite code.
- *
- * D4: a browser tab cannot spawn a server, so step 1 hands over the command to run
- * instead of pretending to "Quick Host".
- *
- * ponytail: forward-only. Every step but the first mints or uploads something on the
- * server, so a Back button would need undo routes that do not exist — reload and start
- * over. Add one when the server grows a DELETE for campaigns.
+ * The code is single use, and the page can mount more than once for one load (StrictMode in
+ * dev runs effects twice): every mount for the same code shares the one redeem.
+ */
+const redeems = new Map<string, ReturnType<typeof redeemHandoff>>();
+function redeemOnce(code: string): ReturnType<typeof redeemHandoff> {
+  let pending = redeems.get(code);
+  if (!pending) {
+    pending = redeemHandoff(code);
+    redeems.set(code, pending);
+  }
+  return pending;
+}
+
+/** A blank map: the editor's own default document, under a plain name. */
+function blankMapText(): string {
+  const core = useStore.getState();
+  core.resetToDefault();
+  const doc = core.getSerializableState();
+  return JSON.stringify({ ...doc, mapSettings: { ...doc.mapSettings, name: 'Blank map' } });
+}
+
+function Stepper({ step }: { step: Step }) {
+  const at = STEPS.findIndex((s) => s.id === step);
+  return (
+    <ol className="flex items-center gap-2 text-xs" data-testid="host-steps">
+      {STEPS.map((s, i) => (
+        <li key={s.id} className={cn('flex items-center gap-2', i === at ? 'text-text' : 'text-text-3')} aria-current={i === at ? 'step' : undefined}>
+          <span className={cn('flex size-5 items-center justify-center rounded-pill border font-mono', i <= at ? 'border-ink' : 'border-line')}>{i + 1}</span>
+          {s.label}
+          {i < STEPS.length - 1 && <span aria-hidden className="text-text-3">→</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Section({ title, onBack, children, testId }: { title: string; onBack?: () => void; children: ReactNode; testId: string }) {
+  return (
+    <section className="flex flex-col gap-4" data-testid={testId}>
+      <div className="flex items-center gap-2">
+        {onBack && (
+          <Button variant="ghost" size="sm" data-testid="host-back" onClick={onBack}>
+            <ArrowLeft aria-hidden strokeWidth={1.75} className="size-4" />
+            Back
+          </Button>
+        )}
+        <h2 className="text-base font-medium text-text">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Board 7: the DM's host flow. Campaign → Map → Invite, each with Back. The server and pass
+ * step only shows while this browser holds no valid DM token, and "Different DM or new
+ * campaign" always brings it back. A `#handoff=` from the canvas lands on the Map step with
+ * the campaign chosen.
  */
 export default function HostSetup() {
-  const [step, setStep] = useState(1);
-  const [serverUrl, setServerUrl] = useState(endpoints.httpBase);
+  const [step, setStep] = useState<Step>(() => (storedCampaigns().length > 0 ? 'campaign' : 'connect'));
+  const [serverUrl, setServerField] = useState(endpoints.httpBase);
   const [adminPass, setAdminPass] = useState('');
-  const [campaignName, setCampaignName] = useState('');
-  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
-  const [dm, setDm] = useState<DmSession | null>(null);
-  const [map, setMap] = useState<{
-    mapId: string;
-    sceneId: string;
-    name: string;
-    sizeBytes: number;
-  } | null>(null);
-  /** The campaign's published library, fetched once its DM token is in hand (M3). */
+  const [serverCampaigns, setServerCampaigns] = useState<CampaignSummary[] | null>(null);
+  const [newName, setNewName] = useState('');
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [scenes, setScenes] = useState<SceneMeta[]>([]);
-  /** A library scene picked instead of uploading — mutually exclusive with `map`. */
-  const [selectedSceneId, setSelectedSceneId] = useState('');
-  /** The uploaded map's own rooms — the same list the fog panel will show at the table. */
+  const [sceneId, setSceneId] = useState<string | null>(null);
   const [rooms, setRooms] = useState<StartingRoomOption[]>([]);
-  /** '' = none, which is the table starting dark exactly as it did before this picker. Preset
-   *  to the map's own starting room (`mapSettings.startingRoomId`) when it names one. */
+  const [levels, setLevels] = useState<StartingRoomPicker['levels']>([]);
   const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
-  /** True when step 4's invite code came from resuming a live session (issue #94),
-   *  not from `openTable` — that's what decides whether the escape hatch shows. */
-  const [resumedSession, setResumedSession] = useState(false);
+  const [resumed, setResumed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const handoff = useRef(false);
 
-  /** Every network step is the same three lines around the call that differs. */
-  const run = async (action: () => Promise<void>) => {
+  const run = async (action: () => Promise<void>): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
@@ -101,510 +152,319 @@ export default function HostSetup() {
     }
   };
 
-  /** Empty means this page's own origin — the default the field's helper copy describes. */
-  const resolvedServerUrl = serverUrl.trim() || endpoints.httpBase;
+  const resolvedServer = serverUrl.trim() || endpoints.httpBase;
   const serverError = serverUrlError(serverUrl);
 
-  /** Fetches the campaign's list to decide the Server step to leave off on. */
-  const continueFromServer = () =>
+  /** A campaign in hand: a table already live resumes on Invite, else its library opens on Map. */
+  const enterCampaign = async (c: Campaign, resumeLive = true): Promise<void> => {
+    setCampaign(c);
+    setSceneId(null);
+    setRooms([]);
+    setLevels([]);
+    setStartRoomId('');
+    const active = resumeLive ? await fetchActiveSession(c.campaignId, c.token).catch(() => null) : null;
+    if (active) {
+      setInviteCode(active.inviteCode);
+      setResumed(true);
+      setStep('invite');
+      return;
+    }
+    setResumed(false);
+    setInviteCode(null);
+    setScenes((await listScenes(c.campaignId, c.token)).scenes);
+    setStep('map');
+  };
+
+  // The canvas handed the DM over: redeem the code once, keep the token, open its library.
+  useEffect(() => {
+    if (handoff.current) return;
+    handoff.current = true;
+    const code = readHandoffCode();
+    if (!code) return;
+    void run(async () => {
+      const res = await redeemOnce(code);
+      clearHandoffCode();
+      saveDmToken({ campaignId: res.campaignId, name: res.campaignName, server: endpoints.httpBase }, res.token);
+      await enterCampaign({ campaignId: res.campaignId, name: res.campaignName, token: res.token }, false);
+    });
+    // Once, on load.
+  }, []);
+
+  const connect = () =>
     run(async () => {
-      const { campaigns } = await listCampaignsAsAdmin(resolvedServerUrl, adminPass);
-      setCampaigns(campaigns);
-      setStep(2);
+      const { campaigns } = await listCampaignsAsAdmin(resolvedServer, adminPass);
+      setServerCampaigns(campaigns);
+      setStep('campaign');
     });
 
-  /** Shared tail of both campaign paths and the N2 retry: a token in hand, its library fetched. */
-  const fetchScenesAndAdvance = async (session: DmSession): Promise<void> => {
-    setScenes((await listScenes(session.campaignId, session.token)).scenes);
-    setStep(3);
-  };
+  const pickStored = (c: StoredCampaign) =>
+    run(async () => {
+      setServerUrl(c.server);
+      const token = await freshDmToken(c.campaignId);
+      if (!token) {
+        forgetDmToken(c.campaignId);
+        throw new Error(`The pass for ${c.name} has run out. Sign in as the DM again.`);
+      }
+      await enterCampaign({ campaignId: c.campaignId, name: c.name, token });
+    });
+
+  const pickServerCampaign = (c: CampaignSummary) =>
+    run(async () => {
+      const session = await mintDmToken(resolvedServer, adminPass, c.id);
+      saveDmToken({ campaignId: c.id, name: c.name, server: endpoints.httpBase }, session.token);
+      await enterCampaign({ campaignId: c.id, name: c.name, token: session.token });
+    });
 
   const createCampaign = () =>
     run(async () => {
-      const session = await createCampaignAsDm(
-        resolvedServerUrl,
-        adminPass,
-        campaignName || 'Untitled campaign',
-      );
-      setDm(session);
-      await fetchScenesAndAdvance(session);
+      const name = newName.trim() || 'Untitled campaign';
+      const session = await createCampaignAsDm(resolvedServer, adminPass, name);
+      saveDmToken({ campaignId: session.campaignId, name, server: endpoints.httpBase }, session.token);
+      await enterCampaign({ campaignId: session.campaignId, name, token: session.token }, false);
     });
 
-  /**
-   * Issue #94 — hosting an existing campaign used to always walk the wizard to a
-   * fresh "Start session", which ends whatever table is already live and orphans every
-   * player's claim. If one is live, resume it straight to step 4 instead; only a campaign
-   * with nothing running falls through to today's picker → start flow.
-   */
-  const hostExisting = (campaign: CampaignSummary) =>
+  const pickScene = (id: string) =>
     run(async () => {
-      const session = await mintDmToken(resolvedServerUrl, adminPass, campaign.id);
-      setDm(session);
-      const active = await fetchActiveSession(session.campaignId, session.token).catch(() => null);
-      if (active) {
-        setResumedSession(true);
-        setInviteCode(active.inviteCode);
-        setStep(4);
-        return;
-      }
-      await fetchScenesAndAdvance(session);
-    });
-
-  /** The resumed step 4's escape hatch: end the live session and walk the normal path. */
-  const startNewInstead = () =>
-    run(async () => {
-      if (!dm) return;
-      setInviteCode(null);
-      setResumedSession(false);
-      await fetchScenesAndAdvance(dm);
-    });
-
-  /**
-   * N2 — `dm` already holds a live token once `createCampaign`/`hostExisting` minted one; if
-   * the library fetch that follows throws, the wizard is stuck on step 2 with "Create
-   * campaign" as the only visible retry, which mints a duplicate campaign instead of just
-   * trying the fetch again. This re-runs the fetch against the token already in hand.
-   */
-  const retryMapStep = () =>
-    run(async () => {
-      if (!dm) return;
-      await fetchScenesAndAdvance(dm);
-    });
-
-  /**
-   * F2 — a library scene is a map too: its starting room needs the same room list an
-   * upload gets, fetched from the doc the scene already points at rather than a file the
-   * DM would have to hunt down again.
-   */
-  const pickScene = (sceneId: string) =>
-    run(async () => {
-      setSelectedSceneId(sceneId);
-      // Uploading and picking from the library are mutually exclusive — whichever was
-      // chosen last is the one that opens the table.
-      setMap(null);
-      setRooms([]);
-      setStartRoomId('');
-      if (!dm) return;
-      const picker = startingRoomsOf(await fetchMapDoc(sceneId, dm.token));
+      if (!campaign) return;
+      setSceneId(id);
+      const picker = startingRoomsOf(await fetchMapDoc(id, campaign.token));
       setRooms(picker.rooms);
+      setLevels(picker.levels);
       setStartRoomId(picker.defaultRoomId);
     });
 
-  const uploadMap = (file: File) =>
+  const uploadText = (text: string) =>
     run(async () => {
-      if (!dm) return;
-      // The editor's own save is gzipped (`readMapFile`); a testdata fixture is plain JSON.
-      const text = await readMapFile(file);
-      setMap(await uploadMapFile(dm.campaignId, dm.token, text));
-      setSelectedSceneId('');
-      // Only reached once the server has accepted the same bytes, so it parses here too.
+      if (!campaign) return;
+      const uploaded = await uploadMapFile(campaign.campaignId, campaign.token, text);
+      setScenes((await listScenes(campaign.campaignId, campaign.token)).scenes);
+      setSceneId(uploaded.sceneId);
       const picker = startingRoomsOf(JSON.parse(text));
       setRooms(picker.rooms);
+      setLevels(picker.levels);
       setStartRoomId(picker.defaultRoomId);
     });
 
   const openTable = () =>
     run(async () => {
-      if (!dm) return;
-      // A scene *is* a map: the id the upload handed back (or the library scene picked
-      // instead) is the one fog is keyed by, and the one the table has to open on — a
-      // campaign may already hold others.
-      const sceneId = selectedSceneId || map?.sceneId;
-      const startingRoom = sceneId && startRoomId ? { sceneId, roomId: startRoomId } : undefined;
-      const opened = await startSession(dm.campaignId, dm.token, startingRoom, sceneId);
+      if (!campaign || !sceneId) return;
+      const startingRoom = startRoomId ? { sceneId, roomId: startRoomId } : undefined;
+      const opened = await startSession(campaign.campaignId, campaign.token, startingRoom, sceneId);
       setInviteCode(opened.inviteCode);
+      setResumed(false);
+      setStep('invite');
     });
 
+  const roomTile = (r: StartingRoomOption) => (
+    <Tile
+      key={r.id}
+      name={r.label}
+      active={startRoomId === r.id}
+      data-testid="start-room"
+      data-room-id={r.id}
+      data-level-id={r.levelId}
+      onClick={() => setStartRoomId(r.id)}
+    />
+  );
+
   const enterTable = () => {
-    if (!dm || !inviteCode) return;
+    if (!campaign || !inviteCode) return;
     const store = useSessionStore.getState();
-    store.setInviteCode(inviteCode); // GameTable's InviteCodeChip reads it from here
-    store.connect(dm.token);
+    store.setInviteCode(inviteCode);
+    store.connect(campaign.token);
     navigate('/table');
   };
 
-  const joinLink = inviteCode ? `${window.location.origin}/join/${inviteCode}` : '';
+  const stored = storedCampaigns();
+  const differentDm = (
+    <Button variant="link" size="sm" className="self-start px-0" data-testid="host-different-dm" onClick={() => setStep('connect')}>
+      Different DM or new campaign
+    </Button>
+  );
 
   return (
-    <div
-      data-page="host"
-      className="h-full overflow-y-auto bg-surface-0 p-6 text-text-primary"
-    >
-      <div className="mx-auto flex max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Host a game</h1>
-          <ol className="mt-3 flex gap-2 text-xs">
-            {STEPS.map((name, i) => (
-              <li
-                key={name}
-                className={`flex-1 rounded border px-2 py-1 text-center ${
-                  i + 1 === step
-                    ? 'border-border-focus bg-surface-3 text-text-primary'
-                    : i + 1 < step
-                      ? 'border-border-default text-text-muted'
-                      : 'border-border-subtle text-text-muted/70'
-                }`}
-              >
-                {i + 1}. {name}
-              </li>
-            ))}
-          </ol>
+    <div data-page="host" className="flex h-full justify-center overflow-y-auto bg-bg p-6 text-text">
+      <div className="flex w-full max-w-2xl flex-col gap-5">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-medium">Host a game</h1>
+          {step !== 'connect' && <Stepper step={step} />}
         </header>
 
-        {step === 1 && (
-          <section className="flex flex-col gap-4">
-            {/* D4 — Quick Host is a copy-paste command, not a child process. */}
-            <div className="rounded-lg border border-border-default bg-surface-1 p-4">
-              <p className="text-sm text-text-secondary">No server yet? Run one:</p>
-              <Command value="pnpm --filter @dnd/game-server start" />
-              {/* The service docker-compose.yml defines for session/server/Dockerfile. */}
-              <Command value="docker compose up game-server" />
-              <p className="mt-3 text-xs text-text-muted">
-                It prints an admin pass the first time it starts — that is what goes below.
+        <FloatBox className="flex flex-col gap-4 p-5">
+          {step === 'connect' && (
+            <Section title="Your server and pass" testId="host-connect" onBack={stored.length > 0 ? () => setStep('campaign') : undefined}>
+              <p className="text-xs text-text-2">
+                The game server prints an admin pass the first time it starts (<code className="font-mono">docker compose logs game-server</code>). It is
+                only asked for once: this browser keeps a DM pass per campaign for 30 days.
               </p>
-              <p className="mt-3 text-sm text-text-secondary">Already running? The pass is in its first start’s log:</p>
-              <Command value="docker compose logs game-server" />
-              {/*
-                Only the hash is stored (auth.ts), so there is no "show it again". A container
-                that has been recreated since — every update does that — no longer has that
-                log, and then the only way back is a new pass, which is a new data volume.
-              */}
-              <p className="mt-3 text-xs text-text-muted">
-                It cannot be shown again, so keep it somewhere. If the log is gone (the
-                server has been updated or recreated since) or the pass is lost, the only way
-                back is a fresh one: stop the server, remove its <code>game-server-data</code>{' '}
-                volume and start it again — it prints a new pass, and every campaign on it is
-                gone with the old volume.
-              </p>
-            </div>
-
-            <div>
-              <label className={label} htmlFor="server-url">
+              <label className="flex flex-col gap-1 text-xs text-text-2" htmlFor="server-url">
                 Server address
+                <Input id="server-url" value={serverUrl} placeholder={endpoints.httpBase} onChange={(e) => setServerField(e.target.value)} />
               </label>
-              <input
-                id="server-url"
-                className={field}
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                placeholder={endpoints.httpBase}
-              />
-              {/*
-                The pre-filled value is this page's own origin, and in the deployed stack
-                that is the right answer: nginx reverse-proxies /api and /ws to the game
-                server, so the browser only ever talks to one origin (nginx.conf). The
-                placeholder used to say :8787 while the field held :8090, which read as a
-                wrong default and sent a gate walk hunting for a bug that was not there.
-              */}
-              <p className="mt-1 text-xs text-text-muted">
-                Optional — pre-filled with this page’s own address, which is where the server
-                answers unless you are running it somewhere else. Empty means the same thing.
-              </p>
               {serverError && (
-                <p className="mt-1 text-xs text-danger" data-testid="server-url-error">
+                <p className="text-xs text-danger" data-testid="server-url-error">
                   {serverError}
                 </p>
               )}
-            </div>
-
-            <div>
-              <label className={label} htmlFor="admin-pass">
+              <label className="flex flex-col gap-1 text-xs text-text-2" htmlFor="admin-pass">
                 Admin pass
+                <Input id="admin-pass" type="password" autoComplete="off" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
               </label>
-              <input
-                id="admin-pass"
-                type="password"
-                className={field}
-                value={adminPass}
-                onChange={(e) => setAdminPass(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
+              <PrimaryButton className="self-start" disabled={!adminPass.trim() || serverError !== null || busy} onClick={connect}>
+                {busy ? 'Checking…' : 'Continue'}
+              </PrimaryButton>
+            </Section>
+          )}
 
-            <button
-              type="button"
-              className={primary}
-              disabled={!adminPass.trim() || serverError !== null || busy}
-              onClick={continueFromServer}
-            >
-              {busy ? 'Checking…' : 'Continue'}
-            </button>
-          </section>
-        )}
-
-        {step === 2 && (
-          <section className="flex flex-col gap-4">
-            {/*
-              #M3 — hosting an existing campaign is the primary path once one exists: its
-              library was already built in the map editor. A brand-new server has no
-              campaigns yet, so this list is simply absent rather than an empty state
-              nobody needs to read past — the create form below is exactly today's step.
-            */}
-            {campaigns.length > 0 && (
-              <div>
-                <p className={label}>Host an existing campaign</p>
-                <ul aria-label="Existing campaigns" className="flex flex-col gap-1">
-                  {campaigns.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void hostExisting(c)}
-                        className="w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-left text-sm hover:border-text-muted hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <span className="font-medium text-text-primary">{c.name}</span>
-                        <span className="ml-2 text-xs text-text-muted">
-                          Created {new Date(c.createdAt).toLocaleDateString()}
-                        </span>
-                      </button>
+          {step === 'campaign' && (
+            <Section title="Pick a campaign" testId="host-campaign">
+              {stored.length > 0 && (
+                <ul className="grid gap-2 sm:grid-cols-2" data-testid="host-stored-campaigns">
+                  {stored.map((c) => (
+                    <li key={c.campaignId}>
+                      <Button variant="outline" className="h-auto w-full flex-col items-start gap-0.5 px-3 py-2" disabled={busy} onClick={() => pickStored(c)}>
+                        <span className="text-sm text-text">{c.name}</span>
+                        <span className="font-mono text-xs text-text-3">{c.server}</span>
+                      </Button>
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-xs text-text-muted">
-                  Picking one opens its scene library on the next step.
-                </p>
-              </div>
-            )}
-
-            <div>
-              <label className={label} htmlFor="campaign-name">
-                {campaigns.length > 0 ? 'Or start a new campaign' : 'Campaign name'}
-              </label>
-              <input
-                id="campaign-name"
-                className={field}
-                value={campaignName}
-                disabled={busy}
-                onChange={(e) => setCampaignName(e.target.value)}
-                placeholder="Untitled campaign"
-              />
-            </div>
-            {/*
-              N2 — a token already minted (`dm` set) means a prior library fetch on this
-              same campaign failed; retrying it is the fix, not minting a second campaign
-              via this same button.
-            */}
-            <button
-              type="button"
-              className={primary}
-              disabled={busy}
-              onClick={dm ? retryMapStep : createCampaign}
-            >
-              {dm ? (busy ? 'Retrying…' : 'Retry') : busy ? 'Creating…' : 'Create campaign'}
-            </button>
-          </section>
-        )}
-
-        {step === 3 && (
-          <section className="flex flex-col gap-4">
-            {/*
-              M3 — library-first: a campaign whose scenes came from the map editor should
-              open on one of them, not send the DM hunting for the file again. A fresh
-              campaign has nothing here yet, so this fieldset is simply absent and upload
-              is the only option — exactly today's step.
-            */}
-            {scenes.length > 0 && (
-              <fieldset className="flex flex-col gap-2">
-                <legend className={label}>Choose a scene from the library</legend>
-                <div className="flex flex-col gap-1">
-                  {scenes.map((scene) => (
-                    <label
-                      key={scene.id}
-                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-border-focus ${
-                        selectedSceneId === scene.id
-                          ? 'border-border-focus bg-surface-3 text-text-primary'
-                          : 'border-border-default bg-surface-1 text-text-secondary hover:border-text-muted'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="library-scene"
-                        value={scene.id}
-                        checked={selectedSceneId === scene.id}
-                        disabled={busy}
-                        onChange={() => void pickScene(scene.id)}
-                      />
-                      <span className="min-w-0 flex-1 truncate">{scene.name}</span>
-                      {!scene.visibleToPlayers && (
-                        <span className="shrink-0 text-xs text-text-muted">Hidden</span>
-                      )}
-                    </label>
-                  ))}
-                </div>
-                <p className="text-xs text-text-muted">
-                  Opens the table on this scene. Switch scenes any time once you're at the table.
-                </p>
-              </fieldset>
-            )}
-
-            <div>
-              <label className={label} htmlFor="map-file">
-                {scenes.length > 0 ? 'Or import a map file' : 'Map file'}
-              </label>
-              <input
-                id="map-file"
-                type="file"
-                accept=".mapbuilder,.json,application/json"
-                disabled={busy}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadMap(file);
-                }}
-                className="w-full text-sm text-text-secondary file:mr-3 file:rounded-md file:border-0 file:bg-surface-3 file:px-3 file:py-2 file:text-sm file:text-text-primary hover:file:bg-surface-2"
-              />
-              <p className="mt-1 text-xs text-text-muted">
-                {scenes.length > 0 ? (
-                  <>A backup path — most tables are already in the library above.</>
-                ) : (
-                  <>
-                    A <code>.mapbuilder</code> saved from the editor, up to 20MB.
-                  </>
-                )}
-              </p>
-            </div>
-
-            {map && (
-              <p data-testid="uploaded-map" className="text-sm text-text-secondary">
-                Uploaded <span className="font-medium">{map.name}</span>{' '}
-                <span className="text-text-muted">({(map.sizeBytes / 1024).toFixed(1)} KB)</span>
-              </p>
-            )}
-
-            {/*
-              The one thing worth deciding before the table opens. Everything else about fog
-              is a click at the table, but the first room is the one nobody is there to
-              reveal: without it the party's first minute is a black canvas they cannot move
-              a token on. Skipping is the old behaviour, so the default stays "none".
-            */}
-            {rooms.length > 0 && (
-              <div>
-                <label className={label} htmlFor="starting-room">
-                  Starting room
-                </label>
-                <select
-                  id="starting-room"
-                  className={field}
-                  value={startRoomId}
-                  onChange={(e) => setStartRoomId(e.target.value)}
+              )}
+              {serverCampaigns && serverCampaigns.length > 0 && (
+                <>
+                  <Caption>On this server</Caption>
+                  <ul className="grid gap-2 sm:grid-cols-2" data-testid="host-server-campaigns">
+                    {serverCampaigns.map((c) => (
+                      <li key={c.id}>
+                        <Button variant="outline" className="h-auto w-full flex-col items-start px-3 py-2" disabled={busy} onClick={() => pickServerCampaign(c)}>
+                          <span className="text-sm text-text">{c.name}</span>
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {serverCampaigns && (
+                <form
+                  className="flex flex-col gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void createCampaign();
+                  }}
                 >
-                  <option value="">None — the map starts dark</option>
-                  {rooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-text-muted">
-                  Revealed when players join. Every other room stays dark until you reveal it.
-                </p>
-              </div>
-            )}
-
-            <button
-              type="button"
-              className={primary}
-              disabled={!map && !selectedSceneId}
-              onClick={() => setStep(4)}
-            >
-              Continue
-            </button>
-          </section>
-        )}
-
-        {step === 4 && (
-          <section className="flex flex-col gap-4">
-            {!inviteCode ? (
-              <button type="button" className={primary} disabled={busy} onClick={openTable}>
-                {busy ? 'Opening…' : 'Start session'}
-              </button>
-            ) : (
-              <>
-                {resumedSession && (
-                  <p className="text-sm text-text-secondary">
-                    This session is still running — players keep their seats.
-                  </p>
-                )}
-
-                <div className="rounded-lg border border-border-default bg-surface-1 p-4">
-                  <p className={label}>Invite code</p>
-                  <div className="flex items-center gap-3">
-                    <code
-                      data-testid="invite-code"
-                      className="font-mono text-2xl tracking-[0.3em] text-text-primary"
-                    >
-                      {inviteCode}
-                    </code>
-                    <CopyButton value={inviteCode} />
+                  <Caption>New campaign</Caption>
+                  <div className="flex gap-2">
+                    <Input id="campaign-name" placeholder="Cragmaw Hideout" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                    <PrimaryButton type="submit" disabled={busy}>
+                      Create campaign
+                    </PrimaryButton>
                   </div>
+                </form>
+              )}
+              {differentDm}
+            </Section>
+          )}
 
-                  <p className={`${label} mt-4`}>Join link</p>
-                  <div className="flex items-center gap-3">
-                    <code className="truncate font-mono text-xs text-text-secondary">{joinLink}</code>
-                    <CopyButton value={joinLink} />
-                  </div>
-                </div>
-
-                <button type="button" className={primary} onClick={enterTable}>
-                  Enter table
-                </button>
-
-                {resumedSession && (
-                  <div>
+          {step === 'map' && campaign && (
+            <Section title={`Pick a map for ${campaign.name}`} testId="host-map" onBack={() => setStep('campaign')}>
+              <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="host-library">
+                {scenes.map((s) => (
+                  <li key={s.id}>
                     <button
                       type="button"
-                      className={secondary}
+                      data-testid="library-card"
+                      aria-pressed={sceneId === s.id}
                       disabled={busy}
-                      onClick={startNewInstead}
+                      onClick={() => pickScene(s.id)}
+                      className={cn(
+                        'flex w-full flex-col gap-1 rounded-control border border-line p-2 text-left hover:bg-panel-2',
+                        sceneId === s.id && 'ring-1 ring-inset ring-ink',
+                      )}
                     >
-                      {busy ? 'Loading…' : 'Start a new session instead'}
+                      <span aria-hidden className="flex h-20 items-center justify-center rounded-key bg-panel-2 text-lg text-text-3">
+                        {s.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="truncate text-xs text-text">{s.name}</span>
+                      <span className="text-xs text-text-3">Published {timeAgo(s.updatedAt)}</span>
                     </button>
-                    <p className="mt-1 text-xs text-text-muted">
-                      Ends the current session for everyone and makes a new code.
-                    </p>
+                  </li>
+                ))}
+              </ul>
+              {scenes.length === 0 && <p className="text-xs text-text-3">Nothing published yet. Publish from the canvas, or bring a file.</p>}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={busy} data-testid="host-upload" onClick={() => fileInput.current?.click()}>
+                  <Upload aria-hidden strokeWidth={1.75} />
+                  Upload file
+                </Button>
+                <input
+                  ref={fileInput}
+                  id="map-file"
+                  type="file"
+                  accept={MAP_FILE_ACCEPT}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void readMapFile(file).then(uploadText, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+                  }}
+                />
+                <Button variant="outline" size="sm" disabled={busy} data-testid="host-blank" onClick={() => void uploadText(blankMapText())}>
+                  <FilePlus2 aria-hidden strokeWidth={1.75} />
+                  Blank map
+                </Button>
+              </div>
+              {sceneId && (
+                <div className="flex flex-col gap-2" data-testid="host-starting-room">
+                  <Caption>Starting room</Caption>
+                  <div className="flex flex-wrap gap-2">
+                    <Tile name="Start dark" active={startRoomId === ''} onClick={() => setStartRoomId('')} data-testid="start-room-none" />
+                    {levels.length <= 1 && rooms.map(roomTile)}
                   </div>
-                )}
-              </>
-            )}
-          </section>
-        )}
+                  {levels.length > 1 &&
+                    levels.map((level) => (
+                      <div key={level.id} className="flex flex-col gap-2" data-testid="start-room-level" data-level-id={level.id}>
+                        <Caption>{level.name}</Caption>
+                        <div className="flex flex-wrap gap-2">{rooms.filter((r) => r.levelId === level.id).map(roomTile)}</div>
+                      </div>
+                    ))}
+                  <PrimaryButton className="self-start" disabled={busy} data-testid="host-open" onClick={openTable}>
+                    Open the table
+                  </PrimaryButton>
+                </div>
+              )}
+            </Section>
+          )}
 
-        {error && (
-          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
+          {step === 'invite' && campaign && inviteCode && (
+            <Section title={resumed ? 'Your table is already open' : 'Invite your players'} testId="host-invite" onBack={() => setStep('map')}>
+              <div className="flex gap-5">
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Caption>Invite code</Caption>
+                  <code data-testid="invite-code" className="font-mono text-4xl tracking-widest text-text">
+                    {inviteCode}
+                  </code>
+                  <span className="truncate font-mono text-xs text-text-2" data-testid="invite-link">
+                    {inviteLink(inviteCode)}
+                  </span>
+                </div>
+                {/* No QR encoder in the repo yet: the box holds the place, the code and link carry the invite. */}
+                <div data-testid="invite-qr" aria-label="QR code" className="flex size-36 shrink-0 items-center justify-center rounded-control border border-dashed border-line-strong text-xs text-text-3">
+                  QR
+                </div>
+              </div>
+              <PrimaryButton className="self-start" data-testid="enter-table" onClick={enterTable}>
+                Enter table
+              </PrimaryButton>
+            </Section>
+          )}
+
+          {error && (
+            <p role="alert" className="text-xs text-danger" data-testid="host-error">
+              {error}
+            </p>
+          )}
+        </FloatBox>
       </div>
     </div>
-  );
-}
-
-function Command({ value }: { value: string }) {
-  return (
-    <div className="mt-2 flex items-center gap-2 rounded border border-border-default bg-surface-0 px-2 py-1.5">
-      <code className="flex-1 truncate font-mono text-xs text-text-secondary">{value}</code>
-      <CopyButton value={value} />
-    </div>
-  );
-}
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={`Copy ${value}`}
-      className="shrink-0 rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-3 hover:text-text-primary"
-      onClick={() => {
-        navigator.clipboard?.writeText(value).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          },
-          () => setCopied(false),
-        );
-      }}
-    >
-      {copied ? 'Copied' : 'Copy'}
-    </button>
   );
 }

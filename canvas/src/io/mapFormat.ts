@@ -1,4 +1,4 @@
-// Pure .mapbuilder container encode/decode — no store, no DOM, no side
+// Pure .ggvtt container encode/decode — no store, no DOM, no side
 // effects. Shared by the save worker (production path) and direct calls
 // (tests, environments without Worker). The file format is unchanged:
 //   [MAGIC_HEADER bytes] + [gzip-compressed UTF-8 JSON of SerializedMapData]
@@ -126,7 +126,7 @@ export function decodeAnyMapFile(bytes: Uint8Array): SerializedMapData {
 export function decodeMapFile(bytes: Uint8Array): SerializedMapData {
   const header = new TextDecoder().decode(bytes.slice(0, MAGIC_BYTES.length));
   if (header !== MAGIC_HEADER) {
-    throw new Error('Invalid .mapbuilder file — unrecognized header bytes');
+    throw new Error('Invalid .ggvtt file — unrecognized header bytes');
   }
   const decompressed = gunzipSync(bytes.slice(MAGIC_BYTES.length));
   const data = JSON.parse(strFromU8(decompressed)) as SerializedMapData;

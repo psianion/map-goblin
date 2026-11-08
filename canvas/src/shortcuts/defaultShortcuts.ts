@@ -5,7 +5,7 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { notify, notifyCoalesce } from '@/lib/toast';
+import { notify, notifyCoalesce } from '@dnd/ui/toast';
 import {
   CompositeCommand,
   createSelectionRemovalCommand,
@@ -502,7 +502,7 @@ function pasteClipboard(): void | false {
     // Same exists/dungeon/unlocked/visible check the canvas guards
     // pointerDown with — paste is a canvas-triggered mutation too, and had
     // none of it. Duplicated here rather than imported: the core helper's
-    // notify channel and this file's @/lib/toast are wired separately.
+    // notify channel and this file's @dnd/ui/toast are wired separately.
     const activeLayer = store.layers.find(
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );

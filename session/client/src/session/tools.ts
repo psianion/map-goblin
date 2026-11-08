@@ -9,9 +9,16 @@ import { create } from 'zustand';
  * adding a label; the two things that must be shared — the indicator and Escape — are
  * already here, and nothing else about a tool is general enough to abstract yet.
  */
-export type ToolId = 'fog';
+export type ToolId = 'fog' | 'ping' | 'measure' | 'template' | 'draw' | 'pin';
 
-const TOOL_NAME: Record<ToolId, string> = { fog: 'Fog' };
+const TOOL_NAME: Record<ToolId, string> = {
+  fog: 'Fog',
+  ping: 'Ping',
+  measure: 'Measure',
+  template: 'Template',
+  draw: 'Draw',
+  pin: 'Pin',
+};
 
 /**
  * What the indicator calls the tool right now — its name, plus its sub-mode when it has one

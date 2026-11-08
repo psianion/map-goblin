@@ -9,7 +9,7 @@
 import { log as defaultLog } from '../lib/log'
 
 /** Must match the server's PROTOCOL_VERSION, or the join frame is refused outright. */
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 export interface PlayerInfo {
   identityId: string

@@ -46,6 +46,19 @@ export interface GameModule<S = unknown> {
    * because the Broadcaster is the one choke point and it redacts everything.
    */
   redact?(state: S, viewer: Viewer): S
+  /**
+   * Table v2 cleanup: the state with everything about one deleted scene dropped. Pure; the
+   * same object back when the scene left nothing behind. Absent = nothing scene-scoped.
+   */
+  forgetScene?(state: S, sceneId: string): S
 }
 
 export const ANY_ROLE: readonly Role[] = ['dm', 'player']
+
+/** `forgetScene` for every state keyed `byScene`: the scene's entry dropped, nothing else. */
+export function dropScene<S extends { byScene: Record<string, unknown> }>(state: S, sceneId: string): S {
+  if (!(sceneId in state.byScene)) return state
+  const byScene = { ...state.byScene }
+  delete byScene[sceneId]
+  return { ...state, byScene }
+}

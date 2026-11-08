@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { getBandSetIds, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import type { DungeonLayer } from '@/store/types';
-import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@/editor/components';
+import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { wallSetLabel } from '@/editor/models/assetStrip';
 import type { SettingProps } from '@/editor/registry/types';

@@ -19,7 +19,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
 import { renderPlateaus } from './plateauRenderer';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
-import { getEditorDesk } from './editorDesk';
+import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
@@ -450,8 +450,8 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     else byColor.set(color, [poly]);
   });
 
-  // Whole cells, and in the editor the snap step between them (the table shows whole cells).
-  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, getEditorDesk() ? gridDivision(useStore.getState().grid) : 1);
+  // Whole cells, and in the editor the snap step between them (the table's desk turns it off).
+  const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
   for (const [color, rings] of byColor) {
     // Mask to clip grid lines within floor shape
@@ -521,8 +521,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // edits because their geometry is derived here rather than read off the child.
   const resolvedWalls = resolveWalls(layer);
   const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
-  // The marks that tell wall types apart are the editor's; the table never installs a desk.
-  const marks = getEditorDesk() ? entry.sublayers.wallMarks : undefined;
+  // The marks that tell wall types apart are the editor's: drawn under a desk unless the desk
+  // turns them off, which the table's does (players never see them).
+  const desk = getEditorDesk();
+  const marks = desk && desk.wallMarks !== false ? entry.sublayers.wallMarks : undefined;
   if (!marks) for (const child of entry.sublayers.wallMarks.removeChildren()) child.destroy({ children: true });
   // The style the walls draw with: the layer's, with its level's look folded in
   // (the rule is in wallLook.ts, `levelStyle`).

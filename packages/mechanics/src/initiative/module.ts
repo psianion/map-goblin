@@ -61,7 +61,18 @@ function andList(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
-export const initiativeModule: GameModule<InitiativeState> = {
+/**
+ * Table v2 — the one read this module makes of another: who holds a combatant's token *now*.
+ * End turn is allowed for the seat that owns the token at the moment of the check (a PC claimed
+ * after it joined the fight), falling back to the identity stored on the entry. The server
+ * answers it from the tokens slice; without it only the stored identity counts.
+ */
+export interface InitiativeDeps {
+  tokenOwnerOf?(campaignId: string, sceneId: string, tokenId: string): string | null | undefined
+}
+
+export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<InitiativeState> {
+  return {
   name: 'initiative',
   commands: {
     start: ['dm'],
@@ -70,6 +81,9 @@ export const initiativeModule: GameModule<InitiativeState> = {
     set: ANY_ROLE,
     begin: ['dm'],
     next: ['dm'],
+    // Table v2 (board 3): the DM steps back a turn; the player whose turn it is ends it.
+    previous: ['dm'],
+    'end-turn': ANY_ROLE,
     add: ['dm'],
     remove: ['dm'],
     end: ['dm'],
@@ -83,7 +97,7 @@ export const initiativeModule: GameModule<InitiativeState> = {
 
   handler(action, payload, ctx) {
     try {
-      run(action, obj(payload ?? {}, 'payload'), ctx)
+      run(action, obj(payload ?? {}, 'payload'), ctx, deps)
     } catch (err) {
       if (err instanceof Reject) return { code: err.code, message: err.message }
       throw err
@@ -104,9 +118,12 @@ export const initiativeModule: GameModule<InitiativeState> = {
     })
     return touched ? { ...state, entries } : state
   },
+  }
 }
 
-function run(action: string, p: Payload, ctx: Ctx): void {
+export const initiativeModule: GameModule<InitiativeState> = createInitiativeModule()
+
+function run(action: string, p: Payload, ctx: Ctx, deps: InitiativeDeps): void {
   switch (action) {
     case 'start':
       return start(p, ctx)
@@ -118,6 +135,10 @@ function run(action: string, p: Payload, ctx: Ctx): void {
       return begin(ctx)
     case 'next':
       return next(ctx)
+    case 'previous':
+      return previous(ctx)
+    case 'end-turn':
+      return endTurn(ctx, deps)
     case 'add':
       return add(p, ctx)
     case 'remove':
@@ -256,6 +277,39 @@ function begin(ctx: Ctx): void {
       `Initiative order: ${andList(entries.map((e) => e.name))}. Round 1 — ${entries[0].name}'s turn.`,
     ),
   })
+}
+
+/**
+ * The player whose turn it is hands it on — `next`, gated on the current combatant being
+ * theirs. The DM may end anyone's turn the same way.
+ */
+function endTurn(ctx: Ctx, deps: InitiativeDeps): void {
+  const state = ctx.state
+  if (state.status !== 'running') bad('this encounter has not begun')
+  const current = state.entries[state.turn]
+  if (ctx.sender.role !== 'dm' && currentOwner(current, state, ctx, deps) !== ctx.sender.identityId) {
+    denied('it is not your turn')
+  }
+  next(ctx)
+}
+
+/** Whose turn it is by seat: the token's owner now, else the identity stored on the entry. */
+function currentOwner(entry: InitiativeEntry | undefined, state: InitiativeState, ctx: Ctx, deps: InitiativeDeps): string | undefined {
+  if (!entry) return undefined
+  const owner = entry.tokenId && state.sceneId ? deps.tokenOwnerOf?.(ctx.campaignId, state.sceneId, entry.tokenId) : undefined
+  return owner ?? entry.identityId
+}
+
+/** One turn back; past the top of the order it is the last turn of the round before. */
+function previous(ctx: Ctx): void {
+  const state = ctx.state
+  if (state.status !== 'running') bad('this encounter has not begun')
+  if (state.round <= 1 && state.turn === 0) bad('this is the first turn of the encounter')
+  const wrapped = state.turn === 0
+  const turn = wrapped ? state.entries.length - 1 : state.turn - 1
+  const round = wrapped ? state.round - 1 : state.round
+  const who = state.entries[turn].name
+  ctx.setState({ ...state, turn, round, log: note(state.log, `Back to ${who}'s turn (round ${round}).`) })
 }
 
 function next(ctx: Ctx): void {

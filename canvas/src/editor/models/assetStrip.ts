@@ -18,7 +18,7 @@ import {
 } from '@dnd/core/src/assets/packCatalog';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { pickAsset } from '@dnd/core/src/store/pickAsset';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { selectedLookTarget, setLook, targetName } from './roomLook';
 

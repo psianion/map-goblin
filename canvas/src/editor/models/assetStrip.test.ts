@@ -70,7 +70,7 @@ vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/toast', () => ({
+vi.mock('@dnd/ui/toast', () => ({
   notify: { subtle: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn(), error: vi.fn(), action: vi.fn() },
 }));
 

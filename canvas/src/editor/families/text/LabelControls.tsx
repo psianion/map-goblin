@@ -11,9 +11,18 @@ import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer, TextChild } from '@/store/types';
 import { LABEL_STYLES } from '@dnd/core/src/shared/labelStyles';
 import { removeFreshLabel, takeLabelFocus } from '@dnd/core/src/engine/tools/TextTool';
-import { DockColumn, SecondaryButton, SettingRow, Stepper, Swatch, Tile } from '@/editor/components';
-import { Input } from '@/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
+import {
+  DockColumn,
+  SecondaryButton,
+  SettingRow,
+  Stepper,
+  Swatch,
+  Tile,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { editChildren } from '@/editor/families/design/cardWrites';
 import { CUSTOM, LABEL_SIZE_RANGE, inkOf, withBox } from './labelModel';

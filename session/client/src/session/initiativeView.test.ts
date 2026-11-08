@@ -7,7 +7,6 @@ import {
   combatantCandidates,
   lastRollTotal,
   myPendingEntry,
-  trackerView,
 } from './initiativeView';
 
 const entry = (over: Partial<InitiativeEntry> = {}): InitiativeEntry => ({
@@ -86,68 +85,6 @@ describe('combatantCandidates', () => {
       's1',
     );
     expect(result.map((c) => c.name)).toEqual(['Marra', 'Tomen', 'Bandit', 'Wolf']);
-  });
-});
-
-describe('trackerView', () => {
-  it('shows nothing while idle, or before a snapshot lands', () => {
-    expect(trackerView(undefined, 's1')).toBeNull();
-    expect(trackerView(stateOf({ status: 'idle', sceneId: null }), 's1')).toBeNull();
-  });
-
-  it('shows nothing on a scene the encounter is not on', () => {
-    expect(trackerView(stateOf({ entries: [entry()] }), 's2')).toBeNull();
-    expect(trackerView(stateOf({ entries: [entry()] }), null)).toBeNull();
-  });
-
-  it('sorts while gathering, and highlights nobody', () => {
-    const view = trackerView(
-      stateOf({
-        entries: [
-          entry({ key: 'a', name: 'Marra', initiative: 8 }),
-          entry({ key: 'b', name: 'Tomen', initiative: null }),
-          entry({ key: 'c', name: 'Goblin', initiative: 19 }),
-        ],
-      }),
-      's1',
-    );
-    expect(view?.rows.map((r) => r.name)).toEqual(['Goblin', 'Marra', 'Tomen']);
-    expect(view?.rows.some((r) => r.current)).toBe(false);
-  });
-
-  it('reads HP as a fraction, a redacted NPC as down, and conditions as labels', () => {
-    const view = trackerView(
-      stateOf({
-        entries: [
-          entry({ key: 'a', name: 'Marra', hp: { current: 5, max: 12 }, conditions: ['prone'] }),
-          entry({ key: 'b', name: 'Goblin', kind: 'npc', hp: { current: 0, max: 0 } }),
-          entry({ key: 'c', name: 'Tomen' }),
-        ],
-      }),
-      's1',
-    );
-    const by = (name: string) => view!.rows.find((r) => r.name === name)!;
-    expect(by('Marra')).toMatchObject({ hp: '5/12', down: false, conditions: ['Prone'] });
-    expect(by('Goblin')).toMatchObject({ hp: 'down', down: true, conditions: [] });
-    expect(by('Tomen')).toMatchObject({ hp: null, down: false, conditions: [] });
-  });
-
-  it('keeps the locked order once running and highlights the current turn', () => {
-    const view = trackerView(
-      stateOf({
-        status: 'running',
-        round: 3,
-        turn: 1,
-        entries: [
-          entry({ key: 'a', name: 'Goblin', initiative: 19 }),
-          entry({ key: 'b', name: 'Marra', initiative: 8 }),
-        ],
-      }),
-      's1',
-    );
-    expect(view?.round).toBe(3);
-    expect(view?.rows.map((r) => r.name)).toEqual(['Goblin', 'Marra']);
-    expect(view?.rows.map((r) => r.current)).toEqual([false, true]);
   });
 });
 

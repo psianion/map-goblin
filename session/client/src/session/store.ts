@@ -1,6 +1,16 @@
 import { create } from 'zustand';
+import { notify } from '@dnd/ui/toast';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import type { MapDelta, PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type {
+  Mark,
+  MapDelta,
+  PlayerInfo,
+  RollRequestNotice,
+  Role,
+  ServerMessage,
+  SessionState,
+} from '@dnd/core/src/shared/protocol';
+import { receiveMark } from '../shell/marks/marks';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
 import {
@@ -89,6 +99,19 @@ export interface SessionStore {
   token: string | null;
   /** Set by HostSetup (C2); GameTable shows it to the DM. */
   inviteCode: string | null;
+  /**
+   * v6 — the last roll request addressed to this seat (`roll-requested`), stamped on arrival.
+   * The request itself lives in the rolls slice; this is the nudge that opens the prompt card.
+   */
+  rollRequested: (RollRequestNotice & { at: number }) | null;
+  /** v6, DM seats — the timers the last turned round ran out (`effects-ended`), for a toast. */
+  effectsEnded: {
+    sceneId: string;
+    ended: { tokenId: string; tokenName: string; name: string }[];
+    at: number;
+  } | null;
+  /** v6, players — where the DM last pulled every camera (Shift+Alt+click ping). */
+  cameraPull: { x: number; y: number; at: number } | null;
 
   connect: (token: string, url?: string) => void;
   disconnect: () => void;
@@ -100,6 +123,8 @@ export interface SessionStore {
   setInviteCode: (code: string | null) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   sendCommand: (module: string, action: string, payload: unknown) => void;
+  /** v6 — a ping, ruler, template or drawing for every seat; relayed, never stored. */
+  sendMark: (mark: Mark) => void;
 }
 
 // The seat survives a refresh: per-tab (sessionStorage dies with the tab, so two
@@ -131,6 +156,19 @@ const modeOf = (state: unknown, sceneId: string): FogMode => {
   return scene ? fogModeOf(scene) : 'rooms';
 };
 
+/**
+ * 4.3 Republish notice: the live scene stayed the same and its map changed under it, so the
+ * canvas published over it. Said once per (scene, map), whichever message carries it first.
+ */
+let announcedMap: string | null = null;
+function announceRepublish(prev: SessionState | null, sceneId: string, mapId: string): void {
+  if (!prev || prev.activeSceneId !== sceneId) return;
+  const before = prev.scenes.find((s) => s.id === sceneId)?.mapId;
+  if (!before || before === mapId || announcedMap === `${sceneId}:${mapId}`) return;
+  announcedMap = `${sceneId}:${mapId}`;
+  notify.info('Map updated from the canvas');
+}
+
 /** The scenes whose fog mode differs between the state this seat held and the one just sent. */
 function fogModeFlips(prev: unknown, next: unknown): string[] {
   const scenes = (next as FogState | undefined)?.byScene;
@@ -157,6 +195,9 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   client: null,
   token: null,
   inviteCode: null,
+  rollRequested: null,
+  effectsEnded: null,
+  cameraPull: null,
 
   connect: (token, url) => {
     get().client?.close();
@@ -201,10 +242,13 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     applyingRemote = true;
     try {
       switch (msg.type) {
-        case 'session-state':
+        case 'session-state': {
           // §2.5: the snapshot replaces client state wholesale. No deltas, ever.
+          const live = msg.state.scenes.find((s) => s.id === msg.state.activeSceneId);
+          if (live) announceRepublish(get().session, live.id, live.mapId);
           set({ session: msg.state, you: msg.you });
           break;
+        }
 
         case 'state-update': {
           const session = get().session;
@@ -273,6 +317,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // The held document stays: GameRenderer sees active ≠ loaded and swaps to the new
           // scene's document without ever rendering nothing (F1). `mapId` keeps the scene
           // list honest when the change is a republish of the scene being played.
+          announceRepublish(session, msg.sceneId, msg.mapId);
           const scenes = session.scenes.map((s) =>
             s.id === msg.sceneId ? { ...s, mapId: msg.mapId } : s,
           );
@@ -329,6 +374,34 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           set({ lastError: { code: msg.code, message: msg.message, at: Date.now() } });
           break;
 
+        case 'mark': {
+          // This seat drew its own marks as it made them (`placeMark`); the echo is skipped.
+          const { event } = msg;
+          const me = get().you;
+          if (event.from === me?.identityId) break;
+          receiveMark(event.mark, event.from);
+          // The DM's pull recentres every player camera on the ping (plan 4.3).
+          if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
+            const { x, y } = event.mark;
+            set({ cameraPull: { x, y, at: Date.now() } });
+            // Lazy: the camera reaches into the engine, which the store has no other use for.
+            void import('../renderer/camera')
+              .then(({ frameWorldPoint }) => frameWorldPoint(x, y))
+              .catch(() => {
+                /* no renderer mounted (tests, the lobby): the pull has nothing to move */
+              });
+          }
+          break;
+        }
+
+        case 'roll-requested':
+          set({ rollRequested: { ...msg.request, at: Date.now() } });
+          break;
+
+        case 'effects-ended':
+          set({ effectsEnded: { sceneId: msg.sceneId, ended: msg.ended, at: Date.now() } });
+          break;
+
         default:
           // ponytail: dm-* and pong land here. Nothing reads them from the store —
           // components that care add their cases.
@@ -343,6 +416,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     if (applyingRemote) return; // inbound-driven change: never round-trips back
     seq += 1;
     get().client?.send({ type: 'command', module, action, payload, seq });
+  },
+
+  sendMark: (mark) => {
+    if (applyingRemote) return;
+    get().client?.send({ type: 'mark', mark });
   },
 }));
 

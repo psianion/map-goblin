@@ -1,5 +1,4 @@
-// D8 — the module's single entry point: importing it registers the Initiative panel.
-// GameTable imports this and learns nothing else. The turn ring (`TurnRing.ts`) mounts
-// separately from GameTable itself, since it has to draw on the map whether or not this
-// panel — or any panel — is open (see `mountTurnRingWhenReady`).
-import './InitiativePanel';
+// The initiative module's entry, imported once by GameTable. Table v2 has nothing left to
+// register here: the Encounter tab is a dock tab (`shell/dock/tabs.ts`), the turn ring mounts
+// with the map layers, and a player's initiative prompt renders from `TokenMenu`.
+export {};

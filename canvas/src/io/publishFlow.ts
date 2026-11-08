@@ -14,6 +14,7 @@ import {
   listCampaigns,
   createCampaign,
   mintDmToken,
+  mintHandoff,
   uploadMap,
   republishScene,
   putScenePrep,
@@ -21,7 +22,7 @@ import {
   PublishGoneError,
   type CampaignSummary,
 } from '@/io/publish';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 
 // The factory behind getMapDB() is always canvas's MapIndexDB (see store/init.ts) — the
 // core-side MapDB interface just doesn't list the publish-state methods added there.
@@ -29,7 +30,7 @@ async function getDb(): Promise<MapIndexDB> {
   return (await getMapDB()) as unknown as MapIndexDB;
 }
 
-export type PublishMode = 'checking' | 'summary' | 'error' | 'password' | 'campaigns';
+export type PublishMode = 'checking' | 'summary' | 'error' | 'password' | 'campaigns' | 'published';
 export type PublishChange = 'map' | 'prep' | 'none';
 
 export interface PublishSummary {
@@ -81,6 +82,8 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
 
   const [publishState, setPublishStateLocal] = useState<PublishRecord | null>(null);
   const [summary, setSummary] = useState<PublishSummary | null>(null);
+  // Where the last publish went, for the done step's Open the table.
+  const [published, setPublished] = useState<{ campaignId: string; campaignLabel: string } | null>(null);
 
   // Never persisted — lives only as long as the dialog needs it to mint a token.
   const [adminPass, setAdminPass] = useState('');
@@ -105,6 +108,7 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
     if (open) return;
     setAdminPass('');
     setError(null);
+    setPublished(null);
     setMode('checking');
   }, [open]);
 
@@ -229,9 +233,11 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
           `Published "${mapName}" to ${campaignLabel} as a new scene — the old one was removed at the table`,
         );
       }
-      onClose();
+      // The dialog stays open on a done step, so the DM can go straight to the table.
+      setPublished({ campaignId, campaignLabel });
+      setMode('published');
     },
-    [activeMapId, publishState, onClose],
+    [activeMapId, publishState],
   );
 
   /** Publish from the summary; `force` republishes the map even when nothing changed. */
@@ -340,8 +346,45 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
     }
   }, [adminPass, newCampaignName, runPublish, handleAuthError]);
 
+  /**
+   * Open the table in a new tab, signed in as this campaign's DM: the server mints a
+   * single-use code and names the table link that carries it. The tab is opened before the
+   * request so the browser counts it as the click's, not as a popup.
+   */
+  const openTable = useCallback(async () => {
+    if (!published) return;
+    const token = getPublishToken(published.campaignId);
+    if (!token) {
+      handleAuthError(published.campaignId);
+      return;
+    }
+    const tab = window.open('', '_blank');
+    setBusy(true);
+    setBusyLabel('Opening…');
+    setError(null);
+    try {
+      const { tableUrl } = await mintHandoff(token, published.campaignId);
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = tableUrl;
+      } else {
+        window.open(tableUrl, '_blank', 'noopener');
+      }
+      onClose();
+    } catch (err) {
+      tab?.close();
+      if (err instanceof PublishAuthError) handleAuthError(published.campaignId);
+      else setError(err instanceof Error ? err.message : 'Could not open the table.');
+    } finally {
+      setBusy(false);
+      setBusyLabel('');
+    }
+  }, [published, handleAuthError, onClose]);
+
   return {
     mode,
+    published,
+    openTable,
     busy,
     busyLabel,
     error,

@@ -8,8 +8,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/ui/dialog';
-import { Button } from '@/ui/button';
+  Button,
+} from '@dnd/ui';
 
 interface ConfirmDialogProps {
   open: boolean;

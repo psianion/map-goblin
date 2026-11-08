@@ -5,8 +5,7 @@ import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import type { ZoneShape } from '@/store/types';
-import { InputRow, SecondaryButton, SettingRow } from '@/editor/components';
-import { Input } from '@/ui/input';
+import { InputRow, SecondaryButton, SettingRow, Input } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { useShell } from '@/editor/shell/shellStore';
 

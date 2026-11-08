@@ -2,7 +2,7 @@
 // library on the asset panel's Paths. A click picks what the next path is laid with.
 
 import { useStore } from '@/store/store';
-import { AddTile, DockColumn, Tile } from '@/editor/components';
+import { AddTile, DockColumn, Tile } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { pathPieceLabel, pathPieceOf, pathPieces } from '@dnd/core/src/assets/pathKit';
 import { openAssets } from '@/editor/families/design/openAssets';

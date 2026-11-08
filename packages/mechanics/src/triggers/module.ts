@@ -9,8 +9,9 @@
 // committed their own write. Dispatching it over the wire must fail the same way an unknown
 // action does, which is exactly what leaving it out of `commands` gets for free.
 
-import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { ANY_ROLE, dropScene, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
+import { ringOffsets } from '../tokens/fan'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
   AMBIENT_DARKNESS,
@@ -82,6 +83,8 @@ export interface EncounterEffects {
     y: number
     size: MonsterEntry['size'] & string
     packAsset?: { packId: string; assetId: string }
+    /** The rolled pool, so the placed token carries it as `hp.max` (table v2). */
+    hp?: number
   }[]
   /** Empty when the action's `seedInitiative` is off. `hp` is already rolled. */
   seed: { name: string; hp?: number; tokenId?: string }[]
@@ -133,6 +136,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-room': ['dm'],
       'set-seat-level': ['dm'],
       'set-dm-level': ['dm'],
+      'set-start-level': ['dm'],
       'roll-prompt': ANY_ROLE,
       'dismiss-prompt': ['dm'],
       'share-note': ['dm'],
@@ -141,6 +145,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       // no 'event' entry — see the file header.
     },
     initialState: { byScene: {} },
+    forgetScene: dropScene,
 
     handler(action, payload, ctx) {
       try {
@@ -168,7 +173,8 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
         // A light in a room the party has not explored is not on the player's map, so its live
         // edit does not ship either. Room moods are not secrets: `roomEdits` ship whole. The
-        // DM's own level pick stays the DM's; seat pins ship (each seat reads its own).
+        // DM's own level pick stays the DM's; seat pins and the start level ship (each seat
+        // reads its own).
         const kept = deps.keptLightsOf?.(sceneId) ?? null
         byScene[sceneId] = {
           fired: {},
@@ -178,6 +184,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           lightEdits: kept ? keepKeys(scene.lightEdits, kept) : scene.lightEdits,
           ...(scene.roomEdits ? { roomEdits: scene.roomEdits } : {}),
           ...(scene.seatLevel ? { seatLevel: scene.seatLevel } : {}),
+          ...(scene.startLevelId ? { startLevelId: scene.startLevelId } : {}),
           env: scene.env,
           prompts: scene.prompts.filter((p) => p.targetIdentityId === viewer.identityId),
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
@@ -210,6 +217,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return setSeatLevel(p, ctx)
     case 'set-dm-level':
       return setDmLevel(p, ctx)
+    case 'set-start-level':
+      return setStartLevel(p, ctx)
     case 'roll-prompt':
       return rollPrompt(p, ctx, deps)
     case 'dismiss-prompt':
@@ -572,6 +581,13 @@ function setDmLevel(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneTriggersOf(ctx.state, sceneId)
   setScene(ctx, sceneId, { ...scene, dmLevelId: str(p.levelId, 'levelId', ID_MAX) })
+}
+
+/** DM-only: the level of the room the session opened in, where seats look until they pick. */
+function setStartLevel(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  setScene(ctx, sceneId, { ...scene, startLevelId: str(p.levelId, 'levelId', ID_MAX) })
 }
 
 /** Drops a light back to however the map authored it — the DM's whole edit, not one field. */
@@ -1244,6 +1260,7 @@ function runEncounter(
           y,
           size: monster.size ?? 'medium',
           ...(monster.tokenRef ? { packAsset: monster.tokenRef } : {}),
+          ...(hp !== undefined ? { hp } : {}),
         })
         placed++
       }
@@ -1275,19 +1292,6 @@ function runEncounter(
     },
     now,
   )
-}
-
-/** Grid-cell offsets fanning out from the anchor — centre first, then rings out to `rings`. */
-function ringOffsets(rings: number): [number, number][] {
-  const cells: [number, number][] = [[0, 0]]
-  for (let r = 1; r <= rings; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) cells.push([dx, dy])
-      }
-    }
-  }
-  return cells
 }
 
 /** A zone anchor's fan: two rings, 25 cells. A roster past 25 stacks on the last cell (the

@@ -12,7 +12,7 @@ import {
 } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { createDungeonLayer } from '@/store/factories';
-import { notify } from '@/lib/toast';
+import { notify } from '@dnd/ui/toast';
 import { suggestRooms } from '@dnd/core/src/shared/suggestRooms';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
 import { emptyRoomKey, roomKeyOf } from '@dnd/core/src/shared/prep';

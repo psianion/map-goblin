@@ -1,4 +1,4 @@
-// Save worker shell: .mapbuilder encode/decode off the main thread.
+// Save worker shell: .ggvtt encode/decode off the main thread.
 // The heavy parts — JSON.stringify of a multi-MB document, splat base64,
 // gzip — all run here. Logic lives in mapFormat.ts (pure, tested directly).
 
