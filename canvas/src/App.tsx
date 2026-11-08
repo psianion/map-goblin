@@ -8,6 +8,7 @@ import { LazyNewMapModal as NewMapModal } from '@/editor/dialogs/LazyNewMapModal
 import { initTheme, useTheme } from '@dnd/ui';
 import { readDesk } from '@/theme/desk';
 import { refreshPublishTokens } from '@/io/publish';
+import { saveThenLeave } from '@/io/leaveMap';
 import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from '@/editor/viewPrefs';
 
 // The editor and its engine load as their own chunk, so the home page paints without them.
@@ -75,9 +76,9 @@ export default function App() {
   }, []);
 
   const goHome = useCallback(() => {
-    // Save on the way out so the card shows the map as it was just left.
-    void useStore.getState().saveCurrentMap();
-    setHome(true);
+    // Save on the way out, and finish it before the home page shows: the card shows the map
+    // as it was just left, and a reload straight after keeps it.
+    void saveThenLeave(() => useStore.getState().saveCurrentMap(), () => setHome(true));
   }, []);
 
   return (
