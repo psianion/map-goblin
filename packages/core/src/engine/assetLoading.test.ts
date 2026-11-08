@@ -196,7 +196,77 @@ describe('ensureMapAssets', () => {
     ])
     expect(seen.packFiles).toEqual(filesOfSets(shippedManifest('gg-forge'), ['GG_Cave_Floor']).map((f) => `gg-forge/${f}`))
   })
+
+  it('a new blank map fetches its seed floor file and the Fieldstone atlas pair, nothing else', async () => {
+    const seen = servePacks()
+    const pm = getAssetPackManager()
+    await bootAssets(pm)
+    await ensureMapAssets(pm, collectMapTextureIds(createDefaultState()))
+    const fieldstone = filesOfSets(shippedManifest('gg-forge'), ['GG_Fieldstone']).map((f) => `gg-forge/${f}`)
+    expect(fieldstone).toHaveLength(2) // one atlas: json and image
+    expect([...seen.packFiles].sort()).toEqual([...filesOfIds(['gg-demo:floor_small_8x8_floor_A']), ...fieldstone].sort())
+    expect(seen.packFiles.filter((f) => f.startsWith('gg-demo/'))).toHaveLength(1)
+  })
+
+  it('the Goblin Warren fetches only the files its art uses, and the library then skips them', async () => {
+    const seen = servePacks()
+    const pm = getAssetPackManager()
+    await bootAssets(pm)
+    const ids = collectMapTextureIds(warren())
+    const expected = filesOfIds(ids)
+    await ensureMapAssets(pm, ids)
+
+    expect([...seen.packFiles].sort()).toEqual(expected)
+    const demo = expected.filter((f) => f.startsWith('gg-demo/'))
+    const forge = expected.filter((f) => f.startsWith('gg-forge/'))
+    expect(demo).toHaveLength(39)
+    expect(forge).toHaveLength(47)
+    // Against the whole sets those ids belong to: 623 gg-demo files.
+    const wholeSets = [...(pm.assetSetsForTextureIds(ids).get('gg-demo') ?? [])]
+    expect(filesOfSets(shippedManifest('gg-demo'), wholeSets).length).toBeGreaterThan(600)
+    expect(bytesOf(demo)).toBeLessThan(600_000)
+
+    // A set a map only partly stored is not installed until the library finishes it.
+    expect(pm.getAssetSetStatus('gg-demo').find((s) => s.set === 'demo-traps')).toMatchObject({ installed: false })
+    await installLibrary(pm, ['gg-forge', 'gg-demo'])
+    expect(new Set(seen.packFiles).size).toBe(seen.packFiles.length) // nothing fetched twice
+    expect(pm.getAssetSetStatus('gg-demo').every((s) => s.installed)).toBe(true)
+  })
 })
+
+/** The files the art of `ids` lives in, as `<pack>/<file>`, from the manifests on their own terms. */
+function filesOfIds(ids: string[]): string[] {
+  const manifests = { 'gg-forge': shippedManifest('gg-forge'), 'gg-demo': shippedManifest('gg-demo') }
+  const out = new Set<string>()
+  for (const raw of ids) {
+    const sep = raw.indexOf(':')
+    const packId = (sep === -1 ? Object.keys(manifests).find((p) => manifests[p as keyof typeof manifests].entries[raw]) : raw.slice(0, sep)) as keyof typeof manifests | undefined
+    const manifest = packId && manifests[packId]
+    const entry = manifest?.entries[sep === -1 ? raw : raw.slice(sep + 1)]
+    if (!manifest || !entry) continue
+    if (entry.atlas) {
+      out.add(`${packId}/${entry.atlas}`)
+      out.add(`${packId}/${entry.atlas.replace(/\.webp$/, '.json')}`)
+    } else {
+      const prefix = `${entry.material}_${entry.gridSize}_${entry.variant}-`
+      for (const f of Object.keys(manifest.files)) if (f.startsWith(prefix)) out.add(`${packId}/${f}`)
+    }
+  }
+  return [...out].sort()
+}
+
+/** Manifest bytes of `<pack>/<file>` names. */
+function bytesOf(files: string[]): number {
+  return files.reduce((s, pf) => {
+    const [packId, file] = [pf.slice(0, pf.indexOf('/')), pf.slice(pf.indexOf('/') + 1)]
+    const m = shippedManifest(packId)
+    return s + (m.files[file]?.size ?? m.atlases[file]?.size ?? 0)
+  }, 0)
+}
+
+function warren(): MapTextureSource {
+  return JSON.parse(readFileSync(resolve(process.cwd(), '../../session/testdata/goblin-warren.mapbuilder'), 'utf8'))
+}
 
 describe('lazy decode', () => {
   it('decodes a texture on first use, once, and tells subscribers', async () => {

@@ -185,6 +185,21 @@ export class AssetPackDB {
     return out
   }
 
+  /** The name of every stored file, per pack. Reads keys only, never a file's bytes. */
+  async getFileNames(): Promise<Map<string, Set<string>>> {
+    const tx = this.conn.transaction(FILES_STORE, 'readonly')
+    const keys = (await result(tx.objectStore(FILES_STORE).getAllKeys())) as string[]
+    const out = new Map<string, Set<string>>()
+    for (const key of keys) {
+      const sep = key.indexOf('/')
+      const packId = key.slice(0, sep)
+      const names = out.get(packId) ?? new Set<string>()
+      names.add(key.slice(sep + 1))
+      out.set(packId, names)
+    }
+    return out
+  }
+
   async putFiles(packId: string, blobs: Map<string, Uint8Array>): Promise<void> {
     const tx = this.conn.transaction(FILES_STORE, 'readwrite')
     const store = tx.objectStore(FILES_STORE)
@@ -208,13 +223,15 @@ export class AssetPackDB {
   }
 
   /**
-   * Store the files of newly-fetched asset sets and mark those sets installed,
-   * in one transaction. A no-op for a pack with no record.
+   * Store the files of newly-fetched asset sets (`blobs`, possibly empty when they were
+   * stored file by file) and record those sets on the pack, in one transaction. A set's
+   * bytes come from `setBytes` when given, else from `blobs`. A no-op for a pack with no record.
    */
   async mergeAssetSetBlobs(
     packId: string,
     blobs: Map<string, Uint8Array>,
     setFiles: Record<string, string[]>,
+    setBytes?: Record<string, number>,
   ): Promise<void> {
     const tx = this.conn.transaction([PACKS_STORE, FILES_STORE], 'readwrite')
     const packs = tx.objectStore(PACKS_STORE)
@@ -232,7 +249,7 @@ export class AssetPackDB {
       for (const [setName, names] of Object.entries(setFiles)) {
         installedAssetSets.add(setName)
         dynamicAssetSets.add(setName)
-        assetSetBytes[setName] = names.reduce((s, f) => s + (blobs.get(f)?.length ?? 0), 0)
+        assetSetBytes[setName] = setBytes?.[setName] ?? names.reduce((s, f) => s + (blobs.get(f)?.length ?? 0), 0)
         assetSetFiles[setName] = names
       }
       packs.put({

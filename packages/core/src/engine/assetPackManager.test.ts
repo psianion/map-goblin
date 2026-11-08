@@ -173,6 +173,8 @@ function createMockDB(packs: StoredPack[]): AssetPackDB {
     getAllPackMeta: vi.fn().mockResolvedValue(packs),
     getFile: vi.fn().mockResolvedValue(null),
     getFiles: vi.fn().mockResolvedValue(new Map()),
+    getFileNames: vi.fn().mockResolvedValue(new Map()),
+    putFiles: vi.fn().mockResolvedValue(undefined),
     getPackMeta: vi.fn().mockResolvedValue(null),
     installPack: vi.fn().mockResolvedValue(undefined),
     deletePack: vi.fn().mockResolvedValue(undefined),
@@ -588,12 +590,10 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it('is a fast no-op when every requested set is already installed — no fetch, no merge', async () => {
     const db = createMockDB([])
-    db.getPackMeta = vi.fn().mockResolvedValue({
-      ...makeStoredPack('dungeon-classic', '1.0.0'),
-      installedAssetSets: ['GG_Fieldstone', 'GG_Palisade'],
-    })
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     mgr['manifestCache'].set('dungeon-classic', makeSetManifest())
+    // Installed means every file of the set is stored.
+    mgr['presentFiles'].set('dungeon-classic', new Set(['GG_Fieldstone_Straight_3x1_A_3x1_A-hash1.webp', 'GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp']))
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
     await mgr.ensureAssetSets('dungeon-classic', ['GG_Fieldstone'])
@@ -603,12 +603,9 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it('bumps the asset-set LRU for every requested set, hit or miss', async () => {
     const db = createMockDB([])
-    db.getPackMeta = vi.fn().mockResolvedValue({
-      ...makeStoredPack('dungeon-classic', '1.0.0'),
-      installedAssetSets: ['GG_Fieldstone'],
-    })
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     mgr['manifestCache'].set('dungeon-classic', makeSetManifest())
+    mgr['presentFiles'].set('dungeon-classic', new Set(['GG_Fieldstone_Straight_3x1_A_3x1_A-hash1.webp']))
     stubZeroDigest()
     stubFetchOk()
     await mgr.ensureAssetSets('dungeon-classic', ['GG_Fieldstone', 'GG_Palisade'])
@@ -619,12 +616,9 @@ describe('AssetPackManager.ensureAssetSets', () => {
 
   it("fetches and merges only the missing set's files, checksum-verified", async () => {
     const db = createMockDB([])
-    db.getPackMeta = vi.fn().mockResolvedValue({
-      ...makeStoredPack('dungeon-classic', '1.0.0'),
-      installedAssetSets: ['GG_Fieldstone'],
-    })
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     mgr['manifestCache'].set('dungeon-classic', makeSetManifest())
+    mgr['presentFiles'].set('dungeon-classic', new Set(['GG_Fieldstone_Straight_3x1_A_3x1_A-hash1.webp']))
     stubZeroDigest()
     const fetched: string[] = []
     stubFetchOk((url) => fetched.push(url))
@@ -634,10 +628,13 @@ describe('AssetPackManager.ensureAssetSets', () => {
     expect(fetched).toEqual([
       'https://cdn.example.com/dungeon-classic/GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp',
     ])
+    expect(db.putFiles).toHaveBeenCalledTimes(1)
+    expect([...(db.putFiles as ReturnType<typeof vi.fn>).mock.calls[0][1].keys()]).toEqual(['GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp'])
     expect(db.mergeAssetSetBlobs).toHaveBeenCalledWith(
       'dungeon-classic',
       expect.any(Map),
-      { GG_Palisade: ['GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp'] },
+      { GG_Fieldstone: ['GG_Fieldstone_Straight_3x1_A_3x1_A-hash1.webp'], GG_Palisade: ['GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp'] },
+      { GG_Fieldstone: 3, GG_Palisade: 3 },
     )
   })
 
@@ -780,6 +777,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
       'dungeon-classic',
       expect.any(Map),
       { GG_Fieldstone: ['GG_Fieldstone_Straight_3x1_A_3x1_A-hash1.webp'] },
+      { GG_Fieldstone: 3 },
     )
   })
 })

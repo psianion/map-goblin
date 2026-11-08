@@ -148,32 +148,30 @@ export async function installBundledIndex(packManager: AssetPackManager): Promis
 }
 
 /**
- * Tier 2: the asset sets the texture ids `ids` need (see collectMapTextureIds), fetched
- * per pack with progress in phase `map`. Never throws: a set that fails is logged and the
- * map draws with fallbacks.
+ * Tier 2: only the files the texture ids `ids` draw from (see collectMapTextureIds): a
+ * loose entry's file, an atlas entry's json and image. Not whole sets. Fetched per pack
+ * with progress in phase `map`. Never throws: a file that fails is logged and the map
+ * draws with fallbacks.
  */
 export async function ensureMapAssets(
   packManager: AssetPackManager,
   ids: string[],
   onProgress?: (p: AssetProgress) => void,
 ): Promise<void> {
-  let bySet: Map<string, Set<string>>;
+  let byPack: Map<string, string[]>;
   try {
-    bySet = packManager.assetSetsForTextureIds(ids);
+    byPack = packManager.filesForTextureIds(ids);
   } catch (err) {
-    console.warn('[firstBootInstall] ensureMapAssets: could not resolve the map\'s sets', err);
+    console.warn('[firstBootInstall] ensureMapAssets: could not resolve the map\'s files', err);
     return;
   }
 
   let files = 0;
   let bytes = 0;
-  for (const [packId, sets] of bySet) {
-    for (const s of packManager.getAssetSetStatus(packId)) {
-      if (sets.has(s.set) && !s.installed) {
-        files += s.files;
-        bytes += s.bytes;
-      }
-    }
+  for (const [packId, names] of byPack) {
+    const missing = packManager.missingFileTotals(packId, names);
+    files += missing.files;
+    bytes += missing.bytes;
   }
 
   const job = files > 0 ? packManager.beginProgress('map') : null;
@@ -190,9 +188,9 @@ export async function ensureMapAssets(
 
   try {
     await Promise.all(
-      [...bySet].map(([packId, sets]) =>
-        packManager.ensureAssetSets(packId, [...sets], sink).catch((err) => {
-          console.warn(`[firstBootInstall] ensureMapAssets: sets of pack "${packId}" failed`, err);
+      [...byPack].map(([packId, names]) =>
+        packManager.ensureFiles(packId, names, sink).catch((err) => {
+          console.warn(`[firstBootInstall] ensureMapAssets: files of pack "${packId}" failed`, err);
         }),
       ),
     );
@@ -203,7 +201,7 @@ export async function ensureMapAssets(
 
 /**
  * Tier 3: every set of the packs in `order` not stored yet, pack by pack, smallest set
- * first inside a pack. Each set is committed as it lands, so a reload resumes where this
+ * first inside a pack; files a map already stored are not fetched again. Each set is committed as it lands, so a reload resumes where this
  * stopped. `signal` pauses it between sets. Never throws.
  */
 export async function installLibrary(
@@ -215,15 +213,15 @@ export async function installLibrary(
   const plan = order.flatMap((packId) =>
     packManager
       .getAssetSetStatus(packId)
-      .filter((s) => !s.installed)
+      .filter((s) => s.missingFiles > 0)
       .map((s) => ({ packId, ...s })),
   );
   if (plan.length === 0) return;
 
   const job = packManager.beginProgress('library');
   job.addTotal(
-    plan.reduce((s, p) => s + p.files, 0),
-    plan.reduce((s, p) => s + p.bytes, 0),
+    plan.reduce((s, p) => s + p.missingFiles, 0),
+    plan.reduce((s, p) => s + p.missingBytes, 0),
   );
   onProgress?.(job.progress);
   const sink = {

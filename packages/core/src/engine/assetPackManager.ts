@@ -4,7 +4,7 @@ import pLimit from 'p-limit'
 import type { AssetPackDB, StoredPackMeta } from './assetPackDB'
 import { bumpAssetSetLRU } from './assetPackDB'
 import { collectMapTextureIds, resolveAssetSets, type MapTextureSource } from './mapTextureRefs'
-import type { ManifestEntry, PackManifest } from './packManifest'
+import type { FileRef, ManifestEntry, PackManifest } from './packManifest'
 
 export interface PackSummary {
   packId: string
@@ -85,12 +85,17 @@ export interface ProgressJob {
   end(): void
 }
 
-/** One asset set of a pack: whether its files are stored locally, and their size per the manifest. */
+/**
+ * One asset set of a pack, sized per the manifest. Installed when every one of its files
+ * is stored; a map may have stored some of them already (`missing*` is what is left).
+ */
 export interface AssetSetStatus {
   set: string
   installed: boolean
   files: number
   bytes: number
+  missingFiles: number
+  missingBytes: number
 }
 
 const IDLE: AssetProgress = { phase: 'idle', filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0 }
@@ -118,12 +123,15 @@ export class AssetPackManager {
   private decoding: Map<string, Promise<void>> = new Map()
   /** Decodes that found no bytes or failed; retried once the file is written again. */
   private failedDecodes: Set<string> = new Set()
-  /** Entry ids asked for while their set was not stored yet; decoded when it lands. */
+  /** Entry ids asked for while their file was not stored yet; decoded when it lands. */
   private pendingRequests: Set<string> = new Set()
-  /** In-flight set downloads, keyed "<packId>/<set>". */
-  private ensuring: Map<string, Promise<void>> = new Map()
-  /** Sets whose files are stored, per pack: the sync mirror of the records' installedAssetSets. */
-  private installedSets: Map<string, Set<string>> = new Map()
+  /** In-flight file downloads, keyed "<packId>/<file>". */
+  private fetching: Map<string, Promise<void>> = new Map()
+  /**
+   * Files stored locally, per pack: the sync mirror of the `files` store's keys, read at
+   * rehydrate without the bytes. The truth for "is this set installed": all its files are.
+   */
+  private presentFiles: Map<string, Set<string>> = new Map()
   /** entry id → file holding its art, built once per manifest object. */
   private fileIndexCache: WeakMap<PackManifest, Map<string, string>> = new WeakMap()
 
@@ -250,7 +258,7 @@ export class AssetPackManager {
     if (!manifest || !entry) return
     const file = this.fileIndex(manifest).get(localId)
     if (!file) return
-    if (!this.isStored(packId, entry, file)) {
+    if (!this.isStored(packId, manifest, entry)) {
       this.pendingRequests.add(entryId)
       return
     }
@@ -395,23 +403,74 @@ export class AssetPackManager {
     return Object.keys(this.manifestCache.get(packId)?.entries ?? {}).map((id) => `${packId}:${id}`)
   }
 
-  /** Every asset set a pack declares, smallest first, with whether its files are stored. */
+  /** Every asset set a pack declares, smallest first, with how much of it is stored. */
   getAssetSetStatus(packId: string): AssetSetStatus[] {
     const manifest = this.manifestCache.get(packId)
     if (!manifest) return []
-    const installed = this.installedSets.get(packId)
     const refs = { ...manifest.atlases, ...manifest.files }
     return allSetNames(manifest)
       .map((set) => {
         const files = [...filesForSet(manifest, set)]
+        const missing = this.missingOf(packId, files)
         return {
           set,
-          installed: installed?.has(set) ?? false,
+          installed: files.length > 0 && missing.length === 0,
           files: files.length,
           bytes: files.reduce((s, f) => s + (refs[f]?.size ?? 0), 0),
+          missingFiles: missing.length,
+          missingBytes: missing.reduce((s, f) => s + (refs[f]?.size ?? 0), 0),
         }
       })
       .sort((a, b) => a.bytes - b.bytes || a.set.localeCompare(b.set))
+  }
+
+  /**
+   * The files that hold the art of texture ids, grouped by pack: a loose entry's file, an
+   * atlas entry's json and image. Bare ids resolve to the first pack declaring them; ids no
+   * manifest knows are skipped.
+   */
+  filesForTextureIds(ids: string[]): Map<string, string[]> {
+    const out = new Map<string, Set<string>>()
+    for (const raw of ids) {
+      const sep = raw.indexOf(':')
+      let packId: string
+      let entryId: string
+      if (sep === -1) {
+        const owner = [...this.manifestCache].find(([, m]) => m.entries[raw])
+        if (!owner) continue
+        packId = owner[0]
+        entryId = raw
+      } else {
+        packId = raw.slice(0, sep)
+        entryId = raw.slice(sep + 1)
+      }
+      const manifest = this.manifestCache.get(packId)
+      const entry = manifest?.entries[entryId]
+      if (!manifest || !entry) continue
+      const files = out.get(packId) ?? new Set<string>()
+      out.set(packId, files)
+      for (const f of entryFiles(manifest, entry)) files.add(f)
+    }
+    return new Map([...out].map(([p, f]) => [p, [...f]]))
+  }
+
+  /** File count and manifest bytes of the files of `files` not stored yet. */
+  missingFileTotals(packId: string, files: string[]): { files: number; bytes: number } {
+    const manifest = this.manifestCache.get(packId)
+    const refs = manifest ? { ...manifest.atlases, ...manifest.files } : {}
+    const missing = this.missingOf(packId, files)
+    return { files: missing.length, bytes: missing.reduce((s, f) => s + (refs[f]?.size ?? 0), 0) }
+  }
+
+  private missingOf(packId: string, files: string[]): string[] {
+    const present = this.presentFiles.get(packId)
+    return files.filter((f) => !present?.has(f) && !this.files.has(fileKey(packId, f)))
+  }
+
+  private markPresent(packId: string, files: Iterable<string>): void {
+    const present = this.presentFiles.get(packId) ?? new Set<string>()
+    for (const f of files) present.add(f)
+    this.presentFiles.set(packId, present)
   }
 
   /** The updates the index offers; see `checkForUpdatesReport` for whether it answered. */
@@ -587,7 +646,7 @@ export class AssetPackManager {
       })
     }
     this.manifestCache.set(packId, manifest)
-    this.installedSets.set(packId, new Set())
+    this.presentFiles.set(packId, new Set())
     this.installedPacks.set(packId, {
       packId,
       version: manifest.version,
@@ -624,7 +683,7 @@ export class AssetPackManager {
     }
 
     this.manifestCache.set(packId, manifest)
-    this.installedSets.set(packId, new Set(setNames))
+    this.presentFiles.set(packId, new Set(blobs.keys()))
     this.installedPacks.set(packId, {
       packId,
       version: manifest.version,
@@ -746,13 +805,9 @@ export class AssetPackManager {
     return index
   }
 
-  /** Whether `file` (holding `entry`) is stored locally, so a decode can start now. */
-  private isStored(packId: string, entry: ManifestEntry, file: string): boolean {
-    if (this.files.has(fileKey(packId, file))) return true
-    if (!this.packDB) return false
-    if (entry.set) return this.installedSets.get(packId)?.has(entry.set) ?? false
-    // Setless art is stored by a full install; a bundled pack fetches only by set.
-    return !(this.installedPacks.get(packId)?.bundled ?? true)
+  /** Whether every file `entry` needs (an atlas: json and image) is stored, so a decode can start now. */
+  private isStored(packId: string, manifest: PackManifest, entry: ManifestEntry): boolean {
+    return this.missingOf(packId, entryFiles(manifest, entry)).length === 0
   }
 
   /** Files of `packId` were (re)written: retry their failed decodes and serve waiting requests. */
@@ -925,7 +980,7 @@ export class AssetPackManager {
     // the installed copy still matches the bundle. Leaving the pre-update manifest here
     // made every in-session reader see the old content until the next rehydrate.
     this.manifestCache.set(packId, newManifest)
-    this.installedSets.set(packId, new Set(keptSets))
+    this.presentFiles.set(packId, new Set(blobs.keys()))
     this.catalogVersion++
     this.servePending(packId)
 
@@ -939,9 +994,8 @@ export class AssetPackManager {
   }
 
   /**
-   * Fetch the files of every requested set not stored yet, verify (where `crypto.subtle`
-   * exists) and store them, one commit per set. Decodes nothing. A second caller asking
-   * for a set already downloading awaits that download. Bumps the asset-set LRU for every
+   * Store every file of the requested sets not stored yet (see `ensureFiles`), then record
+   * the sets on the pack's record. Decodes nothing. Bumps the asset-set LRU for every
    * requested set, hit or miss. `progress` hears each file as it lands.
    */
   async ensureAssetSets(
@@ -959,78 +1013,79 @@ export class AssetPackManager {
     for (const setName of setNames) bumpAssetSetLRU(packId, setName)
 
     if (!this.packDB) return
-    const stored = await this.packDB.getPackMeta(packId)
-    const installed = this.installedSets.get(packId) ?? new Set<string>()
-    for (const s of stored?.installedAssetSets ?? []) installed.add(s)
-    this.installedSets.set(packId, installed)
-    const missing = [...new Set(setNames)].filter((s) => !installed.has(s))
-    if (missing.length === 0) return // fast no-op
+    const sets = [...new Set(setNames)]
+    const files = new Set<string>()
+    for (const s of sets) for (const f of filesForSet(manifest, s)) files.add(f)
+    if (this.missingOf(packId, [...files]).length === 0) return // fast no-op
 
-    await Promise.all(missing.map((setName) => this.ensureOneSet(packId, manifest, setName, progress)))
-  }
-
-  private async ensureOneSet(
-    packId: string,
-    manifest: PackManifest,
-    setName: string,
-    progress?: Pick<ProgressJob, 'advance'>,
-  ): Promise<void> {
-    const key = `${packId}/${setName}`
-    const inFlight = this.ensuring.get(key)
-    if (inFlight) {
-      await inFlight
-      const size = setSize(manifest, setName)
-      progress?.advance(size.files, size.bytes)
-      return
+    await this.ensureFiles(packId, [...files], progress)
+    const setFiles: Record<string, string[]> = {}
+    const setBytes: Record<string, number> = {}
+    for (const s of sets) {
+      setFiles[s] = [...filesForSet(manifest, s)]
+      setBytes[s] = setSize(manifest, s).bytes
     }
-    if (this.installedSets.get(packId)?.has(setName)) return
-    const run = this.fetchSet(packId, manifest, setName, progress).finally(() => this.ensuring.delete(key))
-    this.ensuring.set(key, run)
-    return run
+    await this.packDB.mergeAssetSetBlobs(packId, new Map(), setFiles, setBytes)
   }
 
-  private async fetchSet(
+  /**
+   * Fetch and store the files of `files` not stored yet, each verified where
+   * `crypto.subtle` exists. A file already downloading is awaited, not fetched twice.
+   * Decodes nothing; a texture request waiting on a file is served as it lands. Rejects
+   * with the first failure once the other files have settled.
+   */
+  async ensureFiles(
     packId: string,
-    manifest: PackManifest,
-    setName: string,
+    files: string[],
     progress?: Pick<ProgressJob, 'advance'>,
   ): Promise<void> {
-    const files = [...filesForSet(manifest, setName)]
-    if (files.length === 0 || !this.packDB) return
-
+    const manifest = this.manifestCache.get(packId)
+    if (!manifest || !this.packDB) return
+    const missing = this.missingOf(packId, [...new Set(files)])
+    if (missing.length === 0) return
     const refs = { ...manifest.atlases, ...manifest.files }
-    const verify = typeof globalThis.crypto?.subtle?.digest === 'function'
-    const blobs = new Map<string, Uint8Array>()
-    await Promise.all(
-      files.map((file) =>
-        this.downloadLimit(async () => {
-          const url = `${this.config.cdnBaseUrl}/${packId}/${file}`
-          const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
-          if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`)
-          const bytes = new Uint8Array(await res.arrayBuffer())
-          const ref = refs[file]
-          if (verify && ref && (await sha256Hex(bytes)) !== ref.checksum.replace('sha256:', '')) {
-            throw new Error(`Checksum mismatch for ${file}`)
-          }
-          blobs.set(file, bytes)
-          progress?.advance(1, ref?.size ?? bytes.length)
-        }),
-      ),
-    )
 
     // Cap check + evict BEFORE writing — never evict what we're about to need.
-    const addedBytes = [...blobs.values()].reduce((s, b) => s + b.length, 0)
+    const adding = missing.reduce((s, f) => s + (refs[f]?.size ?? 0), 0)
     const usage = await this.getCacheUsage()
-    if (usage.used + addedBytes > usage.limit) {
-      const evicted = await this.packDB.evictLRU(addedBytes - (usage.limit - usage.used), packId)
+    if (usage.used + adding > usage.limit) {
+      const evicted = await this.packDB.evictLRU(adding - (usage.limit - usage.used), packId)
       this.clearEvicted(evicted)
     }
 
-    await this.packDB.mergeAssetSetBlobs(packId, blobs, { [setName]: files })
-    const installed = this.installedSets.get(packId) ?? new Set<string>()
-    installed.add(setName)
-    this.installedSets.set(packId, installed)
-    this.servePending(packId, files)
+    const results = await Promise.allSettled(
+      missing.map((file) => this.fetchFile(packId, file, refs[file], progress)),
+    )
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+    if (failed) throw failed.reason
+  }
+
+  private fetchFile(
+    packId: string,
+    file: string,
+    ref: FileRef | undefined,
+    progress?: Pick<ProgressJob, 'advance'>,
+  ): Promise<void> {
+    const key = fileKey(packId, file)
+    let run = this.fetching.get(key)
+    if (!run) {
+      const verify = typeof globalThis.crypto?.subtle?.digest === 'function'
+      run = this.downloadLimit(async () => {
+        if (this.presentFiles.get(packId)?.has(file)) return
+        const url = `${this.config.cdnBaseUrl}/${packId}/${file}`
+        const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+        if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`)
+        const bytes = new Uint8Array(await res.arrayBuffer())
+        if (verify && ref && (await sha256Hex(bytes)) !== ref.checksum.replace('sha256:', '')) {
+          throw new Error(`Checksum mismatch for ${file}`)
+        }
+        await this.packDB!.putFiles(packId, new Map([[file, bytes]]))
+        this.markPresent(packId, [file])
+        this.servePending(packId, [file])
+      }).finally(() => this.fetching.delete(key))
+      this.fetching.set(key, run)
+    }
+    return run.then(() => progress?.advance(1, ref?.size ?? 0))
   }
 
   /**
@@ -1091,7 +1146,7 @@ export class AssetPackManager {
 
     this.installedPacks.delete(packId)
     this.manifestCache.delete(packId)
-    this.installedSets.delete(packId)
+    this.presentFiles.delete(packId)
     this.catalogVersion++
   }
 
@@ -1126,6 +1181,9 @@ export class AssetPackManager {
 
     await this.packDB.open()
     const packs = await this.packDB.getAllPackMeta()
+    // File names only, no bytes: which files each pack holds.
+    const storedFiles = await this.packDB.getFileNames()
+    for (const [packId, names] of storedFiles) this.presentFiles.set(packId, names)
 
     let loadedCount = 0
     for (const stored of packs) {
@@ -1141,7 +1199,6 @@ export class AssetPackManager {
           installedAt: stored.lastUsed,
         })
         this.manifestCache.set(stored.packId, manifest)
-        this.installedSets.set(stored.packId, new Set(stored.installedAssetSets ?? []))
         loadedCount++
       } catch (err) {
         console.warn(`[AssetPackManager] Failed to rehydrate pack "${stored.packId}":`, err)
@@ -1178,7 +1235,8 @@ export class AssetPackManager {
     }
     const files = new Set([...filesForSet(manifest, setName)].map((f) => fileKey(packId, f)))
     this.forgetFiles((key) => files.has(key))
-    this.installedSets.get(packId)?.delete(setName)
+    const present = this.presentFiles.get(packId)
+    for (const f of filesForSet(manifest, setName)) present?.delete(f)
   }
 
   /** Revoke the object URLs and drop the decode memos of the files `match` picks. */
@@ -1201,7 +1259,7 @@ export class AssetPackManager {
       const sep = id.indexOf(':')
       if (sep === -1) {
         this.clearPackTextures(id)
-        this.installedSets.delete(id)
+        this.presentFiles.delete(id)
       } else {
         this.clearAssetSetTextures(id.slice(0, sep), id.slice(sep + 1))
       }
