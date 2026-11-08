@@ -23,6 +23,21 @@ Status: drafted 7 November 2026; order, scope and rules agreed with the user the
 
 Specs written and not run in wave 1: terrain-brush, floor-opacity, floor-carve, floor-node-mode, shell-frame-d (updated). In wave 2: wall-corner-style, wall-merge, door-freestanding. In wave 3: water-brush, material-brush, path-tool. In wave 5: level-clone-compare, prop-below-water, trace-image. Wave 4 is parked. At the last commit: core 2383 unit tests, canvas 1076, typecheck, lint and build green in both packages; nothing pushed.
 
+### Battlemap image fix wave (8 November, from the user's first review)
+
+Audit findings: the Image start never read the image, scaled it by a 70 px guess at the camera centre, the line-up box was one square capped at three cells, Use this grid only rescaled the image, Select move snapped the pointer delta so an off-grid picture stayed off-grid, no grid showed over a picture, the Battlemap layer had a generic sheet, no trace choice at import, and no grid detection existed.
+
+| Commit | What |
+|---|---|
+| 2841ded | New map reads the picked image (pixels, "WxH" name hint), fills Fixed size, offers Use as Battlemap or Trace |
+| 175b70b | Grid detection from the image's pixels (cell size, line offset, confidence) |
+| 334d37c | Line-up as a whole-image W by H lattice with corner handles; Use this grid makes one image cell one map cell, lands on the origin, sets the fixed size, fits the camera; overhang under one cell does not grow the frame; format 3.9 (imageSource) |
+| 326cd56 | Select move snaps a single picture, prop, light or label absolutely; grid lines drawn over every picture's footprint |
+| 4a7924d | Battlemap layer sheet (Image section: file, Line up grid, Replace, Convert to trace); image card gets Line up grid and Use as; re-line-up snaps to the nearest grid corner; child lock when the layer holds other things; ImageLayer.placement in 3.9 |
+| 6b773ae | VTT and Foundry starts pin to the nearest whole cell and fix the downscale drift |
+
+Open after the wave: Ctrl+I, drop and paste still scale a picture to 5 cells as a prop (Use as Battlemap on its card is the route); multi-selections, floors and walls keep the delta snap; the grid over pictures draws whole cells only; VTT battlemaps carry no imageSource; the Battlemap sheet and the line-up bar had no mockup frame and await the user's visual review. Spec written and not run: battlemap-image (6 tests).
+
 ## Testing plan (end of phase two, awaiting the user's approval)
 
 No browser test has run since phase one's last run. The suite now holds 333 tests in 40 files: 287 in the fast project, 46 in the slow project (23 `@render`, 23 `@cdn`). The 13 phase-two specs hold 17 tests.
