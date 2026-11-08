@@ -5,7 +5,9 @@ import { BookOpen, Clapperboard, CloudFog, CloudSun, Dice5, Map as MapIcon, Swor
 import { registerDockTab } from './registry';
 import { TokensBody, TokensStrip } from '../../modules/tokens/TokensTab';
 import { tokensContext } from '../../modules/tokens/play';
-import { DiceStub, EncounterStub } from './stubs';
+import { EncounterBody, EncounterStrip } from '../../modules/initiative/EncounterTab';
+import { encounterContext, encounterOnMap } from '../../modules/initiative/encounterDock';
+import { DiceStub } from './stubs';
 import { FogBody, FogStrip } from '../../modules/fog/FogTab';
 import { MapBody, MapStrip } from '../../modules/map/MapTab';
 import { StoryBody, StoryStrip } from '../../modules/story/StoryTab';
@@ -23,7 +25,7 @@ const onScene = (): string | null => {
 registerDockTab({ id: 'fog', title: 'Fog', icon: CloudFog, key: '1', Body: FogBody, Strip: FogStrip, context: onScene });
 registerDockTab({ id: 'map', title: 'Map', icon: MapIcon, key: '2', Body: MapBody, Strip: MapStrip, context: onScene });
 registerDockTab({ id: 'tokens', title: 'Tokens', icon: Users, key: '3', Body: TokensBody, Strip: TokensStrip, context: tokensContext });
-registerDockTab({ id: 'encounter', title: 'Encounter', icon: Swords, key: '4', Body: EncounterStub });
+registerDockTab({ id: 'encounter', title: 'Encounter', icon: Swords, key: '4', Body: EncounterBody, Strip: EncounterStrip, context: encounterContext, onMap: encounterOnMap });
 registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', Body: StoryBody, Strip: StoryStrip });
 registerDockTab({ id: 'world', title: 'World', icon: CloudSun, key: '6', Body: WorldBody, Strip: WorldStrip, context: onScene });
 registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', Body: ScenesBody, Strip: ScenesStrip });

@@ -72,7 +72,7 @@ function useBeside(x: number, y: number, r: number) {
 }
 
 /** Damage and heal for one token or many: an amount, the two buttons, and Half on save. */
-function HpControls({ targets, testId }: { targets: Token[]; testId: string }) {
+export function HpControls({ targets, testId }: { targets: Token[]; testId: string }) {
   const [amount, setAmount] = useState('');
   const [half, setHalf] = useState(false);
   const n = parseWhole(amount, 1, 9999);
@@ -111,7 +111,7 @@ function HpControls({ targets, testId }: { targets: Token[]; testId: string }) {
 }
 
 /** The catalogue as chips: on is on for every target, a click sets it on all or off all. */
-function ConditionChips({ targets, testId }: { targets: Token[]; testId: string }) {
+export function ConditionChips({ targets, testId }: { targets: Token[]; testId: string }) {
   const [adding, setAdding] = useState(false);
   const on = (c: string) => targets.length > 0 && targets.every((t) => t.conditions?.includes(c));
   const anyOn = CATALOGUE.filter((c) => targets.some((t) => t.conditions?.includes(c)));

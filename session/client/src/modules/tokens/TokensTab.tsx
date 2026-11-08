@@ -3,12 +3,11 @@
 // drag a tile onto the map to place it (Alt places it hidden), or click it to arm
 // click-to-place. "New token" opens the Token type sheet.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AddTile, Caption, Chip, Input, SecondaryButton, SelectRow, Tile } from '@dnd/ui';
 import { EyeOff, Eye, Lock, Users } from '@dnd/ui/icons';
 import type { TableState } from '@dnd/mechanics/table';
 import type { Disposition, HpVisibility, Nameplate, TokenSize, TokensState } from '@dnd/mechanics/tokens';
-import { getScenePrep } from '../../session/auth';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { openSheet } from '../../shell/sheets/registry';
 import { TOKEN_DEF_DRAG, lastMapPoint, useTokenInteraction } from './drag';
@@ -27,6 +26,7 @@ import {
   useNewTokenDefaults,
   type LibraryFilter,
 } from './play';
+import { usePreppedEncounters } from './prepped';
 import { TokenPortrait } from './TokenPortrait';
 
 const options = <K extends string>(labels: Record<K, string>) =>
@@ -104,50 +104,6 @@ const FILTERS: { id: LibraryFilter; label: string }[] = [
   { id: 'monster', label: 'Monsters' },
   { id: 'prepped', label: 'Prepped' },
 ];
-
-/** The current scene's room keys that carry an encounter, for the Prepped chip (board 15). */
-interface PreppedEncounter {
-  roomId: string;
-  label: string;
-  roster: string;
-  inert?: string;
-}
-
-function usePreppedEncounters(active: boolean): PreppedEncounter[] {
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const prepRevision = useSessionStore((s) => s.prepRevision);
-  const [found, setFound] = useState<{ sceneId: string; list: PreppedEncounter[] } | null>(null);
-  useEffect(() => {
-    const token = useSessionStore.getState().token;
-    if (!active || !sceneId || !token) return;
-    let cancelled = false;
-    getScenePrep(sceneId, token)
-      .then((res) => {
-        const verdicts = new Map((res.resolvedRooms ?? []).map((r) => [r.roomId, r]));
-        const list = (res.prep?.rooms ?? []).flatMap((key) => {
-          const monsters = key.encounter?.monsters ?? [];
-          if (monsters.length === 0) return [];
-          const verdict = verdicts.get(key.roomId);
-          return [
-            {
-              roomId: key.roomId,
-              label: key.encounter?.name || verdict?.label || 'Encounter',
-              roster: monsters.map((m) => (m.count > 1 ? `${m.count} × ${m.name}` : m.name)).join(', '),
-              ...(verdict?.encounterInert ? { inert: verdict.encounterInert } : {}),
-            },
-          ];
-        });
-        if (!cancelled) setFound({ sceneId, list });
-      })
-      .catch(() => {
-        if (!cancelled) setFound({ sceneId, list: [] });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, sceneId, prepRevision]);
-  return found && found.sceneId === sceneId ? found.list : [];
-}
 
 export function TokensStrip() {
   const state = useModuleState<TokensState>('tokens');

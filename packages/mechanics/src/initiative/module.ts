@@ -70,6 +70,9 @@ export const initiativeModule: GameModule<InitiativeState> = {
     set: ANY_ROLE,
     begin: ['dm'],
     next: ['dm'],
+    // Table v2 (board 3): the DM steps back a turn; the player whose turn it is ends it.
+    previous: ['dm'],
+    'end-turn': ANY_ROLE,
     add: ['dm'],
     remove: ['dm'],
     end: ['dm'],
@@ -118,6 +121,10 @@ function run(action: string, p: Payload, ctx: Ctx): void {
       return begin(ctx)
     case 'next':
       return next(ctx)
+    case 'previous':
+      return previous(ctx)
+    case 'end-turn':
+      return endTurn(ctx)
     case 'add':
       return add(p, ctx)
     case 'remove':
@@ -256,6 +263,32 @@ function begin(ctx: Ctx): void {
       `Initiative order: ${andList(entries.map((e) => e.name))}. Round 1 — ${entries[0].name}'s turn.`,
     ),
   })
+}
+
+/**
+ * The player whose turn it is hands it on — `next`, gated on the current combatant being
+ * theirs. The DM may end anyone's turn the same way.
+ */
+function endTurn(ctx: Ctx): void {
+  const state = ctx.state
+  if (state.status !== 'running') bad('this encounter has not begun')
+  const current = state.entries[state.turn]
+  if (ctx.sender.role !== 'dm' && current?.identityId !== ctx.sender.identityId) {
+    denied('it is not your turn')
+  }
+  next(ctx)
+}
+
+/** One turn back; past the top of the order it is the last turn of the round before. */
+function previous(ctx: Ctx): void {
+  const state = ctx.state
+  if (state.status !== 'running') bad('this encounter has not begun')
+  if (state.round <= 1 && state.turn === 0) bad('this is the first turn of the encounter')
+  const wrapped = state.turn === 0
+  const turn = wrapped ? state.entries.length - 1 : state.turn - 1
+  const round = wrapped ? state.round - 1 : state.round
+  const who = state.entries[turn].name
+  ctx.setState({ ...state, turn, round, log: note(state.log, `Back to ${who}'s turn (round ${round}).`) })
 }
 
 function next(ctx: Ctx): void {

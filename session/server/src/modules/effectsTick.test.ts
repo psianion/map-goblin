@@ -70,3 +70,30 @@ describe('effect timers tick on Next', () => {
     expect(t.run('tokens', 'tick-effects', { sceneId: SCENE })).toMatchObject({ code: 'invalid-command' })
   })
 })
+
+describe('a player’s End turn turns the round too', () => {
+  it('ticks when the last combatant ends their turn', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Camp')
+    const registry = new ModuleRegistry(stores.moduleState, afterWrites(effectsTick))
+    registry.register(tokensModule())
+    registry.register(initiativeModule)
+    const ctx = (sender: Viewer): DispatchContext => ({
+      campaignId: campaign.id,
+      sessionId: 'sess-1',
+      activeSceneId: SCENE,
+      sender,
+      players: [],
+      broadcast: () => {},
+    })
+    const PLAYER: Viewer = { role: 'player', identityId: 'p-1' }
+    registry.dispatch('tokens', 'place', { name: 'Bram', x: 1, y: 1 }, ctx(DM))
+    const [bram] = Object.values((registry.readState(campaign.id, 'tokens') as TokensState).byScene[SCENE])
+    registry.dispatch('tokens', 'set-effect', { target: bram.id, name: 'Bless', rounds: 3 }, ctx(DM))
+    registry.dispatch('initiative', 'start', { entries: [{ name: 'Bram', kind: 'pc', tokenId: bram.id, identityId: 'p-1', initiative: 10 }] }, ctx(DM))
+    registry.dispatch('initiative', 'begin', {}, ctx(DM))
+    expect(registry.dispatch('initiative', 'end-turn', {}, ctx(PLAYER))).toBeNull()
+    const after = (registry.readState(campaign.id, 'tokens') as TokensState).byScene[SCENE][bram.id]
+    expect(after.effects).toEqual([{ name: 'Bless', roundsLeft: 2 }])
+  })
+})
