@@ -1250,7 +1250,7 @@ describe('assets (D11)', () => {
     })
   })
 
-  it('refuses non-images, oversized uploads, players and outsiders', async () => {
+  it('refuses non-images, oversized uploads and outsiders', async () => {
     await withServer(async ({ base, adminPass }) => {
       const { campaignId, dmToken, playerToken } = await seatedTable(base, adminPass)
       const post = (bytes: Buffer, token = dmToken) =>
@@ -1265,8 +1265,10 @@ describe('assets (D11)', () => {
       // Over the 2MB cap, refused on the declared length before a byte is buffered.
       expect((await post(Buffer.concat([PNG, Buffer.alloc(MAX_ASSET_BYTES)]))).status).toBe(413)
 
-      // Uploading is a DM thing; a player with a valid seat still cannot.
-      expect((await post(PNG, playerToken)).status).toBe(403)
+      // A player uploads their own PC's art (decision 16); a seat at another campaign cannot.
+      expect((await post(PNG, playerToken)).status).toBe(201)
+      const elsewhere = await seatedTable(base, adminPass)
+      expect((await post(PNG, elsewhere.playerToken)).status).toBe(403)
 
       const stored = (await post(PNG)).body.id as string
       // ...and reading needs a token for *this* campaign.

@@ -21,6 +21,7 @@ import {
 import { createHandoffStore, type HandoffStore } from './handoff'
 import { writeCampaignExport } from './export'
 import { slug, type Mirror } from './mirror'
+import { fillTokenDefaults, reattachPc, spawnParty } from './party'
 import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
@@ -81,6 +82,8 @@ export function createRequestHandler(deps: HttpDeps) {
   // scene points at go, then every scene gets its file and no gone scene keeps one.
   const swept = deps.stores.maps.deleteUnreferenced()
   if (swept > 0) console.log(`maps: removed ${swept} map rows no scene uses`)
+  const filled = fillTokenDefaults(deps.stores)
+  if (filled > 0) console.log(`tokens: filled table v2 defaults for ${filled} campaigns`)
   const mirror = deps.mirror ?? null
   const synced = mirror?.sync()
   if (synced && synced.written + synced.removed > 0) {
@@ -736,7 +739,8 @@ async function uploadAsset(
   res: ServerResponse,
   campaignId: string,
 ): Promise<void> {
-  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  // Decision 16: a player uploads their own PC's art, so any seat at the campaign may.
+  if (!requireSession(deps, req, res, { campaignId })) return
 
   const body = await readBody(req, MAX_ASSET_BYTES)
   if (!body.ok) return failBody(req, res, body)
@@ -1014,6 +1018,11 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
     name.slice(0, 64),
     'player',
   )
+  // A returning player gets their PC back by name (see `reattachPc`); the seats already at
+  // the table are re-sent the state that shows it.
+  if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name)) {
+    deps.sessionManager.refreshScenes(session.campaign_id)
+  }
   json(res, 200, {
     identityId: identity.id,
     campaignId: session.campaign_id,
@@ -1090,6 +1099,14 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       sender: { role: 'dm', identityId: dm.id },
       players: [],
       broadcast: () => {},
+    })
+    // Decision 16: the party stands in the starting room before anyone is in the door.
+    spawnParty(deps.modules, deps.vision, {
+      campaignId,
+      sessionId: session.id,
+      sceneId: start.sceneId,
+      roomId: start.roomId,
+      dmId: dm.id,
     })
   }
 
