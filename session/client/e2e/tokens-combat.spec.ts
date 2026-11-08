@@ -65,6 +65,9 @@ test.describe('@play tokens and combat', () => {
     // Damage with half on save to the selection.
     // Picked from the combat bar: the map may sit under the dock or the bar at this point.
     await page.getByLabel('Select Bram').click();
+    // The DM seats the player on Bram from the token card, so End turn can reach them later.
+    await page.getByTestId('token-card').getByRole('combobox', { name: 'Owner' }).click();
+    await page.getByRole('option', { name: 'Bram' }).click();
     await page.getByTestId('encounter-amount').fill('9');
     await page.getByTestId('encounter-body').getByRole('switch', { name: 'Half on save' }).click();
     await page.getByTestId('encounter-damage').click();
