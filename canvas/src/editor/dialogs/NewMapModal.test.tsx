@@ -331,3 +331,53 @@ describe('NewMapModal: Escape', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe('NewMapModal: image source', () => {
+  const PNG_HEAD = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const png = (name: string) => new File([PNG_HEAD], name, { type: 'image/png' });
+
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    URL.createObjectURL = vi.fn(() => 'blob:preview');
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  const pick = async (file: File, px: { width: number; height: number }) => {
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ ...px, close: () => {} })));
+    render(<NewMapModal open onOpenChange={() => {}} onEnter={() => {}} />);
+    fireEvent.click(sourceRadio('Image'));
+    fireEvent.drop(screen.getByTestId('v2-image-drop'), { dataTransfer: { files: [file] } });
+    await screen.findByText(file.name);
+  };
+
+  const sizeOf = () => [
+    (screen.getByLabelText('Width in squares') as HTMLInputElement).value,
+    (screen.getByLabelText('Height in squares') as HTMLInputElement).value,
+  ];
+
+  it('reads the squares from the file name and switches Size to Fixed', async () => {
+    await pick(png('Crypt 36x24.png'), { width: 2520, height: 1680 });
+    await screen.findByText('2520 × 1680 px · 36 × 24 squares');
+    expect(screen.getByRole('button', { name: 'Fixed' }).getAttribute('aria-pressed')).toBe('true');
+    expect(sizeOf()).toEqual(['36', '24']);
+  });
+
+  it('falls back to 70 px a square without a hint', async () => {
+    await pick(png('cellar.png'), { width: 1400, height: 700 });
+    await screen.findByText('1400 × 700 px · 20 × 10 squares');
+    expect(sizeOf()).toEqual(['20', '10']);
+  });
+
+  it('offers Battlemap or Trace, Battlemap first, each with its line', async () => {
+    await pick(png('cellar.png'), { width: 1400, height: 700 });
+    expect(screen.getByRole('button', { name: 'Battlemap' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/exported and published/)).toBeTruthy();
+    expect(submit().textContent).toBe('Create & line up grid');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trace' }));
+    expect(screen.getByText(/Never exported or published/)).toBeTruthy();
+    expect(submit().textContent).toBe('Create map');
+  });
+});

@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
 import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
-import { handleImageImport, normalizeImageFile } from '@/canvas/importImage';
+import { handleImageImport, importTraceImage, normalizeImageFile } from '@/canvas/importImage';
+import { battlemapCells, parseSizeHint, pickedImageLine, type CellFill } from '@/canvas/battlemapSize';
 import { startGridCalibration } from '@/canvas/gridCalibration';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { filesFromDataTransfer, filesFromList, scanFiles, type ScannedMap } from '@/io/importFolder';
@@ -24,7 +25,8 @@ import { ImportReport, type ImportOutcome } from './ImportReport';
 
 /**
  * The home page's "+" dialog. One form founds a map four ways: blank at a chosen size, from
- * a battlemap image (then straight into grid calibration), from Foundry and Universal VTT
+ * an image (a battlemap, then straight into the grid line-up, or a trace to draw over;
+ * picking it fills the size from its name or its pixels), from Foundry and Universal VTT
  * files, which bring their own size, or from one of this editor's own map files, which
  * brings everything. Wider than the other dialogs: a VTT row carries a thumbnail, the name
  * with its tags and a line of counts.
@@ -37,6 +39,18 @@ const SOURCES = [
   { value: 'file', label: 'Map file', Icon: MapIcon },
 ] as const;
 type Source = (typeof SOURCES)[number]['value'];
+
+type UseAs = 'battlemap' | 'trace';
+const USE_AS_HINT: Record<UseAs, string> = {
+  battlemap: "The map's own art, exported and published. You line up its grid next.",
+  trace: 'A picture to draw over, at 40 percent. Never exported or published.',
+};
+
+/** A picked image's pixel size and the squares it implies. */
+interface ImageInfo {
+  px: { width: number; height: number };
+  cells: CellFill;
+}
 
 // The editor's own files are listed too, so one picked here can be routed to "Map file".
 const VTT_ACCEPT = `.db,.json,.uvtt,.dd2vtt,.df2vtt,${MAP_FILE_ACCEPT}`;
@@ -140,6 +154,8 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
   const [widthText, setWidthText] = useState('30');
   const [heightText, setHeightText] = useState('20');
   const [image, setImage] = useState<File | null>(null);
+  const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
+  const [useAs, setUseAs] = useState<UseAs>('battlemap');
   const [mapFile, setMapFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [rows, setRows] = useState<ScannedMap[]>([]);
@@ -171,6 +187,8 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     setWidthText('30');
     setHeightText('20');
     setImage(null);
+    setImageInfo(null);
+    setUseAs('battlemap');
     setMapFile(null);
     setRows([]);
     setChecked(new Set());
@@ -213,11 +231,32 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     const normalized = await normalizeImageFile(file);
     if (!normalized) {
       setImage(null);
+      setImageInfo(null);
       setError('That file is not an image this editor can read.');
       return;
     }
     setError(null);
     setImage(normalized);
+    // The pixel size, so the squares can be filled in now rather than guessed at submit.
+    // A picture the browser will not decode here (an SVG without a size) keeps the size
+    // fields as they are.
+    let px: ImageInfo['px'] | null = null;
+    try {
+      const bitmap = await createImageBitmap(normalized);
+      px = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+    } catch {
+      px = null;
+    }
+    if (!px) {
+      setImageInfo(null);
+      return;
+    }
+    const cells = battlemapCells(px, parseSizeHint(file.name));
+    setImageInfo({ px, cells });
+    setSizeMode('fixed');
+    setWidthText(String(cells.width));
+    setHeightText(String(cells.height));
   }, []);
 
   const acceptMapFile = useCallback(async (file: File) => {
@@ -317,7 +356,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
       (source === 'file' && mapFile !== null));
 
   const primaryLabel =
-    source === 'image'
+    source === 'image' && useAs === 'battlemap'
       ? 'Create & line up grid'
       : source === 'vtt'
         ? `Import ${checked.size || ''}`.trim()
@@ -360,7 +399,12 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
       await useStore.getState().createNewMap(trimmed);
       if (wanted) useStore.getState().setFixedSize(wanted);
 
-      if (source === 'image') {
+      // A trace is drawn over, not lined up: the map at the chosen size, the picture
+      // stretched to it on the first level, no Battlemap layer.
+      const trace = source === 'image' && useAs === 'trace';
+      if (trace) await importTraceImage(image!);
+
+      if (source === 'image' && !trace) {
         const singleton = getEngineSingleton();
         if (!singleton) {
           notify.error('The canvas is still starting. The map was created; add the image from the canvas.');
@@ -374,14 +418,18 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
           const tracing = createDungeonLayer('Layer 1');
           store.addLayer(tracing);
           store.setActiveLayerId(base.id);
-          const childId = await handleImageImport(image!, singleton.engine, { asBattlemap: true });
+          // The squares across the dialog settled on give the pixels per square.
+          const across = wanted?.width ?? imageInfo?.cells.width;
+          const pxPerCell = imageInfo && across ? imageInfo.px.width / across : undefined;
+          const childId = await handleImageImport(image!, singleton.engine, { asBattlemap: true, pxPerCell });
           if (childId) startGridCalibration(childId);
           useStore.getState().setActiveLayerId(tracing.id);
         }
       }
 
       await useStore.getState().saveCurrentMap();
-      notify.success(source === 'image' ? 'Map created. Line up the grid.' : 'New map created');
+      // The trace import says its own toast, with the key that hides it.
+      if (!trace) notify.success(source === 'image' ? 'Map created. Line up the grid.' : 'New map created');
       onOpenChange(false);
       onEnter();
     } catch (err) {
@@ -390,7 +438,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, name, sizeMode, fixedSize, source, mapFile, rows, checked, image, onOpenChange, onEnter]);
+  }, [canSubmit, name, sizeMode, fixedSize, source, mapFile, rows, checked, image, imageInfo, useAs, onOpenChange, onEnter]);
 
   const importing = progress !== null && busy;
   const imported = outcome ? outcome.results.filter((r) => r.ok).length : 0;
@@ -511,7 +559,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
                   <Picked
                     thumb={previewUrl ? <img src={previewUrl} alt="" /> : <ImageIcon aria-hidden strokeWidth={1.75} className="size-4" />}
                     name={image.name}
-                    sub={`${Math.round(image.size / 1024)} KB`}
+                    sub={imageInfo ? pickedImageLine(imageInfo.px, imageInfo.cells) : `${Math.round(image.size / 1024)} KB`}
                     onChange={() => imageRef.current?.click()}
                   />
                 ) : (
@@ -520,10 +568,26 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
                     onOver={setDragOver}
                     onDrop={onDrop}
                     onClick={() => imageRef.current?.click()}
+                    testId="v2-image-drop"
                     title="Drop an image here, or click to choose"
-                    sub="PNG, JPEG, WebP. You line up the grid on the canvas next."
+                    sub="PNG, JPEG, WebP. A size in the name, like 36x24, sets the squares."
                   />
                 )}
+              </Field>
+            )}
+
+            {source === 'image' && (
+              <Field label="Use as">
+                <Seg
+                  aria-label="Use as"
+                  value={useAs}
+                  onValueChange={(v) => setUseAs(v as UseAs)}
+                  options={[
+                    { value: 'battlemap', label: 'Battlemap' },
+                    { value: 'trace', label: 'Trace' },
+                  ]}
+                />
+                <Hint>{USE_AS_HINT[useAs]}</Hint>
               </Field>
             )}
 

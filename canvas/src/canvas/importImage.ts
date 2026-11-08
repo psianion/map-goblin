@@ -18,19 +18,12 @@ import { AddTraceLayerCommand } from '@dnd/core/src/store/layerCommands';
 import { createImageLayer } from '@dnd/core/src/store/factories';
 import { shownLevelId } from '@/store/selectors';
 import { keyCaption } from '@/shortcuts/formatCombo';
+import { GUESS_PX_PER_CELL } from '@/canvas/battlemapSize';
 
 const VALID_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 const MAX_IMPORT_PX = 4096;
 const RESIZE_TARGET_PX = 2048;
 const AUTO_SCALE_CELLS = 5;
-/**
- * Assumed image pixels per grid square for a battlemap that arrives with its own
- * printed grid. 70 is Roll20's default cell and the most common figure published
- * battlemaps are drawn at, so a typical map lands within a cell or two of true.
- * ponytail: a fixed guess, not a detector — grid calibration is what makes it
- * exact, and this only has to put the DM in front of something they can drag on.
- */
-const BATTLEMAP_PX_PER_CELL = 70;
 
 /**
  * What the file actually is, read from its first bytes rather than its name.
@@ -136,6 +129,11 @@ export interface ImportOptions {
    * battlemap is assumed to be drawn at, rather than shrinking it to a few cells.
    */
   asBattlemap?: boolean;
+  /**
+   * For a battlemap: the image pixels one grid square measures, from the New map dialog's
+   * size. The 70 px guess when absent; the line-up makes it exact either way.
+   */
+  pxPerCell?: number;
 }
 
 /**
@@ -145,7 +143,7 @@ export interface ImportOptions {
 export async function importImageFile(
   input: File,
   viewportCenter: { x: number; y: number },
-  { asBattlemap = false }: ImportOptions = {},
+  { asBattlemap = false, pxPerCell }: ImportOptions = {},
 ): Promise<AssetChild> {
   const file = await normalizeImageFile(input);
   if (!file) {
@@ -178,8 +176,10 @@ export async function importImageFile(
   // `width * scale` (sprite sync, hit test, bounds), so the factor belongs in one
   // of the two, never both.
   const cellsPerPx = asBattlemap
-    ? 1 / BATTLEMAP_PX_PER_CELL
+    ? 1 / (pxPerCell && pxPerCell > 0 ? pxPerCell : GUESS_PX_PER_CELL)
     : AUTO_SCALE_CELLS / Math.max(srcWidth, srcHeight);
+  const width = srcWidth * cellsPerPx;
+  const height = srcHeight * cellsPerPx;
 
   const child: AssetChild = {
     id: crypto.randomUUID(),
@@ -188,11 +188,13 @@ export async function importImageFile(
     visible: true,
     objectType: 'image',
     assetId,
-    position: { x: viewportCenter.x, y: viewportCenter.y },
+    // A battlemap is the map: its top-left corner on the map origin, where a fixed size is
+    // anchored, rather than wherever the camera happened to be.
+    position: asBattlemap ? { x: width / 2, y: height / 2 } : { x: viewportCenter.x, y: viewportCenter.y },
     rotation: 0,
     scale: 1,
-    width: srcWidth * cellsPerPx,
-    height: srcHeight * cellsPerPx,
+    width,
+    height,
     tint: '#ffffff',
     flipX: false,
     flipY: false,
