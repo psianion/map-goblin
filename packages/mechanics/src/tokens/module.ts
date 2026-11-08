@@ -49,6 +49,7 @@ import {
   parseSheet,
   parseSight,
   parseSpeed,
+  parsePassive,
   snap,
   str,
 } from './validate'
@@ -91,6 +92,7 @@ const UPDATE_FIELDS = [
   'hp',
   'ac',
   'speed',
+  'passive',
   'showHp',
 ] as const
 const PLAYER_FIELDS: readonly string[] = ['name', 'sheet', 'imageAssetId', 'nameplate']
@@ -397,7 +399,7 @@ function propagateDefEdit(
     nameplate: def.nameplate,
     showHp: def.showHp,
   }
-  const optionalFields = ['ac', 'speed', 'ownerIdentityId', 'ownerName'] as const
+  const optionalFields = ['ac', 'speed', 'passive', 'ownerIdentityId', 'ownerName'] as const
   const out: TokensState['byScene'] = {}
   for (const [sceneId, tokens] of Object.entries(byScene)) {
     const nextTokens: Record<string, Token> = {}
@@ -627,6 +629,10 @@ function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
   if (p.ac !== undefined) {
     if (p.ac === null) delete next.ac
     else next.ac = parseAc(p.ac)
+  }
+  if (p.passive !== undefined) {
+    if (p.passive === null) delete next.passive
+    else next.passive = parsePassive(p.passive)
   }
   if (p.speed !== undefined) {
     if (p.speed === null) delete next.speed

@@ -7,7 +7,8 @@ import { TokensBody, TokensStrip } from '../../modules/tokens/TokensTab';
 import { tokensContext } from '../../modules/tokens/play';
 import { EncounterBody, EncounterStrip } from '../../modules/initiative/EncounterTab';
 import { encounterContext, encounterOnMap } from '../../modules/initiative/encounterDock';
-import { DiceStub } from './stubs';
+import { DiceBody, DiceStrip } from '../../modules/rolls/DiceTab';
+import { diceContext } from '../../modules/rolls/dice';
 import { FogBody, FogStrip } from '../../modules/fog/FogTab';
 import { MapBody, MapStrip } from '../../modules/map/MapTab';
 import { StoryBody, StoryStrip } from '../../modules/story/StoryTab';
@@ -29,4 +30,4 @@ registerDockTab({ id: 'encounter', title: 'Encounter', icon: Swords, key: '4', B
 registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', Body: StoryBody, Strip: StoryStrip });
 registerDockTab({ id: 'world', title: 'World', icon: CloudSun, key: '6', Body: WorldBody, Strip: WorldStrip, context: onScene });
 registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', Body: ScenesBody, Strip: ScenesStrip });
-registerDockTab({ id: 'dice', title: 'Dice', icon: Dice5, key: '8', Body: DiceStub });
+registerDockTab({ id: 'dice', title: 'Dice', icon: Dice5, key: '8', Body: DiceBody, Strip: DiceStrip, context: diceContext });

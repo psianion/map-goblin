@@ -287,6 +287,10 @@ export function parseAc(v: unknown): number {
   return whole(v, 'ac', 0, AC_MAX)
 }
 
+export function parsePassive(v: unknown): number {
+  return whole(v, 'passive', 0, AC_MAX)
+}
+
 export function parseSpeed(v: unknown): number {
   return whole(v, 'speed', 0, SPEED_MAX)
 }
@@ -322,6 +326,7 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
   const hp = optional(p, 'hp', base?.hp, parseHp)
   const ac = optional(p, 'ac', base?.ac, parseAc)
   const speed = optional(p, 'speed', base?.speed, parseSpeed)
+  const passive = optional(p, 'passive', base?.passive, parsePassive)
   const ownerIdentityId = optional(p, 'ownerIdentityId', base?.ownerIdentityId, (v) => str(v, 'ownerIdentityId', ID_MAX))
   const ownerName = optional(p, 'ownerName', base?.ownerName, (v) => str(v, 'ownerName', NAME_MAX))
   return {
@@ -346,6 +351,7 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
     ...(hp ? { hp } : {}),
     ...(ac !== undefined ? { ac } : {}),
     ...(speed !== undefined ? { speed } : {}),
+    ...(passive !== undefined ? { passive } : {}),
     ...(ownerIdentityId ? { ownerIdentityId } : {}),
     ...(ownerName ? { ownerName } : {}),
   }

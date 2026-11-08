@@ -68,6 +68,8 @@ export interface TokenDef {
   ac?: number
   /** Feet per round. */
   speed?: number
+  /** Passive Perception, for the Character sheet (board 5). */
+  passive?: number
   /** Default `hover`. */
   nameplate?: Nameplate
   /** Default `dm`. */

@@ -26,6 +26,7 @@ interface Draft {
   hpMax: string;
   ac: string;
   speed: string;
+  passive: string;
   sightOn: boolean;
   /** In the map's units (feet on a 5 ft grid). */
   sightRange: string;
@@ -48,6 +49,7 @@ function draftOf(def: TokenDef | undefined, scaleValue: number, defaults: Return
     hpMax: numText(def?.hp?.max),
     ac: numText(def?.ac),
     speed: numText(def?.speed),
+    passive: numText(def?.passive),
     sightOn: !!def?.sight,
     sightRange: units((def?.sight ?? DEFAULT_SIGHT).range),
     darkvision: def?.sight?.visionMode === 'darkvision',
@@ -88,6 +90,7 @@ export function TokenTypeSheet({ defId }: { defId?: string }) {
       hp: hpMax === undefined ? null : { max: hpMax, ...(def?.hp ? { current: Math.min(def.hp.current, hpMax) } : {}) },
       ac: parseWhole(draft.ac, 0, 99) ?? null,
       speed: parseWhole(draft.speed, 0, 999) ?? null,
+      passive: parseWhole(draft.passive, 0, 99) ?? null,
       sight: draft.sightOn
         ? { range: toCells(Number.isFinite(range) && range >= 0 ? range : toUnits(DEFAULT_SIGHT.range, scale), scale), angle: 360, visionMode: draft.darkvision ? 'darkvision' : 'normal' }
         : null,
@@ -183,6 +186,7 @@ export function TokenTypeSheet({ defId }: { defId?: string }) {
           <InputRow label="HP max" inputMode="numeric" value={draft.hpMax} data-testid="token-type-hp" onChange={(e) => set({ hpMax: e.target.value })} onKeyDown={(e) => e.stopPropagation()} />
           <InputRow label="AC" inputMode="numeric" value={draft.ac} data-testid="token-type-ac" onChange={(e) => set({ ac: e.target.value })} onKeyDown={(e) => e.stopPropagation()} />
           <InputRow label="Speed" inputMode="numeric" value={draft.speed} onChange={(e) => set({ speed: e.target.value })} onKeyDown={(e) => e.stopPropagation()} />
+          <InputRow label="Passive Perception" inputMode="numeric" value={draft.passive} onChange={(e) => set({ passive: e.target.value })} onKeyDown={(e) => e.stopPropagation()} />
         </div>
         <div className="flex flex-col gap-px">
           <Caption className="mb-1">Vision</Caption>

@@ -335,3 +335,16 @@ describe('redaction by showHp', () => {
     expect(left.library).toBe(s.library)
   })
 })
+
+describe('passive perception', () => {
+  it('a def carries it to the tokens placed from it, and only the DM sets it', () => {
+    const { run } = harness()
+    let s = run({ library: {}, byScene: {} }, DM, 'library-upsert', { id: 'd1', name: 'Bram', passive: 14 }).next
+    s = run(s, DM, 'place', { defId: 'd1', x: 1, y: 1 }).next
+    const id = Object.keys(s.byScene[SCENE])[0]
+    expect(tok(s, id).passive).toBe(14)
+    s = run(s, DM, 'assign', { id, identityId: 'p-1' }).next
+    expect(run(s, P1, 'update', { id, passive: 20 }).error).toMatchObject({ code: 'unauthorized' })
+    expect(tok(run(s, DM, 'update', { id, passive: 12 }).next, id).passive).toBe(12)
+  })
+})
