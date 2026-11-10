@@ -23,23 +23,8 @@ export { MAGIC_HEADER };
 // In-memory FSA file handles — keyed by mapId, survive the session but not a page reload
 const fileHandles = new Map<string, FileSystemFileHandle>();
 
-export function setFileHandle(mapId: string, handle: FileSystemFileHandle): void {
-  fileHandles.set(mapId, handle);
-}
-
 export function getFileHandle(mapId: string): FileSystemFileHandle | undefined {
   return fileHandles.get(mapId);
-}
-
-export function clearFileHandle(mapId: string): void {
-  fileHandles.delete(mapId);
-}
-
-/** @deprecated Use getFileHandle(mapId) instead. Kept for backward compatibility. */
-export function getCurrentFileHandle(): FileSystemFileHandle | null {
-  const activeMapId = useStore.getState().activeMapId;
-  if (!activeMapId) return null;
-  return fileHandles.get(activeMapId) ?? null;
 }
 
 // ─── Serialization ────────────────────────────────────────────────────────────

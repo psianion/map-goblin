@@ -18,13 +18,9 @@ export type MarkMsg =
 /** How long each kind stays on the map, in ms. A ruler lives as long as its seat keeps sending it. */
 export const MARK_TTL_MS = { ping: 3000, ruler: 1500, template: 30_000, draw: 10_000 } as const;
 
-/**
- * Hand a mark to the session's `mark` channel. A no-op until the store exposes one (a
- * `sendMark` action); until then marks are drawn on this seat only.
- */
+/** Hand a mark to the session's `mark` channel. */
 export function sendMark(msg: MarkMsg): void {
-  const send = (useSessionStore.getState() as unknown as { sendMark?: (m: MarkMsg) => void }).sendMark;
-  if (typeof send === 'function') send(msg);
+  useSessionStore.getState().sendMark(msg);
 }
 
 export interface LiveMark {

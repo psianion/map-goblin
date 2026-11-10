@@ -89,7 +89,7 @@ type MapBuilderState = Omit<
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'setChildOrder' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
-  | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
+  | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits'
   | 'setRooms' | 'updateRoom' | 'setThresholds' | 'setAreas'
   | 'addLevel' | 'removeLevel' | 'updateLevel' | 'setLayerLevel' | 'reorderLevel'
   | 'setActiveTool' | 'setEraseMode' | 'setTerrainFill' | 'setFloorMode' | 'setCurveMode' | 'updateToolSettings' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings'

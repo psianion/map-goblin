@@ -394,27 +394,6 @@ export function useLitPreview(): boolean {
   return useSyncExternalStore(subscribeLit, getLitPreview, () => false);
 }
 
-// ── Sky & mood: the Preview block's fold ─────────────────
-
-export const SKY_PREVIEW_KEY = 'mapbuilder-sky-preview-open';
-
-/** Whether the Sky & mood sheet's Preview block is open. Folded unless the DM opened it. */
-export function getSkyPreviewOpen(): boolean {
-  try {
-    return localStorage.getItem(SKY_PREVIEW_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function setSkyPreviewOpen(open: boolean): void {
-  try {
-    localStorage.setItem(SKY_PREVIEW_KEY, open ? '1' : '0');
-  } catch {
-    /* private mode: the fold lasts the session */
-  }
-}
-
 export const LAYERS_SHEET_FILTER_KEY = 'mapbuilder-layers-sheet-filter';
 
 /** The Layers sheet's last filter text; empty when none was kept. */

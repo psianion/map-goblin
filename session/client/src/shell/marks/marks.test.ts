@@ -28,7 +28,6 @@ afterEach(() => {
   detach();
   canvas.remove();
   useActiveTool.getState().setActiveTool(null);
-  Reflect.deleteProperty(useSessionStore.getState(), 'sendMark');
 });
 
 describe('mark tools', () => {
@@ -81,12 +80,13 @@ describe('mark tools', () => {
 });
 
 describe('mark channel adapter', () => {
-  it('is a no-op until the store exposes sendMark, then hands marks to it', () => {
-    expect(() => sendMark({ kind: 'ping', x: 0, y: 0 })).not.toThrow();
+  it('hands marks to the store’s sendMark', () => {
+    const real = useSessionStore.getState().sendMark;
     const send = vi.fn();
-    useSessionStore.setState({ sendMark: send } as never);
+    useSessionStore.setState({ sendMark: send });
     sendMark({ kind: 'ping', x: 1, y: 2 });
     expect(send).toHaveBeenCalledWith({ kind: 'ping', x: 1, y: 2 });
+    useSessionStore.setState({ sendMark: real });
   });
 
   it('shows a remote ruler once per seat, replacing it as it moves', () => {

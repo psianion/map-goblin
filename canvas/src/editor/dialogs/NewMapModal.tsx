@@ -720,7 +720,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
                     onClick={() => mapFileRef.current?.click()}
                     testId="v2-map-file-drop"
                     title="Drop a map file here, or click to choose"
-                    sub=".ggvtt or .mapbuilder, saved from this editor"
+                    sub=".ggvtt, saved from this editor"
                   />
                 )}
                 <Hint>Name, size and everything on the map come from the file.</Hint>
