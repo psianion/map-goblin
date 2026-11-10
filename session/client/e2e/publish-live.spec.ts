@@ -49,10 +49,24 @@ test.describe('@publish canvas publish reaches the live table', () => {
       body: JSON.stringify(revised),
     });
     expect(res.status).toBe(200);
+    // Then its picture, as the canvas sends it right after a publish (a 1x1 png here).
+    const { mapId } = (await res.json()) as { mapId: string };
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const thumb = await fetch(`${SERVER_URL}/api/maps/${mapId}/thumbnail`, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/png', Authorization: `Bearer ${token}` },
+      body: png,
+    });
+    expect(thumb.status).toBe(204);
 
     // The live scene swaps to the new map, and says so.
     await expect(page.getByText('Map updated from the canvas')).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => loadedMapName(page), { timeout: 30_000, intervals: [100] }).toBe(REVISED_NAME);
+
+    // The scene switcher's row shows that picture.
+    await page.getByTestId('title-switcher').click();
+    await expect(page.getByTestId('scene-row').first().getByTestId('scene-thumb')).toHaveAttribute('data-image', 'true');
+    await page.keyboard.press('Escape');
 
     // Fog and the placed token survive the swap.
     await page.keyboard.press('1');

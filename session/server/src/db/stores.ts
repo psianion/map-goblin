@@ -518,6 +518,53 @@ export class AssetStore {
   }
 }
 
+/** ~480px of webp or jpeg: a card picture, not a second copy of the map. */
+export const MAX_THUMBNAIL_BYTES = 300 * 1024
+
+export interface ThumbnailRow {
+  map_id: string
+  mime: string
+  bytes: Buffer
+  created_at: number
+}
+
+/** Migration 007 — one picture per map row, gone with the row (ON DELETE CASCADE). */
+export class ThumbnailStore {
+  readonly #put
+  readonly #get
+  readonly #mapIds
+  readonly #campaignOf
+
+  constructor(db: Database) {
+    this.#campaignOf = db.prepare<[string], { campaign_id: string }>('SELECT campaign_id FROM maps WHERE id = ?')
+    this.#put = db.prepare<[string, string, Buffer, number]>(
+      'INSERT OR REPLACE INTO map_thumbnails (map_id, mime, bytes, created_at) VALUES (?, ?, ?, ?)',
+    )
+    this.#get = db.prepare<[string], ThumbnailRow>('SELECT * FROM map_thumbnails WHERE map_id = ?')
+    this.#mapIds = db.prepare<[string], { map_id: string }>(
+      'SELECT t.map_id FROM map_thumbnails t JOIN maps m ON m.id = t.map_id WHERE m.campaign_id = ?',
+    )
+  }
+
+  /** The campaign a map row belongs to, without reading the map itself. */
+  campaignOf(mapId: string): string | undefined {
+    return this.#campaignOf.get(mapId)?.campaign_id
+  }
+
+  put(mapId: string, mime: string, bytes: Buffer): void {
+    this.#put.run(mapId, mime, bytes, Date.now())
+  }
+
+  get(mapId: string): ThumbnailRow | undefined {
+    return this.#get.get(mapId)
+  }
+
+  /** The map rows in a campaign that have a picture — the scene list's flag. */
+  mapIdsInCampaign(campaignId: string): Set<string> {
+    return new Set(this.#mapIds.all(campaignId).map((r) => r.map_id))
+  }
+}
+
 /**
  * D5 — one row per `(campaign_id, module)`. State is opaque JSON: the registry knows what
  * shape it is, this class only knows how to keep it. Written on every `setState`; the rows
@@ -597,6 +644,7 @@ export interface Stores {
   identities: IdentityStore
   passes: PassStore
   assets: AssetStore
+  thumbnails: ThumbnailStore
   moduleState: ModuleStateStore
   waitlist: WaitlistStore
 }
@@ -611,6 +659,7 @@ export function createStores(db: Database): Stores {
     identities: new IdentityStore(db),
     passes: new PassStore(db),
     assets: new AssetStore(db),
+    thumbnails: new ThumbnailStore(db),
     moduleState: new ModuleStateStore(db),
     waitlist: new WaitlistStore(db),
   }

@@ -19,6 +19,7 @@ import {
   type SceneMeta,
 } from '../session/auth';
 import { forgetDmToken, freshDmToken, saveDmToken, storedCampaigns, type StoredCampaign } from '../session/dmTokens';
+import { SceneThumb } from '../modules/scene/SceneThumb';
 import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 import { inviteLink } from '../shell/top/inviteCode';
@@ -381,9 +382,7 @@ export default function HostSetup() {
                         sceneId === s.id && 'ring-1 ring-inset ring-ink',
                       )}
                     >
-                      <span aria-hidden className="flex h-20 items-center justify-center rounded-key bg-panel-2 text-lg text-text-3">
-                        {s.name.slice(0, 1).toUpperCase()}
-                      </span>
+                      <SceneThumb scene={s} token={campaign.token} className="flex h-20 items-center justify-center rounded-key bg-panel-2 text-lg text-text-3" />
                       <span className="truncate text-xs text-text">{s.name}</span>
                       <span className="text-xs text-text-3">Published {timeAgo(s.updatedAt)}</span>
                     </button>

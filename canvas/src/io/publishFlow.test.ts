@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { currentHashes, decidePublish } from './publishFlow';
+import { currentHashes, decidePublish, sendThumbnail } from './publishFlow';
 import { deserializeFromBytes, serializeToBytes } from './saveLoad';
 import { useStore } from '@/store/store';
 import { createImageLayer } from '@dnd/core/src/store/factories';
@@ -12,7 +12,49 @@ import {
   uploadMap,
 } from './publish';
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn<() => Promise<Blob | null>>() }));
+vi.mock('@/io/mapThumbnail', () => ({ captureTableThumbnail: capture }));
+
 const target = { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' };
+
+describe('sendThumbnail', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('puts the table picture on the map row the publish answered', async () => {
+    const image = new Blob(['jpeg'], { type: 'image/jpeg' });
+    capture.mockResolvedValue(image);
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    await sendThumbnail('tok', 'm1');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/maps/m1/thumbnail', {
+      method: 'PUT',
+      headers: { authorization: 'Bearer tok', 'content-type': 'image/jpeg' },
+      body: image,
+    });
+  });
+
+  it('never fails the publish: a refused upload or a render that throws resolves quietly', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    capture.mockResolvedValue(new Blob(['jpeg'], { type: 'image/jpeg' }));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'too big' }), { status: 413 })));
+    await expect(sendThumbnail('tok', 'm1')).resolves.toBeUndefined();
+    capture.mockRejectedValue(new Error('no WebGL'));
+    await expect(sendThumbnail('tok', 'm1')).resolves.toBeUndefined();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+    capture.mockResolvedValue(new Blob(['jpeg']));
+    await expect(sendThumbnail('tok', 'm1')).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
+  });
+
+  it('sends nothing with no canvas to draw from', async () => {
+    capture.mockResolvedValue(null);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    await sendThumbnail('tok', 'm1');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
 
 describe('decidePublish', () => {
   it.each([

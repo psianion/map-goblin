@@ -46,6 +46,7 @@ describe('migrations', () => {
       'assets',
       'campaigns',
       'identities',
+      'map_thumbnails',
       'maps',
       'migrations',
       'module_state',

@@ -244,6 +244,15 @@ export function republishScene(
   }, true);
 }
 
+/** The table's picture of a map row (`mapId` as the upload or the publish answered it). */
+export function uploadThumbnail(dmToken: string, mapId: string, image: Blob): Promise<void> {
+  return api(`/maps/${mapId}/thumbnail`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${dmToken}`, 'content-type': image.type || 'application/octet-stream' },
+    body: image,
+  });
+}
+
 export function putScenePrep(dmToken: string, sceneId: string, prep: ScenePrep): Promise<void> {
   return api(`/scenes/${sceneId}/prep`, {
     method: 'PUT',

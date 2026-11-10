@@ -13,7 +13,7 @@ import { WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from './config'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import { createAdminPass, signToken } from './auth'
-import { MAX_ASSET_BYTES, MAX_MAP_BYTES } from './db/stores'
+import { MAX_ASSET_BYTES, MAX_MAP_BYTES, MAX_THUMBNAIL_BYTES } from './db/stores'
 import { startServer, type RunningServer } from './index'
 
 beforeAll(() => {
@@ -595,6 +595,46 @@ async function seatedTable(base: string, adminPass: string) {
   return { campaignId, dmToken, playerToken: joined.body.token as string }
 }
 
+describe('scene thumbnails', () => {
+  it('takes a picture from the DM for a map row, serves it to that DM only, and drops it on republish', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { campaignId, dmToken, playerToken } = await seatedTable(base, adminPass)
+      const outsider = await seatedTable(base, adminPass)
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(MAP) })
+      const mapId = uploaded.body.mapId as string
+      const path = `/api/maps/${mapId}/thumbnail`
+
+      expect((await api(base, 'GET', path, { token: dmToken })).status).toBe(404)
+      expect((await api(base, 'PUT', path, { token: dmToken, raw: 'not an image' })).status).toBe(400)
+      expect((await api(base, 'PUT', path, { token: playerToken, bytes: JPEG })).status).toBe(403)
+      expect((await api(base, 'PUT', path, { token: outsider.dmToken, bytes: JPEG })).status).toBe(404)
+      const tooBig = Buffer.concat([JPEG, Buffer.alloc(MAX_THUMBNAIL_BYTES)])
+      // Refused with a 413, or by the hangup that follows it mid-write.
+      expect([413, 'refused']).toContain(await api(base, 'PUT', path, { token: dmToken, bytes: tooBig }).then((r) => r.status, () => 'refused'))
+
+      expect((await api(base, 'PUT', path, { token: dmToken, bytes: JPEG })).status).toBe(204)
+      const down = await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${dmToken}` } })
+      expect(down.status).toBe(200)
+      expect(down.headers.get('content-type')).toBe('image/jpeg')
+      expect(Buffer.from(await down.arrayBuffer()).equals(JPEG)).toBe(true)
+      expect((await api(base, 'GET', path, { token: playerToken })).status).toBe(403)
+      expect((await api(base, 'GET', path, { token: outsider.dmToken })).status).toBe(404)
+      expect((await api(base, 'GET', path)).status).toBe(401)
+
+      const listed = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
+      expect((listed.body.scenes as { thumbnail: boolean }[])[0]!.thumbnail).toBe(true)
+
+      // A republish is a new map row: no picture until the canvas sends one for it.
+      const sceneId = uploaded.body.sceneId as string
+      const republished = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(MAP) })
+      expect(republished.body.mapId).not.toBe(mapId)
+      expect((await api(base, 'GET', path, { token: dmToken })).status).toBe(404)
+      const relisted = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
+      expect((relisted.body.scenes as { thumbnail: boolean }[])[0]!.thumbnail).toBe(false)
+    })
+  })
+})
+
 describe('scenes (#47)', () => {
   it('publishes a scene on upload, lists it for the DM, and keeps it off the player’s list', async () => {
     await withServer(async ({ base, adminPass }) => {
@@ -620,6 +660,7 @@ describe('scenes (#47)', () => {
           visibleToPlayers: false, // D5 — hidden until the DM opts in
           mapId: uploaded.body.mapId,
           updatedAt: expect.any(Number),
+          thumbnail: false,
         },
       ])
 
