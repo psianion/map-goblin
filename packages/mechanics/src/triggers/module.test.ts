@@ -108,6 +108,7 @@ describe('authz matrix', () => {
   const dmOnly = [
     ['set-environment', { weather: 'rain' }],
     ['fire', { triggerId: 'x' }],
+    ['rearm', { triggerId: 'x' }],
     ['set-enabled', { triggerId: 'x', enabled: false }],
     ['dismiss-prompt', { promptId: 'x' }],
     ['set-light', { lightId: 'l1', patch: { visible: true } }],
@@ -744,6 +745,53 @@ describe('manual fire', () => {
     expect(sceneOf(state).log).toHaveLength(1)
     state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
     expect(sceneOf(state).log).toHaveLength(2) // once + already-fired do not block a manual fire
+  })
+})
+
+describe('rearm', () => {
+  it('refuses an unknown trigger id, and is a quiet no-op on one not fired', () => {
+    const t = trigger({ id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [] })
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
+    expect(run(mod, empty, DM, 'rearm', { triggerId: 'nope' }).error?.code).toBe('invalid-command')
+    const quiet = run(mod, empty, DM, 'rearm', { triggerId: 'x' })
+    expect(quiet.error).toBeNull()
+    expect(quiet.next).toBe(empty)
+  })
+
+  it('lets a `once` trigger fire again on its condition, with the current action text', () => {
+    let text = 'first'
+    let x = 100 // outside
+    const deps = makeDeps({
+      prepOf: () => ({
+        triggers: [
+          trigger(
+            { id: 'o1', when: { kind: 'enter-region', zoneId: 'z1' }, once: true, actions: [{ kind: 'show-text', text, toPlayers: true }] },
+            { shape: { kind: 'circle', x: 0, y: 0, radius: 5 } },
+          ),
+        ],
+        notes: [],
+      }),
+      tokensOf: () => ({ tok1: { id: 'tok1', x, y: 0, ownerId: null } }),
+    })
+    const mod = triggersModule(deps)
+    const move = { sceneId: SCENE, source: { module: 'tokens', action: 'move' } }
+
+    let state = run(mod, empty, DM, 'fire', { triggerId: 'o1' }).next
+    expect(sceneOf(state).fired.o1).toBe(1000)
+    x = 0
+    state = fireEvent(mod, state, move)
+    expect(sceneOf(state).log).toHaveLength(1) // `once` and fired: entering does nothing
+
+    state = run(mod, state, DM, 'rearm', { triggerId: 'o1' }).next
+    expect(sceneOf(state).fired.o1).toBeUndefined()
+
+    text = 'republished' // the map changed under the scene
+    x = 100
+    state = fireEvent(mod, state, move)
+    x = 0
+    state = fireEvent(mod, state, move)
+    expect(sceneOf(state).log.map((e) => e.text)).toEqual(['first', 'republished'])
+    expect(sceneOf(state).fired.o1).toBe(1000)
   })
 })
 

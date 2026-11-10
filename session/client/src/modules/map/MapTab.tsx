@@ -206,8 +206,7 @@ function TriggersStrip() {
               <Button variant="outline" size="xs" data-testid="trigger-fire" disabled={firedAt !== undefined} onClick={() => triggers('fire', { triggerId: t.id })}>
                 Fire
               </Button>
-              {/* The server has no re-arm yet: a fired trigger stays fired until the fog resets. */}
-              <Button variant="ghost" size="xs" data-testid="trigger-rearm" disabled title="Re-arm needs a server update">
+              <Button variant="ghost" size="xs" data-testid="trigger-rearm" disabled={firedAt === undefined} onClick={() => triggers('rearm', { triggerId: t.id })}>
                 Re-arm
               </Button>
             </div>

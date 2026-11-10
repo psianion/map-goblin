@@ -37,16 +37,24 @@ function fetchPrep(sceneId: string, key: string): void {
     .finally(() => inFlight.delete(key));
 }
 
-/** The live scene's prep (DM): fetched on a scene switch and on `prep-changed`. */
+/** The live scene's prep (DM): fetched on a scene switch and on `prep-changed`. While a new
+ *  revision of the same scene loads, the last answer for that scene stands in for it. */
 export function useScenePrep(): PrepAnswer {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const revision = useSessionStore((s) => s.prepRevision);
   const key = sceneId ? `${sceneId}:${revision}` : null;
-  const answer = usePrepCache((s) => (key ? s.byKey[key] : undefined));
+  const answer = usePrepCache((s) => (key && sceneId ? (s.byKey[key] ?? lastFor(s.byKey, sceneId)) : undefined));
   useEffect(() => {
     if (sceneId && key) fetchPrep(sceneId, key);
   }, [sceneId, key]);
   return answer ?? EMPTY;
+}
+
+/** The answer that landed last for `sceneId`, whatever its revision. */
+function lastFor(byKey: Record<string, PrepAnswer>, sceneId: string): PrepAnswer | undefined {
+  let found: PrepAnswer | undefined;
+  for (const [k, v] of Object.entries(byKey)) if (k.startsWith(`${sceneId}:`)) found = v;
+  return found;
 }
 
 /** For tests and a seat change: forget every fetched answer. */

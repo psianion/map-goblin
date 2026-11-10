@@ -129,6 +129,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-environment': ['dm'],
       'set-world': ['dm'],
       fire: ['dm'],
+      rearm: ['dm'],
       'set-enabled': ['dm'],
       'set-light': ['dm'],
       'reset-light': ['dm'],
@@ -203,6 +204,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return setWorld(p, ctx)
     case 'fire':
       return fireCommand(p, ctx, deps)
+    case 'rearm':
+      return rearmCommand(p, ctx, deps)
     case 'set-enabled':
       return setEnabled(p, ctx)
     case 'set-light':
@@ -647,6 +650,23 @@ function fireCommand(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   const now = (deps.now ?? Date.now)()
   fireTrigger(scene, trigger, null, deps, now, sceneId, ctx)
   setScene(ctx, sceneId, scene)
+}
+
+/**
+ * Clears a trigger's fired mark on this scene, so its condition (and a `once` latch) can fire
+ * it again. The actions are read fresh off prep at the next fire, so a republished map's text
+ * is what shows. An unknown id refuses like `fire`; a trigger not fired is a quiet no-op.
+ */
+function rearmCommand(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  const triggerId = str(p.triggerId, 'triggerId', ID_MAX)
+  const prep = deps.prepOf(ctx.campaignId, sceneId)
+  if (!prep?.triggers.some((t) => t.def.id === triggerId)) bad(`no trigger '${triggerId}' in that scene`)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  if (!(triggerId in scene.fired)) return
+  const fired = { ...scene.fired }
+  delete fired[triggerId]
+  setScene(ctx, sceneId, { ...scene, fired })
 }
 
 function rollPrompt(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
