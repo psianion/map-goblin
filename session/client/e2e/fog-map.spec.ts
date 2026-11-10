@@ -58,10 +58,13 @@ test.describe('@map fog and map', () => {
     await page.getByTestId('map-family-triggers').click();
     const fire = page.getByTestId('trigger-fire').first();
     if (await fire.count()) {
+      const rearm = page.getByTestId('trigger-rearm').first();
+      await expect(rearm).toBeDisabled();
       await fire.click();
       await expect(fire).toBeDisabled();
-      // Re-arm waits on a server command; the button says so rather than failing.
-      await expect(page.getByTestId('trigger-rearm').first()).toBeDisabled();
+      await expect(rearm).toBeEnabled();
+      await rearm.click();
+      await expect(fire).toBeEnabled();
     }
   });
 

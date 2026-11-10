@@ -160,6 +160,8 @@ export interface SceneMeta {
   visibleToPlayers: boolean;
   mapId: string;
   updatedAt: number;
+  /** The canvas sent a picture of this map row (`GET /api/maps/:mapId/thumbnail`). */
+  thumbnail?: boolean;
 }
 
 /** GET /api/campaigns/:id/scenes — the full library, in drag order. DM only. */

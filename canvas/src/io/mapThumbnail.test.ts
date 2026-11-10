@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { useStore } from '@/store/store';
-import { captureMapThumbnail } from './mapThumbnail';
+import { captureMapThumbnail, captureTableThumbnail } from './mapThumbnail';
 
 const { pipeline, singleton } = vi.hoisted(() => ({
   pipeline: vi.fn(async () => ({ blob: new Blob(['x']), filename: 't.jpeg' })),
@@ -14,7 +14,7 @@ vi.mock('@/engine/export/exportPipeline', async (importOriginal) => ({
 }));
 
 const desk: EditorDesk = { desk: '#f2f2f2', dot: '#c6c6c6', sheet: '#fbfbfb', ink: '#1b1b1b' };
-type Opts = { format: string; pxPerCell: number; includeGrid: boolean; lighting?: boolean };
+type Opts = { format: string; pxPerCell: number; includeGrid: boolean; lighting?: boolean; labels?: string };
 const lastOpts = () => (pipeline.mock.calls.at(-1) as unknown as [unknown, unknown, unknown, Opts])[3];
 
 describe('captureMapThumbnail', () => {
@@ -45,6 +45,12 @@ describe('captureMapThumbnail', () => {
     await captureMapThumbnail();
     // The default 10x10 frame.
     expect(lastOpts().pxPerCell).toBe(48);
+  });
+
+  it('draws the table picture unlit, gridless and with no labels, whatever the editor shows', async () => {
+    setEditorDesk({ ...desk, lit: true });
+    await captureTableThumbnail();
+    expect(lastOpts()).toMatchObject({ format: 'jpeg', includeGrid: false, lighting: false, labels: 'none', pxPerCell: 48 });
   });
 
   it('is null with no canvas to render from', async () => {

@@ -12,6 +12,8 @@ vi.mock('../triggers/scenePrep', () => ({
   useScenePrep: () => ({ prep: { rooms: [{ roomId: 'r1', readAloud: 'Webs hang thick.', notes: '', treasure: '', traps: [], checks: [] }] }, inertById: {}, roomVerdicts: {}, error: null }),
   useMapRooms: () => new Map([['r1', { id: 'r1', name: 'Gallery' }]]),
 }));
+vi.mock('../tokens/portrait', () => ({ uploadArt: vi.fn(async () => 'a1') }));
+vi.mock('../../shell/portrait', () => ({ usePortraitUrl: (id: string | null) => (id ? `blob:${id}` : null) }));
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
 const pia: PlayerInfo = { identityId: 'p1', name: 'Pia', role: 'player', connected: true };
@@ -86,6 +88,29 @@ describe('Story tab', () => {
     fireEvent.click(screen.getByText('Add'));
     expect(sent[1]).toMatchObject({ action: 'handout-upsert', payload: { caption: 'Map', text: 'X marks it' } });
   });
+
+  it('adds a handout that is only an image', async () => {
+    const sent = capture();
+    render(<StoryStrip />);
+    fireEvent.click(screen.getByTestId('handout-add'));
+    fireEvent.change(screen.getByLabelText('Handout caption'), { target: { value: 'Map' } });
+    expect((screen.getByText('Add') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('handout-image-input'), { target: { files: [new File(['x'], 'map.png', { type: 'image/png' })] } });
+    await screen.findByText('Replace image');
+    fireEvent.click(screen.getByText('Add'));
+    expect(sent[0]).toEqual(expect.objectContaining({ action: 'handout-upsert', payload: { caption: 'Map', assetId: 'a1' } }));
+  });
+
+  it('shows an image handout as a thumbnail and deletes a handout after a confirm', () => {
+    const sent = capture();
+    useSessionStore.setState({ session: session({ ...story, handouts: [{ id: 'h1', caption: 'Map', assetId: 'a1' }] as never }) });
+    render(<StoryStrip />);
+    expect(screen.getByTestId('handout-thumb').getAttribute('src')).toBe('blob:a1');
+    fireEvent.click(screen.getByTestId('handout-delete'));
+    expect(sent).toEqual([]);
+    fireEvent.click(screen.getByTestId('handout-delete-yes'));
+    expect(sent[0]).toMatchObject({ module: 'story', action: 'handout-delete', payload: { id: 'h1' } });
+  });
 });
 
 describe('player side', () => {
@@ -102,5 +127,11 @@ describe('player side', () => {
     render(<JournalSheet />);
     expect(screen.getByTestId('journal-handout').textContent).toContain('Letter');
     expect(screen.getByTestId('journal-feed').textContent).toContain('Night falls');
+  });
+
+  it('shows the image of a handout this seat was shown in the Journal', () => {
+    useSessionStore.setState({ you: pia, session: session({ ...story, handouts: [{ id: 'h1', caption: 'Map', assetId: 'a1' }] as never }) });
+    render(<JournalSheet />);
+    expect(screen.getByTestId('journal-handout-image').getAttribute('src')).toBe('blob:a1');
   });
 });

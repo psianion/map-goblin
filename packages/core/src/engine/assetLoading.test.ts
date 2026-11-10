@@ -293,6 +293,24 @@ describe('lazy decode', () => {
     expect(notified).toHaveBeenCalledTimes(1)
   })
 
+  it('fetches the file of a texture asked for before it is stored, once, with no map open', async () => {
+    const seen = servePacks()
+    const pm = getAssetPackManager()
+    await bootAssets(pm)
+    const frame = Object.keys(shippedManifest('gg-forge').entries).find((k) => k.startsWith('GG_Fieldstone_'))!
+    const id = `gg-forge:${frame}`
+
+    // A wall set picked after the map opened: nothing else will download it soon.
+    const waiting = pm.waitForTexture(id, 5_000)
+    await expect(waiting).resolves.not.toBeNull()
+    const fieldstone = filesOfSets(shippedManifest('gg-forge'), ['GG_Fieldstone']).map((f) => `gg-forge/${f}`)
+    expect([...seen.packFiles].sort()).toEqual(fieldstone)
+
+    pm.getTextureOrNull(id)
+    pm.requestTexture(id)
+    expect(seen.packFiles).toHaveLength(fieldstone.length)
+  })
+
   it('decodes an atlas once for every frame it holds', async () => {
     servePacks()
     const pm = getAssetPackManager()

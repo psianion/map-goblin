@@ -32,6 +32,9 @@ import { TokenPortrait } from './TokenPortrait';
 const options = <K extends string>(labels: Record<K, string>) =>
   (Object.keys(labels) as K[]).map((value) => ({ value, label: labels[value] }));
 
+/** A setting row stacked: its label over its select, half the column wide. */
+const PAIR = 'w-auto grid-cols-1 gap-y-0.5';
+
 /** The active scene's tokens, defaults filled. */
 function useSceneTokens() {
   const state = useModuleState<TokensState>('tokens');
@@ -57,23 +60,26 @@ export function TokensBody() {
   return (
     <div className="flex flex-col gap-2" data-testid="tokens-body">
       <Caption>New tokens</Caption>
-      <div className="flex flex-col gap-px">
-        <SelectRow label="Size" value={defaults.size} options={options(SIZE_LABEL)} onValueChange={(v) => defaults.set({ size: v as TokenSize })} />
+      {/* Two per row, label over select, so the whole column fits the dock's height. */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+        <SelectRow label="Size" className={PAIR} value={defaults.size} options={options(SIZE_LABEL)} onValueChange={(v) => defaults.set({ size: v as TokenSize })} />
         <SelectRow
           label="Disposition"
+          className={PAIR}
           value={defaults.disposition}
           options={options(DISPOSITION_LABEL)}
           onValueChange={(v) => defaults.set({ disposition: v as Disposition })}
         />
         <SelectRow
           label="Nameplate"
+          className={PAIR}
           value={defaults.nameplate}
           options={options(NAMEPLATE_LABEL)}
           onValueChange={(v) => defaults.set({ nameplate: v as Nameplate })}
         />
-        <SelectRow label="HP bar" value={defaults.showHp} options={options(HP_LABEL)} onValueChange={(v) => defaults.set({ showHp: v as HpVisibility })} />
+        <SelectRow label="HP bar" className={PAIR} value={defaults.showHp} options={options(HP_LABEL)} onValueChange={(v) => defaults.set({ showHp: v as HpVisibility })} />
       </div>
-      <Caption className="mt-1">On the map</Caption>
+      <Caption>On the map</Caption>
       <div className="flex flex-wrap gap-1.5">
         <SecondaryButton icon={EyeOff} data-testid="tokens-hide-npcs" disabled={npcs.length === 0} onClick={() => hide(npcs.filter((t) => !t.hidden).map((t) => t.id), true)}>
           Hide all NPCs

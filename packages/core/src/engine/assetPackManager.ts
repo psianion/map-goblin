@@ -132,6 +132,8 @@ export class AssetPackManager {
   private pendingRequests: Set<string> = new Set()
   /** In-flight file downloads, keyed "<packId>/<file>". */
   private fetching: Map<string, Promise<void>> = new Map()
+  /** Files a texture request already fetched on first use, keyed "<packId>/<file>". */
+  private askedFiles: Set<string> = new Set()
   /** Downloaded files waiting for the next batched write (see queueWrite). */
   private writeQueue: Array<{ packId: string; file: string; bytes: Uint8Array; resolve: () => void; reject: (err: unknown) => void }> = []
   private writeScheduled = false
@@ -254,8 +256,10 @@ export class AssetPackManager {
 
   /**
    * Start decoding the file that holds `entryId` when that file is stored locally. When
-   * its set is not stored yet, the request is kept and served once the set lands. A no-op
-   * for an id no installed manifest knows.
+   * it is not stored yet, the request is kept and served once the file lands, and the
+   * file is fetched now rather than left for the library: art a map starts using after it
+   * opened (a wall set picked in the dock, a plateau's cliff) must not wait on the
+   * background download. A no-op for an id no installed manifest knows.
    */
   requestTexture(entryId: string): void {
     if (this.textureCache.has(entryId)) return
@@ -270,9 +274,23 @@ export class AssetPackManager {
     if (!file) return
     if (!this.isStored(packId, manifest, entry)) {
       this.pendingRequests.add(entryId)
+      this.fetchOnDemand(packId, entryFiles(manifest, entry))
       return
     }
     void this.decodeFile(packId, file)
+  }
+
+  /**
+   * Fetch files a texture request is waiting on, each at most once a session: a failed
+   * fetch is left to the library or the next map open, not retried on every rebuild.
+   */
+  private fetchOnDemand(packId: string, files: string[]): void {
+    const fresh = files.filter((f) => !this.askedFiles.has(fileKey(packId, f)))
+    if (fresh.length === 0) return
+    for (const f of fresh) this.askedFiles.add(fileKey(packId, f))
+    this.ensureFiles(packId, fresh).catch((err) => {
+      console.warn(`[AssetPackManager] Could not fetch art for pack "${packId}" on first use:`, err)
+    })
   }
 
   /**

@@ -837,7 +837,6 @@ export interface MapBuilderStore {
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
-  closeAllDoors: (layerId: string) => void;
 
   // room actions — raw writes; edits go through the room commands (store/commands.ts)
   setRooms: (layerId: string, rooms: Room[]) => void;

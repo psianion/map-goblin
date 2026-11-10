@@ -132,4 +132,16 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN movement_locked INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // 007 — a small picture of each map row, sent by the canvas right after it publishes. Its
+  // own table, not a column, so reading a map never drags the picture along; it goes with
+  // its map row (a republish deletes the old row, so the old picture with it).
+  `
+  CREATE TABLE map_thumbnails (
+    map_id     TEXT    PRIMARY KEY REFERENCES maps(id) ON DELETE CASCADE,
+    mime       TEXT    NOT NULL,
+    bytes      BLOB    NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ]

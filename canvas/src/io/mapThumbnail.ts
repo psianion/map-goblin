@@ -13,7 +13,19 @@ const THUMBNAIL_PX = 480;
  * unlit as the editor is showing it, so the card looks like the map the DM just left.
  * Resolves to null when there is no canvas to render from.
  */
-export async function captureMapThumbnail(): Promise<Blob | null> {
+export function captureMapThumbnail(): Promise<Blob | null> {
+  return capture({ lighting: editorShowsLighting() });
+}
+
+/**
+ * The same picture for the table's scene cards, sent with a publish: unlit and without any
+ * label, so it carries nothing beyond the map itself.
+ */
+export function captureTableThumbnail(): Promise<Blob | null> {
+  return capture({ lighting: false, labels: 'none' });
+}
+
+async function capture(look: { lighting: boolean; labels?: 'none' }): Promise<Blob | null> {
   const singleton = getEngineSingleton();
   if (!singleton) return null;
   const state = useStore.getState();
@@ -25,7 +37,7 @@ export async function captureMapThumbnail(): Promise<Blob | null> {
     pxPerCell: THUMBNAIL_PX / longest,
     includeGrid: false,
     mapName: state.mapSettings.name,
-    lighting: editorShowsLighting(),
+    ...look,
   });
   return blob;
 }

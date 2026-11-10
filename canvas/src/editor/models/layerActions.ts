@@ -235,28 +235,3 @@ export function subscribeTileRename(fn: () => void): () => void {
     renameListeners.delete(fn);
   };
 }
-
-/* ── Focus in the strip, for the status bar's key hint ─ */
-
-let stripFocused = false;
-const stripListeners = new Set<() => void>();
-
-export function setStripFocused(on: boolean): void {
-  if (stripFocused === on) return;
-  stripFocused = on;
-  for (const fn of stripListeners) fn();
-}
-
-export function isStripFocused(): boolean {
-  return stripFocused;
-}
-
-export function subscribeStripFocus(fn: () => void): () => void {
-  stripListeners.add(fn);
-  return () => {
-    stripListeners.delete(fn);
-  };
-}
-
-/** Opens the level picker's menu (the title card's level name asks for it). */
-export const openLevelMenuRef: { current: (() => void) | null } = { current: null };

@@ -23,7 +23,6 @@ export interface LayerActions {
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   /** Replace the hand edits for one floor ring; undefined clears them. */
   setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
-  closeAllDoors: (layerId: string) => void;
   setRooms: (layerId: string, rooms: Room[]) => void;
   updateRoom: (layerId: string, roomId: string, patch: Partial<Room>) => void;
   setThresholds: (layerId: string, thresholds: ThresholdSegment[]) => void;
@@ -206,20 +205,6 @@ export const createLayersSlice: StateCreator<
       }
       layer.floorWallEdits ??= {};
       layer.floorWallEdits[ringKey] = edits;
-    }),
-  closeAllDoors: (layerId) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'dungeon') {
-        for (const child of layer.children) {
-          if (child.childType === 'door') {
-            const door = child as import('../../shared/types').DoorChild;
-            if (door.style !== 'archway') {
-              door.state = 'closed';
-            }
-          }
-        }
-      }
     }),
 
   // ─── Rooms ──────────────────────────────────────────────

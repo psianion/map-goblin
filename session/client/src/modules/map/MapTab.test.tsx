@@ -118,6 +118,19 @@ describe('Map tab', () => {
     render(<MapStrip />);
     fireEvent.click(screen.getByTestId('trigger-fire'));
     expect(sent[0]).toMatchObject({ module: 'triggers', action: 'fire', payload: { triggerId: 't1' } });
+    expect((screen.getByTestId('trigger-rearm') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('re-arms a fired trigger', () => {
+    const s = session();
+    (s.modules.triggers as { byScene: { a: { fired: Record<string, number> } } }).byScene.a.fired = { t1: 1000 };
+    useSessionStore.setState({ session: s });
+    const sent = capture();
+    act(() => useMapFamily.setState({ family: 'triggers' }));
+    render(<MapStrip />);
+    expect((screen.getByTestId('trigger-fire') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('trigger-rearm'));
+    expect(sent[0]).toMatchObject({ module: 'triggers', action: 'rearm', payload: { triggerId: 't1' } });
   });
 
   it('shows who sees each level and goes to one', () => {

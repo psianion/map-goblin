@@ -280,6 +280,51 @@ describe('room-revealed at session start, and fog reset re-arming it', () => {
   })
 })
 
+describe('rearm', () => {
+  const onceTrigger = (text: string): TriggerDef => ({
+    id: 'trg-once',
+    name: 'Bell',
+    when: { kind: 'enter-region', zoneId: 'zone-trap' },
+    actions: [{ kind: 'show-text', text, toPlayers: true }],
+    once: true,
+    enabled: true,
+  })
+  const prepWith = (text: string): ScenePrep => ({ version: 2, triggers: [onceTrigger(text)], notes: [] })
+
+  it('fire, rearm, and the condition fires it again with the republished text', async () => {
+    await withServer(async (server) => {
+      const { campaignId, dmToken } = seed(server, prepWith('A bell rings'))
+      await openSession(server, dmToken, campaignId, { sceneId: SCENE, roomId: 'room1' })
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+      const sockets = [dm] as const
+
+      const placeMsgs = await runDrained(sockets, ['tokens'], () =>
+        sendCommand(dm, 'tokens', 'place', { sceneId: SCENE, name: 'Hero', x: 1, y: 1 }),
+      )
+      const placed = placeMsgs.get(dm)!.get('tokens')!.state as TokensState
+      const id = Object.values(placed.byScene[SCENE] ?? {})[0]!.id
+      const move = (x: number, y: number) =>
+        runDrained(sockets, ['tokens', 'triggers'], () => sendCommand(dm, 'tokens', 'move', { sceneId: SCENE, id, x, y }))
+      const bellLines = (msgs: Awaited<ReturnType<typeof move>>) =>
+        triggersOf(msgs.get(dm)!.get('triggers')!).byScene[SCENE].log.filter((e) => e.triggerId === 'trg-once').map((e) => e.text)
+
+      const fired = await runDrained(sockets, ['triggers'], () => sendCommand(dm, 'triggers', 'fire', { triggerId: 'trg-once' }))
+      expect(triggersOf(fired.get(dm)!.get('triggers')!).byScene[SCENE].fired['trg-once']).toBeTypeOf('number')
+      // `once` and already fired: walking in only arms the latch.
+      expect(bellLines(await move(11, 11))).toEqual(['A bell rings'])
+
+      server.stores.scenes.setPrep(SCENE, JSON.stringify(prepWith('The bell rings again')))
+      const rearmed = await runDrained(sockets, ['triggers'], () => sendCommand(dm, 'triggers', 'rearm', { triggerId: 'trg-once' }))
+      expect(triggersOf(rearmed.get(dm)!.get('triggers')!).byScene[SCENE].fired['trg-once']).toBeUndefined()
+
+      await move(1, 1)
+      expect(bellLines(await move(11, 11))).toEqual(['A bell rings', 'The bell rings again'])
+    })
+  })
+})
+
 describe('a token walking into a trap zone (redaction, prompts, roll-prompt)', () => {
   it('prompts only the claiming player, logs to the DM, and resolves to DM + that player alone', async () => {
     await withServer(async (server) => {

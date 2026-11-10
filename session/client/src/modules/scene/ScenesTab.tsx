@@ -4,6 +4,7 @@ import { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
 import { Button, Caption, Input, PrimaryButton, SwitchRow, cn } from '@dnd/ui';
 import { useSessionStore } from '../../session/store';
 import { prepareScene, switchScene, usePreparedScenes } from './prepared';
+import { SceneThumb } from './SceneThumb';
 import { useSceneLibrary } from './store';
 
 /** The scene the Scenes tab has picked, for its Rename / Replace / Delete. */
@@ -132,9 +133,7 @@ export function ScenesStrip() {
             className={cn('flex w-40 shrink-0 flex-col gap-1 rounded-control border border-line p-1.5', pickedId === s.id && 'ring-1 ring-inset ring-ink')}
           >
             <button type="button" className="flex flex-col gap-1 text-left" onClick={() => usePickedScene.setState({ id: s.id })}>
-              <span aria-hidden className="flex h-14 items-center justify-center rounded-key border border-line bg-panel-2 text-sm text-text-3">
-                {s.name.slice(0, 1).toUpperCase()}
-              </span>
+              <SceneThumb scene={s} className="flex h-14 items-center justify-center rounded-key border border-line bg-panel-2 text-sm text-text-3" />
               <span className="truncate text-xs text-text">{s.name}</span>
             </button>
             <div className="flex flex-wrap items-center gap-1">

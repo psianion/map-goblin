@@ -27,6 +27,7 @@ import {
   MAX_ASSET_BYTES,
   MAX_MAP_BYTES,
   MAX_MAP_JSON_BYTES,
+  MAX_THUMBNAIL_BYTES,
   type Identity,
   type Stores,
 } from './db/stores'
@@ -136,6 +137,10 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && sub === 'images' && sub2)
     return getMapImage(deps, req, res, id, sub2)
+  if (method === 'PUT' && resource === 'maps' && id && sub === 'thumbnail' && !sub2)
+    return putThumbnail(deps, req, res, id)
+  if (method === 'GET' && resource === 'maps' && id && sub === 'thumbnail' && !sub2)
+    return getThumbnail(deps, req, res, id)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
   if (method === 'POST' && resource === 'waitlist' && !id) return joinWaitlist(deps, req, res)
@@ -400,6 +405,7 @@ async function uploadMap(
 /** GET /api/campaigns/:id/scenes — the DM's own full library, in drag order (#47). */
 function listScenes(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
   if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const pictured = deps.stores.thumbnails.mapIdsInCampaign(campaignId)
   const scenes = deps.stores.scenes.listByCampaign(campaignId).map((scene) => ({
     id: scene.id,
     name: scene.name,
@@ -407,6 +413,8 @@ function listScenes(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, c
     visibleToPlayers: scene.visible_to_players === 1,
     mapId: scene.map_id,
     updatedAt: scene.updated_at,
+    // GET /api/maps/:mapId/thumbnail answers a picture.
+    thumbnail: pictured.has(scene.map_id),
   }))
   json(res, 200, { scenes })
 }
@@ -770,6 +778,51 @@ function getAsset(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, ass
     'cache-control': 'public, max-age=31536000, immutable',
   })
   res.end(asset.bytes)
+}
+
+/**
+ * The DM of the campaign a map row belongs to, or null once it has answered. `:id` on the
+ * thumbnail routes is a map row id (what the upload and the publish answer), not a scene id:
+ * a republish is a new row, so its picture is a new URL. Another campaign's row answers like
+ * a missing one.
+ */
+function thumbnailDm(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId: string): boolean {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return false
+  if (deps.stores.thumbnails.campaignOf(mapId) !== identity.campaign_id) {
+    json(res, 404, { error: 'no such map' })
+    return false
+  }
+  if (identity.role !== 'dm') {
+    json(res, 403, { error: 'dm only' })
+    return false
+  }
+  return true
+}
+
+/** PUT /api/maps/:mapId/thumbnail — DM, raw png/jpeg/webp bytes, ≤ 300KB. Replaces any. */
+async function putThumbnail(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId: string): Promise<void> {
+  if (!thumbnailDm(deps, req, res, mapId)) return
+  const body = await readBody(req, MAX_THUMBNAIL_BYTES)
+  if (!body.ok) return failBody(req, res, body)
+  const mime = sniffImage(body.bytes)
+  if (!mime) return json(res, 400, { error: 'expected a png, jpeg or webp image' })
+  deps.stores.thumbnails.put(mapId, mime, body.bytes)
+  res.writeHead(204).end()
+}
+
+/** GET /api/maps/:mapId/thumbnail — the campaign's DM only. */
+function getThumbnail(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId: string): void {
+  if (!thumbnailDm(deps, req, res, mapId)) return
+  const thumb = deps.stores.thumbnails.get(mapId)
+  if (!thumb) return json(res, 404, { error: 'no thumbnail' })
+  res.writeHead(200, {
+    'content-type': thumb.mime,
+    'content-length': thumb.bytes.length,
+    // Private: it is the DM's. A PUT can replace it under the same URL, so revalidate.
+    'cache-control': 'private, no-cache',
+  })
+  res.end(thumb.bytes)
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

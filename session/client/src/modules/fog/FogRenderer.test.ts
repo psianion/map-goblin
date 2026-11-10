@@ -1016,7 +1016,7 @@ describe('drawFog in vision mode', () => {
   // P1b — vision mode composites its mask, its scrim and its sight stencil on the GPU from a
   // `DrawPlan` (docs/2026-09-01-raster-fog-mask-plan.md), so what these rows pin is the seam:
   // which pipeline `drawFog` chose, and what it handed it. *What the plan means* is pinned
-  // without a GPU in `tierPlan.test.ts` and with one in `compositor-check`.
+  // without a GPU in `tierPlan.test.ts`.
 
   it('hands vision mode to the compositor and paints no vector geometry at all', () => {
     const scrim = new Graphics();

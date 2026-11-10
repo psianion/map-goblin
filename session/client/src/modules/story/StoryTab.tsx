@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { roomLabel } from '@dnd/core/src/shared/prep';
 import type { Handout, StoryState } from '@dnd/mechanics/story';
 import { Button, Caption, Chip, Input, PrimaryButton, Seg } from '@dnd/ui';
+import { notify } from '@dnd/ui/toast';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { usePortraitUrl } from '../../shell/portrait';
 import { withoutSupersededSeats } from '../../shell/top/roster';
+import { uploadArt } from '../tokens/portrait';
 import { useMapRooms, useScenePrep } from '../triggers/scenePrep';
 import { currentAudience, useStoryAudience } from './audience';
 
@@ -143,25 +146,48 @@ export function StoryBody() {
   );
 }
 
+/** A handout picture at thumbnail size; nothing while it loads or when there is none. */
+function HandoutThumb({ assetId, alt }: { assetId: string | undefined; alt: string }) {
+  const url = usePortraitUrl(assetId ?? null);
+  if (!url) return null;
+  return <img src={url} alt={alt} data-testid="handout-thumb" className="h-16 w-full rounded-control object-cover" />;
+}
+
 function HandoutCard({ h, shown }: { h: Handout; shown: StoryState['shown'] }) {
   const isShown = shown?.handoutId === h.id;
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <li className="flex w-40 shrink-0 flex-col gap-1 rounded-control border border-line p-1.5" data-testid="handout-card" data-shown={isShown || undefined}>
+      <HandoutThumb assetId={h.assetId} alt={h.caption} />
       <span className="truncate text-xs text-text">{h.caption}</span>
       {h.text && <span className="line-clamp-2 text-xs text-text-3">{h.text}</span>}
-      <div className="flex flex-wrap gap-1">
-        <Button variant="outline" size="xs" data-testid="handout-show" onClick={() => send('show', { handoutId: h.id, audience: currentAudience(), mode: 'card' })}>
-          Show
-        </Button>
-        <Button variant="outline" size="xs" data-testid="handout-full" onClick={() => send('show', { handoutId: h.id, audience: currentAudience(), mode: 'full' })}>
-          Full screen
-        </Button>
-        {isShown && (
-          <Button variant="ghost" size="xs" data-testid="handout-hide" onClick={() => send('hide', {})}>
-            Hide
+      {confirmDelete ? (
+        <div className="flex flex-wrap gap-1" data-testid="handout-delete-confirm">
+          <Button variant="destructive" size="xs" data-testid="handout-delete-yes" onClick={() => send('handout-delete', { id: h.id })}>
+            Delete
           </Button>
-        )}
-      </div>
+          <Button variant="ghost" size="xs" onClick={() => setConfirmDelete(false)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          <Button variant="outline" size="xs" data-testid="handout-show" onClick={() => send('show', { handoutId: h.id, audience: currentAudience(), mode: 'card' })}>
+            Show
+          </Button>
+          <Button variant="outline" size="xs" data-testid="handout-full" onClick={() => send('show', { handoutId: h.id, audience: currentAudience(), mode: 'full' })}>
+            Full screen
+          </Button>
+          {isShown && (
+            <Button variant="ghost" size="xs" data-testid="handout-hide" onClick={() => send('hide', {})}>
+              Hide
+            </Button>
+          )}
+          <Button variant="ghost" size="xs" data-testid="handout-delete" onClick={() => setConfirmDelete(true)}>
+            Delete
+          </Button>
+        </div>
+      )}
     </li>
   );
 }
@@ -172,6 +198,21 @@ export function StoryStrip() {
   const [adding, setAdding] = useState(false);
   const [caption, setCaption] = useState('');
   const [text, setText] = useState('');
+  const [assetId, setAssetId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const ready = !!caption.trim() && (!!text.trim() || !!assetId) && !uploading;
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      setAssetId(await uploadArt(file));
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'That picture could not be uploaded.');
+    } finally {
+      setUploading(false);
+    }
+  };
   return (
     <div className="flex gap-2">
       <ul className="flex gap-2" data-testid="handouts">
@@ -185,14 +226,27 @@ export function StoryStrip() {
           data-testid="handout-form"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!caption.trim() || !text.trim()) return;
-            send('handout-upsert', { caption: caption.trim(), text: text.trim() });
+            if (!ready) return;
+            send('handout-upsert', { caption: caption.trim(), ...(text.trim() ? { text: text.trim() } : {}), ...(assetId ? { assetId } : {}) });
             setCaption('');
             setText('');
+            setAssetId(null);
             setAdding(false);
           }}
         >
           <Input value={caption} placeholder="Caption" aria-label="Handout caption" onChange={(e) => setCaption(e.target.value)} />
+          <HandoutThumb assetId={assetId ?? undefined} alt="Handout image" />
+          <Button type="button" variant="outline" size="sm" className="self-start" disabled={uploading} data-testid="handout-image" onClick={() => fileRef.current?.click()}>
+            {uploading ? 'Uploading…' : assetId ? 'Replace image' : 'Add image'}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            data-testid="handout-image-input"
+            onChange={(e) => void pickImage(e.target.files?.[0])}
+          />
           <textarea
             value={text}
             placeholder="What the handout says"
@@ -202,7 +256,7 @@ export function StoryStrip() {
             onChange={(e) => setText(e.target.value)}
           />
           <div className="flex gap-1">
-            <PrimaryButton type="submit" className="h-6 px-2.5 text-xs" disabled={!caption.trim() || !text.trim()}>
+            <PrimaryButton type="submit" className="h-6 px-2.5 text-xs" disabled={!ready}>
               Add
             </PrimaryButton>
             <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>

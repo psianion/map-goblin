@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Input, PrimaryButton, cn } from '@dnd/ui';
 import { usePreparedScenes, prepareScene, switchScene } from '../../modules/scene/prepared';
+import { SceneThumb } from '../../modules/scene/SceneThumb';
 import { useSceneLibrary } from '../../modules/scene/store';
 import { useSessionStore } from '../../session/store';
 
@@ -38,12 +39,7 @@ export function SceneSwitcher({ onDone }: { onDone?: () => void }) {
           const isReady = ready[s.id] === s.mapId;
           return (
             <li key={s.id} className="flex items-center gap-2 rounded-control px-1 py-1 hover:bg-panel-2" data-testid="scene-row">
-              <span
-                aria-hidden
-                className="flex h-9 w-12 shrink-0 items-center justify-center rounded-key border border-line bg-panel-2 text-xs text-text-3"
-              >
-                {s.name.slice(0, 1).toUpperCase()}
-              </span>
+              <SceneThumb scene={s} className="flex h-9 w-12 shrink-0 items-center justify-center rounded-key border border-line bg-panel-2 text-xs text-text-3" />
               <span className="min-w-0 flex-1 truncate text-xs text-text">{s.name}</span>
               {live ? (
                 <span className="rounded-pill border border-ink px-2 text-xs text-text" data-testid="scene-live">

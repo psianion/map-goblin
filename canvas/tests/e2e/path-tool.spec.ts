@@ -47,7 +47,8 @@ test('path: draw a path with three nodes, then change its width', { tag: '@terra
   // Pick it and widen it on its card.
   await page.keyboard.press('v')
   await page.mouse.click(620, 360)
-  const card = page.getByTestId('shell-tool-panel')
+  // A picked path's rows are on its selection card, not the Path tool's panel.
+  const card = page.getByTestId('shell-card')
   await expect(card.locator('[data-setting="card.path.width"]')).toBeVisible()
   await card.locator('[data-setting="card.path.width"]').getByRole('button', { name: /increase|\+/i }).click()
   await card.locator('[data-setting="card.path.width"]').getByRole('button', { name: /increase|\+/i }).click()

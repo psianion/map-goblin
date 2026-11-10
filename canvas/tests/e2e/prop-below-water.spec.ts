@@ -32,7 +32,7 @@ test('below water: place a prop in water, switch it, sample', { tag: '@objects' 
   // A plain white prop centred on the water, picked.
   await store(page, `(s) => {
     const app = window.__pixiApp; const r = app.canvas.getBoundingClientRect();
-    const st = app.stage;
+    const st = app.stage.children[0]; // the camera is the world container's transform
     const at = { x: (${mid[0]} - r.left - st.position.x) / st.scale.x, y: (${mid[1]} - r.top - st.position.y) / st.scale.y };
     const layer = s.layers.find((l) => l.id === s.ui.activeLayerId);
     s.addChild(layer.id, { id: 'barrel', name: 'Barrel', childType: 'asset', visible: true, objectType: 'image',

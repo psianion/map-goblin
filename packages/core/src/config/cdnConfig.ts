@@ -12,16 +12,5 @@ export const cdnConfig = {
   // `store/store` that import chain ends here. Threw `Cannot read properties of undefined`
   // out of module init and took the whole sprint3 and doors lanes down at collection.
   baseUrl: import.meta.env?.VITE_CDN_BASE_URL || '/packs',
-  catalogPath: '/catalog',
   packsPath: '/packs',
 } as const
-
-/** Full URL for a pack's manifest and assets directory. */
-export function cdnPackUrl(packId: string, version: string): string {
-  return `${cdnConfig.baseUrl}/${packId}/${version}`
-}
-
-/** Full URL for a catalog chunk or meta file. */
-export function cdnCatalogUrl(path: string): string {
-  return `${cdnConfig.baseUrl}${cdnConfig.catalogPath}/${path}`
-}

@@ -540,7 +540,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     drawStyle,
     doorGapsFor(doors, resolvedWalls),
     layer.floorWallEdits ?? {},
-    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer) },
+    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer), waitFor: (id) => armLateTextureRebuild(layer.id, id) },
   );
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;

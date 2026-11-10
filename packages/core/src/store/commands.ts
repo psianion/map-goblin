@@ -710,37 +710,6 @@ export function createChildRemovalCommand(layerId: string, childId: string, labe
   return new CompositeCommand(label, commands);
 }
 
-export class CloseAllDoorsCommand implements Command {
-  readonly label = 'Close all doors';
-  previousStates: Record<string, import('../shared/types').DoorState> = {};
-  layerId: string;
-
-  constructor(layerId: string) {
-    this.layerId = layerId;
-  }
-
-  execute(): void {
-    const store = useStore.getState();
-    const layer = store.layers.find(l => l.id === this.layerId);
-    if (layer && layer.type === 'dungeon') {
-      for (const child of (layer as import('./types').DungeonLayer).children) {
-        if (child.childType === 'door') {
-          const door = child as import('../shared/types').DoorChild;
-          this.previousStates[door.id] = door.state;
-        }
-      }
-    }
-    store.closeAllDoors(this.layerId);
-  }
-
-  undo(): void {
-    const store = useStore.getState();
-    for (const [doorId, state] of Object.entries(this.previousStates)) {
-      store.updateChild(this.layerId, doorId, { state } as Partial<import('../shared/types').DoorChild>);
-    }
-  }
-}
-
 /**
  * Command for the map's ambient light color. Routes through `setAmbientLight` like the
  * live-drag preview does — undo/redo just replays it with the other color.

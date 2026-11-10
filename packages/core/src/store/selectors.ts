@@ -1,9 +1,6 @@
-import type { MapBuilderStore, ChildGroupInfo, DungeonLayer, AnyChild, LightChild, Layer, AssetCategory, WallSegment } from './types';
+import type { MapBuilderStore, ChildGroupInfo, DungeonLayer, AnyChild, Layer, WallSegment } from './types';
 
-export const selectLayers = (s: MapBuilderStore): Layer[] => s.layers;
-export const selectActiveLayerId = (s: MapBuilderStore): string => s.ui.activeLayerId;
 export const selectSelectedIds = (s: MapBuilderStore): string[] => s.selection.selectedIds;
-export const selectHoveredId = (s: MapBuilderStore): string | null => s.selection.hoveredId;
 
 export function selectActiveLayer(state: MapBuilderStore): Layer | undefined {
   const { activeLayerId } = state.ui;
@@ -46,12 +43,6 @@ export function namedGroupKey(layerId: string, groupId: string): string {
  */
 export function isNamedGroupExpanded(state: MapBuilderStore, layerId: string, groupId: string): boolean {
   return state.ui.childGroupOverrides.includes(namedGroupKey(layerId, groupId));
-}
-
-export function selectAllLights(s: MapBuilderStore): LightChild[] {
-  return s.layers
-    .filter((l): l is DungeonLayer => l.type === 'dungeon')
-    .flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light'));
 }
 
 export function selectChildById(s: MapBuilderStore, childId: string): AnyChild | undefined {
@@ -133,10 +124,6 @@ export function expandIdsForGroups(
     }
   }
   return out;
-}
-
-export function selectMergedCategories(s: MapBuilderStore): AssetCategory[] {
-  return s.assets.manifest?.categories ?? [];
 }
 
 /**

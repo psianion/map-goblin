@@ -18,10 +18,12 @@ import {
   uploadMap,
   republishScene,
   putScenePrep,
+  uploadThumbnail,
   PublishAuthError,
   PublishGoneError,
   type CampaignSummary,
 } from '@/io/publish';
+import { captureTableThumbnail } from '@/io/mapThumbnail';
 import { notify } from '@dnd/ui/toast';
 
 // The factory behind getMapDB() is always canvas's MapIndexDB (see store/init.ts) — the
@@ -65,6 +67,19 @@ export async function currentHashes() {
   const pngs = useStore.getState().terrainSplats.pngs;
   const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
   return { data, hash, prepHash };
+}
+
+/**
+ * Sends the table its picture of the map row just published. Never fails the publish: a
+ * picture that cannot be drawn or sent is left out, and the table shows its fallback.
+ */
+export async function sendThumbnail(token: string, mapId: string): Promise<void> {
+  try {
+    const image = await captureTableThumbnail();
+    if (image) await uploadThumbnail(token, mapId, image);
+  } catch (err) {
+    console.warn('[publish] thumbnail not sent', err);
+  }
 }
 
 /**
@@ -192,6 +207,7 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
         setBusyLabel('Publishing…');
         const bytes = await serializeToBytes(data);
         const result = await uploadMap(token, campaignId, bytes);
+        await sendThumbnail(token, result.mapId);
         await remember({ sceneId: result.sceneId, mapHash: hash, prepHash });
       };
 
@@ -210,7 +226,8 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
         } else if (action === 'republish') {
           setBusyLabel('Publishing…');
           const bytes = await serializeToBytes(data);
-          await republishScene(token, target.sceneId, bytes);
+          const result = await republishScene(token, target.sceneId, bytes);
+          await sendThumbnail(token, result.mapId);
           await remember({ ...target, mapHash: hash, prepHash });
           notify.success(`Republished "${mapName}" to ${campaignLabel} — map updated`);
         } else {

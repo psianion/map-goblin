@@ -8,15 +8,18 @@ type Any = any
 /** The canvas colour at a world point. */
 async function rgbAt(page: Page, wx: number, wy: number): Promise<{ r: number; g: number; b: number }> {
   const at = await page.evaluate(([x, y]) => {
-    const app = (window as Any).__pixiApp
-    const stage = app.stage
-    return { x: x * stage.scale.x + stage.position.x, y: y * stage.scale.y + stage.position.y }
+    // The camera is the world container's transform, not the stage's.
+    const world = (window as Any).__pixiApp.stage.children[0]
+    return { x: x * world.scale.x + world.position.x, y: y * world.scale.y + world.position.y }
   }, [wx, wy])
   const c = await getPixelColor(page, at.x, at.y)
   return { r: c.r, g: c.g, b: c.b }
 }
 
 const lum = (c: { r: number; g: number; b: number }) => 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+
+/** Warren Hall, three cells clear of the cave's edge, every wall and every prop, in the hall fire's light. */
+const OPEN_FLOOR = { x: 24.4, y: 25.6 }
 
 // Item 2: a floor at 50% opacity lets the ground under it show through; its card's Opacity
 // row is what sets it, the Edge band row sits under Edge, and undo puts it back.
@@ -33,9 +36,7 @@ test('floor opacity: 50% on the card shows the ground through the floor, and und
       if (shape) {
         st.setActiveLayerId(l.id)
         st.setSelectedIds([shape.id])
-        const [x, y] = shape.contours[0][0]
-        const [x2, y2] = shape.contours[0][2]
-        return { id: shape.id as string, cx: (x + x2) / 2, cy: (y + y2) / 2 }
+        return { id: shape.id as string }
       }
     }
     return null
@@ -45,7 +46,7 @@ test('floor opacity: 50% on the card shows the ground through the floor, and und
 
   const card = page.getByTestId('shell-card')
   await expect(card.locator('[data-setting="card.floor.edgeBand"]')).toBeVisible()
-  const before = await rgbAt(page, picked!.cx, picked!.cy)
+  const before = await rgbAt(page, OPEN_FLOOR.x, OPEN_FLOOR.y)
 
   const slider = card.locator('[data-setting="card.floor.opacity"]').getByRole('slider')
   await slider.focus()
@@ -62,9 +63,9 @@ test('floor opacity: 50% on the card shows the ground through the floor, and und
   }, picked!.id)
   expect(opacity).toBe(0.5)
   await waitFrame(page, 6)
-  const half = await rgbAt(page, picked!.cx, picked!.cy)
+  const half = await rgbAt(page, OPEN_FLOOR.x, OPEN_FLOOR.y)
   expect(Math.abs(lum(half) - lum(before)), 'the ground shows through a 50% floor').toBeGreaterThan(8)
 
   await page.getByTestId('shell-top-actions').getByRole('button', { name: 'Undo' }).click()
-  await expect.poll(async () => Math.abs(lum(await rgbAt(page, picked!.cx, picked!.cy)) - lum(before))).toBeLessThan(3)
+  await expect.poll(async () => Math.abs(lum(await rgbAt(page, OPEN_FLOOR.x, OPEN_FLOOR.y)) - lum(before))).toBeLessThan(3)
 })

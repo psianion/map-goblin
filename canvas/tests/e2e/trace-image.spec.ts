@@ -10,7 +10,7 @@ const store = <T,>(page: Page, fn: string): Promise<T> =>
 
 /** A 4x4 red PNG, as a file the picker hands over. */
 const RED_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEklEQVR4nGP4z8CAB+GTG8HSALfKY52fTcuYAAAAAElFTkSuQmCC',
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEUlEQVR4nGP4z8AARwgWXg4ArpMP8aaUSCMAAAAASUVORK5CYII=',
   'base64',
 )
 

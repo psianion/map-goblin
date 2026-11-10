@@ -6,6 +6,7 @@ import { closeSheet, openSheetNow } from './registry';
 import { SheetHost } from './SheetHost';
 import { TabColumn } from './TabColumn';
 import './index';
+import '../../modules/tokens/sheets';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
 const pia: PlayerInfo = { identityId: 'p1', name: 'Pia', role: 'player', connected: true };
@@ -37,7 +38,8 @@ describe('sheet column', () => {
       </>,
     );
     fireEvent.click(screen.getByTestId('sheet-tab-party'));
-    expect(screen.getByTestId('party-sheet').textContent).toContain('Pia');
+    expect(openSheetNow()?.id).toBe('party');
+    expect(screen.getByTestId('party-sheet')).toBeTruthy();
     fireEvent.click(screen.getByTestId('sheet-tab-log'));
     expect(openSheetNow()?.id).toBe('log');
     expect(screen.getByTestId('log-sheet')).toBeTruthy();
