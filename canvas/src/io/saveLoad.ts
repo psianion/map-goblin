@@ -14,8 +14,6 @@
 import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
 import { notify } from '@dnd/ui/toast';
-import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
-import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { encodeMapFile, decodeMapFile, decodeAnyMapFile, hasMagicHeader, MAGIC_HEADER } from './mapFormat';
 import { MAP_FILE_ACCEPT, readMapDocument, saveableMap } from './mapFile';
 import { MAP_FILE_EXTENSION } from '@dnd/core/src/shared/mapFile';
@@ -107,6 +105,8 @@ export function callSaveWorker(
 export async function serializeToBytes(input: SerializedMapData): Promise<Uint8Array> {
   const data = saveableMap(input);
   // Make sure a just-finished stroke's pixels have landed in the store.
+  // Loaded on demand: the home page saves and downloads maps without the engine.
+  const { getTerrainRenderer } = await import('@dnd/core/src/engine/terrain/TerrainRenderer');
   await getTerrainRenderer()?.flushPersistNow();
   const pngs = useStore.getState().terrainSplats.pngs;
   const splats = await Promise.all(pngs.map((b) => (b ? b.arrayBuffer() : Promise.resolve(null))));
@@ -303,14 +303,10 @@ export async function loadMap(preselected?: File): Promise<boolean> {
   // Load data into the store
   useStore.getState().loadFromFile(data);
 
-  // Install-by-need: fetch whatever pack asset sets this document references that aren't
-  // resident yet. Soft-fail — a missing set degrades to the magenta fallback, same as
-  // before this existed, and must never be the reason an opened file fails to load.
-  try {
-    await getAssetPackManager().ensureTexturesForMap(data);
-  } catch (err) {
-    console.warn('[loadMap] ensureTexturesForMap failed:', err);
-  }
+  // Install-by-need: the sets this document references download while it draws, behind the
+  // loading screen or in the pill. Soft-fail: a missing set draws its fallback and is never
+  // the reason an opened file fails to load.
+  void import('@/canvas/assetLoading').then(({ loadMapAssets }) => loadMapAssets(data));
 
   // Persist the loaded document into the entry created above, which is still
   // holding the blank-state blob createNewMap serialized.

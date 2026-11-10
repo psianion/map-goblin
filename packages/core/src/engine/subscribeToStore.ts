@@ -15,6 +15,8 @@ import { rebuildDungeonLayer, redrawDoors, redrawGrid, redrawRoomFills, preloadL
 import { gridDivision } from './imageGridRenderer';
 import { roomsPinWalls } from '../shared/wallLook';
 import { preloadWallTextures } from './wallNodeRenderer';
+import { takeDoorArtMissed } from './doorRenderer';
+import { getAssetPackManager } from './assetPackInstance';
 import type { AnyChild, DungeonLayer, ImageLayer, LightChild, PathwayChild, RoomLook, ShapeChild } from '../store/types';
 import { levelOf } from '../shared/lookScope';
 import { layerDrawStyle } from './levelLook';
@@ -1146,6 +1148,19 @@ export function subscribeToStore(
     },
   );
   unsubscribers.push(unsubStyle);
+
+  // ─── Pack textures decoded → doors that drew without their art ─
+  // Kit slices, end caps and portals decode on first use; redraw the doors once they land.
+  unsubscribers.push(
+    getAssetPackManager().subscribeTextures(() => {
+      if (!takeDoorArtMissed()) return;
+      for (const layer of useStore.getState().layers) {
+        if (layer.type !== 'dungeon') continue;
+        const entry = getLayerEntry(layer.id);
+        if (entry) redrawDoors(layer, entry);
+      }
+    }),
+  );
 
   return () => {
     for (const unsub of unsubscribers) {

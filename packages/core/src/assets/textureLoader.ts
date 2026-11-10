@@ -90,7 +90,7 @@ export function resolveTexture(rawId: string): Texture {
   const id = qualifyTextureId(rawId);
   if (id.includes(':') && !id.startsWith('data:') && !id.startsWith('blob:')) {
     const packManager = getAssetPackManager();
-    return applyContentRect(id, packManager.getTexture(id));
+    return applyContentRect(id, packManager.getTexture(id, missingTexture));
   }
 
   const loaded = cache.get(id);
@@ -108,6 +108,11 @@ export function resolveTexture(rawId: string): Texture {
     warnedIds.add(id);
     console.warn(`[resolveTexture] Missing texture: "${id}" — using magenta fallback`);
   }
+  return missingTexture();
+}
+
+/** The 1x1 magenta "missing texture" indicator, made once. */
+function missingTexture(): Texture {
   if (!fallbackTexture) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;

@@ -22,3 +22,24 @@ export const hhmm = (minutes: number): string => {
   const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 };
+
+/** Where a download stands: the counts the loading screen and the download pill read. */
+export interface LoadProgress {
+  filesDone: number;
+  filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+}
+
+/** 0..1 by bytes when the sizes are known, else by files; null while nothing is counted yet. */
+export function progressFraction(p: LoadProgress | null | undefined): number | null {
+  if (!p || p.filesTotal <= 0) return null;
+  const f = p.bytesTotal > 0 ? p.bytesDone / p.bytesTotal : p.filesDone / p.filesTotal;
+  return Math.min(1, Math.max(0, f));
+}
+
+/** "12 of 40 files · 3.1 MB of 7.8 MB". */
+export function progressDetail(p: LoadProgress): string {
+  const files = `${p.filesDone} of ${p.filesTotal} files`;
+  return p.bytesTotal > 0 ? `${files} · ${formatBytes(p.bytesDone)} of ${formatBytes(p.bytesTotal)}` : files;
+}

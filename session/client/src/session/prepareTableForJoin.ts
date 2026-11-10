@@ -1,4 +1,5 @@
 import { prefetchSceneMap } from './loadSceneMap';
+import { startAssetBoot } from '../renderer/assetLoading';
 import { waitForSessionSnapshot } from './store';
 
 const SNAPSHOT_TIMEOUT_MS = 5000;
@@ -12,18 +13,23 @@ const PREFETCH_CAP_MS = 10000;
  * prefetch that fails or overruns the cap all fall through to the same place — nothing
  * to await, `join()` navigates regardless. Timeouts are parameters so tests don't pay
  * the production ones.
+ *
+ * The pack boot starts first, beside the snapshot wait, so the prefetch's install of the
+ * scene's sets resolves them against real manifests. The cap is a guard, not a budget.
  */
 export async function prepareTableForJoin(
   token: string,
   { snapshotTimeoutMs = SNAPSHOT_TIMEOUT_MS, capMs = PREFETCH_CAP_MS } = {},
 ): Promise<void> {
   const attempt = async () => {
+    const assets = startAssetBoot();
     try {
       const session = await waitForSessionSnapshot(snapshotTimeoutMs);
       const sceneId = session?.activeSceneId;
       if (!sceneId) return;
       const mapId = session.scenes.find((s) => s.id === sceneId)?.mapId;
       if (!mapId) return;
+      await assets;
       await prefetchSceneMap(sceneId, mapId, token);
     } catch (err) {
       console.warn('[JoinSession] table prefetch failed:', err);

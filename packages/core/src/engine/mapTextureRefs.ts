@@ -4,9 +4,17 @@
 // the bridge between "here's a map" and "here's what to fetch" — see
 // AssetPackManager.ensureTexturesForMap, the entry point both apps call.
 
-import { getBandSet, getWallSet } from '../assets/packCatalog';
+import { bandSetArt, getBandSet, getWallPieces, getWallSet } from '../assets/packCatalog';
+import { doorKitById, doorKitFor, doorKitKey, isKitStyle, kitWallSet } from '../assets/doorKits';
+import { pathPieceOf } from '../assets/pathKit';
+import { materialFillId } from '../assets/materialKit';
+import { cliffArt, contourArt } from './plateauKit';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
-import type { Level, RoomLook, SerializedMapData } from '../store/types';
+import type { DungeonLayer, Level, RoomLook, SerializedMapData } from '../store/types';
+import type { DoorChild } from '../shared/types';
+
+/** Every slice a door kit can draw with (doorRenderer's leaf pieces, the bare hinge and the jamb). */
+const DOOR_KIT_PIECES = ['hinge', 'tile-a', 'tile-b', 'latch', 'hinge-plain', 'jamb'] as const;
 
 /**
  * Everything `collectMapTextureIds` needs from a map. A `Pick` of
@@ -28,12 +36,16 @@ export type MapTextureSource = Pick<SerializedMapData, 'mapSettings' | 'layers'>
  * Tool state (e.g. `ScatterBrushSettings`) is never part of map data, so it
  * never needs skipping explicitly here.
  *
+ * Placed props and scatter (`AssetChild.assetId`), path units, plateau cliff and contour
+ * art, door kit slices and Material brush patches (fill and border) are collected too.
+ * `extraIds` adds ids that live outside the map, such as the table's token art.
+ *
  * IDs come back exactly as authored — legacy flat ids or `packId:entryId` —
  * deduped, unresolved. Resolving them to pack entries is
  * `assetSetsForTextureIds`'s job.
  */
-export function collectMapTextureIds(mapData: MapTextureSource): string[] {
-  const ids = new Set<string>();
+export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: readonly string[]): string[] {
+  const ids = new Set<string>(extraIds ?? []);
   const add = (id: string | null | undefined): void => {
     if (id) ids.add(id);
   };
@@ -43,6 +55,18 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
     // A cave band kit is a wall family too: the renderer lays its rock along
     // every ring of a layer that names it.
     for (const piece of getBandSet(setId)) ids.add(piece.id);
+  };
+
+  // A kit door is built from its own kit, else its wall's (doorKitOf in doorRenderer),
+  // and closes the opening with its kit's wall set's end cap.
+  const addDoorKit = (layer: DungeonLayer, door: DoorChild): void => {
+    if (!isKitStyle(door.style)) return;
+    const wallSet =
+      layer.standaloneWalls.find((w) => w.id === door.wallId)?.textureSetId ?? layer.style.wallTextureSetId;
+    const kit = doorKitById(door.kit) ?? doorKitFor(wallSet);
+    if (!kit) return;
+    for (const piece of DOOR_KIT_PIECES) ids.add(doorKitKey(kit, piece));
+    for (const ending of getWallPieces(kitWallSet(kit), 'ending')) ids.add(ending.id);
   };
 
   // A level, area or room look may pin a floor texture and a wall set of its own.
@@ -74,10 +98,28 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
           }
           case 'door':
             add(child.portalTextureId);
+            addDoorKit(layer, child);
+            break;
+          case 'asset':
+            if (!child.assetId.startsWith('data:') && !child.assetId.startsWith('blob:')) add(child.assetId);
+            break;
+          case 'pathway':
+            add(child.pieceId);
+            add(pathPieceOf(child.pieceId)?.id);
+            break;
+          case 'plateau':
+            if (child.edge !== 'none') {
+              for (const e of cliffArt(child.edgeArt).values()) add(e.id);
+              for (const e of contourArt(child.edgeArt).values()) add(e.id);
+            }
             break;
           default:
             break;
         }
+      }
+      for (const patch of layer.materials ?? []) {
+        add(materialFillId(patch.material));
+        if (patch.border) for (const e of bandSetArt(patch.material).values()) add(e.id);
       }
     } else if (layer.type === 'background') {
       add(layer.backgroundTexture);

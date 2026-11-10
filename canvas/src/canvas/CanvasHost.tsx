@@ -37,23 +37,19 @@ import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
 import { setRoomHighlightEnabled } from '@dnd/core/src/engine/roomHighlight';
 import { useStore } from '@/store/store';
 import { notify } from '@dnd/ui/toast';
-import { getAssetPackManager } from '@/engine/assetPackInstance';
-import { ensureBundledPack } from '@/engine/firstBootInstall';
-import { buildMergedManifest } from '@/engine/manifestBridge';
-import { dropPlacedCaveBand } from '@dnd/core/src/store/migration';
-import { isBandSet } from '@dnd/core/src/assets/packCatalog';
-import { isCaveBandAsset } from '@dnd/core/src/assets/caveWallKit';
+import { LoadingScreen } from '@dnd/ui';
+import { startAssetBoot, useAssetLoading } from './assetLoading';
 
-// Module-scoped so a Pixi-init failure + retry (retryKey bump) can't start a
-// second concurrent pack boot — two ensureBundledPack runs could interleave
-// uninstallPack/registerPack and half-install a pack.
-let packBootPromise: Promise<void> | null = null;
+const BOOT_STEPS = ['Engine', 'Library index', 'Map textures'];
 
 export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const [engine, setEngine] = useState<RenderEngine | null>(null);
   const [initError, setInitError] = useState(false);
+  const [pixiReady, setPixiReady] = useState(false);
+  const indexReady = useAssetLoading((s) => s.indexReady);
+  const mapScreen = useAssetLoading((s) => (s.map?.mode === 'screen' ? s.map.progress : null));
   const [retryKey, setRetryKey] = useState(0);
   const clipperReady = useStore((s) => s.ui.clipperReady);
 
@@ -72,59 +68,10 @@ export function CanvasHost() {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       if (destroyed) return;
 
-      // Rehydrate asset packs from IndexedDB and populate the store (non-blocking
-      // — log errors, don't block boot). Kicked off in parallel with Pixi/Clipper
-      // init below: populating the Assets/Packs panels doesn't touch the GPU
-      // (loadPackTextures imports pixi.js itself), so gating it behind
-      // pixiEngine.init() was only costing ~10s of empty panels on every reload.
-      packBootPromise ??= (async () => {
-        try {
-          const packManager = getAssetPackManager();
-          await packManager.rehydrate();
-          // First-boot: install bundled pack if no packs exist
-          await ensureBundledPack(packManager);
-          if (destroyed) return;
-
-          // Populate PacksSlice from rehydrated + newly installed state
-          const store = useStore.getState();
-          store.setInstalledPacks(
-            packManager.getInstalledPacks().map((p) => ({
-              packId: p.packId,
-              name: p.packId,
-              version: p.version,
-              sizeBytes: p.bundleSize,
-              // As stored: a pack installed from a file stays "From file" after a reload.
-              bundled: p.bundled,
-              installedAt: p.installedAt,
-            })),
-          );
-          // Merge pack manifests into asset browser manifest
-          const packManifests = packManager.getPackManifests();
-          if (packManifests.length > 0) {
-            const merged = buildMergedManifest(packManifests);
-            store.setManifest(merged);
-          }
-
-          // Catalog is live now — resolve any "Asset" names a map that loaded
-          // before this point couldn't (loadFromFile runs the same shim for
-          // the opposite ordering).
-          store.applyAssetNameShim();
-          // Same ordering problem for the load migration's cave band cleanup, which
-          // needs the catalog to tell a band kit and its pieces apart.
-          const { layers, levels } = useStore.getState();
-          const kept = dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset });
-          if (kept !== layers) useStore.setState({ layers: kept });
-
-          // Fire checkForUpdates in background — don't block boot
-          packManager.checkForUpdates().then((updates) => {
-            if (!destroyed && updates.length > 0) {
-              useStore.getState().setAvailableUpdates(updates);
-            }
-          }).catch(() => {});
-        } catch (err) {
-          console.warn('[CanvasHost] Asset pack rehydration failed:', err);
-        }
-      })();
+      // Pack metadata and the bundled index load beside Pixi and Clipper; the engine is
+      // handed over when both are in, without waiting for any texture. Module-scoped, so a
+      // retry after an init failure never starts a second boot.
+      const assetBoot = startAssetBoot();
 
       // Initialize PixiJS and Clipper2 WASM in parallel
       try {
@@ -144,7 +91,8 @@ export function CanvasHost() {
         return;
       }
 
-      await packBootPromise;
+      setPixiReady(true);
+      await assetBoot;
       if (destroyed) return;
 
       // Build scene graph hierarchy. This is the editor, so it gets the
@@ -283,6 +231,7 @@ export function CanvasHost() {
       clearEngineSingleton();
       pixiEngine.destroy();
       setEngine(null);
+      setPixiReady(false);
     };
   }, [retryKey]);
 
@@ -301,7 +250,7 @@ export function CanvasHost() {
           overflow: 'hidden',
         }}
       />
-      {(initError || !engine) && (
+      {initError ? (
         <div
           style={{
             position: 'absolute',
@@ -316,24 +265,27 @@ export function CanvasHost() {
             background: '#0f100e',
           }}
         >
-          {initError ? (
-            <>
-              <div>Failed to initialize the canvas. Your browser may not support WebGL 2.</div>
-              <button
-                type="button"
-                onClick={() => {
-                  setInitError(false);
-                  setRetryKey((k) => k + 1);
-                }}
-                style={{ padding: '6px 16px', cursor: 'pointer' }}
-              >
-                Retry
-              </button>
-            </>
-          ) : (
-            <div>Initializing…</div>
-          )}
+          <div>Failed to initialize the canvas. Your browser may not support WebGL 2.</div>
+          <button
+            type="button"
+            onClick={() => {
+              setInitError(false);
+              setRetryKey((k) => k + 1);
+            }}
+            style={{ padding: '6px 16px', cursor: 'pointer' }}
+          >
+            Retry
+          </button>
         </div>
+      ) : (
+        (!engine || mapScreen) && (
+          <LoadingScreen
+            title="Opening the canvas"
+            steps={BOOT_STEPS}
+            current={!pixiReady ? 0 : !indexReady ? 1 : 2}
+            progress={engine ? mapScreen : null}
+          />
+        )
       )}
     </div>
   );

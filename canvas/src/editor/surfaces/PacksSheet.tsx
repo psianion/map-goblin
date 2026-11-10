@@ -30,6 +30,8 @@ import { notify } from '@dnd/ui/toast';
 import { PackFileError, readPackFile } from '@/io/packFile';
 import { usedOnMap } from '@/editor/models/propLibrary';
 import { useShell } from '@/editor/shell/shellStore';
+import { packSets } from '@/canvas/assetBoot';
+import { runLibrary, useAssetLoading } from '@/canvas/assetLoading';
 import { SheetFrame } from './SheetFrame';
 
 const MB = 1024 * 1024;
@@ -57,6 +59,24 @@ function propsFromPack(packId: string): number {
   let n = 0;
   for (const [id, count] of usedOnMap(useStore.getState().layers)) if (id.startsWith(`${packId}:`)) n += count;
   return n;
+}
+
+type PackSets = { all: string[]; installed: string[] };
+
+/** A pack's sets and which of them are downloaded, read again as sets land. */
+function usePackSets(packId: string): PackSets | null {
+  const version = useAssetLoading((s) => s.setsVersion);
+  const [sets, setSets] = useState<PackSets | null>(null);
+  useEffect(() => {
+    let live = true;
+    packSets(getAssetPackManager(), packId)
+      .then((s) => live && setSets(s))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [packId, version]);
+  return sets;
 }
 
 /** Update offer, progress or result for one row. */
@@ -113,7 +133,7 @@ function UpdateLine({ pack, update, state }: { pack: PackSummary; update?: PackU
   );
 }
 
-function Details({ pack }: { pack: PackSummary }) {
+function Details({ pack, sets }: { pack: PackSummary; sets: PackSets | null }) {
   const manager = getAssetPackManager();
   const info = manager.getInstalledPacks().find((p) => p.packId === pack.packId);
   const description = manager.getPackManifests().find((p) => p.packId === pack.packId)?.manifest.description;
@@ -128,6 +148,12 @@ function Details({ pack }: { pack: PackSummary }) {
         <dd className="font-mono tabular-nums">{info?.entryCount ?? 0}</dd>
         <dt className={term}>Installed</dt>
         <dd>{new Date(pack.installedAt).toLocaleDateString()}</dd>
+        {sets && sets.all.length > 0 && (
+          <>
+            <dt className={term}>Downloaded</dt>
+            <dd data-testid="shell-pack-sets">{sets.installed.length ? sets.installed.join(', ') : 'None yet'}</dd>
+          </>
+        )}
       </dl>
       <p className="text-text-3">
         {pack.bundled ? 'Bundled packs ship with the app.' : 'Not available at the table: players see its props as missing until the pack is published.'}
@@ -141,6 +167,7 @@ function PackRow({ pack, update, state, onUninstall }: { pack: PackSummary; upda
   const entries = getAssetPackManager().getInstalledPacks().find((p) => p.packId === pack.packId)?.entryCount ?? 0;
   const busy = state?.status === 'running';
   const hasProps = propEntries().some((e) => e.packId === pack.packId);
+  const sets = usePackSets(pack.packId);
   return (
     <li className="flex flex-col gap-1.5 border-b border-line py-2 last:border-b-0" data-testid="shell-pack-row" data-pack-id={pack.packId}>
       <div className="flex items-center gap-2">
@@ -151,6 +178,7 @@ function PackRow({ pack, update, state, onUninstall }: { pack: PackSummary; upda
           </span>
           <span className="font-mono text-[10px] text-text-3 tabular-nums">
             {pack.version} · {entries} {entries === 1 ? 'entry' : 'entries'} · {formatMB(pack.sizeBytes)}
+            {sets && sets.all.length > 0 && ` · ${sets.installed.length} of ${sets.all.length} sets`}
           </span>
         </span>
         <DropdownMenu>
@@ -167,7 +195,7 @@ function PackRow({ pack, update, state, onUninstall }: { pack: PackSummary; upda
         </DropdownMenu>
       </div>
       <UpdateLine pack={pack} update={update} state={state} />
-      {details && <Details pack={pack} />}
+      {details && <Details pack={pack} sets={sets} />}
     </li>
   );
 }
@@ -175,7 +203,8 @@ function PackRow({ pack, update, state, onUninstall }: { pack: PackSummary; upda
 /**
  * The Packs sheet: every installed pack with its version, size and where it came from,
  * Check updates and Update, Uninstall for a pack installed from a file, Install from file
- * (the picker, or a .zip dropped on the sheet), and the cache line.
+ * (the picker, or a .zip dropped on the sheet), Download everything now (the background
+ * library, started early), the sets each pack holds, and the cache line.
  */
 export function PacksSheet({ onClose }: { onClose: () => void }) {
   const { installedPacks, availableUpdates, isChecking, updateCheckError, activeUpdate } = useStore(
@@ -193,6 +222,7 @@ export function PacksSheet({ onClose }: { onClose: () => void }) {
   const [checked, setChecked] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [confirm, setConfirm] = useState<{ pack: PackSummary; count: number } | null>(null);
+  const library = useAssetLoading((s) => s.library.status);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The row flags come from what each pack was stored with, not the boot-time list.
@@ -306,6 +336,14 @@ export function PacksSheet({ onClose }: { onClose: () => void }) {
           </SecondaryButton>
           <SecondaryButton disabled={installing !== null} onClick={() => inputRef.current?.click()}>
             Install from file…
+          </SecondaryButton>
+          <SecondaryButton
+            data-testid="library-download"
+            disabled={library === 'running' || library === 'done'}
+            aria-busy={library === 'running' || undefined}
+            onClick={() => void runLibrary()}
+          >
+            {library === 'running' ? 'Downloading…' : library === 'done' ? 'Everything downloaded' : 'Download everything now'}
           </SecondaryButton>
           <Input
             ref={inputRef}

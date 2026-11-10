@@ -13,11 +13,10 @@ import { listenDprChanges } from '@dnd/core/src/engine/camera';
 import { setEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { LightManager } from '@dnd/core/src/engine/lighting';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
-import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
-import { ensureBundledPack } from '@dnd/core/src/engine/firstBootInstall';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
 import { useStore } from '@dnd/core/src/store/store';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
+import { LoadingScreen } from '@dnd/ui';
 import { attachCameraInput, fitMap } from './cameraInput';
 import { useSessionStore } from '../session/store';
 import { swapSceneMap } from '../session/loadSceneMap';
@@ -26,6 +25,9 @@ import { syncLightsToScene } from '../modules/triggers/lightSync';
 import { syncWorldToScene } from '../modules/world/worldSync';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 import { installTableDesk } from './desk';
+import { markFirstSceneDone, startAssetBoot, useTableAssets } from './assetLoading';
+
+const FIRST_SCENE_STEPS = ['Waiting for the DM', 'Loading map', 'Map textures'];
 
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
 // live in @dnd/core — the `?url` import is a Vite-bundler feature and core is
@@ -69,6 +71,8 @@ export function GameRenderer() {
   const loadedScene = useSessionStore((s) => s.loadedScene);
   const mapData = useSessionStore((s) => s.mapData);
   const token = useSessionStore((s) => s.token);
+  const firstSceneDone = useTableAssets((s) => s.firstSceneDone);
+  const textures = useTableAssets((s) => (s.map?.mode === 'screen' ? s.map.progress : null));
 
   // ── Engine boot ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -85,6 +89,9 @@ export function GameRenderer() {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       if (destroyed) return;
 
+      // Pack metadata and the bundled index load beside Pixi and Clipper. Failure is soft:
+      // geometry and lighting still render, textures fall back to empty.
+      const assetBoot = startAssetBoot();
       try {
         // The back buffer is what lets the fog's greyscale darkvision tier ('saturation' blend) draw.
         await Promise.all([pixiEngine.init(container, { useBackBuffer: true }), initClipper()]);
@@ -98,15 +105,7 @@ export function GameRenderer() {
         return;
       }
 
-      // Floor/wall textures live in the bundled asset pack. Failure is soft —
-      // geometry and lighting still render, textures fall back to empty.
-      try {
-        const packManager = getAssetPackManager();
-        await packManager.rehydrate();
-        await ensureBundledPack(packManager);
-      } catch (err) {
-        console.warn('[GameRenderer] asset pack rehydration failed:', err);
-      }
+      await assetBoot;
       if (destroyed) {
         pixiEngine.destroy();
         return;
@@ -237,6 +236,8 @@ export function GameRenderer() {
       setLoadFailed(true);
       return;
     }
+    // From here on a scene swap keeps this one on screen and shows its download in the pill.
+    markFirstSceneDone();
 
     // Nobody at this table chose a camera: the editor's was never sent. Without framing, a
     // map drawn away from the origin opens mostly off-screen — the default camera is zoom 20
@@ -262,27 +263,29 @@ export function GameRenderer() {
     return stop;
   }, [engine, mapData, sceneId]);
 
-  const status = initFailed
+  const failure = initFailed
     ? 'Renderer failed to start — WebGL may be unavailable.'
     : loadFailed
       ? 'This map could not be rendered — it may be corrupt.'
       : fetchError
         ? `Could not load the map: ${fetchError}`
-        : !sceneId
-          ? 'Waiting for the DM to pick a scene…'
-          : !mapData
-            ? 'Loading map…'
-            : // The map can be in hand well before the engine is: first boot installs the
-              // bundled asset pack (~8MB) into a cold IndexedDB. Without this branch the
-              // overlay clears and the player watches an empty canvas with no explanation.
-              !engine
-              ? 'Starting the renderer…'
-              : null;
+        : null;
+  // The first scene loads behind the loading screen, its steps standing in for the status
+  // lines; later scenes swap with the old map on screen. The map can be in hand before the
+  // engine is, so the screen stays until both are.
+  const loading = !failure && !firstSceneDone && (!sceneId || !mapData || !engine);
+  const status =
+    failure ?? (firstSceneDone && !sceneId ? 'Waiting for the DM to pick a scene…' : firstSceneDone && !mapData ? 'Loading map…' : null);
+  const step = !sceneId ? 0 : textures || mapData ? 2 : 1;
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-bg">
       {/* Hidden until the engine is up: Pixi clears to black before the desk is installed. */}
       <div ref={containerRef} className={`h-full w-full touch-none ${engine ? "" : "opacity-0"}`} data-testid="game-canvas" />
+      {loading && (
+        // Under the chrome and the waiting card: the DM keeps the table's controls while it loads.
+        <LoadingScreen className="z-0" title="Joining the table" steps={FIRST_SCENE_STEPS} current={step} progress={step === 2 ? textures : null} />
+      )}
       {status && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <p className="rounded-float border border-line bg-panel px-4 py-2 text-sm text-text-2 shadow-e">

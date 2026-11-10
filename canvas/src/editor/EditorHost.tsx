@@ -9,6 +9,7 @@ import { EditorShell } from '@/editor/shell/EditorShell';
 import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
+import { restoreOpenMap, trackOpenMap } from '@/io/openMapPref';
 import { getMapDB, setThumbnailProvider } from '@/store/slices/maps';
 import { captureMapThumbnail } from '@/io/mapThumbnail';
 import { getEngineSingleton } from '@/engine/engineSingleton';
@@ -17,10 +18,15 @@ import { importImageRef, openExportRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import { notify } from '@dnd/ui/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
+import { setPackManagerFactory } from '@dnd/core/src/store/packIO';
+import { loadMapAssets } from '@/canvas/assetLoading';
 import { initFocusMode } from '@/editor/viewPrefs';
 
 // Before the first render, so the remembered focus mode is what the editor comes up in.
 initFocusMode();
+// The packs slice reaches the pack manager through this. Here, not in the store's init,
+// so the home page never loads the engine.
+setPackManagerFactory(() => getAssetPackManager());
 
 /** What the editor chrome needs from the editor that only the host holds. */
 export interface EditorChromeActions {
@@ -106,6 +112,9 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
           notify.error(result.warning);
         }
 
+        // The map that was open, not merely the last one saved (see io/openMapPref.ts).
+        await restoreOpenMap(db);
+        if (cancelled) return;
         await useStore.getState().loadMapIndex();
         if (cancelled) return;
 
@@ -113,16 +122,6 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
         const { mapIndex } = useStore.getState();
         if (mapIndex.length === 0) {
           await useStore.getState().createNewMap('Untitled Map');
-        }
-
-        // Install-by-need for whatever `loadMapIndex` just loaded off IndexedDB (a blank
-        // bootstrap map has nothing to fetch). Soft-fail — must never block boot.
-        if (!cancelled) {
-          try {
-            await getAssetPackManager().ensureTexturesForMap(useStore.getState());
-          } catch (err) {
-            console.warn('[app] ensureTexturesForMap failed:', err);
-          }
         }
 
         // Load the most recent map (first in index since sorted by updatedAt desc)
@@ -137,6 +136,16 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // The open map's sets download when the editor is up, not behind the home page, so the
+  // home page fetches no art; another map opened later loads the same way.
+  const activeMapId = useStore((s) => s.activeMapId);
+  useEffect(() => {
+    if (home || !activeMapId) return;
+    void loadMapAssets(useStore.getState());
+  }, [home, activeMapId]);
+
+  useEffect(() => trackOpenMap(), []);
 
   useEffect(() => {
     const cleanup = startAutosave(

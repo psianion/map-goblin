@@ -19,5 +19,5 @@ export * from './primitives/toggle-group';
 export * from './primitives/tooltip';
 export * from './components';
 export { cn } from './lib/utils';
-export { formatBytes, hhmm, timeAgo } from './lib/format';
+export { formatBytes, hhmm, progressDetail, progressFraction, timeAgo, type LoadProgress } from './lib/format';
 export { applyTheme, initTheme, readThemeChoice, toggleTheme, useTheme, type Theme, type ThemeChoice } from './theme/theme';

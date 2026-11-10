@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@dnd/ui'
 import { SliderInput } from '@/editor/SliderInput'
-import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas'
 import { useEscapeToClose } from '@/editor/useEscapeToClose'
+
+// The texture fallback reaches the engine; the home page's menus load it only when drawn.
+const PackThumbnailCanvas = lazy(() => import('@/editor/PackThumbnailCanvas').then((m) => ({ default: m.PackThumbnailCanvas })))
 
 export interface ContextMenuItem {
   /** Absent means 'action' — the original plain-verb row every menu already uses. */
@@ -166,7 +168,12 @@ export function clampMenuPosition(
  */
 function MenuThumb({ id, src }: { id: string; src: string }) {
   const [failed, setFailed] = useState(false)
-  if (failed || !src) return <PackThumbnailCanvas textureId={id} />
+  if (failed || !src)
+    return (
+      <Suspense fallback={null}>
+        <PackThumbnailCanvas textureId={id} />
+      </Suspense>
+    )
   return (
     <img
       src={src}

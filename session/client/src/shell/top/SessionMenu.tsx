@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
-import { Button, Caption, Popover, PopoverContent, PopoverTrigger, Separator, SwitchRow } from '@dnd/ui';
+import { Button, Caption, Popover, PopoverContent, PopoverTrigger, Separator, SwitchRow, formatBytes } from '@dnd/ui';
 import { Users } from '@dnd/ui/icons';
 import { navigate } from '../../router';
 import { endSession } from '../../session/auth';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { librarySize, runLibrary, useTableAssets } from '../../renderer/assetLoading';
 import { seatColour } from '../seatColour';
 import { useInviteCode } from './inviteCode';
 import { withoutSupersededSeats } from './roster';
@@ -112,7 +113,32 @@ function EndSession() {
   );
 }
 
-/** The DM's half: invite code, the table switches, export, End session. */
+/** The DM's own download of every set, for running scenes later without waiting. Players never get it. */
+function LibraryDownload() {
+  const status = useTableAssets((s) => s.library.status);
+  // Read on render: the manifests are in once the boot is, and the menu opens long after.
+  const size = librarySize();
+  const label =
+    status === 'running' || status === 'paused'
+      ? 'Downloading the library…'
+      : status === 'done'
+        ? 'Library downloaded'
+        : `Download the full library${size > 0 ? ` · ${formatBytes(size)}` : ''}`;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="self-start"
+      data-testid="library-download"
+      disabled={status !== 'idle' && status !== 'failed'}
+      onClick={() => void runLibrary()}
+    >
+      {label}
+    </Button>
+  );
+}
+
+/** The DM's half: invite code, the table switches, export, the library, End session. */
 function DmControls() {
   const code = useInviteCode();
   const table = useModuleState<TableSwitches>('table');
@@ -163,6 +189,7 @@ function DmControls() {
           {exportNote ?? 'Maps, state and art in one zip. Importing an archive is not supported yet.'}
         </p>
       </div>
+      <LibraryDownload />
       <EndSession />
     </>
   );
