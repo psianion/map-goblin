@@ -1,6 +1,7 @@
 import { journalOf, type JournalEntry, type JournalKicker, type TriggersState } from '@dnd/mechanics/triggers';
 import type { StoryState } from '@dnd/mechanics/story';
 import { Caption } from '@dnd/ui';
+import { usePortraitUrl } from '../../shell/portrait';
 import { closeSheet } from '../../shell/sheets/registry';
 import { SheetFrame } from '../../shell/sheets/SheetFrame';
 import { useModuleState, useSessionStore } from '../../session/store';
@@ -27,6 +28,12 @@ function Card({ entry, sceneId }: { entry: JournalEntry; sceneId: string | null 
   );
 }
 
+function HandoutImage({ assetId, alt }: { assetId: string; alt: string }) {
+  const url = usePortraitUrl(assetId);
+  if (!url) return null;
+  return <img src={url} alt={alt} data-testid="journal-handout-image" className="my-1 max-h-64 w-full rounded-control object-contain" />;
+}
+
 /** The player's Journal sheet: every card the DM has shared, and the handouts shown to this seat. */
 export function JournalSheet() {
   const triggers = useModuleState<TriggersState>('triggers');
@@ -36,9 +43,9 @@ export function JournalSheet() {
   useMarkJournalSeen(entries);
   // Read-alouds arrive as cards in the triggers journal above; handouts and title cards are the story's own.
   const shared = (story?.journal ?? []).flatMap((j) => {
-    if (j.kind === 'title') return [{ id: j.id, at: j.sharedAt, title: j.ref, text: undefined as string | undefined, kind: 'Title card' }];
+    if (j.kind === 'title') return [{ id: j.id, at: j.sharedAt, title: j.ref, text: undefined as string | undefined, assetId: undefined as string | undefined, kind: 'Title card' }];
     const h = j.kind === 'handout' ? story?.handouts.find((x) => x.id === j.ref) : undefined;
-    return h ? [{ id: j.id, at: j.sharedAt, title: h.caption, text: h.text, kind: 'Handout' }] : [];
+    return h ? [{ id: j.id, at: j.sharedAt, title: h.caption, text: h.text, assetId: h.assetId, kind: 'Handout' }] : [];
   });
   return (
     <SheetFrame title="Journal" onClose={closeSheet} testId="journal-sheet">
@@ -55,6 +62,7 @@ export function JournalSheet() {
           <article key={x.id} className="rounded-control border border-line bg-panel-2 px-2.5 py-2" data-testid={x.kind === 'Handout' ? 'journal-handout' : 'journal-title'}>
             <Caption>{x.kind}</Caption>
             <p className="text-sm font-medium text-text">{x.title}</p>
+            {x.assetId && <HandoutImage assetId={x.assetId} alt={x.title} />}
             {x.text && <p className="text-xs whitespace-pre-wrap text-text-2">{x.text}</p>}
             <time className="font-mono text-xs text-text-3">{clock(x.at)}</time>
           </article>

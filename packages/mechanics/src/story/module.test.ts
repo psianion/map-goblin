@@ -58,6 +58,18 @@ describe('story', () => {
     expect(t.view(ALICE).handouts).toHaveLength(1)
   })
 
+  it('an image-only handout keeps its image and reaches the seat it was shown to', () => {
+    const t = table()
+    expect(t.run(DM, 'handout-upsert', { id: 'h1', caption: 'Map', assetId: 'a1' })).toBeUndefined()
+    expect(t.state().handouts).toEqual([{ id: 'h1', caption: 'Map', assetId: 'a1' }])
+    t.run(DM, 'show', { handoutId: 'h1', audience: ['alice'] })
+    expect(t.view(ALICE).handouts).toEqual([{ id: 'h1', caption: 'Map', assetId: 'a1' }])
+  })
+
+  it('refuses deleting an unknown handout', () => {
+    expect(table().run(DM, 'handout-delete', { id: 'nope' })).toMatchObject({ code: 'invalid-command' })
+  })
+
   it('refuses showing an unknown handout or to an unknown player', () => {
     const t = table()
     t.run(DM, 'handout-upsert', { id: 'h1', caption: 'Map', assetId: 'a1' })

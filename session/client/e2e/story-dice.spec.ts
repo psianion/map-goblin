@@ -11,11 +11,27 @@ test.describe('@story story and dice', () => {
     await page.getByTestId('handout-add').click();
     await page.getByLabel('Handout caption').fill('The letter');
     await page.getByLabel('Handout text').fill('Meet me at the old mill.');
-    await page.getByTestId('handout-form').getByRole('button', { name: 'Add' }).click();
+    await page.getByTestId('handout-form').getByRole('button', { name: 'Add', exact: true }).click();
     await page.getByTestId('handout-full').first().click();
     await expect(player.getByTestId('story-handout')).toContainText('Meet me at the old mill.');
     await page.getByTestId('handout-hide').first().click();
     await expect(player.getByTestId('story-handout')).toBeHidden();
+  });
+
+  test('an image handout shown to the player carries its picture', async ({ hostSession, joinAsPlayer }) => {
+    const { page } = hostSession;
+    const player = await joinAsPlayer('Bram');
+    await page.keyboard.press('5');
+    await page.getByTestId('handout-add').click();
+    await page.getByLabel('Handout caption').fill('The map');
+    // A 1x1 png: an image handout needs no text.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await page.getByTestId('handout-image-input').setInputFiles({ name: 'map.png', mimeType: 'image/png', buffer: png });
+    await expect(page.getByTestId('handout-image')).toHaveText('Replace image');
+    await page.getByTestId('handout-form').getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByTestId('handout-thumb').last()).toBeVisible();
+    await page.getByTestId('handout-show').last().click();
+    await expect(player.getByTestId('story-handout').getByRole('img', { name: 'The map' })).toBeVisible();
   });
 
   test('a title card shows over the table and goes', async ({ hostSession, joinAsPlayer }) => {
