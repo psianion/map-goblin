@@ -18,7 +18,8 @@ describe('SceneThumb', () => {
   });
 
   it('shows the picture of a scene that has one, asked for with the given token', async () => {
-    const fetchSpy = vi.fn(async () => new Response(new Blob(['x'], { type: 'image/jpeg' })));
+    // A plain stand-in: a jsdom Blob inside a Node Response does not read back on every Node.
+    const fetchSpy = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['x']) }));
     vi.stubGlobal('fetch', fetchSpy);
     URL.createObjectURL = vi.fn(() => 'blob:thumb');
     render(<SceneThumb scene={{ name: 'Crypt', mapId: 'm2', thumbnail: true }} token="dm-token" className="h-9" />);
