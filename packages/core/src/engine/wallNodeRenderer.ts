@@ -152,12 +152,15 @@ function placeNodes(
   wallWidth: number,
   tint: number,
   from: number,
+  waitFor?: (textureId: string) => void,
 ): number {
   let at = from;
   for (const node of nodes) {
     const spec = specById.get(node.pieceId);
     if (!spec) continue;
     const tex = resolveTexture(node.pieceId);
+    // Pack art decodes on first use: a piece still on its fallback redraws when it lands.
+    if (tex.width <= 1) waitFor?.(node.pieceId);
     if (tex.width === 0) continue;
 
     // A cave band's ground strip shares this pool (placeBand); a slot holding
@@ -581,6 +584,8 @@ export interface RenderNodeWallsOptions {
    * ground strip behind its rock (see `ringFloorOf`). The ring's floor colour when absent.
    */
   floorOf?: (ring: number) => BandFloor;
+  /** Called with each stone's texture id that is not decoded yet, so the host can redraw once it is. */
+  waitFor?: (textureId: string) => void;
 }
 
 /**
@@ -676,7 +681,7 @@ export function renderNodeWalls(
     width: number,
     tint: number,
   ) => {
-    pools.set(target, placeNodes(target, nodes, specById, width, tint, pools.get(target) ?? 0));
+    pools.set(target, placeNodes(target, nodes, specById, width, tint, pools.get(target) ?? 0, options.waitFor));
   };
 
   /**

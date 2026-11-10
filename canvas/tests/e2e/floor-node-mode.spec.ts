@@ -21,13 +21,25 @@ const toScreen = (page: Page, x: number, y: number) =>
   page.evaluate(([wx, wy]) => {
     const app = (window as Any).__pixiApp
     const r = app.canvas.getBoundingClientRect()
-    return { x: r.left + wx * app.stage.scale.x + app.stage.position.x, y: r.top + wy * app.stage.scale.y + app.stage.position.y }
+    // The camera is the world container's transform, not the stage's.
+    const world = app.stage.children[0]
+    return { x: r.left + wx * world.scale.x + world.position.x, y: r.top + wy * world.scale.y + world.position.y }
   }, [x, y])
 
 // Item 4: draw a floor, open node mode from its card, drag the top edge's midpoint up so it
 // becomes a fifth node, read Nodes 5 on the card, undo back to four.
 test('node mode: dragging a midpoint inserts a node in one undo step', { tag: '@design' }, async ({ page }) => {
   await openEditor(page)
+  // On an empty layer of its own: drawn over the warren's floor, the rectangle would join its
+  // outline, which node mode edits as one ring.
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const l = structuredClone(st.layers.find((x: Any) => x.type === 'dungeon'))
+    l.id = crypto.randomUUID(); l.name = 'Nodes'; l.children = []; l.standaloneWalls = []; l.mergedFloor = null
+    delete l.rooms; delete l.areas; delete l.thresholds; delete l.floorWallEdits; delete l.groups
+    st.addLayer(l)
+    st.setActiveLayerId(l.id)
+  })
   await pickFromFlyout(page, 'Design', 'Floor')
   await drawRect(page, 400, 300, 640, 540)
   const id = await page.evaluate(() => {

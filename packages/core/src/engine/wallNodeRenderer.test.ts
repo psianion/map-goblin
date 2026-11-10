@@ -62,8 +62,11 @@ vi.mock('pixi.js', () => {
   return { Container: MockContainer, Sprite: MockSprite, Graphics: MockGraphics };
 });
 
+// Ids still on the 1x1 fallback: their art has not decoded yet.
+const undecoded = vi.hoisted(() => new Set<string>());
+
 vi.mock('../assets/textureLoader', () => ({
-  resolveTexture: (id: string) => ({ id, width: 200, height: 200 }),
+  resolveTexture: (id: string) => (undecoded.has(id) ? { id, width: 1, height: 1 } : { id, width: 200, height: 200 }),
   load: vi.fn(() => Promise.resolve(null)),
 }));
 
@@ -127,6 +130,19 @@ describe('renderNodeWalls — stone sprite pool', () => {
     const container = render([wall('w1', 10)]);
     renderNodeWalls(container, [], [wall('w1', 10)], { ...style, wallTextureSetId: '' } as DungeonStyle);
     expect(container.children).toHaveLength(0);
+  });
+
+  it('asks to redraw for a stone whose art has not decoded, and only then', () => {
+    const waitFor = vi.fn();
+    renderNodeWalls(new Container(), [], [wall('w1', 10)], style, [], {}, { waitFor });
+    expect(waitFor).not.toHaveBeenCalled();
+    undecoded.add('straight-a');
+    try {
+      renderNodeWalls(new Container(), [], [wall('w1', 10)], style, [], {}, { waitFor });
+    } finally {
+      undecoded.clear();
+    }
+    expect(waitFor).toHaveBeenCalledWith('straight-a');
   });
 });
 

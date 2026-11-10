@@ -48,6 +48,7 @@ test('wall corner style: Rounded and Sharp lay different corner pieces, and undo
   await pickFromFlyout(page, 'Design', 'Wall')
 
   const corner = { x: OPEN_FLOOR.x + 3, y: OPEN_FLOOR.y }
+  const floor = await cornerLum(page, corner)
   await click(page, { x: OPEN_FLOOR.x - 3, y: OPEN_FLOOR.y })
   await click(page, corner)
   await click(page, { x: corner.x, y: corner.y + 4 })
@@ -66,6 +67,8 @@ test('wall corner style: Rounded and Sharp lay different corner pieces, and undo
 
   const dock = page.getByTestId('shell-dock').locator('[data-setting="wall.cornerStyle"]')
   await expect(dock).toBeVisible()
+  // The set's art decodes on first use: wait for the sharp corner's stone to cover the sample.
+  await expect.poll(async () => Math.abs((await cornerLum(page, corner)) - floor), { message: 'the sharp corner lays stone' }).toBeGreaterThan(8)
   const sharp = await cornerLum(page, corner)
 
   await page.evaluate((wallId) => (window as Any).__store.getState().setSelectedIds([wallId]), id)
