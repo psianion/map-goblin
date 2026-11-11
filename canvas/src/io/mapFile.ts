@@ -128,9 +128,11 @@ const trace39Check = (l: { type: string }, ctx: z.RefinementCtx) => {
   if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
 };
 const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine(trace39Check);
-/** 3.10: a material patch whose edge is a wall (absent, it is not). */
+/** 3.10: a material patch whose edge is a wall (absent, it is not); it loads as a painted cave. */
 const patch310 = patch.extend({ wall: z.boolean().optional() });
-const layer310 = layer37.extend({ children: z.array(child39).optional(), materials: z.array(patch310).optional() }).superRefine(trace39Check);
+/** 3.10: a painted cave's edge material on its floor (absent, a plain floor). */
+const child310 = child39.and(z.object({ edgeMaterial: z.string().optional() }).passthrough());
+const layer310 = layer37.extend({ children: z.array(child310).optional(), materials: z.array(patch310).optional() }).superRefine(trace39Check);
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z

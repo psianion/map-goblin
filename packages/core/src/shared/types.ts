@@ -195,6 +195,12 @@ export interface ShapeChild extends LayerChild {
    * Absent = the layer's band.
    */
   edgeBand?: string | null;
+  /**
+   * A painted cave's own edge: the band set (`GG_Cave_Ink`) whose rock is laid round this
+   * floor's outline, and whose wall runs along it, wherever it lies, inside another floor
+   * or not (shared/caveFloor.ts). Such a floor pins no stone of its own on the union's ring.
+   */
+  edgeMaterial?: string;
 }
 
 /**

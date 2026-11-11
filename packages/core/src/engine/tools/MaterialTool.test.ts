@@ -5,6 +5,7 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { patchArea } from '../../shared/materialPatch';
+import { caveEdges } from '../../shared/caveFloor';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 
@@ -60,11 +61,11 @@ describe('MaterialTool', () => {
       });
     });
 
-    it('lands a stroke as one cave floor pinned to the band, no patch, one undo step', () => {
+    it('lands a stroke as one cave floor marked with the band, no patch, one undo step', () => {
       stroke(tool, [[0, 0], [3, 0], [6, 0]]);
       expect(layer().materials).toBeUndefined();
       expect(floors()).toHaveLength(1);
-      expect(floors()[0]).toMatchObject({ name: 'Cave 1', shapeType: 'polygon', styleOverrides: { wallTextureSetId: 'GG_Cave_Ink' } });
+      expect(floors()[0]).toMatchObject({ name: 'Cave 1', shapeType: 'polygon', edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
       expect(patchArea(floors()[0].contours)).toBeCloseTo(6 * 6 + Math.PI * 9, -1);
       undoManager.undo();
       expect(floors()).toHaveLength(0);
@@ -77,19 +78,36 @@ describe('MaterialTool', () => {
       const [a] = floors();
       stroke(tool, [[6, 0], [20, 0]]);
       expect(floors()).toHaveLength(1);
-      expect(floors()[0]).toMatchObject({ id: a.id, name: 'Cave 1' });
+      expect(floors()[0]).toMatchObject({ id: a.id, name: 'Cave 1', edgeMaterial: 'GG_Cave_Ink' });
       expect(floors()[0].contours).toHaveLength(1);
       undoManager.undo();
       expect(floors()).toHaveLength(2);
     });
 
-    it('keeps a stroke with Border off its own floor, pinned to no stone', () => {
+    it('keeps a stroke with Border off its own floor, unmarked and pinned to no stone', () => {
       stroke(tool, [[0, 0], [6, 0]]);
       useStore.setState((s) => {
         s.tools.settings.material.border = false;
       });
       stroke(tool, [[3, 0], [10, 0]]);
-      expect(floors().map((f) => f.styleOverrides?.wallTextureSetId)).toEqual(['GG_Cave_Ink', '']);
+      expect(floors().map((f) => [f.edgeMaterial, f.styleOverrides?.wallTextureSetId])).toEqual([
+        ['GG_Cave_Ink', ''],
+        [undefined, ''],
+      ]);
+    });
+
+    it('lands a stroke over an existing floor as a marked cave of its own, which owns its wall', () => {
+      useStore.getState().addChild(layer().id, {
+        id: 'base', name: 'Base', childType: 'shape', visible: true, shapeType: 'rectangle',
+        contours: [[[-20, -20], [40, -20], [40, 20], [-20, 20]]],
+        textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+      } as ShapeChild);
+      stroke(tool, [[0, 0], [6, 0]]);
+      expect(floors().map((f) => [f.id === 'base' ? 'base' : f.name, f.edgeMaterial])).toEqual([
+        ['base', undefined],
+        ['Cave 1', 'GG_Cave_Ink'],
+      ]);
+      expect(caveEdges(layer())).toHaveLength(1);
     });
 
     it('carves an erase out of the floors under it, one undo step', () => {

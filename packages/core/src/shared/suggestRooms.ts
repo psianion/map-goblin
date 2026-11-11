@@ -5,6 +5,7 @@ import { roomFaces } from '../engine/roomDetection';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
 import { interiorPoint, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
+import { caveCutters } from './caveFloor';
 
 /** How close a face's edge may come to the frame before it counts as the outside. */
 const FRAME_EPSILON = 1e-3;
@@ -41,7 +42,8 @@ export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Ro
     layer.standaloneWalls,
     ROOM_GRID_SIZE,
     layer.style?.wallWidth ?? 0,
-    layer.thresholds ?? [],
+    // A painted cave's edge cuts like a threshold, so a cave inside a floor is proposed on its own.
+    [...(layer.thresholds ?? []), ...caveCutters(layer)],
   );
   if (wallsOnly) {
     faces = faces.filter((face) =>

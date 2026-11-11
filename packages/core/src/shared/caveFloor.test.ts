@@ -43,13 +43,16 @@ describe('caveFloorContours', () => {
 });
 
 describe('a cave floor shape', () => {
-  it('pins the fill and the band, or no stone with Border off', () => {
+  it('pins the fill and no stone on the union ring, and marks its own edge with the band while Border is on', () => {
     const shape = caveFloorShape([blob(0, 0, 5, 20)], look, 'f', 'Cave 1');
-    expect(shape).toMatchObject({ id: 'f', name: 'Cave 1', childType: 'shape', shapeType: 'polygon', visible: true, textureId: 'p:cave_floor' });
-    expect(shape.styleOverrides).toEqual({ wallTextureSetId: 'GG_Cave_Ink' });
+    expect(shape).toMatchObject({ id: 'f', name: 'Cave 1', childType: 'shape', shapeType: 'polygon', visible: true, textureId: 'p:cave_floor', edgeMaterial: 'GG_Cave_Ink' });
+    expect(shape.styleOverrides).toEqual({ wallTextureSetId: '' });
     expect(hasCaveLook(shape, look)).toBe(true);
     expect(hasCaveLook(shape, { ...look, border: false })).toBe(false);
-    expect(caveFloorShape([blob(0, 0, 5, 20)], { ...look, border: false }, 'g', 'Cave 2').styleOverrides).toEqual({ wallTextureSetId: '' });
+    const plain = caveFloorShape([blob(0, 0, 5, 20)], { ...look, border: false }, 'g', 'Cave 2');
+    expect(plain.styleOverrides).toEqual({ wallTextureSetId: '' });
+    expect(plain).not.toHaveProperty('edgeMaterial');
+    expect(hasCaveLook(plain, { ...look, border: false })).toBe(true);
   });
 
   it('names new floors on from the layer’s, Cave N', () => {
@@ -75,6 +78,18 @@ describe('wallPatchesToFloors', () => {
     expect(l.children).toEqual([caveFloorShape([square], look, 'new', 'Cave 1')]);
     const none = [layer([plain])];
     expect(wallPatchesToFloors(none, () => 'p:cave_floor')).toBe(none);
+  });
+
+  it('moves a cave that pinned the band on its ring onto the marker, and leaves other floors alone', () => {
+    const fillOf = (id: string) => (id === 'GG_Cave_Ink' ? 'p:cave_floor' : undefined);
+    const old = { ...caveFloorShape([square], look, 'old', 'Cave 1'), edgeMaterial: undefined, styleOverrides: { wallTextureSetId: 'GG_Cave_Ink' } };
+    const stone = { ...old, id: 'stone', styleOverrides: { wallTextureSetId: 'GG_Fieldstone' } };
+    const plain = { ...old, id: 'plain', styleOverrides: undefined };
+    const layers = [{ id: 'l', type: 'dungeon', children: [old, stone, plain] } as unknown as Layer];
+    const [l] = wallPatchesToFloors(layers, fillOf) as DungeonLayer[];
+    expect(l.children[0]).toMatchObject({ id: 'old', edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
+    expect(l.children.slice(1)).toEqual([stone, plain]);
+    expect(wallPatchesToFloors([l as unknown as Layer], fillOf)[0]).toBe(l);
   });
 
   it('drops the materials list once its last patch is a floor', () => {

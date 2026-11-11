@@ -49,18 +49,20 @@ describe('map format 3.10', () => {
     expect(dungeon(migrateToLatest(old, kit)).materials).toEqual([patch()]);
   });
 
-  it('loads a patch whose edge was a wall as a cave floor, pinned to the fill and the band, and drops the patch', () => {
+  it('loads a patch whose edge was a wall as a cave floor, pinned to the fill and marked with the band, and drops the patch', () => {
     const data = migrateToLatest(saved([patch({ wall: true }), patch({ id: 'p2', rings: [[[20, 0], [24, 0], [24, 4], [20, 4]]] })]), kit);
     const layer = dungeon(data);
     expect(layer.materials?.map((p) => p.id)).toEqual(['p2']);
     const floors = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
     expect(floors).toHaveLength(1);
-    expect(floors[0]).toMatchObject({ name: 'Cave 1', textureId: 'p:cave_floor', styleOverrides: { wallTextureSetId: 'GG_Cave_Ink' } });
+    expect(floors[0]).toMatchObject({ name: 'Cave 1', textureId: 'p:cave_floor', edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
     expect(floors[0].contours).toHaveLength(1);
-    // The union and the walls see the cave: one ring, four edges.
+    // The union and the walls see the cave: one ring, and the cave's own wall along it in place of its edges.
     const merged = computeMergedFloor(layer)!;
     expect(merged).toHaveLength(1);
-    expect(resolveWalls({ ...layer, id: 'v310-cave', mergedFloor: merged }).filter((w) => w.kind === 'floor')).toHaveLength(4);
+    const walls = resolveWalls({ ...layer, id: 'v310-cave', mergedFloor: merged });
+    expect(walls.filter((w) => w.kind === 'floor')).toHaveLength(0);
+    expect(walls.filter((w) => w.kind === 'cave')).toHaveLength(1);
   });
 
   it('keeps a wall patch as it is while the fill cannot be named (packs not in yet), and with no lookup', () => {
@@ -72,5 +74,6 @@ describe('map format 3.10', () => {
   it('pins a wall patch with Border off to no stone', () => {
     const [floor] = dungeon(migrateToLatest(saved([patch({ wall: true, border: false })]), kit)).children.filter((c) => c.childType === 'shape');
     expect((floor as ShapeChild).styleOverrides).toEqual({ wallTextureSetId: '' });
+    expect(floor).not.toHaveProperty('edgeMaterial');
   });
 });

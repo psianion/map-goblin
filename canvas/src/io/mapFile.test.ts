@@ -296,6 +296,17 @@ describe('the settings the editor dropped', () => {
     expect(() => readMapDocument(doc('yes'))).toThrow(/wall/);
     expect(() => readMapDocument(doc(true, 'stretch'))).toThrow(/fit/);
   });
+
+  it('reads a 3.10 painted cave’s edge material, and refuses one that is not a set id', () => {
+    const doc = (edgeMaterial: unknown) => ({
+      version: '3.10',
+      mapSettings: { name: 'Caves' },
+      layers: [{ id: 'l1', type: 'dungeon', children: [{ id: 'c', childType: 'shape', edgeMaterial }] }],
+    });
+    expect(readMapDocument(doc('GG_Cave_Ink')).layers).toHaveLength(1);
+    expect(readMapDocument(doc(undefined)).layers).toHaveLength(1);
+    expect(() => readMapDocument(doc(7))).toThrow(/edgeMaterial/);
+  });
 });
 
 describe('the document as written', () => {
