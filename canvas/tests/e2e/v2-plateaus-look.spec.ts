@@ -55,10 +55,35 @@ function mapWith(plateaus: Any[], size = 60): Any {
   return map
 }
 
-async function open(page: Page, map: Any): Promise<string[]> {
+/**
+ * Decode a cliff's art before the map that uses it opens: `edgeArt` as a plateau names it ('' for
+ * the default). A fresh browser fetches the set on first use, behind the library download, and can
+ * take longer than the cliff waits to redraw; a browser that has the set stored draws it at once,
+ * which is the picture measured here.
+ */
+async function warmCliffArt(page: Page, edgeArt: string): Promise<void> {
+  const warm = await page.evaluate(async (choice) => {
+    const [set, family] = choice.split(':')
+    const { getAssetPackManager } = (await import('/src/engine/assetPackInstance.ts')) as Any
+    const manager = getAssetPackManager()
+    const ids: string[] = []
+    for (const { packId, manifest } of manager.getPackManifests()) {
+      for (const [id, e] of Object.entries(manifest.entries) as [string, Any][]) {
+        if (e.set === (set || 'GG_Cave_Ink') && (e.material === (family || 'rockledge') || e.material.startsWith(`${family || 'rockledge'}_`))) ids.push(`${packId}:${id}`)
+      }
+    }
+    const got = await Promise.all(ids.map((id) => manager.waitForTexture(id, 150_000)))
+    return { n: ids.length, missing: ids.filter((_, i) => !got[i]) }
+  }, edgeArt)
+  expect(warm.n, 'the cliff family has art in the pack').toBeGreaterThan(0)
+  expect(warm.missing).toEqual([])
+}
+
+async function open(page: Page, map: Any, cliffArt?: string): Promise<string[]> {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await gotoApp(page)
+  if (cliffArt !== undefined) await warmCliffArt(page, cliffArt)
   await page.evaluate(async (data) => {
     const st = (window as Any).__store.getState()
     st.loadFromFile(structuredClone(data))
@@ -346,14 +371,27 @@ const contourDips = (row: number[]) => {
   return dips
 }
 
+/**
+ * Whether a cliff is laid with its art: the measured pieces, each with its picture, not the plain
+ * ink stroke that stands in while the set downloads on first use.
+ */
+const cliffArtLanded = (page: Page) =>
+  page.evaluate(() => {
+    const find = (n: Any): Any => (n.label === 'plateau-cliff' ? n : (n.children ?? []).map(find).find(Boolean))
+    const rock = find((window as Any).__pixiApp.stage)
+    return !!rock && rock.children.length > 0 && rock.children.every((s: Any) => s.texture?.width > 1)
+  })
+
 test.describe('the ink set', () => {
   /**
    * The width of the ledge across 25 transects of a +1 cliff's west edge, cells: on each, the run
    * of the art nearest the edge, runs closer than `mergeGap` taken as one (the gaps between stones).
    */
   const ledgeWidths = async (page: Page, edgeArt: string | undefined, mergeGap = 0, isArt = artTest(edgeArt)) => {
-    const errors = await open(page, mapWith([{ ...box('c1', 10, 10, 16, 16, 1, 'cliff'), edgeArt }]))
+    const errors = await open(page, mapWith([{ ...box('c1', 10, 10, 16, 16, 1, 'cliff'), edgeArt }]), edgeArt ?? '')
     await lookAt(page, { x: 10, y: 13 }, ZOOM)
+    await expect.poll(() => cliffArtLanded(page), { message: 'the cliff is laid with its art' }).toBe(true)
+    await waitFrame(page, 4)
     const at = await grab(page, { x: 9, y: 10.4 }, { x: 11, y: 15.6 })
     const step = 1 / ZOOM
     const widths: number[] = []
@@ -382,6 +420,8 @@ test.describe('the ink set', () => {
   }
 
   test('Cave rock, the default, lays a stone row 0.3 to 0.5 cell wide on a +1 cliff', { tag: '@render' }, async ({ page }) => {
+    // A fresh browser downloads the set first (warmCliffArt).
+    test.slow()
     // The stones themselves (ink and grey fill), not the half-clear grounds round them.
     const w = await ledgeWidths(page, undefined, 0.08, isInk)
     console.log(`Cave rock across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
@@ -390,6 +430,7 @@ test.describe('the ink set', () => {
   })
 
   test('Cave ink line lays an ink ribbon 0.12 to 0.30 cell wide on a +1 cliff', { tag: '@render' }, async ({ page }) => {
+    test.slow()
     const w = await ledgeWidths(page, 'GG_Cave_Ink:ledge')
     console.log(`Cave ink line across ${w.n} transects: median ${w.median.toFixed(3)} cell, ${w.min.toFixed(3)} to ${w.max.toFixed(3)}`)
     expect(w.median).toBeGreaterThanOrEqual(0.12)
