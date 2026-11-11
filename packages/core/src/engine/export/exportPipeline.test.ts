@@ -209,6 +209,88 @@ describe('runExportPipeline: the file', () => {
     removeLayerFromScene(host, up.id);
   });
 
+  describe('only: one level, some of its layers', () => {
+    /** The open level with a second layer and a trace, and a level not on show with one layer, all in the scene. */
+    function twoLevels() {
+      const r = rig();
+      room();
+      const s = useStore.getState();
+      const open = s.levels[0].id;
+      const ground = dungeonLayer();
+      const extra = createDungeonLayer('Extra', open);
+      const trace = createImageLayer(open, 'sketch', 'sketch.png');
+      s.addLayer(extra);
+      s.addLayer(trace);
+      s.addLevel({ id: 'down', name: 'Down' });
+      const down = createDungeonLayer('Down', 'down');
+      useStore.getState().addLayer(down);
+      const host = { layerContainer: new Container() } as unknown as SceneGraph;
+      const nodes = {
+        ground: addLayerToScene(r.engine, host, ground.id, 'dungeon').container,
+        extra: addLayerToScene(r.engine, host, extra.id, 'dungeon').container,
+        trace: addLayerToScene(r.engine, host, trace.id, 'image').container,
+        down: addLayerToScene(r.engine, host, down.id, 'dungeon').container,
+      };
+      // As the editor shows the open level: the other level's layer hidden.
+      nodes.down.visible = false;
+      const seen: Record<string, boolean>[] = [];
+      (r.engine as unknown as { renderToTexture: () => void }).renderToTexture = () => {
+        seen.push(Object.fromEntries(Object.entries(nodes).map(([k, n]) => [k, n.visible])));
+      };
+      const cleanupScene = () => [ground, extra, trace, down].forEach((l) => removeLayerFromScene(host, l.id));
+      return { ...r, ids: { open, ground: ground.id, extra: extra.id, trace: trace.id, down: down.id }, nodes, seen, cleanupScene };
+    }
+
+    it('draws the layers named and no others, a trace among them when named, and hands the scene back', async () => {
+      const t = twoLevels();
+      const layers = useStore.getState().layers.filter((l) => l.levelId === t.ids.open);
+      await runExportPipeline(t.engine, t.sceneGraph, layers, {
+        ...opts,
+        lighting: false,
+        only: { levelId: t.ids.open, layerIds: [t.ids.ground, t.ids.trace] },
+      });
+      expect(t.seen).toEqual([{ ground: true, extra: false, trace: true, down: false }]);
+      expect(Object.fromEntries(Object.entries(t.nodes).map(([k, n]) => [k, n.visible]))).toEqual({
+        ground: true, extra: true, trace: true, down: false,
+      });
+      t.cleanupScene();
+    });
+
+    it('draws a level the editor is not showing without switching to it, and leaves the open one out', async () => {
+      const t = twoLevels();
+      const before = useStore.getState().ui.activeLevelId;
+      const layers = useStore.getState().layers.filter((l) => l.levelId === 'down');
+      await runExportPipeline(t.engine, t.sceneGraph, layers, { ...opts, lighting: false, only: { levelId: 'down', layerIds: [t.ids.down] } });
+      expect(t.seen).toEqual([{ ground: false, extra: false, trace: false, down: true }]);
+      expect(t.nodes.down.visible).toBe(false);
+      expect(t.nodes.ground.visible).toBe(true);
+      expect(useStore.getState().ui.activeLevelId).toBe(before);
+      t.cleanupScene();
+    });
+
+    it('lights the file from the layers drawn alone, not the lights on show', async () => {
+      const t = twoLevels();
+      const light = (id: string) => ({
+        id, name: id, childType: 'light' as const, visible: true, position: { x: 4, y: 4 }, rotation: 0, scale: 1,
+        color: '#ffffff', intensity: 1, radius: 4, falloff: 'smooth' as const,
+      });
+      useStore.getState().addChild(t.ids.ground, light('kept') as never);
+      useStore.getState().addChild(t.ids.extra, light('dropped') as never);
+      const managers: unknown[] = [];
+      (t.sceneGraph as unknown as { lightingRenderer: unknown }).lightingRenderer = {
+        renderInto: (...args: unknown[]) => managers.push(args[5]),
+      };
+      const layers = useStore.getState().layers.filter((l) => l.levelId === t.ids.open);
+      await runExportPipeline(t.engine, t.sceneGraph, layers, { ...opts, only: { levelId: t.ids.open, layerIds: [t.ids.ground] } });
+      await runExportPipeline(t.engine, t.sceneGraph, layers, opts);
+      const handed = managers[0] as { getLights(): { id: string }[] };
+      expect(handed.getLights().map((l) => l.id)).toEqual(['kept']);
+      // Without `only`, the live manager the last frame drew from.
+      expect(managers[1]).toBeUndefined();
+      t.cleanupScene();
+    });
+  });
+
   it('renders at resolution 1 whatever the screen DPR, and draws the image at the file size', async () => {
     const { engine, sceneGraph, calls } = rig();
     const layers = room();

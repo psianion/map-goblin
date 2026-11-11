@@ -722,10 +722,13 @@ export class LightingRenderer {
    * weather; the live sky when absent), every active light with no fade, and flicker/pulse at
    * their rest phase. The live buffers and their memo are left alone.
    *
-   * A no-op before the first frame has drawn — see `lastLightManager`.
+   * A no-op before the first frame has drawn — see `lastLightManager` — unless `manager` is
+   * handed in: the lights, walls, regions and glows of the layers the file draws, when those
+   * are not the ones on show. Its polygons are not the live ones, so the pooled light geometry
+   * is dropped before and after, never shared between the two.
    */
-  renderInto(target: RenderTexture, zoom: number, width: number, height: number, frame?: SkyFrame): void {
-    const lightManager = this.lastLightManager
+  renderInto(target: RenderTexture, zoom: number, width: number, height: number, frame?: SkyFrame, manager?: LightManager): void {
+    const lightManager = manager ?? this.lastLightManager
     if (!lightManager) return
     const sky = frame ?? this.sky ?? NOON_FRAME
 
@@ -747,7 +750,12 @@ export class LightingRenderer {
       this.paperSprite.texture,
     ] as const
 
+    const dropPools = () => {
+      this.prune(this.lightPool, this.lightLayer, new Set())
+      this.prune(this.darkPool, this.darkLayer, new Set())
+    }
     try {
+      if (manager) dropPools()
       const inputs: FrameInputs = { ...this.inputsFor(lightManager, '#ffffff', sky, false), t: 0 }
       const lights = lightManager.getVisibleLights().filter((l) => nightOnlyActive(l, sky.darkness))
       this.composite(lightManager, lights, lightManager.getGlows(), zoom, inputs, width, height, () => 1, {
@@ -784,6 +792,7 @@ export class LightingRenderer {
       darkRT.destroy(true)
       contentRT?.destroy(true)
       paperRT?.destroy(true)
+      if (manager) dropPools()
       // The pooled geometry was posed for the export's transform; the next live frame re-poses it.
       this.invalidate()
     }
