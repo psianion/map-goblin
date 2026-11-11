@@ -271,11 +271,22 @@ describe('DoorTool', () => {
       expect(Math.abs(piece.points[1][1] - piece.points[0][1])).toBeCloseTo(2.1);
     });
 
-    it('near one of the walls it hangs along that wall', () => {
+    it('with the pointer on one of the walls it hangs along that wall', () => {
       facing(7.5);
-      click(tool, 5, 5.3);
+      click(tool, 5, 5.2);
       expect(doors()[0].wallId).toBe('w1');
       expect(doors()[0].angle).toBeCloseTo(0);
+    });
+
+    it('on a curved floor ring’s short edge, too short for a door, it spans the gap instead', () => {
+      // A corridor 2 deep whose top is laid in half-cell edges, as a smoothed ring is.
+      const top: [number, number][] = Array.from({ length: 21 }, (_, i) => [i * 0.5, 30]);
+      useStore.getState().updateLayer(layer().id, { mergedFloor: [[...top, [10, 32], [0, 32]]] });
+      click(tool, 5, 30.1);
+      const [d] = doors();
+      expect(d.freestanding).toBe(true);
+      expect(d.width).toBeCloseTo(2);
+      expect(Math.abs(Math.sin(d.angle))).toBeCloseTo(1);
     });
 
     it('across a gap wider than it may span it hangs along the drawn wall in reach', () => {
@@ -689,16 +700,19 @@ describe('DoorTool', () => {
     expect(doors()[0].width).toBe(1);
   });
 
-  it('refuses a style too wide for the opening it was aimed at', () => {
-    // A double widens to 2, wider than the 1.5-cell wall, so the existing
-    // too-wide rule reds the ghost and eats the click.
+  it('passes over a wall too short for the style: the door stands free instead of a red ghost', () => {
+    // A double needs 2 cells and the wall has 1.5, so it cannot hang there; red is
+    // left for an overlap with another door.
     addWall('stub', 1.5, 20);
     useStore.getState().updateToolSettings({ doorStyle: 'double' });
 
     tool.onPointerMove({ x: 0.75, y: 20.1 });
-    expect(ghost.tint).toBe(0xcc3344);
+    expect(ghost.tint).toBe(0xffffff);
     tool.onPointerDown({ x: 0.75, y: 20.1 });
-    expect(doors()).toHaveLength(0);
+    tool.onPointerUp({ x: 0.75, y: 20.1 });
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).not.toBe('stub');
+    expect(doors()[0].freestanding).toBe(true);
   });
 
   it('removing a wall cascades to the doors attached to it', () => {

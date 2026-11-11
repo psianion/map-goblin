@@ -106,6 +106,18 @@ describe('the rules, proven on a fixture', () => {
       'binding',
       () => withTool({ settings: [edit(secret, { path: undefined })] }),
     ],
+    [
+      'a tool has two tabs with one id',
+      'tabs',
+      () => withTool({ tabs: [{ id: 'look', label: 'Look' }, { id: 'look', label: 'Look again' }] }),
+    ],
+    ['a tab takes the tool’s own id', 'tabs', () => withTool({ tabs: [{ id: 'fixture', label: 'Fixture' }] })],
+    ['a tab lists the tool’s own setting', 'tabs', () => withTool({ tabs: [{ id: 'own', label: 'Own', settings: [sides] }] })],
+    [
+      'a tab lists a setting no tool registers',
+      'tabs',
+      () => withTool({ tabs: [{ id: 'loose', label: 'Loose', settings: [edit(sides, { id: 'fixture.loose' })] }] }),
+    ],
   ];
 
   it.each(breakages)('fail when %s', (_name, rule, input) => {

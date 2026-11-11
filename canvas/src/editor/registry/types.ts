@@ -114,6 +114,20 @@ export interface DockColumnDef {
   render: ComponentType<DockColumnProps>;
 }
 
+/**
+ * A dock set-up tab: the looks another tool draws with (wall set, door style), set from the
+ * dock while this tool stays in hand. Its settings belong to other tools and are bound to
+ * the store, so they work whatever is in hand; they are not this tool's own, so they bring
+ * no keys. Never one that changes the tool in hand (a shape or mode row).
+ */
+export interface DockTab {
+  /** Unique within its tool. */
+  id: string;
+  label: string;
+  settings?: ReadonlyArray<SettingDef>;
+  columns?: ReadonlyArray<DockColumnDef>;
+}
+
 /** A key a tool answers while it is in hand. Without `run` the key goes to the tool itself. */
 export interface ToolKey {
   id: string;
@@ -144,6 +158,8 @@ export interface ToolDef {
   /** References: a shared def (registry/shared.ts) may appear in many tools. Order is render order. */
   settings: ReadonlyArray<SettingDef>;
   dock: ReadonlyArray<DockColumnDef>;
+  /** The dock's Set up tabs after the tool's own (DockTab). */
+  tabs?: ReadonlyArray<DockTab>;
   hint: (state: EditorState) => HintLine;
   /** The panel foot's Save as preset, for tools that keep presets. */
   savePreset?: (store: CoreStore) => void;

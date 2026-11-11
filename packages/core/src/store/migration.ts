@@ -4,6 +4,7 @@ import type { Level } from '../shared/types'
 import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
 import { dropRemovedFields } from './removedFields'
+import { wallPatchesToFloors } from '../shared/caveFloor'
 
 export const CURRENT_VERSION = '3.10' as const
 
@@ -23,7 +24,8 @@ export const CURRENT_VERSION = '3.10' as const
  * and path children ('pathway', not the retired 'path'). '3.7' → '3.8' is additive: a prop's
  * below-water flag and trace layers (type 'image'). '3.8' → '3.9' is additive: an imported
  * picture's file name and source pixel size, `imageSource`, and a trace's `placement`.
- * '3.9' → '3.10' is additive: a material patch's `wall` flag; absent, its edge is no wall.)
+ * '3.9' → '3.10' is additive: a material patch's `wall` flag. A patch carrying it is a painted
+ * cave and loads as floors, see `wallPatchesToFloors`.)
  */
 export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10']
 
@@ -62,6 +64,11 @@ export interface CaveKitLookup {
   isBandSet: (setId: string | undefined) => boolean
   /** True when a placed asset is one of a band kit's rock pieces (caveWallKit's `isCaveBandAsset`). */
   isCaveBandAsset: (assetId: string) => boolean
+  /**
+   * A material's fill (materialKit's `materialFillId`), for turning a 3.10 wall patch into
+   * floors (`wallPatchesToFloors`). Without it, or before it can name the fill, the patch stays.
+   */
+  fillOf?: (material: string) => string | undefined
 }
 
 export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: CaveKitLookup): SerializedMapData {
@@ -100,7 +107,9 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
   // The settings dropped in the editor rework go too (removedFields.ts).
   const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(dropRemovedFields(result as SerializedMapData))))
   if (!caveKit) return migrated
-  const layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
+  let layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
+  // A 3.10 patch whose edge was a wall is a painted cave: it loads as the floors the brush paints.
+  if (caveKit.fillOf) layers = wallPatchesToFloors(layers, caveKit.fillOf)
   return layers === migrated.layers ? migrated : { ...migrated, layers }
 }
 

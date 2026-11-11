@@ -113,7 +113,7 @@ const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
 /** Tint, the style presets and the wall-set strip. */
-const wallLookColumn: DockColumnDef = { id: 'wall.look', caption: 'Look', render: WallLook };
+export const wallLookColumn: DockColumnDef = { id: 'wall.look', caption: 'Look', render: WallLook };
 
 export const wallTool = defineTool({
   id: 'wall',

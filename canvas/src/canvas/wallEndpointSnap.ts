@@ -73,8 +73,7 @@ export function wallEndpointSnap(point: Point): Point {
   // far more often than at one of its ends.
   const ring = snapToNearestWall(
     [point.x, point.y],
-    // A material patch's edge is the patch's own: nothing snaps to it as a wall.
-    resolveWalls(layer).filter((w) => w.kind === 'floor' || (tool === 'divide' && w.kind === 'standalone')),
+    resolveWalls(layer).filter((w) => tool === 'divide' || w.kind === 'floor'),
     ringReach(),
   );
   return ring ? { x: ring.position[0], y: ring.position[1] } : point;

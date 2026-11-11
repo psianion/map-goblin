@@ -1,8 +1,9 @@
 import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
-import type { AnyChild, DoorChild, DungeonLayer, WallSegment } from '../../store/types';
+import type { DoorChild, DungeonLayer, WallSegment } from '../../store/types';
 import type { DoorState, DoorStyle } from '../../shared/types';
+import { nextAuthoredName } from '../../shared/authoredName';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
   doorWallId,
@@ -53,22 +54,27 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
  */
 const SNAP_THRESHOLD = 1.5;
 
+/** A pointer this near a wall is on it: the door runs along it before anything else is tried. */
+const ON_WALL_REACH = 0.25;
+
 /**
- * How near any wall a placement click has to be to hang the door along it. Far less
- * than `SNAP_THRESHOLD`: in a corridor every cell lies within 1.5 cells of a wall, so
- * at that reach a door could only ever run along a corridor, never across it.
+ * How near any wall a placement click has to be to hang the door along it once no span
+ * was found. Far less than `SNAP_THRESHOLD`: in a corridor every cell lies within 1.5
+ * cells of a wall, so at that reach a door could only ever run along a corridor.
  */
 const ALONG_REACH = 0.5;
 
-/** The widest gap a door spans by itself, cells, whatever the Width setting. */
-const MIN_SPAN = 3;
+/** The widest gap a door spans by itself, cells, whatever the Width setting: the Width's own top (4). */
+const MIN_SPAN = 4;
 
 /**
- * Where a placement click puts its door, in order: along any wall within
- * `ALONG_REACH`; else across the gap between two walls (`spanBetweenWalls`, as wide as
- * the gap, up to the larger of `MIN_SPAN` and the Width setting); else along a drawn
- * wall within `SNAP_THRESHOLD`; else free on open floor. With the Door panel's
- * Freestanding on, always free: the door stands wherever it is placed.
+ * Where a placement click puts its door, in order: along a wall the pointer is on
+ * (`ON_WALL_REACH`); else across the gap between two walls (`spanBetweenWalls`, as wide
+ * as the gap, up to the larger of `MIN_SPAN` and the Width setting); else along any wall
+ * within `ALONG_REACH`; else along a drawn wall within `SNAP_THRESHOLD`; else free on open
+ * floor. "Along" only takes a wall long enough for the style's narrowest door: a shorter
+ * one (one edge of a curved floor ring) falls through to the next step. With the Door
+ * panel's Freestanding on, always free: the door stands wherever it is placed.
  */
 type Placement = { kind: 'along'; snap: WallSnapResult } | { kind: 'span'; span: DoorSpan } | { kind: 'free' };
 
@@ -76,13 +82,18 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   const settings = useStore.getState().tools.settings;
   if (settings.doorFreestanding) return { kind: 'free' };
   const at: [number, number] = [point.x, point.y];
-  const near = snapToNearestWall(at, walls, ALONG_REACH);
-  if (near) return { kind: 'along', snap: near };
+  const style = settings.doorStyle ?? 'single';
+  const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style) - WIDTH_EPSILON);
+  const along = (list: ResolvedWall[], reach: number): Placement | null => {
+    const snap = snapToNearestWall(at, list, reach);
+    return snap ? { kind: 'along', snap } : null;
+  };
+  const onWall = along(holds, ON_WALL_REACH);
+  if (onWall) return onWall;
   const maxSpan = Math.max(MIN_SPAN, settings.doorWidth || 1);
-  const span = spanBetweenWalls(at, walls, settings.doorStyle ?? 'single', maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));
+  const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));
   if (span) return { kind: 'span', span };
-  const drawn = snapToNearestWall(at, walls.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD);
-  return drawn ? { kind: 'along', snap: drawn } : { kind: 'free' };
+  return along(holds, ALONG_REACH) ?? along(holds.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD) ?? { kind: 'free' };
 }
 
 /**
@@ -168,25 +179,7 @@ export function clampDoorWidth(width: number, style: DoorStyle, wallLength: numb
   return Math.max(minDoorWidth(style), Math.min(width, wallLength));
 }
 
-/**
- * The next free `"{prefix} {n}"` on a layer.
- *
- * Counting how many already exist gets this wrong the moment one is deleted:
- * place two, delete the first, place again and the count says 2 — a second
- * "Single 2", and now the layers panel and the DM's own notes name two
- * different doors the same thing. Reading the highest number actually in use
- * instead means a name is only ever handed out once per layer.
- */
-export function nextAuthoredName(children: readonly AnyChild[], prefix: string): string {
-  const pattern = new RegExp(`^${prefix} (\\d+)$`);
-  let highest = 0;
-  for (const child of children) {
-    // NaN when the name is not `"{prefix} {digits}"` at all, and NaN > n is false.
-    const n = Number(pattern.exec(child.name)?.[1]);
-    if (n > highest) highest = n;
-  }
-  return `${prefix} ${highest + 1}`;
-}
+export { nextAuthoredName };
 
 /** What a click would place, and whether it would be allowed to. */
 interface DoorPlan {

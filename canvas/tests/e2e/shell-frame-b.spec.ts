@@ -53,7 +53,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   await expect(panel.locator('[data-setting="floor.shape"], [data-setting="edit.nodeMode"], [data-setting="wall.width"]')).toHaveCount(0)
   await expect(dock.locator('[data-setting="wall.width"], [data-setting="grid.snap"]')).toHaveCount(0)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Shape', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look'])
   const look = dock.locator('[data-column="look"]')
   await expect(look.getByRole('button', { name: 'Colour' })).toBeVisible()
   await expect(look.getByRole('button', { name: /^Style presets/ })).toBeVisible()
@@ -105,7 +105,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   await panel.getByRole('button', { name: 'Wall' }).click()
   expect((await tools(page)).active).toBe('wall')
   await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'wall')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Draw', 'Type', 'Width', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'Type', 'Width', 'Edit', 'look'])
 })
 
 test('frame B in the dark theme', { tag: '@shell' }, async ({ page }) => {

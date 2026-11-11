@@ -2,12 +2,19 @@ import { Container, Graphics } from 'pixi.js';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { RenderEngine } from '../RenderEngine';
-import type { DungeonLayer } from '../../store/types';
+import type { Command, DungeonLayer, MaterialToolSettings, ShapeChild } from '../../store/types';
+import type { Polygon } from '../../types/geometry';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { PropertyCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand, PropertyCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { MATERIAL_BRUSH_RANGES } from '../../store/slices/tools';
-import { erasePatches, paintPatch, strokeArea } from '../../shared/materialPatch';
+import { erasePatches, paintPatch, patchArea, strokeArea } from '../../shared/materialPatch';
+import { caveFloorContours, caveFloorShape, hasCaveLook, type CaveLook } from '../../shared/caveFloor';
+import { floorPieces } from '../../shared/floorPieces';
+import { nextAuthoredName } from '../../shared/authoredName';
+import { clipper2Engine } from '../../geometry/Clipper2Engine';
+import { materialFillId } from '../../assets/materialKit';
+import { carveFloors, drawnRings } from './eraseShapes';
 
 /** The stroke drawn while painting: the brush's sweep, before it closes into a patch. */
 const SWEEP_PAINT = 0x8f877b;
@@ -16,9 +23,69 @@ const SWEEP_ERASE = 0xb3261e;
 const MIN_STEP = 0.1;
 
 /**
+ * A stroke's area painted as cave floor, one undo step (`Paint cave floor`): the floors it
+ * touches that carry the same pins (the material's fill and band, see caveFloor.ts) merge
+ * with it into one, keeping the first one's id and name; a stroke touching none lands as a
+ * new floor per piece, `Cave N`.
+ */
+export function paintCaveFloor(
+  layer: DungeonLayer,
+  layerId: string,
+  area: Polygon[],
+  settings: Pick<MaterialToolSettings, 'material' | 'smooth' | 'border'>,
+): void {
+  const look: CaveLook = { material: settings.material, fill: materialFillId(settings.material), border: settings.border };
+  const stroke = caveFloorContours(area, settings.smooth);
+  if (stroke.length === 0) return;
+  const region = stroke.flat();
+  // A floor as the region it covers: its outer ring less its holes, wound for a non-zero union.
+  const regionOf = (shape: ShapeChild): Polygon[] => {
+    const [outer, ...holes] = drawnRings(shape);
+    return outer ? clipper2Engine.difference([outer], holes) : [];
+  };
+  const touching = layer.children.filter(
+    (c): c is ShapeChild =>
+      c.childType === 'shape' &&
+      !c.locked &&
+      c.visible !== false &&
+      hasCaveLook(c, look) &&
+      patchArea(clipper2Engine.intersection(regionOf(c), region)) > 1e-6,
+  );
+  const label = 'Paint cave floor';
+  const commands: Command[] = [];
+  const added: { name: string }[] = [...layer.children];
+  const add = (contours: Polygon[]) => {
+    const shape = caveFloorShape(contours, look, crypto.randomUUID(), nextAuthoredName(added, 'Cave'));
+    added.push(shape);
+    commands.push(new AddChildCommand(label, layerId, shape));
+  };
+  if (touching.length === 0) {
+    stroke.forEach(add);
+  } else {
+    const [first, ...rest] = touching;
+    const pieces = floorPieces(clipper2Engine.union([...touching.flatMap(regionOf), ...region], []));
+    if (pieces.length === 0) return;
+    commands.push(
+      new UpdateChildCommand(
+        label,
+        layerId,
+        first.id,
+        { contours: first.contours, tangents: first.tangents, transform: first.transform } as Partial<ShapeChild>,
+        { contours: pieces[0], tangents: undefined, transform: undefined } as Partial<ShapeChild>,
+      ),
+    );
+    for (const shape of rest) commands.push(new RemoveChildCommand(label, layerId, shape.id));
+    pieces.slice(1).forEach(add);
+  }
+  undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
+}
+
+/**
  * The Material brush: a freehand stroke as wide as the brush that closes into one solid
  * patch on release, merging with the patches of the same material it touches; Erase (the
  * mode, or Alt held) cuts the stroke out of every patch on the layer. One undo step a stroke.
+ * With Paint a real floor on, the stroke paints cave floor instead (`paintCaveFloor`) and
+ * Erase carves it out of the floors under it, as the floor tools' Carve out does.
  */
 export class MaterialTool implements DrawingTool {
   readonly type = 'material' as const;
@@ -76,8 +143,14 @@ export class MaterialTool implements DrawingTool {
     const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === s.layerId && l.type === 'dungeon');
     if (!layer) return;
     const area = strokeArea(s.points, s.radius);
-    const before = layer.materials ?? [];
     const look = this.settings();
+    if (look.floor) {
+      // Paint a real floor: the stroke carves the floors under it, or lands as cave floor.
+      if (s.erase) carveFloors(layer, s.layerId, area);
+      else paintCaveFloor(layer, s.layerId, area, look);
+      return;
+    }
+    const before = layer.materials ?? [];
     const after = s.erase ? erasePatches(before, area) : paintPatch(before, area, look.material, look, crypto.randomUUID());
     if (JSON.stringify(after) === JSON.stringify(before)) return;
     undoManager.execute(

@@ -9,6 +9,8 @@ import type { DownloadPillPack, LoadProgress } from '@dnd/ui';
 import { dropPlacedCaveBand } from '@dnd/core/src/store/migration';
 import { isBandSet } from '@dnd/core/src/assets/packCatalog';
 import { isCaveBandAsset } from '@dnd/core/src/assets/caveWallKit';
+import { materialFillId } from '@dnd/core/src/assets/materialKit';
+import { wallPatchesToFloors } from '@dnd/core/src/shared/caveFloor';
 import { useStore } from '@/store/store';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import {
@@ -89,9 +91,10 @@ export function startAssetBoot(): Promise<void> {
       // couldn't (loadFromFile runs the same shim for the opposite ordering).
       store.applyAssetNameShim();
       // Same ordering problem for the load migration's cave band cleanup, which needs the
-      // catalog to tell a band kit and its pieces apart.
+      // catalog to tell a band kit and its pieces apart, and for a 3.10 wall patch's floors,
+      // which need the catalog to name the material's fill.
       const { layers, levels } = useStore.getState();
-      const kept = dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset });
+      const kept = wallPatchesToFloors(dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset }), materialFillId);
       if (kept !== layers) useStore.setState({ layers: kept });
       pm.checkForUpdates()
         .then((updates) => {

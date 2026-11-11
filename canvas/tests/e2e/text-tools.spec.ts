@@ -30,7 +30,7 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
   })
 
   await pickFromFlyout(page, 'Text', 'Rooms')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Draw', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'look'])
   const dock = page.getByTestId('shell-dock')
   const panel = page.getByTestId('shell-tool-panel')
   await expect(panel.getByRole('button', { name: 'Suggest rooms' })).toBeVisible()
@@ -1512,6 +1512,22 @@ test('zones: the Zone tool draws a point, a circle and a rectangle by the dock�
 
   await undo(page)
   expect(await zones(page)).toHaveLength(before + 2)
+})
+
+test('zones: a zone placed with the Zone tool shows its card with More and Prep overview; the panel has Prep overview', { tag: '@text' }, async ({ page }) => {
+  await openWarren(page)
+  await pickTool(page, 'zone')
+  const panel = page.getByTestId('shell-tool-panel')
+  await expect(panel).toHaveAttribute('data-tool', 'zone')
+  await expect(panel.getByRole('button', { name: 'Prep overview' })).toBeVisible()
+  const hall = await room(page, 'Warren Hall')
+  const [x, y] = hall.anchor as [number, number]
+  await clickWorld(page, { x, y })
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('zone')
+  await expect(card(page)).toHaveAttribute('data-kind', 'zone')
+  await expect(card(page).getByRole('button', { name: 'More…' })).toBeVisible()
+  await card(page).getByRole('button', { name: 'Prep overview' }).click()
+  await expect(page.getByTestId('prep').or(page.getByTestId('prep-empty'))).toBeVisible()
 })
 
 test('zones: More… opens the zone sheet with the shape, the explore lock and no stray styling', { tag: '@text' }, async ({ page }) => {

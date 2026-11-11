@@ -149,26 +149,33 @@ describe('Water brush settings', () => {
 });
 
 describe('Material brush settings', () => {
-  it('keeps Size and the swatches in the dock, the mode, Smooth, Border and the wall switch in the panel', () => {
+  it('keeps Size and the swatches in the dock, the mode, Smooth, Border and Paint a real floor in the panel', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('materialBrush', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['material.size']);
-    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border', 'material.wall']);
-    expect(reg.settingById('material.wall')).toMatchObject({ label: 'Edge is a wall', control: 'switch', section: 'Outline', default: true });
+    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border', 'material.floor']);
+    expect(reg.settingById('material.floor')).toMatchObject({ label: 'Paint a real floor', control: 'switch', section: 'Outline', default: true });
     expect(reg.toolById('materialBrush')!.dock.map((c) => c.id)).toEqual(['material.swatches']);
   });
 
   it('writes what the next stroke paints with', () => {
-    expect(useStore.getState().tools.settings.material.wall).toBe(true);
+    expect(useStore.getState().tools.settings.material.floor).toBe(true);
     expect(settings.setSetting('material.size', 4)).toBe(true);
     expect(settings.setSetting('material.smooth', false)).toBe(true);
     expect(settings.setSetting('material.border', false)).toBe(true);
-    expect(settings.setSetting('material.wall', false)).toBe(true);
-    expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false, wall: false });
+    expect(settings.setSetting('material.floor', false)).toBe(true);
+    expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false, floor: false });
     expect(settings.setSetting('material.size', 40)).toBe(false);
   });
 
-  it('says how to paint a patch on the status bar', () => {
+  it('says on the status bar whether the stroke paints a floor or a patch', () => {
     const hint = () => reg.toolById('materialBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    const setFloor = (floor: boolean) =>
+      useStore.setState((s) => {
+        s.tools.settings.material.floor = floor;
+      });
+    setFloor(true);
+    expect(hint()).toBe('Paint a cave floor · release to close it · Alt erase');
+    setFloor(false);
     expect(hint()).toBe('Paint a patch · release to close it · Alt erase');
   });
 });

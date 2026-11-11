@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { waitFrame } from './helpers'
+import { gotoApp, waitFrame } from './helpers'
 import { dockColumns, openEditor, pickFromFlyout, shot } from './shell'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -13,13 +13,16 @@ test('material brush: paint a patch, its border is drawn', { tag: '@terrain' }, 
   await pickFromFlyout(page, 'Terrain', 'Material brush')
   await waitFrame(page, 4)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'materials'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Size', 'materials'])
   const swatch = page.getByTestId('terrain-materials').getByRole('button', { name: 'Cave ink' })
   await expect(swatch).toBeVisible()
   const panel = page.getByTestId('shell-tool-panel')
-  for (const id of ['terrain.mode', 'material.smooth', 'material.border', 'material.wall']) {
+  for (const id of ['terrain.mode', 'material.smooth', 'material.border', 'material.floor']) {
     await expect(panel.locator(`[data-setting="${id}"]`)).toBeVisible()
   }
+  await expect(page.getByTestId('shell-status-hint')).toContainText('Paint a cave floor')
+  // Paint a real floor off: these strokes are paint-only patches.
+  await panel.locator('[data-setting="material.floor"]').getByRole('switch').click()
   await expect(page.getByTestId('shell-status-hint')).toContainText('Paint a patch')
 
   await page.mouse.move(560, 400)
@@ -64,49 +67,47 @@ test('material brush: paint a patch, its border is drawn', { tag: '@terrain' }, 
   await expect.poll(async () => (await drawn()).length).toBe(0)
 })
 
-// Edge is a wall (on by default): the patch's outline blocks light and sight, and a door
-// clicked onto its edge hangs there and opens it.
-test('material brush: a patch whose edge is a wall takes a door on it', { tag: '@terrain' }, async ({ page }) => {
-  await openEditor(page)
+// Paint a real floor (on by default): the strokes land as one cave floor pinned to the
+// material's band, no patch, and Suggest rooms proposes a room for it.
+test('material brush: a painted cave is a real floor that Suggest rooms proposes a room for', { tag: '@terrain' }, async ({ page }) => {
+  await gotoApp(page)
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    st.setActiveLayerId(st.layers.find((l: Any) => l.type === 'dungeon').id)
+  })
   await pickFromFlyout(page, 'Terrain', 'Material brush')
   await waitFrame(page, 4)
-  await expect(page.getByTestId('shell-tool-panel').locator('[data-setting="material.wall"]').getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('shell-tool-panel').locator('[data-setting="material.floor"]').getByRole('switch')).toHaveAttribute('aria-checked', 'true')
 
-  await page.mouse.move(560, 400)
-  await page.mouse.down()
-  await page.mouse.move(760, 400, { steps: 12 })
-  await page.mouse.up()
-  await waitFrame(page, 8)
+  // Two overlapping strokes: one floor, not two.
+  for (const [a, b] of [[[560, 400], [760, 420]], [[740, 420], [820, 520]]]) {
+    await page.mouse.move(a[0], a[1])
+    await page.mouse.down()
+    await page.mouse.move(b[0], b[1], { steps: 12 })
+    await page.mouse.up()
+    await waitFrame(page, 6)
+  }
+  const layer = () =>
+    page.evaluate(() => {
+      const s = (window as Any).__store.getState()
+      const l = s.layers.find((x: Any) => x.id === s.ui.activeLayerId)
+      return {
+        floors: l.children.filter((c: Any) => c.childType === 'shape').map((c: Any) => ({ name: c.name, set: c.styleOverrides?.wallTextureSetId })),
+        patches: (l.materials ?? []).length,
+        rings: (l.mergedFloor ?? []).length,
+      }
+    })
+  await expect.poll(async () => (await layer()).rings).toBe(1)
+  expect(await layer()).toMatchObject({ floors: [{ name: 'Cave 1', set: 'GG_Cave_Ink' }], patches: 0 })
 
-  // The patch carries the flag; its middle and the top of its outline, in world cells.
-  const first = await page.evaluate(() => {
+  // Suggest rooms sees the cave.
+  await pickFromFlyout(page, 'Text', 'Rooms')
+  const suggest = page.getByTestId('rooms-suggest')
+  await suggest.getByRole('button', { name: 'Suggest rooms' }).click()
+  await expect(suggest).toContainText('1 room suggested')
+  await suggest.getByRole('button', { name: 'Accept all' }).click()
+  expect(await page.evaluate(() => {
     const s = (window as Any).__store.getState()
-    const p = s.layers.find((l: Any) => l.id === s.ui.activeLayerId).materials[0]
-    const xs = p.rings[0].map((q: number[]) => q[0])
-    const ys = p.rings[0].map((q: number[]) => q[1])
-    return { wall: p.wall, mid: [(Math.min(...xs) + Math.max(...xs)) / 2, 0], top: Math.min(...ys) }
-  })
-  expect(first.wall).toBe(true)
-
-  // A door clicked on the patch's top edge hangs on it as a wall door (light and sight through
-  // the edge are covered by the unit tests): it keeps no wall id and stands on no piece.
-  await pickFromFlyout(page, 'Design', 'Door')
-  await page.evaluate(() => (window as Any).__store.getState().setSnapEnabled(false))
-  const at = await page.evaluate((p) => {
-    const w = window as Any
-    const r = w.__pixiApp.canvas.getBoundingClientRect()
-    const wd = w.__pixiApp.stage.children[0]
-    return { x: r.left + p[0] * wd.scale.x + wd.position.x, y: r.top + p[1] * wd.scale.x + wd.position.y }
-  }, [first.mid[0], first.top])
-  await page.mouse.move(at.x, at.y)
-  await page.mouse.down()
-  await page.mouse.up()
-  await waitFrame(page, 6)
-  const door = await page.evaluate(() => {
-    const s = (window as Any).__store.getState()
-    return s.layers.find((l: Any) => l.id === s.ui.activeLayerId).children.filter((c: Any) => c.childType === 'door').at(-1)
-  })
-  expect(door).toBeTruthy()
-  expect(door.wallId).toBe('')
-  expect(door.freestanding).toBeUndefined()
+    return s.layers.find((x: Any) => x.id === s.ui.activeLayerId).rooms?.length ?? 0
+  })).toBe(1)
 })

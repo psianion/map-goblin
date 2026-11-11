@@ -74,6 +74,8 @@ export const otherTool = defineTool({
   engine: ['wall'],
   settings: [editCurve, gridSnap],
   dock: [],
+  // A setting this tool does not list itself, set from its dock.
+  tabs: [{ id: 'nodes', label: 'Nodes', settings: [editNodeMode] }],
   hint,
 });
 

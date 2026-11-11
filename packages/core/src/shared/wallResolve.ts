@@ -1,7 +1,6 @@
 import type { DungeonLayer } from '../store/types';
 import type { DoorChild, WallSegment } from './types';
 import { snapToNearestWall } from './wallSnap';
-import { patchOutline } from './materialPatch';
 import {
   authoredBoundaries,
   authoredRing,
@@ -15,12 +14,10 @@ import {
  * edge of a `mergedFloor` ring, promoted to a real wall. Resolved in one place so
  * occlusion, lighting, the door tool and the renderers all agree on what a wall
  * is instead of each extracting edges its own way. Rooms are places, not walls:
- * nothing about a room occludes. A Material brush patch marked as a wall gives one
- * closed wall per ring of its outline (`material` kind): it blocks and takes doors,
- * but it is the patch's own art, never drawn, picked or edited as a wall.
+ * nothing about a room occludes.
  */
 export interface ResolvedWall extends WallSegment {
-  kind: 'standalone' | 'floor' | 'material';
+  kind: 'standalone' | 'floor';
   /** Index into `mergedFloor`. Floor kind only — the ring's stone edits key on it. */
   ring?: number;
   /** Index of this edge within its ring. Floor kind only. */
@@ -65,18 +62,13 @@ function floorEdgeId(ring: number, edge: number): string {
   return `floor:${ring}:${edge}`;
 }
 
-/** A material patch's ring as a wall: `material:{patch}:{ring}`, rebuilt every resolve. */
-function materialWallId(patchId: string, ring: number): string {
-  return `material:${patchId}:${ring}`;
-}
-
 /**
- * The `wallId` a door on `wall` stores. Floor edges and material rings are rebuilt
- * on every change (a re-union, a merge or an erase renumbers them), so a door on
- * either keeps no id and re-anchors by projection, as a floor door always has.
+ * The `wallId` a door on `wall` stores. Floor edges are rebuilt on every change
+ * (a re-union renumbers them), so a door on one keeps no id and re-anchors by
+ * projection.
  */
 export function doorWallId(wall: Pick<ResolvedWall, 'id' | 'kind'>): string {
-  return wall.kind === 'floor' || wall.kind === 'material' ? FLOOR_ANCHORED : wall.id;
+  return wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id;
 }
 
 
@@ -111,7 +103,7 @@ function memo<T>(
  * `extractWallSegments`, which reads this.
  */
 export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
-  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children, layer.materials], () => {
+  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children], () => {
     const walls: ResolvedWall[] = layer.standaloneWalls.map((w) => ({
       ...w,
       kind: 'standalone',
@@ -136,23 +128,6 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
           edge,
         });
       }
-    }
-    // A wall patch's outline, the one its border is laid along, closed on itself.
-    for (const patch of layer.materials ?? []) {
-      if (!patch.wall) continue;
-      patchOutline(patch).forEach((ring, i) => {
-        if (ring.length < 3) return;
-        walls.push({
-          id: materialWallId(patch.id, i),
-          points: [...ring, ring[0]],
-          wallType: 'normal',
-          direction: 'both',
-          color: '#000000',
-          width: 1,
-          roughness: 0,
-          kind: 'material',
-        });
-      });
     }
     return walls;
   });

@@ -12,7 +12,8 @@ export type Rule =
   | 'custom-render'
   | 'default-parses'
   | 'has-hint'
-  | 'binding';
+  | 'binding'
+  | 'tabs';
 
 export const RULES: readonly Rule[] = [
   'unique-id',
@@ -22,6 +23,7 @@ export const RULES: readonly Rule[] = [
   'default-parses',
   'has-hint',
   'binding',
+  'tabs',
 ];
 
 export interface Problem {
@@ -85,6 +87,21 @@ export function validateRegistry(reg: RegistryInput, fresh?: EditorState): Probl
   }
 
   for (const t of tools) if (typeof t.hint !== 'function') fail('has-hint', `tool "${t.id}" has no hint`);
+
+  // A tab's id is unique within its tool and is not the tool's own (the first tab); its
+  // settings are other tools' dock settings, registered there, never this tool's own.
+  for (const t of tools) {
+    const ids = new Set<string>([t.id]);
+    for (const tab of t.tabs ?? []) {
+      if (ids.has(tab.id)) fail('tabs', `tool "${t.id}" has two tabs "${tab.id}"`);
+      ids.add(tab.id);
+      for (const s of tab.settings ?? []) {
+        if (t.settings.includes(s)) fail('tabs', `tool "${t.id}" tab "${tab.id}" lists its own setting "${s.id}"`);
+        else if (!toolSettings.has(s)) fail('tabs', `tool "${t.id}" tab "${tab.id}" lists "${s.id}", which no tool registers`);
+        else if (s.home !== 'dock') fail('tabs', `tool "${t.id}" tab "${tab.id}" lists "${s.id}", which is not a dock setting`);
+      }
+    }
+  }
 
   for (const d of toolSettings) {
     const hasPath = typeof d.path === 'string' && d.path.length > 0;

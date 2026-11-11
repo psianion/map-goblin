@@ -686,9 +686,6 @@ export function subscribeToStore(
           // its own output would loop.
           roomsRef: refId(l.rooms),
           areasRef: refId(l.areas),
-          // The Material brush's patches, by identity: a patch whose edge is a wall occludes
-          // (resolveWalls), so painting, erasing or switching its wall re-sweeps the lights.
-          materialsRef: refId(l.materials),
           // Props with "Blocks light and sight": moving, turning or resizing one re-sweeps.
           propOccluders: propOccluderKey(l.children),
           // How plateau edges are drawn and whether they hide (see plateauLookKey), and the
@@ -699,7 +696,7 @@ export function subscribeToStore(
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, materialsRef, propOccluders, plateauKey } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -729,7 +726,7 @@ export function subscribeToStore(
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${materialsRef}|${propOccluders}|${plateauKey}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -848,7 +845,6 @@ export function subscribeToStore(
           item.thresholdKey === b[i].thresholdKey &&
           item.roomsRef === b[i].roomsRef &&
           item.areasRef === b[i].areasRef &&
-          item.materialsRef === b[i].materialsRef &&
           item.propOccluders === b[i].propOccluders &&
           item.plateauKey === b[i].plateauKey,
         ),

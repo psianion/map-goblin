@@ -16,13 +16,19 @@ import { floorCard } from './floorCard';
 import { wallCard } from './wallCard';
 import { doorCard } from './doorCard';
 import { plateauCard } from './plateauCard';
+import { DOORS_TAB, FLOOR_TAB, WALLS_TAB, withTabs } from './tabs';
 
 export const design = defineFamily({
   id: 'design',
   label: 'Design',
   icon: PencilRuler,
   key: 'D',
-  tools: [floorTool, wallTool, doorTool, elevationTool],
+  tools: [
+    withTabs(floorTool, [WALLS_TAB, DOORS_TAB]),
+    withTabs(wallTool, [FLOOR_TAB, DOORS_TAB]),
+    withTabs(doorTool, [WALLS_TAB]),
+    elevationTool,
+  ],
 });
 
 export const DESIGN_CARDS: readonly CardDef[] = [floorCard, wallCard, doorCard, plateauCard];

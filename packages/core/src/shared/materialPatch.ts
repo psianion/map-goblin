@@ -17,8 +17,6 @@ export interface MaterialPatch {
   smooth: boolean;
   /** The material's border units laid round the outline. */
   border: boolean;
-  /** The outline is a wall: it blocks light and sight and takes doors. Absent = false. */
-  wall?: boolean;
 }
 
 /** How closely a smoothed outline keeps to the painted one before it is rounded, in cells. */
@@ -56,13 +54,13 @@ export function strokeArea(points: readonly [number, number][], radius: number):
 /**
  * `patches` with the stroke `area` painted in `material`: the patches of that material it
  * touches merge with it into one (keeping the first one's id and place), taking the
- * stroke's Smooth, Border and Wall; the others stay as they were.
+ * stroke's Smooth and Border; the others stay as they were.
  */
 export function paintPatch(
   patches: readonly MaterialPatch[],
   area: Polygon[],
   material: string,
-  look: { smooth: boolean; border: boolean; wall?: boolean },
+  look: { smooth: boolean; border: boolean },
   newId: string,
 ): MaterialPatch[] {
   if (area.length === 0) return [...patches];
@@ -71,8 +69,6 @@ export function paintPatch(
   );
   const rings = clipper2Engine.union([...touching.flatMap((p) => p.rings), ...area], []);
   const merged: MaterialPatch = { id: touching[0]?.id ?? newId, material, rings, smooth: look.smooth, border: look.border };
-  // Absent rather than false, so a patch painted without it saves as it always did.
-  if (look.wall) merged.wall = true;
   const out: MaterialPatch[] = [];
   let placed = false;
   for (const p of patches) {
@@ -96,7 +92,7 @@ export function erasePatches(patches: readonly MaterialPatch[], area: Polygon[])
 }
 
 /** One pass of Chaikin's corner cutting over a closed ring: each edge keeps its middle half. */
-function cutCorners(ring: Polygon): Polygon {
+export function cutCorners(ring: Polygon): Polygon {
   const out: Polygon = [];
   for (let i = 0; i < ring.length; i++) {
     const [ax, ay] = ring[i];

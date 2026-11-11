@@ -315,8 +315,8 @@ export interface MaterialToolSettings {
   radius: number;
   smooth: boolean;
   border: boolean;
-  /** The patch's edge blocks light and sight and takes doors, as a wall does. */
-  wall: boolean;
+  /** A stroke paints real floor shapes (pinned to the material's fill and band) rather than a patch. */
+  floor: boolean;
 }
 
 /** The Path tool: what the next path is drawn with. */

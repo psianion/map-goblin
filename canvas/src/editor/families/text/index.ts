@@ -15,13 +15,14 @@ import { labelCard } from './labelCard';
 import { zoneCard, zoneTool } from './zone';
 import { roomsTool } from './rooms';
 import { areaCard, levelCard, roomCard } from './roomCards';
+import { DOORS_TAB, WALLS_TAB, withTabs } from '@/editor/families/design/tabs';
 
 export const text = defineFamily({
   id: 'text',
   label: 'Text',
   icon: Type,
   key: 'X',
-  tools: [labelTool, zoneTool, roomsTool],
+  tools: [labelTool, zoneTool, withTabs(roomsTool, [WALLS_TAB, DOORS_TAB])],
 });
 
 export const TEXT_CARDS: readonly CardDef[] = [labelCard, zoneCard, roomCard, areaCard, levelCard];
