@@ -73,6 +73,32 @@ function nearestInWedge(p: Pt, n: Pt, a: Pt, b: Pt): { at: Pt; distance: number 
   return distance > ON_WALL ? { at, distance } : null;
 }
 
+/** cos 45°: a door meets a wall at 45° or more off the wall's own line. */
+const COS45 = Math.SQRT1_2;
+
+/**
+ * Whether a door along `d` would meet run `run` of `wall` at `at` squarely enough (45° or
+ * more off the run). A wall's free end takes a door at any angle: a gap in a straight wall
+ * is filled end to end, in line with it.
+ */
+function meetsSquarely(wall: ResolvedWall, run: number, at: Pt): (d: Pt) => boolean {
+  const pts = wall.points;
+  const a = pts[run];
+  const b = pts[run + 1];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const closed = Math.hypot(first[0] - last[0], first[1] - last[1]) < ON_WALL;
+  const atEnd = (e: Pt) => Math.hypot(at[0] - e[0], at[1] - e[1]) < 1e-3;
+  const freeEnd = wall.kind === 'standalone' && !closed && (atEnd(first) || atEnd(last));
+  if (len < ON_WALL || freeEnd) return () => true;
+  const t: Pt = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  return (d) => {
+    const dl = Math.hypot(d[0], d[1]);
+    return dl < ON_WALL || Math.abs(d[0] * t[0] + d[1] * t[1]) / dl <= COS45 + 1e-9;
+  };
+}
+
 /**
  * The door that spans the gap at `point`. A is the nearest point on any wall and n the unit
  * from A to the pointer; B is the nearest wall point on the pointer's far side, within 60°
@@ -99,17 +125,23 @@ export function spanBetweenWalls(
   if (!near || near.distance < ON_WALL) return null;
   const n: Pt = [(point[0] - near.at[0]) / near.distance, (point[1] - near.at[1]) / near.distance];
 
+  const A = near.at;
+  const squareAtA = meetsSquarely(near.wall, near.run, A);
   let far: { wall: ResolvedWall; at: Pt; distance: number } | null = null;
   for (const wall of walls) {
     for (let i = 0; i + 1 < wall.points.length; i++) {
       if (wall === near.wall && i === near.run) continue;
       const q = nearestInWedge(point, n, wall.points[i], wall.points[i + 1]);
-      if (q && (!far || q.distance < far.distance)) far = { wall, ...q };
+      if (!q || (far && q.distance >= far.distance)) continue;
+      // A door stands across its walls, not along them: a chord that skims a curved wall
+      // (two near points of one cave ring) is no doorway.
+      const d: Pt = [q.at[0] - A[0], q.at[1] - A[1]];
+      if (!squareAtA(d) || !meetsSquarely(wall, i, q.at)(d)) continue;
+      far = { wall, ...q };
     }
   }
   if (!far) return null;
 
-  const A = near.at;
   const gap = Math.hypot(far.at[0] - A[0], far.at[1] - A[1]);
   if (gap < ON_WALL) return null;
   const u: Pt = [(far.at[0] - A[0]) / gap, (far.at[1] - A[1]) / gap];

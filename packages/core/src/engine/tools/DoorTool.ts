@@ -64,6 +64,9 @@ const ON_WALL_REACH = 0.25;
  */
 const ALONG_REACH = 0.5;
 
+/** How far from a cave's edge its rock reaches, cells: a click on the rock hangs the door along the edge. */
+const CAVE_ROCK_REACH = 0.6;
+
 /** The widest gap a door spans by itself, cells, whatever the Width setting: the Width's own top (4). */
 const MIN_SPAN = 4;
 
@@ -88,7 +91,8 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
     const snap = snapToNearestWall(at, list, reach);
     return snap ? { kind: 'along', snap } : null;
   };
-  const onWall = along(holds, ON_WALL_REACH);
+  // A cave's rock lies out from its edge, so a click on the rock is a click on that wall.
+  const onWall = along(holds, ON_WALL_REACH) ?? along(holds.filter((w) => w.kind === 'cave'), CAVE_ROCK_REACH);
   if (onWall) return onWall;
   const maxSpan = Math.max(MIN_SPAN, settings.doorWidth || 1);
   const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));

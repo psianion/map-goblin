@@ -76,6 +76,22 @@ describe('spanBetweenWalls', () => {
     expect(spanBetweenWalls([4, 0.75], walls, 'single', 4, drawnWidth)?.width).toBeCloseTo(1.5);
   });
 
+  it('never spans a chord that skims a curved wall', () => {
+    // A cave ring six across, as one closed wall: just inside its edge the nearest other
+    // runs are a short chord round the curve, and straight across is too far.
+    const ring: [number, number][] = Array.from({ length: 49 }, (_, i) => [3 * Math.cos((i / 48) * 2 * Math.PI), 3 * Math.sin((i / 48) * 2 * Math.PI)]);
+    expect(spanBetweenWalls([2.3, 0], [wall('cave', ring, 'cave')], 'single', 4, drawnWidth)).toBeNull();
+  });
+
+  it('fills a gap in a straight wall end to end, in line with it', () => {
+    const walls = [wall('w', [[0, 0], [4, 0]]), wall('e', [[6, 0], [10, 0]])];
+    const span = spanBetweenWalls([4.6, 0], walls, 'single', 4, drawnWidth)!;
+    // Two between the ends, less a quarter cell at each.
+    expect(span.width).toBeCloseTo(1.5);
+    expect(span.centre[0]).toBeCloseTo(5);
+    expect(Math.abs(Math.sin(span.angle))).toBeCloseTo(0);
+  });
+
   it('gives nothing with the pointer on a wall', () => {
     expect(spanBetweenWalls([4, 0], [wall('n', [[0, 0], [10, 0]]), wall('s', [[0, 2], [10, 2]])], 'single', 4, drawnWidth)).toBeNull();
   });
