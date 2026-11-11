@@ -122,11 +122,15 @@ const child39 = child38.and(z.object({ imageSource: imageSource.optional() }).pa
 const trace39 = trace.extend({
   placement: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).passthrough().optional(),
 });
-const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine((l, ctx) => {
+const trace39Check = (l: { type: string }, ctx: z.RefinementCtx) => {
   if (l.type !== 'image') return;
   const parsed = trace39.safeParse(l);
   if (!parsed.success) for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, code: 'custom', message: issue.message });
-});
+};
+const layer39 = layer37.extend({ children: z.array(child39).optional() }).superRefine(trace39Check);
+/** 3.10: a material patch whose edge is a wall (absent, it is not). */
+const patch310 = patch.extend({ wall: z.boolean().optional() });
+const layer310 = layer37.extend({ children: z.array(child39).optional(), materials: z.array(patch310).optional() }).superRefine(trace39Check);
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -160,6 +164,8 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   // 3.8 adds a prop's below-water flag (absent, drawn as it is) and trace layers.
   '3.8': v3('3.8', settings35, layer38),
   '3.9': v3('3.9', settings35, layer39),
+  // 3.10 adds a material patch's wall flag (absent, its edge is no wall).
+  '3.10': v3('3.10', settings35, layer310),
 };
 
 /** The first problem with a document, said plainly. */

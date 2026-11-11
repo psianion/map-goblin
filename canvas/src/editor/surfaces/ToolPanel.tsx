@@ -4,7 +4,7 @@ import { useStore } from '@/store/store';
 import type { ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';
-import { pickTool, useFamilyOf } from './hooks';
+import { pickTool, useFamilyOf, useSettingGetter } from './hooks';
 import { groupBySection } from './sections';
 import { ToolSetting } from './SettingItems';
 
@@ -19,7 +19,9 @@ export const SLOT_W = 272;
 export function ToolPanel({ tool }: { tool: ToolDef }) {
   const { registry, settings } = useRegistry();
   const family = useFamilyOf(tool);
-  const sections = groupBySection(registry.settingsByHome(tool.id, 'panel'));
+  const get = useSettingGetter();
+  // A caption whose settings are all hidden is left out with them.
+  const sections = groupBySection(registry.settingsByHome(tool.id, 'panel').filter((d) => !d.visibleWhen || d.visibleWhen(get)));
   // Reset puts the tool's saved settings back; a tool with none has no Reset.
   const resettable = tool.settings.some((s) => s.persist !== false);
   // A rail tool (Select) offers the way back to the last family tool in hand.

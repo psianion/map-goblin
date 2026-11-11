@@ -200,7 +200,7 @@ describe('the settings the editor dropped', () => {
   it('checks a document against its version', () => {
     expect(() => readMapDocument({ version: '3.4', mapSettings: {}, layers: [] })).toThrow(/mapSettings.name/);
     expect(() => readMapDocument({ version: '9.9' })).toThrow(/Incompatible file version/);
-    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9']);
+    expect(Object.keys(MAP_SCHEMAS)).toEqual(['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10']);
   });
 
   it('reads 3.5 with the terrain blend switch, and refuses one that is not a switch', () => {
@@ -280,6 +280,21 @@ describe('the settings the editor dropped', () => {
     });
     expect(readMapDocument(doc({ x: -0.3, y: -0.4, width: 36.5, height: 24.7 })).layers).toHaveLength(1);
     expect(() => readMapDocument(doc({ x: 0, y: 0, width: 0, height: 24 }))).toThrow(/placement/);
+  });
+
+  it('reads 3.10 material patches with their wall flag, still checks traces, and refuses a flag that is not a switch', () => {
+    const doc = (wall: unknown, fit = 'map') => ({
+      version: '3.10',
+      mapSettings: { name: 'Caves' },
+      layers: [
+        { id: 'l1', type: 'dungeon', materials: [{ id: 'm', material: 'GG_Cave_Ink', rings: [[[0, 0], [4, 0], [4, 3]]], smooth: true, border: true, wall }] },
+        { id: 't', type: 'image', imageKey: 'k', fileName: 'sketch.png', fit },
+      ],
+    });
+    expect(readMapDocument(doc(true)).layers).toHaveLength(2);
+    expect(readMapDocument(doc(undefined)).layers).toHaveLength(2);
+    expect(() => readMapDocument(doc('yes'))).toThrow(/wall/);
+    expect(() => readMapDocument(doc(true, 'stretch'))).toThrow(/fit/);
   });
 });
 

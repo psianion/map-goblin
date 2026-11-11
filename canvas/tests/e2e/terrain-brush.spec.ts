@@ -78,7 +78,7 @@ test('terrain brush: a held brush builds paint at the intensity set, and undo ta
   )
   await waitFrame(page, 10)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Size', 'Intensity', 'slots'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'Intensity', 'slots'])
   const panel = page.getByTestId('shell-tool-panel')
   await expect(panel.locator('[data-setting="terrain.mode"]')).toBeVisible()
   await expect(panel.locator('[data-setting="terrain.smoothBlend"]')).toBeVisible()

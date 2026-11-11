@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { firePointer, waitFrame } from './helpers'
+import { firePointer, gotoApp, waitFrame } from './helpers'
 import { openEditor, pickFromFlyout } from './shell'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,4 +63,44 @@ test('freestanding door: placed free, turned 5° on the card, and undo turns it 
 
   await page.getByTestId('shell-top-actions').getByRole('button', { name: 'Undo' }).click()
   await expect.poll(async () => (await placed(page))?.angle ?? NaN).toBeCloseTo(0)
+})
+
+// Item 5: a click in the middle of a corridor spans it, door as wide as the gap between the
+// walls' faces; a wall shorter than the Width asked for takes a door that fits it.
+test('door: spans a corridor between two walls, and fits a short wall', { tag: '@design' }, async ({ page }) => {
+  await gotoApp(page)
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const layer = st.layers.find((x: Any) => x.type === 'dungeon')
+    st.setActiveLayerId(layer.id)
+    st.setSnapEnabled(false)
+    st.updateToolSettings({ doorWidth: 2 })
+    const wall = (id: string, points: number[][]) => ({ id, points, wallType: 'normal', direction: 'both', color: '#000000', width: 0.5, roughness: 0 })
+    st.addWall(layer.id, wall('north', [[-4, -1], [4, -1]]))
+    st.addWall(layer.id, wall('south', [[-4, 1.5], [4, 1.5]]))
+    st.addWall(layer.id, wall('stub', [[6, -3], [7.5, -3]]))
+  })
+  await pickFromFlyout(page, 'Design', 'Door')
+  await expect(page.getByTestId('shell-status-hint')).toContainText('between two walls it spans the gap')
+
+  const doors = () =>
+    page.evaluate(() => {
+      const s = (window as Any).__store.getState()
+      return s.layers.find((x: Any) => x.id === s.ui.activeLayerId).children.filter((c: Any) => c.childType === 'door')
+    })
+
+  // The corridor's middle: a free-standing door across it, 2.5 between centres less half of
+  // each wall's 0.5 width.
+  await click(page, { x: 0, y: 0.25 })
+  const [span] = await doors()
+  expect(span.freestanding).toBe(true)
+  expect(span.width).toBeCloseTo(2)
+  expect(Math.abs(Math.sin(span.angle))).toBeCloseTo(1)
+  expect(span.position[1]).toBeCloseTo(0.25)
+
+  // A wall 1.5 long with Width 2: the door fits it rather than refusing.
+  await click(page, { x: 6.75, y: -3 })
+  const fit = (await doors()).at(-1)
+  expect(fit.wallId).toBe('stub')
+  expect(fit.width).toBeCloseTo(1.5)
 })

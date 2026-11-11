@@ -107,7 +107,7 @@ export const doorTool = defineTool({
       t(
         s.tools.settings.doorFreestanding
           ? 'Click anywhere to stand a door free · double-click a door opens or shuts it · '
-          : 'Click a wall to hang a door · on open floor it stands free · double-click a door opens or shuts it · ',
+          : 'Click a wall to hang a door · between two walls it spans the gap · on open floor it stands free · double-click a door opens or shuts it · ',
       ),
       k('Esc'),
       t(' cancel'),

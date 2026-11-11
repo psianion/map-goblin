@@ -28,7 +28,7 @@ test('path: draw a path with three nodes, then change its width', { tag: '@terra
   await pickFromFlyout(page, 'Terrain', 'Path')
   await waitFrame(page, 4)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Width', 'Smoothness', 'Edit', 'pieces'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Width', 'Smoothness', 'Edit', 'pieces'])
   await expect(page.getByTestId('terrain-path-pieces').getByRole('button', { name: 'Fieldstone' })).toBeVisible()
   const panel = page.getByTestId('shell-tool-panel')
   for (const id of ['path.transitionIn', 'path.transitionOut', 'grid.snap', 'path.blocksLight']) {

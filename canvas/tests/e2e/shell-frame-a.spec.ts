@@ -22,7 +22,7 @@ test('frame A: a family click opens its flyout, a pick or Escape closes it', { t
 
   await expectFrameGeometry(page)
   await expectSlot(page)
-  expect(await dockColumns(page)).toEqual(['level', 'layers'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family'])
   await shot(page, '06-a')
 
   await page.keyboard.press('Escape')

@@ -226,17 +226,40 @@ describe('buildOcclusionSegments — edge cases', () => {
     expect(result.find(s => s.sourceType === 'door')).toBeUndefined();
   });
 
-  // 13. Wall with 3+ points (polyline) — implementation uses first and last point only
-  it('polyline wall with 3 points: occlusion uses first and last point only', () => {
-    // Wall: [0,0] → [50,50] → [100,0] — L-shape. Implementation uses start=[0,0] end=[100,0]
+  // 13. Wall with 3+ points (polyline) — every run blocks, not the chord
+  it('polyline wall with 3 points: one segment per run, none along the chord', () => {
     const result = buildOcclusionSegments(
       [makeWall({ points: [[0, 0], [50, 50], [100, 0]] })],
       [],
     );
-    // Should produce exactly one segment from [0,0] to [100,0]
-    expect(result).toHaveLength(1);
-    expect(result[0].points[0]).toEqual([0, 0]);
-    expect(result[0].points[1]).toEqual([100, 0]);
+    expect(result.map((s) => s.points)).toEqual([
+      [[0, 0], [50, 50]],
+      [[50, 50], [100, 0]],
+    ]);
+  });
+
+  it('polyline wall: a door on its second run splits that run, by arc length', () => {
+    const result = buildOcclusionSegments(
+      [makeWall({ points: [[0, 0], [0, 100], [100, 100]] })],
+      [makeDoor({ position: [50, 100], width: 20, state: 'open' })],
+    );
+    const pts = (s: (typeof result)[number]) => s.points.map(([x, y]) => [Math.round(x * 1e6) / 1e6, Math.round(y * 1e6) / 1e6]);
+    expect(result.map((s) => [s.sourceType, ...pts(s)])).toEqual([
+      ['wall', [0, 0], [0, 100]],
+      ['wall', [0, 100], [40, 100]],
+      ['door', [40, 100], [60, 100]],
+      ['wall', [60, 100], [100, 100]],
+    ]);
+    expect(result[2].blocksLight).toBe(false);
+  });
+
+  it('a closed ring blocks all the way round', () => {
+    const result = buildOcclusionSegments(
+      [makeWall({ points: [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]] })],
+      [],
+    );
+    expect(result).toHaveLength(4);
+    expect(result.every((s) => s.blocksLight && s.sourceType === 'wall')).toBe(true);
   });
 
   // 14. Negative coordinates

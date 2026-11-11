@@ -1,6 +1,6 @@
-// The Wall tool: chained walls, their type and width on the fly, curve and node mode.
+// The Wall tool: chained or freehand walls, their type and width on the fly, curve and node mode.
 
-import { BrickWall } from 'lucide-react';
+import { BrickWall, PenLine, Waypoints } from 'lucide-react';
 import { z } from 'zod';
 import { GROUP_WALL_TYPE, wallTypeGroup, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { defineSetting, defineTool } from '@/editor/registry/define';
@@ -11,6 +11,25 @@ import { CORNER_STYLE_CHOICES, cornerStyleValue, setCornerStyle, wallLookValue, 
 import type { CornerStyle } from '@/store/types';
 import { WallLook } from './LookColumn';
 import type { DockColumnDef } from '@/editor/registry/types';
+
+/** Clicked points, or a freehand stroke for a cave's ragged edge. */
+export const wallDraw = defineSetting<'points' | 'freehand'>({
+  id: 'wall.draw',
+  label: 'Draw',
+  schema: z.enum(['points', 'freehand']),
+  default: 'points',
+  home: 'dock',
+  control: 'seg',
+  section: 'Draw',
+  options: [
+    { value: 'points', label: 'Points', icon: Waypoints },
+    { value: 'freehand', label: 'Freehand', icon: PenLine },
+  ],
+  bind: {
+    read: (s) => s.tools.settings.wallDraw ?? 'points',
+    write: (store, draw) => store.getState().updateToolSettings({ wallDraw: draw }),
+  },
+});
 
 /** Solid, Window or Open. Picking the group the stored type already acts as keeps that type. */
 export const wallType = defineSetting<WallTypeGroup>({
@@ -103,20 +122,23 @@ export const wallTool = defineTool({
   icon: BrickWall,
   key: 'W',
   engine: ['wall'],
-  settings: [wallType, wallWidth, wallCornerStyle, editCurve, editNodeMode, gridSnap, wallAutoJoin, gridSnapStep],
+  settings: [wallDraw, wallType, wallWidth, wallCornerStyle, editCurve, editNodeMode, gridSnap, wallAutoJoin, gridSnapStep],
   dock: [wallLookColumn],
-  hint: (s) => ({
-    label: 'Wall',
-    segments: [
-      t('Click points · '),
-      k('Enter'),
-      t(' or double-click finishes · '),
-      k('Shift'),
-      t(' 15° steps · '),
-      k('C'),
-      t(s.tools.curveMode ? ' straight · ' : ' curve · '),
-      k('Esc'),
-      t(' cancel'),
-    ],
-  }),
+  hint: (s) =>
+    s.tools.settings.wallDraw === 'freehand'
+      ? { label: 'Wall', segments: [t('Drag to draw · release finishes · ending at the start closes the loop · '), k('Esc'), t(' cancel')] }
+      : {
+          label: 'Wall',
+          segments: [
+            t('Click points · '),
+            k('Enter'),
+            t(' or double-click finishes · '),
+            k('Shift'),
+            t(' 15° steps · '),
+            k('C'),
+            t(s.tools.curveMode ? ' straight · ' : ' curve · '),
+            k('Esc'),
+            t(' cancel'),
+          ],
+        },
 });

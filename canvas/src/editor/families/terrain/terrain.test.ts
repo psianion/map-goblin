@@ -149,18 +149,21 @@ describe('Water brush settings', () => {
 });
 
 describe('Material brush settings', () => {
-  it('keeps Size and the swatches in the dock, the mode, Smooth and Border in the panel', () => {
+  it('keeps Size and the swatches in the dock, the mode, Smooth, Border and the wall switch in the panel', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('materialBrush', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['material.size']);
-    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border']);
+    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border', 'material.wall']);
+    expect(reg.settingById('material.wall')).toMatchObject({ label: 'Edge is a wall', control: 'switch', section: 'Outline', default: true });
     expect(reg.toolById('materialBrush')!.dock.map((c) => c.id)).toEqual(['material.swatches']);
   });
 
   it('writes what the next stroke paints with', () => {
+    expect(useStore.getState().tools.settings.material.wall).toBe(true);
     expect(settings.setSetting('material.size', 4)).toBe(true);
     expect(settings.setSetting('material.smooth', false)).toBe(true);
     expect(settings.setSetting('material.border', false)).toBe(true);
-    expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false });
+    expect(settings.setSetting('material.wall', false)).toBe(true);
+    expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false, wall: false });
     expect(settings.setSetting('material.size', 40)).toBe(false);
   });
 

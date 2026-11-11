@@ -495,6 +495,19 @@ test('at 1920 the column keeps Background, Terrain, four named tiles and "+" in 
   await check('light')
 })
 
+test('the dock shows the family’s tools and changes tool without the flyout', { tag: '@layers' }, async ({ page }) => {
+  await openBlank(page)
+  await pickTool(page, 'wall')
+  const family = page.getByTestId('shell-dock').locator('[data-column="family"]')
+  await expect(family).toContainText('Design')
+  for (const name of ['Floor', 'Wall', 'Door', 'Elevation']) await expect(family.getByRole('button', { name, exact: true })).toBeVisible()
+  await expect(family.getByRole('button', { name: 'Wall', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await family.getByRole('button', { name: 'Door', exact: true }).click()
+  await waitFrame(page, 2)
+  expect(await store(page, `(s) => s.tools.activeTool`)).toBe('door')
+  expect((await box(page.getByTestId('shell-dock'))).height).toBe(112)
+})
+
 // ─── Layers sheet ────────────────────────────────────────────────────────────
 
 test('the sheet groups layers by level; a wall row selects the wall on the canvas', { tag: '@layers' }, async ({ page }) => {

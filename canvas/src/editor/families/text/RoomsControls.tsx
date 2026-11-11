@@ -1,13 +1,35 @@
-// The Rooms tools' panel extra: Suggest rooms, and while proposals are up their count with
+// The Rooms tool's panel extra: Suggest rooms, and while proposals are up their count with
 // Accept all and Dismiss. Proposals belong to the layer they were made on, so picking
-// another layer dismisses them.
+// another layer dismisses them. Rooms list opens the list sheet; the dock's Look column
+// stands down while Divide is the mode.
 
 import { useEffect } from 'react';
-import { Sparkles } from 'lucide-react';
+import { List, Sparkles } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { Caption, PrimaryButton, SecondaryButton } from '@dnd/ui';
+import { FloorLook } from '@/editor/families/design/LookColumn';
 import { acceptAllSuggestions, activeDungeon, dismissSuggestions, suggestOnActiveLayer } from '@/editor/models/roomActions';
 import { levelDungeons, roomCountText } from '@/editor/models/roomModel';
+
+/** The floor look while drawing a room; nothing while dividing one. */
+export function RoomsLook() {
+  const dividing = useStore((s) => s.tools.activeTool === 'divide');
+  return dividing ? null : <FloorLook />;
+}
+
+/** Suggest, and the way to the rooms list without a room's card. */
+export function RoomsPanel() {
+  return (
+    <>
+      <SuggestPanel />
+      <div className="px-3 pb-2.5">
+        <SecondaryButton icon={List} onClick={() => useStore.getState().setRoomsSheetOpen(true)}>
+          Rooms list
+        </SecondaryButton>
+      </div>
+    </>
+  );
+}
 
 export function SuggestPanel() {
   const suggested = useStore((s) => s.ui.roomSuggestions?.rooms.length ?? 0);

@@ -898,6 +898,38 @@ const rectAround = (x0: number, y0: number, x1: number, y1: number): Pt[] => [
   { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 },
 ]
 
+test.describe('the Wall tool, freehand', () => {
+  test('Draw Freehand: a dragged stroke is one wall off the grid; ending at the start closes it; one undo', { tag: '@design' }, async ({ page }) => {
+    await openBlank(page)
+    await page.evaluate(() => {
+      const st = (window as Any).__store.getState()
+      st.setActiveLayerId(st.layers.find((l: Any) => l.type === 'dungeon').id)
+    })
+    await pickTool(page, 'wall')
+    const dock = page.getByTestId('shell-dock')
+    await dock.getByRole('group', { name: 'Draw' }).getByRole('button', { name: 'Freehand' }).click()
+    expect(await inPage(page, `(s) => s().tools.settings.wallDraw`)).toBe('freehand')
+    await expect(page.getByTestId('shell-status-hint')).toContainText('Drag to draw')
+
+    // A ragged open run: one wall, its bends off the grid.
+    await dragThrough(page, [{ x: 2, y: 2 }, { x: 5.3, y: 3.1 }, { x: 8.6, y: 2.4 }])
+    let list = await walls(page)
+    expect(list).toHaveLength(1)
+    expect(list[0].points.length).toBeGreaterThanOrEqual(3)
+    expect(list[0].points.some(([x, y]: number[]) => x % 0.5 !== 0 || y % 0.5 !== 0)).toBe(true)
+
+    // A loop dragged back to its start closes on the start point.
+    await dragThrough(page, [{ x: 3, y: 8 }, { x: 9.2, y: 8.4 }, { x: 8.7, y: 13.1 }, { x: 3.4, y: 12.6 }, { x: 3.1, y: 8.2 }])
+    list = await walls(page)
+    expect(list).toHaveLength(2)
+    const ring = list[1].points
+    expect(ring[0]).toEqual(ring.at(-1))
+
+    await undo(page)
+    expect(await walls(page)).toHaveLength(1)
+  })
+})
+
 test.describe('the Elevation tool', () => {
   test('a dragged rectangle on the field: one plateau at +1 with a cliff ledge, selected', { tag: '@design' }, async ({ page }) => {
     const errors = await openField(page)

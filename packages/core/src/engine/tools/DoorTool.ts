@@ -5,7 +5,7 @@ import type { AnyChild, DoorChild, DungeonLayer, WallSegment } from '../../store
 import type { DoorState, DoorStyle } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
-  FLOOR_ANCHORED,
+  doorWallId,
   polylineLength,
   projectDoorOnto,
   resolveDoors,
@@ -14,6 +14,9 @@ import {
 } from '../../shared/wallResolve';
 import { renderResolvedDoor } from '../doorRenderer';
 import { freePiece } from '../../shared/freestandingDoor';
+import { minDoorWidth, spanBetweenWalls, type DoorSpan } from '../../shared/doorSpan';
+import { edgeStyles, ringStyles, wallWidthOf } from '../../shared/wallLook';
+import { layerDrawStyle, layerLevelLook } from '../levelLook';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import {
@@ -51,25 +54,35 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
 const SNAP_THRESHOLD = 1.5;
 
 /**
- * How near a floor or room edge a placement click has to be to hang the door on it. Far
- * less than `SNAP_THRESHOLD`: in a cave every corridor cell lies within 1.5 cells of an
- * edge, so at that reach a door could only ever run along a corridor, never across it.
- * Past this reach, with no drawn wall in range, the click places a free-standing door.
+ * How near any wall a placement click has to be to hang the door along it. Far less
+ * than `SNAP_THRESHOLD`: in a corridor every cell lies within 1.5 cells of a wall, so
+ * at that reach a door could only ever run along a corridor, never across it.
  */
-const FLOOR_EDGE_REACH = 0.5;
+const ALONG_REACH = 0.5;
+
+/** The widest gap a door spans by itself, cells, whatever the Width setting. */
+const MIN_SPAN = 3;
 
 /**
- * Where a placement click hangs its door: the nearest drawn wall within `SNAP_THRESHOLD`
- * or floor edge within `FLOOR_EDGE_REACH`, or null for open floor. With the Door panel's
- * Freestanding on, always null: the door stands free wherever it is placed.
+ * Where a placement click puts its door, in order: along any wall within
+ * `ALONG_REACH`; else across the gap between two walls (`spanBetweenWalls`, as wide as
+ * the gap, up to the larger of `MIN_SPAN` and the Width setting); else along a drawn
+ * wall within `SNAP_THRESHOLD`; else free on open floor. With the Door panel's
+ * Freestanding on, always free: the door stands wherever it is placed.
  */
-function placementSnap(point: Point, walls: ResolvedWall[]): WallSnapResult | null {
-  if (useStore.getState().tools.settings.doorFreestanding) return null;
+type Placement = { kind: 'along'; snap: WallSnapResult } | { kind: 'span'; span: DoorSpan } | { kind: 'free' };
+
+function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): Placement {
+  const settings = useStore.getState().tools.settings;
+  if (settings.doorFreestanding) return { kind: 'free' };
   const at: [number, number] = [point.x, point.y];
-  const drawn = snapToNearestWall(at, walls.filter((w) => w.kind !== 'floor'), SNAP_THRESHOLD);
-  const edge = snapToNearestWall(at, walls.filter((w) => w.kind === 'floor'), FLOOR_EDGE_REACH);
-  if (drawn && edge) return drawn.distance <= edge.distance ? drawn : edge;
-  return drawn ?? edge;
+  const near = snapToNearestWall(at, walls, ALONG_REACH);
+  if (near) return { kind: 'along', snap: near };
+  const maxSpan = Math.max(MIN_SPAN, settings.doorWidth || 1);
+  const span = spanBetweenWalls(at, walls, settings.doorStyle ?? 'single', maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));
+  if (span) return { kind: 'span', span };
+  const drawn = snapToNearestWall(at, walls.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD);
+  return drawn ? { kind: 'along', snap: drawn } : { kind: 'free' };
 }
 
 /**
@@ -97,14 +110,6 @@ const INVALID_TINT = 0xcc3344;
  * moving perpendicular to one at all, changes nothing that is drawn.
  */
 const GHOST_QUANTIZE = 0.25;
-
-/**
- * Styles that are drawn as a two-cell opening. A double door has two leaves, a
- * portcullis a row of bars, an archway a stone jamb either side — squeeze any of
- * them into one cell and the art is a smear with no readable detail. Single-leaf
- * styles (and portals, which carry their own art) fit a cell.
- */
-const WIDE_STYLES = new Set<DoorStyle>(['double', 'portcullis', 'archway']);
 
 /**
  * The door styles a DM can place and pick, in the order both pickers show them.
@@ -143,23 +148,17 @@ export function doorStyleLabel(style: DoorStyle): string {
   return style.charAt(0).toUpperCase() + style.slice(1);
 }
 
-/**
- * Narrowest a door of this style may be, in world units — grid cells, the same
- * units `door.width` and `SNAP_THRESHOLD` are in.
- */
-export function minDoorWidth(style: DoorStyle): number {
-  return WIDE_STYLES.has(style) ? 2 : 1;
-}
+export { minDoorWidth };
 
 /**
  * The width a door of this style may actually have in an opening this long.
  *
  * Clamps both ways. The style sets the floor — a double needs room for two
- * leaves. The host wall sets the ceiling, because a door wider than its opening
- * is exactly the state the placement tool refuses with a red ghost, and
- * switching the style of a door already on the map must not be able to conjure
- * it. Going double→single on a long wall keeps the extra width: a wide single
- * is legal, just unusual.
+ * leaves. The host wall sets the ceiling: placement fits the door to a wall
+ * shorter than the Width asked for, and switching the style of a door already
+ * on the map must not be able to make it wider than its opening. Going
+ * double→single on a long wall keeps the extra width: a wide single is legal,
+ * just unusual.
  *
  * A wall too short even for the style's minimum keeps the minimum — there is no
  * legal width to be had there, and going narrower only trades one invalid door
@@ -367,10 +366,9 @@ export class DoorTool implements DrawingTool {
     // sees. With nothing to plan from, that press placed nothing and said
     // nothing: two identical clicks were needed for one door. Touch never
     // hovers at all, so it could not place a door by any number of taps.
-    this.snapResult = placementSnap(point, allWalls);
-    // A wall in snap range means the leaf the ghost has been promising; it lands
-    // on release. Open floor means a free-standing door on a piece of its own.
-    this.pendingLeaf = this.snapResult ? this.plan(activeLayer, allWalls) : this.freePlan(activeLayer, point);
+    // The leaf the ghost has been promising lands on release: along a wall, across a
+    // gap, or free on a piece of its own.
+    this.pendingLeaf = this.planAt(activeLayer, point, allWalls);
     if (!this.pendingLeaf) {
       this.clearGhost();
       return;
@@ -415,9 +413,27 @@ export class DoorTool implements DrawingTool {
   }
 
   /**
+   * What a click at `point` would place, by `placementAt`'s order. One source for
+   * the ghost and the commit — the preview is the placement, rendered early.
+   */
+  private planAt(layer: DungeonLayer, point: Point, walls: ResolvedWall[]): DoorPlan | null {
+    const placement = placementAt(point, walls, layer);
+    this.snapResult = placement.kind === 'along' ? placement.snap : null;
+    if (placement.kind === 'along') return this.plan(layer, walls);
+    if (placement.kind === 'span') {
+      const { span } = placement;
+      // The door matches the walls it joins: the near wall's set and tint pins.
+      return this.freePlan(layer, { x: span.centre[0], y: span.centre[1] }, span.angle, span.width, {
+        textureSetId: span.wallA.textureSetId,
+        textureTint: span.wallA.textureTint,
+      });
+    }
+    return this.freePlan(layer, point);
+  }
+
+  /**
    * The door a click at the current snap would place, with the width it would
-   * get and whether it would be allowed. One source for the ghost and the
-   * commit — the preview is the placement, rendered early.
+   * get and whether it would be allowed.
    */
   private plan(layer: DungeonLayer, walls: ResolvedWall[]): DoorPlan | null {
     const snap = this.snapResult;
@@ -433,16 +449,15 @@ export class DoorTool implements DrawingTool {
       name: '',
       childType: 'door',
       visible: true,
-      // Floor-ring ids are derived per resolve, so storing one would rot on the
-      // next union. Position + projection is the whole anchor for those.
-      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
+      // Floor-ring and material ids are derived per resolve, so storing one would
+      // rot on the next union. Position + projection is the whole anchor for those.
+      wallId: doorWallId(wall),
       position: snap.position,
       angle: snap.angle,
-      // Exactly the width the DM asked for, with the style's minimum as the only
-      // override. A wall too short to hold it trips `isPlaceable`'s
-      // width-vs-wall check on its own, so an opening that cannot take this door
-      // previews red and commits nothing — no separate rule needed.
-      width: Math.max(settings.doorWidth || 1, minDoorWidth(style)),
+      // The width the DM asked for, fitted to the wall: a shorter wall takes a
+      // narrower door. Only a wall shorter than the style's minimum is left too
+      // short, and `isPlaceable`'s width-vs-wall check previews that red.
+      width: clampDoorWidth(settings.doorWidth || 1, style, wallLength),
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
@@ -462,18 +477,27 @@ export class DoorTool implements DrawingTool {
    * A free-standing door at `point`: a piece of wall exactly the door's width, centred on
    * the point at the tool's angle (`doorAngle`, degrees), drawn as the Wall tool draws (the
    * layer's colour and width), with the door on it. The point is already grid-snapped when
-   * snap is on, as every tool's is.
+   * snap is on, as every tool's is. A door spanning a gap passes its own angle (radians),
+   * width and the set and tint pins of the wall it starts from.
    */
-  private freePlan(layer: DungeonLayer, point: Point): DoorPlan {
+  private freePlan(
+    layer: DungeonLayer,
+    point: Point,
+    spanAngle?: number,
+    spanWidth?: number,
+    pins: Pick<WallSegment, 'textureSetId' | 'textureTint'> = {},
+  ): DoorPlan {
     const settings = useStore.getState().tools.settings;
     const style = settings.doorStyle ?? 'single';
-    const width = Math.max(settings.doorWidth || 1, minDoorWidth(style));
-    const angle = ((settings.doorAngle ?? 0) * Math.PI) / 180;
+    const width = spanWidth ?? Math.max(settings.doorWidth || 1, minDoorWidth(style));
+    const angle = spanAngle ?? ((settings.doorAngle ?? 0) * Math.PI) / 180;
     const piece = freePiece([point.x, point.y], angle, width, {
       wallType: settings.wallType,
       direction: settings.wallDirection,
       color: layer.style.wallColor,
     });
+    if (pins.textureSetId) piece.textureSetId = pins.textureSetId;
+    if (pins.textureTint) piece.textureTint = pins.textureTint;
     const door: DoorChild = {
       id: '',
       name: '',
@@ -520,9 +544,10 @@ export class DoorTool implements DrawingTool {
 
   /**
    * Draws what the click would place, in the art it would place it in — through
-   * `renderResolvedDoor`, the same path the committed door takes. Red says the
-   * click will do nothing and why it is refusing (the door overlaps one already
-   * there, or is wider than its wall); nothing at all says no wall is in range.
+   * `renderResolvedDoor`, the same path the committed door takes, with the same
+   * styles (the level's look, and the ring and edge pins of a floor wall). Red
+   * says the click will do nothing and why it is refusing (the door overlaps one
+   * already there, or its wall is shorter than the style's narrowest door).
    *
    * ponytail: no subscription to the tool settings — a style or width change
    * shows on the next pointer move. Add one if the panel ever needs to redraw
@@ -532,12 +557,7 @@ export class DoorTool implements DrawingTool {
     // Over a placed door the click selects rather than places, and during a
     // slide the door itself is tracking the cursor: either way a placement
     // ghost would be a lie. Open floor shows the free-standing door.
-    const plan =
-      this.hoveredDoorId || this.dragFrom || layer.locked
-        ? null
-        : this.snapResult
-          ? this.plan(layer, doorSnapWalls(layer))
-          : this.freePlan(layer, point);
+    const plan = this.hoveredDoorId || this.dragFrom || layer.locked ? null : this.planAt(layer, point, doorSnapWalls(layer));
     if (!plan) {
       this.clearGhost();
       return;
@@ -552,16 +572,21 @@ export class DoorTool implements DrawingTool {
       door.style,
       door.isSecret,
       plan.valid,
+      plan.wall.id,
+      plan.wall.textureSetId,
     ].join(':');
     if (key === this.ghostKey) return;
 
     this.clearGhost();
     this.ghostKey = key;
     this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    const level = layerLevelLook(layer);
     renderResolvedDoor(
       this.ghost,
       { door, wall: plan.wall, t: 0.5, position: door.position, angle: door.angle, detached: false },
-      layer.style,
+      layerDrawStyle(layer),
+      ringStyles(layer, level),
+      edgeStyles(layer, level),
     );
   }
 
@@ -597,8 +622,6 @@ export class DoorTool implements DrawingTool {
     if (this.pendingLeaf) return;
 
     this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
-
-    this.snapResult = placementSnap(point, doorSnapWalls(activeLayer));
 
     this.updateGhost(activeLayer, point);
   }
@@ -644,7 +667,7 @@ export class DoorTool implements DrawingTool {
     // exactly the one the next render resolves to.
     const placed = projectDoorOnto(door, wall, [point.x, point.y]);
     const next: DoorAnchor = {
-      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
+      wallId: doorWallId(wall),
       position: placed.position,
       angle: placed.angle,
       ...bindDoorToRooms(

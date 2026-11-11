@@ -1,7 +1,7 @@
 // The Material brush: a freehand stroke closes into one solid patch of a material on the
 // layer in hand, the material's border units laid round it on release, "like scatter but
 // fuller". Size and the material swatches are what changes mid-painting, so they sit in the
-// dock; Paint or erase, Smooth and Border are set up in the panel.
+// dock; Paint or erase, Smooth, Border and whether the edge is a wall are set up in the panel.
 
 import { Layers2 } from 'lucide-react';
 import { z } from 'zod';
@@ -50,6 +50,18 @@ export const materialBorder = defineSetting<boolean>({
   path: 'material.border',
 });
 
+/** The patch's edge blocks light and sight and takes doors, as a wall does. */
+export const materialWall = defineSetting<boolean>({
+  id: 'material.wall',
+  label: 'Edge is a wall',
+  schema: z.boolean(),
+  default: true,
+  home: 'panel',
+  control: 'switch',
+  section: 'Outline',
+  path: 'material.wall',
+});
+
 const materialsColumn: DockColumnDef = { id: 'material.swatches', caption: 'Material', render: MaterialsColumn };
 
 const k = (text: string) => ({ text, key: true });
@@ -63,7 +75,7 @@ export const materialBrushTool = defineTool({
   // M is Measure's on the rail; A is free in the family and everywhere the family is live.
   key: 'A',
   engine: ['material'],
-  settings: [materialSize, terrainMode, materialSmooth, materialBorder],
+  settings: [materialSize, terrainMode, materialSmooth, materialBorder, materialWall],
   dock: [materialsColumn],
   keys: [
     { id: 'size.down', combo: '[', label: 'Brush smaller' },

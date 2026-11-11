@@ -57,7 +57,21 @@ describe('Dock', () => {
     const dock = getByTestId('shell-dock');
     expect(shown(dock)).toEqual(ids('dock'));
     for (const id of ids('panel')) expect(dock.querySelector(`[data-setting="${id}"]`)).toBeNull();
-    expect(columns(dock)).toEqual(['level', 'layers', 'Shape', 'Edit', 'look']);
+    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'Shape', 'Edit', 'look']);
+  });
+
+  it('shows the family of the tool in hand, else of the open flyout, and picks from it', () => {
+    act(() => useStore.getState().setActiveTool('wall'));
+    const { getByTestId } = withRegistry(<Dock />);
+    const family = () => getByTestId('shell-dock').querySelector<HTMLElement>('[data-column="family"]')!;
+    const names = () => [...family().querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
+    expect(names()).toEqual(registry.familyOfTool('wall')!.tools.map((t) => t.label));
+    expect(family().querySelector('[aria-label="Wall"]')?.getAttribute('aria-pressed')).toBe('true');
+    act(() => useShell.getState().setFlyout('text'));
+    expect(names()).toEqual(registry.families.find((f) => f.id === 'text')!.tools.map((t) => t.label));
+    act(() => family().querySelector<HTMLElement>('[aria-label="Zone"]')!.click());
+    expect(useStore.getState().tools.activeTool).toBe('zone');
+    expect(useShell.getState().flyout).toBeNull();
   });
 
   it('hides Sides unless Regular is picked', () => {
@@ -82,7 +96,7 @@ describe('Dock', () => {
     expect(new Set(heights)).toEqual(new Set(['h-[112px]']));
     expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers']);
     act(() => useShell.getState().setLastTool('floor'));
-    expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers', 'look']);
+    expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers', 'family', 'look']);
   });
 });
 

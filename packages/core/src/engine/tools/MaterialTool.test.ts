@@ -48,6 +48,16 @@ describe('MaterialTool', () => {
     expect(layer().materials).toBeUndefined();
   });
 
+  it('paints a patch whose edge is a wall by default, and one that is not with the switch off', () => {
+    stroke(tool, [[0, 0], [3, 0]]);
+    expect(layer().materials![0].wall).toBe(true);
+    useStore.setState((s) => {
+      s.tools.settings.material.wall = false;
+    });
+    stroke(tool, [[20, 0], [23, 0]]);
+    expect(layer().materials![1].wall).toBeUndefined();
+  });
+
   it('erases with Erase mode, and an erase that takes it all leaves none', () => {
     stroke(tool, [[0, 0]]);
     useStore.getState().setEraseMode(true);

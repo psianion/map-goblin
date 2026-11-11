@@ -315,6 +315,8 @@ export interface MaterialToolSettings {
   radius: number;
   smooth: boolean;
   border: boolean;
+  /** The patch's edge blocks light and sight and takes doors, as a wall does. */
+  wall: boolean;
 }
 
 /** The Path tool: what the next path is drawn with. */
@@ -390,6 +392,8 @@ export interface ToolSettings {
   wallDirection: WallDirection;
   /** A wall drawn to another's free end joins it (same set and type). Absent = on. */
   wallAutoJoin?: boolean;
+  /** Clicked points, or a freehand stroke dragged out. Absent = points. */
+  wallDraw?: 'points' | 'freehand';
   wallWidth: number;
   continuousPlacement: boolean;
   lightDefaults: LightDefaults;
@@ -723,7 +727,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7' | '3.8' | '3.9';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7' | '3.8' | '3.9' | '3.10';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];

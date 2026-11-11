@@ -210,6 +210,7 @@ export function createDefaultState(): MapBuilderState {
           radius: 3,
           smooth: true,
           border: true,
+          wall: true,
         },
         path: {
           pieceId: null,

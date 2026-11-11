@@ -71,6 +71,20 @@ describe('painting and erasing patches', () => {
     expect(patches[0].rings).toHaveLength(1);
   });
 
+  it('takes the stroke’s wall switch into a merge, and an erase keeps each patch’s own', () => {
+    let patches: MaterialPatch[] = paintPatch([], strokeArea(line(0, 4), 1), 'ink', look, 'a');
+    expect(patches[0]).not.toHaveProperty('wall');
+    patches = paintPatch(patches, strokeArea(line(10, 14), 1), 'ink', { ...look, wall: true }, 'b');
+    expect(patches.map((p) => p.wall)).toEqual([undefined, true]);
+    patches = paintPatch(patches, strokeArea(line(4, 10), 1), 'ink', { ...look, wall: true }, 'c');
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({ id: 'a', wall: true });
+    patches = paintPatch(patches, strokeArea(line(0, 2), 1), 'ink', { ...look, wall: false }, 'd');
+    expect(patches[0].wall).toBeUndefined();
+    const walled = paintPatch([], strokeArea(line(0, 10), 1), 'ink', { ...look, wall: true }, 'e');
+    expect(erasePatches(walled, strokeArea([[5, 0]], 1.5)).every((p) => p.wall === true)).toBe(true);
+  });
+
   it('keeps a stroke of another material its own patch', () => {
     let patches = paintPatch([], strokeArea(line(0, 4), 1), 'ink', look, 'a');
     patches = paintPatch(patches, strokeArea(line(2, 6), 1), 'moss', look, 'b');

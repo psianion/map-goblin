@@ -78,13 +78,10 @@ const MIN_SEGMENT_LENGTH = 0.01;
  * matched to walls by id, so pass resolved doors rather than raw children —
  * a floor door stores no wall id of its own.
  *
- * NOTE (M11): Polyline walls (3+ points) are currently treated as a single chord
- * from points[0] to points[last] for the purpose of door projection. Doors placed
- * on intermediate segments will project onto the wrong span and produce inaccurate
- * split intervals. To fix: iterate consecutive point pairs, project the door onto
- * each sub-segment, and emit one set of wall/door segments per sub-segment.
- * Deferred because polyline walls with mid-segment doors are an uncommon case and
- * the fix requires non-trivial restructuring of the interval logic below.
+ * A polyline wall (3+ points: a clicked chain, a freehand stroke, a closed ring)
+ * follows its points: every run is its own segment, and each door is projected
+ * onto the polyline and cut out of it by arc length (`polylineSegments`), so a
+ * door on any run splits that run and a ring blocks all the way round.
  */
 export function buildOcclusionSegments(
   walls: WallSegment[],
@@ -101,6 +98,10 @@ export function buildOcclusionSegments(
 
   for (const wall of walls) {
     const wallDoors = doorsByWall.get(wall.id);
+    if (wall.points.length > 2) {
+      result.push(...polylineSegments(wall, wallDoors ?? []));
+      continue;
+    }
     const start = wall.points[0];
     const end = wall.points[wall.points.length - 1];
     const wallLen = segmentLength(start, end);
@@ -177,4 +178,69 @@ export function buildOcclusionSegments(
   }
 
   return result;
+}
+
+/**
+ * A polyline wall's segments: one per run, with each door's span (centred on its
+ * projection onto the polyline, by arc length) cut out as door segments along
+ * whichever runs it covers. The same rules as a two-point wall, measured along
+ * the polyline instead of its chord.
+ */
+function polylineSegments(wall: WallSegment, doors: DoorChild[]): OcclusionSegment[] {
+  const pts = wall.points;
+  const at: number[] = [0];
+  for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + segmentLength(pts[i - 1], pts[i]));
+  const total = at[at.length - 1];
+  const out: OcclusionSegment[] = [];
+  const wallProps = { ...WALL_TYPE_OCCLUSION[wall.wallType], direction: wall.direction, sourceType: 'wall' as const, sourceId: wall.id };
+
+  /** The runs between arc lengths s0 and s1, one 2-point segment per run they cover. */
+  const pushSpan = (s0: number, s1: number, props: Omit<OcclusionSegment, 'points'>) => {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const len = at[i + 1] - at[i];
+      const a = Math.max(s0, at[i]);
+      const b = Math.min(s1, at[i + 1]);
+      if (len <= 0 || b - a <= 0) continue;
+      out.push({ points: [lerp2d(pts[i], pts[i + 1], (a - at[i]) / len), lerp2d(pts[i], pts[i + 1], (b - at[i]) / len)], ...props });
+    }
+  };
+
+  if (doors.length === 0 || total < MIN_SEGMENT_LENGTH) {
+    pushSpan(0, total, wallProps);
+    return out;
+  }
+
+  const intervals = doors
+    .map((door) => {
+      const s = projectOntoPolyline(door.position, pts, at);
+      return { sStart: Math.max(0, s - door.width / 2), sEnd: Math.min(total, s + door.width / 2), door };
+    })
+    .sort((a, b) => a.sStart - b.sStart);
+
+  let cursor = 0;
+  for (const { sStart, sEnd, door } of intervals) {
+    if (sStart > cursor + MIN_SEGMENT_LENGTH) pushSpan(cursor, sStart, wallProps);
+    if (sEnd - sStart > MIN_SEGMENT_LENGTH) {
+      pushSpan(sStart, sEnd, { ...getDoorOcclusion(door), direction: 'both', sourceType: 'door', sourceId: door.id });
+    }
+    cursor = sEnd;
+  }
+  if (cursor < total - MIN_SEGMENT_LENGTH) pushSpan(cursor, total, wallProps);
+  return out;
+}
+
+/** The arc length along `pts` (cumulative lengths `at`) of the point nearest `point`. */
+function projectOntoPolyline(point: [number, number], pts: [number, number][], at: number[]): number {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const t = projectOntoSegment(point, pts[i], pts[i + 1]);
+    const p = lerp2d(pts[i], pts[i + 1], t);
+    const d = segmentLength(point, p);
+    if (d < bestD) {
+      bestD = d;
+      best = at[i] + t * (at[i + 1] - at[i]);
+    }
+  }
+  return best;
 }

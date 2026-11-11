@@ -43,7 +43,7 @@ export async function pickFromFlyout(page: Page, family: string, tool: string): 
   await waitFrame(page, 2)
 }
 
-/** Where each tool lives in the shell: a rail button, or a family's flyout row plus, for a floor shape, its dock button. */
+/** Where each tool lives in the shell: a rail button, or a family's flyout row plus, for a floor shape or a rooms mode, its dock button. */
 const TOOLS = {
   select: { rail: 'Select' },
   pan: { rail: 'Pan' },
@@ -60,9 +60,9 @@ const TOOLS = {
   light: { family: 'Environment', tool: 'Light' },
   label: { family: 'Text', tool: 'Label' },
   zone: { family: 'Text', tool: 'Zone' },
-  roomRect: { family: 'Text', tool: 'Rectangle room' },
-  roomPolygon: { family: 'Text', tool: 'Polygon room' },
-  divide: { family: 'Text', tool: 'Divide' },
+  roomRect: { family: 'Text', tool: 'Rooms', dock: 'Rectangle' },
+  roomPolygon: { family: 'Text', tool: 'Rooms', dock: 'Polygon' },
+  divide: { family: 'Text', tool: 'Rooms', dock: 'Divide' },
 } as const
 
 export type ShellTool = keyof typeof TOOLS

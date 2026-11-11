@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { resolveWalls, resolveDoors, toOcclusionDoors, FLOOR_ANCHORED, doorOpeningCuts, doorOpeningLimit, doorOpeningLimitOn } from './wallResolve';
+import { resolveWalls, resolveDoors, toOcclusionDoors, FLOOR_ANCHORED, doorOpeningCuts, doorOpeningLimit, doorOpeningLimitOn, doorWallId } from './wallResolve';
 import { buildOcclusionSegments } from './occlusion';
+import { extractWallSegments } from '../engine/lighting/raycaster';
+import type { MaterialPatch } from './materialPatch';
 import type { DoorChild, WallSegment } from './types';
 import type { DungeonLayer } from '../store/types';
 
@@ -48,6 +50,73 @@ const layer = (parts: Partial<DungeonLayer>): DungeonLayer =>
   }) as unknown as DungeonLayer;
 
 const resolve = (l: DungeonLayer) => resolveDoors(l, resolveWalls(l));
+
+describe('resolveWalls: a material patch whose edge is a wall', () => {
+  const patch = (over: Partial<MaterialPatch> = {}): MaterialPatch => ({
+    id: 'p1', material: 'GG_Cave_Ink', rings: [ring(0, 0), ring(20, 0, 4)], smooth: false, border: true, ...over,
+  });
+
+  it('gives no wall while the flag is off', () => {
+    expect(resolveWalls(layer({ materials: [patch()] }))).toEqual([]);
+  });
+
+  it('gives one closed wall per ring of its outline, never drawn as wall art', () => {
+    const walls = resolveWalls(layer({ materials: [patch({ wall: true })] }));
+    expect(walls.map((w) => [w.id, w.kind, w.wallType, w.direction])).toEqual([
+      ['material:p1:0', 'material', 'normal', 'both'],
+      ['material:p1:1', 'material', 'normal', 'both'],
+    ]);
+    expect(walls[0].points).toEqual([...ring(0, 0), [0, 0]]);
+    expect(walls[1].points).toHaveLength(5);
+  });
+
+  it('follows the layer’s materials through the memo', () => {
+    const base = layer({ materials: [patch()] });
+    expect(resolveWalls(base)).toHaveLength(0);
+    expect(resolveWalls({ ...base, materials: [patch({ wall: true })] })).toHaveLength(2);
+    expect(resolveWalls({ ...base, materials: undefined })).toHaveLength(0);
+  });
+
+  it('takes a door that re-anchors by projection, as a floor door does', () => {
+    const l = layer({ materials: [patch({ wall: true })], children: [door({ wallId: FLOOR_ANCHORED, position: [5, 0.2], width: 2 })] });
+    const [r] = resolve(l);
+    expect(r.detached).toBe(false);
+    expect(r.wall!.id).toBe('material:p1:0');
+    expect(doorWallId(r.wall!)).toBe(FLOOR_ANCHORED);
+    expect(r.position[0]).toBeCloseTo(5);
+    expect(r.position[1]).toBeCloseTo(0);
+  });
+});
+
+describe('extractWallSegments across a wall patch', () => {
+  /** Whether a segment crosses the line from a to b. */
+  const crosses = (segs: { x1: number; y1: number; x2: number; y2: number }[], a: [number, number], b: [number, number]) =>
+    segs.some((s) => {
+      const d = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+      const d1 = d(a[0], a[1], b[0], b[1], s.x1, s.y1);
+      const d2 = d(a[0], a[1], b[0], b[1], s.x2, s.y2);
+      const d3 = d(s.x1, s.y1, s.x2, s.y2, a[0], a[1]);
+      const d4 = d(s.x1, s.y1, s.x2, s.y2, b[0], b[1]);
+      return d1 * d2 < 0 && d3 * d4 < 0;
+    });
+  const patch: MaterialPatch = { id: 'cave', material: 'GG_Cave_Ink', rings: [ring(0, 0)], smooth: false, border: true, wall: true };
+
+  it('blocks light and sight from inside the patch to outside it', () => {
+    const l = layer({ materials: [patch] });
+    for (const kind of ['light', 'sight'] as const) {
+      expect(crosses(extractWallSegments([l], kind), [5, 5], [5, -5]), kind).toBe(true);
+    }
+    expect(crosses(extractWallSegments([layer({ materials: [{ ...patch, wall: false }] })]), [5, 5], [5, -5])).toBe(false);
+  });
+
+  it('opens at an open door on its edge, and shuts with it', () => {
+    const at = (state: DoorChild['state']) => layer({ materials: [patch], children: [door({ wallId: FLOOR_ANCHORED, position: [5, 0], width: 2, state })] });
+    expect(crosses(extractWallSegments([at('open')], 'sight'), [5, 5], [5, -5])).toBe(false);
+    expect(crosses(extractWallSegments([at('closed')], 'sight'), [5, 5], [5, -5])).toBe(true);
+    // Beside the door the edge still blocks.
+    expect(crosses(extractWallSegments([at('open')], 'sight'), [8, 5], [8, -5])).toBe(true);
+  });
+});
 
 describe('resolveWalls', () => {
   it('promotes every floor-ring edge to a normal wall', () => {

@@ -28,7 +28,7 @@ test('environment: a light from the dock and panel, the sky sheet, undo', { tag:
   })
 
   await pickFromFlyout(page, 'Environment', 'Light')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Bright', 'Dim', 'Intensity', 'Colour', 'presets'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Bright', 'Dim', 'Intensity', 'Colour', 'presets'])
   const dock = page.getByTestId('shell-dock')
   const panel = page.getByTestId('shell-tool-panel')
 

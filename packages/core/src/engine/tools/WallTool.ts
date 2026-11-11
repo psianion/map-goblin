@@ -1,6 +1,8 @@
 import type { Point } from '../../types/geometry';
 import { snapToAngle, smoothChain } from '../../geometry/drawAssist';
+import { simplifyPath } from '../../geometry/simplify';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
+import type { RenderEngine } from '../RenderEngine';
 import { useStore } from '../../store/store';
 import { AddWallCommand, MergeWallsCommand } from '../../store/commands';
 import { autoJoin } from '../../shared/wallJoin';
@@ -10,6 +12,33 @@ import { resolveEditableLayer } from './layerGuard';
 
 /** Two points closer than this are the same point. */
 const MIN_SEGMENT = 0.01;
+
+/** Freehand: raw points closer than this to the last, in cells, are not kept. */
+const FREEHAND_STEP = 0.1;
+/** A stroke shorter than this, in cells, is a slip, not a wall. */
+const FREEHAND_MIN_LENGTH = 0.5;
+/** Douglas-Peucker tolerance: the wall keeps no point nearer the stroke's line than this. */
+const FREEHAND_TOLERANCE = 0.15;
+/** An end this near the start, on a stroke longer than FREEHAND_LOOP_LENGTH, closes the loop. */
+const FREEHAND_CLOSE = 0.75;
+const FREEHAND_LOOP_LENGTH = 3;
+
+/**
+ * A freehand stroke as the chain a wall is drawn from: null when it is too short to be a
+ * wall, simplified, and closed on its start point when it ends near it after a long run.
+ */
+export function freehandChain(stroke: readonly Point[]): Point[] | null {
+  let length = 0;
+  for (let i = 1; i < stroke.length; i++) length += Math.hypot(stroke[i].x - stroke[i - 1].x, stroke[i].y - stroke[i - 1].y);
+  if (length < FREEHAND_MIN_LENGTH) return null;
+  const chain = simplifyPath([...stroke], FREEHAND_TOLERANCE).map((p) => ({ x: p.x, y: p.y }));
+  const start = chain[0];
+  const end = chain[chain.length - 1];
+  if (chain.length >= 3 && length > FREEHAND_LOOP_LENGTH && Math.hypot(end.x - start.x, end.y - start.y) <= FREEHAND_CLOSE) {
+    chain[chain.length - 1] = { x: start.x, y: start.y };
+  }
+  return chain;
+}
 
 /**
  * Chained wall tool — click to drop anchors, double-click or Enter to commit,
@@ -21,6 +50,10 @@ const MIN_SEGMENT = 0.01;
  * One chain is now one WallSegment with N points, so only points[0] and
  * points[last] are ends and the joints become interior vertices the layout
  * engine carries properly.
+ *
+ * With Draw set to Freehand, a press with no chain open starts a stroke instead:
+ * the drag's raw points (not grid-snapped) are kept, and the release simplifies
+ * them into one chain and commits it the same way a clicked chain commits.
  */
 export class WallTool implements DrawingTool {
   readonly type = 'wall' as const;
@@ -34,8 +67,29 @@ export class WallTool implements DrawingTool {
    * mid-chain can't smuggle a commit onto a layer the guard never checked.
    */
   private chainLayerId: string | null = null;
+  /** The freehand stroke being dragged out, if one is. */
+  private stroke: Point[] | null = null;
+
+  /** The engine maps a pointer to its raw world point; without one the point given is used. */
+  private readonly engine: Pick<RenderEngine, 'canvas' | 'screenToWorld'> | undefined;
+
+  constructor(engine?: Pick<RenderEngine, 'canvas' | 'screenToWorld'>) {
+    this.engine = engine;
+  }
+
+  private rawWorld(point: Point, event?: PointerEvent): Point {
+    if (!event || !this.engine) return point;
+    const rect = this.engine.canvas().getBoundingClientRect();
+    return this.engine.screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+  }
 
   onPointerDown(point: Point, event?: PointerEvent): void {
+    if (this.vertices.length === 0 && useStore.getState().tools.settings.wallDraw === 'freehand') {
+      if (event && event.button !== 0) return;
+      this.chainLayerId = useStore.getState().ui.activeLayerId;
+      this.stroke = [this.strokeEnd(point, event)];
+      return;
+    }
     const now = Date.now();
     if (this.vertices.length >= 2 && isDoubleClick(this.lastClick, point, now)) {
       this.finalize();
@@ -51,6 +105,12 @@ export class WallTool implements DrawingTool {
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
+    if (this.stroke) {
+      const p = this.rawWorld(point, event);
+      const last = this.stroke[this.stroke.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) >= FREEHAND_STEP) this.stroke.push(p);
+      return;
+    }
     this.currentPoint = this.constrain(point, event);
   }
 
@@ -60,7 +120,31 @@ export class WallTool implements DrawingTool {
     return event?.shiftKey && anchor ? snapToAngle(anchor, point) : point;
   }
 
-  onPointerUp(_point: Point): void {}
+  /**
+   * Where a freehand stroke starts or ends: the point given when the endpoint snap put it
+   * on a drawn wall, so the stroke joins that wall, else the raw pointer, free of the grid
+   * like the rest of the stroke.
+   */
+  private strokeEnd(point: Point, event?: PointerEvent): Point {
+    const layer = useStore.getState().layers.find((l) => l.id === this.chainLayerId);
+    const onWall =
+      layer?.type === 'dungeon' &&
+      layer.standaloneWalls.some((w) => w.points.some(([x, y]) => Math.hypot(x - point.x, y - point.y) <= MIN_SEGMENT));
+    return onWall ? point : this.rawWorld(point, event);
+  }
+
+  onPointerUp(point: Point, event?: PointerEvent): void {
+    const stroke = this.stroke;
+    if (!stroke) return;
+    this.stroke = null;
+    const chain = freehandChain([...stroke, this.strokeEnd(point, event)]);
+    if (!chain) {
+      this.chainLayerId = null;
+      return;
+    }
+    this.vertices = chain;
+    this.finalize();
+  }
 
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -71,6 +155,7 @@ export class WallTool implements DrawingTool {
   }
 
   getPreview(): PreviewShape | null {
+    if (this.stroke) return this.stroke.length > 1 ? { type: 'line', points: this.stroke.map((p) => ({ x: p.x, y: p.y })) } : null;
     if (this.vertices.length === 0) return null;
     let points = this.vertices.map((v) => ({ x: v.x, y: v.y }));
     if (this.currentPoint) {
@@ -86,10 +171,11 @@ export class WallTool implements DrawingTool {
     this.currentPoint = null;
     this.lastClick = null;
     this.chainLayerId = null;
+    this.stroke = null;
   }
 
   isActive(): boolean {
-    return this.vertices.length > 0;
+    return this.vertices.length > 0 || this.stroke !== null;
   }
 
   private finalize(): void {

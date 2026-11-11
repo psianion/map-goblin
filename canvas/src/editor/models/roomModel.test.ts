@@ -204,10 +204,10 @@ describe('status hints', () => {
       return h ? `${h.label} | ${hintText(h)}` : null;
     };
     expect(line(state({ tools: { activeTool: 'roomRect' } }))).toBe(
-      'Rectangle room | drag to draw: the floor and its walls land together · Shift square · Esc cancel',
+      'Rooms | drag to draw: the floor and its walls land together · Shift square · Esc cancel',
     );
     expect(line(state({ tools: { activeTool: 'divide' } }))).toBe(
-      'Divide | drag across a floor: ends snap to the walls · Shift straight · Esc cancel',
+      'Rooms | drag across a floor: ends snap to the walls · Shift straight · Esc cancel',
     );
     expect(line(state({ selection: { selectedIds: ['r'] } }))).toBe(
       'Room 2 · Warren hall | Dbl-click reshape floor · Del delete room, keep floor · Esc deselect',
