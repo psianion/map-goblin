@@ -4,7 +4,7 @@
 // graph; it is stacked above `layerContainer` from here instead.
 
 import type { Container } from 'pixi.js';
-import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
+import { clearEngineSingleton, getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 
@@ -107,6 +107,9 @@ export function addScreenOverlay(sceneGraph: SceneGraph, layer: Container, label
   insertByRank(overlay, lighting + 1, layer, label);
 }
 
+/** Every overlay `mountWhenEngineReady` holds on an engine, by the function that takes it off. */
+const mountedOverlays = new Set<() => void>();
+
 /**
  * Mount a Pixi layer for as long as an engine exists, and re-mount when it is replaced.
  *
@@ -120,22 +123,43 @@ export function mountWhenEngineReady(
 ): () => void {
   let mounted: SceneGraph | null = null;
   let unmount: (() => void) | null = null;
+  const drop = () => {
+    const done = unmount;
+    unmount = null;
+    mounted = null;
+    done?.();
+  };
 
   const check = () => {
     const current = getEngineSingleton();
     if ((current?.sceneGraph ?? null) === mounted) return;
-    unmount?.();
-    unmount = null;
+    drop();
     mounted = current?.sceneGraph ?? null;
     if (current) unmount = mount(current.engine, current.sceneGraph);
   };
 
   check();
   const timer = setInterval(check, pollMs);
+  mountedOverlays.add(drop);
   return () => {
     clearInterval(timer);
-    unmount?.();
+    mountedOverlays.delete(drop);
+    drop();
   };
+}
+
+/**
+ * The one way the table's engine goes away: every overlay comes off first, while its ticker
+ * and containers still exist, then the singleton is cleared and `destroy` runs. An overlay's
+ * own effect cleanup runs after its host's, and GameRenderer's engine is torn down by an
+ * effect declared above the overlay mounts, so without this the overlays unmounted onto a
+ * destroyed engine: Pixi's `Ticker.remove` read its nulled list and threw, and the throw
+ * during unmount took the whole page down (leaving the table blanked it).
+ */
+export function releaseEngine(destroy: () => void): void {
+  for (const drop of [...mountedOverlays]) drop();
+  clearEngineSingleton();
+  destroy();
 }
 
 /** World-space point under a pointer event, or null when it is not over the canvas. */

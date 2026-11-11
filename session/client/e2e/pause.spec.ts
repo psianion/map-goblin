@@ -100,5 +100,13 @@ test.describe('@play pause', () => {
     await expect.poll(() => rolls(player)).toBe(logBefore + 1);
     await dragBram(player, 2);
     await expect.poll(async () => (await bram(dm))?.x).toBeGreaterThan(from.x);
+
+    // Paused again, the card's one control works: the player leaves for the landing page.
+    await dm.getByTestId('session-menu').click();
+    await dm.getByRole('switch', { name: 'Pause the table' }).click();
+    await dm.keyboard.press('Escape');
+    await player.getByTestId('pause-leave').click();
+    await expect(player.getByRole('heading', { name: 'Good Goblin' })).toBeVisible();
+    await expect(player.getByTestId('pause-overlay')).toHaveCount(0);
   });
 });

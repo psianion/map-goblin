@@ -8,7 +8,7 @@ import { subscribeToStore } from '@dnd/core/src/engine/subscribeToStore';
 import { subscribeToAssets } from '@dnd/core/src/engine/subscribeToAssets';
 import { subscribeToTextLabels } from '@dnd/core/src/engine/subscribeToTextLabels';
 import { installBoundLabelSync } from '@dnd/core/src/store/boundLabels';
-import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
+import { setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { listenDprChanges } from '@dnd/core/src/engine/camera';
 import { setEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { LightManager } from '@dnd/core/src/engine/lighting';
@@ -24,6 +24,7 @@ import { syncDoorsToLighting } from '../modules/doors/doorLighting';
 import { syncLightsToScene } from '../modules/triggers/lightSync';
 import { syncWorldToScene } from '../modules/world/worldSync';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
+import { releaseEngine } from './overlayLayer';
 import { installTableDesk } from './desk';
 import { markFirstSceneDone, startAssetBoot, useTableAssets } from './assetLoading';
 
@@ -154,9 +155,11 @@ export function GameRenderer() {
 
     return () => {
       destroyed = true;
-      teardown?.();
-      clearEngineSingleton();
-      pixiEngine.destroy();
+      // The overlays mounted on this engine come off before any of it is torn down.
+      releaseEngine(() => {
+        teardown?.();
+        pixiEngine.destroy();
+      });
       setEngine(null);
     };
   }, []);
