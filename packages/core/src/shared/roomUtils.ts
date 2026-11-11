@@ -195,7 +195,16 @@ export function roomBadgePoints(rooms: readonly Room[]): ReadonlyMap<string, [nu
       p = interiorPoint(face);
       interiorMemo.set(face, p);
     }
-    out.set(r.id, p);
+    // A room round a smaller one (the floor round a painted cave): its face's middle can be
+    // the inner room's, where the two badges would pile up, so it keeps its anchor too.
+    const [px, py] = p;
+    const area = computeArea(face);
+    const onInner = rooms.some((o) => {
+      if (o === r || o.orphaned) return false;
+      const inner = roomFace(o);
+      return inner.length >= 3 && computeArea(inner) < area && pointInRing(px, py, inner);
+    });
+    out.set(r.id, onInner ? r.anchor : p);
   }
   badgeMemo.set(rooms, out);
   return out;
