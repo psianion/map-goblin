@@ -2,6 +2,7 @@
 
 import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '@dnd/mechanics/contract'
+import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
 import { PROTOCOL_VERSION } from '../config'
 import type { Vision } from '../fog/vision'
 import type { ModuleRegistry } from '../modules/registry'
@@ -189,7 +190,11 @@ export class SessionManager {
           players: [...session.players.values()],
         })
       case 'mark': {
-        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3).
+        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3). A paused
+        // table takes no gesture from a player's seat either (the registry refuses commands).
+        if (conn.identity.role !== 'dm' && this.tableFlags(session.id)?.paused) {
+          return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_PAUSED_ERROR })
+        }
         const parsed = parseMark(msg.mark, conn.identity.role)
         if ('error' in parsed) {
           return this.broadcaster.sendTo(conn, { type: 'error', code: 'invalid-command', message: parsed.error })

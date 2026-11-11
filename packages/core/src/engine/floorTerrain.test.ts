@@ -13,10 +13,11 @@ vi.mock('../assets/packCatalog', () => ({
   bandSetArt: () => new Map(),
   getWallPieces: () => [],
   getCatalogEntry: () => undefined,
+  hasLiveTexture: () => false,
   GRID_CELL_PX: 200,
 }));
 
-import { Container, Mesh } from 'pixi.js';
+import { Container, Graphics, Mesh } from 'pixi.js';
 import { rebuildDungeonLayer } from './floorWallRenderer';
 import { setTerrainRenderer, type TerrainRenderer } from './terrain/TerrainRenderer';
 import type { LayerEntry } from './sceneGraph';
@@ -107,5 +108,48 @@ describe('painted terrain over the floor', () => {
 
     const floor = entry.sublayers!.floor;
     expect(floor.children.filter((c) => c.label === 'terrainFloorMesh').length).toBe(1);
+  });
+});
+
+/** Every fill painted in `floor` (its mask aside), bottom to top, as the alpha it reaches the screen with. */
+function paintedAlphas(floor: Container): number[] {
+  const out: number[] = [];
+  const walk = (node: Container, alpha: number): void => {
+    if (node === floor.mask) return;
+    const a = alpha * node.alpha;
+    if (node instanceof Graphics) {
+      for (const i of node.context.instructions) if (i.action === 'fill') out.push(a * (i.data.style.alpha ?? 1));
+    }
+    for (const child of node.children) walk(child as Container, a);
+  };
+  for (const child of floor.children) walk(child as Container, 1);
+  return out;
+}
+
+describe('floor opacity', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  function layerWithShape(opacity?: number): DungeonLayer {
+    const ring: [number, number][] = [[0, 0], [40, 0], [40, 40], [0, 40]];
+    return {
+      ...layerWithFloor(),
+      mergedFloor: [ring],
+      children: [{
+        id: 's1', name: 's1', childType: 'shape', visible: true, shapeType: 'rectangle',
+        contours: [ring], roughnessEnabled: false, textureScale: 1, textureOffsetX: 0,
+        textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff', opacity,
+      }],
+    };
+  }
+
+  it('reaches the visible fill, with nothing of the same floor painted opaque above it', () => {
+    const entry = makeEntry();
+    const draw = (opacity?: number) => {
+      rebuildDungeonLayer(layerWithShape(opacity), entry);
+      return paintedAlphas(entry.sublayers!.floor);
+    };
+    expect(draw()).toEqual([1]);
+    expect(draw(0.5)).toEqual([0.5]);
+    expect(draw(0)).toEqual([0]);
   });
 });

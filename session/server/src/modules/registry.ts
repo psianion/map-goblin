@@ -13,6 +13,7 @@ import type {
   ModuleContext,
   Viewer,
 } from '@dnd/mechanics/contract'
+import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
 import type { ModuleStateStore } from '../db/stores'
 import type { SceneTagged } from '../ws/Broadcaster'
 
@@ -87,6 +88,8 @@ export class ModuleRegistry {
   constructor(
     private readonly store: ModuleStateStore,
     private readonly afterWrite?: AfterWrite,
+    /** Table v2: whether the DM holds the session's table (`sessions.paused`). */
+    private readonly pausedOf: (sessionId: string) => boolean = () => false,
   ) {}
 
   register<S>(module: GameModule<S>): void {
@@ -114,6 +117,9 @@ export class ModuleRegistry {
         message: `role '${ctx.sender.role}' may not run ${module}.${action}`,
       }
     }
+    // Table v2: a paused table refuses every player command here, whatever its module. The
+    // DM's commands, and the server's own (sent as the DM), always run.
+    if (ctx.sender.role !== 'dm' && this.pausedOf(ctx.sessionId)) return TABLE_PAUSED_ERROR
     return this.run(found, action, payload, ctx)
   }
 

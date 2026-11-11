@@ -79,6 +79,34 @@ export async function pickTool(page: Page, name: ShellTool): Promise<void> {
   await waitFrame(page, 2)
 }
 
+/**
+ * Whether the floors are painted with their texture yet, not the flat colour that stands in
+ * while the art downloads on first use. A pixel read before that reads the stand-in.
+ */
+export function floorArtLanded(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const find = (n: Any): Any => (n.label === 'sublayer-floor' ? n : (n.children ?? []).map(find).find(Boolean))
+    const floor = find((window as Any).__pixiApp.stage)
+    const textured = (n: Any): boolean => (n.tilePosition && n.texture?.width > 1) || (n.children ?? []).some(textured)
+    return !!floor && textured(floor)
+  })
+}
+
+/** The camera at `zoom` px a cell with world `p` at the canvas centre. */
+export async function lookAt(page: Page, p: { x: number; y: number }, zoom: number): Promise<void> {
+  await page.evaluate(
+    ({ p, zoom }) => {
+      const app = (window as Any).__pixiApp
+      const world = app.stage.children[0]
+      const r = app.canvas.getBoundingClientRect()
+      world.scale.set(zoom)
+      world.position.set(r.width / 2 - p.x * zoom, r.height / 2 - p.y * zoom)
+    },
+    { p, zoom },
+  )
+  await waitFrame(page, 10)
+}
+
 /** Writes the frame for review when SHELL_SHOTS is set. */
 export async function shot(page: Page, name: string): Promise<void> {
   if (!process.env.SHELL_SHOTS) return

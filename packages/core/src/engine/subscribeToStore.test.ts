@@ -72,6 +72,7 @@ import { rebuildDungeonLayer, redrawDoors, redrawRoomFills } from './floorWallRe
 import { getLayerEntry } from './sceneGraph';
 import { scheduleRoomSync } from '../store/roomRefresh';
 import { preloadWallTextures } from './wallNodeRenderer';
+import { CloneLevelCommand } from '../store/layerCommands';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import type { DungeonLayer, PlateauChild } from '../store/types';
@@ -704,6 +705,47 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
     setOverrides(undefined);
     expect(rebuildDungeonLayer).toHaveBeenCalledTimes(3);
+  });
+
+  // Opacity was missing from the shape keys: the slider wrote the store and the
+  // floor kept its old bake, so nothing on screen moved.
+  it('a floor opacity edit re-bakes the floor without re-unioning or re-lighting', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0), shape('s2', 20, 0)] });
+    unsub = start();
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    useStore.getState().updateChild(layerId, 's1', { opacity: 0.5 });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+
+    useStore.getState().updateChild(layerId, 's1', { opacity: 0 });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(2);
+
+    // Back to full, which the card stores as nothing.
+    useStore.getState().updateChild(layerId, 's1', { opacity: undefined });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(3);
+  });
+
+  // The clone baked its floor at 0%, and setting it back to 100% re-baked nothing,
+  // so the copied floor stayed empty for good.
+  it('a cloned level at 0% floor opacity re-bakes when the copy is set back to full', () => {
+    const layerId = seed({ children: [{ ...shape('s1', 0, 0), opacity: 0 }] });
+    unsub = start();
+    const levelId = dungeon().levelId!;
+    new CloneLevelCommand(levelId).execute();
+    flushLayerDraws();
+    const copy = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon' && l.id !== layerId)!;
+    vi.clearAllMocks();
+
+    useStore.getState().updateChild(copy.id, copy.children[0].id, { opacity: undefined });
+    flushLayerDraws();
+    expect(vi.mocked(rebuildDungeonLayer).mock.calls.map(([l]) => l.id)).toEqual([copy.id]);
   });
 
   it('several writes before the frame draw once, and a rebuild beats a redraw', () => {

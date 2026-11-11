@@ -636,7 +636,8 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             // styleOverrides too: a per-shape floor colour is painted by this bake,
             // and leaving it out meant setting one changed the store and nothing else.
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}`)
+            // Opacity for the same reason: the bake is what fades the fill.
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${c.opacity ?? 1}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no

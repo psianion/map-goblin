@@ -10,13 +10,17 @@
 // overlay is in the same container as the fog, and it outranks it there.
 
 import { describe, expect, it } from 'vitest';
-import { Container } from 'pixi.js';
+import { Container, Ticker } from 'pixi.js';
+import { getEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import {
   OVERLAY_STACK,
   SIGHT_MASK,
   addScreenOverlay,
   addWorldOverlay,
+  mountWhenEngineReady,
+  releaseEngine,
   sightMaskOf,
   type OverlayLabel,
 } from './overlayLayer';
@@ -136,6 +140,37 @@ describe('sightMaskOf', () => {
     fog.addChild(stencil);
     addScreenOverlay(sceneGraph, fog, 'playerFog');
     expect(sightMaskOf(sceneGraph)).toBe(stencil);
+  });
+});
+
+// Leaving the table blanked the page: GameRenderer destroyed the engine in an effect declared
+// above the overlay mounts, so the player fog's own cleanup ran afterwards and called
+// `ticker.remove` on a destroyed ticker, which throws, and the throw took React down with it.
+describe('releaseEngine', () => {
+  it('takes every overlay off while the engine is whole, so the overlay’s own cleanup after it is a no-op', () => {
+    const ticker = new Ticker();
+    setEngineSingleton({ ticker: () => ticker } as unknown as RenderEngine, fakeSceneGraph());
+    const tick = (): void => {};
+    const overlayCleanup = mountWhenEngineReady((engine) => {
+      engine.ticker().add(tick);
+      return () => engine.ticker().remove(tick);
+    });
+    expect(ticker.count).toBe(1);
+
+    releaseEngine(() => {
+      expect(ticker.count).toBe(0);
+      ticker.destroy();
+    });
+    expect(getEngineSingleton()).toBeNull();
+    expect(() => overlayCleanup()).not.toThrow();
+  });
+
+  it('is needed: a ticker removal after the ticker is destroyed throws', () => {
+    const ticker = new Ticker();
+    const tick = (): void => {};
+    ticker.add(tick);
+    ticker.destroy();
+    expect(() => ticker.remove(tick)).toThrow(/reading 'next'/);
   });
 });
 
