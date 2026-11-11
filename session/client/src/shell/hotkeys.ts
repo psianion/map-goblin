@@ -10,6 +10,7 @@ import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
 import { dockTabs } from './dock/registry';
 import { findMyToken } from './findMyToken';
+import { frozenNow } from './pause';
 import { railToolsFor } from './rail/registry';
 import { pickRailTool } from './rail/tools';
 import { closeSheet, openSheetNow, toggleSheet } from './sheets/registry';
@@ -127,6 +128,8 @@ export function onEscape(): void {
 
 function onKeyDown(e: KeyboardEvent): void {
   if (e.defaultPrevented) return;
+  // A player's seat while the DM has paused the table answers no key, Escape included.
+  if (frozenNow()) return;
 
   // Escape always gets through, focus in a text field included: "get me out of this".
   if (e.key === 'Escape') {

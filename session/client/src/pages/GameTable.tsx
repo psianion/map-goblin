@@ -16,6 +16,8 @@ import { useDockMounts } from '../shell/dock/useDockTabs';
 import { useHotkeys } from '../shell/hotkeys';
 import { useMapLayers } from '../shell/mapLayers';
 import { MarksLayer } from '../shell/marks/MarksLayer';
+import { useFrozen } from '../shell/pause';
+import { PauseOverlay } from '../shell/PauseOverlay';
 import { PinCard } from '../shell/marks/PinCard';
 import { PhoneBar } from '../shell/phone/PhoneBar';
 import { TableRail } from '../shell/rail/Rail';
@@ -66,8 +68,16 @@ export default function GameTable() {
   // One shell-wide keydown listener (registries plus board 9's fixed keys): see hotkeys.ts.
   useHotkeys();
 
+  // A player's seat while the DM has paused the table: grey and out of reach (PauseOverlay).
+  const frozen = useFrozen();
+
   return (
-    <div data-page="table" className="relative h-full bg-bg text-text">
+    <div
+      data-page="table"
+      className={`relative h-full bg-bg text-text transition-[filter] duration-200 ease-out motion-reduce:transition-none ${frozen ? 'grayscale' : ''}`}
+      inert={frozen}
+      data-frozen={frozen || undefined}
+    >
       <main className="relative h-full">
         {/* The renderer's true pixel size is what is visible, so fit-to-screen fits (D9). */}
         <div className="absolute inset-0">
@@ -100,6 +110,7 @@ export default function GameTable() {
         <TriggerPrompts />
         <SheetLinkPrompt />
       </main>
+      <PauseOverlay />
     </div>
   );
 }

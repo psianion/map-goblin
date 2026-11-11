@@ -3,9 +3,12 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
-import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
+import { rollsModule } from '@dnd/mechanics/rolls'
+import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
+import { TABLE_PAUSED, tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
+import { pingModule } from './ping'
 import { ModuleRegistry, type DispatchContext } from './registry'
 import { sessionTable } from './table'
 
@@ -51,6 +54,38 @@ describe('table on the session row', () => {
     expect(run(DM, 'tokens', 'move', { id, x: 3, y: 3 })).toBeNull()
     run(DM, 'table', 'pause', { on: false })
     expect(run(PLAYER, 'tokens', 'move', { id, x: 5, y: 5 })).toBeNull()
+  })
+
+  it('a pause refuses every player command at dispatch, whatever its module, and never the DM', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Camp')
+    const session = stores.sessions.createSession(campaign.id, 'ABCD')
+    const t = sessionTable(stores)
+    const registry = new ModuleRegistry(stores.moduleState, undefined, (id) => t.flagsOf(id)?.paused === true)
+    registry.register(rollsModule)
+    registry.register(pingModule)
+    registry.register(t.module)
+    const run = (sender: Viewer, module: string, action: string, payload: unknown) =>
+      registry.dispatch(module, action, payload, {
+        campaignId: campaign.id,
+        sessionId: session.id,
+        activeSceneId: null,
+        sender,
+        players: [],
+        broadcast: () => {},
+      })
+    const roll = { formula: '1d20' }
+
+    run(DM, 'table', 'pause', { on: true })
+    expect(run(PLAYER, 'rolls', 'roll', roll)).toEqual(TABLE_PAUSED_ERROR)
+    expect(run(PLAYER, 'ping', 'echo', { t: 1 })).toEqual(TABLE_PAUSED_ERROR)
+    expect(TABLE_PAUSED_ERROR.message.startsWith(TABLE_PAUSED)).toBe(true)
+    expect(run(DM, 'rolls', 'roll', roll)).toBeNull()
+    expect(run(DM, 'ping', 'echo', { t: 1 })).toBeNull()
+
+    run(DM, 'table', 'pause', { on: false })
+    expect(run(PLAYER, 'rolls', 'roll', roll)).toBeNull()
+    expect(run(PLAYER, 'ping', 'echo', { t: 2 })).toBeNull()
   })
 
   it('a new session starts unpaused whatever the last one did', () => {

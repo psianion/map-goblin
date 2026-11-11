@@ -740,6 +740,46 @@ describe('v6 frames (table v2)', () => {
     })
   })
 
+  it('a paused table refuses every player roll, ping and move, never the DM, and lets seats come and go', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'PZ')
+      const paused = (m: { message: string }) => m.message.startsWith('table-paused')
+      sendCommand(dm, 'table', 'pause', { on: true })
+      await next(player, 'state-update')
+
+      sendCommand(player, 'rolls', 'roll', { formula: '1d20' })
+      expect(paused(await next(player, 'error'))).toBe(true)
+      player.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 2, y: 3 } }))
+      expect(paused(await next(player, 'error'))).toBe(true)
+      sendCommand(player, 'tokens', 'move', { id: 'tok-1', x: 2, y: 2 })
+      expect(paused(await next(player, 'error'))).toBe(true)
+
+      // The DM is never held: a roll and a ping both go out.
+      const rolled = next(dm, 'state-update')
+      sendCommand(dm, 'rolls', 'roll', { formula: '1d20' })
+      expect((await rolled).module).toBe('rolls')
+      const pinged = next(dm, 'mark')
+      dm.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 1, y: 1 } }))
+      expect((await pinged).event.mark).toMatchObject({ kind: 'ping' })
+
+      // Leaving and joining still work, and a seat joining mid-pause is handed the pause.
+      const left = next(dm, 'player-left')
+      player.close()
+      expect((await left).player).toMatchObject({ name: 'Bob', connected: false })
+      const late = await connect(server, { identity: 'id-cy', name: 'Cy', session: 'PZ' })
+      sendJoin(late)
+      const snapshot = await next(late, 'session-state')
+      expect(snapshot.state.modules.table).toMatchObject({ paused: true })
+
+      // Resumed: the same seat's ping goes out again.
+      sendCommand(dm, 'table', 'pause', { on: false })
+      await next(late, 'state-update')
+      const relayed = next(dm, 'mark')
+      late.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 4, y: 4 } }))
+      expect((await relayed).event).toMatchObject({ from: 'id-cy' })
+    })
+  })
+
   it('sends a roll request nudge only to the seats it names', async () => {
     await withServer({}, async (server) => {
       const [dm, player] = await joinedPair(server, 'RQ')

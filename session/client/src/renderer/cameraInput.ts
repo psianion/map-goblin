@@ -15,6 +15,7 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { computeContentBounds } from '@dnd/core/src/shared/mapBounds';
 import { useStore } from '@dnd/core/src/store/store';
 import { useSessionStore } from '../session/store';
+import { frozenNow } from '../shell/pause';
 import { MAX_ZOOM } from './camera';
 
 /** The editor's zoom floor, and the floor here too when the map is small enough to clear it. */
@@ -147,6 +148,8 @@ export function attachCameraInput(engine: RenderEngine, container: HTMLElement):
   let lastY = 0;
 
   const onPointerDown = (e: PointerEvent) => {
+    // A player's seat while the DM has paused the table: the camera holds still.
+    if (frozenNow()) return;
     // Middle drags the map always; left only because nothing above claimed the press.
     if (e.button !== 0 && e.button !== 1) return;
     panning = true;
@@ -173,6 +176,7 @@ export function attachCameraInput(engine: RenderEngine, container: HTMLElement):
     // Non-passive, and preventDefault first: over the map a wheel is a zoom, never a page
     // scroll and never the browser's own zoom (trackpad pinch arrives here as ctrl+wheel).
     e.preventDefault();
+    if (frozenNow()) return;
     const rect = container.getBoundingClientRect();
     zoomAbout(
       stage,
@@ -186,7 +190,7 @@ export function attachCameraInput(engine: RenderEngine, container: HTMLElement):
 
   // Zoom about the viewport centre, for a seat that is not driving a mouse (PRODUCT §A11y).
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target) || frozenNow()) return;
     const { width, height } = engine.viewport();
     const factor =
       e.key === '+' || e.key === '='

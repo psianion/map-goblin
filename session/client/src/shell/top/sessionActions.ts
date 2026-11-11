@@ -1,4 +1,5 @@
 import { endpoints } from '../../endpoints';
+import { navigate } from '../../router';
 import { useSessionStore } from '../../session/store';
 
 /** The `table` module's switches, once the server has the module; undefined before. */
@@ -10,6 +11,12 @@ export interface TableSwitches {
 /** Pause the table or lock token movement (4.3): DM commands on the `table` module. */
 export function setTableSwitch(action: 'pause' | 'lock-movement', on: boolean): void {
   useSessionStore.getState().sendCommand('table', action, { on });
+}
+
+/** A player leaves: the seat's socket closed and back to the start page. */
+export function leaveTable(): void {
+  useSessionStore.getState().disconnect();
+  navigate('/');
 }
 
 /** Assign a token on the live scene to a seat, or take it back (`identityId: null`). */

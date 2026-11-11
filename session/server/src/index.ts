@@ -119,7 +119,14 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   // §2.3.8 — the whole module table. Rolls and tokens register here the same way, from
   // @dnd/mechanics; nothing else in the server changes when they do (D2).
   // Table v2 adds the effect-timer tick on a turned round beside the fog's auto-explore.
-  const modules = new ModuleRegistry(stores.moduleState, afterWrites(autoExplore(vision), effectsTick))
+  // Table v2: the DM's pause and movement lock, read off the session's row (migration 006),
+  // which the table module writes through. A pause refuses every player command at dispatch.
+  const table = sessionTable(stores)
+  const modules = new ModuleRegistry(
+    stores.moduleState,
+    afterWrites(autoExplore(vision), effectsTick),
+    (sessionId) => table.flagsOf(sessionId)?.paused === true,
+  )
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
@@ -136,9 +143,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
-  // Table v2: the DM's pause and movement lock stop a player's move, read off the session's
-  // row (migration 006), which the table module writes through.
-  const table = sessionTable(stores)
+  // The movement lock (and the pause) stop a player's move through the tokens module's seam.
   modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf))
   modules.register(table.module)
   modules.register(pinsModule)

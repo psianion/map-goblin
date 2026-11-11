@@ -2,14 +2,13 @@ import { useState } from 'react';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { Button, Caption, Popover, PopoverContent, PopoverTrigger, Separator, SwitchRow, formatBytes } from '@dnd/ui';
 import { Users } from '@dnd/ui/icons';
-import { navigate } from '../../router';
 import { endSession } from '../../session/auth';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { librarySize, runLibrary, useTableAssets } from '../../renderer/assetLoading';
 import { seatColour } from '../seatColour';
 import { useInviteCode } from './inviteCode';
 import { withoutSupersededSeats } from './roster';
-import { assignToken, exportCampaign, setTableSwitch, type TableSwitches } from './sessionActions';
+import { assignToken, exportCampaign, leaveTable, setTableSwitch, type TableSwitches } from './sessionActions';
 
 const selectClass = 'h-7 max-w-36 rounded-control border border-line bg-panel px-1.5 text-xs text-text';
 
@@ -221,10 +220,7 @@ export function SessionMenu() {
             size="sm"
             className="self-start"
             data-testid="leave-table"
-            onClick={() => {
-              useSessionStore.getState().disconnect();
-              navigate('/');
-            }}
+            onClick={leaveTable}
           >
             Leave table
           </Button>

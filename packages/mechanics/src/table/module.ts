@@ -7,13 +7,24 @@
 // are shown; `sync` (internal, absent from `commands`) sets it from the row when a session
 // opens, so a new session never inherits the last one's pause.
 
-import type { GameModule } from '../contract'
+import type { CommandError, GameModule } from '../contract'
+import { refusal } from '../doors/types'
+import { TABLE_PAUSED } from '../tokens/module'
 import { Reject, bad, bool, obj } from '../tokens/validate'
 import type { TableFlags } from '../tokens/types'
 
 export type TableState = TableFlags
 
 export const TABLE_INITIAL: TableState = { paused: false, movementLocked: false }
+
+/**
+ * What every command from a player's seat gets while the DM holds the table, whatever its
+ * module: the server's dispatch answers it before any handler runs. The DM's never do.
+ */
+export const TABLE_PAUSED_ERROR: CommandError = {
+  code: 'unauthorized',
+  message: refusal(TABLE_PAUSED, null, 'the DM has paused the table'),
+}
 
 export const tableModule: GameModule<TableState> = {
   name: 'table',
