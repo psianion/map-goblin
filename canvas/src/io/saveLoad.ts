@@ -125,8 +125,8 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
 /** Map name reduced to a filesystem-safe `.ggvtt` filename. */
-function mapFilename(data: SerializedMapData): string {
-  const mapName = data.mapSettings.name || 'untitled-map';
+export function mapFilename(name: string): string {
+  const mapName = name || 'untitled-map';
   return `${mapName.replace(/[^a-z0-9\-_ ]/gi, '_')}${MAP_FILE_EXTENSION}`;
 }
 
@@ -141,7 +141,7 @@ function mapFilename(data: SerializedMapData): string {
  */
 export async function downloadMapFile(): Promise<string> {
   const data: SerializedMapData = useStore.getState().getSerializableState();
-  const filename = mapFilename(data);
+  const filename = mapFilename(data.mapSettings.name);
   downloadBytes(await serializeToBytes(data), filename);
   return filename;
 }
@@ -162,7 +162,7 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
   const activeMapId = state.activeMapId;
 
   const compressed = await serializeToBytes(data);
-  const filename = mapFilename(data);
+  const filename = mapFilename(data.mapSettings.name);
 
   if ('showSaveFilePicker' in window && !forceNewFile) {
     // Use existing handle for silent overwrite if available

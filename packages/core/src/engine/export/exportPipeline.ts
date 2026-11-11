@@ -1,10 +1,14 @@
-import { RenderTexture, type Renderer } from 'pixi.js';
+import { RenderTexture, type Container, type Filter, type Renderer } from 'pixi.js';
 import type { RenderEngine } from '../RenderEngine';
 import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
-import type { Layer } from '../../store/types';
+import { TERRAIN_PANEL_ID, type DungeonLayer, type Layer, type LightChild } from '../../store/types';
 import { useStore } from '../../store/store';
-import { compareLayerIds } from '../../store/selectors';
+import { compareLayerIds, shownLevelId } from '../../store/selectors';
+import { LightManager } from '../lighting';
+import { levelLighting } from '../renderLoop';
+import { updateShadows } from '../shadowPass';
+import { displayedSky } from '../worldOverride';
 import { traceLayerIds } from '../../shared/traceLayer';
 import {
   EXPORT_RESOLUTION,
@@ -36,6 +40,13 @@ export interface ExportOptions {
    * them (the default).
    */
   labels?: 'none' | 'players' | 'all';
+  /**
+   * Draw one level, and of it only the layers named (the background, and the painted terrain
+   * as `TERRAIN_PANEL_ID`, among them when named), whatever level the editor shows; `layers`
+   * is then that level's own layers, the file's frame. The file is lit by those layers alone.
+   * Absent, the file is the level on show as the editor draws it, background images left out.
+   */
+  only?: { levelId: string; layerIds: readonly string[] };
 }
 
 /**
@@ -90,6 +101,17 @@ function bandPad(layers: readonly Layer[]): number {
   return pad;
 }
 
+/** A light manager fed from `layers` alone: their lights and walls, and their rooms and glows on `levelId`. */
+function lightsOf(state: ReturnType<typeof useStore.getState>, layers: DungeonLayer[], levelId: string): LightManager {
+  const manager = new LightManager();
+  manager.syncFromStore(layers.flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light')));
+  manager.rebuildIfDirty(layers);
+  const { regions, glows, glowKey } = levelLighting(state, layers, levelId);
+  manager.setRegions(regions);
+  manager.setGlows(glows, glowKey);
+  return manager;
+}
+
 /**
  * Render the current map to a Blob (PNG or JPEG) at the requested resolution.
  */
@@ -138,17 +160,62 @@ export async function runExportPipeline(
       hidden.push(node);
       node.visible = false;
     };
+    // Everything shown for the file, with what it had; `alpha` also lifts the compare grey.
+    const shown: { node: Container; visible: boolean; look: { alpha: number; filters: Container['filters'] } | null }[] = [];
+    const show = (node: Container | null | undefined, alpha?: number) => {
+      if (!node || (node.visible && alpha === undefined)) return;
+      shown.push({ node, visible: node.visible, look: alpha === undefined ? null : { alpha: node.alpha, filters: node.filters } });
+      node.visible = true;
+      if (alpha === undefined) return;
+      node.alpha = alpha;
+      node.filters = null;
+    };
 
     try {
       for (const node of sceneGraph.worldContainer.children ?? []) {
         if (EDITOR_ONLY.includes(node.label)) hide(node);
       }
-      // A compared level is a view aid drawn under the one on show, and a trace is a picture
-      // to draw over; neither ever reaches a file.
-      for (const id of [...compareLayerIds(useStore.getState()), ...traceLayerIds(useStore.getState().layers)]) {
-        const entry = getLayerEntry(id);
-        hide(entry?.textureSprite ?? entry?.container);
+      const state = useStore.getState();
+      const only = opts.only ? new Set(opts.only.layerIds) : null;
+      if (only) {
+        // The layers named and no others, whatever level is on show: a compared one at its own
+        // opacity, ungreyed.
+        const compared = new Set(compareLayerIds(state));
+        for (const layer of state.layers) {
+          const entry = getLayerEntry(layer.id);
+          const nodes = [entry?.textureSprite ?? entry?.container, layer.type === 'background' ? sceneGraph.backgroundLayer : null];
+          for (const node of nodes) {
+            if (!only.has(layer.id)) hide(node);
+            else show(node, compared.has(layer.id) ? layer.opacity : undefined);
+          }
+        }
+        if (!only.has(TERRAIN_PANEL_ID)) hide(sceneGraph.terrainRenderer?.container);
+        // An overhead prop sits outside its layer's container, its layer's visibility folded in.
+        const owners = new Map<string, { layerId: string; visible: boolean }>();
+        for (const layer of state.layers) {
+          if (layer.type !== 'dungeon') continue;
+          for (const c of layer.children) {
+            if (c.childType === 'asset') owners.set(`placed-${c.id}`, { layerId: layer.id, visible: c.visible });
+          }
+        }
+        for (const sprite of sceneGraph.overheadContainer?.children ?? []) {
+          const owner = owners.get(sprite.label);
+          if (!owner) continue;
+          if (owner.visible && only.has(owner.layerId)) show(sprite);
+          else hide(sprite);
+        }
+      } else {
+        // A compared level is a view aid drawn under the one on show, and a trace is a picture
+        // to draw over; neither ever reaches a file.
+        for (const id of [...compareLayerIds(state), ...traceLayerIds(state.layers)]) {
+          const entry = getLayerEntry(id);
+          hide(entry?.textureSprite ?? entry?.container);
+        }
       }
+      // The lights, walls, rooms and glows of the layers drawn, when those are not the ones on show.
+      const drawnDungeons = only
+        ? state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon' && only.has(l.id))
+        : [];
       const labels = opts.labels ?? 'all';
       if (labels !== 'all') {
         for (const layer of layers) {
@@ -200,6 +267,13 @@ export async function runExportPipeline(
       sceneGraph.worldContainer.position.set(worldX, worldY);
       sceneGraph.worldContainer.scale.set(zoom);
 
+      // A level not on show has no shadows drawn: draw its own for the file, under the sky the
+      // editor stands at, as the level on show has. The next frame draws that level's again.
+      if (opts.only && opts.only.levelId !== shownLevelId(state)) {
+        const frame = displayedSky();
+        if (frame) updateShadows(drawnDungeons, 0, frame);
+      }
+
       // Render world to export texture
       engine.renderToTexture(sceneGraph.worldContainer, exportRT);
 
@@ -220,11 +294,18 @@ export async function runExportPipeline(
                 weather: opts.lighting.weather,
               })
             : undefined;
-        sceneGraph.lightingRenderer.renderInto(exportRT, zoom, widthPx, heightPx, sky);
+        const manager = opts.only ? lightsOf(state, drawnDungeons, opts.only.levelId) : undefined;
+        sceneGraph.lightingRenderer.renderInto(exportRT, zoom, widthPx, heightPx, sky, manager);
       }
     } finally {
       releaseLook?.();
       for (const node of hidden) node.visible = true;
+      for (const { node, visible, look } of shown.reverse()) {
+        node.visible = visible;
+        if (!look) continue;
+        node.alpha = look.alpha;
+        node.filters = look.filters as Filter[] | null;
+      }
 
       // Restore original transform and grid visibility
       sceneGraph.worldContainer.position.set(origX, origY);

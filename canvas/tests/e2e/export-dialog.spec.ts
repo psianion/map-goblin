@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { unzipSync } from 'fflate'
 import { test, expect, type Page } from '@playwright/test'
 import { drawRect, gotoApp, pressShortcut, waitFrame } from './helpers'
 import { openEditor, pickTool } from './shell'
@@ -7,12 +8,14 @@ import { openEditor, pickTool } from './shell'
 type Any = any
 
 /**
- * The editor's Export dialog: Ctrl+E and the More menu open it; Format, Pixels per square,
- * Apply lighting, Grid lines and Labels are there; Cancel, the X and Escape close it; the
- * size line follows the pixels per square; a preview is drawn; PNG and JPEG download
+ * The editor's Export dialog: Ctrl+E and the More menu open it; Format, Layers, Pixels per
+ * square, Apply lighting, Grid lines and Labels are there; Cancel, the X and Escape close it;
+ * the size line follows the pixels per square; a preview is drawn; PNG and JPEG download
  * files that are what they say; Map file drops the picture's options and downloads the
  * same container Ctrl+S writes; the lit picture follows the hour, and the weather picked
- * in the dialog is the one the exported file is lit with.
+ * in the dialog is the one the exported file is lit with. Export stays on a short laptop
+ * screen with lighting on, an unticked layer leaves the file, and every level of a
+ * two-level map comes down as one zip.
  */
 
 const modal = (page: Page) => page.getByTestId('v2-export-modal')
@@ -109,6 +112,9 @@ test('the options are all there: format, pixels per square, lighting, grid lines
   await expect(m.getByRole('switch', { name: 'Grid lines' })).toHaveAttribute('aria-checked', 'true')
   const labels = m.getByRole('group', { name: 'Labels' })
   for (const l of ['None', 'Players', 'All']) await expect(labels.getByRole('button', { name: l })).toBeVisible()
+  // The open level's layers, each ticked; a one-level map has no Level row.
+  await expect(m.getByRole('group', { name: 'Layers' }).getByRole('checkbox').first()).toBeVisible()
+  await expect(m.getByTestId('v2-export-level')).toHaveCount(0)
 })
 
 test('Cancel, the X and Escape each close it', { tag: '@export' }, async ({ page }) => {
@@ -211,4 +217,60 @@ test('the weather picked in the dialog is the weather the exported file is lit w
 
   // A storm takes close to half the daylight away; a few luma of slack covers the encoder.
   expect(storm).toBeLessThan(clear - 8)
+})
+
+test('on a 1366×600 window with lighting on, Export is on screen', { tag: '@export' }, async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 600 })
+  await gotoApp(page)
+  await openExport(page)
+  await lightingOn(page)
+  await expect(modal(page).getByTestId('v2-export-lighting')).toBeVisible()
+  const go = modal(page).getByTestId('v2-export-go')
+  await expect(go).toBeInViewport({ ratio: 1 })
+  const box = (await modal(page).boundingBox())!
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height).toBeLessThanOrEqual(600)
+})
+
+test('unticking a layer leaves it out of the exported picture', { tag: '@export' }, async ({ page }) => {
+  await gotoApp(page)
+  await drawSomething(page)
+  const name = await page.evaluate(() => {
+    const s = (window as Any).__store.getState()
+    return s.layers.find((l: Any) => l.id === s.ui.activeLayerId).name as string
+  })
+  const download = async () => {
+    const [file] = await Promise.all([page.waitForEvent('download'), modal(page).getByTestId('v2-export-go').click()])
+    await expect(modal(page)).toHaveCount(0)
+    return readFileSync(await file.path())
+  }
+  await openExport(page)
+  const withLayer = await meanOfBytes(page, await download())
+
+  await openExport(page)
+  const tick = modal(page).getByRole('group', { name: 'Layers' }).getByRole('checkbox', { name })
+  await expect(tick).toHaveAttribute('aria-checked', 'true')
+  await tick.click()
+  await expect(tick).toHaveAttribute('aria-checked', 'false')
+  const withoutLayer = await meanOfBytes(page, await download())
+  expect(Math.abs(withLayer - withoutLayer)).toBeGreaterThan(1)
+})
+
+test('every level of a two-level map downloads as one zip, a picture per level', { tag: '@export' }, async ({ page }) => {
+  await gotoApp(page)
+  await drawSomething(page)
+  await page.evaluate(() => (window as Any).__store.getState().addLevel({ id: 'lower', name: 'Lower' }))
+  await waitFrame(page, 2)
+  await openExport(page)
+  await modal(page).getByRole('combobox', { name: 'Level' }).click()
+  await page.getByRole('option', { name: 'Every level, one file each' }).click()
+  await expect(modal(page).getByTestId('v2-export-filename')).toHaveText(/\.zip$/)
+  await expect(modal(page).getByTestId('v2-export-size')).toContainText('2 files')
+  const [file] = await Promise.all([page.waitForEvent('download'), modal(page).getByTestId('v2-export-go').click()])
+  expect(file.suggestedFilename()).toMatch(/\.zip$/)
+  const entries = unzipSync(new Uint8Array(readFileSync(await file.path())))
+  const names = Object.keys(entries)
+  expect(names).toHaveLength(2)
+  expect(names[1]).toMatch(/-Lower\.png$/)
+  for (const n of names) expect([...entries[n]!.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47])
 })

@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
+import { unzipSync } from 'fflate';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
+import { createDungeonLayer, createImageLayer } from '@dnd/core/src/store/factories';
 import { useStore } from '@/store/store';
 import { ExportModal } from './ExportModal';
 
-const { notify, pipeline, download, mapFile } = vi.hoisted(() => ({
+const { notify, pipeline, download, mapFile, bytesDownload } = vi.hoisted(() => ({
   notify: { success: vi.fn(), error: vi.fn() },
   pipeline: vi.fn(async () => ({ blob: new Blob(), filename: 'map.png' })),
   download: vi.fn(),
   mapFile: vi.fn(async () => 'map.ggvtt'),
+  bytesDownload: vi.fn(),
 }));
 vi.mock('@dnd/ui/toast', () => ({ notify }));
 vi.mock('@/engine/engineSingleton', () => ({ getEngineSingleton: () => ({ engine: {}, sceneGraph: {} }) }));
@@ -20,6 +23,7 @@ vi.mock('@/engine/export/exportPipeline', async (importOriginal) => ({
 vi.mock('@/io/saveLoad', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/io/saveLoad')>()),
   downloadMapFile: mapFile,
+  downloadBytes: bytesDownload,
 }));
 
 const desk: EditorDesk = { desk: '#f2f2f2', dot: '#c6c6c6', sheet: '#fbfbfb', ink: '#1b1b1b' };
@@ -222,5 +226,139 @@ describe('ExportModal', () => {
     rerender(<ExportModal open={false} onOpenChange={() => {}} />);
     rerender(<ExportModal open onOpenChange={() => {}} />);
     expect(screen.getByRole('button', { name: 'None' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  describe('levels and layers', () => {
+    type Only = { levelId: string; layerIds: string[] };
+    const onlyOf = (o: ExportOpts) => (o as ExportOpts & { only: Only }).only;
+    const openLevel = () => useStore.getState().levels[0]!.id;
+    const ground = () => useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    const tick = (name: string) => within(screen.getByRole('group', { name: 'Layers' })).getByRole('checkbox', { name });
+
+    /** A second level with a layer of its own. */
+    function addLevel(name = 'Lower caves') {
+      const s = useStore.getState();
+      s.addLevel({ id: 'down', name });
+      useStore.getState().addLayer(createDungeonLayer('Caves', 'down'));
+    }
+
+    // jsdom cannot click the select list's options, but the keyboard drives it: open the list,
+    // step down to the last option, Enter.
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    async function pickLastLevelOption() {
+      const trigger = screen.getByRole('combobox', { name: 'Level' });
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+      await settle();
+      const count = screen.getAllByRole('option').length;
+      for (let i = 0; i < count; i++) {
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+        await settle();
+      }
+      expect(document.activeElement?.textContent).toBe('Every level, one file each');
+      fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+      await settle();
+    }
+
+    it('lists the open level’s own layers, every one ticked, and sends only the ticked ones', async () => {
+      useStore.getState().addLayer(createDungeonLayer('Props', openLevel()));
+      const props = useStore.getState().layers.find((l) => l.name === 'Props')!;
+      const onOpenChange = vi.fn();
+      render(<ExportModal open onOpenChange={onOpenChange} />);
+      expect(tick(ground().name).getAttribute('aria-checked')).toBe('true');
+      expect(tick('Props').getAttribute('aria-checked')).toBe('true');
+      fireEvent.click(tick('Props'));
+      expect(tick('Props').getAttribute('aria-checked')).toBe('false');
+      go();
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      const only = onlyOf(lastOpts());
+      expect(only.levelId).toBe(openLevel());
+      expect(only.layerIds).toContain(ground().id);
+      expect(only.layerIds).not.toContain(props.id);
+      // The preview draws the same pick.
+      expect(onlyOf(previews().at(-1)!).layerIds).not.toContain(props.id);
+    });
+
+    it('starts a background image layer unticked, and draws it once ticked', async () => {
+      const trace = { ...createImageLayer(openLevel(), 'sketch', 'sketch.png'), name: 'Sketch' };
+      useStore.getState().addLayer(trace);
+      const onOpenChange = vi.fn();
+      render(<ExportModal open onOpenChange={onOpenChange} />);
+      expect(tick('Sketch').getAttribute('aria-checked')).toBe('false');
+      expect(screen.getByTestId('v2-export-layers').textContent).toContain('background image');
+      go();
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(onlyOf(lastOpts()).layerIds).not.toContain(trace.id);
+      fireEvent.click(tick('Sketch'));
+      go();
+      await waitFor(() => expect(exports()).toHaveLength(2));
+      expect(onlyOf(lastOpts()).layerIds).toContain(trace.id);
+    });
+
+    it('shows a hidden layer unticked and locked out, as export always left it out', async () => {
+      const g = ground();
+      useStore.setState({ layers: useStore.getState().layers.map((l) => (l.id === g.id ? { ...l, visible: false } : l)) });
+      render(<ExportModal open onOpenChange={() => {}} />);
+      expect(tick(g.name).getAttribute('aria-checked')).toBe('false');
+      expect(tick(g.name).hasAttribute('data-disabled')).toBe(true);
+    });
+
+    it('has no Level row on a one-level map, and one marking the open level on a two-level map', () => {
+      const { rerender } = render(<ExportModal open onOpenChange={() => {}} />);
+      expect(screen.queryByTestId('v2-export-level')).toBeNull();
+      rerender(<ExportModal open={false} onOpenChange={() => {}} />);
+      addLevel();
+      rerender(<ExportModal open onOpenChange={() => {}} />);
+      expect(screen.getByRole('combobox', { name: 'Level' }).textContent).toContain('(open now)');
+    });
+
+    it('every level downloads one zip, an entry named for each level, rendered one after another', async () => {
+      addLevel();
+      pipeline.mockImplementation(async (...args: unknown[]) => {
+        const only = (args[3] as ExportOpts & { only: Only }).only;
+        const bytes = new Uint8Array([only.levelId === 'down' ? 2 : 1]);
+        return { blob: { arrayBuffer: async () => bytes.buffer } as unknown as Blob, filename: 'x.png' };
+      });
+      useStore.getState().setMapName('Goblin Warren');
+      const onOpenChange = vi.fn();
+      render(<ExportModal open onOpenChange={onOpenChange} />);
+      await pickLastLevelOption();
+      await waitFor(() => expect(screen.getByTestId('v2-export-filename').textContent).toBe('Goblin-Warren.zip'));
+      // The Enter that picked the option did not export.
+      expect(exports()).toHaveLength(0);
+      expect(screen.getByTestId('v2-export-layers').textContent).toContain('All layers of each level, without background images');
+      expect(screen.getByTestId('v2-export-size').textContent).toContain('2 files');
+      go();
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      expect(exports().map((o) => onlyOf(o).levelId)).toEqual([openLevel(), 'down']);
+      expect(download).not.toHaveBeenCalled();
+      const [bytes, name] = bytesDownload.mock.calls[0] as [Uint8Array, string];
+      expect(name).toBe('Goblin-Warren.zip');
+      const entries = unzipSync(bytes);
+      expect(Object.keys(entries)).toEqual(['Goblin-Warren-Level-1.png', 'Goblin-Warren-Lower-caves.png']);
+      expect([...entries['Goblin-Warren-Lower-caves.png']!]).toEqual([2]);
+      pipeline.mockImplementation(async () => ({ blob: new Blob(), filename: 'map.png' }));
+    });
+
+    it('names the file it will write in the foot', () => {
+      useStore.getState().setMapName('Warren');
+      render(<ExportModal open onOpenChange={() => {}} />);
+      expect(screen.getByTestId('v2-export-filename').textContent).toBe('Warren-1280x1280-128ppc.png');
+      fireEvent.click(screen.getByRole('button', { name: 'Map file' }));
+      expect(screen.getByTestId('v2-export-filename').textContent).toBe('Warren.ggvtt');
+    });
+
+    it('caps its height at the window less 48 px and scrolls the body, the foot with Export outside it', () => {
+      render(<ExportModal open onOpenChange={() => {}} />);
+      const modal = screen.getByTestId('v2-export-modal');
+      expect(modal.className).toContain('max-h-[calc(100dvh-48px)]');
+      const body = screen.getByTestId('v2-export-body');
+      expect(body.className).toContain('min-h-0');
+      expect(body.className).toContain('overflow-y-auto');
+      // Side by side, only the options scroll.
+      expect(body.className).toContain('min-[672px]:grid-cols-[minmax(0,1fr)_300px]');
+      expect(screen.getByTestId('v2-export-options').className).toContain('min-[672px]:overflow-y-auto');
+      expect(body.contains(screen.getByTestId('v2-export-go'))).toBe(false);
+    });
   });
 });
