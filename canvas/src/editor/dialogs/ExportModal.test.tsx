@@ -360,5 +360,10 @@ describe('ExportModal', () => {
       expect(screen.getByTestId('v2-export-options').className).toContain('min-[672px]:overflow-y-auto');
       expect(body.contains(screen.getByTestId('v2-export-go'))).toBe(false);
     });
+
+    it('starts with the focus on Export, so Enter straight after opening exports', async () => {
+      render(<ExportModal open onOpenChange={() => {}} />);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('v2-export-go')));
+    });
   });
 });

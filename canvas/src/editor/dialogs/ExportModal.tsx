@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { editorShowsLighting } from '@dnd/core/src/engine/editorDesk';
 import {
   Button,
@@ -369,6 +369,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [busy, format, every, targets, pxPerCell, includeGrid, mapName, lit, labels, onOpenChange]);
 
+  const goRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   useEscapeToClose(open, close, busy);
 
@@ -383,6 +384,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       <DialogContent
         data-v2-home=""
         data-testid="v2-export-modal"
+        // Focus starts on Export, so Enter straight after opening exports rather than closing.
+        initialFocus={goRef}
         className={cn('max-h-[calc(100dvh-48px)] gap-0 overflow-hidden p-0', image && 'w-[820px]')}
         onKeyDown={(e) => {
           // Keep the canvas shortcuts out of the form, and let Enter export — but not the Enter
@@ -503,7 +506,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             <Button variant="outline" disabled={busy} onClick={close}>
               Cancel
             </Button>
-            <PrimaryButton data-testid="v2-export-go" disabled={busy} onClick={() => void submit()}>
+            <PrimaryButton ref={goRef} data-testid="v2-export-go" disabled={busy} onClick={() => void submit()}>
               {busy ? (progress ? `Exporting ${progress.done} of ${progress.total}…` : 'Exporting…') : 'Export'}
             </PrimaryButton>
           </Actions>
