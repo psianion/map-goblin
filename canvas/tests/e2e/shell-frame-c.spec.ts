@@ -61,7 +61,7 @@ test('frame C: Select picks only what its chips allow, mixes kinds, and goes bac
   page.on('pageerror', (e) => errors.push(e.message))
   await openEditor(page)
   await pickFromFlyout(page, 'Design', 'Floor')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Shape', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look'])
 
   const rail = page.getByTestId('shell-rail')
   await rail.getByRole('button', { name: 'Select' }).click()
@@ -81,7 +81,7 @@ test('frame C: Select picks only what its chips allow, mixes kinds, and goes bac
   await expect(panel.getByRole('button', { name: 'Reset', exact: true })).toHaveCount(0)
 
   // The dock keeps the last family's Look column and drops Shape and Edit.
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'look'])
   await expect(page.getByTestId('shell-status-hint')).toHaveText('Nothing picked')
   await expectFrameGeometry(page)
   await expectSlot(page)
@@ -133,6 +133,6 @@ test('frame C: Select picks only what its chips allow, mixes kinds, and goes bac
   await waitFrame(page, 2)
   await page.getByTestId('select-previous').click()
   expect(await store<string>(page, `(s) => s.tools.activeTool`)).toMatch(/^(rectangle|polygon|regularPolygon)$/)
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Shape', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look'])
   expect(errors).toEqual([])
 })

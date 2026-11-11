@@ -30,7 +30,7 @@ test('water brush: paint water, change Deep, sample, undo', { tag: '@terrain' },
   await pickFromFlyout(page, 'Terrain', 'Water brush')
   await waitFrame(page, 4)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Size', 'Place'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'Place'])
   const dock = page.getByTestId('shell-dock')
   await expect(dock.getByRole('button', { name: 'Shape' })).toBeDisabled()
   await expect(dock.getByText('Shape comes after the brush')).toBeVisible()

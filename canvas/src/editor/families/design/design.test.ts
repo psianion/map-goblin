@@ -231,6 +231,16 @@ describe('tool settings', () => {
     expect(st().tools.settings.wallType).toBe('invisible');
   });
 
+  it('wall Draw comes first in the dock, writes Points or Freehand, and the hint follows it', () => {
+    expect(reg.settingsByHome('wall', 'dock')[0].id).toBe('wall.draw');
+    const hint = () => reg.toolById('wall')!.hint(st()).segments.map((s) => s.text).join('');
+    expect(settings.getSetting('wall.draw')).toBe('points');
+    expect(hint()).toContain('Click points');
+    settings.setSetting('wall.draw', 'freehand');
+    expect(st().tools.settings.wallDraw).toBe('freehand');
+    expect(hint()).toBe('Drag to draw · release finishes · ending at the start closes the loop · Esc cancel');
+  });
+
   it('door Style takes the width up to what the style needs, and Width never goes under it', () => {
     settings.setSetting('door.style', 'double');
     expect(st().tools.settings.doorWidth).toBe(2);

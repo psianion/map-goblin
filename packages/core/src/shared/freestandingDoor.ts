@@ -4,7 +4,7 @@
 // Door tool and the card build their commands from these answers.
 
 import type { DoorChild, DungeonLayer, WallSegment } from '../store/types';
-import { FLOOR_ANCHORED, polylineLength, projectDoorOnto, resolveDoors, resolveWalls } from './wallResolve';
+import { doorWallId, polylineLength, projectDoorOnto, resolveDoors, resolveWalls } from './wallResolve';
 import { snapToNearestWall } from './wallSnap';
 import { isOwnPiece } from './doorwaySeal';
 
@@ -62,7 +62,7 @@ export function anchorFor(
   if (!snap || !wall) return null;
   const placed = projectDoorOnto(door, wall, snap.position);
   return {
-    wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
+    wallId: doorWallId(wall),
     position: placed.position,
     angle: placed.angle,
   };

@@ -12,6 +12,7 @@ import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
 import { getCatalogEntry, isBandSet, nextAssetName } from '../assets/packCatalog';
 import { isCaveBandAsset } from '../assets/caveWallKit';
+import { materialFillId } from '../assets/materialKit';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
@@ -82,7 +83,7 @@ export const useStore = create<MapBuilderStore>()(
         // and a band-kit layer loses its placed cave band (see dropPlacedCaveBand).
         // Water bodies and paths are dropped (3.2, 3.4); the DM is told how many.
         const retiredRemoved = countRetiredBodies(data.layers);
-        data = migrateToLatest(data, { isBandSet, isCaveBandAsset });
+        data = migrateToLatest(data, { isBandSet, isCaveBandAsset, fillOf: materialFillId });
         if (retiredRemoved > 0) getNotify().warning(retiredRemovedMessage(retiredRemoved));
         // Rooms became anchored places and maps gained levels: every path that opens
         // a map (v1 sidebar, v2 home page, file import, the table) comes through here,

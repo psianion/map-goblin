@@ -324,7 +324,7 @@ Sky and mood sheet, rebuilt around what renders: Environment (Outdoor, Indoor, U
 
 ### 6.5 Text
 
-Tools: Label, Zone, Rooms (Rectangle room, Polygon room, Divide), Prep overview.
+Tools: Label, Zone, Rooms (one tool; its dock's Draw row picks Rectangle, Polygon or Divide; its panel opens the rooms list), Prep overview.
 
 Label. Dock: Size, Colour, style tiles (Room name, Door tag, GM note, Number pin, Callout, Custom). Panel: Font (two or three faces). Card: text, Follows or Unbind, Style, Size, Colour, Weight, Backdrop, Align, Angle, Visible to players. View menu gets a hide-all-labels toggle. Dungeondraft: Text tool.
 

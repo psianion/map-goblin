@@ -5,6 +5,7 @@ import { roomFaces } from '../engine/roomDetection';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
 import { interiorPoint, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
+import { caveCutters } from './caveFloor';
 
 /** How close a face's edge may come to the frame before it counts as the outside. */
 const FRAME_EPSILON = 1e-3;
@@ -22,6 +23,51 @@ const FRAME_EPSILON = 1e-3;
  * Each suggestion gets a uuid, the next free number and the name `Room N`, and is
  * anchored at a point inside its face, numbered in reading order.
  */
+function ringArea(ring: readonly [number, number][]): number {
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+  return Math.abs(a / 2);
+}
+
+/**
+ * Where a proposed room is anchored: inside its face and outside every face nested in it
+ * (a cave painted inside a floor), so the room round a cave never lands on the cave. The
+ * widest run of an even-odd scan over the face and the faces inside it.
+ */
+function anchorOutside(face: [number, number][], faces: readonly [number, number][][]): [number, number] {
+  const p = interiorPoint(face);
+  const area = ringArea(face);
+  const inner = faces.filter((f) => f !== face && ringArea(f) < area && pointInRing(...interiorPoint(f), face));
+  if (!inner.some((f) => pointInRing(p[0], p[1], f))) return p;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [, y] of face) {
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  let best = p;
+  let bestWidth = 0;
+  for (let k = 1; k <= 24; k++) {
+    const y = minY + ((maxY - minY) * k) / 25;
+    const xs: number[] = [];
+    for (const ring of [face, ...inner]) {
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > y !== yj > y) xs.push(((xj - xi) * (y - yi)) / (yj - yi) + xi);
+      }
+    }
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      if (xs[i + 1] - xs[i] > bestWidth) {
+        bestWidth = xs[i + 1] - xs[i];
+        best = [(xs[i] + xs[i + 1]) / 2, y];
+      }
+    }
+  }
+  return best;
+}
+
 export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Room[] {
   const mergedFloor = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
   const wallsOnly = mergedFloor.length === 0;
@@ -41,7 +87,8 @@ export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Ro
     layer.standaloneWalls,
     ROOM_GRID_SIZE,
     layer.style?.wallWidth ?? 0,
-    layer.thresholds ?? [],
+    // A painted cave's edge cuts like a threshold, so a cave inside a floor is proposed on its own.
+    [...(layer.thresholds ?? []), ...caveCutters(layer)],
   );
   if (wallsOnly) {
     faces = faces.filter((face) =>
@@ -66,7 +113,7 @@ export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Ro
 
   const free = faces
     .filter((face) => !held(face))
-    .map((face) => ({ face, anchor: interiorPoint(face), centroid: interiorPoint(face) }));
+    .map((face) => ({ face, anchor: anchorOutside(face, faces), centroid: interiorPoint(face) }));
   let n = nextRoomNumber(rooms);
   return readingOrder(free).map(({ face, anchor }) => {
     const number = n++;

@@ -52,23 +52,40 @@ describe('the Text family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds Label, Zone and the three Rooms tools under X, Label off N and Divide off X and Q', () => {
+  it('holds Label, Zone and one Rooms tool under X, Label off N', () => {
     expect(text.key).toBe('X');
     expect(text.tools.map((t) => [t.label, t.key])).toEqual([
       ['Label', 'A'],
       ['Zone', 'Z'],
-      ['Rectangle room', 'R'],
-      ['Polygon room', 'P'],
-      ['Divide', 'K'],
+      ['Rooms', 'R'],
     ]);
+    expect(reg.toolById('rooms')!.engine).toEqual(['roomRect', 'roomPolygon', 'divide']);
   });
 
   it('keeps the room views out of the tools: they live in the View menu', () => {
     const ids = text.tools.flatMap((t) => t.settings.map((s) => s.id));
     expect(ids.some((id) => /outline|labels|mood/i.test(id))).toBe(false);
-    expect(reg.settingsByHome('roomRect', 'panel').map((s) => s.id)).toEqual(['rooms.walls']);
-    expect(reg.settingsByHome('divide', 'dock').map((s) => s.id)).toEqual(['rooms.divider']);
-    expect(reg.toolById('roomRect')!.dock.map((c) => c.id)).toEqual(['rooms.floor']);
+    expect(reg.settingsByHome('rooms', 'panel').map((s) => s.id)).toEqual(['rooms.walls']);
+    expect(reg.settingsByHome('rooms', 'dock').map((s) => s.id)).toEqual(['rooms.mode', 'rooms.divider']);
+    expect(reg.toolById('rooms')!.dock.map((c) => c.id)).toEqual(['rooms.floor']);
+  });
+
+  it('the Rooms tool’s Draw row follows the engine tool in hand and swaps Walls for Divider on Divide', () => {
+    const visible = (id: string) => {
+      const def = reg.settingById(id)!;
+      return !def.visibleWhen || def.visibleWhen((x) => settings.getSetting(x));
+    };
+    const hint = () => reg.toolById('rooms')!.hint(st());
+    st().setActiveTool('roomRect');
+    expect(settings.getSetting('rooms.mode')).toBe('rect');
+    expect([visible('rooms.walls'), visible('rooms.divider')]).toEqual([true, false]);
+    expect(hint().label).toBe('Rooms');
+    settings.setSetting('rooms.mode', 'polygon');
+    expect(st().tools.activeTool).toBe('roomPolygon');
+    settings.setSetting('rooms.mode', 'divide');
+    expect(st().tools.activeTool).toBe('divide');
+    expect([visible('rooms.walls'), visible('rooms.divider')]).toEqual([false, true]);
+    expect(hint().segments[0].text).toContain('Drag across a floor');
   });
 
   it('carries no Mood on the room, area or level cards', () => {

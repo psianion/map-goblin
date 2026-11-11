@@ -248,6 +248,55 @@ describe('DoorTool', () => {
     });
   });
 
+  describe('between two walls', () => {
+    /** A second wall along y = `y`, as long as w1. */
+    const facing = (y: number) => useStore.getState().addWall(layer().id, { ...structuredClone(WALL), id: 'w2', points: [[0, y], [10, y]] });
+
+    it('in a corridor’s middle the door spans it, as wide as the gap between the faces', () => {
+      facing(7.5);
+      useStore.getState().updateWall(layer().id, 'w1', { textureSetId: 'GG_Stone', textureTint: '#aabbcc' });
+      tool.onPointerMove({ x: 5, y: 6.25 });
+      expect(ghost.children.length).toBeGreaterThan(0);
+      expect(ghost.tint).toBe(0xffffff);
+      click(tool, 5, 6.25);
+      const [d] = doors();
+      expect(d.freestanding).toBe(true);
+      // 2.5 between the walls' lines, less half of each 0.4 wall.
+      expect(d.width).toBeCloseTo(2.1);
+      expect(d.position[0]).toBeCloseTo(5);
+      expect(d.position[1]).toBeCloseTo(6.25);
+      expect(Math.abs(Math.sin(d.angle))).toBeCloseTo(1);
+      const piece = layer().standaloneWalls.find((w) => w.id === d.wallId)!;
+      expect(piece).toMatchObject({ textureSetId: 'GG_Stone', textureTint: '#aabbcc' });
+      expect(Math.abs(piece.points[1][1] - piece.points[0][1])).toBeCloseTo(2.1);
+    });
+
+    it('with the pointer on one of the walls it hangs along that wall', () => {
+      facing(7.5);
+      click(tool, 5, 5.2);
+      expect(doors()[0].wallId).toBe('w1');
+      expect(doors()[0].angle).toBeCloseTo(0);
+    });
+
+    it('on a curved floor ring’s short edge, too short for a door, it spans the gap instead', () => {
+      // A corridor 2 deep whose top is laid in half-cell edges, as a smoothed ring is.
+      const top: [number, number][] = Array.from({ length: 21 }, (_, i) => [i * 0.5, 30]);
+      useStore.getState().updateLayer(layer().id, { mergedFloor: [[...top, [10, 32], [0, 32]]] });
+      click(tool, 5, 30.1);
+      const [d] = doors();
+      expect(d.freestanding).toBe(true);
+      expect(d.width).toBeCloseTo(2);
+      expect(Math.abs(Math.sin(d.angle))).toBeCloseTo(1);
+    });
+
+    it('across a gap wider than it may span it hangs along the drawn wall in reach', () => {
+      facing(10);
+      click(tool, 5, 6);
+      expect(doors()[0].wallId).toBe('w1');
+      expect(doors()[0].freestanding).toBeUndefined();
+    });
+  });
+
   it('places a door on a press with no hover before it', () => {
     // Every helper above hovers first, which is why this went unseen. Activating
     // the tool clears the snap and opens the tool popover over the canvas, so
@@ -562,23 +611,27 @@ describe('DoorTool', () => {
     expect(doors()).toHaveLength(1);
   });
 
-  it('reds the ghost where the door would be wider than its wall', () => {
+  it('fits a door wider than its wall to the wall instead of redding the ghost', () => {
     // The width setting overhangs the wall it is aimed at.
     addWall('long', 7, 20);
     useStore.getState().updateToolSettings({ doorWidth: 8 });
 
     tool.onPointerMove({ x: 3, y: 20.1 });
     expect(ghost.children.length).toBeGreaterThan(0);
-    expect(ghost.tint).toBe(0xcc3344);
+    expect(ghost.tint).toBe(0xffffff);
 
     tool.onPointerDown({ x: 3, y: 20.1 });
-    expect(doors()).toHaveLength(0);
+    tool.onPointerUp({ x: 3, y: 20.1 });
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).toBe('long');
+    expect(doors()[0].width).toBeCloseTo(7);
   });
 
-  // ── The chosen width, and only it ────────────────────────────────────────
+  // ── The chosen width, fitted to the wall ─────────────────────────────────
   // A door used to swell to fill any wall of six cells or less, so the width in
   // the panel was a suggestion the tool ignored on exactly the short walls a DM
-  // is most likely to be aiming at. It is now the width, everywhere.
+  // is most likely to be aiming at. It is the width, never more; only a wall
+  // shorter than it takes it down to the wall's own length.
 
   it('keeps the chosen width on a short wall instead of filling it', () => {
     addWall('stub', 3, 20);
@@ -616,16 +669,18 @@ describe('DoorTool', () => {
     expect(doors()[0].width).toBeCloseTo(2);
   });
 
-  it('refuses a door wider than the short wall it was aimed at', () => {
-    // What auto-fit used to paper over: the wall is too short, so the ghost
-    // reds and the click does nothing rather than silently shrinking the door.
+  it('fits a door to a wall shorter than the width asked for', () => {
     addWall('stub', 1.5, 20);
     useStore.getState().updateToolSettings({ doorWidth: 3 });
 
     tool.onPointerMove({ x: 0.75, y: 20.1 });
-    expect(ghost.tint).toBe(0xcc3344);
+    expect(ghost.tint).toBe(0xffffff);
     tool.onPointerDown({ x: 0.75, y: 20.1 });
-    expect(doors()).toHaveLength(0);
+    tool.onPointerUp({ x: 0.75, y: 20.1 });
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).toBe('stub');
+    expect(doors()[0].width).toBeCloseTo(1.5);
+    expect(doors()[0].position[0]).toBeCloseTo(0.75);
   });
 
   // ── Per-style minimum widths ─────────────────────────────────────────────
@@ -645,16 +700,19 @@ describe('DoorTool', () => {
     expect(doors()[0].width).toBe(1);
   });
 
-  it('refuses a style too wide for the opening it was aimed at', () => {
-    // A double widens to 2, wider than the 1.5-cell wall, so the existing
-    // too-wide rule reds the ghost and eats the click.
+  it('passes over a wall too short for the style: the door stands free instead of a red ghost', () => {
+    // A double needs 2 cells and the wall has 1.5, so it cannot hang there; red is
+    // left for an overlap with another door.
     addWall('stub', 1.5, 20);
     useStore.getState().updateToolSettings({ doorStyle: 'double' });
 
     tool.onPointerMove({ x: 0.75, y: 20.1 });
-    expect(ghost.tint).toBe(0xcc3344);
+    expect(ghost.tint).toBe(0xffffff);
     tool.onPointerDown({ x: 0.75, y: 20.1 });
-    expect(doors()).toHaveLength(0);
+    tool.onPointerUp({ x: 0.75, y: 20.1 });
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).not.toBe('stub');
+    expect(doors()[0].freestanding).toBe(true);
   });
 
   it('removing a wall cascades to the doors attached to it', () => {

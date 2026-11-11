@@ -37,7 +37,7 @@ test('objects: stamp with tint and angle, scatter with radius and density, undo 
   await pickFromFlyout(page, 'Objects', 'Stamp')
   await expect(page.getByTestId('shell-assets')).toBeVisible()
   expect((await brush(page)).stampMode).toBe(true)
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Scale', 'Angle', 'Variant', 'Tint', 'props'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Scale', 'Angle', 'Variant', 'Tint', 'props'])
   const panel = page.getByTestId('shell-tool-panel')
   await expect(panel.locator('[data-setting="stamp.keepPlacing"]')).toBeVisible()
   await expect(panel.locator('[data-setting="objects.placeUnder"]')).toBeVisible()
@@ -68,7 +68,7 @@ test('objects: stamp with tint and angle, scatter with radius and density, undo 
   // Scatter: the switcher swaps tools without the flyout; radius up, density to its top.
   await panel.getByRole('button', { name: 'Scatter' }).click()
   expect((await brush(page)).stampMode).toBe(false)
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Radius', 'Density', 'props'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Radius', 'Density', 'props'])
   const r0 = (await brush(page)).brushRadius
   await dock.getByRole('button', { name: 'Increase Radius' }).click()
   expect((await brush(page)).brushRadius).toBe(r0 + 0.5)

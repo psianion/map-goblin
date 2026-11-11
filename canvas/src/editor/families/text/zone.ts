@@ -10,7 +10,8 @@ import { defineCard, defineCardField, defineSetting, defineTool } from '@/editor
 import type { CardFieldDef } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
 import { editChildren } from '@/editor/families/design/cardWrites';
-import { ZoneNameField, ZonePlaceField, ZoneTriggersField } from './ZoneFields';
+import { SelectionPanel } from '@/editor/families/select/SelectionPanel';
+import { ZoneNameField, ZonePanel, ZonePlaceField, ZoneTriggersField } from './ZoneFields';
 
 type Mode = ZoneChild['shape']['kind'];
 
@@ -44,6 +45,9 @@ export const zoneTool = defineTool({
   engine: ['zone'],
   settings: [zoneShape],
   dock: [],
+  panelExtra: ZonePanel,
+  // A zone placed or clicked with the Zone tool shows its card (Triggers, More, Prep) at once.
+  selectionPanel: SelectionPanel,
   hint: (s) => ({
     label: 'Zone',
     segments: [{ text: s.tools.settings.zone.mode === 'point' ? 'Click to place a point zone' : 'Drag to draw the zone' }],

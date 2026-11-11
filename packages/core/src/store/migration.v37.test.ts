@@ -31,7 +31,7 @@ const pool = encodeWater(paintWaterDisc(emptyWaterGrid(), 4, 4, 2, false), { sha
 
 describe('map format 3.7', () => {
   it('is still read, as 3.6 is', () => {
-    expect(CURRENT_VERSION).toBe('3.9');
+    expect(CURRENT_VERSION).toBe('3.10');
     expect(SUPPORTED_VERSIONS).toContain('3.6');
     expect(SUPPORTED_VERSIONS).toContain('3.7');
   });

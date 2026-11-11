@@ -182,4 +182,15 @@ describe('roomBadgePoints', () => {
     const at = roomBadgePoints(rooms);
     expect([at.get('o'), at.get('n'), at.get('a'), at.get('b')]).toEqual([[30, 5], [40, 5], [2, 2], [8, 8]]);
   });
+
+  it('keeps the anchor for a room whose middle is a smaller room inside it', () => {
+    const inner: [number, number][] = [[3, 3], [7, 3], [7, 7], [3, 7]];
+    const rooms = [
+      { id: 'out', name: 'Floor', anchor: [1, 1] as [number, number], face: sq(0, 10) },
+      { id: 'in', name: 'Cave', anchor: [5, 5] as [number, number], face: inner },
+    ];
+    const at = roomBadgePoints(rooms);
+    expect(at.get('out')).toEqual([1, 1]);
+    expect(at.get('in')).toEqual([5, 5]);
+  });
 });

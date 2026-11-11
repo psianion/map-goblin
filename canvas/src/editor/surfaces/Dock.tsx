@@ -1,11 +1,12 @@
-import { forwardRef } from 'react';
+import { forwardRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { DockColumn, FloatBox, LevelList, Button } from '@dnd/ui';
+import { DockColumn, FloatBox, IconKeyButton, LevelList, Button } from '@dnd/ui';
 import { useStore } from '@/store/store';
-import type { SettingDef } from '@/editor/registry';
+import type { SettingDef, ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
-import { useDockTool } from './hooks';
+import { useShell } from '@/editor/shell/shellStore';
+import { pickTool, useActiveTool, useDockTool, useSettingGetter } from './hooks';
 import { groupBySection } from './sections';
 import { ToolSetting } from './SettingItems';
 import { LayersColumn } from './LayersColumn';
@@ -42,9 +43,13 @@ function LevelColumn() {
   );
 }
 
-/** The tool's dock settings as columns, one per caption, the icon controls' names under them. */
+/**
+ * The tool's dock settings as columns, one per caption, the icon controls' names under them.
+ * A caption whose settings are all hidden has no column.
+ */
 function SettingColumns({ defs }: { defs: readonly SettingDef[] }) {
-  return groupBySection(defs).map((sec, i) => {
+  const get = useSettingGetter();
+  return groupBySection(defs.filter((d) => !d.visibleWhen || d.visibleWhen(get))).map((sec, i) => {
     const iconNames = sec.items.filter((d) => d.control === 'switch' && d.icon).map((d) => d.label);
     const notes = sec.items.flatMap((d) => (d.note ? [d.note] : []));
     return (
@@ -68,15 +73,72 @@ function SettingColumns({ defs }: { defs: readonly SettingDef[] }) {
 }
 
 /**
+ * The family's tools, two rows deep, so a drawing hand changes tool without the flyout:
+ * the family whose flyout is open, else the dock tool's.
+ */
+function FamilyColumn({ tool }: { tool: ToolDef | undefined }) {
+  const { registry } = useRegistry();
+  const flyout = useShell((s) => s.flyout);
+  const active = useActiveTool();
+  const family = (flyout ? registry.families.find((f) => f.id === flyout) : undefined) ?? (tool ? registry.familyOfTool(tool.id) : undefined);
+  if (!family) return null;
+  return (
+    <DockColumn title={family.label} data-column="family">
+      <div className="grid grid-flow-col grid-rows-2 gap-1">
+        {family.tools.map((t) => (
+          <IconKeyButton
+            key={t.id}
+            icon={t.icon}
+            label={t.label}
+            shortcut={t.key}
+            active={t.id === active?.id}
+            data-tip={t.label}
+            data-tip-key={t.key}
+            onClick={() => {
+              pickTool(t);
+              useShell.getState().setFlyout(null);
+            }}
+          />
+        ))}
+      </div>
+    </DockColumn>
+  );
+}
+
+/**
+ * The Set up tabs of a tool that has them: its own first, then the looks other tools draw
+ * with (walls, doors, floor), as a short list like the Level column's.
+ */
+function SetupColumn({ tool, tabs }: { tool: ToolDef; tabs: NonNullable<ToolDef['tabs']> }) {
+  const tab = useShell((s) => s.dockTab);
+  const items = [{ id: tool.id, label: tool.label }, ...tabs.map((t) => ({ id: t.id, label: t.label }))];
+  return (
+    <DockColumn title="Set up" data-column="setup">
+      <LevelList levels={items} value={tab ?? tool.id} onValueChange={(id) => useShell.getState().setDockTab(id === tool.id ? null : id)} />
+    </DockColumn>
+  );
+}
+
+/**
  * The dock, 112 tall and never another height: Level and Layers, then what the tool in
  * hand uses. While drawing that is its dock settings (on-the-fly controls) and its own
- * columns; while a rail tool (Select) is in hand only the last family tool's own columns
- * stay, so a texture pick is still one click away.
+ * columns, or, with one of its Set up tabs in front, that tab's settings and columns; while
+ * a rail tool (Select) is in hand only the last family tool's own columns stay, so a
+ * texture pick is still one click away.
  */
 export const Dock = forwardRef<HTMLDivElement>(function Dock(_props, ref) {
   const { registry } = useRegistry();
   const { tool, drawing } = useDockTool();
+  // Any change of the tool in hand brings its own tab back to the front.
+  const activeId = useActiveTool()?.id;
+  useEffect(() => {
+    useShell.getState().setDockTab(null);
+  }, [activeId]);
+  const tabId = useShell((s) => s.dockTab);
+  const tabs = drawing && tool?.tabs?.length ? tool.tabs : null;
+  const tab = tabs?.find((t) => t.id === tabId);
   const dockSettings = tool && drawing ? registry.settingsByHome(tool.id, 'dock') : [];
+  const columns = tab ? (tab.columns ?? []) : (tool?.dock ?? []);
   return (
     // Centred in what the rail and the gutters leave: from 68 to 12 short of the right edge.
     <FloatBox
@@ -90,11 +152,14 @@ export const Dock = forwardRef<HTMLDivElement>(function Dock(_props, ref) {
     >
       <LevelColumn />
       <LayersColumn />
-      {tool && <SettingColumns defs={dockSettings} />}
-      {tool?.dock.map((col) => {
-        const Render = col.render;
-        return <Render key={col.id} tool={tool} />;
-      })}
+      <FamilyColumn tool={tool} />
+      {tool && tabs && <SetupColumn tool={tool} tabs={tabs} />}
+      {tool && <SettingColumns defs={tab ? (tab.settings ?? []) : dockSettings} />}
+      {tool &&
+        columns.map((col) => {
+          const Render = col.render;
+          return <Render key={col.id} tool={tool} />;
+        })}
     </FloatBox>
   );
 });

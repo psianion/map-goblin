@@ -176,7 +176,7 @@ const CARVE_HINTS: Record<FloorShape, HintLine> = {
 };
 
 /** Colour, the style presets, the texture strip and From library. */
-const floorLookColumn: DockColumnDef = { id: 'floor.look', caption: 'Look', render: FloorLook };
+export const floorLookColumn: DockColumnDef = { id: 'floor.look', caption: 'Look', render: FloorLook };
 
 export const floorTool = defineTool({
   id: 'floor',

@@ -69,7 +69,7 @@ test('frame D: a picked floor shows the Design floor card, and a card edit undoe
   const slot = await box(page.getByTestId('shell-slot'))
   expect((await box(bar)).x).toBeGreaterThan(slot.x + slot.width)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'look'])
   await expectFrameGeometry(page)
   await expectSlot(page)
   await shot(page, '10-d')

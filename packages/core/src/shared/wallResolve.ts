@@ -1,6 +1,7 @@
 import type { DungeonLayer } from '../store/types';
 import type { DoorChild, WallSegment } from './types';
 import { snapToNearestWall } from './wallSnap';
+import { caveEdges, caveWallId, onCaveEdge } from './caveFloor';
 import {
   authoredBoundaries,
   authoredRing,
@@ -14,10 +15,12 @@ import {
  * edge of a `mergedFloor` ring, promoted to a real wall. Resolved in one place so
  * occlusion, lighting, the door tool and the renderers all agree on what a wall
  * is instead of each extracting edges its own way. Rooms are places, not walls:
- * nothing about a room occludes.
+ * nothing about a room occludes. A painted cave's outline is a `cave` wall, one
+ * closed polyline per ring (shared/caveFloor.ts): it blocks and takes doors, but it
+ * is the cave's own edge, never drawn, picked or edited as a drawn wall.
  */
 export interface ResolvedWall extends WallSegment {
-  kind: 'standalone' | 'floor';
+  kind: 'standalone' | 'floor' | 'cave';
   /** Index into `mergedFloor`. Floor kind only — the ring's stone edits key on it. */
   ring?: number;
   /** Index of this edge within its ring. Floor kind only. */
@@ -62,6 +65,15 @@ function floorEdgeId(ring: number, edge: number): string {
   return `floor:${ring}:${edge}`;
 }
 
+/**
+ * The `wallId` a door on `wall` stores. Floor edges and cave edges are rebuilt on
+ * every change (a re-union or a repaint renumbers them), so a door on one keeps no
+ * id and re-anchors by projection.
+ */
+export function doorWallId(wall: Pick<ResolvedWall, 'id' | 'kind'>): string {
+  return wall.kind === 'floor' || wall.kind === 'cave' ? FLOOR_ANCHORED : wall.id;
+}
+
 
 type Memo<T> = Map<string, { keys: readonly unknown[]; out: T }>;
 const wallMemo: Memo<ResolvedWall[]> = new Map();
@@ -99,11 +111,15 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
       ...w,
       kind: 'standalone',
     }));
+    const caves = caveEdges(layer);
     const rings = layer.mergedFloor ?? [];
     for (let ring = 0; ring < rings.length; ring++) {
       const poly = rings[ring];
       if (poly.length < 2) continue;
       for (let edge = 0; edge < poly.length; edge++) {
+        const [a, b] = [poly[edge], poly[(edge + 1) % poly.length]];
+        // Along a cave's outline the cave's own wall stands (below): one wall there, not two.
+        if (caves.length > 0 && onCaveEdge([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], caves)) continue;
         walls.push({
           id: floorEdgeId(ring, edge),
           points: [poly[edge], poly[(edge + 1) % poly.length]],
@@ -119,6 +135,24 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
           edge,
         });
       }
+    }
+    // A painted cave owns its edge: one closed wall per ring of its outline, wherever it
+    // runs, so a cave inside another floor still blocks and takes doors.
+    for (const { material, rings: caveRings } of caves) {
+      caveRings.forEach((ring, i) => {
+        walls.push({
+          id: caveWallId(material, i),
+          points: [...ring, ring[0]],
+          wallType: 'normal',
+          direction: 'both',
+          color: '#000000',
+          width: 1,
+          roughness: 0,
+          // The door kit follows the cave's band, as a door on a banded floor ring's does.
+          textureSetId: material,
+          kind: 'cave',
+        });
+      });
     }
     return walls;
   });

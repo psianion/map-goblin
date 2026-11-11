@@ -1,5 +1,5 @@
-// The Text family (plan 6.5): Label, Zone and the Rooms tools (Rectangle room, Polygon room,
-// Divide), and the cards for labels, zones, rooms, areas and levels. The rooms list, a
+// The Text family (plan 6.5): Label, Zone and the Rooms tool (rectangle, polygon or divide in
+// its dock), and the cards for labels, zones, rooms, areas and levels. The rooms list, a
 // zone's sheet and the Prep overview are the family's sheets (TextSheets).
 //
 // Not built yet (plan 8.5): a Font for labels (the label renderer, here and at the table,
@@ -13,15 +13,16 @@ import type { CardDef } from '@/editor/registry/types';
 import { labelTool } from './label';
 import { labelCard } from './labelCard';
 import { zoneCard, zoneTool } from './zone';
-import { divideTool, roomPolygonTool, roomRectTool } from './rooms';
+import { roomsTool } from './rooms';
 import { areaCard, levelCard, roomCard } from './roomCards';
+import { DOORS_TAB, WALLS_TAB, withTabs } from '@/editor/families/design/tabs';
 
 export const text = defineFamily({
   id: 'text',
   label: 'Text',
   icon: Type,
   key: 'X',
-  tools: [labelTool, zoneTool, roomRectTool, roomPolygonTool, divideTool],
+  tools: [labelTool, zoneTool, withTabs(roomsTool, [WALLS_TAB, DOORS_TAB])],
 });
 
 export const TEXT_CARDS: readonly CardDef[] = [labelCard, zoneCard, roomCard, areaCard, levelCard];

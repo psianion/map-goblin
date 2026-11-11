@@ -467,9 +467,11 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubWater);
 
-  // ─── Material patches ─────────────────────────────────
-  // The same, for a layer's Material brush patches.
-  const drawnPatches = new Map<string, DungeonLayer['materials']>();
+  // ─── Material patches and painted caves' rock ─────────
+  // The same, for a layer's Material brush patches, and the rock round its painted caves
+  // (the floors marked with an edge material): those redraw when one of them is a new
+  // object or comes or goes, or a door moves on the layer (the rock is cut at its doors).
+  const drawnPatches = new Map<string, { materials: DungeonLayer['materials']; caves: ShapeChild[]; doors: string }>();
   const unsubPatches = useStore.subscribe(
     (state) => state.layers,
     (layers) => {
@@ -477,9 +479,16 @@ export function subscribeToStore(
       for (const layer of layers) {
         if (layer.type !== 'dungeon') continue;
         live.add(layer.id);
-        const drawn = drawnPatches.has(layer.id);
-        const same = drawn ? drawnPatches.get(layer.id) === layer.materials : !layer.materials?.length;
-        drawnPatches.set(layer.id, layer.materials);
+        const caves = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !!c.edgeMaterial);
+        const doors = caves.length === 0 ? '' : layer.children
+          .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
+          .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
+          .join(',');
+        const prev = drawnPatches.get(layer.id);
+        const same = prev
+          ? prev.materials === layer.materials && prev.doors === doors && prev.caves.length === caves.length && prev.caves.every((c, i) => c === caves[i])
+          : !layer.materials?.length && caves.length === 0;
+        drawnPatches.set(layer.id, { materials: layer.materials, caves, doors });
         if (!same) drawLayerMaterials(layer);
       }
       for (const id of [...drawnPatches.keys()]) if (!live.has(id)) drawnPatches.delete(id);
@@ -644,9 +653,11 @@ export function subscribeToStore(
           // outline, so the Clipper2 union and detectRooms must not see it:
           // nudging a texture offset used to re-union the map and re-detect
           // every room on every pointermove.
+          // A painted cave's edge marker too: it decides whether the cave's own wall stands,
+          // and so the walls, the rooms and the lights.
           shapeGeometryKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.edgeMaterial ?? ''}`)
             .join(','),
           // Door GEOMETRY (id/visible/width/position/wallId) — a change here
           // still needs the full rebuild below because withoutDoorGaps

@@ -6,6 +6,7 @@ import { bindDoorToRooms } from '../shared/roomBinding';
 import { faceMetrics, pointInRing } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
+import { caveCutters } from '../shared/caveFloor';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -69,13 +70,14 @@ function sameIds(a: readonly string[] | undefined, b: readonly string[] | undefi
 
 /**
  * The faces a layer's rooms can sit in: merged floor minus standalone walls minus
- * thresholds. Exposed for Suggest, which proposes rooms on the faces nobody holds.
+ * thresholds and painted caves' edges. Suggest cuts its faces the same way.
  */
 export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Polygon[] {
   // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
   // the server never has one. Union it here rather than reading "no floor".
   const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, layer.thresholds ?? []);
+  // A painted cave's edge cuts the faces as a threshold does, so a cave inside a floor is a face of its own.
+  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, [...(layer.thresholds ?? []), ...caveCutters(layer)]);
 }
 
 /**

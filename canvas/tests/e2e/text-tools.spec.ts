@@ -29,8 +29,8 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
     st.setActiveLayerId(st.layers.find((l: Any) => l.type === 'dungeon' && !l.locked).id)
   })
 
-  await pickFromFlyout(page, 'Text', 'Rectangle room')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'look'])
+  await pickFromFlyout(page, 'Text', 'Rooms')
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'look'])
   const dock = page.getByTestId('shell-dock')
   const panel = page.getByTestId('shell-tool-panel')
   await expect(panel.getByRole('button', { name: 'Suggest rooms' })).toBeVisible()
@@ -56,7 +56,7 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
 
   // A label in the GM note style, typed in the card.
   await page.getByTestId('shell-tool-panel').getByRole('button', { name: 'Label' }).click()
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Size', 'Colour', 'styles'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'Colour', 'styles'])
   await dock.getByRole('button', { name: 'GM note' }).click()
   expect(await page.evaluate(() => (window as Any).__store.getState().tools.settings.label.style)).toBe('gm-note')
   await dock.getByRole('button', { name: 'Increase Size' }).click()
@@ -858,14 +858,36 @@ test('rooms: the warren opens with seven numbered, named rooms and the room tool
   expect(list.every((r) => typeof r.number === 'number' && r.name.length > 0)).toBe(true)
   expect(new Set(list.map((r) => r.number))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]))
 
-  // The Text family holds the room tools beside Label and Zone.
+  // The Text family holds one Rooms tool beside Label and Zone; its dock picks the mode.
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Text' }).click()
   const flyout = page.getByTestId('shell-flyout')
-  for (const tool of ['Label', 'Zone', 'Rectangle room', 'Polygon room', 'Divide']) {
+  for (const tool of ['Label', 'Zone', 'Rooms']) {
     await expect(flyout.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
   }
-  await flyout.getByRole('button', { name: /^Rectangle room/ }).click()
+  await expect(flyout.getByRole('button', { name: /^(Rectangle room|Polygon room|Divide)/ })).toHaveCount(0)
+  await flyout.getByRole('button', { name: /^Rooms/ }).click()
   await expect(page.getByTestId('rooms-suggest')).toContainText('7 rooms')
+  const draw = dock(page).getByRole('group', { name: 'Draw' })
+  for (const [mode, engine] of [['Polygon', 'roomPolygon'], ['Divide', 'divide'], ['Rectangle', 'roomRect']] as const) {
+    await draw.getByRole('button', { name: mode, exact: true }).click()
+    expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe(engine)
+    await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'rooms')
+    // Divide swaps the floor look and the Walls row for the Divider row.
+    await expect(dock(page).locator('[data-column="look"]')).toHaveCount(mode === 'Divide' ? 0 : 1)
+    await expect(dock(page).getByRole('group', { name: 'Divider' })).toHaveCount(mode === 'Divide' ? 1 : 0)
+  }
+  // The keys: P polygon, K divide, B rectangle, while the tool is in hand.
+  await key(page, 'k')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('divide')
+  await key(page, 'p')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('roomPolygon')
+  await key(page, 'b')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('roomRect')
+
+  // The tool's panel opens the rooms list without a room's card.
+  await page.getByTestId('shell-tool-panel').getByRole('button', { name: 'Rooms list' }).click()
+  await expect(roomSheet(page).getByTestId('rooms-row')).toHaveCount(7)
+  await closeRooms(page)
 
   // The list opens from the level's card: Level settings in the title card's menu, then Open list.
   await pickTool(page, 'select')
@@ -1019,7 +1041,7 @@ test('rooms: Divide across Warren Hall opens the split dialog; Split makes eight
   expect(await rooms(page)).toHaveLength(7)
 })
 
-test('rooms: the Polygon room tool closes a floor and its room with Enter, and undo takes both back', { tag: '@text' }, async ({ page }) => {
+test('rooms: the Rooms tool’s Polygon mode closes a floor and its room with Enter, and undo takes both back', { tag: '@text' }, async ({ page }) => {
   await openBlank(page)
   await pickTool(page, 'roomPolygon')
   await expect(status(page)).toContainText('Click the corners')
@@ -1462,7 +1484,7 @@ async function fill(field: Locator, value: string) {
 test('zones: the Zone tool draws a point, a circle and a rectangle by the dock’s Shape, and undo takes the last back', { tag: '@text' }, async ({ page }) => {
   await openWarren(page)
   await pickTool(page, 'zone')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'Shape'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Shape'])
   await expect(status(page)).toContainText('Click to place a point zone')
   const hall = await room(page, 'Warren Hall')
   const [x, y] = hall.anchor as [number, number]
@@ -1490,6 +1512,22 @@ test('zones: the Zone tool draws a point, a circle and a rectangle by the dock�
 
   await undo(page)
   expect(await zones(page)).toHaveLength(before + 2)
+})
+
+test('zones: a zone placed with the Zone tool shows its card with More and Prep overview; the panel has Prep overview', { tag: '@text' }, async ({ page }) => {
+  await openWarren(page)
+  await pickTool(page, 'zone')
+  const panel = page.getByTestId('shell-tool-panel')
+  await expect(panel).toHaveAttribute('data-tool', 'zone')
+  await expect(panel.getByRole('button', { name: 'Prep overview' })).toBeVisible()
+  const hall = await room(page, 'Warren Hall')
+  const [x, y] = hall.anchor as [number, number]
+  await clickWorld(page, { x, y })
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('zone')
+  await expect(card(page)).toHaveAttribute('data-kind', 'zone')
+  await expect(card(page).getByRole('button', { name: 'More…' })).toBeVisible()
+  await card(page).getByRole('button', { name: 'Prep overview' }).click()
+  await expect(page.getByTestId('prep').or(page.getByTestId('prep-empty'))).toBeVisible()
 })
 
 test('zones: More… opens the zone sheet with the shape, the explore lock and no stray styling', { tag: '@text' }, async ({ page }) => {

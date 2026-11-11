@@ -99,6 +99,15 @@ export function ZonePlaceField({ value, onChange }: SettingProps<ZoneShape>) {
   );
 }
 
+/** The Zone tool's panel extra: the map's Prep overview, reachable with nothing picked. */
+export function ZonePanel() {
+  return (
+    <div className="px-3 pb-2.5">
+      <SecondaryButton onClick={() => useShell.getState().openSheet('prep')}>Prep overview</SecondaryButton>
+    </div>
+  );
+}
+
 /** How many triggers watch this zone, More for its sheet, Prep overview for the map's. */
 export function ZoneTriggersField({ def, value }: SettingProps<number>) {
   const id = useStore(useShallow((s) => s.selection.selectedIds[0] ?? ''));

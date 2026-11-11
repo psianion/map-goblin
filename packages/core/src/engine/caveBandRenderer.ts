@@ -1017,22 +1017,26 @@ export function placeBand(
  * walked with the set's kit; holes walk the other way round, like a floor's.
  */
 
-/** A band set's kit laid round each of `rings` (outer rings and holes), one list a ring. */
-export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandPieces()): WalkPlacement[][] {
-  return orientRings(rings).map((ring) => (ring.length < 3 ? [] : layBandRing(ring, [], set)));
+/**
+ * A band set's kit laid round each of `rings` (outer rings and holes), one list a ring.
+ * `gaps` are door openings on the outline: a ring stops its rock at each, as a floor ring does.
+ */
+export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandPieces(), gaps: DoorGap[] = []): WalkPlacement[][] {
+  return orientRings(rings).map((ring) => (ring.length < 3 ? [] : layBandRing(ring, gaps, set)));
 }
 
 /**
  * Draws `setId`'s border units round `rings` into `parent`, after what it holds, with the
- * ground under the rock shaded `fillColor` the way a floor's band strip is.
+ * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
+ * the strip stop at `gaps` (a painted cave's doors).
  */
-export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number): void {
+export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number, gaps: DoorGap[] = []): void {
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
-  const laid = layOutlineBand(rings);
+  const laid = layOutlineBand(rings, caveBandPieces(), gaps);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
-    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps: [], color: fillColor });
+    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps, color: fillColor });
   });
 }
 

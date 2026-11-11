@@ -271,17 +271,17 @@ const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
 export const ROOM_RECT_HINT: ToolHint = {
-  label: 'Rectangle room',
+  label: 'Rooms',
   segments: [t('drag to draw: the floor and its walls land together'), k('Shift'), t('square'), k('Esc'), t('cancel')],
 };
 
 export const ROOM_POLYGON_HINT: ToolHint = {
-  label: 'Polygon room',
+  label: 'Rooms',
   segments: [t('click the corners: the floor and its walls land together'), k('Enter'), t('close'), k('Esc'), t('cancel')],
 };
 
 export const DIVIDE_HINT: ToolHint = {
-  label: 'Divide',
+  label: 'Rooms',
   segments: [t('drag across a floor: ends snap to the walls'), k('Shift'), t('straight'), k('Esc'), t('cancel')],
 };
 

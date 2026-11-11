@@ -92,7 +92,7 @@ export function erasePatches(patches: readonly MaterialPatch[], area: Polygon[])
 }
 
 /** One pass of Chaikin's corner cutting over a closed ring: each edge keeps its middle half. */
-function cutCorners(ring: Polygon): Polygon {
+export function cutCorners(ring: Polygon): Polygon {
   const out: Polygon = [];
   for (let i = 0; i < ring.length; i++) {
     const [ax, ay] = ring[i];

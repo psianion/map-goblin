@@ -16,13 +16,15 @@ import { materialBrushTool } from './material';
 import { pathTool } from './path';
 import { pathCard } from './pathCard';
 import type { CardDef } from '@/editor/registry/types';
+import { DOORS_TAB, withTabs } from '@/editor/families/design/tabs';
 
 export const terrain = defineFamily({
   id: 'terrain',
   label: 'Terrain',
   icon: Mountain,
   key: 'T',
-  tools: [terrainBrushTool, waterBrushTool, materialBrushTool, pathTool],
+  // A painted cave floor takes doors, so the brush sets their style up from its dock.
+  tools: [terrainBrushTool, waterBrushTool, withTabs(materialBrushTool, [DOORS_TAB]), pathTool],
 });
 
 export const TERRAIN_CARDS: readonly CardDef[] = [pathCard];

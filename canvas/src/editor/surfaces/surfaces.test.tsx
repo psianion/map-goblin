@@ -57,7 +57,40 @@ describe('Dock', () => {
     const dock = getByTestId('shell-dock');
     expect(shown(dock)).toEqual(ids('dock'));
     for (const id of ids('panel')) expect(dock.querySelector(`[data-setting="${id}"]`)).toBeNull();
-    expect(columns(dock)).toEqual(['level', 'layers', 'Shape', 'Edit', 'look']);
+    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look']);
+  });
+
+  it('shows the family of the tool in hand, else of the open flyout, and picks from it', () => {
+    act(() => useStore.getState().setActiveTool('wall'));
+    const { getByTestId } = withRegistry(<Dock />);
+    const family = () => getByTestId('shell-dock').querySelector<HTMLElement>('[data-column="family"]')!;
+    const names = () => [...family().querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
+    expect(names()).toEqual(registry.familyOfTool('wall')!.tools.map((t) => t.label));
+    expect(family().querySelector('[aria-label="Wall"]')?.getAttribute('aria-pressed')).toBe('true');
+    act(() => useShell.getState().setFlyout('text'));
+    expect(names()).toEqual(registry.families.find((f) => f.id === 'text')!.tools.map((t) => t.label));
+    act(() => family().querySelector<HTMLElement>('[aria-label="Zone"]')!.click());
+    expect(useStore.getState().tools.activeTool).toBe('zone');
+    expect(useShell.getState().flyout).toBeNull();
+  });
+
+  it('sets up the walls from the Rooms tool’s Set up tab, Rooms staying in hand, and goes back on a tool change', () => {
+    act(() => useStore.getState().setActiveTool('roomRect'));
+    const { getByTestId } = withRegistry(<Dock />);
+    const dock = () => getByTestId('shell-dock');
+    expect(columns(dock())).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'look']);
+    const setup = () => dock().querySelector<HTMLElement>('[data-column="setup"]')!;
+    expect([...setup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Rooms', 'Walls', 'Doors']);
+    act(() => [...setup().querySelectorAll('button')].find((b) => b.textContent === 'Walls')!.click());
+    expect(useShell.getState().dockTab).toBe('walls');
+    expect(useStore.getState().tools.activeTool).toBe('roomRect');
+    expect(columns(dock())).toContain('look');
+    expect(shown(dock())).toEqual(expect.arrayContaining(['wall.cornerStyle']));
+    expect(shown(dock())).not.toContain('rooms.mode');
+    expect(dock().querySelector('[data-column="look"]')?.getAttribute('data-testid')).toBe('design-wall-look');
+    act(() => useStore.getState().setActiveTool('wall'));
+    expect(useShell.getState().dockTab).toBeNull();
+    expect([...setup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Wall', 'Floor', 'Doors']);
   });
 
   it('hides Sides unless Regular is picked', () => {
@@ -82,7 +115,31 @@ describe('Dock', () => {
     expect(new Set(heights)).toEqual(new Set(['h-[112px]']));
     expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers']);
     act(() => useShell.getState().setLastTool('floor'));
-    expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers', 'look']);
+    expect(columns(getByTestId('shell-dock'))).toEqual(['level', 'layers', 'family', 'look']);
+  });
+});
+
+describe('the Zone tool', () => {
+  it('shows a picked zone’s card with More and Prep overview, and Prep overview with nothing picked', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const zone = { id: 'z1', name: 'Pit', childType: 'zone', visible: true, shape: { kind: 'circle', position: { x: 3, y: 3 }, radius: 1 } } as unknown as AnyChild;
+    act(() => {
+      state.addChild(layer.id, zone);
+      useStore.getState().setActiveTool('zone');
+    });
+    const { getByTestId, queryByTestId } = withRegistry(<Slot />);
+    const panel = getByTestId('shell-tool-panel');
+    expect(panel.dataset.tool).toBe('zone');
+    const prep = [...panel.querySelectorAll('button')].find((b) => b.textContent === 'Prep overview')!;
+    act(() => prep.click());
+    expect(useShell.getState().sheet).toBe('prep');
+    act(() => useStore.getState().setSelectedIds(['z1']));
+    expect(queryByTestId('shell-tool-panel')).toBeNull();
+    const card = getByTestId('shell-card');
+    expect(card.dataset.kind).toBe('zone');
+    const names = [...card.querySelectorAll('button')].map((b) => b.textContent);
+    expect(names).toEqual(expect.arrayContaining(['More…', 'Prep overview']));
   });
 });
 
