@@ -63,6 +63,8 @@ export function renderResolvedDoor(
 ): void {
   const { door, position, angle: wallAngle } = resolved;
   if (!door.visible) return;
+  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it).
+  if (door.bare && !resolved.detached) return;
 
   // Fresh Graphics per door to avoid PixiJS v8 path accumulation
   const g = new Graphics();
@@ -363,7 +365,9 @@ function renderKitDoor(
   // stones are laid at the ring's (or layer's) width, so that is the wall the
   // door is in.
   const wallWidth = look.width;
-  const wallTint = hexColor(look.tint ?? '#ffffff');
+  // A cave's rock is laid untinted (caveBandRenderer), so the jambs in it are too:
+  // the layer's wall tint belongs to its stone walls.
+  const wallTint = wallKit?.id === 'cave' ? 0xffffff : hexColor(look.tint ?? '#ffffff');
 
   renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint);
   const leafTint = hexColor(kit.tint);

@@ -113,13 +113,13 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  */
 /**
  * Everything about plateaus the scene draws or sweeps: each plateau's rings, height, edge,
- * cliff art, slope width, contour lines, sight override and crossing.
+ * cliff art, slope width, border width, contour lines, sight override and crossing.
  */
 export function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
   for (const c of children) {
     if (c.childType === 'plateau') {
-      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
     }
   }
   return key;
@@ -471,7 +471,11 @@ export function subscribeToStore(
   // The same, for a layer's Material brush patches, and the rock round its painted caves
   // (the floors marked with an edge material): those redraw when one of them is a new
   // object or comes or goes, or a door moves on the layer (the rock is cut at its doors).
-  const drawnPatches = new Map<string, { materials: DungeonLayer['materials']; caves: ShapeChild[]; doors: string }>();
+  // Patches are trimmed to the layer's floors, so a layer with patches redraws when its floor union moves too.
+  const drawnPatches = new Map<
+    string,
+    { materials: DungeonLayer['materials']; caves: ShapeChild[]; doors: string; floor: DungeonLayer['mergedFloor']; plateaus: AnyChild[]; openings: DungeonLayer['caveOpenings'] }
+  >();
   const unsubPatches = useStore.subscribe(
     (state) => state.layers,
     (layers) => {
@@ -479,16 +483,28 @@ export function subscribeToStore(
       for (const layer of layers) {
         if (layer.type !== 'dungeon') continue;
         live.add(layer.id);
-        const caves = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !!c.edgeMaterial);
+        // Floors with a painted border redraw here too: the border is drawn with the patches.
+        const caves = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && (!!c.edgeMaterial || !!c.edgePaint));
         const doors = caves.length === 0 ? '' : layer.children
           .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
           .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
           .join(',');
+        const floor = layer.materials?.length ? layer.mergedFloor : null;
+        // Water falls where it crosses a plateau's cliff: a layer with patches redraws when its plateaus move.
+        const plateaus = layer.materials?.length ? layer.children.filter((c) => c.childType === 'plateau') : [];
         const prev = drawnPatches.get(layer.id);
         const same = prev
-          ? prev.materials === layer.materials && prev.doors === doors && prev.caves.length === caves.length && prev.caves.every((c, i) => c === caves[i])
+          ? prev.materials === layer.materials &&
+            // A cave's rock stops where it was erased open.
+            prev.openings === layer.caveOpenings &&
+            prev.doors === doors &&
+            prev.floor === floor &&
+            prev.caves.length === caves.length &&
+            prev.caves.every((c, i) => c === caves[i]) &&
+            prev.plateaus.length === plateaus.length &&
+            prev.plateaus.every((c, i) => c === plateaus[i])
           : !layer.materials?.length && caves.length === 0;
-        drawnPatches.set(layer.id, { materials: layer.materials, caves, doors });
+        drawnPatches.set(layer.id, { materials: layer.materials, caves, doors, floor, plateaus, openings: layer.caveOpenings });
         if (!same) drawLayerMaterials(layer);
       }
       for (const id of [...drawnPatches.keys()]) if (!live.has(id)) drawnPatches.delete(id);
@@ -703,11 +719,13 @@ export function subscribeToStore(
           // map's sight threshold they are measured against. Render and lighting only: the
           // union and the rooms read heights and edge kinds, which ride in the shape keys.
           plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}`,
+          // Where a cave's rock was erased open its edge is no wall: light passes there.
+          openingsRef: refId(l.caveOpenings),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -737,7 +755,7 @@ export function subscribeToStore(
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}|${openingsRef}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -857,7 +875,8 @@ export function subscribeToStore(
           item.roomsRef === b[i].roomsRef &&
           item.areasRef === b[i].areasRef &&
           item.propOccluders === b[i].propOccluders &&
-          item.plateauKey === b[i].plateauKey,
+          item.plateauKey === b[i].plateauKey &&
+          item.openingsRef === b[i].openingsRef,
         ),
     },
   );
@@ -995,6 +1014,7 @@ export function subscribeToStore(
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
         // Patches and water, like plateaus, lie on the ground: they follow the floor.
+        entry.sublayers.ground.visible = vis.floor;
         entry.sublayers.materials.visible = vis.floor;
         entry.sublayers.water.visible = vis.floor;
         entry.sublayers.paths.visible = vis.floor;

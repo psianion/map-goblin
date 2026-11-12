@@ -12,6 +12,7 @@ import { fromHex8, toHex8 } from './colour';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer } from '@/store/types';
 import { emptyWaterGrid, encodeWater, paintWaterDisc } from '@dnd/core/src/shared/waterMask';
+import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 
 const input = () => ({ rail: RAIL_TOOLS, families: [...families], shared: SHARED_SETTINGS, cards: [...cards] });
 const reg = createRegistry(input());
@@ -40,9 +41,10 @@ describe('the Terrain family', () => {
     ]);
   });
 
-  it('keeps Size, Intensity and the slots in the dock; Paint or erase, the blending, Fill and the colour in the panel', () => {
+  it('keeps Size, Intensity, Solid in its own column and the slots in the dock; Paint or erase, the blending, Fill and the colour in the panel', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('terrainBrush', home).map((s) => s.id);
-    expect(ids('dock')).toEqual(['terrain.size', 'terrain.strength']);
+    expect(ids('dock')).toEqual(['terrain.size', 'terrain.strength', 'terrain.solid']);
+    expect(reg.settingById('terrain.solid')).toMatchObject({ label: 'Solid', control: 'switch', section: 'Solid', default: false });
     expect(ids('panel')).toEqual(['terrain.mode', 'terrain.smoothBlend', 'terrain.fill', 'terrain.colour']);
     // The id and the store field stay, so saved prefs load; only the label is new.
     expect(reg.settingById('terrain.strength')?.label).toBe('Intensity');
@@ -63,6 +65,13 @@ describe('Terrain brush settings', () => {
     expect(settings.setSetting('terrain.strength', 0)).toBe(false);
   });
 
+  it('writes Solid into the brush, off by default', () => {
+    expect(settings.getSetting('terrain.solid')).toBe(false);
+    expect(settings.setSetting('terrain.solid', true)).toBe(true);
+    expect(brush().solid).toBe(true);
+    expect(settings.setSetting('terrain.solid', 'on')).toBe(false);
+  });
+
   it('writes one colour with alpha as the tint and its opacity, alpha 0 untinted', () => {
     expect(settings.getSetting('terrain.colour')).toBe('#ffffff00');
     expect(settings.setSetting('terrain.colour', '#33669980')).toBe(true);
@@ -77,6 +86,10 @@ describe('Terrain brush settings', () => {
   it('picks Erase on the Mode seg, the erase mode Scatter shares', () => {
     const hint = () => reg.toolById('terrainBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
     expect(hint()).toBe('Hold to build up · Alt erase · [ ] size');
+    // With Solid on, one pass lays the paint full: the hint says so.
+    settings.setSetting('terrain.solid', true);
+    expect(hint()).toBe('Drag to paint solid · Alt erase · [ ] size');
+    settings.setSetting('terrain.solid', false);
     settings.setSetting('terrain.mode', true);
     expect(useStore.getState().tools.eraseMode).toBe(true);
     expect(hint()).toMatch(/^Hold to erase/);
@@ -152,7 +165,17 @@ describe('Material brush settings', () => {
   it('keeps Size and the swatches in the dock, the mode, Smooth, Border and Paint a real floor in the panel', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('materialBrush', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['material.size']);
-    expect(ids('panel')).toEqual(['terrain.mode', 'material.smooth', 'material.border', 'material.floor']);
+    expect(ids('panel')).toEqual([
+      'terrain.mode',
+      'material.rockOnCut',
+      'material.smooth',
+      'material.border',
+      'material.floor',
+      'material.height',
+      'material.shore',
+      'material.shoreWidth',
+      'material.shallowLine',
+    ]);
     expect(reg.settingById('material.floor')).toMatchObject({ label: 'Paint a real floor', control: 'switch', section: 'Outline', default: true });
     expect(reg.toolById('materialBrush')!.dock.map((c) => c.id)).toEqual(['material.swatches']);
   });
@@ -165,6 +188,12 @@ describe('Material brush settings', () => {
     expect(settings.setSetting('material.floor', false)).toBe(true);
     expect(useStore.getState().tools.settings.material).toMatchObject({ material: 'GG_Cave_Ink', radius: 4, smooth: false, border: false, floor: false });
     expect(settings.setSetting('material.size', 40)).toBe(false);
+    // The height new patches take: half steps, 0 stored as nothing.
+    expect(settings.getSetting('material.height')).toBe(0);
+    expect(settings.setSetting('material.height', -1.5)).toBe(true);
+    expect(useStore.getState().tools.settings.material.height).toBe(-1.5);
+    settings.setSetting('material.height', 0);
+    expect(useStore.getState().tools.settings.material.height).toBeUndefined();
   });
 
   it('says on the status bar whether the stroke paints a floor or a patch', () => {
@@ -177,6 +206,84 @@ describe('Material brush settings', () => {
     expect(hint()).toBe('Paint a cave floor · release to close it · Alt erase');
     setFloor(false);
     expect(hint()).toBe('Paint a patch · release to close it · Alt erase');
+  });
+
+  it('offers Rock on cut edge only while erasing a cave’s real floor, off unless set, and the hint says what Erase does there', () => {
+    const hint = () => reg.toolById('materialBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    const shown = () => reg.settingById('material.rockOnCut')!.visibleWhen!((k) => settings.getSetting(k));
+    expect(reg.settingById('material.rockOnCut')).toMatchObject({ label: 'Rock on cut edge', control: 'switch', section: 'Mode', default: false });
+    expect(shown()).toBe(false);
+    useStore.getState().setEraseMode(true);
+    expect(shown()).toBe(true);
+    expect(settings.getSetting('material.rockOnCut')).toBe(false);
+    expect(hint()).toBe('Erase across the rock to open the cave · [ ] size');
+    expect(settings.setSetting('material.rockOnCut', true)).toBe(true);
+    expect(useStore.getState().tools.settings.material.rockOnCut).toBe(true);
+    expect(hint()).toBe('Carve the floor · [ ] size');
+    // A patch, or a plain texture, has no rock to open.
+    useStore.setState((s) => {
+      s.tools.settings.material.floor = false;
+    });
+    expect(shown()).toBe(false);
+    expect(hint()).toBe('Erase from patches · [ ] size');
+    useStore.setState((s) => {
+      s.tools.settings.material.floor = true;
+      s.tools.settings.material.material = 'gg-forge:wild_dirt_8x8_floor_A';
+    });
+    expect(shown()).toBe(false);
+  });
+
+  it('hides Border and Paint a real floor for a plain floor texture, which paints a patch', () => {
+    const hint = () => reg.toolById('materialBrush')!.hint(useStore.getState()).segments.map((s) => s.text).join('');
+    const shown = (id: string) => reg.settingById(id)!.visibleWhen!((k) => settings.getSetting(k));
+    expect(shown('material.border')).toBe(true);
+    expect(shown('material.floor')).toBe(true);
+    useStore.setState((s) => {
+      s.tools.settings.material.material = 'gg-forge:wild_dirt_8x8_floor_A';
+      s.tools.settings.material.floor = true;
+    });
+    expect(shown('material.border')).toBe(false);
+    expect(shown('material.floor')).toBe(false);
+    expect(hint()).toBe('Paint a patch · release to close it · Alt erase');
+  });
+
+  it('shows Shore, Shore width and Shallow line with water in hand, and writes them for the next patch', () => {
+    const manager = getAssetPackManager() as unknown as { manifestCache: Map<string, unknown>; catalogVersion: number };
+    manager.manifestCache.set('gg-forge', {
+      name: 'gg-forge',
+      description: '',
+      version: '1.0.0',
+      bundleSize: 0,
+      atlases: {},
+      files: {},
+      entries: {
+        wild_dirt_8x8_floor_A: { type: 'floor', material: 'wild_dirt', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'dirt'] },
+        wild_water_8x8_floor_A: { type: 'floor', material: 'wild_water', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'water'] },
+      },
+    });
+    manager.catalogVersion++;
+    try {
+      const shown = (id: string) => reg.settingById(id)!.visibleWhen!((k) => settings.getSetting(k));
+      const water = ['material.shore', 'material.shoreWidth', 'material.shallowLine'];
+      for (const id of water) expect(shown(id), id).toBe(false);
+      useStore.setState((s) => {
+        s.tools.settings.material.material = 'gg-forge:wild_water_8x8_floor_A';
+      });
+      for (const id of water) expect(shown(id), id).toBe(true);
+      expect(settings.getSetting('material.shore')).toBe('');
+      expect(settings.getSetting('material.shoreWidth')).toBe(0.5);
+      expect(settings.setSetting('material.shore', 'none')).toBe(true);
+      expect(settings.setSetting('material.shoreWidth', 1.25)).toBe(true);
+      expect(settings.setSetting('material.shallowLine', true)).toBe(true);
+      expect(useStore.getState().tools.settings.material).toMatchObject({ shore: 'none', shoreWidth: 1.25, shallowLine: true });
+      // Picking the default dirt again stores nothing.
+      settings.setSetting('material.shore', 'gg-forge:wild_dirt_8x8_floor_A');
+      expect(useStore.getState().tools.settings.material.shore).toBeUndefined();
+      expect(settings.setSetting('material.shoreWidth', 3)).toBe(false);
+    } finally {
+      manager.manifestCache.delete('gg-forge');
+      manager.catalogVersion++;
+    }
   });
 });
 

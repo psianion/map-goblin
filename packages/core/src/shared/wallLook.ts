@@ -2,6 +2,7 @@ import type { DungeonLayer, DungeonStyle, ShapeChild } from '../store/types';
 import type { CornerStyle, Room, RoomArea, RoomLook, WallSegment, WallType } from './types';
 import { WALL_TYPE_OCCLUSION } from './occlusion';
 import { roomIndexOf } from './roomIndex';
+import { caveEdges, onCaveEdge } from './caveFloor';
 
 /*
  * How a wall looks: which texture set its stones come from, how they are tinted and how
@@ -182,7 +183,7 @@ const samePins = (a: Pins | null, b: Pins | null): boolean =>
 const RING_SAMPLES = 24;
 const ON_EDGE = 1e-4;
 
-function onOrInside(x: number, y: number, poly: readonly [number, number][]): boolean {
+function onOrInside(x: number, y: number, poly: readonly [number, number][], onEdge: number): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i];
@@ -192,7 +193,7 @@ function onOrInside(x: number, y: number, poly: readonly [number, number][]): bo
     const dy = yj - yi;
     const len2 = dx * dx + dy * dy;
     const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - xi) * dx + (y - yi) * dy) / len2)) : 0;
-    if (Math.hypot(x - (xi + dx * t), y - (yi + dy * t)) < ON_EDGE) return true;
+    if (Math.hypot(x - (xi + dx * t), y - (yi + dy * t)) < onEdge) return true;
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
@@ -211,9 +212,15 @@ function bbox(poly: readonly [number, number][]): [number, number, number, numbe
 
 /**
  * The floor a ring of the merged outline belongs to: the shape most of the ring's vertices
- * sit on or inside, the earliest drawn on a tie. Null when none does.
+ * sit on or inside, the earliest drawn on a tie. Null when none does. `onEdge` is how near
+ * a shape's outline counts as on it: a ring that came out of a union is snapped to the
+ * union's grid, so its caller passes that snap.
  */
-export function ringOwner<T extends Pick<ShapeChild, 'contours'>>(ring: readonly [number, number][], shapes: readonly T[]): T | null {
+export function ringOwner<T extends Pick<ShapeChild, 'contours'>>(
+  ring: readonly [number, number][],
+  shapes: readonly T[],
+  onEdge: number = ON_EDGE,
+): T | null {
   if (ring.length === 0) return null;
   const [rx0, ry0, rx1, ry1] = bbox(ring);
   const step = Math.max(1, Math.floor(ring.length / RING_SAMPLES));
@@ -223,9 +230,9 @@ export function ringOwner<T extends Pick<ShapeChild, 'contours'>>(ring: readonly
     const outer = shape.contours[0];
     if (!outer || outer.length < 3) continue;
     const [sx0, sy0, sx1, sy1] = bbox(outer);
-    if (sx1 < rx0 - ON_EDGE || sx0 > rx1 + ON_EDGE || sy1 < ry0 - ON_EDGE || sy0 > ry1 + ON_EDGE) continue;
+    if (sx1 < rx0 - onEdge || sx0 > rx1 + onEdge || sy1 < ry0 - onEdge || sy0 > ry1 + onEdge) continue;
     let hits = 0;
-    for (let i = 0; i < ring.length; i += step) if (onOrInside(ring[i][0], ring[i][1], outer)) hits++;
+    for (let i = 0; i < ring.length; i += step) if (onOrInside(ring[i][0], ring[i][1], outer, onEdge)) hits++;
     if (hits > bestHits) {
       best = shape;
       bestHits = hits;
@@ -351,7 +358,8 @@ const edgeMemo = new Map<string, { keys: readonly unknown[]; out: (DungeonStyle[
  * The style each edge of each ring of `layer.mergedFloor` draws with: for ring `i`, null
  * when every edge takes the ring's style (`ringStyles(layer)[i]`), else one style per edge
  * (edge `e` runs from vertex `e` to vertex `e + 1`, wrapping). An edge whose room or area
- * pins a wall key takes the ring's style with those keys on top. Edges that resolve alike
+ * pins a wall key takes the ring's style with those keys on top; an edge along a painted
+ * cave's outline takes no stone (the cave's rock stands there). Edges that resolve alike
  * share one style object, so a renderer can batch runs by identity.
  */
 export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle[] | null)[] {
@@ -361,7 +369,11 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
   if (hit && hit.keys.every((k, i) => k === keys[i])) return hit.out;
 
   let out: (DungeonStyle[] | null)[];
-  if (!roomsPinWalls(layer)) {
+  const pinning = roomsPinWalls(layer);
+  // A stretch of ring that carries a painted cave's rock gets no stone from the floor the ring
+  // belongs to (a hole carved through a cave and the floor under it): one edge there, the rock.
+  const caves = caveEdges(layer);
+  if (!pinning && caves.length === 0) {
     out = rings.map(() => null);
   } else {
     const base = ringStyles(layer, level);
@@ -373,8 +385,17 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
       // One merged style per distinct pin set on this ring, so equal edges are identical.
       const merged = new Map<Partial<DungeonStyle>, DungeonStyle>();
       let styles: DungeonStyle[] | null = null;
+      let rock: DungeonStyle | null = null;
       for (let e = 0; e < n; e++) {
-        const room = edgeRoom(layer.rooms, ring[e], ring[(e + 1) % n]);
+        const [a, b] = [ring[e], ring[(e + 1) % n]];
+        if (caves.length > 0 && ringStyle.wallTextureSetId && onCaveEdge([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], caves)) {
+          rock ??= { ...ringStyle, wallTextureSetId: '' };
+          styles ??= new Array<DungeonStyle>(n).fill(ringStyle);
+          styles[e] = rock;
+          continue;
+        }
+        if (!pinning) continue;
+        const room = edgeRoom(layer.rooms, a, b);
         if (!room) continue;
         let pins = pinsOf.get(room.id);
         if (pins === undefined) pinsOf.set(room.id, (pins = roomWallPins(room, layer.areas)));

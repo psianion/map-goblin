@@ -2,9 +2,10 @@
 
 import { useStore } from '@/store/store';
 import { selectWallById } from '@/store/selectors';
-import { SelectRow } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
-import { installedWallSets, wallSetLabel } from '@/editor/models/assetStrip';
+import { SwatchPicker } from '@/editor/SwatchPicker';
+import { swatchLabel } from '@/editor/swatchLabel';
+import { installedWallSets, wallSetLabel, wallSetThumb } from '@/editor/models/assetStrip';
 import { LAYER_SET, NO_SET } from './wallLook';
 
 /** The installed wall sets, the layer's first. Sets arrive with the packs, so they are read live. */
@@ -15,10 +16,11 @@ export function SetField({ def, value, onChange }: SettingProps<string>) {
     const found = id ? selectWallById(s, id) : undefined;
     return found?.layer.style.wallTextureSetId;
   });
-  const options = [
-    { value: LAYER_SET, label: layerSet ? `Layer's (${wallSetLabel(layerSet)})` : "Layer's" },
-    ...installedWallSets().map((id) => ({ value: id, label: wallSetLabel(id) })),
+  const swatches = [
+    // The layer's set is pictured as itself: that is what the wall draws with.
+    { value: LAYER_SET, label: layerSet ? `Layer's (${wallSetLabel(layerSet)})` : "Layer's", art: layerSet ? wallSetThumb(layerSet) : undefined },
+    ...installedWallSets().map((id) => ({ value: id, label: wallSetLabel(id), art: wallSetThumb(id) })),
     { value: NO_SET, label: 'None' },
   ];
-  return <SelectRow label={def.label} value={value} options={options} onValueChange={onChange} />;
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} />;
 }

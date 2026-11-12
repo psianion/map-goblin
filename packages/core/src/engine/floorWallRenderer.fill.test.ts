@@ -23,7 +23,7 @@ const manager = {
 };
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 
-import { shapeFloorFill } from './floorWallRenderer';
+import { holesByOuter, shapeFloorFill } from './floorWallRenderer';
 import { isMissingTexture, hasLiveTexture } from '../assets/packCatalog';
 import type { DungeonStyle, ShapeChild } from '../store/types';
 
@@ -112,5 +112,25 @@ describe('shapeFloorFill', () => {
   it('a layer whose style came through empty paints the default floor instead of throwing', () => {
     expect(shapeFloorFill(shape(), {} as DungeonStyle)).toEqual({ kind: 'solid', color: 0xf1ecdf });
     expect(shapeFloorFill(shape(), undefined as unknown as DungeonStyle)).toEqual({ kind: 'solid', color: 0xf1ecdf });
+  });
+});
+
+// A floor's painted border round a hole is a ring of its own lying inside the hole of the
+// border round the floor's outline: two outers, one inside the other's hole.
+describe('holesByOuter', () => {
+  const square = (a: number, b: number): [number, number][] => [[a, a], [b, a], [b, b], [a, b]];
+  const hole = (a: number, b: number): [number, number][] => [...square(a, b)].reverse();
+
+  it('gives a hole to the innermost outer that holds it, whatever order the outers come in', () => {
+    const big = square(0, 20);
+    const bigHole = hole(2, 18);
+    const island = square(8, 12);
+    const islandHole = hole(9, 11);
+    expect(holesByOuter([big, island], [bigHole, islandHole])).toEqual([[bigHole], [islandHole]]);
+    expect(holesByOuter([island, big], [islandHole, bigHole])).toEqual([[islandHole], [bigHole]]);
+  });
+
+  it('leaves out a hole no outer holds', () => {
+    expect(holesByOuter([square(0, 4)], [hole(10, 12)])).toEqual([[]]);
   });
 });

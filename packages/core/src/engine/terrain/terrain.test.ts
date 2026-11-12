@@ -107,6 +107,17 @@ describe('tool setting clamps', () => {
     expect(terrainBrush.strength).toBe(TERRAIN_BRUSH_RANGES.strength.min);
     expect(terrainBrush.tintOpacity).toBe(TERRAIN_BRUSH_RANGES.tintOpacity.max);
   });
+
+  it('starts with Solid off, keeps it a boolean, and reads settings saved without it as off', () => {
+    const brush = () => useStore.getState().tools.settings.terrainBrush;
+    expect(brush().solid).toBe(false);
+    useStore.getState().updateTerrainBrushSettings({ solid: true });
+    expect(brush().solid).toBe(true);
+    useStore.getState().updateTerrainBrushSettings({ solid: 'yes' as unknown as boolean });
+    expect(brush().solid).toBe(false);
+    useStore.getState().updateTerrainBrushSettings({ solid: undefined });
+    expect(brush().solid).toBe(false);
+  });
 });
 
 describe('brush tint colour', () => {

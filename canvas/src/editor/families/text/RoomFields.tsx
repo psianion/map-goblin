@@ -14,7 +14,8 @@ import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { chainOf, lookGesture, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
 import { FLOOR_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
-import { installedWallSets, wallSetLabel, wallWidthIgnored } from '@/editor/models/assetStrip';
+import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthIgnored } from '@/editor/models/assetStrip';
+import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
 import { openRoomKey } from '@/editor/models/roomActions';
 import type { RoomKey } from '@/store/types';
@@ -155,11 +156,11 @@ export function WallsSection({ value: target }: SettingProps<LookTarget>) {
   const sets = installedWallSets();
   const setId = look.wallTextureSetId;
   const ids = setId && !sets.includes(setId) ? [setId, ...sets] : sets;
-  const options = [{ value: NONE_SET, label: 'None' }, ...ids.map((id) => ({ value: id, label: wallSetLabel(id) }))];
+  const swatches = [{ value: NONE_SET, label: 'None' }, ...ids.map((id) => ({ value: id, label: wallSetLabel(id), art: wallSetThumb(id) }))];
   return (
     <div className="flex flex-col gap-px" data-testid="look-walls">
       <SectionHead title="Walls" target={target} keys={WALL_KEYS} />
-      <SelectRow label="Set" value={setId || NONE_SET} options={options} onValueChange={(v) => setLook(target, { wallTextureSetId: v === NONE_SET ? '' : v })} />
+      <SwatchPicker label="Set" name="Wall set" swatches={swatches} value={setId || NONE_SET} onPick={(v) => setLook(target, { wallTextureSetId: v === NONE_SET ? '' : v })} />
       {(setId || target.kind === 'level') && (
         <ColourRow
           label="Tint"

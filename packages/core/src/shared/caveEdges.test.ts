@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { caveCutters, caveEdges, caveFloorShape, onCaveEdge } from './caveFloor';
 import { resolveWalls } from './wallResolve';
+import { edgeStyles, ringStyles } from './wallLook';
 import { suggestRooms } from './suggestRooms';
 import { extractWallSegments } from '../engine/lighting/raycaster';
 import { computeMergedFloor } from '../engine/mergedFloor';
@@ -45,6 +46,32 @@ describe('caveEdges', () => {
     expect(edge.rings).toHaveLength(1);
   });
 
+  it('lays rock only round the union of overlapping floors, however each is wound or holed', () => {
+    const inside = (p: [number, number], ring: Ring) => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) hit = !hit;
+      }
+      return hit;
+    };
+    // One drawn one way round, the other the other way; the second carries a hole the first covers.
+    const a = cave('a', [...square(0, 0, 6)].reverse());
+    const b: ShapeChild = { ...cave('b', square(3, 0, 6)), contours: [square(3, 0, 6), [...square(4, 1, 1)].reverse()] };
+    const [edge] = caveEdges(layerOf([a, b]));
+    expect(edge.rings).toHaveLength(1);
+    // No rock ring through the overlap, nor round the covered hole.
+    expect(edge.rings[0].every((p) => !inside(p, [[0.5, 0.5], [8.5, 0.5], [8.5, 5.5], [0.5, 5.5]]))).toBe(true);
+  });
+
+  it('lays no rock between floors that touch along a seam, even with a hairline between them', () => {
+    const [edge] = caveEdges(layerOf([cave('a', square(0, 0, 4)), cave('b', square(4.001, 0, 4))]));
+    expect(edge.rings).toHaveLength(1);
+    const xs = edge.rings[0].map((p) => p[0]);
+    expect(xs.some((x) => x > 1 && x < 7.5 && edge.rings[0].some((q) => Math.abs(q[0] - x) < 1e-9 && q[1] > 0.5 && q[1] < 3.5))).toBe(false);
+  });
+
   it('knows a point on the outline from one off it, and cuts the faces along each ring', () => {
     const l = layerOf([cave('a', square(0, 0, 4))]);
     expect(onCaveEdge([2, 0], caveEdges(l))).toBe(true);
@@ -77,6 +104,24 @@ describe('resolveWalls with a painted cave', () => {
     // A ray from the cave's middle straight up crosses the cave's top edge at y = 0.
     const blocked = segs.some((s) => Math.min(s.y1, s.y2) <= 0 && Math.max(s.y1, s.y2) >= 0 && Math.min(s.x1, s.x2) <= 2 && Math.max(s.x1, s.x2) >= 2 && Math.abs(s.y1 - s.y2) < 1e-9 && s.y1 > -1);
     expect(blocked).toBe(true);
+  });
+});
+
+describe('stone walls beside a cave’s rock', () => {
+  it('draws no stone on a hole carved through a cave and the stone floor under it; the floor’s own outline keeps its stone', () => {
+    const hole: Ring = [...square(2, 2, 2)].reverse();
+    const base: ShapeChild = { ...floor('base', square(-10, -10, 30)), contours: [square(-10, -10, 30), hole] };
+    const a: ShapeChild = { ...cave('a', square(0, 0, 6)), contours: [square(0, 0, 6), hole] };
+    const l = layerOf([base, a]);
+    expect(l.style.wallTextureSetId).toBeTruthy();
+    const rings = l.mergedFloor!;
+    expect(rings).toHaveLength(2);
+    const looks = (i: number) => edgeStyles(l)[i] ?? rings[i].map(() => ringStyles(l)[i]);
+    const holeRing = rings.findIndex((r) => r.every(([x, y]) => x >= 2 - 1e-6 && x <= 4 + 1e-6 && y >= 2 - 1e-6 && y <= 4 + 1e-6));
+    expect(holeRing).toBeGreaterThanOrEqual(0);
+    expect(looks(holeRing).every((s) => !s.wallTextureSetId)).toBe(true);
+    const outerRing = 1 - holeRing;
+    expect(looks(outerRing).every((s) => s.wallTextureSetId === l.style.wallTextureSetId)).toBe(true);
   });
 });
 

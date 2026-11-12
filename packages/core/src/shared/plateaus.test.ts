@@ -3,6 +3,7 @@ import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import {
+  cliffOccluders,
   edgeHides,
   edgeRuns,
   hasPlateaus,
@@ -167,7 +168,87 @@ describe('bands and drops', () => {
     expect(new Set(runs.map((r) => r.edge))).toEqual(new Set(['cliff', 'slope']));
     expect(runs.every((r) => !r.closed)).toBe(true);
   });
+
+  /** A hand-drawn blob round (cx, cy): off the grid at every point. */
+  const blob = (id: string, cx: number, cy: number, r: number): PlateauChild => ({
+    ...plat(id, 0, 0, 1, 1, { height: 1, edge: 'slope', edgeArt: 'paint' }),
+    contours: [
+      Array.from({ length: 48 }, (_, i): [number, number] => {
+        const a = (i / 48) * Math.PI * 2;
+        const rr = r * (1 + 0.12 * Math.sin(a * 5 + cx));
+        return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)];
+      }),
+    ],
+  });
+
+  it.each([
+    ['overlapping', blob('a', 7.137, 7.291, 3.3), blob('b', 11.413, 8.077, 3.1)],
+    ['separate', blob('a', 6.137, 6.291, 3.3), blob('b', 21.413, 20.077, 3.1)],
+  ])('gives every edge of two %s freehand plateaus of one height its plateau, so none falls back to cliff rock', (_name, a, b) => {
+    const [band] = layerPlateaus(layerOf([ground, a, b])).bands;
+    expect(band.edges.flat().length).toBeGreaterThan(40);
+    expect(band.edges.flat().filter((e) => e.owner === null)).toHaveLength(0);
+    for (const run of edgeRuns(band)) {
+      expect(run.owner?.edgeArt).toBe('paint');
+      expect(run.edge).toBe('slope');
+    }
+    // What reads the same edges agrees: a slope hides nothing from below, and a move
+    // onto the plateau crosses its edge (an edge with no owner was skipped).
+    const layer = layerOf([ground, a, b]);
+    expect(cliffOccluders(layer, 1)).toEqual([]);
+    const ring = a.contours[0];
+    const cx = ring.reduce((n, p) => n + p[0], 0) / ring.length;
+    const cy = ring.reduce((n, p) => n + p[1], 0) / ring.length;
+    expect(crossingsAlong(layer, [cx - 6, cy], [cx, cy], defaultCrossingKinds()).length).toBeGreaterThan(0);
+  });
+
+  it('reads no drop where a plateau lies under a higher one it sticks out of', () => {
+    // `low` pokes out of `high` to the east: its west part is covered by the higher top.
+    const high = plat('high', 2, 2, 12, 12, { height: 2, edge: 'cliff' });
+    const low = plat('low', 8, 5, 18, 9, { height: 1, edge: 'cliff' });
+    const p = layerPlateaus(layerOf([ground, high, low]));
+    expect(p.infos.get('low')!.height).toBe(1);
+    const band = p.bands.find((x) => x.height === 1)!;
+    const drops = band.edges.flat().map((e) => e.drop);
+    // Out on the ground it drops 1; under the higher plateau there is no edge to draw.
+    expect(new Set(drops)).toEqual(new Set([0, 1]));
+    const covered = (a: [number, number], b: [number, number]) => a[0] === 8 && b[0] === 8;
+    for (const run of edgeRuns(band)) {
+      expect(run.drop).toBeGreaterThan(0);
+      for (let i = 0; i + 1 < run.points.length; i++) expect(covered(run.points[i], run.points[i + 1])).toBe(false);
+    }
+  });
+
+  it('unions overlapping plateaus drawn in opposite winding, and a ring that crosses itself', () => {
+    const a = plat('a', 2, 2, 8, 8, { height: 1 });
+    const b = { ...plat('b', 6, 2, 12, 8, { height: 1 }), contours: [[[6, 8], [12, 8], [12, 2], [6, 2]] as [number, number][]] };
+    const [band] = layerPlateaus(layerOf([ground, a, b])).bands;
+    expect(band.rings).toHaveLength(1);
+    const xs = band.rings[0].map((p) => p[0]);
+    expect([Math.min(...xs), Math.max(...xs)]).toEqual([2, 12]);
+    // Nothing of the overlap is cut out of the top.
+    expect(elevationAt(layerOf([ground, a, b]), 7, 5)).toBe(1);
+
+    // A bow tie: one ring crossing itself at (5, 5).
+    const bow = { ...plat('bow', 0, 0, 1, 1, { height: 1 }), contours: [[[2, 2], [8, 8], [8, 2], [2, 8]] as [number, number][]] };
+    const lone = layerPlateaus(layerOf([ground, bow])).bands[0];
+    expect(lone.rings.length).toBeGreaterThan(0);
+    for (const ring of lone.rings) {
+      for (let i = 0; i < ring.length; i++) {
+        for (let j = i + 2; j < ring.length; j++) {
+          if (i === 0 && j === ring.length - 1) continue;
+          expect(crosses(ring[i], ring[(i + 1) % ring.length], ring[j], ring[(j + 1) % ring.length])).toBe(false);
+        }
+      }
+    }
+  });
 });
+
+/** Whether segments ab and cd cross at a point inside both. */
+function crosses(a: [number, number], b: [number, number], c: [number, number], d: [number, number]): boolean {
+  const side = (p: [number, number], q: [number, number], r: [number, number]) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+  return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+}
 
 describe('the merged floor', () => {
   const ground = rect('ground', 0, 0, 30, 30);
@@ -229,6 +310,49 @@ describe('the table: elevation and crossings', () => {
     expect(elevationAt(layer, 12, 12)).toBe(3);
     expect(elevationAt(layer, 5, 5)).toBe(0);
     expect(elevationAtLayers([layerOf([ground]), layer], 12, 12)).toBe(3);
+  });
+
+  it('adds up the heights of every floor and patch covering a point, on top of the plateau under it', () => {
+    const raised = rect('raised', 8, 8, 16, 16, { height: 1.5 });
+    const patch = (id: string, x0: number, x1: number, height?: number) => ({
+      id,
+      material: 'p:water',
+      rings: [[[x0, 9], [x1, 9], [x1, 15], [x0, 15]]] as [number, number][][],
+      smooth: false,
+      border: false,
+      ...(height === undefined ? {} : { height }),
+    });
+    const l = { children: [ground, raised, top], materials: [patch('a', 9, 11, -1), patch('b', 10.5, 12.5, -2)] } as unknown as DungeonLayer;
+    // Plateau 3, floor 1.5 under it: 4.5.
+    expect(elevationAt(l, 13, 13)).toBe(4.5);
+    // The floor alone, off the plateau.
+    expect(elevationAt(l, 15, 9.5)).toBe(1.5);
+    // A patch on the floor: the two add.
+    expect(elevationAt(l, 9.5, 12)).toBe(1.5 - 1);
+    // Two patches, the floor and the plateau, all four.
+    expect(elevationAt(l, 10.75, 12)).toBe(3 + 1.5 - 1 - 2);
+    expect(elevationAt(l, 12, 12)).toBe(3 + 1.5 - 2);
+    // The plain ground and the same across layers.
+    expect(elevationAt(l, 2, 2)).toBe(0);
+    expect(elevationAtLayers([layerOf([ground]), l], 9.5, 12)).toBe(0.5);
+    // A patch with no height of its own on a raised floor stands at the floor's height.
+    const flat = { ...patch('flat', 1, 3), rings: [[[1, 1], [3, 1], [3, 3], [1, 3]]] };
+    expect(elevationAt({ children: [rect('f', 0, 0, 6, 6, { height: 1 })], materials: [flat] } as unknown as DungeonLayer, 2, 2)).toBe(1);
+    // A patch painted on a floor stands only where the floor is; a ground patch stands whole.
+    const floorRing: [number, number][] = [[0, 0], [6, 0], [6, 6], [0, 6]];
+    const spill = { id: 's', material: 'p:dirt', rings: [[[4, 1], [9, 1], [9, 3], [4, 3]]] as [number, number][][], smooth: false, border: false, height: 2 };
+    const onFloor = { children: [rect('f', 0, 0, 6, 6)], materials: [spill], mergedFloor: [floorRing] } as unknown as DungeonLayer;
+    expect(elevationAt(onFloor, 5, 2)).toBe(2);
+    expect(elevationAt(onFloor, 8, 2)).toBe(0);
+    expect(elevationAt({ ...onFloor, materials: [{ ...spill, ground: true }] } as unknown as DungeonLayer, 8, 2)).toBe(2);
+    // A floor's height is kept to half steps, -10 to 10.
+    expect(elevationAt(layerOf([rect('f', 0, 0, 4, 4, { height: 2.3 })]), 1, 1)).toBe(2.5);
+    expect(elevationAt(layerOf([rect('f', 0, 0, 4, 4, { height: 40 })]), 1, 1)).toBe(10);
+  });
+
+  it('changes nothing with every height 0 or unset', () => {
+    const flat = { children: [ground, rect('f', 8, 8, 16, 16, { height: 0 }), top], materials: [{ id: 'a', material: 'p:dirt', rings: [[[9, 9], [11, 9], [11, 11], [9, 11]]], smooth: false, border: false }] } as unknown as DungeonLayer;
+    for (const [x, y] of [[12, 12], [10, 10], [5, 5], [15, 15]]) expect(elevationAt(flat, x, y)).toBe(elevationAt(layer, x, y));
   });
 
   it('lists the cliff a move goes over, going up or down', () => {

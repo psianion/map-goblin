@@ -131,6 +131,17 @@ describe('renderDoors sprite dispatch', () => {
     expect(children.some((c) => c instanceof FakeSprite)).toBe(true);
   });
 
+  it('draws nothing for a plain opening: no arch art, no jamb and no glyph', () => {
+    getTextureOrNull.mockReturnValue(packTexture(200, 200));
+    const onCave = {
+      ...resolved('archway', { bare: true }),
+      wall: { id: 'w1', kind: 'cave', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' },
+    } as unknown as ResolvedDoor;
+    expect(render([resolved('archway', { bare: true }), onCave])).toEqual([]);
+    getTextureOrNull.mockReturnValue(null);
+    expect(render([resolved('archway', { bare: true })])).toEqual([]);
+  });
+
   it('asks for the documented manifest keys', () => {
     render([
       resolved('single'), resolved('double', { state: 'open' }),
@@ -309,6 +320,28 @@ describe("renderDoors with a door's own kit", () => {
     expect(asked().has('gg-demo:doorkit-wood-hinge')).toBe(true);
     expect(asked().has('gg-demo:doorkit-cave-hinge')).toBe(false);
   });
+
+  it.each(['cave', 'standalone'] as const)(
+    "leaves the jamb rocks of a door on a %s wall of cave rock untinted, whatever the layer's wall tint",
+    (kind) => {
+      getTextureOrNull.mockReturnValue(packTexture(160, 160));
+      const r = resolved('single');
+      const onCave = {
+        ...r,
+        wall: { id: 'w1', kind, points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' },
+      } as unknown as ResolvedDoor;
+      const children: unknown[] = [];
+      renderDoors(
+        { addChild: (c: unknown) => children.push(c) } as never,
+        [onCave],
+        { ...STYLE, wallTextureTint: '#aa0000' } as DungeonStyle,
+        1,
+      );
+      const jambs = children.filter((c): c is FakeSprite => c instanceof FakeSprite);
+      expect(jambs).toHaveLength(2);
+      for (const jamb of jambs) expect(jamb.tint).toBe(0xffffff);
+    },
+  );
 
   it('falls back to the glyph when the picked kit is not installed', () => {
     const children = render([resolved('single', { kit: 'stone' })]);

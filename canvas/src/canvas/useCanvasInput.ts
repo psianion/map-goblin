@@ -306,7 +306,7 @@ export function useCanvasInput(
 
       const snapped = toolPoint(rawWorld);
       cursorWorldPosition.current = snapped;
-      _toolManager?.onPointerDown(snapped, e);
+      _toolManager?.onPointerDown(snapped, e, rawWorld);
       syncHud();
     };
 
@@ -374,7 +374,7 @@ export function useCanvasInput(
       for (const ce of coalescedEvents) {
         const world = engine.screenToWorld(ce.clientX - rect.left, ce.clientY - rect.top);
         const snapped = toolPoint(world);
-        _toolManager?.onPointerMove(snapped, ce);
+        _toolManager?.onPointerMove(snapped, ce, world);
       }
       // Snap indicator + cursor use the final event only
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);

@@ -8,9 +8,13 @@
 // - Plateaus merge only with plateaus of the same absolute height: one band per height.
 // - The drop at a point of a band's edge is the band's height minus the height of the
 //   surface just outside: positive faces outward (a plateau), negative inward (a pit).
+// - A floor or Material brush patch may carry a height of its own: a point stands at the
+//   plateau surface under it plus the height of the topmost floor or patch covering it
+//   (`elevationAt`). That height draws a shadow and nothing else: no wall, no room.
 
 import type { DungeonLayer } from '../store/types';
-import type { CrossingKind, PlateauChild, RingGeometry } from './types';
+import type { AnyChild, CrossingKind, PlateauChild, RingGeometry, ShapeChild } from './types';
+import { patchCovers, patchOutline, type MaterialPatch } from './materialPatch';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
@@ -25,6 +29,13 @@ export const TIER_CAP = 0.35;
 
 /** How far outside an edge the surface below it is probed, in cells. */
 const PROBE = 0.05;
+
+/**
+ * How near a plateau's own outline a point of its band's ring counts as on it. The ring
+ * comes out of a union snapped to 0.01 (Clipper2Engine's precision), so a point of it can
+ * sit that far off the outline it was cut from.
+ */
+const UNION_SNAP = 0.02;
 
 type Transform = NonNullable<RingGeometry['transform']>;
 
@@ -223,13 +234,17 @@ export function unionShapes(shapes: readonly RingGeometry[]): Polygon[] {
     for (let i = 0; i < s.contours.length; i++) (i === 0 ? outer : holes).push(shapeRing(s, i));
   }
   if (outer.length === 0) return [];
-  let merged = outer.length === 1 ? [outer[0]] : clipper2Engine.union(outer, []);
+  // Each outer ring is cleaned on its own first (wound the one way, a ring that crosses
+  // itself untangled): under the non-zero rule two overlapping rings wound opposite ways
+  // cancelled where they overlapped, as the caves' did (caveFloor.ts).
+  const clean = outer.flatMap((r) => clipper2Engine.union([r], []));
+  let merged = outer.length === 1 ? clean : clipper2Engine.union(clean, []);
   if (holes.length > 0) merged = clipper2Engine.difference(merged, holes);
   return merged;
 }
 
 /** Wind rings so whatever is outside the set lies on the left of travel. */
-function orient(rings: Polygon[]): Polygon[] {
+export function orient(rings: Polygon[]): Polygon[] {
   return rings.map((r, i) => {
     if (r.length < 3) return r;
     let depth = 0;
@@ -240,15 +255,15 @@ function orient(rings: Polygon[]): Polygon[] {
 }
 
 /**
- * The surface height at a point: the deepest raised plateau holding it (the one drawn last on
- * a tie), else the ground, 0.
+ * The surface height at a point: the deepest raised plateau holding it (the higher on a tie,
+ * which is the band drawn over the other), else the ground, 0.
  */
 export function surfaceHeightAt(infos: Map<string, PlateauInfo>, x: number, y: number): number {
   let best: PlateauInfo | null = null;
   for (const info of infos.values()) {
     if (info.chain.length === 0) continue;
     if (!pointInPoly(x, y, info.outline)) continue;
-    if (!best || info.chain.length >= best.chain.length) best = info;
+    if (!best || info.chain.length > best.chain.length || (info.chain.length === best.chain.length && info.height > best.height)) best = info;
   }
   return best ? best.height : 0;
 }
@@ -278,12 +293,18 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
       r.map((a, i) => {
         const b = r[(i + 1) % r.length];
         const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        const owner = members.length === 1 ? members[0] : ringOwner([a, mid, b], members);
+        const owner = members.length === 1 ? members[0] : ringOwner([a, mid, b], members, UNION_SNAP);
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
         // Outside is on the left of travel: (dy, -dx) in screen space, y down.
-        const ox = mid[0] + ((b[1] - a[1]) / len) * PROBE;
-        const oy = mid[1] - ((b[0] - a[0]) / len) * PROBE;
-        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop: height - surfaceHeightAt(infos, ox, oy) } as BandEdge;
+        const nx = ((b[1] - a[1]) / len) * PROBE;
+        const ny = (-(b[0] - a[0]) / len) * PROBE;
+        // The surface just inside less the surface just outside. Where a higher plateau lies
+        // over the band its edge is covered: no drop there, so nothing is drawn or crossed.
+        const covered = surfaceHeightAt(infos, mid[0] - nx, mid[1] - ny) !== height;
+        let drop = covered ? 0 : height - surfaceHeightAt(infos, mid[0] + nx, mid[1] + ny);
+        // A raised plateau has no edge facing up: against higher ground the edge is the other's.
+        if (drop < 0 && owner && ownHeight(owner) > 0) drop = 0;
+        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop } as BandEdge;
       }),
     );
     bands.push({ height, depth, shapes: members, rings, edges });
@@ -440,14 +461,84 @@ export function cliffOccluders(
 
 // ─── The table: where a token stands, and what it crosses ──
 
-/** How high a point stands: the surface under it. */
-export function elevationAt(layer: Pick<DungeonLayer, 'children'>, x: number, y: number): number {
-  if (!hasPlateaus(layer)) return 0;
-  return surfaceHeightAt(layerPlateaus(layer).infos, x, y);
+// ─── Floors and patches with a height ──────────────────────
+
+/** What a floor's or patch's height reads from a layer: its children, and its patches when it has any. */
+export type GroundLayer = Pick<DungeonLayer, 'children'> & {
+  materials?: readonly Pick<MaterialPatch, 'rings' | 'smooth' | 'height' | 'material' | 'ground'>[];
+  /** The layer's floor union: a plain patch painted on a floor stands only where the floor is. */
+  mergedFloor?: DungeonLayer['mergedFloor'];
+};
+
+/** A floor's or patch's height, cells: whole or half steps, kept to GROUND_HEIGHT_MIN..GROUND_HEIGHT_MAX. */
+export const GROUND_HEIGHT_MIN = -10;
+export const GROUND_HEIGHT_MAX = 10;
+export const GROUND_HEIGHT_STEP = 0.5;
+
+export function groundHeightOf(height: number | undefined): number {
+  if (height === undefined || !Number.isFinite(height)) return 0;
+  const clamped = Math.max(GROUND_HEIGHT_MIN, Math.min(GROUND_HEIGHT_MAX, height));
+  return Math.round(clamped / GROUND_HEIGHT_STEP) * GROUND_HEIGHT_STEP;
+}
+
+const isFloor = (c: AnyChild): c is ShapeChild => c.childType === 'shape' && c.visible !== false;
+
+/** True when any visible floor or any patch on the layer has a height: the only case the ground answers anything but 0. */
+export function hasGroundHeight(layer: GroundLayer): boolean {
+  return layer.children.some((c) => isFloor(c) && groundHeightOf(c.height) !== 0) || (layer.materials ?? []).some((p) => groundHeightOf(p.height) !== 0);
+}
+
+/**
+ * The heights of every floor and patch covering a point, added up: pieces stack, so a patch
+ * of height 0 on a floor of +1 stands at 1. Each is measured where it is drawn (a patch's
+ * rounded outline, kept to the floors when it is painted on one); 0 where none covers it.
+ */
+export function groundHeightAt(layer: GroundLayer, x: number, y: number): number {
+  if (!hasGroundHeight(layer)) return 0;
+  let height = 0;
+  for (const c of layer.children) {
+    if (!isFloor(c) || c.contours.length === 0 || groundHeightOf(c.height) === 0) continue;
+    if (inRings(x, y, c.contours.map((_, k) => shapeRing(c, k)))) height += groundHeightOf(c.height);
+  }
+  for (const p of layer.materials ?? []) {
+    if (groundHeightOf(p.height) !== 0 && patchCovers(p, layer.mergedFloor, x, y)) height += groundHeightOf(p.height);
+  }
+  return height;
+}
+
+/** A floor or patch with a height: how high, and its outline wound with the outside on the left of travel. */
+export interface GroundRelief {
+  height: number;
+  rings: Polygon[];
+}
+
+/** Every visible floor and patch on the layer with a height, floors first, as drawn. */
+export function groundReliefs(layer: GroundLayer): GroundRelief[] {
+  if (!hasGroundHeight(layer)) return [];
+  const out: GroundRelief[] = [];
+  for (const c of layer.children) {
+    const height = isFloor(c) ? groundHeightOf(c.height) : 0;
+    if (height === 0 || !isFloor(c)) continue;
+    const rings = orient(unionShapes([c]).filter((r) => r.length >= 3));
+    if (rings.length > 0) out.push({ height, rings });
+  }
+  for (const p of layer.materials ?? []) {
+    const height = groundHeightOf(p.height);
+    if (height === 0) continue;
+    const rings = orient(patchOutline(p).filter((r) => r.length >= 3));
+    if (rings.length > 0) out.push({ height, rings });
+  }
+  return out;
+}
+
+/** How high a point stands: the plateau surface under it plus every floor and patch covering it. */
+export function elevationAt(layer: GroundLayer, x: number, y: number): number {
+  const plateau = hasPlateaus(layer) ? surfaceHeightAt(layerPlateaus(layer).infos, x, y) : 0;
+  return plateau + groundHeightAt(layer, x, y);
 }
 
 /** The same across a level's layers: the topmost layer that raises or sinks the point decides. */
-export function elevationAtLayers(layers: readonly Pick<DungeonLayer, 'children'>[], x: number, y: number): number {
+export function elevationAtLayers(layers: readonly GroundLayer[], x: number, y: number): number {
   for (let i = layers.length - 1; i >= 0; i--) {
     const h = elevationAt(layers[i], x, y);
     if (h !== 0) return h;

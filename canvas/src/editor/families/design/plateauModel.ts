@@ -3,6 +3,7 @@
 
 import type { PlateauChild } from '@/store/types';
 import type { EdgeKind } from '@dnd/core/src/shared/plateaus';
+import { cliffChoice, DEFAULT_CLIFF_FAMILY, DEFAULT_CLIFF_SET, isPaintedBorder, PAINTED_BORDER } from '@dnd/core/src/engine/plateauKit';
 
 export const EDGE_OPTIONS: { value: EdgeKind; label: string }[] = [
   { value: 'none', label: 'None' },
@@ -36,6 +37,23 @@ export const SLOPE_STEP = 0.5;
 
 /** The cave rock of the default set is stored as nothing, however an older plateau names it. */
 export const DEFAULT_ART = 'default';
+
+/** What the Cliff art row shows for a stored `edgeArt`: Cave rock as DEFAULT_ART, any painted border as PAINTED_BORDER. */
+export function cliffArtValue(edgeArt: string | undefined): string {
+  if (isPaintedBorder(edgeArt)) return PAINTED_BORDER;
+  const { setId, family } = cliffChoice(edgeArt);
+  return setId === DEFAULT_CLIFF_SET && family === DEFAULT_CLIFF_FAMILY ? DEFAULT_ART : (edgeArt ?? DEFAULT_ART);
+}
+
+/** The `edgeArt` the Cliff art row writes for `choice`; a painted border picked again keeps its texture. */
+export function edgeArtFor(choice: string, current: string | undefined): string | undefined {
+  if (choice === DEFAULT_ART) return undefined;
+  if (choice === PAINTED_BORDER && isPaintedBorder(current)) return current;
+  return choice;
+}
+
+/** Border width steps, cells. */
+export const BORDER_STEP = 0.25;
 
 /** The value that means the edge kind's own crossing: nothing stored. */
 export const EDGE_CROSSING = 'edge';

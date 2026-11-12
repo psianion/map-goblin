@@ -36,6 +36,7 @@ import { ToolManager } from './ToolManager';
 import type { DrawingTool, ToolType } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { setNotify } from '../../store/notify';
+import { createDungeonLayer } from '../../store/factories';
 import { TERRAIN_PANEL_ID } from '../../store/types';
 
 function fakeTool(type: ToolType, cursor?: string, editsActiveLayer?: boolean): DrawingTool {
@@ -147,7 +148,28 @@ describe('ToolManager.onPointerDown — editsActiveLayer guard', () => {
 
   // D5(a): "Select a layer first" reads as a bug when the Terrain row is
   // visibly selected in the panel — same no-editable-layer case, worded for it.
-  it('warns with the terrain-aware message when the Terrain row is active', () => {
+  it('takes the topmost visible, unlocked layer when the Terrain row is active, and draws on it', () => {
+    const first = dungeonLayerId();
+    useStore.getState().addLayer(createDungeonLayer('Upper'));
+    useStore.getState().addLayer(createDungeonLayer('Locked on top'));
+    const [, upper, top] = useStore.getState().layers.filter((l) => l.type === 'dungeon').map((l) => l.id);
+    useStore.getState().updateLayer(top, { locked: true });
+    useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
+    useStore.getState().setActiveTool('material');
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('material', 'crosshair', true);
+    tm.registerTool(tool);
+
+    tm.onPointerDown({ x: 0, y: 0 }, {} as PointerEvent);
+
+    expect(upper).not.toBe(first);
+    expect(useStore.getState().ui.activeLayerId).toBe(upper);
+    expect(tool.onPointerDown).toHaveBeenCalledTimes(1);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('warns with the terrain-aware message when the Terrain row is active and no layer can be drawn on', () => {
+    useStore.getState().updateLayer(dungeonLayerId(), { locked: true });
     useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
     useStore.getState().setActiveTool('rectangle');
     const tm = new ToolManager(new Container() as never);

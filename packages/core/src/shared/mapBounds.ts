@@ -5,7 +5,7 @@
 import type { AssetChild, DungeonLayer, Layer, MapSettings, TerrainData } from '../store/types';
 import { shapeRing } from './plateaus';
 import { waterBounds } from './waterMask';
-import { patchesBounds } from './materialPatch';
+import { keptToFloors, patchesBounds } from './materialPatch';
 import { pathwayBounds } from './pathway';
 import { dropShadeWidth, slopeWidthOf } from './plateauShade';
 
@@ -70,6 +70,24 @@ export function assetBounds(layers: readonly Layer[], pinned: WorldBounds | null
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
 
+/** The box of a layer's floors: its union when it has one, and its visible floor shapes. Null with neither. */
+function floorBox(layer: DungeonLayer): WorldBounds | null {
+  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  const rings = [
+    ...(layer.mergedFloor ?? []),
+    ...(layer.children ?? []).flatMap((c) => (c.childType === 'shape' && c.visible ? [c.contours?.[0] ?? []] : [])),
+  ];
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      box.minX = Math.min(box.minX, x);
+      box.minY = Math.min(box.minY, y);
+      box.maxX = Math.max(box.maxX, x);
+      box.maxY = Math.max(box.maxY, y);
+    }
+  }
+  return Number.isFinite(box.minX) ? box : null;
+}
+
 /**
  * The raw extent of everything drawn — floor geometry, plateaus, standalone walls, placed
  * assets, painted terrain — with no allowance yet for how wide a wall is stroked. Null when
@@ -129,13 +147,23 @@ function drawnBounds(
       maxX = Math.max(maxX, b.maxX);
       maxY = Math.max(maxY, b.maxY);
     }
-    // So are Material brush patches.
-    const patches = patchesBounds(dl.materials);
-    if (patches) {
-      minX = Math.min(minX, patches.minX);
-      minY = Math.min(minY, patches.minY);
-      maxX = Math.max(maxX, patches.maxX);
-      maxY = Math.max(maxY, patches.maxY);
+    // So are Material brush patches, as far as they are drawn: paint on a floor shows no
+    // further than the layer's floors (their box here: no union ships on the server).
+    const floors = floorBox(dl);
+    for (const patch of dl.materials ?? []) {
+      const b = patchesBounds([patch]);
+      if (!b) continue;
+      if (floors && keptToFloors(patch)) {
+        b.minX = Math.max(b.minX, floors.minX);
+        b.minY = Math.max(b.minY, floors.minY);
+        b.maxX = Math.min(b.maxX, floors.maxX);
+        b.maxY = Math.min(b.maxY, floors.maxY);
+        if (b.minX > b.maxX || b.minY > b.maxY) continue;
+      }
+      minX = Math.min(minX, b.minX);
+      minY = Math.min(minY, b.minY);
+      maxX = Math.max(maxX, b.maxX);
+      maxY = Math.max(maxY, b.maxY);
     }
     // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
     // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and

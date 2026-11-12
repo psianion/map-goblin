@@ -1,7 +1,7 @@
 // Plateau rendering: what lands in the plateaus sublayer for a cliff, a slope and a pit, the
 // cliff kit the ledge art makes, the lit and shaded faces, and the cliff shadows.
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { BufferImageSource, Container, Graphics, MeshSimple, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, MeshSimple, Sprite, Texture, TilingSprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 
 const art = new Texture({ source: new BufferImageSource({ resource: new Uint8Array(8 * 8 * 4), width: 8, height: 8 }) });
@@ -37,6 +37,8 @@ const manager = {
           contour_1x2_A: object('contour', '1x2', 'GG_Cave_Ink'),
           contour_1x4_A: object('contour', '1x4', 'GG_Cave_Ink'),
           contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
+          wild_dirt_8x8_floor_A: { type: 'floor', material: 'wild_dirt', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'dirt'] },
+          wild_grass_dark_8x8_floor_A: { type: 'floor', material: 'wild_grass_dark', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'grass'] },
         },
       },
     },
@@ -48,14 +50,25 @@ const manager = {
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { SLOPE_CONTOUR_ALPHA, SLOPE_CONTOUR_WIDTH } from '../shared/plateauShade';
+import { borderWidthOf, SLOPE_CONTOUR_ALPHA, SLOPE_CONTOUR_WIDTH } from '../shared/plateauShade';
+import { SOFT_EDGE_STEPS } from './softEdge';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
 import { kitOut, resampleClosed, walkClosed } from './caveWalk';
-import { cliffArt, cliffArtChoices, cliffChoice, cliffPieces } from './plateauKit';
+import {
+  borderTextureChoices,
+  cliffArt,
+  cliffArtChoices,
+  cliffChoice,
+  cliffPieces,
+  isPaintedBorder,
+  paintedBorderArt,
+  paintedBorderTexture,
+} from './plateauKit';
 import {
   faceShade,
+  paintedBorderLayers,
   renderPlateaus,
   shadeCliffs,
   SHADE_FLOOR,
@@ -129,10 +142,11 @@ function labels(c: Container, out: string[] = []): string[] {
 }
 
 describe('the cliff kit', () => {
-  it('offers Cave rock (the default, stored as nothing) and Cave ink line', () => {
+  it('offers Cave rock (the default, stored as nothing), Cave ink line and Painted border', () => {
     expect(cliffArtChoices().map((c) => [c.value, c.label])).toEqual([
       [undefined, 'Cave rock'],
       ['GG_Cave_Ink:ledge', 'Cave ink line'],
+      ['paint', 'Painted border'],
     ]);
     // A bare set id from before the choice is that set's rock row.
     expect(cliffChoice(undefined)).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
@@ -164,6 +178,7 @@ describe('the cliff kit', () => {
         [undefined, 'Cave Ink · Cave rock'],
         ['GG_Cave_Ink:ledge', 'Cave Ink · Cave ink line'],
         ['GG_Deep_Cave:rockledge', 'Deep Cave · Cave rock'],
+        ['paint', 'Painted border'],
       ]);
     } finally {
       manager.getPackManifests = shipped;
@@ -325,6 +340,109 @@ describe('renderPlateaus', () => {
     expect(parent.children.map((c) => c.label)).toEqual(['plateau-band--2', 'plateau-band-2']);
   });
 
+});
+
+describe('a painted border', () => {
+  const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
+  const DARK = 'gg-forge:wild_grass_dark_8x8_floor_A';
+  const inRings = (x: number, y: number, rings: Polygon[]) => rings.filter((r) => pointInPoly(x, y, r)).length % 2 === 1;
+  const runOf = (p: PlateauChild) => edgeRuns(layerPlateaus(layerOf([ground, p])).bands[0])[0];
+
+  it('is stored in edgeArt: paint takes the dirt floor, paint:<id> names one; it lays no ledge', () => {
+    expect(isPaintedBorder('paint')).toBe(true);
+    expect(isPaintedBorder(paintedBorderArt(DARK))).toBe(true);
+    expect(isPaintedBorder(undefined)).toBe(false);
+    expect(isPaintedBorder('GG_Cave_Ink:ledge')).toBe(false);
+    expect(paintedBorderTexture('paint')).toBe(DIRT);
+    expect(paintedBorderTexture(paintedBorderArt(DARK))).toBe(DARK);
+    expect(paintedBorderTexture('GG_Cave_Ink:ledge')).toBeUndefined();
+    // Should the edge turn to a slope, its contours are the default set's.
+    expect(cliffChoice(paintedBorderArt(DARK))).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
+    expect(borderTextureChoices()).toEqual([
+      { value: DIRT, label: 'Dirt' },
+      { value: DARK, label: 'Darker grass' },
+    ]);
+  });
+
+  it('is 0.75 cells wide unless set, kept to 0.25 to 3', () => {
+    expect(borderWidthOf(undefined)).toBe(0.75);
+    expect(borderWidthOf(1.5)).toBe(1.5);
+    expect(borderWidthOf(0.1)).toBe(0.25);
+    expect(borderWidthOf(9)).toBe(3);
+  });
+
+  it('draws its texture into the tops under the lift, no ledge sprites or ink, and keeps the drop shade', () => {
+    const parent = new Container();
+    const tops = new Container();
+    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: paintedBorderArt(DARK) })]), tops, parent);
+    expect(tops.children.map((c) => c.label)).toEqual(['plateau-border', 'plateau-top-2']);
+    const fills = (tops.children[0] as Container).children.flatMap((c) => (c as Container).children).filter((c) => c instanceof TilingSprite);
+    expect(fills).toHaveLength(SOFT_EDGE_STEPS);
+    const names = labels(parent);
+    expect(names).toContain('plateau-drop-shade');
+    for (const gone of ['plateau-cliff', 'plateau-top-line', 'plateau-cliff-ink', 'plateau-border']) expect(names).not.toContain(gone);
+  });
+
+  it('leaves the default cliff as it was: no border, its ledge rock laid', () => {
+    const parent = new Container();
+    const tops = new Container();
+    renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff' })]), tops, parent);
+    expect(tops.children.map((c) => c.label)).toEqual(['plateau-top-2']);
+    expect(labels(parent)).toContain('plateau-cliff');
+  });
+
+  it('lays a raised band inside the outline: solid on the edge, its inner edge wandering within a third of its width', () => {
+    const layers = paintedBorderLayers(runOf(plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75);
+    expect(layers).toHaveLength(SOFT_EDGE_STEPS);
+    expect(layers[0].alpha).toBe(1);
+    const solid = layers[0].rings;
+    const whole = layers[layers.length - 1].rings;
+    // How far in the whole band reaches along the west side, sampled down it.
+    const depth = (y: number) => {
+      let x = 5;
+      while (x < 8 && inRings(x + 0.01, y, whole)) x += 0.01;
+      return x - 5;
+    };
+    const depths = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map(depth);
+    // 0.75 ± a third of it, and not even: the inner edge wanders.
+    for (const d of depths) {
+      expect(d).toBeGreaterThanOrEqual(0.5 - 0.02);
+      expect(d).toBeLessThanOrEqual(1 + 0.02);
+    }
+    expect(Math.max(...depths) - Math.min(...depths)).toBeGreaterThan(0.05);
+    // Solid on the edge all the way along.
+    for (let y = 5.5; y < 10.6; y += 0.5) expect(inRings(5.1, y, solid)).toBe(true);
+    // Never outside the outline, never across the middle.
+    expect(inRings(4.9, 8, whole)).toBe(false);
+    expect(inRings(8, 8, whole)).toBe(false);
+  });
+
+  it('wanders the same way every redraw of one plateau, another way for another', () => {
+    const at = (id: string) =>
+      paintedBorderLayers(runOf(plat(id, 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75).at(-1)!.rings;
+    expect(at('top')).toEqual(at('top'));
+    expect(at('other')).not.toEqual(at('top'));
+  });
+
+  it('draws a thin ink edge line along the outline unless switched off; other cliff art draws none', () => {
+    const edgeLines = (extra: Partial<PlateauChild>) => {
+      const parent = new Container();
+      renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', ...extra })]), new Container(), parent);
+      return labels(parent).filter((l) => l === 'plateau-edge-line').length;
+    };
+    expect(edgeLines({ edgeArt: 'paint' })).toBe(1);
+    expect(edgeLines({ edgeArt: 'paint', contourLines: false })).toBe(0);
+    expect(edgeLines({})).toBe(0);
+  });
+
+  it('lays a pit’s band on its high side, outside the ring', () => {
+    const layers = paintedBorderLayers(runOf(plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff', edgeArt: 'paint' })), 0.75);
+    const whole = layers[layers.length - 1].rings;
+    // 0.75 out, give or take its wobble of a third of that.
+    expect(inRings(4.6, 8, whole)).toBe(true);
+    expect(inRings(3.95, 8, whole)).toBe(false);
+    expect(inRings(5.5, 8, whole)).toBe(false);
+  });
 });
 
 describe('every cliff ring is walked', () => {
@@ -571,6 +689,13 @@ describe('cliff shadows', () => {
       expect(strength).toBeCloseTo(0.7);
     }
     expect(at({ environment: 'outdoor' }).strength).toBe(1);
+    // A sky whose light is out (below the horizon) casts from the fixed sun too.
+    const dark = cliffCaster(
+      { ...skyFrame({ environment: 'outdoor', minutes: 12 * 60 }), sun: { azimuth: 90, altitude: -5, intensity: 0, kind: 'sun' } },
+      { environment: 'outdoor' },
+    );
+    expect(dark.sun.azimuth).toBe(225);
+    expect(dark.strength).toBeCloseTo(0.7);
     const look = shadowLook(at({ environment: 'indoor' }).sun)!;
     // From the top left: the shadow falls to the bottom right.
     expect(look.dx).toBeCloseTo(Math.SQRT1_2);
@@ -675,7 +800,7 @@ describe('the drop shade', () => {
     }
   });
 
-  it('reaches 0.35 + 0.3 a cell of drop out, wider at +3 than at +1, and inward for a pit', () => {
+  it('reaches 0.15 + 0.06 a cell of drop out (a contact shade), wider at +3 than at +1, and inward for a pit', () => {
     const reach = (height: number) => {
       const parent = new Container();
       renderPlateaus(layerOf([ground, plat('top', 10, 10, 16, 16, { height, edge: 'none' })]), new Container(), parent);
@@ -683,9 +808,10 @@ describe('the drop shade', () => {
       const g = soft.children.find((c) => c.label === 'plateau-drop-shade') as Graphics;
       return g.getLocalBounds();
     };
-    expect(reach(1).maxX - 16).toBeCloseTo(0.65, 1);
-    expect(reach(3).maxX - 16).toBeCloseTo(1.25, 1);
-    expect(reach(3).maxX).toBeGreaterThan(reach(1).maxX + 0.5);
+    expect(reach(1).maxX - 16).toBeCloseTo(0.21, 1);
+    expect(reach(3).maxX - 16).toBeCloseTo(0.33, 1);
+    expect(reach(3).maxX - 16).toBeLessThanOrEqual(1 / 3 + 1e-6);
+    expect(reach(3).maxX).toBeGreaterThan(reach(1).maxX + 0.1);
     // A pit shades inside its rim: its mask is the pit's own floor.
     const parent = new Container();
     renderPlateaus(layerOf([ground, plat('pit', 10, 10, 16, 16, { height: -2, edge: 'none' })]), new Container(), parent);

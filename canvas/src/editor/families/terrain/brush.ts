@@ -1,7 +1,7 @@
 // The Terrain brush: paints the map's six terrain textures over floors and ground. Holding
-// the brush keeps adding paint, Intensity setting how fast. Size and Intensity change
-// mid-painting, so they sit in the dock with the slots; Paint or erase, the blending, Fill
-// and the brush colour are set up before, in the panel.
+// the brush keeps adding paint, Intensity setting how fast; with Solid on, one pass lays it
+// full. Size, Intensity and Solid change mid-painting, so they sit in the dock with the
+// slots; Paint or erase, the blending, Fill and the brush colour are set up before, in the panel.
 
 import { Paintbrush } from 'lucide-react';
 import { z } from 'zod';
@@ -41,6 +41,19 @@ export const terrainStrength = defineSetting<number>({
   range: { ...strength, unit: '%' },
   render: IntensityControl,
   path: 'terrainBrush.strength',
+});
+
+/** On, one pass lays the texture solid across the brush, whatever the speed; Intensity then has no say. */
+export const terrainSolid = defineSetting<boolean>({
+  id: 'terrain.solid',
+  label: 'Solid',
+  schema: z.boolean(),
+  default: false,
+  home: 'dock',
+  control: 'switch',
+  // A column of its own, so its label does not crowd Intensity's percentage.
+  section: 'Solid',
+  path: 'terrainBrush.solid',
 });
 
 /** Paint, or paint back to the floor's own texture: the erase mode Scatter shares, drawn as a seg here. */
@@ -128,7 +141,7 @@ export const terrainBrushTool = defineTool({
   icon: Paintbrush,
   key: 'B',
   engine: ['terrain'],
-  settings: [terrainSize, terrainStrength, terrainMode, terrainSmooth, terrainFill, terrainColour],
+  settings: [terrainSize, terrainStrength, terrainSolid, terrainMode, terrainSmooth, terrainFill, terrainColour],
   dock: [slotsColumn],
   // The brush's size, as the wheel steps it; the tool in hand takes the key.
   keys: [
@@ -141,11 +154,13 @@ export const terrainBrushTool = defineTool({
       return { label: 'Terrain brush', segments: [t(fill === 'miss' ? 'No floor here · ' : 'Click a floor to fill · '), k('Esc'), t(' cancels')] };
     }
     const size = [k('['), t(' '), k(']'), t(' size')];
+    // Solid lays the paint full in one pass: holding adds nothing.
+    const paint = s.tools.settings.terrainBrush.solid === true ? 'Drag to paint solid · ' : 'Hold to build up · ';
     return {
       label: 'Terrain brush',
       segments: s.tools.eraseMode
         ? [t('Hold to erase back to the floor · '), ...size]
-        : [t('Hold to build up · '), k('Alt'), t(' erase · '), ...size],
+        : [t(paint), k('Alt'), t(' erase · '), ...size],
     };
   },
 });

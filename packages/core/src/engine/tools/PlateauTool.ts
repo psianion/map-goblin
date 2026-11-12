@@ -61,6 +61,9 @@ export async function commitPlateau(layerId: string, ring: Point[]): Promise<Pla
     contours: [contour],
     height: s.height,
     edge: s.edge,
+    // A cliff takes the art (and a painted border its width) the tool is set to.
+    ...(s.edge === 'cliff' && s.edgeArt !== undefined ? { edgeArt: s.edgeArt } : {}),
+    ...(s.edge === 'cliff' && s.borderWidth !== undefined ? { borderWidth: s.borderWidth } : {}),
   };
   undoManager.execute(new AddChildCommand('Add plateau', layerId, plateau));
   useStore.getState().setSelectedIds([plateau.id]);

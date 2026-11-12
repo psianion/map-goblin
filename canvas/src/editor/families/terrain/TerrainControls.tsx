@@ -28,11 +28,12 @@ import { isHex8 } from './colour';
 
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
-/** Intensity in the dock: a short track and its percentage, the column's caption naming it. */
+/** Intensity in the dock: a short track and its percentage, the column's caption naming it. Greyed while Solid is on. */
 export function IntensityControl({ def, value, onChange }: SettingProps<number>) {
   const r = def.range;
+  const solid = useStore((s) => s.tools.settings.terrainBrush.solid === true);
   return (
-    <span className="flex w-[132px] items-center gap-2">
+    <span className={`flex w-[132px] items-center gap-2${solid ? ' opacity-50' : ''}`}>
       <Slider
         aria-label={def.label}
         className="flex-1"
@@ -40,6 +41,7 @@ export function IntensityControl({ def, value, onChange }: SettingProps<number>)
         min={r?.min}
         max={r?.max}
         step={r?.step}
+        disabled={solid}
         onValueChange={(next: number | readonly number[]) => onChange(typeof next === 'number' ? next : next[0])}
       />
       <span className="w-8 text-right font-mono text-[11px] text-text tabular-nums">{percent(value)}</span>

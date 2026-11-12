@@ -15,6 +15,7 @@ import { useStore } from '../../store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '../../store/slices/mapSettings';
 import * as textureLoader from '../../assets/textureLoader';
 import { readPixelsAsync, warmupReadback } from '../asyncReadback';
+import { getAssetPackManager } from '../assetPackInstance';
 import {
   SPLAT_MAP_INDICES,
   SPLAT_SIZE,
@@ -203,6 +204,10 @@ function createRadialTexture(stops: [number, number][]): Texture {
 // instead of shrinking the stroke the way the old short 0.6→0.55 ramp did.
 const WEIGHT_BRUSH_STOPS: [number, number][] = [[0, 1], [0.5, 1], [0.75, 0.55], [1, 0]];
 
+// The Solid brush: full weight across the brush, then a short even ramp at the rim, so one
+// full stamp lays the texture to the brush ring with an edge the blending can soften.
+const SOLID_BRUSH_STOPS: [number, number][] = [[0, 1], [0.85, 1], [1, 0]];
+
 // The tint mask must track the stroke's VISIBLE opacity — clamp(2.5 × weight),
 // solid to ~0.82r — not the raw weight ramp. A mask that follows the weight
 // tail fades ahead of the stroke's own fade, leaving a fully-opaque but
@@ -252,6 +257,8 @@ export class TerrainRenderer {
   private lastDisturbanceTime = 0;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
   private brushTexture: Texture | null = null;
+  /** The Solid brush's stamp (SOLID_BRUSH_STOPS). */
+  private solidBrushTexture: Texture | null = null;
   /** Tint-mask stamp — same disc, falloff matched to the visible stroke (see TINT_MASK_STOPS). */
   private tintMaskTexture: Texture | null = null;
   private stampSprite: Sprite | null = null;
@@ -263,6 +270,8 @@ export class TerrainRenderer {
   private tintScratch: RenderTexture | null = null;
   private strokeDirty: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
   private loadedPaletteKey = '';
+  /** Palette ids the last load could not resolve yet (pack art not decoded): retried as textures land. */
+  private missingPaletteIds: string[] = [];
   /** Bumped per loadPalette() call so a slow load can tell it has been superseded. */
   private paletteToken = 0;
   /** Bumped per restoreFromStore() call so a slow decode can tell it has been superseded. */
@@ -732,6 +741,7 @@ export class TerrainRenderer {
     // once every slot has landed, so a failed slot is retried on the next call.
     const token = ++this.paletteToken;
     let complete = true;
+    const missing: string[] = [];
 
     for (let slot = 0; slot < TERRAIN_SLOTS; slot++) {
       const id = palette[slot];
@@ -759,7 +769,10 @@ export class TerrainRenderer {
       // one source of truth so the RT content and uTile can never disagree.
       const unit = textureLoader.unitTexture(id);
       if (unit.texture.width <= 1) {
+        // Pack art decodes on first use — resolving it above asked for it, and the
+        // texture subscription in watchStore loads the palette again once it lands.
         complete = false;
+        missing.push(id);
         continue;
       }
 
@@ -789,6 +802,7 @@ export class TerrainRenderer {
     }
 
     if (complete) this.loadedPaletteKey = key;
+    this.missingPaletteIds = missing;
 
     // New tile textures change what every painted texel looks like — refresh
     // the cache. No-ops for a map that never allocated one.
@@ -801,6 +815,7 @@ export class TerrainRenderer {
 
   private ensureStampObjects(): void {
     if (!this.brushTexture) this.brushTexture = createRadialTexture(WEIGHT_BRUSH_STOPS);
+    if (!this.solidBrushTexture) this.solidBrushTexture = createRadialTexture(SOLID_BRUSH_STOPS);
     if (!this.tintMaskTexture) this.tintMaskTexture = createRadialTexture(TINT_MASK_STOPS);
     if (!this.stampSprite) {
       this.stampSprite = new Sprite(this.brushTexture);
@@ -835,6 +850,7 @@ export class TerrainRenderer {
    * has laid so far, and the splats under it are re-laid from the pre-stroke copy as a
    * lerp towards the slot (or, erasing, towards nothing) by that mask: see strokePasses.
    * A held brush stamps again every tick (TerrainTool), so the paint builds with time.
+   * A `solid` stamp is the Solid brush's disc: full weight to near its rim.
    *
    * `tint`/`tintOpacity` drive the brush-tint layer: the tint mask builds like the
    * paint, and the tint map is re-laid as its pre-stroke copy plus mask × colour ×
@@ -851,14 +867,18 @@ export class TerrainRenderer {
     erase: boolean,
     tint = 0xffffff,
     tintOpacity = 0,
+    solid = false,
   ): void {
     if (Math.abs(wx) > TERRAIN_EXTENT_HALF + radius || Math.abs(wy) > TERRAIN_EXTENT_HALF + radius) return;
     this.ensureStampObjects();
     const sprite = this.stampSprite!;
     const holder = this.stampContainer!;
+    const brush = solid ? this.solidBrushTexture! : this.brushTexture!;
 
     const t = this.worldToTexel(wx, wy);
     const texelRadius = radius * TEXELS_PER_CELL;
+    // Before the size: a texture swap resets it.
+    sprite.texture = brush;
     sprite.position.set(t.x, t.y);
     sprite.width = texelRadius * 2;
     sprite.height = texelRadius * 2;
@@ -878,7 +898,7 @@ export class TerrainRenderer {
       // backup + mask × colour × opacity, so no texel passes `tintOpacity`.
       sprite.texture = this.tintMaskTexture!;
       this.engine.renderToTexture(holder, this.ensureTintMask(), false);
-      sprite.texture = this.brushTexture!;
+      sprite.texture = brush;
       // Texture swap resets the sprite's size — restore the stamp footprint
       // for whoever stamps next.
       sprite.width = texelRadius * 2;
@@ -1343,6 +1363,15 @@ export class TerrainRenderer {
     );
     this.unsubscribers.push(unsubPalette);
 
+    // A palette slot whose pack art had not decoded when the palette loaded bakes as plain
+    // white (a reopened map paints before its files land): load the palette again, and so
+    // re-bake, once one of those textures has arrived.
+    const unsubTextures = getAssetPackManager().subscribeTextures(() => {
+      if (!this.missingPaletteIds.some((id) => textureLoader.resolveTexture(id).width > 1)) return;
+      void this.loadPalette().catch((err) => this.fail('palette load', err));
+    });
+    this.unsubscribers.push(unsubTextures);
+
     // Smooth blending is the terrain's own switch: a new look for every painted texel.
     const unsubSmooth = useStore.subscribe(
       (s) => s.mapSettings.terrain?.smoothBlend === true,
@@ -1418,6 +1447,8 @@ export class TerrainRenderer {
     this.tileRTs.fill(null);
     this.brushTexture?.destroy(true);
     this.brushTexture = null;
+    this.solidBrushTexture?.destroy(true);
+    this.solidBrushTexture = null;
     this.tintMaskTexture?.destroy(true);
     this.tintMaskTexture = null;
   }

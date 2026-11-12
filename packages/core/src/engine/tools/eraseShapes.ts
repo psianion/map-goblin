@@ -35,10 +35,11 @@ export interface Carve {
 }
 
 /**
- * Commands that subtract `carvePolys` from every unlocked floor on `layer` they overlap.
- * Empty when nothing was touched; the caller wraps and executes.
+ * Commands that subtract `carvePolys` from every unlocked floor on `layer` they overlap
+ * (of the floors `only` passes, when given). Empty when nothing was touched; the caller
+ * wraps and executes.
  */
-export function carveCommands(layer: DungeonLayer, layerId: string, carvePolys: Polygon[]): Carve {
+export function carveCommands(layer: DungeonLayer, layerId: string, carvePolys: Polygon[], only?: (shape: ShapeChild) => boolean): Carve {
   const commands: Command[] = [];
   let flattened = false;
   // Where the next floor sits once the commands before it have run: a delete takes one
@@ -48,6 +49,7 @@ export function carveCommands(layer: DungeonLayer, layerId: string, carvePolys: 
     const index = i + shift;
     if (c.childType !== 'shape' || c.locked) return;
     const shape = c as ShapeChild;
+    if (only && !only(shape)) return;
     const [outer, ...holes] = drawnRings(shape);
     if (!outer || !carvePolys.some((poly) => clipper2Engine.intersection([outer], [poly]).length > 0)) return;
     const pieces = floorPieces(clipper2Engine.difference([outer], [...holes, ...carvePolys]));
@@ -78,9 +80,19 @@ export function carveCommands(layer: DungeonLayer, layerId: string, carvePolys: 
   return { commands, flattened };
 }
 
-/** Carve `carvePolys` out of the floors on `layer` as one undo step. Whether anything was carved. */
-export function carveFloors(layer: DungeonLayer, layerId: string, carvePolys: Polygon[]): boolean {
-  const { commands, flattened } = carveCommands(layer, layerId, carvePolys);
+/**
+ * Carve `carvePolys` out of the floors on `layer` as one undo step. Whether anything was carved.
+ * `also` rides in the same step, carved or not (the Material brush's opening in a cave's rock).
+ */
+export function carveFloors(
+  layer: DungeonLayer,
+  layerId: string,
+  carvePolys: Polygon[],
+  also: Command[] = [],
+  only?: (shape: ShapeChild) => boolean,
+): boolean {
+  const { commands, flattened } = carveCommands(layer, layerId, carvePolys, only);
+  commands.push(...also);
   if (commands.length === 0) return false;
   undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Carve out', commands));
   if (flattened) notify.subtle('Curved edges were flattened to carve');

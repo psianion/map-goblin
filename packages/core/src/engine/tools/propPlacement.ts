@@ -9,6 +9,7 @@ import { resolveTexture } from '../../assets/textureLoader';
 import { isCaveBandAsset } from '../../assets/caveWallKit';
 import { roomIndexOf } from '../../shared/roomIndex';
 import { pointInRing, roomFace } from '../../shared/roomUtils';
+import { patchCovers } from '../../shared/materialPatch';
 
 /** An oriented box: centre, half extents along its own axes, rotation in radians. */
 export interface Obb {
@@ -217,25 +218,30 @@ export type FloorTest = (o: Obb) => boolean;
  * What "on the floor" means for this layer. With rooms that have faces, the centre
  * and the four corners must all be in the same room (faces stop at walls and
  * thresholds, so nothing straddles one); with no rooms, all five must be inside
- * the merged floor (outer rings minus holes). A layer with neither has no floor
- * to test against: null.
+ * the merged floor (outer rings minus holes). Ground painted with the Material
+ * brush counts as floor in both. A layer with none of the three has no floor to
+ * test against: null.
  */
 export function floorTest(layer: DungeonLayer): FloorTest | null {
+  // Ground painted with the Material brush is floor to stand on, wherever the rooms are.
+  const ground = (layer.materials ?? []).filter((p) => p.ground);
+  const onGround = (x: number, y: number): boolean => ground.some((p) => patchCovers(p, null, x, y));
+  const allOnGround = (o: Obb): boolean => ground.length > 0 && onGround(o.cx, o.cy) && obbCorners(o).every((p) => onGround(p.x, p.y));
   const rooms = layer.rooms ?? [];
   if (rooms.some((r) => roomFace(r).length >= 3)) {
     const index = roomIndexOf(layer.rooms);
     return (o) => {
       const room = index.roomAt(o.cx, o.cy);
-      if (!room) return false;
-      return obbCorners(o).every((p) => index.roomAt(p.x, p.y) === room);
+      if (!room) return allOnGround(o);
+      return obbCorners(o).every((p) => index.roomAt(p.x, p.y) === room) || allOnGround(o);
     };
   }
   const rings = (layer.mergedFloor ?? []).filter((r) => r.length >= 3);
-  if (rings.length === 0) return null;
+  if (rings.length === 0) return ground.length > 0 ? allOnGround : null;
   const inside = (x: number, y: number): boolean => {
     let hit = false;
     for (const ring of rings) if (pointInRing(x, y, ring)) hit = !hit;
-    return hit;
+    return hit || onGround(x, y);
   };
   return (o) => inside(o.cx, o.cy) && obbCorners(o).every((p) => inside(p.x, p.y));
 }

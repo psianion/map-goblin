@@ -9,6 +9,7 @@ import { mulberry32 } from '../../geometry/seededRng';
 import { CompositeCommand, createChildRemovalCommand } from '../../store/commands';
 import { createPlacePropsCommand } from '../../store/propEdits';
 import { undoManager } from '../../store/undoManager';
+import { notify } from '../../shared/notify';
 import { setAssetChildrenAlpha } from '../subscribeToAssets';
 import { getEditorDesk } from '../editorDesk';
 import { dashSpine } from '../wallNodeRenderer';
@@ -422,6 +423,10 @@ export class StampScatterTool implements DrawingTool {
 
   private commitScatter(stroke: Extract<Stroke, { kind: 'scatter' }>): void {
     const layer = this.layerById(stroke.layerId);
+    // A stroke that laid nothing because Stay on floors turned every prop away says so.
+    if (stroke.placements.length === 0 && stroke.ctx.stats.skippedFloor > 0) {
+      notify.info('Nothing placed — Stay on floors is on and the brush was off the floor');
+    }
     if (!layer || stroke.placements.length === 0) return;
     // Names come from the catalog label with a max-suffix counter; the
     // accumulator keeps one stroke from reusing a name.

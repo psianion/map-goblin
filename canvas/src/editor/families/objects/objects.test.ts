@@ -162,6 +162,21 @@ describe('the prop card', () => {
     expect(layering).toEqual(['Order', 'Overhead', 'Below water', 'Lock']);
   });
 
+  it('sets the Height a prop casts from while it casts a shadow, 0 back to none, undoably', () => {
+    seed([prop()]);
+    const height = field('card.prop.standHeight');
+    expect(height.read(child())).toBe(0);
+    expect(height.visibleWhen!(child())).toBe(true);
+    height.write(useStore, ['p1'], 2.5);
+    expect(child().standHeight).toBe(2.5);
+    height.write(useStore, ['p1'], 0);
+    expect(child().standHeight).toBeUndefined();
+    undoManager.undo();
+    expect(child().standHeight).toBe(2.5);
+    field('card.prop.castsShadow').write(useStore, ['p1'], false);
+    expect(height.visibleWhen!(child())).toBe(false);
+  });
+
   it('switches overhead, below water, lock and the behaviour fields, each undoably', () => {
     seed([prop()]);
     for (const [id, key] of [

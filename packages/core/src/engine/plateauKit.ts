@@ -2,14 +2,21 @@
 // GG_Cave_Ink), walked like the rock band. "Cave rock" is the stone row (`rockledge_*`), laid
 // with the rock band's laps; "Cave ink line" is the thin ink ledge (`ledge_*`), laid on the edge
 // itself. Joined by `material` + `gridSize`, the kit's key, like the rock band.
+//
+// "Painted border" lays no ledge at all: a band of a floor texture just inside the outline
+// (plateauRenderer's drawPaintedBorder). Its `edgeArt` is `paint` (the default texture) or
+// `paint:<texture id>`; its width is the plateau's `borderWidth`.
 
-import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, getBandSetIds, getEntriesByType, type CatalogEntry } from '../assets/packCatalog';
 import { kitPieces, ledgePieces, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
+import { outdoorFloorChoices } from '../assets/materialKit';
 
 /** The band set a cliff takes when its plateau names none. */
 export const DEFAULT_CLIFF_SET = 'GG_Cave_Ink';
 /** The ledge family a cliff takes when its plateau names none: the cave rock row. */
 export const DEFAULT_CLIFF_FAMILY = 'rockledge';
+/** The `edgeArt` of a painted border with the default texture; `paint:<texture id>` names one. */
+export const PAINTED_BORDER = 'paint';
 
 /** What a plateau's `edgeArt` asks for: `<set>:<family>`, a bare set (its rock row), or nothing. */
 export interface CliffChoice {
@@ -17,8 +24,40 @@ export interface CliffChoice {
   family: string;
 }
 
-/** The set and ledge family `edgeArt` names. Absent, or a bare set id from before the choice, is Cave rock. */
+/** True when `edgeArt` asks for a painted border rather than ledge art. */
+export function isPaintedBorder(edgeArt: string | undefined): boolean {
+  return edgeArt === PAINTED_BORDER || !!edgeArt?.startsWith(`${PAINTED_BORDER}:`);
+}
+
+/** The `edgeArt` of a painted border in `textureId`. */
+export function paintedBorderArt(textureId: string): string {
+  return `${PAINTED_BORDER}:${textureId}`;
+}
+
+/** The texture a painted border takes when it names none: a dirt floor, else the first floor installed. */
+export function defaultBorderTexture(): string | undefined {
+  const floors = getEntriesByType('floor');
+  return (floors.find((e) => e.tags.includes('dirt')) ?? floors[0])?.id;
+}
+
+/** The texture a painted border's `edgeArt` names, or the default one; undefined when it is no painted border. */
+export function paintedBorderTexture(edgeArt: string | undefined): string | undefined {
+  if (!isPaintedBorder(edgeArt)) return undefined;
+  return edgeArt!.slice(PAINTED_BORDER.length + 1) || defaultBorderTexture();
+}
+
+/** The textures a painted border offers: the outdoor floors the Material brush lists, named as it names them. */
+export function borderTextureChoices(): { value: string; label: string }[] {
+  return outdoorFloorChoices();
+}
+
+/**
+ * The set and ledge family `edgeArt` names. Absent, or a bare set id from before the choice, is
+ * Cave rock; so is a painted border, which lays no ledge but whose slope contours, should the
+ * edge turn to a slope, are the default set's.
+ */
 export function cliffChoice(edgeArt: string | undefined): CliffChoice {
+  if (isPaintedBorder(edgeArt)) return { setId: DEFAULT_CLIFF_SET, family: DEFAULT_CLIFF_FAMILY };
   const [setId, family] = (edgeArt ?? '').split(':');
   return { setId: setId || DEFAULT_CLIFF_SET, family: family || DEFAULT_CLIFF_FAMILY };
 }
@@ -35,10 +74,14 @@ function setLabel(setId: string): string {
 
 /**
  * The cliff looks the card offers, as `edgeArt` values: each installed band set's ledge
- * families (the rock row first) that have a kit to lay. Cave rock is the default, stored as
- * nothing. With two sets or more, each label leads with its set.
+ * families (the rock row first) that have a kit to lay, then Painted border. Cave rock is the
+ * default, stored as nothing. With two sets or more, each label leads with its set.
  */
 export function cliffArtChoices(): { value: string | undefined; label: string }[] {
+  return [...ledgeChoices(), { value: PAINTED_BORDER, label: 'Painted border' }];
+}
+
+function ledgeChoices(): { value: string | undefined; label: string }[] {
   const sets = getBandSetIds();
   const out: { value: string | undefined; label: string }[] = [];
   for (const setId of sets) {

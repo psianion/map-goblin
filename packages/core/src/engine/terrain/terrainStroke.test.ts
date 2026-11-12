@@ -56,6 +56,27 @@ describe('holding the terrain brush', () => {
     expect(depositForTick(0, 0.1, 0.01, 4).each).toBe(MIN_DEPOSIT);
   });
 
+  it('lays full paint at every stamp in one tick when solid, whatever the speed, intensity or time', () => {
+    for (const [intensity, seconds, stamps] of [
+      [0.1, 1 / 240, 0],
+      [0.1, 1 / 60, 1],
+      [1, 0.25, 40],
+      [0.6, 0, 7],
+    ]) {
+      const lay = depositForTick(0, intensity, seconds, stamps, true);
+      expect(lay).toEqual({ each: 1, count: Math.max(1, stamps), pending: 0 });
+      // One stamp of it lays the slot at full, painting or erasing.
+      expect(compositeTexel(bare(), strokePasses(0, false), lay.each)[0][0]).toBe(1);
+    }
+    expect(compositeTexel(compositeTexel(bare(), strokePasses(0, false), 1), strokePasses(0, true), 1)[0][0]).toBe(0);
+  });
+
+  it('is unchanged when not solid', () => {
+    expect(depositForTick(0, 0.6, 0.1, 3, false)).toEqual(depositForTick(0, 0.6, 0.1, 3));
+    expect(depositForTick(0.01, 0.3, 1 / 60, 0, false)).toEqual(depositForTick(0.01, 0.3, 1 / 60, 0));
+    expect(depositForTick(0, 0.1, 0.01, 0, false)).toEqual({ each: 0, count: 0, pending: expect.closeTo(0.001) });
+  });
+
   it('lays the accumulated amount as a lerp towards the slot', () => {
     const half = compositeTexel(bare(), strokePasses(0, false), accumulate(0, 0.5, 1));
     expect(half[0][0]).toBeCloseTo(0.5);

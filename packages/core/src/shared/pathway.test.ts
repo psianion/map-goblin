@@ -2,13 +2,92 @@
 // width; ramped in and out at the ends.
 
 import { describe, expect, it } from 'vitest';
-import { layPathUnits, pathwayLine, TRANSITION_UNITS, type PathUnit } from './pathway';
+import { layPathUnits, pathwayLine, softPathStrip, TRANSITION_UNITS, type PathUnit } from './pathway';
 
 const unit = { length: 2, width: 1 };
 const straight: [number, number][] = [[0, 0], [10, 0]];
 
 /** The distance between consecutive unit centres. */
 const gaps = (units: PathUnit[]) => units.slice(1).map((u, i) => Math.hypot(u.x - units[i].x, u.y - units[i].y));
+
+describe('a soft piece as one band', () => {
+  const bend: [number, number][] = [[0, 0], [6, 0], [6, 6]];
+  const tri = (s: ReturnType<typeof softPathStrip>, k: number) => {
+    const [a, b, c] = [s.indices[k], s.indices[k + 1], s.indices[k + 2]];
+    const p = (i: number) => [s.positions[2 * i], s.positions[2 * i + 1]];
+    const [ax, ay] = p(a);
+    const [bx, by] = p(b);
+    const [cx, cy] = p(c);
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  };
+
+  it('runs as one continuous strip through a 90 degree bend, each station joined to the next', () => {
+    const s = softPathStrip(bend, 2, 1.5, 'hard', 'hard');
+    const pairs = s.alphas.length / 2;
+    expect(pairs).toBeGreaterThan(20);
+    expect(s.indices).toHaveLength((pairs - 1) * 6);
+    // Each pair shares its side with the next: no gap anywhere along it.
+    for (let k = 0; k < pairs - 1; k++) {
+      expect(s.indices.slice(6 * k, 6 * k + 6)).toEqual([2 * k, 2 * k + 1, 2 * k + 2, 2 * k + 2, 2 * k + 1, 2 * k + 3]);
+    }
+    // Every station off the bend is the band's width across.
+    const widths = Array.from({ length: pairs }, (_, k) =>
+      Math.hypot(s.positions[4 * k] - s.positions[4 * k + 2], s.positions[4 * k + 1] - s.positions[4 * k + 3]),
+    );
+    expect(widths.filter((w) => Math.abs(w - 1.5) < 1e-6).length).toBeGreaterThan(pairs / 2);
+    // Neither side ever jumps: round the bend each vertex moves on a little from the last.
+    for (let k = 1; k < pairs; k++) {
+      for (const side of [0, 2]) {
+        const d = Math.hypot(s.positions[4 * k + side] - s.positions[4 * (k - 1) + side], s.positions[4 * k + side + 1] - s.positions[4 * (k - 1) + side + 1]);
+        expect(d).toBeLessThan(0.6);
+      }
+    }
+    // Its ends sit square across the line's ends.
+    expect([s.positions[0], s.positions[1], s.positions[2], s.positions[3]].map((v) => Math.round(v * 1000) / 1000)).toEqual([0, -0.75, 0, 0.75]);
+  });
+
+  it('never inverts a triangle, even on a bend sharper than the band is wide', () => {
+    for (const line of [bend, [[0, 0], [6, 0], [0.5, 1]] as [number, number][]]) {
+      const s = softPathStrip(line, 2, 2, 'hard', 'hard');
+      for (let k = 0; k < s.indices.length; k += 3) expect(tri(s, k)).toBeLessThanOrEqual(1e-9);
+    }
+  });
+
+  it('repeats the art along the length, a station laid twice where one repeat ends and the next begins', () => {
+    const s = softPathStrip(straight, 2, 1, 'hard', 'hard');
+    const us = s.uvs.filter((_, i) => i % 4 === 0);
+    expect(us[0]).toBe(0);
+    expect(us[us.length - 1]).toBe(1);
+    expect(us.filter((u) => u === 1)).toHaveLength(5);
+    expect(us.filter((u) => u === 0)).toHaveLength(5);
+    // Across: the left of travel is the art's top, the right its bottom.
+    expect(s.uvs[1]).toBe(0);
+    expect(s.uvs[3]).toBe(1);
+  });
+
+  it('fades to nothing at a Fade end and tapers to nothing at Grow and Shrink ends, Hard doing neither', () => {
+    const width = (s: ReturnType<typeof softPathStrip>, k: number) =>
+      Math.hypot(s.positions[4 * k] - s.positions[4 * k + 2], s.positions[4 * k + 1] - s.positions[4 * k + 3]);
+    const fade = softPathStrip(straight, 1, 1, 'fade', 'fade');
+    const last = fade.alphas.length - 1;
+    expect(fade.alphas[0]).toBe(0);
+    expect(fade.alphas[last]).toBe(0);
+    expect(fade.alphas[Math.floor(last / 2)]).toBe(1);
+    // Smooth: never falling over the ramp in, and well short of full a step in.
+    const rising = fade.alphas.filter((_, i) => i % 2 === 0).slice(0, 8);
+    for (let i = 1; i < rising.length; i++) expect(rising[i]).toBeGreaterThanOrEqual(rising[i - 1]);
+    expect(rising[1]).toBeLessThan(0.1);
+    const taper = softPathStrip(straight, 1, 1, 'grow', 'shrink');
+    const pairs = taper.alphas.length / 2;
+    expect(width(taper, 0)).toBeCloseTo(0);
+    expect(width(taper, pairs - 1)).toBeCloseTo(0);
+    expect(width(taper, Math.floor(pairs / 2))).toBeCloseTo(1);
+    expect(taper.alphas.every((a) => a === 1)).toBe(true);
+    const hard = softPathStrip(straight, 1, 1, 'hard', 'hard');
+    expect(hard.alphas.every((a) => a === 1)).toBe(true);
+    expect(width(hard, 0)).toBeCloseTo(1);
+  });
+});
 
 describe('laying units along a line', () => {
   it('lays whole units end to end along a straight line, each at its own size', () => {

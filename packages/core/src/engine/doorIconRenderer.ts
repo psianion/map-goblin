@@ -47,8 +47,9 @@ export function mountDoorIcons(engine: RenderEngine): () => void {
       if (layerState.type !== 'dungeon' || !isLayerShown(state, layerState)) continue;
       for (const { door, position } of resolveDoors(layerState, resolveWalls(layerState))) {
         // An archway is a hole in a wall: nothing to open or shut, so no mark — the same
-        // drop the table makes, for the same reason.
-        if (door.style === 'archway' || !door.visible) continue;
+        // drop the table makes, for the same reason. A plain opening draws no art at all,
+        // so it keeps a mark: without one there is nothing to pick or delete it by.
+        if ((door.style === 'archway' && !door.bare) || !door.visible) continue;
         let glyph = glyphs.get(door.id);
         if (!glyph) {
           glyph = new Sprite();
@@ -58,7 +59,7 @@ export function mountDoorIcons(engine: RenderEngine): () => void {
         }
         drawn.add(door.id);
         // A locked door is a shut door with a key in it — it reads as closed.
-        glyph.texture = lucideTexture(door.state === 'open' ? 'door-open' : 'door-closed', GLYPH_PX);
+        glyph.texture = lucideTexture(door.state === 'open' || door.bare ? 'door-open' : 'door-closed', GLYPH_PX);
         glyph.setSize(GLYPH_WU);
         // The *resolved* position: a floor-ring door draws where the resolver projects it,
         // not where it was authored, and the mark has to land on the art.

@@ -188,7 +188,7 @@ export function createPropPatchCommand(label: string, patches: PropPatch[]): Com
  */
 export function createSetPropFieldsCommand(
   ids: string[],
-  patch: Partial<Pick<AssetChild, PropFieldKey | 'tint' | 'glow'>>,
+  patch: Partial<Pick<AssetChild, PropFieldKey | 'tint' | 'glow' | 'standHeight'>>,
 ): Command | null {
   const props = findChildren(useStore.getState().layers, ids).filter(
     (f): f is Found<AssetChild> => f.child.childType === 'asset',

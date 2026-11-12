@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { selectLayerForChild } from '@/store/selectors';
 import { AddWallCommand, CompositeCommand, RemoveWallCommand, UpdateChildCommand, UpdateWallCommand } from '@/store/commands';
-import type { AnyChild, Command, DoorChild, DoorStyle } from '@/store/types';
+import type { AnyChild, Command, DoorChild } from '@/store/types';
 import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { isOwnPiece, turnOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
 import { anchorFor, doorPlacement, freePiece, isFreestanding } from '@dnd/core/src/shared/freestandingDoor';
@@ -18,7 +18,7 @@ import { defineCard, defineCardField } from '@/editor/registry/define';
 import { cleanDoorName, DOOR_HINGES, DOOR_STATES, DOOR_SWINGS, doorModel, doorStyleChange, OPEN_ANGLE_STEP, swingChoice, swingValue, type DoorMaterial } from '@/editor/models/selectionModel';
 import { editChildren, editKey, runEdit } from './cardWrites';
 import { SELECTION_VERBS } from './verbs';
-import { doorDeg, doorHost, installedDoorKits, liveKit, state } from './doorModel';
+import { choiceStyle, doorDeg, doorHost, doorStyleChoice, doorStyleChoiceLabel, installedDoorKits, liveKit, state, type DoorStyleChoice } from './doorModel';
 import { AngleField, MaterialField, NameField, WidthField } from './DoorFields';
 
 /* ── Name, style, state ────────────────────────────────── */
@@ -39,24 +39,27 @@ const name = defineCardField<'door', string>({
 });
 
 /** A wall door can also be a portal (it draws from pack art), so the menu offers it too. */
-const STYLES: DoorStyle[] = [...PLACEABLE_DOOR_STYLES, 'portal'];
+const STYLES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'portal', 'opening'];
 
-const style = defineCardField<'door', DoorStyle>({
+const style = defineCardField<'door', DoorStyleChoice>({
   id: 'card.door.style',
   label: 'Style',
-  schema: z.enum(STYLES as [DoorStyle, ...DoorStyle[]]),
+  schema: z.enum(STYLES as [DoorStyleChoice, ...DoorStyleChoice[]]),
   default: 'single',
   home: 'card',
   control: 'select',
-  options: STYLES.map((value) => ({ value, label: doorStyleLabel(value) })),
-  read: (o) => o.style,
+  options: STYLES.map((value) => ({ value, label: doorStyleChoiceLabel(value) })),
+  read: (o) => doorStyleChoice(o.style, o.bare),
   // The width follows the style, and the walls around a doorway follow the width.
-  write: (_store, ids, next) => {
+  // Opening is an archway flagged bare; any other choice clears the flag.
+  write: (_store, ids, choice) => {
+    const next = choiceStyle(choice);
+    const bare = choice === 'opening' ? true : undefined;
     const cmds = ids.flatMap((id) => {
       const host = doorHost(state(), id);
-      if (!host || host.door.style === next) return [];
+      if (!host || doorStyleChoice(host.door.style, host.door.bare) === choice) return [];
       const { after } = doorStyleChange(host.door, next, host.room);
-      const cmd = doorwayEditCommand('Door style', host.layer, id, { style: host.door.style }, { style: next }, {
+      const cmd = doorwayEditCommand('Door style', host.layer, id, { style: host.door.style, bare: host.door.bare }, { style: next, bare }, {
         width: (after as Partial<DoorChild>).width,
       });
       return cmd ? [cmd] : [];

@@ -7,8 +7,8 @@
 import { bandSetArt, getBandSet, getWallPieces, getWallSet } from '../assets/packCatalog';
 import { doorKitById, doorKitFor, doorKitKey, isKitStyle, kitWallSet } from '../assets/doorKits';
 import { pathPieceOf } from '../assets/pathKit';
-import { materialFillId } from '../assets/materialKit';
-import { cliffArt, contourArt } from './plateauKit';
+import { isWaterMaterial, materialFillId, shoreTextureOf } from '../assets/materialKit';
+import { cliffArt, contourArt, isPaintedBorder, paintedBorderTexture } from './plateauKit';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
 import type { DungeonLayer, Level, RoomLook, SerializedMapData } from '../store/types';
 import type { DoorChild } from '../shared/types';
@@ -37,7 +37,7 @@ export type MapTextureSource = Pick<SerializedMapData, 'mapSettings' | 'layers'>
  * never needs skipping explicitly here.
  *
  * Placed props and scatter (`AssetChild.assetId`), path units, plateau cliff and contour
- * art, door kit slices and Material brush patches (fill and border) are collected too.
+ * art, door kit slices and Material brush patches (fill, border and a water patch's shore) are collected too.
  * `extraIds` adds ids that live outside the map, such as the table's token art.
  *
  * IDs come back exactly as authored — legacy flat ids or `packId:entryId` —
@@ -61,12 +61,20 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
   // and closes the opening with its kit's wall set's end cap.
   const addDoorKit = (layer: DungeonLayer, door: DoorChild): void => {
     if (!isKitStyle(door.style)) return;
-    const wallSet =
-      layer.standaloneWalls.find((w) => w.id === door.wallId)?.textureSetId ?? layer.style.wallTextureSetId;
-    const kit = doorKitById(door.kit) ?? doorKitFor(wallSet);
-    if (!kit) return;
-    for (const piece of DOOR_KIT_PIECES) ids.add(doorKitKey(kit, piece));
-    for (const ending of getWallPieces(kitWallSet(kit), 'ending')) ids.add(ending.id);
+    const wall = layer.standaloneWalls.find((w) => w.id === door.wallId);
+    const wallSets = [wall?.textureSetId ?? layer.style.wallTextureSetId];
+    // A door on no drawn wall re-anchors by projection (wallResolve), onto a floor ring
+    // or a cave's edge: which is not known without the geometry, so every cave rock on
+    // the layer counts as a wall it may be in.
+    if (!wall) {
+      for (const c of layer.children) if (c.childType === 'shape' && c.edgeMaterial) wallSets.push(c.edgeMaterial);
+    }
+    for (const wallSet of wallSets) {
+      const kit = doorKitById(door.kit) ?? doorKitFor(wallSet);
+      if (!kit) continue;
+      for (const piece of DOOR_KIT_PIECES) ids.add(doorKitKey(kit, piece));
+      for (const ending of getWallPieces(kitWallSet(kit), 'ending')) ids.add(ending.id);
+    }
   };
 
   // A level, area or room look may pin a floor texture and a wall set of its own.
@@ -90,6 +98,7 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
         switch (child.childType) {
           case 'shape': {
             add(child.textureId);
+            add(child.edgePaint);
             // A floor a preset pinned keeps its outline's wall set (wallLook.ts
             // ringStyles), which may not be the layer's.
             const pinned = child.styleOverrides?.wallTextureSetId;
@@ -109,7 +118,8 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
             break;
           case 'plateau':
             if (child.edge !== 'none') {
-              for (const e of cliffArt(child.edgeArt).values()) add(e.id);
+              if (isPaintedBorder(child.edgeArt)) add(paintedBorderTexture(child.edgeArt));
+              else for (const e of cliffArt(child.edgeArt).values()) add(e.id);
               for (const e of contourArt(child.edgeArt).values()) add(e.id);
             }
             break;
@@ -120,6 +130,7 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
       for (const patch of layer.materials ?? []) {
         add(materialFillId(patch.material));
         if (patch.border) for (const e of bandSetArt(patch.material).values()) add(e.id);
+        if (isWaterMaterial(patch.material)) add(shoreTextureOf(patch.shore));
       }
     } else if (layer.type === 'background') {
       add(layer.backgroundTexture);

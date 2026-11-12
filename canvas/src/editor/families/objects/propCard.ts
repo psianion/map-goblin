@@ -1,6 +1,6 @@
 // The prop card: Transform, Look (Tint, Opacity), Layering (the four order steps, Overhead,
 // Below water, Lock), Variant with Replace, Image for an imported picture (Line up grid, Use
-// as), Behaviour (Casts shadow, Blocks light and sight). Glows and
+// as), Behaviour (Casts shadow with the Height its shadow is cast from, Blocks light and sight). Glows and
 // Blocks movement are gone from it: an attached light glows better, and nothing reads
 // movement yet. Old maps that carry either still load; the map format drops them in step 13.
 
@@ -17,7 +17,10 @@ import { propBoxModel } from '@/editor/models/selectionModel';
 import { boxOf, pickedProps, type BoxValue } from './propModel';
 import { ImageField, OrderField, TransformField, VariantField } from './PropFields';
 
-type FieldPatch = Partial<Pick<AssetChild, PropFieldKey | 'tint'>>;
+type FieldPatch = Partial<Pick<AssetChild, PropFieldKey | 'tint' | 'standHeight'>>;
+
+/** The tallest a prop's Height goes, cells. */
+const PROP_HEIGHT_MAX = 10;
 
 /** One field on every picked prop; with `coalesce`, a drag lands as one undo step. */
 function setFields(ids: readonly string[], patch: FieldPatch, coalesce?: string): void {
@@ -130,6 +133,21 @@ const image = defineCardField<'asset', string>({
   write: () => {},
 });
 
+/** How tall the prop stands, cells, for its sun/moon shadow's length; 0 leaves it unset (the shadow follows the art). */
+const standHeight = defineCardField<'asset', number>({
+  id: 'card.prop.standHeight',
+  label: 'Height',
+  schema: z.number().min(0).max(PROP_HEIGHT_MAX),
+  default: 0,
+  home: 'card',
+  control: 'stepper',
+  section: 'Behaviour',
+  range: { min: 0, max: PROP_HEIGHT_MAX, step: 0.5, unit: 'sq' },
+  visibleWhen: (o) => propField(o, 'castsShadow'),
+  read: (o) => o.standHeight ?? 0,
+  write: (_store, ids, h) => setFields(ids, { standHeight: h > 0 ? h : undefined }),
+});
+
 export const propCard = defineCard<'asset'>({
   kind: 'asset',
   title: (o) => o.name || getCatalogEntry(o.assetId)?.label || 'Prop',
@@ -145,6 +163,7 @@ export const propCard = defineCard<'asset'>({
     variant,
     image,
     sw('card.prop.castsShadow', 'Casts shadow', 'castsShadow', 'Behaviour'),
+    standHeight,
     sw('card.prop.blocksLight', 'Blocks light and sight', 'blocksLight', 'Behaviour'),
   ],
 });

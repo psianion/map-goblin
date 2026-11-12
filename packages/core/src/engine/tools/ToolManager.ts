@@ -4,6 +4,8 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
+import { isLayerShown } from '../../store/selectors';
+import { TERRAIN_PANEL_ID } from '../../store/types';
 
 /** Tools that ignore the erase toggle: they add a room, never cut one. */
 const ALWAYS_DRAWS = new Set<string>(['roomRect', 'roomPolygon', 'divide']);
@@ -41,11 +43,11 @@ export class ToolManager {
     this.activeTool = this.tools.get(type) ?? null;
   }
 
-  onPointerDown(point: Point, event: PointerEvent): void {
+  onPointerDown(point: Point, event: PointerEvent, raw?: Point): void {
     const type = useStore.getState().tools.activeTool;
     if (this.activeTool?.type !== type) this.switchTool(type);
     if (this.activeTool?.editsActiveLayer && !this.canEditActiveLayer()) return;
-    this.activeTool?.onPointerDown(point, event);
+    this.activeTool?.onPointerDown(point, event, raw);
   }
 
   /**
@@ -54,7 +56,12 @@ export class ToolManager {
    */
   private canEditActiveLayer(): boolean {
     const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
+    let layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
+    // With the Terrain row in hand a drawing tool takes the topmost layer it can draw on.
+    if (state.ui.activeLayerId === TERRAIN_PANEL_ID) {
+      layer = [...state.layers].reverse().find((l) => l.type === 'dungeon' && !l.locked && isLayerShown(state, l));
+      if (layer) state.setActiveLayerId(layer.id);
+    }
     if (!layer || layer.type !== 'dungeon') {
       notify.warning(noEditableLayerMessage());
       return false;
@@ -67,10 +74,10 @@ export class ToolManager {
     return true;
   }
 
-  onPointerMove(point: Point, event: PointerEvent): void {
+  onPointerMove(point: Point, event: PointerEvent, raw?: Point): void {
     const type = useStore.getState().tools.activeTool;
     if (this.activeTool?.type !== type) this.switchTool(type);
-    this.activeTool?.onPointerMove(point, event);
+    this.activeTool?.onPointerMove(point, event, raw);
   }
 
   onPointerUp(point: Point, event: PointerEvent): void {

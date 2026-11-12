@@ -194,6 +194,7 @@ export function createDefaultState(): MapBuilderState {
           slot: 0,
           radius: 2,
           strength: 0.6,
+          solid: false,
           // White at zero opacity = the brush paints untinted until asked.
           tintColor: '#ffffff',
           tintOpacity: 0,
