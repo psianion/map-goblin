@@ -51,7 +51,7 @@ export class TerrainTool implements DrawingTool {
    * radius/slot/tint even if the popover changes mid-drag — and the stroke
    * keeps the tint it began with, the way a placed light keeps its colour.
    */
-  private stroke: { radius: number; intensity: number; slot: number; tint: number; tintOpacity: number; erase: boolean } | null = null;
+  private stroke: { radius: number; intensity: number; solid: boolean; slot: number; tint: number; tintOpacity: number; erase: boolean } | null = null;
   /** The held brush's clock: paint not laid yet, the last tick's time, the next tick. */
   private pending = 0;
   private tickAt = 0;
@@ -110,6 +110,7 @@ export class TerrainTool implements DrawingTool {
     this.stroke = {
       radius: s.radius,
       intensity: s.strength,
+      solid: s.solid === true,
       slot: s.slot,
       tint: this.tintOf(s.tintColor),
       tintOpacity: s.tintOpacity,
@@ -147,11 +148,11 @@ export class TerrainTool implements DrawingTool {
       dy = this.pointer.y - at.y;
       dist = Math.hypot(dx, dy);
     }
-    const lay = depositForTick(this.pending, s.intensity, seconds, path.length);
+    const lay = depositForTick(this.pending, s.intensity, seconds, path.length, s.solid);
     this.pending = lay.pending;
     const spots = path.length > 0 ? path : lay.count > 0 ? [this.pointer] : [];
     for (const spot of spots) {
-      renderer.paintStamp(spot.x, spot.y, s.radius, lay.each, s.slot, s.erase, s.tint, s.tintOpacity);
+      renderer.paintStamp(spot.x, spot.y, s.radius, lay.each, s.slot, s.erase, s.tint, s.tintOpacity, s.solid);
     }
     if (spots.length > 0) this.lastStamp = spots[spots.length - 1];
     this.frame = nextFrame(this.tick);

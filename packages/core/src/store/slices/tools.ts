@@ -67,6 +67,9 @@ export const createToolsSlice: StateCreator<
 > = (set) => ({
   setActiveTool: (tool) =>
     set((state) => {
+      // Erase is one switch every brush shares: left on, the next tool picked up would
+      // erase with no control of its own to turn it off.
+      if (state.tools.activeTool !== tool) state.tools.eraseMode = false;
       state.tools.activeTool = tool;
       // An armed Fill is the Terrain brush's one-shot; another tool puts it down.
       if (tool !== 'terrain') state.tools.terrainFill = 'off';
@@ -191,6 +194,8 @@ export const createToolsSlice: StateCreator<
       t.slot = Math.min(Math.max(0, Math.round(t.slot)), 5);
       t.radius = clamp(t.radius, TERRAIN_BRUSH_RANGES.radius);
       t.strength = clamp(t.strength, TERRAIN_BRUSH_RANGES.strength);
+      // Settings saved before the switch have none: off.
+      t.solid = t.solid === true;
       t.tintOpacity = clamp(t.tintOpacity, TERRAIN_BRUSH_RANGES.tintOpacity);
     }),
 });

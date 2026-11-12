@@ -1,6 +1,7 @@
 import { pickAt } from '@dnd/core/src/engine/hitTest';
 import { UpdateChildCommand } from '@dnd/core/src/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { notify } from '@dnd/ui/toast';
 import type { Point } from '../types/geometry';
 
 /**
@@ -42,7 +43,12 @@ export function toggleFixtureAt(world: Point, zoom: number): boolean {
   if (child.childType !== 'door') return false;
   // An archway has nothing to swing and a locked door needs a key, not a double-click — the
   // table refuses both. Inert, but still claimed: a door is not a shape to go editing nodes on.
-  if (child.style === 'archway' || child.state === 'locked') return true;
+  if (child.style === 'archway') return true;
+  if (child.state === 'locked') {
+    // A locked door draws as a shut one, so say why it did not open.
+    notify.info('Locked — unlock it in the door card');
+    return true;
+  }
   undoManager.execute(
     new UpdateChildCommand(
       'Toggle door',

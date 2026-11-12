@@ -186,6 +186,18 @@ describe('mountDoorIcons', () => {
     h.unmount();
   });
 
+  it('marks a plain opening, which has no art of its own to find it by', () => {
+    const layer = createDungeonLayer('L');
+    layer.children = [makeDoor({ id: 'mouth', style: 'archway', bare: true })];
+    seed(layer);
+
+    const h = mount();
+    h.tick();
+
+    expect(h.sprites.map((s) => s.texture)).toEqual(['door-open']);
+    h.unmount();
+  });
+
   it('skips doors on a hidden layer', () => {
     const layer = createDungeonLayer('L');
     layer.visible = false;

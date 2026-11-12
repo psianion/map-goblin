@@ -77,6 +77,50 @@ describe('painting and erasing patches', () => {
     expect(patches.map((p) => [p.id, p.material])).toEqual([['a', 'ink'], ['b', 'moss']]);
   });
 
+  it('keeps patches of the same water with a different shore apart, and saves no shore field left at its default', () => {
+    let patches = paintPatch([], strokeArea(line(0, 4), 1), 'p:water', look, 'a');
+    expect(Object.keys(patches[0]).sort()).toEqual(['border', 'id', 'material', 'rings', 'smooth']);
+    patches = paintPatch(patches, strokeArea(line(2, 6), 1), 'p:water', { ...look, shore: 'none' }, 'b');
+    patches = paintPatch(patches, strokeArea(line(2, 6, 1), 1), 'p:water', { ...look, shoreWidth: 1 }, 'c');
+    patches = paintPatch(patches, strokeArea(line(2, 6, 2), 1), 'p:water', { ...look, shallowLine: true }, 'd');
+    expect(patches.map((p) => p.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(patches[1].shore).toBe('none');
+    expect(patches[2].shoreWidth).toBe(1);
+    expect(patches[3].shallowLine).toBe(true);
+    // The same shore merges as before, and the patch painted into comes to the top.
+    patches = paintPatch(patches, strokeArea(line(5, 8, 0), 1), 'p:water', { ...look, shore: 'none' }, 'e');
+    expect(patches.map((p) => p.id)).toEqual(['a', 'c', 'd', 'b']);
+  });
+
+  it('brings the patch a stroke merges into to the top, so grass painted over newer dirt lies over it', () => {
+    let patches = paintPatch([], strokeArea(line(0, 4), 1), 'p:grass', look, 'grass');
+    patches = paintPatch(patches, strokeArea(line(3, 8), 1), 'p:dirt', look, 'dirt');
+    expect(patches.map((p) => p.id)).toEqual(['grass', 'dirt']);
+    patches = paintPatch(patches, strokeArea(line(2, 6), 1), 'p:grass', look, 'more');
+    expect(patches.map((p) => p.id)).toEqual(['dirt', 'grass']);
+  });
+
+  it('never merges a ground stroke with an interior one of the same material, and stores the flag only on ground', () => {
+    let patches = paintPatch([], strokeArea(line(0, 4), 1), 'p:grass', look, 'in');
+    expect(patches[0]).not.toHaveProperty('ground');
+    patches = paintPatch(patches, strokeArea(line(2, 8), 1), 'p:grass', { ...look, ground: true }, 'out');
+    expect(patches.map((p) => [p.id, p.ground])).toEqual([['in', undefined], ['out', true]]);
+    patches = paintPatch(patches, strokeArea(line(6, 12), 1), 'p:grass', { ...look, ground: true }, 'more');
+    expect(patches.map((p) => p.id)).toEqual(['in', 'out']);
+    // Each merges within its own kind, and the two keep their order apart from that.
+    patches = paintPatch(patches, strokeArea(line(-2, 1), 1), 'p:grass', look, 'again');
+    expect(patches.map((p) => p.id)).toEqual(['out', 'in']);
+  });
+
+  it('keeps patches of different heights apart and merges those of the same, storing no height of 0', () => {
+    let patches = paintPatch([], strokeArea(line(0, 4), 1), 'ink', { ...look, height: 0 }, 'a');
+    expect(patches[0]).not.toHaveProperty('height');
+    patches = paintPatch(patches, strokeArea(line(2, 6), 1), 'ink', { ...look, height: -1.5 }, 'b');
+    expect(patches.map((p) => [p.id, p.height])).toEqual([['a', undefined], ['b', -1.5]]);
+    patches = paintPatch(patches, strokeArea(line(5, 9), 1), 'ink', { ...look, height: -1.5 }, 'c');
+    expect(patches.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
   it('cuts an erase out of every patch, and drops a patch cut away whole', () => {
     let patches = paintPatch([], strokeArea(line(0, 10), 1), 'ink', look, 'a');
     patches = paintPatch(patches, strokeArea([[20, 0]], 1), 'moss', look, 'b');

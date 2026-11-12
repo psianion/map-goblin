@@ -1,6 +1,10 @@
 // Double-click over a light or a door flips it instead of dropping into node editing.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('@dnd/ui/toast', () => ({ notify: { info: vi.fn() } }));
+
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createDungeonLayer } from '@/store/factories';
@@ -91,6 +95,7 @@ describe('toggleFixtureAt', () => {
 
     expect(toggleFixtureAt({ x: 10, y: 10 }, 1)).toBe(true);
     expect((child('locked') as DoorChild).state).toBe('locked');
+    expect(notify.info).toHaveBeenCalledWith('Locked — unlock it in the door card');
 
     expect(toggleFixtureAt({ x: 20, y: 20 }, 1)).toBe(true);
     expect((child('arch') as DoorChild).state).toBe('closed');

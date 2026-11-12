@@ -1,12 +1,17 @@
-// The floor card's custom rows: Layer, Colour with Reset, Texture with Change, the Fill fold.
+// The floor card's custom rows: Layer, Colour with Reset, Texture with Change, the Fill fold,
+// Edge band with Painted border, and a painted border's texture.
 
 import { useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { getBandSetIds, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
+import { outdoorFloorChoices } from '@dnd/core/src/assets/materialKit';
 import type { DungeonLayer } from '@/store/types';
 import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
-import { wallSetLabel } from '@/editor/models/assetStrip';
+import { defaultBorderTexture } from '@dnd/core/src/engine/plateauKit';
+import { SwatchPicker, type Swatch } from '@/editor/SwatchPicker';
+import { swatchLabel } from '@/editor/swatchLabel';
+import { wallSetLabel, wallSetThumb } from '@/editor/models/assetStrip';
 import type { SettingProps } from '@/editor/registry/types';
 import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren } from './cardWrites';
@@ -15,14 +20,46 @@ import { pickedFloors, type FillValue } from './floorModel';
 
 const NO_BAND = '__none__';
 
+/** A band set as a swatch: a stretch of its rock as the picture. */
+const bandSwatch = (id: string): Swatch => ({ value: id, label: wallSetLabel(id), art: wallSetThumb(id) });
+
 /** Edge band: None, or one of the installed band sets. */
 export function EdgeBandField({ def, value, onChange }: SettingProps<string | null>) {
   // Pack bands arrive after boot; re-read them when the pack list moves.
   useStore((s) => s.packs.installedPacks);
   const ids = getBandSetIds();
   if (value && !ids.includes(value)) ids.push(value);
-  const options = [{ value: NO_BAND, label: 'None' }, ...ids.map((id) => ({ value: id, label: wallSetLabel(id) }))];
-  return <SelectRow label={def.label} value={value ?? NO_BAND} options={options} onValueChange={(v) => onChange(v === NO_BAND ? null : v)} />;
+  const swatches = [{ value: NO_BAND, label: 'None' }, ...ids.map(bandSwatch)];
+  return (
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} />
+  );
+}
+
+/** The floor card's Edge band value for a floor with a painted border. */
+export const PAINTED_EDGE = '__paint__';
+
+/** The floor card's Edge band: None, the installed band sets, or Painted border. */
+export function FloorEdgeField({ def, value, onChange }: SettingProps<string | null>) {
+  useStore((s) => s.packs.installedPacks);
+  const ids = getBandSetIds();
+  if (value && value !== PAINTED_EDGE && !ids.includes(value)) ids.push(value);
+  const swatches = [
+    { value: NO_BAND, label: 'None' },
+    ...ids.map(bandSwatch),
+    // Pictured by the texture a painted border takes until one is picked.
+    { value: PAINTED_EDGE, label: 'Painted border', art: defaultBorderTexture() },
+  ];
+  return (
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} />
+  );
+}
+
+/** A floor's painted border texture: the outdoor floors the packs ship. */
+export function EdgePaintField({ def, value, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const options = outdoorFloorChoices();
+  if (value && !options.some((o) => o.value === value)) options.push({ value, label: shortTextureName(value, getCatalogEntry(value)?.label) });
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={options.map((o) => ({ ...o, art: o.value }))} value={value} onPick={onChange} />;
 }
 
 /** The dungeon layers on the floor's level, by name. */

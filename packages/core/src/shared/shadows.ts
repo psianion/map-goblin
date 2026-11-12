@@ -178,7 +178,9 @@ export interface PropShadow {
 }
 
 /**
- * The transform that lays a prop's silhouette down along the light.
+ * The transform that lays a prop's silhouette down along the light. With `standHeight` (the
+ * prop card's Height, cells) the shadow is as long as `casterLook` makes it for that height;
+ * without, PROP_LENGTH_SCALE of a wall's, as it always was.
  *
  * With the shadow sprite anchored at its foot (0.5, 1), PixiJS's skew/scale pair works out so
  * that the sprite's top corner lands exactly `length` away along the light vector:
@@ -188,8 +190,9 @@ export interface PropShadow {
  * rotated barrel's is not a shape anyone reads. Compose the two if a gate walk ever says
  * otherwise.
  */
-export function propShadow(look: ShadowLook, textureHeight: number): PropShadow {
-  const length = look.length * PROP_LENGTH_SCALE;
+export function propShadow(look: ShadowLook, textureHeight: number, standHeight?: number): PropShadow {
+  // A prop given a height casts as a caster that tall does; without one, a fixed share of a wall's.
+  const length = standHeight !== undefined ? casterLook(look, standHeight).length : look.length * PROP_LENGTH_SCALE;
   return {
     skewX: Math.atan2(look.dx, look.dy),
     scaleY: textureHeight > 0 ? -length / textureHeight : 0,

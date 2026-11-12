@@ -10,14 +10,24 @@
 // Under all of it, every edge lays a drop shade on its low side (`drawShade`): a soft dark band
 // hugging the edge, wider for a taller drop, so a raised edge reads raised whatever its kind.
 //
+// A cliff whose art is a painted border lays no ledge: a band of its texture on the high side
+// of the edge, its inner edge ragged, into the tops under the band's lift (`drawPaintedBorder`),
+// and a thin ink edge line along the outline unless switched off.
+//
+// The drop shade is a faint contact shade only; the shadow pass's one directional shadow per
+// plateau is what reads as the drop.
+//
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
 import { BlurFilter, Container, Graphics, Sprite } from 'pixi.js';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import {
+  BORDER_FADE,
+  BORDER_WOBBLE,
   DROP_SHADE_ALPHA,
   DROP_SHADE_STEPS,
+  borderWidthOf,
   SLOPE_CONTOUR_ALPHA,
   SLOPE_CONTOUR_WIDTH,
   blurStrengthFor,
@@ -29,6 +39,9 @@ import {
   slopeRamp,
   slopeSunFactor,
   slopeWidthOf,
+  wobbleNoise,
+  wobbleRings,
+  wobbleSeed,
 } from '../shared/plateauShade';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
@@ -50,8 +63,11 @@ import {
   cliffPieces,
   contourArt,
   contourPieces,
+  isPaintedBorder,
   ledgeEndPieces,
+  paintedBorderTexture,
 } from './plateauKit';
+import { paintSoftTiled, softEdgeLayers, type SoftLayer } from './softEdge';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
@@ -169,13 +185,17 @@ export function renderPlateaus(
   const sprites: CliffSprite[] = [];
   const ground = groundOf(layer);
   for (const band of plateaus.bands) {
+    const runs = edgeRuns(band);
+    const painted = (run: EdgeRun) => run.edge === 'cliff' && isPaintedBorder(run.owner?.edgeArt);
+    for (const run of runs) if (painted(run)) drawPaintedBorder(tops, run, options);
     drawBandTop(tops, band);
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
-    const runs = edgeRuns(band);
     const soft = drawShade(holder, band, runs, plateaus.bands, ground);
     for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
-    for (const run of runs) if (run.edge === 'cliff') sprites.push(...drawCliff(holder, run, options));
+    for (const run of runs) if (run.edge === 'cliff' && !painted(run)) sprites.push(...drawCliff(holder, run, options));
+    // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
+    for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
     edges.addChild(holder);
   }
   cliffSprites.set(layer.id, sprites);
@@ -190,6 +210,51 @@ function drawBandTop(parent: Container, band: PlateauBand): void {
   tier.label = `plateau-top-${band.height}`;
   fillRings(tier, band.rings, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
   parent.addChild(tier);
+}
+
+/**
+ * The steps of a painted border along `run`: the region within `width` of the edge on its high
+ * side (inside a raised band, outside a pit), solid on the edge and fading over its inner
+ * BORDER_FADE of the width (softEdge.ts).
+ */
+export function paintedBorderLayers(run: EdgeRun, width: number): SoftLayer[] {
+  const line = run.closed ? [...run.points, run.points[0]] : run.points;
+  const fade = width * BORDER_FADE;
+  // The inner edge wanders (grass creeping over the dirt unevenly), the same way every redraw.
+  const noise = wobbleNoise(wobbleSeed(run.owner?.id));
+  return softEdgeLayers((d) => {
+    const reach = width - fade + d;
+    const strip = wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, width * BORDER_WOBBLE, noise);
+    return run.drop > 0 ? clipper2Engine.intersection(strip, run.band.rings) : clipper2Engine.difference(strip, run.band.rings);
+  }, fade);
+}
+
+/** A painted border's edge line, cells wide, and how dark its ink is. */
+export const EDGE_LINE_WIDTH = 0.05;
+export const EDGE_LINE_ALPHA = 0.85;
+
+/** The thin ink line along a painted border's outline (the card's Edge line). */
+function drawEdgeLine(parent: Container, run: EdgeRun): void {
+  const path = run.closed ? [...run.points, run.points[0]] : run.points;
+  const line = new Graphics();
+  line.label = 'plateau-edge-line';
+  line.poly(path.flat(), false).stroke({ color: INK, width: EDGE_LINE_WIDTH, alpha: EDGE_LINE_ALPHA });
+  parent.addChild(line);
+}
+
+/** A painted border: its texture tiled in a band on the high side of the edge, crisp on the edge, soft inside. */
+function drawPaintedBorder(parent: Container, run: EdgeRun, options: PlateauRenderOptions): void {
+  const id = paintedBorderTexture(run.owner?.edgeArt);
+  if (!id) return;
+  const tex = resolveTexture(id);
+  if (tex.width <= 1) {
+    options.waitFor?.(id);
+    return;
+  }
+  const border = new Container();
+  border.label = 'plateau-border';
+  paintSoftTiled(border, paintedBorderLayers(run, borderWidthOf(run.owner?.borderWidth)), tex);
+  parent.addChild(border);
 }
 
 /**

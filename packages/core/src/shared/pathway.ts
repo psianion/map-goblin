@@ -4,6 +4,9 @@
 // left of its corners; the transitions at each end fade the first and last few units in or
 // out (Fade) or taper them from or to nothing across the path (Grow, Shrink).
 //
+// A piece tagged `soft` is drawn instead as one band following the line (`softPathStrip`),
+// its art repeating along it, so a bend runs on unbroken.
+//
 // The child type is 'pathway': 'path' children are the retired Path tool's, which every
 // load still drops (store/migration.ts).
 
@@ -115,6 +118,125 @@ export function layPathUnits(
     if (transitionOut === 'fade') alpha *= rOut;
     if (transitionOut === 'shrink') across *= rOut;
     out.push({ x, y, rotation: Math.atan2(b[1] - a[1], b[0] - a[0]), scaleAlong: scale, scaleAcross: scale * across, alpha });
+  }
+  return out;
+}
+
+// ─── A soft piece: one band along the line ─────────────────
+
+/** A soft piece's band as a triangle strip: two vertices a station (left of travel, then right). */
+export interface SoftPathStrip {
+  /** x, y per vertex, world cells. */
+  positions: number[];
+  /** u along one repeat of the art (0 to 1), v across it (0 on the left of travel, 1 on the right), per vertex. */
+  uvs: number[];
+  /** Opacity per vertex: 1 but where a Fade end ramps it. */
+  alphas: number[];
+  /** Three vertex indices a triangle. */
+  indices: number[];
+}
+
+/** The densest a soft band's stations lie, cells apart, and the most a station spans of the width. */
+const SOFT_STEP = 0.25;
+const SOFT_STEP_OF_WIDTH = 1 / 3;
+
+const smoothstep = (t: number): number => {
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
+};
+
+/**
+ * A soft piece's band along `line`: `width` across, the art repeating every `repeat` cells
+ * along it (its own aspect at that width), as one continuous strip of stations. At each
+ * station the band runs square to the line's direction taken over a chord as long as the
+ * band is wide, so a sharp bend turns smoothly; a vertex on the inside of a bend that would
+ * step back against the direction of travel is held where the last one was, so the strip
+ * never folds over itself there. Where the art repeats, a station is laid twice (u 1, then
+ * u 0), so each repeat maps the whole of it. Grow and Shrink taper the width over the first
+ * and last TRANSITION_UNITS repeats (at most half the line each); Fade ramps the opacity
+ * over the same stretch; both ease smoothly to nothing at the very end.
+ */
+export function softPathStrip(
+  line: readonly Pt[],
+  repeat: number,
+  width: number,
+  transitionIn: TransitionIn,
+  transitionOut: TransitionOut,
+): SoftPathStrip {
+  const out: SoftPathStrip = { positions: [], uvs: [], alphas: [], indices: [] };
+  if (line.length < 2 || repeat <= 0 || width <= 0) return out;
+  const cum = [0];
+  for (let i = 1; i < line.length; i++) cum.push(cum[i - 1] + Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]));
+  const total = cum[cum.length - 1];
+  if (total <= 1e-6) return out;
+  const at = (s: number): Pt => {
+    const c = Math.min(total, Math.max(0, s));
+    let k = 1;
+    while (k < cum.length - 1 && cum[k] < c) k++;
+    const t = (c - cum[k - 1]) / (cum[k] - cum[k - 1] || 1);
+    return [line[k - 1][0] + (line[k][0] - line[k - 1][0]) * t, line[k - 1][1] + (line[k][1] - line[k - 1][1]) * t];
+  };
+
+  // Stations: an even step, every repeat boundary, and each end.
+  const step = Math.min(SOFT_STEP, width * SOFT_STEP_OF_WIDTH);
+  const boundaries = new Set<number>();
+  for (let k = 1; k * repeat < total - 1e-6; k++) boundaries.add(k * repeat);
+  const nearBoundary = (s: number): boolean => [...boundaries].some((b) => Math.abs(b - s) < 1e-6);
+  const marks: number[] = [0, total, ...boundaries];
+  for (let k = 1; k * step < total - 1e-6; k++) if (!nearBoundary(k * step)) marks.push(k * step);
+  const stations = marks.sort((a, b) => a - b).filter((s, i, all) => i === 0 || s - all[i - 1] > 1e-6);
+
+  const ramp = Math.min(TRANSITION_UNITS * repeat, total / 2);
+  const half = width / 2;
+  const chord = half;
+  let lastL: Pt | null = null;
+  let lastR: Pt | null = null;
+  const push = (p: Pt, u: number, v: number, alpha: number): void => {
+    out.positions.push(p[0], p[1]);
+    out.uvs.push(u, v);
+    out.alphas.push(alpha);
+  };
+  for (const s of stations) {
+    const p = at(s);
+    const a = at(s - chord);
+    const b = at(s + chord);
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const tx = (b[0] - a[0]) / len;
+    const ty = (b[1] - a[1]) / len;
+    let h = half;
+    let alpha = 1;
+    if (transitionIn === 'grow') h *= smoothstep(s / ramp);
+    if (transitionOut === 'shrink') h *= smoothstep((total - s) / ramp);
+    if (transitionIn === 'fade') alpha *= smoothstep(s / ramp);
+    if (transitionOut === 'fade') alpha *= smoothstep((total - s) / ramp);
+    // Left of travel on screen (y down) is (ty, -tx).
+    let left: Pt = [p[0] + ty * h, p[1] - tx * h];
+    let right: Pt = [p[0] - ty * h, p[1] + tx * h];
+    // The fold guard: never step back against the direction of travel.
+    if (lastL && (left[0] - lastL[0]) * tx + (left[1] - lastL[1]) * ty < 0) left = lastL;
+    if (lastR && (right[0] - lastR[0]) * tx + (right[1] - lastR[1]) * ty < 0) right = lastR;
+    const boundary = boundaries.has(s);
+    let u = Math.max(0, s / repeat - Math.floor(s / repeat + 1e-9));
+    // A line ending exactly on a repeat ends that repeat, not the next one's start.
+    if (s >= total - 1e-9 && u < 1e-9) u = 1;
+    if (boundary) {
+      // The end of one repeat and the start of the next, at the same place.
+      push(left, 1, 0, alpha);
+      push(right, 1, 1, alpha);
+      u = 0;
+    }
+    push(left, u, 0, alpha);
+    push(right, u, 1, alpha);
+    lastL = left;
+    lastR = right;
+  }
+  const pairs = out.alphas.length / 2;
+  for (let k = 0; k < pairs - 1; k++) {
+    const l0 = 2 * k;
+    const r0 = l0 + 1;
+    const l1 = l0 + 2;
+    const r1 = l0 + 3;
+    out.indices.push(l0, r0, l1, l1, r0, r1);
   }
   return out;
 }

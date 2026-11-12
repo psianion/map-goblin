@@ -205,6 +205,12 @@ export interface DungeonLayer extends BaseLayer {
   water?: WaterBody;
   /** The Material brush's patches, drawn on this layer's floors, under its water. Absent = none. */
   materials?: MaterialPatch[];
+  /**
+   * Where the layer's painted caves stand open: the areas of the erase strokes that crossed
+   * a cave's rock, as rings (outer rings and holes wound opposite ways). A cave edge in or
+   * beside one carries no rock and is no wall (caveFloor.ts). Absent = closed all round.
+   */
+  caveOpenings?: Polygon[];
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -291,6 +297,8 @@ export interface TerrainBrushSettings {
   radius: number;
   /** Paint opacity/flow per stamp, 0-1. */
   strength: number;
+  /** One pass lays the texture at full weight across the brush, whatever the speed and strength. */
+  solid: boolean;
   /**
    * Brush tint colour. Like a light's colour, each stroke keeps the tint it
    * was painted with — changing this only affects strokes from here on.
@@ -317,6 +325,19 @@ export interface MaterialToolSettings {
   border: boolean;
   /** A stroke paints real floor shapes (pinned to the material's fill and band) rather than a patch. */
   floor: boolean;
+  /** A water patch's shore, as the patch stores it (`MaterialPatch.shore`). Absent = the dirt floor. */
+  shore?: string;
+  /** A water patch's shore width, cells. Absent = its default. */
+  shoreWidth?: number;
+  /** A water patch's pale shallow line. Absent = off. */
+  shallowLine?: boolean;
+  /** The height new patches take, cells (`MaterialPatch.height`). Absent = 0. */
+  height?: number;
+  /**
+   * Erase's Rock on cut edge: on, an erase across a cave's rock re-forms the rock round the
+   * cut; off (absent), the cut stays open (`DungeonLayer.caveOpenings`).
+   */
+  rockOnCut?: boolean;
 }
 
 /** The Path tool: what the next path is drawn with. */
@@ -335,6 +356,10 @@ export interface PlateauToolSettings {
   /** Cells, whole, never 0. */
   height: number;
   edge: 'none' | 'slope' | 'cliff';
+  /** A cliff's art, as the plateau stores it (`PlateauChild.edgeArt`). Absent = Cave rock. */
+  edgeArt?: string;
+  /** A painted border's width, cells (`PlateauChild.borderWidth`). Absent = its default. */
+  borderWidth?: number;
 }
 
 export interface ZoneToolSettings {
@@ -405,6 +430,10 @@ export interface ToolSettings {
   doorAngle: number;
   /** The Door panel's Freestanding: every click places a door free, never on a wall. Absent = off. */
   doorFreestanding?: boolean;
+  /** The Style choice "Opening": new archways are plain openings (`DoorChild.bare`). Absent = off. */
+  doorBare?: boolean;
+  /** The kit new single and double doors are built from (`DoorChild.kit`). Absent = their wall's. */
+  doorKit?: DoorChild['kit'];
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   material: MaterialToolSettings;
@@ -414,6 +443,8 @@ export interface ToolSettings {
   /** The Floor panel's defaults for new floors. Absent: full opacity, the layer's band. */
   floorOpacity?: number;
   floorEdgeBand?: string | null;
+  /** The height new floors take, cells (`ShapeChild.height`). Absent = 0. */
+  floorHeight?: number;
   /** Absent on settings saved before the plateau tool: its defaults. */
   plateau?: PlateauToolSettings;
 }

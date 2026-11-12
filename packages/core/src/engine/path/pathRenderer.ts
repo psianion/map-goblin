@@ -1,14 +1,15 @@
 // Draws a layer's paths into its paths sublayer: each path's units laid along its line by
 // shared/pathway's layPathUnits, one sprite a unit, at the unit's own size times the width,
-// never stretched along the line. The PNG export renders the same sublayer.
+// never stretched along the line. A piece tagged `soft` is drawn instead as one mesh along the
+// line (drawSoftPath), its own alpha feathering the sides. The PNG export renders the same sublayer.
 
-import { Container, Sprite } from 'pixi.js';
+import { Container, Mesh, MeshGeometry, Shader, Sprite, type Texture } from 'pixi.js';
 import type { DungeonLayer, PathwayChild } from '../../store/types';
 import { useStore } from '../../store/store';
 import { getLayerEntry } from '../sceneGraph';
 import { load, resolveTexture } from '../../assets/textureLoader';
 import { pathPieceOf, unitSizeOf } from '../../assets/pathKit';
-import { layPathUnits, pathwayLine } from '../../shared/pathway';
+import { layPathUnits, pathwayLine, softPathStrip, type UnitSize } from '../../shared/pathway';
 import { getAssetPackManager } from '../assetPackInstance';
 
 /** Layers waiting on a unit's art, and the art already asked for. */
@@ -39,7 +40,72 @@ function awaitArt(layer: DungeonLayer, ids: string[]): void {
   });
 }
 
-/** One path's units, as sprites in a container of their own. */
+/** A soft band's shader: the art at the strip's uv, times each vertex's opacity and the mesh's own alpha. */
+const SOFT_VERTEX = `
+  in vec2 aPosition;
+  in vec2 aUV;
+  in float aAlpha;
+  out vec2 vUV;
+  out float vAlpha;
+  uniform mat3 uProjectionMatrix;
+  uniform mat3 uWorldTransformMatrix;
+  uniform mat3 uTransformMatrix;
+  void main() {
+    mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+    gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
+    vUV = aUV;
+    vAlpha = aAlpha;
+  }
+`;
+const SOFT_FRAGMENT = `
+  in vec2 vUV;
+  in float vAlpha;
+  out vec4 finalColor;
+  uniform sampler2D uTexture;
+  uniform vec4 uColor;
+  uniform vec4 uWorldColorAlpha;
+  void main() {
+    finalColor = texture(uTexture, vUV) * vAlpha * uColor * uWorldColorAlpha;
+  }
+`;
+
+/**
+ * A soft piece's path: one mesh along its line (shared/pathway's softPathStrip), the art's
+ * frame mapped onto each repeat. The mesh's geometry and shader go with it when it is destroyed.
+ */
+function drawSoftPath(path: PathwayChild, tex: Texture, unit: UnitSize): Container | null {
+  const repeat = unit.length * (path.width / unit.width);
+  const strip = softPathStrip(pathwayLine(path), repeat, path.width, path.transitionIn, path.transitionOut);
+  if (strip.indices.length === 0) return null;
+  // The strip's uv is one repeat of the art; the art may be a frame of a larger source.
+  const f = tex.frame;
+  const sw = tex.source.width || 1;
+  const sh = tex.source.height || 1;
+  const uvs = new Float32Array(strip.uvs.length);
+  for (let i = 0; i < strip.uvs.length; i += 2) {
+    uvs[i] = (f.x + strip.uvs[i] * f.width) / sw;
+    uvs[i + 1] = (f.y + strip.uvs[i + 1] * f.height) / sh;
+  }
+  const geometry = new MeshGeometry({
+    positions: new Float32Array(strip.positions),
+    uvs,
+    indices: new Uint32Array(strip.indices),
+  });
+  geometry.addAttribute('aAlpha', { buffer: new Float32Array(strip.alphas), format: 'float32' });
+  const shader = Shader.from({ gl: { vertex: SOFT_VERTEX, fragment: SOFT_FRAGMENT }, resources: { uTexture: tex.source } });
+  const mesh = new Mesh({ geometry, shader });
+  mesh.label = 'path-soft';
+  mesh.once('destroyed', () => {
+    geometry.destroy();
+    shader.destroy();
+  });
+  const piece = new Container();
+  piece.label = `path-${path.id}`;
+  piece.addChild(mesh);
+  return piece;
+}
+
+/** One path's units, as sprites in a container of their own; a soft piece as one band. */
 function drawPath(path: PathwayChild, missing: string[]): Container | null {
   const entry = pathPieceOf(path.pieceId);
   if (!entry) return null;
@@ -49,6 +115,7 @@ function drawPath(path: PathwayChild, missing: string[]): Container | null {
     return null;
   }
   const unit = unitSizeOf(entry);
+  if (entry.tags.includes('soft')) return drawSoftPath(path, tex, unit);
   const units = layPathUnits(pathwayLine(path), unit, path.width, path.transitionIn, path.transitionOut);
   const piece = new Container();
   piece.label = `path-${path.id}`;

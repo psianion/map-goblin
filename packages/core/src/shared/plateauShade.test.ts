@@ -20,7 +20,8 @@ import {
   stackedAlpha,
   sunShadowLength,
 } from './plateauShade';
-import { CLIFF_SHADOW_FADE, cliffShadowParts } from '../engine/shadowPass';
+import { CLIFF_SHADOW_FADE, cliffShadowParts, reliefShadowParts } from '../engine/shadowPass';
+import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { pointInPoly } from './plateaus';
 import type { DungeonLayer, PlateauChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -73,17 +74,18 @@ function profile(fill: Polygon[], clip: Polygon[], from: [number, number], dir: 
 }
 
 describe('the drop shade', () => {
-  it('is 0.35 + 0.3 a cell of drop wide, at most 1.5', () => {
-    expect(dropShadeWidth(1)).toBeCloseTo(0.65);
-    expect(dropShadeWidth(-2)).toBeCloseTo(0.95);
-    expect(dropShadeWidth(3)).toBeCloseTo(1.25);
-    expect(dropShadeWidth(9)).toBe(1.5);
+  // A faint contact shade: a quarter of the old 45 %, never wider than a third of a cell.
+  it('is 0.15 + 0.06 a cell of drop wide, at most a third of a cell', () => {
+    expect(dropShadeWidth(1)).toBeCloseTo(0.21);
+    expect(dropShadeWidth(-2)).toBeCloseTo(0.27);
+    expect(dropShadeWidth(3)).toBeCloseTo(0.33);
+    expect(dropShadeWidth(9)).toBeCloseTo(1 / 3);
   });
 
-  it('stacks its bands to 45 % at the edge, falling in even steps to the outermost', () => {
+  it('stacks its bands to 11 % at the edge, falling in even steps to the outermost', () => {
     const alphas = nestedAlphas(DROP_SHADE_ALPHA, 8);
-    expect(stackedAlpha(alphas, 0)).toBeCloseTo(0.45, 6);
-    for (let j = 0; j < 8; j++) expect(stackedAlpha(alphas, j)).toBeCloseTo(0.45 * (1 - j / 8), 6);
+    expect(stackedAlpha(alphas, 0)).toBeCloseTo(0.11, 6);
+    for (let j = 0; j < 8; j++) expect(stackedAlpha(alphas, j)).toBeCloseTo(0.11 * (1 - j / 8), 6);
     for (const a of alphas) expect(a).toBeGreaterThan(0);
   });
 });
@@ -136,6 +138,51 @@ describe('the sun shadow off an edge', () => {
     const [{ clip }] = cliffShadowParts(layerOf([plat('top', 10, 10, 16, 16, { height: 2 })]), look, GROUND);
     expect(inAny([15.9, 13], clip)).toBe(false);
     expect(inAny([16.1, 13], clip)).toBe(true);
+  });
+});
+
+describe('the shadow of a floor or patch with a height', () => {
+  const look = { dx: 1, dy: 0, length: 1, alpha: 0.4, color: '#000000' };
+  const shape = (height: number | undefined) => ({
+    id: 'f',
+    name: 'f',
+    childType: 'shape',
+    visible: true,
+    shapeType: 'rectangle',
+    contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]],
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+    ...(height === undefined ? {} : { height }),
+  });
+  const shown = (parts: { fill: Polygon[]; clip: Polygon[] }[]) => parts.flatMap(({ fill, clip }) => clipper2Engine.intersection(fill, clip)).flat();
+
+  it('falls on the low side of a raised floor, as long as a plateau of its height casts', () => {
+    const pts = shown(reliefShadowParts(layerOf([shape(2)]), look, GROUND));
+    expect(pts.length).toBeGreaterThan(0);
+    for (const [x, y] of pts) {
+      expect(x).toBeGreaterThanOrEqual(14 - 1e-6);
+      expect(x).toBeLessThanOrEqual(14 + sunShadowLength(2) + 1e-6);
+      expect(y).toBeGreaterThanOrEqual(10 - 1e-6);
+      expect(y).toBeLessThanOrEqual(14 + 1e-6);
+    }
+  });
+
+  it('shades a sunk patch inside its edge, from the rim the light comes over', () => {
+    const patch = { id: 'p', material: 'p:water', rings: [[[10, 10], [14, 10], [14, 14], [10, 14]]], smooth: false, border: false, height: -1 };
+    const pts = shown(reliefShadowParts({ ...layerOf([]), materials: [patch] } as unknown as DungeonLayer, look, GROUND));
+    expect(pts.length).toBeGreaterThan(0);
+    for (const [x] of pts) {
+      expect(x).toBeGreaterThanOrEqual(10 - 1e-6);
+      expect(x).toBeLessThanOrEqual(10 + sunShadowLength(1) + 1e-6);
+    }
+  });
+
+  it('casts nothing at height 0 or unset', () => {
+    expect(reliefShadowParts(layerOf([shape(0)]), look, GROUND)).toEqual([]);
+    expect(reliefShadowParts(layerOf([shape(undefined)]), look, GROUND)).toEqual([]);
   });
 });
 

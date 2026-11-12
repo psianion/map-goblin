@@ -10,7 +10,7 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { design, DESIGN_CARDS } from './index';
-import { installedDoorKits } from './doorModel';
+import { doorKitSwatches, installedDoorKits, pickDoorKit } from './doorModel';
 
 vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd/core/src/assets/packCatalog')>();
@@ -26,6 +26,11 @@ vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
     getBandSetIds: () => ['GG_Cave_Ink', 'GG_Cave_Moss'],
   };
 });
+// One dirt floor, for a floor's painted border to take by default.
+vi.mock('@dnd/core/src/engine/plateauKit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@dnd/core/src/engine/plateauKit')>()),
+  defaultBorderTexture: () => 'p:dirt',
+}));
 
 const input = () => ({ rail: RAIL_TOOLS, families: [design], shared: SHARED_SETTINGS, cards: DESIGN_CARDS });
 const reg = createRegistry(input());
@@ -152,8 +157,17 @@ describe('the Design family', () => {
 
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
-    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.curve', 'edit.nodeMode']);
+    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.curve', 'edit.nodeMode', 'floor.height']);
     expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
+  });
+
+  it('gives new floors the dock’s Height, in half steps, 0 stored as nothing', () => {
+    expect(settings.getSetting('floor.height')).toBe(0);
+    expect(settings.setSetting('floor.height', 1.5)).toBe(true);
+    expect(st().tools.settings.floorHeight).toBe(1.5);
+    expect(settings.setSetting('floor.height', 11)).toBe(false);
+    settings.setSetting('floor.height', 0);
+    expect(st().tools.settings.floorHeight).toBeUndefined();
   });
 });
 
@@ -184,6 +198,33 @@ describe('Floor shape and sides', () => {
     expect(settings.setSetting('floor.sides', 8)).toBe(true);
     expect(st().tools.settings.regularPolygon.sides).toBe(8);
     expect(settings.setSetting('floor.sides', 2)).toBe(false);
+  });
+});
+
+describe('the Elevation dock', () => {
+  const get = (id: string) => settings.getSetting(id);
+  const shown = (id: string) => reg.settingById(id)!.visibleWhen!(get);
+
+  it('offers Cliff art on a cliff, and a painted border its texture and width', () => {
+    settings.setSetting('elevation.edge', 'cliff');
+    expect(get('elevation.cliffArt')).toBe('default');
+    expect(shown('elevation.cliffArt')).toBe(true);
+    expect(shown('elevation.paintTexture')).toBe(false);
+    expect(settings.setSetting('elevation.cliffArt', 'paint')).toBe(true);
+    expect(st().tools.settings.plateau?.edgeArt).toBe('paint');
+    expect(shown('elevation.paintTexture')).toBe(true);
+    expect(shown('elevation.paintWidth')).toBe(true);
+    expect(get('elevation.paintWidth')).toBe(0.75);
+    settings.setSetting('elevation.paintTexture', 'gg-forge:wild_dirt_8x8_floor_A');
+    expect(settings.setSetting('elevation.paintWidth', 1.5)).toBe(true);
+    expect(settings.setSetting('elevation.paintWidth', 5)).toBe(false);
+    expect(st().tools.settings.plateau).toMatchObject({ edgeArt: 'paint:gg-forge:wild_dirt_8x8_floor_A', borderWidth: 1.5 });
+    settings.setSetting('elevation.edge', 'slope');
+    expect(shown('elevation.cliffArt')).toBe(false);
+    expect(shown('elevation.paintWidth')).toBe(false);
+    settings.setSetting('elevation.edge', 'cliff');
+    settings.setSetting('elevation.cliffArt', 'default');
+    expect(st().tools.settings.plateau?.edgeArt).toBeUndefined();
   });
 });
 
@@ -249,6 +290,15 @@ describe('tool settings', () => {
     expect(settings.setSetting('door.angle', 22)).toBe(false);
     expect(settings.setSetting('door.angle', 35)).toBe(true);
     expect(st().tools.settings.doorAngle).toBe(35);
+  });
+
+  it('door Style offers Opening, an archway of which nothing is drawn, and any other style clears it', () => {
+    settings.setSetting('door.style', 'opening');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'archway', doorBare: true });
+    expect(settings.getSetting('door.style')).toBe('opening');
+    settings.setSetting('door.style', 'single');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'single', doorBare: false });
+    expect(settings.getSetting('door.style')).toBe('single');
   });
 
   it('Elevation height is never flat, and edge lands beside it', () => {
@@ -376,6 +426,47 @@ describe('the floor card', () => {
     expect(a().edgeBand).toBeUndefined();
     undoManager.undo();
     expect(a().edgeBand).toBe('GG_Cave_Moss');
+  });
+
+  it('picks Painted border as paint only: the band goes for it, stone walls stay, its texture and width set undoably', () => {
+    seed([shape('a'), shape('b')], ['a', 'b']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'GG_Cave_Ink';
+    });
+    const a = () => child<ShapeChild>('a');
+    expect(field('shape', 'card.floor.edgePaint').visibleWhen!(a())).toBe(false);
+    write('shape', 'card.floor.edgeBand', ['a'], '__paint__');
+    expect(a()).toMatchObject({ edgePaint: 'p:dirt', edgeBand: null });
+    expect(read('shape', 'card.floor.edgeBand', a())).toBe('__paint__');
+    for (const id of ['card.floor.edgePaint', 'card.floor.edgePaintWidth']) expect(field('shape', id).visibleWhen!(a()), id).toBe(true);
+    expect(read('shape', 'card.floor.edgePaintWidth', a())).toBe(0.75);
+    write('shape', 'card.floor.edgePaintWidth', ['a'], 1.25);
+    expect(a().edgePaintWidth).toBe(1.25);
+    // Back to a band: the paint goes.
+    write('shape', 'card.floor.edgeBand', ['a'], 'GG_Cave_Moss');
+    expect(a().edgePaint).toBeUndefined();
+    expect(a().edgeBand).toBe('GG_Cave_Moss');
+    undoManager.undo();
+    expect(a().edgePaint).toBe('p:dirt');
+    // A floor on a stone-walled layer keeps its walls: no band pin is written.
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'stone';
+    });
+    write('shape', 'card.floor.edgeBand', ['b'], '__paint__');
+    expect(child<ShapeChild>('b').edgePaint).toBe('p:dirt');
+    expect(child<ShapeChild>('b')).not.toHaveProperty('edgeBand', null);
+  });
+
+  it('sets a floor’s Height in half steps, undoably, 0 stored as nothing', () => {
+    seed([shape('a')], ['a']);
+    const a = () => child<ShapeChild>('a');
+    expect(read('shape', 'card.floor.height', a())).toBe(0);
+    write('shape', 'card.floor.height', ['a'], -2.5);
+    expect(a().height).toBe(-2.5);
+    write('shape', 'card.floor.height', ['a'], 0);
+    expect(a().height).toBeUndefined();
+    undoManager.undo();
+    expect(a().height).toBe(-2.5);
   });
 
   it('offers Node mode for one floor', () => {
@@ -518,6 +609,42 @@ describe('the door card', () => {
     expect(d1().style).toBe('single');
   });
 
+  it('shows the kits as pictures and picks one in the dock: the picked doors’ kit, or the next doors’ with none picked', () => {
+    useStore.setState((s) => {
+      s.packs.installedPacks = [{ packId: 'p', name: 'P', version: '1', sizeBytes: 0, bundled: true, installedAt: 0 }];
+    });
+    const [auto, stone] = doorKitSwatches(st(), undefined);
+    expect(auto).toEqual({ value: 'auto', label: 'Auto (plain)' });
+    expect(stone).toMatchObject({ value: 'stone', art: 'p:doorkit-stone-tile-a' });
+    // The slices are grey masters: the kit's own tint tells stone from wood.
+    expect(stone.tint).toMatch(/^#/);
+    pickDoorKit('stone');
+    expect(d1().kit).toBe('stone');
+    expect(st().tools.settings.doorKit).toBeUndefined();
+    undoManager.undo();
+    expect(d1().kit).toBeUndefined();
+    st().setSelectedIds([]);
+    pickDoorKit('stone');
+    expect(st().tools.settings.doorKit).toBe('stone');
+    expect(d1().kit).toBeUndefined();
+    pickDoorKit('auto');
+    expect(st().tools.settings.doorKit).toBeUndefined();
+    useStore.setState((s) => {
+      s.packs.installedPacks = [];
+    });
+  });
+
+  it('makes a door a plain opening and back: Opening is an archway flagged bare, any other style clears the flag', () => {
+    write('door', 'card.door.style', ['d1'], 'opening');
+    expect(d1()).toMatchObject({ style: 'archway', bare: true });
+    expect(field('door', 'card.door.style').read(d1())).toBe('opening');
+    write('door', 'card.door.style', ['d1'], 'single');
+    expect(d1().style).toBe('single');
+    expect(d1().bare).toBeUndefined();
+    undoManager.undo();
+    expect(d1()).toMatchObject({ style: 'archway', bare: true });
+  });
+
   it('omits Material and the hanging rows while no pack ships a door kit', () => {
     expect(installedDoorKits()).toEqual([]);
     for (const id of ['card.door.material', 'card.door.hinge', 'card.door.swing', 'card.door.hinges', 'card.door.opensTo']) {
@@ -578,6 +705,40 @@ describe('the plateau card', () => {
     undoManager.undo();
     undoManager.undo();
     expect(p1().slopeWidth).toBeUndefined();
+    expect(p1().contourLines).toBeUndefined();
+  });
+
+  it('picks Painted border, its texture and width, and keeps the texture when picked again', () => {
+    const dirt = 'gg-forge:wild_dirt_8x8_floor_A';
+    expect(field('plateau', 'card.plateau.paintTexture').visibleWhen!(p1())).toBe(false);
+    write('plateau', 'card.plateau.cliffArt', ['p1'], 'paint');
+    expect(p1().edgeArt).toBe('paint');
+    expect(read('plateau', 'card.plateau.cliffArt', p1())).toBe('paint');
+    for (const id of ['card.plateau.paintTexture', 'card.plateau.paintWidth']) expect(field('plateau', id).visibleWhen!(p1()), id).toBe(true);
+    expect(field('plateau', 'card.plateau.contourLines').visibleWhen!(p1())).toBe(false);
+    expect(read('plateau', 'card.plateau.paintWidth', p1())).toBe(0.75);
+    write('plateau', 'card.plateau.paintTexture', ['p1'], dirt);
+    write('plateau', 'card.plateau.paintWidth', ['p1'], 1.25);
+    expect(p1()).toMatchObject({ edgeArt: `paint:${dirt}`, borderWidth: 1.25 });
+    expect(read('plateau', 'card.plateau.paintTexture', p1())).toBe(dirt);
+    write('plateau', 'card.plateau.cliffArt', ['p1'], 'paint');
+    expect(p1().edgeArt).toBe(`paint:${dirt}`);
+    write('plateau', 'card.plateau.cliffArt', ['p1'], 'default');
+    expect(p1().edgeArt).toBeUndefined();
+    expect(read('plateau', 'card.plateau.cliffArt', p1())).toBe('default');
+    undoManager.undo();
+    expect(p1().edgeArt).toBe(`paint:${dirt}`);
+  });
+
+  it('shows Edge line on a painted border only, on by default, switched off undoably', () => {
+    expect(field('plateau', 'card.plateau.edgeLine').visibleWhen!(p1())).toBe(false);
+    write('plateau', 'card.plateau.cliffArt', ['p1'], 'paint');
+    expect(field('plateau', 'card.plateau.edgeLine').visibleWhen!(p1())).toBe(true);
+    expect(read('plateau', 'card.plateau.edgeLine', p1())).toBe(true);
+    write('plateau', 'card.plateau.edgeLine', ['p1'], false);
+    expect(p1().contourLines).toBe(false);
+    expect(read('plateau', 'card.plateau.edgeLine', p1())).toBe(false);
+    undoManager.undo();
     expect(p1().contourLines).toBeUndefined();
   });
 });

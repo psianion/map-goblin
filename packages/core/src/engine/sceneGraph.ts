@@ -48,6 +48,8 @@ export interface SceneGraphOptions {
 }
 
 export interface DungeonSublayers {
+  /** The layer's ground patches (Material brush strokes begun off every floor), under its floors. */
+  ground: Container;
   floor: Container;
   /** The layer's Material brush patches (engine/material/materialRenderer.ts), on its floors. */
   materials: Container;
@@ -253,6 +255,7 @@ export function addLayerToScene(
 
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
+    const ground = new Container(); ground.label = 'sublayer-ground';
     const floor = new Container(); floor.label = 'sublayer-floor';
     const materials = new Container(); materials.label = 'sublayer-materials';
     const water = new Container(); water.label = 'sublayer-water';
@@ -271,8 +274,8 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels);
-    sublayers = { floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels };
+    container.addChild(ground, floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels);
+    sublayers = { ground, floor, materials, water, paths, plateauTops, plateauEdges, shadows, grid, walls, wallMarks, doors, objects, imageGrid, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

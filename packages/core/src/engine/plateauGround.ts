@@ -19,6 +19,7 @@ import {
   type GroundVerdict,
 } from '../shared/plateauGround';
 import { shapeRing } from '../shared/plateaus';
+import { patchCovers } from '../shared/materialPatch';
 import { notify } from '../shared/notify';
 import { undoManager } from '../store/undoManager';
 
@@ -70,7 +71,10 @@ export async function keepPlateausOnGround(cmd: Command, ids: readonly string[])
 /** Whether `ring` may stand as a plateau on `layer`: over its floor or painted terrain, and a cell at least. */
 export async function plateauGround(layer: DungeonLayer, ring: Polygon): Promise<GroundVerdict> {
   if (ringArea(ring) < PLATEAU_MIN_AREA) return 'small';
-  const inFloor = inRingsTest(layer.mergedFloor ?? computeMergedFloor(layer) ?? []);
+  const onFloor = inRingsTest(layer.mergedFloor ?? computeMergedFloor(layer) ?? []);
+  // Ground painted with the Material brush is ground to stand on, as a floor is.
+  const ground = (layer.materials ?? []).filter((p) => p.ground);
+  const inFloor = (x: number, y: number): boolean => onFloor(x, y) || ground.some((p) => patchCovers(p, null, x, y));
   if (groundShare(ring, inFloor) >= PLATEAU_GROUND_SHARE) return 'ok';
   const painted = await paintedUnder(ring);
   if (!painted) return 'void';

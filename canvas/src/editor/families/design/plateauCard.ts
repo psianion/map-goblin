@@ -1,5 +1,6 @@
 // The plateau card (Elevation): Height with where it stands, Edge, then what the edge draws
-// with (Cliff art, Slope width, Contour lines), Blocks sight and Crossing. Every row writes
+// with (Cliff art, a painted border's Texture, Border width and Edge line, Slope width, Contour lines),
+// Blocks sight and Crossing. Every row writes
 // every picked plateau as one undo step and shows the first.
 
 import { z } from 'zod';
@@ -8,13 +9,14 @@ import { selectLayerForChild } from '@/store/selectors';
 import type { Command, MapBuilderStore, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { edgeHides, edgeOf, ownHeight, shapeDrop } from '@dnd/core/src/shared/plateaus';
-import { cliffChoice, DEFAULT_CLIFF_FAMILY, DEFAULT_CLIFF_SET } from '@dnd/core/src/engine/plateauKit';
+import { isPaintedBorder, paintedBorderArt, paintedBorderTexture } from '@dnd/core/src/engine/plateauKit';
+import { BORDER_DEFAULT_WIDTH, BORDER_MAX_WIDTH, BORDER_MIN_WIDTH, borderWidthOf } from '@dnd/core/src/shared/plateauShade';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { runEdit } from './cardWrites';
-import { blocksSight, EDGE_OPTIONS, sightOverrideFor, SLOPE_STEP } from './plateauModel';
+import { blocksSight, BORDER_STEP, cliffArtValue, edgeArtFor, EDGE_OPTIONS, sightOverrideFor, SLOPE_STEP } from './plateauModel';
 import { EDITABLE_VERBS } from './verbs';
 import { DEFAULT_ART, EDGE_CROSSING } from './plateauModel';
-import { CliffArtField, CrossingField, HeightField, SlopeField } from './PlateauFields';
+import { BorderTextureField, CliffArtField, CrossingField, HeightField, SlopeField } from './PlateauFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
 
@@ -68,10 +70,7 @@ const edge = defineCardField<'plateau', PlateauChild['edge']>({
 
 /* ── The edge ──────────────────────────────────────────── */
 
-function artValue(p: PlateauChild): string {
-  const { setId, family } = cliffChoice(p.edgeArt);
-  return setId === DEFAULT_CLIFF_SET && family === DEFAULT_CLIFF_FAMILY ? DEFAULT_ART : (p.edgeArt ?? DEFAULT_ART);
-}
+const isPainted = (p: PlateauChild) => edgeOf(p) === 'cliff' && isPaintedBorder(p.edgeArt);
 
 const cliffArt = defineCardField<'plateau', string>({
   id: 'card.plateau.cliffArt',
@@ -83,8 +82,40 @@ const cliffArt = defineCardField<'plateau', string>({
   section: 'Edge',
   render: CliffArtField,
   visibleWhen: (p) => edgeOf(p) === 'cliff',
-  read: artValue,
-  write: (_store, ids, v) => apply('Cliff art', ids, () => ({ edgeArt: v === DEFAULT_ART ? undefined : v })),
+  read: (p) => cliffArtValue(p.edgeArt),
+  write: (_store, ids, v) => apply('Cliff art', ids, (p) => ({ edgeArt: edgeArtFor(v, p.edgeArt) })),
+});
+
+/** A painted border's texture: any floor the packs ship. */
+const borderTexture = defineCardField<'plateau', string>({
+  // Not "border…": the family's tests keep "order" out of card ids.
+  id: 'card.plateau.paintTexture',
+  label: 'Texture',
+  schema: z.string(),
+  default: '',
+  home: 'card',
+  control: 'custom',
+  section: 'Edge',
+  render: BorderTextureField,
+  visibleWhen: isPainted,
+  read: (p) => paintedBorderTexture(p.edgeArt) ?? '',
+  write: (_store, ids, id) => {
+    if (id) apply('Border texture', ids, () => ({ edgeArt: paintedBorderArt(id) }));
+  },
+});
+
+const borderWidth = defineCardField<'plateau', number>({
+  id: 'card.plateau.paintWidth',
+  label: 'Border width',
+  schema: z.number().min(BORDER_MIN_WIDTH).max(BORDER_MAX_WIDTH),
+  default: BORDER_DEFAULT_WIDTH,
+  home: 'card',
+  control: 'stepper',
+  section: 'Edge',
+  range: { min: BORDER_MIN_WIDTH, max: BORDER_MAX_WIDTH, step: BORDER_STEP },
+  visibleWhen: isPainted,
+  read: (p) => borderWidthOf(p.borderWidth),
+  write: (_store, ids, w) => apply('Border width', ids, () => ({ borderWidth: w })),
 });
 
 const slopeWidth = defineCardField<'plateau', number>({
@@ -110,9 +141,24 @@ const contourLines = defineCardField<'plateau', boolean>({
   home: 'card',
   control: 'switch',
   section: 'Edge',
-  visibleWhen: hasEdge,
+  // A painted border has no contours: its Edge line takes this place.
+  visibleWhen: (p) => hasEdge(p) && !isPainted(p),
   read: (p) => p.contourLines ?? true,
   write: (_store, ids, on) => apply('Contour lines', ids, () => ({ contourLines: on ? undefined : false })),
+});
+
+/** A painted border's thin ink line along the outline: the same stored switch as Contour lines, which it stands in for. */
+const edgeLine = defineCardField<'plateau', boolean>({
+  id: 'card.plateau.edgeLine',
+  label: 'Edge line',
+  schema: z.boolean(),
+  default: true,
+  home: 'card',
+  control: 'switch',
+  section: 'Edge',
+  visibleWhen: isPainted,
+  read: (p) => p.contourLines ?? true,
+  write: (_store, ids, on) => apply('Edge line', ids, () => ({ contourLines: on ? undefined : false })),
 });
 
 /* ── Sight and crossing ────────────────────────────────── */
@@ -155,5 +201,5 @@ export const plateauCard = defineCard<'plateau'>({
   kind: 'plateau',
   title: () => 'Elevation',
   verbs: EDITABLE_VERBS,
-  fields: [height, edge, cliffArt, slopeWidth, contourLines, blocks, crossing],
+  fields: [height, edge, cliffArt, borderTexture, borderWidth, slopeWidth, contourLines, edgeLine, blocks, crossing],
 });

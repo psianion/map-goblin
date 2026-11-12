@@ -57,8 +57,9 @@ export interface DrawingTool {
   readonly cursor?: string;
   /** True when the tool draws into the active dungeon layer — gates pointerDown on layer selection/lock/visibility (ToolManager). */
   readonly editsActiveLayer?: boolean;
-  onPointerDown(point: Point, event?: PointerEvent): void;
-  onPointerMove(point: Point, event?: PointerEvent): void;
+  /** `raw` is the pointer before any snap, for a tool that picks what is under it. */
+  onPointerDown(point: Point, event?: PointerEvent, raw?: Point): void;
+  onPointerMove(point: Point, event?: PointerEvent, raw?: Point): void;
   onPointerUp(point: Point, event?: PointerEvent): void;
   onKeyDown(event: KeyboardEvent): void;
   getPreview(): PreviewShape | null;

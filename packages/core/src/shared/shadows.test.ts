@@ -15,6 +15,7 @@ import {
   PROP_LENGTH_SCALE,
   SHADOW_STEPS,
   bandAlpha,
+  casterLook,
   propShadow,
   shadowBand,
   shadowLook,
@@ -208,6 +209,16 @@ describe('propShadow — the sprite transform', () => {
       expect(x).toBeCloseTo(dx * reach, 5);
       expect(y).toBeCloseTo(dy * reach, 5);
     }
+  });
+
+  it('casts as tall as a prop given a Height stands, and as before without one', () => {
+    const look: ShadowLook = { dx: 1, dy: 0, length: 4, alpha: 0.4, color: '#4d5460' };
+    const reach = (standHeight?: number) => -64 * propShadow(look, 64, standHeight).scaleY;
+    expect(reach()).toBeCloseTo(look.length * PROP_LENGTH_SCALE, 9);
+    expect(reach(2.4)).toBeCloseTo(casterLook(look, 2.4).length, 9);
+    expect(reach(2.4)).toBeCloseTo(2 * reach(1.2), 9);
+    // Everything but the length is as without a height.
+    expect({ ...propShadow(look, 64, 3), scaleY: 0 }).toEqual({ ...propShadow(look, 64), scaleY: 0 });
   });
 
   it('a prop with no texture yet scales to nothing rather than to infinity', () => {

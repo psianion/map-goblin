@@ -4,27 +4,35 @@
 
 import { DoorOpen } from 'lucide-react';
 import { z } from 'zod';
-import type { DoorStyle } from '@/store/types';
-import { DOOR_ANGLE_STEP, doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
+import { DOOR_ANGLE_STEP, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
+import { choiceStyle, doorStyleChoice, doorStyleChoiceLabel, type DoorStyleChoice } from './doorModel';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
+import { DoorKitColumn } from './DoorFields';
 
-export const doorStyle = defineSetting<DoorStyle>({
+const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening'];
+
+export const doorStyle = defineSetting<DoorStyleChoice>({
   id: 'door.style',
   label: 'Style',
-  schema: z.enum(PLACEABLE_DOOR_STYLES as [DoorStyle, ...DoorStyle[]]),
+  schema: z.enum(STYLE_CHOICES as [DoorStyleChoice, ...DoorStyleChoice[]]),
   default: 'single',
   home: 'dock',
   control: 'seg',
   section: 'Style',
-  options: PLACEABLE_DOOR_STYLES.map((value) => ({ value, label: doorStyleLabel(value) })),
+  options: STYLE_CHOICES.map((value) => ({ value, label: doorStyleChoiceLabel(value) })),
   bind: {
-    read: (s) => s.tools.settings.doorStyle ?? 'single',
-    // A wider style takes the width up with it.
-    write: (store, style) => {
+    read: (s) => doorStyleChoice(s.tools.settings.doorStyle ?? 'single', s.tools.settings.doorBare),
+    // A wider style takes the width up with it. Opening is an archway placed bare.
+    write: (store, choice) => {
       const st = store.getState();
-      st.updateToolSettings({ doorStyle: style, doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style)) });
+      const style = choiceStyle(choice);
+      st.updateToolSettings({
+        doorStyle: style,
+        doorBare: choice === 'opening',
+        doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style)),
+      });
     },
   },
 });
@@ -100,7 +108,7 @@ export const doorTool = defineTool({
   key: 'S',
   engine: ['door'],
   settings: [doorStyle, doorWidth, doorAngle, doorSecret, doorFreestanding],
-  dock: [],
+  dock: [{ id: 'door.kit', caption: 'Kit', render: DoorKitColumn }],
   hint: (s) => ({
     label: 'Door',
     segments: [

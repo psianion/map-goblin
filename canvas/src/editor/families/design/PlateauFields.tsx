@@ -1,12 +1,20 @@
-// The plateau card's custom rows: Height with where it stands, Cliff art, Slope width, Crossing.
+// The plateau card's custom rows: Height with where it stands, Cliff art, a painted border's
+// texture, Slope width, Crossing.
 
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
-import { selectLayerForChild } from '@/store/selectors';
+import { selectChildById, selectLayerForChild } from '@/store/selectors';
+import type { PlateauChild } from '@/store/types';
+import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { absoluteHeight, defaultCrossingId, edgeOf, shapeDrop } from '@dnd/core/src/shared/plateaus';
-import { cliffArtChoices } from '@dnd/core/src/engine/plateauKit';
+import { borderTextureChoices, cliffArt, cliffArtChoices, defaultBorderTexture, PAINTED_BORDER, paintedBorderArt, paintedBorderTexture } from '@dnd/core/src/engine/plateauKit';
+import { materialLabel } from '@dnd/core/src/assets/materialKit';
 import { SelectRow, SettingRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
-import { signed, stepHeight } from './plateauModel';
+import { SwatchPicker } from '@/editor/SwatchPicker';
+import { swatchLabel } from '@/editor/swatchLabel';
+import { runEdit } from './cardWrites';
+import { cliffArtValue, edgeArtFor, signed, stepHeight } from './plateauModel';
 import { DEFAULT_ART, EDGE_CROSSING } from './plateauModel';
 
 /** Its own height on the stepper, and beside it where it stands in the stack and how far its edge falls. */
@@ -28,11 +36,66 @@ export function HeightField({ def, value, onChange }: SettingProps<number>) {
   );
 }
 
-/** The cliff sets the packs ship; they arrive after boot, so they are read live. */
+/**
+ * The plateaus a dock column writes: the picked ones, when any are picked. With none the
+ * column sets what the tool draws next, as the Look columns do. A card's own rows never
+ * ask: they are handed the picked plateaus' value and write through the card.
+ */
+function useDockPlateaus(def: { home: string }): PlateauChild[] {
+  const picked = useStore(
+    useShallow((s) =>
+      s.selection.selectedIds.flatMap((id) => {
+        const c = selectChildById(s, id);
+        return c?.childType === 'plateau' ? [c] : [];
+      }),
+    ),
+  );
+  return def.home === 'dock' ? picked : [];
+}
+
+/** One undo step over the plateaus a dock column writes. */
+function writePlateaus(label: string, plateaus: readonly PlateauChild[], patch: (p: PlateauChild) => PlateauPatch): void {
+  runEdit(label, plateaus.flatMap((p) => setPlateauFields(p.id, patch(p), label) ?? []));
+}
+
+/** The cliff sets the packs ship, each pictured by a piece of its ledge; they arrive after boot, so they are read live. */
 export function CliffArtField({ def, value, onChange }: SettingProps<string>) {
   useStore((s) => s.packs.installedPacks);
-  const options = cliffArtChoices().map((c) => ({ value: c.value ?? DEFAULT_ART, label: c.label }));
-  return <SelectRow label={def.label} value={value} options={options} onValueChange={onChange} />;
+  const picked = useDockPlateaus(def);
+  const swatches = cliffArtChoices().map((c) => ({
+    value: c.value ?? DEFAULT_ART,
+    label: c.label,
+    // A painted border is pictured by the texture it takes until one is picked.
+    art: c.value === PAINTED_BORDER ? defaultBorderTexture() : cliffArt(c.value).values().next().value?.id,
+  }));
+  return (
+    <SwatchPicker
+      label={swatchLabel(def)}
+      name={def.label}
+      swatches={swatches}
+      value={picked.length > 0 ? cliffArtValue(picked[0].edgeArt) : value}
+      onPick={(v) => (picked.length > 0 ? writePlateaus('Cliff art', picked, (p) => ({ edgeArt: edgeArtFor(v, p.edgeArt) })) : onChange(v))}
+    />
+  );
+}
+
+/** A painted border's texture: the outdoor floors the Material brush lists, read live as the cliff sets are. */
+export function BorderTextureField({ def, value, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const picked = useDockPlateaus(def);
+  const shown = picked.length > 0 ? (paintedBorderTexture(picked[0].edgeArt) ?? '') : value;
+  const options = borderTextureChoices();
+  // A border saved in a floor that is no longer offered still shows as what it is.
+  if (shown && !options.some((o) => o.value === shown)) options.push({ value: shown, label: materialLabel(shown) });
+  return (
+    <SwatchPicker
+      label={swatchLabel(def)}
+      name={def.label}
+      swatches={options.map((o) => ({ ...o, art: o.value }))}
+      value={shown}
+      onPick={(id) => (picked.length > 0 ? writePlateaus('Border texture', picked, () => ({ edgeArt: paintedBorderArt(id) })) : onChange(id))}
+    />
+  );
 }
 
 /** Slope cells for each cell of drop, in half cells; the hint says what the number means. */

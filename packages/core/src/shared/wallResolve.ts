@@ -1,7 +1,7 @@
 import type { DungeonLayer } from '../store/types';
 import type { DoorChild, WallSegment } from './types';
 import { snapToNearestWall } from './wallSnap';
-import { caveEdges, caveWallId, onCaveEdge } from './caveFloor';
+import { caveEdges, caveWallId, caveWallRuns, onCaveEdge } from './caveFloor';
 import {
   authoredBoundaries,
   authoredRing,
@@ -106,7 +106,7 @@ function memo<T>(
  * `extractWallSegments`, which reads this.
  */
 export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
-  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children], () => {
+  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children, layer.caveOpenings], () => {
     const walls: ResolvedWall[] = layer.standaloneWalls.map((w) => ({
       ...w,
       kind: 'standalone',
@@ -137,20 +137,25 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
       }
     }
     // A painted cave owns its edge: one closed wall per ring of its outline, wherever it
-    // runs, so a cave inside another floor still blocks and takes doors.
+    // runs, so a cave inside another floor still blocks and takes doors. Where the rock was
+    // erased open (`caveOpenings`) the ring stands as the runs between the openings, and the
+    // open edges are no wall at all: the floor edge along them was passed over above.
     for (const { material, rings: caveRings } of caves) {
       caveRings.forEach((ring, i) => {
-        walls.push({
-          id: caveWallId(material, i),
-          points: [...ring, ring[0]],
-          wallType: 'normal',
-          direction: 'both',
-          color: '#000000',
-          width: 1,
-          roughness: 0,
-          // The door kit follows the cave's band, as a door on a banded floor ring's does.
-          textureSetId: material,
-          kind: 'cave',
+        const runs = caveWallRuns(ring, layer.caveOpenings);
+        runs.forEach((points, k) => {
+          walls.push({
+            id: runs.length === 1 ? caveWallId(material, i) : `${caveWallId(material, i)}:${k}`,
+            points,
+            wallType: 'normal',
+            direction: 'both',
+            color: '#000000',
+            width: 1,
+            roughness: 0,
+            // The door kit follows the cave's band, as a door on a banded floor ring's does.
+            textureSetId: material,
+            kind: 'cave',
+          });
         });
       });
     }

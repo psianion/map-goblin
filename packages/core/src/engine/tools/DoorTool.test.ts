@@ -341,7 +341,7 @@ describe('DoorTool', () => {
     expect(selectedIds()).toEqual([doors()[1].id]);
   });
 
-  it('cycles closed → open → locked → closed on double-click', () => {
+  it('opens and shuts on double-click, and never locks', () => {
     click(tool, 5, 5.1);
     expect(doors()[0].state).toBe('closed');
 
@@ -349,19 +349,56 @@ describe('DoorTool', () => {
     expect(doors()[0].state).toBe('open');
 
     doubleClick(tool, 5, 5.1);
-    expect(doors()[0].state).toBe('locked');
+    expect(doors()[0].state).toBe('closed');
 
     doubleClick(tool, 5, 5.1);
-    expect(doors()[0].state).toBe('closed');
+    expect(doors()[0].state).toBe('open');
     expect(doors()).toHaveLength(1);
   });
 
-  it('cycles once per double-click, not once per click of it', () => {
+  it('finds an off-grid door under the pointer itself, not under its grid-snapped point', () => {
+    click(tool, 5.3, 5.1);
+    const placed = doors()[0];
+    useStore.getState().setSelectedIds([]);
+
+    // The pointer is on the door; the grid point it snaps to is past the door's end.
+    tool.onPointerMove({ x: 6, y: 5 }, undefined, { x: 5.4, y: 5.1 });
+    expect(tool.hoveredDoorId).toBe(placed.id);
+    tool.onPointerDown({ x: 6, y: 5 }, undefined, { x: 5.4, y: 5.1 });
+    tool.onPointerUp({ x: 6, y: 5 });
+    expect(selectedIds()).toEqual([placed.id]);
+    expect(doors()).toHaveLength(1);
+  });
+
+  it('builds new single and double doors from the kit picked in the dock, and gives an archway none', () => {
+    useStore.getState().updateToolSettings({ doorKit: 'wood' });
     click(tool, 5, 5.1);
-    // Four clicks are two double-clicks: closed → open → locked, never further.
-    doubleClick(tool, 5, 5.1);
+    expect(doors()[0].kit).toBe('wood');
+    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
+    click(tool, 8, 5.1);
+    expect(doors()[1]).not.toHaveProperty('kit');
+  });
+
+  it('places a plain opening when the style is Opening: an archway flagged bare, named Opening', () => {
+    useStore.getState().updateToolSettings({ doorStyle: 'archway', doorBare: true });
+    click(tool, 5, 5.1);
+    expect(doors()[0]).toMatchObject({ style: 'archway', bare: true, name: 'Opening 1' });
+    useStore.getState().updateToolSettings({ doorStyle: 'single', doorBare: false });
+    click(tool, 8, 5.1);
+    expect(doors()[1]).not.toHaveProperty('bare');
+  });
+
+  it('leaves a locked door locked on double-click and says where to unlock it', () => {
+    const info = vi.fn<(msg: string) => void>();
+    setNotify({ warning: vi.fn(), error: vi.fn(), success: vi.fn(), info });
+    click(tool, 5, 5.1);
+    useStore.getState().updateChild(layer().id, doors()[0].id, { state: 'locked' });
+    undoManager.clear();
+
     doubleClick(tool, 5, 5.1);
     expect(doors()[0].state).toBe('locked');
+    expect(undoManager.canUndo()).toBe(false);
+    expect(info).toHaveBeenCalledWith('Locked — unlock it in the door card');
   });
 
   it('leaves a wall archway alone on double-click — an arch has no shut state', () => {

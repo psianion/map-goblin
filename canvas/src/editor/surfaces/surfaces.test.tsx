@@ -57,7 +57,7 @@ describe('Dock', () => {
     const dock = getByTestId('shell-dock');
     expect(shown(dock)).toEqual(ids('dock'));
     for (const id of ids('panel')) expect(dock.querySelector(`[data-setting="${id}"]`)).toBeNull();
-    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look']);
+    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'Height', 'look']);
   });
 
   it('shows the family of the tool in hand, else of the open flyout, and picks from it', () => {

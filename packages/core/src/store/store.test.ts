@@ -63,6 +63,15 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().tools.activeTool).toBe('wall');
   });
 
+  it('setActiveTool puts erase mode down when the tool changes, and keeps it for the tool in hand', () => {
+    useStore.getState().setActiveTool('material');
+    useStore.getState().setEraseMode(true);
+    useStore.getState().setActiveTool('material');
+    expect(useStore.getState().tools.eraseMode).toBe(true);
+    useStore.getState().setActiveTool('scatterBrush');
+    expect(useStore.getState().tools.eraseMode).toBe(false);
+  });
+
   it('entering node edit on a floor keeps that floor alone picked, for its card', () => {
     const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
     useStore.getState().addChild(layer.id, {

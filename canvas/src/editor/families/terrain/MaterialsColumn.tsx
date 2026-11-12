@@ -1,12 +1,22 @@
-// The Material brush's swatches: one tile per installed material with border art, its fill
-// as the picture. Today that is gg-forge's cave ink alone; the strip fills in as packs bring
-// more. A click picks what the next stroke paints.
+// The Material brush's swatches: one tile per installed material, its fill as the picture:
+// the band sets with border art (gg-forge's cave ink), then the plain floor textures. A
+// click picks what the next stroke paints.
 
 import { useStore } from '@/store/store';
 import { DockColumn, Tile } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
-import { materialFillId, materialIds, materialLabel } from '@dnd/core/src/assets/materialKit';
+import type { SettingProps } from '@/editor/registry/types';
+import { SwatchPicker } from '@/editor/SwatchPicker';
+import { swatchLabel } from '@/editor/swatchLabel';
+import { defaultShoreId, materialFillId, materialIds, materialLabel, SHORE_NONE, shoreChoices } from '@dnd/core/src/assets/materialKit';
 import { getBandSet } from '@dnd/core/src/assets/packCatalog';
+
+/** A water patch's shore: any outdoor floor the packs ship, or None, read live as the swatches are. '' is the default (dirt). */
+export function ShoreField({ def, value, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const swatches = shoreChoices().map((c) => ({ ...c, art: c.value === SHORE_NONE ? undefined : c.value }));
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value || defaultShoreId() || SHORE_NONE} onPick={onChange} />;
+}
 
 export function MaterialsColumn() {
   const picked = useStore((s) => s.tools.settings.material.material);

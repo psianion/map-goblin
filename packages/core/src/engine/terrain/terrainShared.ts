@@ -209,13 +209,18 @@ export const MIN_DEPOSIT = 1 / 64;
  * intensity × seconds, shared between the `stamps` the pointer crossed since the last
  * tick. With none the pointer is still and the brush stamps where it is, carrying the
  * paint on while it is under MIN_DEPOSIT.
+ *
+ * A `solid` brush lays full paint at every stamp, whatever the intensity and the time, so
+ * one pass is the whole stroke at any speed.
  */
 export function depositForTick(
   pending: number,
   intensity: number,
   seconds: number,
   stamps: number,
+  solid = false,
 ): { each: number; count: number; pending: number } {
+  if (solid) return { each: 1, count: Math.max(1, stamps), pending: 0 };
   const total = pending + accumulate(0, intensity, seconds);
   if (stamps > 0) return { each: Math.max(MIN_DEPOSIT, total / stamps), count: stamps, pending: 0 };
   if (total < MIN_DEPOSIT) return { each: 0, count: 0, pending: total };

@@ -109,6 +109,27 @@ function pointInPolygon(px: number, py: number, poly: Polygon): boolean {
 }
 
 /**
+ * The holes each outer is cut by, in the outers' order. A hole belongs to the innermost
+ * outer holding it: an outer can lie inside another's hole (the border round a hole in a
+ * floor, inside the border round the floor), and a hole handed to the outer one lies
+ * outside what that outer fills, which the triangulation answers with a wedge of fill.
+ */
+export function holesByOuter(outers: readonly Polygon[], holes: readonly Polygon[]): Polygon[][] {
+  const out: Polygon[][] = outers.map(() => []);
+  const areas = outers.map((o) => Math.abs(signedArea(o)));
+  for (const hole of holes) {
+    // Its first point says which outers hold it.
+    const [hx, hy] = hole[0];
+    let best = -1;
+    for (let i = 0; i < outers.length; i++) {
+      if (pointInPolygon(hx, hy, outers[i]) && (best < 0 || areas[i] < areas[best])) best = i;
+    }
+    if (best >= 0) out[best].push(hole);
+  }
+  return out;
+}
+
+/**
  * Fill polygons with proper hole support for PixiJS v8.
  * Clipper2 returns outer contours (CW in screen-space, positive signed area)
  * and hole contours (CCW, negative signed area).
@@ -137,25 +158,11 @@ export function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyl
     return;
   }
 
-  // Match each hole to its containing outer
-  const outerHoles = new Map<number, Polygon[]>();
-  for (let i = 0; i < outers.length; i++) {
-    outerHoles.set(i, []);
-  }
-  for (const hole of holes) {
-    // Use first point of hole to find which outer contains it
-    const [hx, hy] = hole[0];
-    for (let i = 0; i < outers.length; i++) {
-      if (pointInPolygon(hx, hy, outers[i])) {
-        outerHoles.get(i)!.push(hole);
-        break;
-      }
-    }
-  }
+  const outerHoles = holesByOuter(outers, holes);
 
   // Fill each outer with its holes individually
   for (let i = 0; i < outers.length; i++) {
-    const myHoles = outerHoles.get(i)!;
+    const myHoles = outerHoles[i];
     traceSinglePolygon(g, outers[i]);
     g.fill(fillStyle);
     if (myHoles.length > 0) {
@@ -242,6 +249,8 @@ export interface TiledLook {
   alpha?: number;
   /** The rings are Clipper output whose negative rings are holes, cut out of the fill. */
   holes?: boolean;
+  /** The box the texture is laid over and anchored to; the rings' own when absent (softEdge.ts passes one for all its steps). */
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
 /**
@@ -250,7 +259,7 @@ export interface TiledLook {
  * rings. Floors and path fills both paint through here.
  */
 export function paintTiled(parent: Container, rings: Polygon[], texture: Texture, look: TiledLook): void {
-  const { minX, minY, maxX, maxY } = polygonBounds(rings.flat());
+  const { minX, minY, maxX, maxY } = look.bounds ?? polygonBounds(rings.flat());
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;

@@ -201,6 +201,20 @@ export interface ShapeChild extends LayerChild {
    * or not (shared/caveFloor.ts). Such a floor pins no stone of its own on the union's ring.
    */
   edgeMaterial?: string;
+  /**
+   * A painted border just inside this floor's own outline: the floor texture id it is laid
+   * with. Paint only: it adds no wall and changes no room, and the floor's walls or band stay
+   * as they are. Absent = none.
+   */
+  edgePaint?: string;
+  /** The painted border's width, cells. Absent = 0.75. */
+  edgePaintWidth?: number;
+  /**
+   * How high the floor stands, cells (whole or half, -10 to 10), over whatever plateau is
+   * under it: what the table reads for a point on it, and a shadow off its outline. Never a
+   * wall or a room. Absent = 0.
+   */
+  height?: number;
 }
 
 /**
@@ -214,10 +228,15 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   height: number;
   /** How the ring meets lower ground. */
   edge: 'none' | 'slope' | 'cliff';
-  /** Band set id the cliff is laid with. Absent = the cave ink ledge band. */
+  /**
+   * What the cliff is laid with: `<set>:<family>` ledge art, or `paint` / `paint:<texture id>`
+   * for a painted border (plateauKit.ts). Absent = the cave ink set's rock row.
+   */
   edgeArt?: string;
   /** Slope cells per cell of drop. Absent = 1. */
   slopeWidth?: number;
+  /** A painted border's width, cells. Absent = 0.75. */
+  borderWidth?: number;
   /** Contour lines drawn on the slope or cliff top. Absent = on. (Not `contours`: those are the rings.) */
   contourLines?: boolean;
   /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
@@ -275,6 +294,11 @@ export interface AssetChild extends LayerChild {
   locked?: boolean;
   /** Drops a sun/moon shadow. Absent = true. */
   castsShadow?: boolean;
+  /**
+   * How tall the prop stands, cells: its sun/moon shadow is as long as a caster that tall
+   * throws. Absent = the shadow follows its art, as before. (Not `height`: that is its size.)
+   */
+  standHeight?: number;
   /** Blocks light and sight along the four edges of its footprint. Absent = false. */
   blocksLight?: boolean;
   /** Stored for table movement, not read yet. Absent = false. */
@@ -366,6 +390,12 @@ export interface DoorChild extends LayerChild {
    * width, at its own angle (see `shared/freestandingDoor.ts`). Absent = false.
    */
   freestanding?: boolean;
+  /**
+   * A plain opening: an archway (the style stays `archway`, with its occlusion, room
+   * binding and wall cut) of which nothing is drawn, so the wall or a cave's rock just
+   * stops either side. Absent = false.
+   */
+  bare?: boolean;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */

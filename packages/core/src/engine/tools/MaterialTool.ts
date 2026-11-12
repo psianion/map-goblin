@@ -8,12 +8,12 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { AddChildCommand, CompositeCommand, PropertyCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { MATERIAL_BRUSH_RANGES } from '../../store/slices/tools';
-import { erasePatches, paintPatch, patchArea, strokeArea } from '../../shared/materialPatch';
-import { caveFloorContours, caveFloorShape, hasCaveLook, type CaveLook } from '../../shared/caveFloor';
+import { erasePatches, paintPatch, patchArea, pointInRings, strokeArea, type MaterialPatch, type PatchLook } from '../../shared/materialPatch';
+import { caveFloorContours, caveFloorShape, closeCaveOpenings, hasCaveLook, openCaveAt, strokeOnCave, type CaveLook } from '../../shared/caveFloor';
 import { floorPieces } from '../../shared/floorPieces';
 import { nextAuthoredName } from '../../shared/authoredName';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
-import { materialFillId } from '../../assets/materialKit';
+import { isTextureMaterial, isWaterMaterial, materialFillId } from '../../assets/materialKit';
 import { carveFloors, drawnRings } from './eraseShapes';
 
 /** The stroke drawn while painting: the brush's sweep, before it closes into a patch. */
@@ -77,7 +77,20 @@ export function paintCaveFloor(
     for (const shape of rest) commands.push(new RemoveChildCommand(label, layerId, shape.id));
     pieces.slice(1).forEach(add);
   }
+  // Cave painted over an opening in the rock closes it, in the same step.
+  const openings = closeCaveOpenings(layer.caveOpenings, area);
+  if (openings !== layer.caveOpenings) {
+    commands.push(new PropertyCommand(label, { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: openings }));
+  }
   undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
+}
+
+/** What a new patch is drawn with: Smooth and Border, its height, and a water material's shore. */
+export function patchLook(s: MaterialToolSettings): PatchLook {
+  const look: PatchLook = { smooth: s.smooth, border: s.border };
+  if (s.height) look.height = s.height;
+  if (!isWaterMaterial(s.material)) return look;
+  return { ...look, shore: s.shore, shoreWidth: s.shoreWidth, shallowLine: s.shallowLine };
 }
 
 /**
@@ -144,14 +157,15 @@ export class MaterialTool implements DrawingTool {
     if (!layer) return;
     const area = strokeArea(s.points, s.radius);
     const look = this.settings();
-    if (look.floor) {
+    if (look.floor && !isTextureMaterial(look.material)) {
       // Paint a real floor: the stroke carves the floors under it, or lands as cave floor.
-      if (s.erase) carveFloors(layer, s.layerId, area);
+      // A plain texture has no band to wall it with, so it always paints a patch.
+      if (s.erase) this.carve(layer, s.layerId, area, look.rockOnCut === true);
       else paintCaveFloor(layer, s.layerId, area, look);
       return;
     }
     const before = layer.materials ?? [];
-    const after = s.erase ? erasePatches(before, area) : paintPatch(before, area, look.material, look, crypto.randomUUID());
+    const after = s.erase ? erasePatches(before, area) : this.paint(layer, before, area, s.points[0], look);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
     undoManager.execute(
       new PropertyCommand(
@@ -161,6 +175,43 @@ export class MaterialTool implements DrawingTool {
         { materials: after.length > 0 ? after : undefined },
       ),
     );
+  }
+
+  /**
+   * An erase over real floors: the stroke is carved out of them, and where it crosses a
+   * cave's rock (or only brushes the rock from outside) its area is kept as an opening, so
+   * the cut stays open to the ground outside instead of the rock closing round it. With
+   * Rock on cut edge on nothing is kept and the rock re-forms, for reshaping a cave. One
+   * undo step either way.
+   */
+  private carve(layer: DungeonLayer, layerId: string, area: Polygon[], rockOnCut: boolean): void {
+    const opened = rockOnCut ? null : openCaveAt(layer, area);
+    // On a cave the eraser takes the cave alone: the floor it stands on stays whole under the
+    // cut, so an opened cave meets that floor instead of a hole in it.
+    const only = strokeOnCave(layer, area) ? (shape: ShapeChild) => !!shape.edgeMaterial : undefined;
+    carveFloors(
+      layer,
+      layerId,
+      area,
+      opened ? [new PropertyCommand('Carve out', { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: opened })] : [],
+      only,
+    );
+  }
+
+  /**
+   * A stroke's patch. A plain texture is one of two things, by where the stroke starts: on a
+   * floor of the layer it is paint on that floor, cut to the floors and stored that way; off
+   * every floor (or with none) it is ground, stored whole and drawn under the floors, which
+   * cover it. Water goes by the same rule: a pond in a cave, a river on open ground.
+   */
+  private paint(layer: DungeonLayer, before: readonly MaterialPatch[], area: Polygon[], start: [number, number], settings: MaterialToolSettings): MaterialPatch[] {
+    const look = patchLook(settings);
+    if (!isTextureMaterial(settings.material)) return paintPatch(before, area, settings.material, look, crypto.randomUUID());
+    const floor = (layer.mergedFloor ?? []).filter((r) => r.length >= 3);
+    if (floor.length > 0 && pointInRings(start[0], start[1], floor)) {
+      return paintPatch(before, clipper2Engine.intersection(area, floor), settings.material, look, crypto.randomUUID());
+    }
+    return paintPatch(before, area, settings.material, { ...look, ground: true }, crypto.randomUUID());
   }
 
   /** The sweep so far: the brush's width along the stroke, released to close into a patch. */

@@ -2,7 +2,7 @@ import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer, WallSegment } from '../../store/types';
-import type { DoorState, DoorStyle } from '../../shared/types';
+import type { DoorStyle } from '../../shared/types';
 import { nextAuthoredName } from '../../shared/authoredName';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
@@ -14,6 +14,7 @@ import {
   type ResolvedWall,
 } from '../../shared/wallResolve';
 import { renderResolvedDoor } from '../doorRenderer';
+import { isKitStyle } from '../../assets/doorKits';
 import { freePiece } from '../../shared/freestandingDoor';
 import { minDoorWidth, spanBetweenWalls, type DoorSpan } from '../../shared/doorSpan';
 import { edgeStyles, ringStyles, wallWidthOf } from '../../shared/wallLook';
@@ -33,18 +34,6 @@ import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '../../store/doorwayCommands';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
-
-/**
- * Click-to-cycle order. Archways never cycle at all (L8): occlusion always
- * treats one as open and it renders as the open art whatever its state, the
- * panel hides its state row, so a cycle could only write a value nothing can
- * see — both anchors' double-click branches return before executing instead.
- */
-const NEXT_STATE: Record<DoorState, DoorState> = {
-  closed: 'open',
-  open: 'locked',
-  locked: 'closed',
-};
 
 
 /**
@@ -185,6 +174,18 @@ export function clampDoorWidth(width: number, style: DoorStyle, wallLength: numb
 
 export { nextAuthoredName };
 
+/**
+ * What a new door of `style` takes from the tool beyond its style: the dock's kit for a
+ * style a kit builds, and the plain opening for an archway placed as "Opening".
+ */
+function newDoorLook(style: DoorStyle): Pick<DoorChild, 'kit' | 'bare'> {
+  const { doorKit, doorBare } = useStore.getState().tools.settings;
+  return {
+    ...(doorKit && isKitStyle(style) ? { kit: doorKit } : {}),
+    ...(doorBare && style === 'archway' ? { bare: true } : {}),
+  };
+}
+
 /** What a click would place, and whether it would be allowed to. */
 interface DoorPlan {
   /** Transient — the commit fills in the id, the name and the room binding. */
@@ -280,7 +281,7 @@ export class DoorTool implements DrawingTool {
     previewContainer.addChild(this.ghost);
   }
 
-  onPointerDown(point: Point): void {
+  onPointerDown(point: Point, _event?: PointerEvent, raw?: Point): void {
     const store = useStore.getState();
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = activeDungeonLayer();
@@ -302,9 +303,11 @@ export class DoorTool implements DrawingTool {
     }
     const locked = reason === 'Layer is locked';
 
-    const hit = doorAt(point, activeLayer);
+    // A placed door is found under the pointer itself: one on a freehand cave wall
+    // sits off the grid, where the snapped point can miss it.
+    const hit = doorAt(raw ?? point, activeLayer);
     if (hit) {
-      // Second click of a double cycles the state; the first already selected the
+      // Second click of a double flips the state; the first already selected the
       // door, and selection is idempotent, so nothing fires twice.
       if (isDoubleClick(this.lastClick, point, Date.now())) {
         if (locked) {
@@ -314,16 +317,22 @@ export class DoorTool implements DrawingTool {
         this.lastClick = null;
         this.pressedDoorId = null;
         this.pressPoint = null;
-        // A permanent opening has no state to cycle, and its panel hides the
-        // row a cycle would write to.
+        // A permanent opening has no state to flip (L8): occlusion always treats
+        // one as open, and its panel hides the row a flip would write to.
         if (hit.style === 'archway') return;
+        // Locking is the card's State field alone. A locked door draws as a shut
+        // one, so say why it did not open.
+        if (hit.state === 'locked') {
+          notify.info('Locked — unlock it in the door card');
+          return;
+        }
         undoManager.execute(
           new UpdateChildCommand(
-            'Cycle door',
+            'Toggle door',
             activeLayerId,
             hit.id,
             { state: hit.state },
-            { state: NEXT_STATE[hit.state] ?? 'closed' },
+            { state: hit.state === 'open' ? 'closed' : 'open' },
           ),
         );
         return;
@@ -382,7 +391,7 @@ export class DoorTool implements DrawingTool {
       ...plan.door,
       id: crypto.randomUUID(),
       // L6: auto-named by style — "Portcullis 1", "Archway 2".
-      name: nextAuthoredName(layer.children, doorStyleLabel(plan.door.style)),
+      name: nextAuthoredName(layer.children, plan.door.bare ? 'Opening' : doorStyleLabel(plan.door.style)),
     };
     const piece = plan.piece ? { ...plan.piece, id: crypto.randomUUID() } : null;
     if (piece) door.wallId = piece.id;
@@ -458,6 +467,7 @@ export class DoorTool implements DrawingTool {
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
+      ...newDoorLook(style),
     };
 
     // Anchor it the way a render will, so a door as wide as its wall — hence
@@ -508,6 +518,7 @@ export class DoorTool implements DrawingTool {
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
       freestanding: true,
+      ...newDoorLook(style),
     };
     return { door, wall: { ...piece, kind: 'standalone' }, valid: true, piece };
   }
@@ -567,6 +578,7 @@ export class DoorTool implements DrawingTool {
       door.angle.toFixed(3),
       door.width,
       door.style,
+      door.kit,
       door.isSecret,
       plan.valid,
       plan.wall.id,
@@ -580,7 +592,8 @@ export class DoorTool implements DrawingTool {
     const level = layerLevelLook(layer);
     renderResolvedDoor(
       this.ghost,
-      { door, wall: plan.wall, t: 0.5, position: door.position, angle: door.angle, detached: false },
+      // A plain opening draws nothing once placed; its ghost is the arch, so the click has a preview.
+      { door: door.bare ? { ...door, bare: false } : door, wall: plan.wall, t: 0.5, position: door.position, angle: door.angle, detached: false },
       layerDrawStyle(layer),
       ringStyles(layer, level),
       edgeStyles(layer, level),
@@ -593,7 +606,7 @@ export class DoorTool implements DrawingTool {
     this.ghostKey = null;
   }
 
-  onPointerMove(point: Point): void {
+  onPointerMove(point: Point, _event?: PointerEvent, raw?: Point): void {
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
@@ -618,7 +631,7 @@ export class DoorTool implements DrawingTool {
     // A placement press holds the leaf it will commit; the ghost stays where it was pressed.
     if (this.pendingLeaf) return;
 
-    this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
+    this.hoveredDoorId = doorAt(raw ?? point, activeLayer)?.id ?? null;
 
     this.updateGhost(activeLayer, point);
   }

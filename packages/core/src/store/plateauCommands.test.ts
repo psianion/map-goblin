@@ -53,6 +53,22 @@ describe('setPlateauFields', () => {
     expect(setPlateauFields('outcrop', {})).toBeNull();
     expect(setPlateauFields('nothing', { height: 1 })).toBeNull();
   });
+
+  it('sets a painted border and its width, undoes both together, and refuses a width that is not positive', () => {
+    exec(setPlateauFields('outcrop', { edge: 'cliff', edgeArt: 'paint:gg-forge:wild_dirt_8x8_floor_A', borderWidth: 1.25 }));
+    expect(find<PlateauChild>('outcrop')).toMatchObject({ edge: 'cliff', edgeArt: 'paint:gg-forge:wild_dirt_8x8_floor_A', borderWidth: 1.25 });
+    undoManager.undo();
+    const back = find<PlateauChild>('outcrop')!;
+    expect(back.edgeArt).toBeUndefined();
+    expect(back.borderWidth).toBeUndefined();
+    undoManager.redo();
+    expect(find<PlateauChild>('outcrop')!.borderWidth).toBe(1.25);
+    // Back to the default width: the key goes.
+    exec(setPlateauFields('outcrop', { borderWidth: undefined }));
+    expect(find<PlateauChild>('outcrop')!.borderWidth).toBeUndefined();
+    expect(setPlateauFields('outcrop', { borderWidth: 0 })).toBeNull();
+    expect(setPlateauFields('outcrop', { borderWidth: Number.NaN })).toBeNull();
+  });
 });
 
 describe('map rules', () => {

@@ -1,4 +1,4 @@
-// The door card's custom rows: Name, Width, Angle and Material.
+// The door card's custom rows: Name, Width, Angle and Material; and the Door tool's Kit column.
 
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -6,11 +6,12 @@ import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
 import { isOwnPiece } from '@dnd/core/src/shared/doorwaySeal';
 import { DOOR_ANGLE_STEP } from '@dnd/core/src/engine/tools/DoorTool';
-import { type DoorKitId } from '@dnd/core/src/assets/doorKits';
-import { InputRow, SelectRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
+import { DockColumn, InputRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
-import { DOOR_WIDTH_STEP, doorMaterialOptions, doorModel, doorWidthValue } from '@/editor/models/selectionModel';
-import { doorHost, installedDoorKits } from './doorModel';
+import { SwatchPicker, type Swatch } from '@/editor/SwatchPicker';
+import { swatchLabel } from '@/editor/swatchLabel';
+import { DOOR_WIDTH_STEP, doorModel, doorWidthValue } from '@/editor/models/selectionModel';
+import { doorHost, doorKitSwatches, pickDoorKit, pickedKitDoors } from './doorModel';
 
 /** Typed freely, landed on Enter or blur as one step; Escape puts it back; empty keeps the old name. */
 export function NameField({ def, value, onChange }: SettingProps<string>) {
@@ -99,9 +100,27 @@ export function MaterialField({ def, value, onChange }: SettingProps<string>) {
   const key = useStore((s) => {
     const id = s.selection.selectedIds[0];
     const host = id ? doorHost(s, id) : null;
-    const kits = installedDoorKits(s);
-    return JSON.stringify(doorMaterialOptions(host?.wallSetId).filter((o) => o.value === 'auto' || kits.includes(o.value as DoorKitId)));
+    return JSON.stringify(doorKitSwatches(s, host?.wallSetId));
   });
-  const options = useMemo(() => JSON.parse(key) as { value: string; label: string }[], [key]);
-  return <SelectRow label={def.label} value={value} options={options} onValueChange={onChange} />;
+  const swatches = useMemo(() => JSON.parse(key) as Swatch[], [key]);
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} />;
+}
+
+/** The Door tool's Kit column: Auto and the installed kits, as pictures. No pack with a door kit, no column. */
+export function DoorKitColumn() {
+  const key = useStore((s) => {
+    const doors = pickedKitDoors(s);
+    const host = doors[0] ? doorHost(s, doors[0].id) : null;
+    const swatches = doorKitSwatches(s, host?.wallSetId);
+    // With no door picked Auto is whatever wall the next door lands on.
+    if (doors.length === 0 && swatches[0]) swatches[0] = { value: 'auto', label: 'Auto' };
+    return JSON.stringify({ swatches, value: (doors.length > 0 ? doors[0].kit : s.tools.settings.doorKit) ?? 'auto' });
+  });
+  const { swatches, value } = useMemo(() => JSON.parse(key) as { swatches: Swatch[]; value: string }, [key]);
+  if (swatches.length < 2) return null;
+  return (
+    <DockColumn title="Kit" data-column="door-kit" data-testid="design-door-kit">
+      <SwatchPicker name="Door kit" swatches={swatches} value={value} onPick={pickDoorKit} />
+    </DockColumn>
+  );
 }

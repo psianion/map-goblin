@@ -131,6 +131,17 @@ describe('computeContentBounds', () => {
     );
     expect(hidden).toEqual(baseline);
   });
+
+  it('measures a patch as it is drawn: paint on a floor no further than the floors, ground and band patches whole', () => {
+    const floor: [number, number][][] = [[[0, 0], [10, 0], [10, 10], [0, 10]]];
+    const spill = { id: 'p', material: 'p:grass', rings: [[[5, 2], [30, 2], [30, 8], [5, 8]]] as [number, number][][], smooth: false, border: false };
+    const baseline = computeContentBounds([layerWith(floor)], null)!;
+    expect(computeContentBounds([{ ...layerWith(floor), materials: [spill] }], null)).toEqual(baseline);
+    expect(computeContentBounds([{ ...layerWith(floor), materials: [{ ...spill, ground: true }] }], null)!.maxX).toBeGreaterThan(baseline.maxX + 19);
+    expect(computeContentBounds([{ ...layerWith(floor), materials: [{ ...spill, material: 'GG_Cave_Ink' }] }], null)!.maxX).toBeGreaterThan(baseline.maxX + 19);
+    // With no floor on the layer nothing trims the paint.
+    expect(computeContentBounds([{ ...layerWith(null), materials: [spill] }], null)!.maxX).toBeGreaterThanOrEqual(30);
+  });
 });
 
 describe('computeMapFrame', () => {
@@ -287,16 +298,16 @@ describe('computeMapFrame', () => {
     // The ring's own reach: half the wall stroke plus the AA margin on top of the plateau's.
     const stroke = frame('none', 0).maxX - 14;
     expect(frame('none', 2).maxY).toBeGreaterThanOrEqual(14);
-    // Edge None reaches its drop shade: 0.65 cell at +1, 1.25 at +3.
-    expect(frame('none', 1).maxX - stroke).toBeCloseTo(14.65, 6);
-    expect(frame('none', 3).maxX - stroke).toBeCloseTo(15.25, 6);
+    // Edge None reaches its drop shade: 0.21 cell at +1, 0.33 at +3.
+    expect(frame('none', 1).maxX - stroke).toBeCloseTo(14.21, 6);
+    expect(frame('none', 3).maxX - stroke).toBeCloseTo(14.33, 6);
     // A slope reaches its band, the card's width, whatever the drop; a pit's falls inward.
     expect(frame('slope', 3).maxX - stroke).toBeCloseTo(16, 6);
     expect(frame('slope', 1).maxX - stroke).toBeCloseTo(16, 6);
     expect(frame('slope', -3).maxX).toBeLessThan(frame('slope', 3).maxX);
     // A cliff reaches past its shade to what hangs off its ledge.
     expect(frame('cliff', 1).maxX - stroke).toBeCloseTo(15.2, 6);
-    expect(frame('cliff', 3).maxX - stroke).toBeCloseTo(15.25, 6);
+    expect(frame('cliff', 3).maxX - stroke).toBeCloseTo(15.2, 6);
   });
 
   it('includes painted terrain in the frame', () => {

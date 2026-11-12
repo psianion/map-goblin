@@ -201,6 +201,18 @@ describe('collectMapTextureIds', () => {
     const map: MapTextureSource = { ...emptyMap(), layers: [layer] }
     expect(collectMapTextureIds(map)).toEqual(['grass-a-01'])
   })
+
+  it("collects the cave kit for a door on a cave's edge, on a layer whose walls are stone", () => {
+    const layer = createDungeonLayer('L')
+    layer.style.wallTextureSetId = 'GG_Fieldstone'
+    layer.children = [
+      { ...shape('cave', undefined), edgeMaterial: 'GG_Cave_Ink' },
+      { ...door('d1', undefined), style: 'single' },
+    ]
+    const ids = collectMapTextureIds({ ...emptyMap(), layers: [layer] })
+    expect(ids).toContain('doorkit-cave-hinge')
+    expect(ids).toContain('doorkit-cave-jamb')
+  })
 })
 
 function makeManifest(entries: Record<string, Partial<ManifestEntry>>): PackManifest {

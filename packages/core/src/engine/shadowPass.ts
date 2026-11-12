@@ -30,7 +30,8 @@ import {
 } from '../shared/shadows';
 import { timeBucket, type MapEnvironment, type SunVector } from '../shared/world';
 import { cliffSunAt, type SkyFrame } from '../shared/sky';
-import { edgeRuns, hasPlateaus, layerPlateaus } from '../shared/plateaus';
+import { edgeRuns, groundReliefs, hasGroundHeight, hasPlateaus, layerPlateaus } from '../shared/plateaus';
+import { patchOutline } from '../shared/materialPatch';
 import {
   BLUR_WEIGHTS_5,
   SUN_SHADOW_ALPHA,
@@ -59,6 +60,8 @@ interface LayerShadows {
   /** Identity of the ground the shadows were last clipped against — floor union, terrain bounds. */
   groundRef: unknown;
   terrainRef: unknown;
+  /** The children and patches a floor's or patch's height shadow was drawn from; null while none has a height. */
+  reliefRef: readonly unknown[] | null;
   /** Prop silhouettes, by asset child id. Synced by `syncPropShadows`, aimed by the sun here. */
   props: Map<string, { sprite: Sprite; obj: AssetChild }>;
 }
@@ -93,6 +96,7 @@ function shadowsOf(layerId: string): LayerShadows | null {
     signature: '',
     groundRef: undefined,
     terrainRef: undefined,
+    reliefRef: null,
     props: new Map(),
   };
   byLayer.set(layerId, state);
@@ -110,6 +114,8 @@ function shadowsOf(layerId: string): LayerShadows | null {
 function groundOf(layer: DungeonLayer): Polygon[] {
   const ground: Polygon[] = [];
   for (const ring of layer.mergedFloor ?? []) if (ring.length >= 3) ground.push(ring);
+  // Ground painted with the Material brush is ground to cast onto.
+  for (const p of layer.materials ?? []) if (p.ground) ground.push(...patchOutline(p).filter((r) => r.length >= 3));
   const b = useStore.getState().mapSettings.terrain?.bounds;
   if (b) ground.push([[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]]);
   return ground;
@@ -156,7 +162,7 @@ export function updateShadows(
   for (const layer of layers) {
     // Nothing casting and nothing drawn before is the state every flat indoor map lives in: no
     // container, no geometry, no cost — the pass simply is not there.
-    const castsHere = casting || (cliffsCast && hasPlateaus(layer));
+    const castsHere = casting || (cliffsCast && castsRelief(layer));
     const state = castsHere || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
     if (!state) continue;
     // The blur is in screen pixels: kept at CLIFF_SHADOW_FADE cells at whatever the zoom is.
@@ -170,16 +176,23 @@ export function updateShadows(
     // that wants it, moving no shape key, no wall epoch and no clock with it.
     const terrain = useStore.getState().mapSettings.terrain?.bounds ?? null;
     const signature = shadowSignature(layer.id, wallEpoch, step, orientation, castsHere, { ...frame, sun: cliffSun });
+    // A floor's or patch's height moves no wall and no union: while any has one, its
+    // shadow is redrawn when the layer's children or patches change.
+    // Ground patches are ground to cast onto: with any, the patches are part of the key too.
+    const raised = hasGroundHeight(layer);
+    const relief = raised || layer.materials?.some((p) => p.ground) ? [raised ? layer.children : null, layer.materials] : null;
     if (
       signature === state.signature &&
       layer.mergedFloor === state.groundRef &&
-      terrain === state.terrainRef
+      terrain === state.terrainRef &&
+      sameRelief(relief, state.reliefRef)
     ) {
       continue;
     }
     state.signature = signature;
     state.groundRef = layer.mergedFloor;
     state.terrainRef = terrain;
+    state.reliefRef = relief;
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look);
@@ -243,8 +256,9 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
  */
 function drawCliffShadows(holder: Container, blur: BlurFilter, layer: DungeonLayer, look: ShadowLook | null, strength: number): void {
   for (const part of holder.removeChildren()) part.destroy({ children: true });
-  if (look === null || look.length <= 0 || look.alpha <= 0 || !hasPlateaus(layer)) return;
-  for (const { fill, clip } of cliffShadowParts(layer, look, groundOf(layer))) {
+  if (look === null || look.length <= 0 || look.alpha <= 0 || !castsRelief(layer)) return;
+  const ground = groundOf(layer);
+  for (const { fill, clip } of [...cliffShadowParts(layer, look, ground), ...reliefShadowParts(layer, look, ground)]) {
     if (fill.length === 0 || clip.length === 0) continue;
     const g = new Graphics();
     g.label = 'cliffShadows';
@@ -261,6 +275,16 @@ function drawCliffShadows(holder: Container, blur: BlurFilter, layer: DungeonLay
     part.mask = mask;
     holder.addChild(part);
   }
+}
+
+function sameRelief(a: readonly unknown[] | null, b: readonly unknown[] | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/** Whether anything on the layer throws a relief shadow: a plateau, or a floor or patch with a height. */
+function castsRelief(layer: DungeonLayer): boolean {
+  return hasPlateaus(layer) || hasGroundHeight(layer);
 }
 
 /** Fill rings with their holes cut: Clipper's outers wind positive, its holes negative. */
@@ -301,10 +325,14 @@ export const FIXED_CLIFF_SUN: SunVector = { azimuth: 225, altitude: 35, intensit
 /** How dark a cliff's shadow under that fixed sun is, against an outdoor one. */
 export const FIXED_CLIFF_STRENGTH = 0.7;
 
-/** The sun a cliff casts by under `frame`, and its shadow's strength against the outdoor one. */
+/**
+ * The sun a cliff casts by under `frame`, and its shadow's strength against the outdoor one: the
+ * map's sun or moon while it lights the map, else the fixed one, so every plateau always throws
+ * its one shadow.
+ */
 export function cliffCaster(frame: SkyFrame, map: MapEnvironment): { sun: SunVector; strength: number } {
   const sun = cliffSunAt(frame, map);
-  return sun.kind === null ? { sun: FIXED_CLIFF_SUN, strength: FIXED_CLIFF_STRENGTH } : { sun, strength: 1 };
+  return sun.kind === null || sun.intensity <= 0 ? { sun: FIXED_CLIFF_SUN, strength: FIXED_CLIFF_STRENGTH } : { sun, strength: 1 };
 }
 /** How far a cliff shadow's edge takes to fade, cells: from 90 % of its darkness to 10 %. */
 export const CLIFF_SHADOW_FADE = 0.4;
@@ -345,6 +373,26 @@ export function cliffShadowParts(layer: DungeonLayer, look: ShadowLook, ground: 
     }
   }
   return out;
+}
+
+/**
+ * The shadows of floors and patches with a height, one part each, as a plateau's: a raised
+ * one's, off its turned-away edges onto the ground outside it (`sunShadowLength` of its height
+ * long); a sunk one's inside its own edge, from the rim the light comes over.
+ */
+export function reliefShadowParts(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): { fill: Polygon[]; clip: Polygon[] }[] {
+  const reliefs = groundReliefs(layer);
+  if (reliefs.length === 0) return [];
+  const everywhere = [...ground, ...layerPlateaus(layer).bands.flatMap((b) => b.rings)];
+  return reliefs.flatMap(({ height, rings }) => {
+    const raised = height > 0;
+    // The rings run with the outside on the left: a raised one's low side, a sunk one's high side.
+    const sweeps = rings.flatMap((r) => leeSweeps(r, true, raised, look, sunShadowLength(height)));
+    if (sweeps.length === 0) return [];
+    const region = clipper2Engine.union(rings, []);
+    const clip = raised ? clipper2Engine.difference(clipper2Engine.union(everywhere, []), region) : region;
+    return [{ fill: clipper2Engine.union(sweeps, []), clip }];
+  });
 }
 
 /** The cliffs' shadow polygons as they show: each part's fill cut to where it lands. */
@@ -420,7 +468,7 @@ function aimPropShadow(shadow: Sprite, obj: AssetChild, look: ShadowLook | null)
     return;
   }
   const height = shadow.texture.height;
-  const cast = propShadow(look, height);
+  const cast = propShadow(look, height, obj.standHeight);
   shadow.visible = true;
   // The foot of the prop, not its centre — asset sprites are anchored through the middle.
   shadow.position.set(obj.position.x, obj.position.y + (obj.height * obj.scale) / 2);

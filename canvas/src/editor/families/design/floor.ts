@@ -12,6 +12,7 @@ import { activeDungeonLayer, setActiveStyle } from './layerStyle';
 import { FloorLook } from './LookColumn';
 import { EdgeBandField } from './FloorFields';
 import { layerBandOf } from './floorModel';
+import { GROUND_HEIGHT_MAX, GROUND_HEIGHT_MIN, GROUND_HEIGHT_STEP, groundHeightOf } from '@dnd/core/src/shared/plateaus';
 
 export type FloorShape = 'rect' | 'polygon' | 'regular';
 
@@ -154,6 +155,25 @@ export const floorOpacity = defineSetting<number>({
   },
 });
 
+/** The height new floors take, cells, in half steps: in the dock, as the Elevation tool's is. */
+export const floorHeight = defineSetting<number>({
+  id: 'floor.height',
+  label: 'Height',
+  schema: z.number().min(GROUND_HEIGHT_MIN).max(GROUND_HEIGHT_MAX),
+  default: 0,
+  home: 'dock',
+  control: 'stepper',
+  section: 'Height',
+  range: { min: GROUND_HEIGHT_MIN, max: GROUND_HEIGHT_MAX, step: GROUND_HEIGHT_STEP, unit: 'sq' },
+  bind: {
+    read: (s) => s.tools.settings.floorHeight ?? 0,
+    write: (store, v) =>
+      store.setState((draft) => {
+        draft.tools.settings.floorHeight = groundHeightOf(v) || undefined;
+      }),
+  },
+});
+
 const k = (text: string) => ({ text, key: true });
 const t = (text: string) => ({ text });
 
@@ -187,7 +207,7 @@ export const floorTool = defineTool({
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
   // Curve and Node mode share the Edit column, as on walls: Curve smooths a drawn
   // polygon and bends a dragged edge in node mode.
-  settings: [floorShape, floorSides, editCurve, editNodeMode, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
+  settings: [floorShape, floorSides, editCurve, editNodeMode, floorHeight, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
   hint: (s) => (s.tools.floorMode === 'carve' ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
 });
