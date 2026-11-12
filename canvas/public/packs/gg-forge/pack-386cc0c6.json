@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.16.3",
+  "version": "1.17.3",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1242,6 +1242,116 @@
         "fantasy"
       ]
     },
+    "GG_Wild_Ink_Dirt_Trail_Path_4x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Wild_Ink_Dirt_Trail_Path",
+      "gridSize": "4x2",
+      "pieceType": "path",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 300
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 300
+      },
+      "set": "GG_Wild_Paths",
+      "tags": [
+        "outdoor",
+        "dirt",
+        "trail",
+        "soft"
+      ]
+    },
+    "bed_stones_1_1x1_object_A": {
+      "type": "object",
+      "material": "bed_stones_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 206,
+        "h": 161
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "underwater"
+      ],
+      "family": "bed_stones"
+    },
+    "bed_stones_2_1x1_object_A": {
+      "type": "object",
+      "material": "bed_stones_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 147,
+        "h": 129
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "underwater"
+      ],
+      "family": "bed_stones"
+    },
+    "bed_stones_3_1x1_object_A": {
+      "type": "object",
+      "material": "bed_stones_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 224,
+        "h": 175
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "underwater"
+      ],
+      "family": "bed_stones"
+    },
+    "bed_stones_4_1x1_object_A": {
+      "type": "object",
+      "material": "bed_stones_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 184,
+        "h": 131
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "underwater"
+      ],
+      "family": "bed_stones"
+    },
     "bit_2x1_object_A": {
       "type": "object",
       "material": "bit",
@@ -1324,6 +1434,380 @@
         "cave",
         "stone"
       ]
+    },
+    "cave_rock_cluster_1_2x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_cluster_1",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 350,
+        "h": 263
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "cave_rock_cluster"
+    },
+    "cave_rock_cluster_2_2x2_object_A": {
+      "type": "object",
+      "material": "cave_rock_cluster_2",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 326,
+        "h": 310
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "cave_rock_cluster"
+    },
+    "cave_rock_cluster_3_2x2_object_A": {
+      "type": "object",
+      "material": "cave_rock_cluster_3",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 318,
+        "h": 320
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "cave_rock_cluster"
+    },
+    "cave_rock_cluster_4_1x2_object_A": {
+      "type": "object",
+      "material": "cave_rock_cluster_4",
+      "gridSize": "1x2",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 226,
+        "h": 317
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "cave_rock_cluster"
+    },
+    "cave_rock_debris_1_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_debris_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 169,
+        "h": 154
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "cave_rock_debris"
+    },
+    "cave_rock_debris_2_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_debris_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 163,
+        "h": 156
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "cave_rock_debris"
+    },
+    "cave_rock_debris_3_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_debris_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 139,
+        "h": 167
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "cave_rock_debris"
+    },
+    "cave_rock_debris_4_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_debris_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 166,
+        "h": 154
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "cave_rock_debris"
+    },
+    "cave_rock_large_1_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_large_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 123,
+        "h": 134
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock"
+      ],
+      "family": "cave_rock_large"
+    },
+    "cave_rock_large_2_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_large_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 113,
+        "h": 138
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock"
+      ],
+      "family": "cave_rock_large"
+    },
+    "cave_rock_large_3_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_large_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 159,
+        "h": 147
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock"
+      ],
+      "family": "cave_rock_large"
+    },
+    "cave_rock_large_4_1x1_object_A": {
+      "type": "object",
+      "material": "cave_rock_large_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 122,
+        "h": 146
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "rock"
+      ],
+      "family": "cave_rock_large"
+    },
+    "cobble_1_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 74,
+        "h": 67
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
+    },
+    "cobble_2_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 50,
+        "h": 57
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
+    },
+    "cobble_3_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 60,
+        "h": 58
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
+    },
+    "cobble_4_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 74,
+        "h": 65
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
+    },
+    "cobble_5_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 75,
+        "h": 75
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
+    },
+    "cobble_6_1x1_object_A": {
+      "type": "object",
+      "material": "cobble_6",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 54,
+        "h": 60
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cobble"
+      ],
+      "family": "cobble"
     },
     "contour_1x2_object_A": {
       "type": "object",
@@ -1672,6 +2156,111 @@
       "tags": [
         "door"
       ]
+    },
+    "foam_1_1x1_object_A": {
+      "type": "object",
+      "material": "foam_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 170,
+        "h": 131
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "foam"
+      ],
+      "family": "foam"
+    },
+    "foam_2_1x1_object_A": {
+      "type": "object",
+      "material": "foam_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 167,
+        "h": 153
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "foam"
+      ],
+      "family": "foam"
+    },
+    "foam_3_1x1_object_A": {
+      "type": "object",
+      "material": "foam_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 179,
+        "h": 134
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "foam"
+      ],
+      "family": "foam"
+    },
+    "foam_4_1x1_object_A": {
+      "type": "object",
+      "material": "foam_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 134,
+        "h": 136
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "foam"
+      ],
+      "family": "foam"
+    },
+    "foam_5_1x1_object_A": {
+      "type": "object",
+      "material": "foam_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 158,
+        "h": 144
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "foam"
+      ],
+      "family": "foam"
     },
     "inside_bend_2x2_object_A": {
       "type": "object",
@@ -2183,6 +2772,785 @@
       ],
       "family": "pit_collapsed"
     },
+    "ripples_1_1x1_object_A": {
+      "type": "object",
+      "material": "ripples_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 45,
+        "h": 73
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "ripple"
+      ],
+      "family": "ripples"
+    },
+    "ripples_2_1x1_object_A": {
+      "type": "object",
+      "material": "ripples_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 96,
+        "h": 77
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "ripple"
+      ],
+      "family": "ripples"
+    },
+    "ripples_3_1x1_object_A": {
+      "type": "object",
+      "material": "ripples_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 93,
+        "h": 97
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "ripple"
+      ],
+      "family": "ripples"
+    },
+    "ripples_4_1x1_object_A": {
+      "type": "object",
+      "material": "ripples_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 62,
+        "h": 76
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "ripple"
+      ],
+      "family": "ripples"
+    },
+    "rock_cluster_1_2x1_object_A": {
+      "type": "object",
+      "material": "rock_cluster_1",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 309,
+        "h": 255
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "rock_cluster"
+    },
+    "rock_cluster_2_2x1_object_A": {
+      "type": "object",
+      "material": "rock_cluster_2",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 313,
+        "h": 266
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "rock_cluster"
+    },
+    "rock_cluster_3_1x1_object_A": {
+      "type": "object",
+      "material": "rock_cluster_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 228,
+        "h": 253
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "rock_cluster"
+    },
+    "rock_cluster_4_2x1_object_A": {
+      "type": "object",
+      "material": "rock_cluster_4",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 339,
+        "h": 247
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "rock_cluster"
+    },
+    "rock_cluster_5_1x1_object_A": {
+      "type": "object",
+      "material": "rock_cluster_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 273,
+        "h": 227
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "cluster"
+      ],
+      "family": "rock_cluster"
+    },
+    "rock_debris_1_1x1_object_A": {
+      "type": "object",
+      "material": "rock_debris_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 175,
+        "h": 164
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "rock_debris"
+    },
+    "rock_debris_2_1x1_object_A": {
+      "type": "object",
+      "material": "rock_debris_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 156,
+        "h": 165
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "rock_debris"
+    },
+    "rock_debris_3_1x1_object_A": {
+      "type": "object",
+      "material": "rock_debris_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 165,
+        "h": 171
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "rock_debris"
+    },
+    "rock_debris_4_1x1_object_A": {
+      "type": "object",
+      "material": "rock_debris_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 172,
+        "h": 168
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock",
+        "debris"
+      ],
+      "family": "rock_debris"
+    },
+    "rock_large_1_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 156,
+        "h": 143
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_large_2_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 119,
+        "h": 144
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_large_3_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 170,
+        "h": 157
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_large_4_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 133,
+        "h": 172
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_large_5_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 164,
+        "h": 153
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_large_6_1x1_object_A": {
+      "type": "object",
+      "material": "rock_large_6",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 149,
+        "h": 157
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_large"
+    },
+    "rock_medium_1_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 93,
+        "h": 72
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_2_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 85,
+        "h": 74
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_3_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 81,
+        "h": 104
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_4_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 75,
+        "h": 72
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_5_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 89,
+        "h": 89
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_6_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_6",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 79,
+        "h": 91
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_7_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_7",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 96,
+        "h": 94
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_medium_8_1x1_object_A": {
+      "type": "object",
+      "material": "rock_medium_8",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 75,
+        "h": 84
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_medium"
+    },
+    "rock_small_1_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 47,
+        "h": 50
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_2_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 38,
+        "h": 52
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_3_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 47,
+        "h": 45
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_4_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_4",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 52,
+        "h": 49
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_5_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_5",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 46,
+        "h": 45
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_6_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_6",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 50,
+        "h": 51
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_7_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_7",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 53,
+        "h": 47
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_small_8_1x1_object_A": {
+      "type": "object",
+      "material": "rock_small_8",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 36,
+        "h": 42
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "rock"
+      ],
+      "family": "rock_small"
+    },
+    "rock_step_1_1x1_object_A": {
+      "type": "object",
+      "material": "rock_step_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 185,
+        "h": 129
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "rock",
+        "step"
+      ],
+      "family": "rock_step"
+    },
+    "rock_step_2_2x1_object_A": {
+      "type": "object",
+      "material": "rock_step_2",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 337,
+        "h": 142
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "rock",
+        "step"
+      ],
+      "family": "rock_step"
+    },
+    "rock_step_3_3x1_object_A": {
+      "type": "object",
+      "material": "rock_step_3",
+      "gridSize": "3x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 566,
+        "h": 135
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "outdoor",
+        "prop",
+        "water",
+        "rock",
+        "step"
+      ],
+      "family": "rock_step"
+    },
     "rockledge_1x2_object_A": {
       "type": "object",
       "material": "rockledge",
@@ -2599,6 +3967,66 @@
       ],
       "family": "stairs_stone_wide"
     },
+    "stalagmite_1_1x1_object_A": {
+      "type": "object",
+      "material": "stalagmite_1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 110,
+        "h": 106
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stalagmite"
+      ],
+      "family": "stalagmite"
+    },
+    "stalagmite_2_1x1_object_A": {
+      "type": "object",
+      "material": "stalagmite_2",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 148,
+        "h": 156
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stalagmite"
+      ],
+      "family": "stalagmite"
+    },
+    "stalagmite_3_1x1_object_A": {
+      "type": "object",
+      "material": "stalagmite_3",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 190,
+        "h": 191
+      },
+      "set": "GG_Wild_Ink",
+      "tags": [
+        "cave",
+        "prop",
+        "stalagmite"
+      ],
+      "family": "stalagmite"
+    },
     "wall_short_2x2_object_A": {
       "type": "object",
       "material": "wall_short",
@@ -2655,6 +4083,114 @@
         "cave"
       ],
       "family": "wall_short"
+    },
+    "wild_dirt_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_dirt",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "dirt"
+      ]
+    },
+    "wild_grass_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_grass",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "grass"
+      ]
+    },
+    "wild_grass_dark_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_grass_dark",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "grass"
+      ]
+    },
+    "wild_sand_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_sand",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "sand"
+      ]
+    },
+    "wild_water_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_water",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "water"
+      ]
+    },
+    "wild_water_deep_8x8_floor_A": {
+      "type": "floor",
+      "material": "wild_water_deep",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "set": "GG_Wild_Ground",
+      "tags": [
+        "outdoor",
+        "water"
+      ]
     }
   },
   "atlases": {
@@ -2676,6 +4212,26 @@
     }
   },
   "files": {
+    "GG_Wild_Ink_Dirt_Trail_Path_4x2_A-2bb8875c.webp": {
+      "checksum": "sha256:2bb8875c4ffca09990c23c3c23bd1586f4eecafb65049d3da524828c1a9e61b7",
+      "size": 32378
+    },
+    "bed_stones_1_1x1_A-09907044.webp": {
+      "checksum": "sha256:099070442fffa77ae3af84d3fe28a4c2f62edf6f6313c6bdf8791fd7d71cf16b",
+      "size": 1880
+    },
+    "bed_stones_2_1x1_A-f7a5236d.webp": {
+      "checksum": "sha256:f7a5236d3a5833fb5437871576265a988058b2e27c762c4446949797b594724f",
+      "size": 880
+    },
+    "bed_stones_3_1x1_A-ee2caeae.webp": {
+      "checksum": "sha256:ee2caeae7e36f4ef1e3a01d00d5a1b720128403199f6e2e6866695068bcb3cf3",
+      "size": 1746
+    },
+    "bed_stones_4_1x1_A-0e9465ef.webp": {
+      "checksum": "sha256:0e9465efb1509fa8c588bc46df99ae30d5461e8247b5e149dc62f879fa91e9d9",
+      "size": 1154
+    },
     "bit_2x1_A-e6020db0.webp": {
       "checksum": "sha256:e6020db051c69ec5232ac1ee5de0d6abc348c458362bd2544d0b3f576a340b97",
       "size": 9542
@@ -2691,6 +4247,78 @@
     "cave_floor_8x8_A-2afd5eb3.webp": {
       "checksum": "sha256:2afd5eb3f21c553ba326758fc7f66dddee38cc6668bd475c4a4afca7cc4cca04",
       "size": 160988
+    },
+    "cave_rock_cluster_1_2x1_A-0cc5fc06.webp": {
+      "checksum": "sha256:0cc5fc06b4ab191e8416adfa9a36693a6a4aed40a8fbd59b6c69c67425bf24d4",
+      "size": 8812
+    },
+    "cave_rock_cluster_2_2x2_A-b05e0e69.webp": {
+      "checksum": "sha256:b05e0e6912d9400465c075087aee1ff5b2881729b7dc39fc8bcdf01abb511744",
+      "size": 9794
+    },
+    "cave_rock_cluster_3_2x2_A-a86f1c46.webp": {
+      "checksum": "sha256:a86f1c46fb78362ca65132df714f3cae8603d715d42f7c7bcd163109fc25a4b2",
+      "size": 10388
+    },
+    "cave_rock_cluster_4_1x2_A-2618451c.webp": {
+      "checksum": "sha256:2618451cba75f547f4e22c1ec1349e3fa5d200ed13c2e428cd8f3ea2c87185f9",
+      "size": 6900
+    },
+    "cave_rock_debris_1_1x1_A-200c558a.webp": {
+      "checksum": "sha256:200c558a73bce74c188cf3062d94131b3a960c48aaa62d9fca6123c557ccc8e4",
+      "size": 4624
+    },
+    "cave_rock_debris_2_1x1_A-24b5c26b.webp": {
+      "checksum": "sha256:24b5c26ba2caf5830561adfd6e043e421ffda8bdf7b3d9ee083cb1f652be6689",
+      "size": 4644
+    },
+    "cave_rock_debris_3_1x1_A-932f1f15.webp": {
+      "checksum": "sha256:932f1f15729491cd07d8ca46f6bb99d0bf477274cfc7606bea544c5049dc04e9",
+      "size": 4700
+    },
+    "cave_rock_debris_4_1x1_A-27f887d1.webp": {
+      "checksum": "sha256:27f887d12055ef533ed19e80cb3f60aa3025b82b8c744ef840d78d21558ff1ce",
+      "size": 4870
+    },
+    "cave_rock_large_1_1x1_A-565b8b8d.webp": {
+      "checksum": "sha256:565b8b8d41639d4a758bc03e0d4b66dc41bb92d5027805c0ac568742155e9941",
+      "size": 2220
+    },
+    "cave_rock_large_2_1x1_A-e4165d45.webp": {
+      "checksum": "sha256:e4165d455382c31e36e0acaf9d0917815ca55bbba3a604198ad6f9a36a973c87",
+      "size": 2572
+    },
+    "cave_rock_large_3_1x1_A-3f0bcb08.webp": {
+      "checksum": "sha256:3f0bcb084bd144f88313b584626125514e420d41aa336155cbca1ded5ccfda24",
+      "size": 2516
+    },
+    "cave_rock_large_4_1x1_A-2f4d9767.webp": {
+      "checksum": "sha256:2f4d976721004ed904165565de4c4b966e371181cb70e20048f1f6f30bb76f58",
+      "size": 2164
+    },
+    "cobble_1_1x1_A-ed255fbb.webp": {
+      "checksum": "sha256:ed255fbbcfee26110c243a0c976e911b738f7d3e715a6975fee46f06237bd1de",
+      "size": 1416
+    },
+    "cobble_2_1x1_A-7b44fb9a.webp": {
+      "checksum": "sha256:7b44fb9ae400f50a391f75d6da3dd53496bc8270ecdc0e63d6d673ab1bfdfdf9",
+      "size": 1150
+    },
+    "cobble_3_1x1_A-54e1d5e2.webp": {
+      "checksum": "sha256:54e1d5e2ec36d9ea4fa5079f76237aca5b720cbb7e4d86618c9df823ada21988",
+      "size": 1418
+    },
+    "cobble_4_1x1_A-5c3666b7.webp": {
+      "checksum": "sha256:5c3666b7968437e16cffbb3c24670ee7145899fb29eabb21663b103e4bb47a7c",
+      "size": 1654
+    },
+    "cobble_5_1x1_A-31f7e678.webp": {
+      "checksum": "sha256:31f7e678dd5748287a1f80b6a77264d16b8cc688737e0b1a5422b93d0cf8b06a",
+      "size": 1520
+    },
+    "cobble_6_1x1_A-f21fce9d.webp": {
+      "checksum": "sha256:f21fce9d4251cf91446c14506ca8bcefe4aecc4e45399532c75e3d59c489639d",
+      "size": 1276
     },
     "contour_1x2_A-91b6eb8a.webp": {
       "checksum": "sha256:91b6eb8a3ff769f5f9769f93ef4002bef413bd731550e24aa8d6bd819aee74a9",
@@ -2771,6 +4399,26 @@
     "doorkit-wood-tile-b_1x1_A-b91770f7.webp": {
       "checksum": "sha256:b91770f780e26765fd8e15657bfa25517e2c566e734d650806f31d834593bf7f",
       "size": 902
+    },
+    "foam_1_1x1_A-718634d2.webp": {
+      "checksum": "sha256:718634d2784a81b9102954ce4e7d283d1079066e6827088ec6dc3f74e213ef79",
+      "size": 4208
+    },
+    "foam_2_1x1_A-2675617b.webp": {
+      "checksum": "sha256:2675617b9dc9df6546894ba98973ecbebf973a55fb1175487eb7b7947f6b8dc5",
+      "size": 5310
+    },
+    "foam_3_1x1_A-2ab74f70.webp": {
+      "checksum": "sha256:2ab74f7071420d18d4f0800a34176db8630eadbab24299a147d11efd73dbd5ba",
+      "size": 5614
+    },
+    "foam_4_1x1_A-52bd8fc5.webp": {
+      "checksum": "sha256:52bd8fc5772b0eb8f8f830491cf0b5c529245481eabadeb8c2da3d9f2d1bfd08",
+      "size": 4736
+    },
+    "foam_5_1x1_A-787c7f97.webp": {
+      "checksum": "sha256:787c7f97ab6c521f89dc8584e0be3944293983807af3ec828100d75c1d58018a",
+      "size": 6518
     },
     "inside_bend_2x2_A-e2335a6e.webp": {
       "checksum": "sha256:e2335a6e6094097d2b3c1b4fc249d2d99012c147ff915a07f0a2456ba72ed004",
@@ -2876,6 +4524,158 @@
       "checksum": "sha256:fe71e7ce9272ae2c0f9895fd0295d1656df2e24227af69149953f3ebd553fb0d",
       "size": 115226
     },
+    "ripples_1_1x1_A-ba9b5dea.webp": {
+      "checksum": "sha256:ba9b5deac1e0d843d8a6a770d3d78cb38e846a27ea1bcffe55fbf73d298e1aa8",
+      "size": 362
+    },
+    "ripples_2_1x1_A-274393f6.webp": {
+      "checksum": "sha256:274393f6a1e4f7f87fc0fed8d85c704c180db1a509552b3633b933bdcc4c7ba8",
+      "size": 434
+    },
+    "ripples_3_1x1_A-04721fa8.webp": {
+      "checksum": "sha256:04721fa8dd49a1d559d9b7049f29d0d0092881174ce801bbfc7e5a6e2543a7c6",
+      "size": 586
+    },
+    "ripples_4_1x1_A-72367002.webp": {
+      "checksum": "sha256:723670028b6fe9078cc3f740025e2d8cc4042181f81c2fd75cd0d11bb2b148b5",
+      "size": 394
+    },
+    "rock_cluster_1_2x1_A-30d2756a.webp": {
+      "checksum": "sha256:30d2756a4dce9332f0e7afd4e0258404e16233098adcaeb21183278da79c09a7",
+      "size": 10030
+    },
+    "rock_cluster_2_2x1_A-ff60c9a0.webp": {
+      "checksum": "sha256:ff60c9a0e65f3e127571cc35358e8fb4ed9e02598c6fed8d54901286fc067c43",
+      "size": 10302
+    },
+    "rock_cluster_3_1x1_A-e0040dca.webp": {
+      "checksum": "sha256:e0040dca95e032f5e490c04356f607115aa0760043ae15411bc756416cb92c43",
+      "size": 11048
+    },
+    "rock_cluster_4_2x1_A-bc7b845b.webp": {
+      "checksum": "sha256:bc7b845b730a454b91963208b3f233b68112abd702caf4235c8059d282c25d83",
+      "size": 11890
+    },
+    "rock_cluster_5_1x1_A-3a79ece6.webp": {
+      "checksum": "sha256:3a79ece644eaf33c56619a45164b44d173ab538ff861492c0c560c575d74a9ca",
+      "size": 9536
+    },
+    "rock_debris_1_1x1_A-d27a8734.webp": {
+      "checksum": "sha256:d27a873465d64f0014912b153d1319b75f6c7e73887f09d8213c63395203c88e",
+      "size": 4998
+    },
+    "rock_debris_2_1x1_A-721dcc27.webp": {
+      "checksum": "sha256:721dcc277188101683fdf6f41f45e8a6026fd78b55fdf0331cd1a5864cb9a986",
+      "size": 6136
+    },
+    "rock_debris_3_1x1_A-c2bcfc65.webp": {
+      "checksum": "sha256:c2bcfc65dde3eac5e4f2fb588324c0cfd25f3a8836e03dfc7ec388167a8ce2a4",
+      "size": 5274
+    },
+    "rock_debris_4_1x1_A-9da446d4.webp": {
+      "checksum": "sha256:9da446d4023e1373e7be3d55278e42e0bba6262e6ebf07f6540dffd4cd59de53",
+      "size": 4154
+    },
+    "rock_large_1_1x1_A-5b1770e6.webp": {
+      "checksum": "sha256:5b1770e6bc15a560a6449e1bdf3407ece8be68f27947ae3614a2bb460caf2c26",
+      "size": 3260
+    },
+    "rock_large_2_1x1_A-be33c261.webp": {
+      "checksum": "sha256:be33c261f875e7fe1a2408cfa65578c651351afe3c9aa795680a9847b0ff34e6",
+      "size": 3070
+    },
+    "rock_large_3_1x1_A-1c4fb636.webp": {
+      "checksum": "sha256:1c4fb636c1c4e84f7caf64eefc90041ad9b9354284c889946baefe1e450ac00e",
+      "size": 4420
+    },
+    "rock_large_4_1x1_A-8e3abe10.webp": {
+      "checksum": "sha256:8e3abe10f6c644c4752189065ca66d48b8abd8cb9d02746682d48338206e9d79",
+      "size": 3386
+    },
+    "rock_large_5_1x1_A-5eb9405c.webp": {
+      "checksum": "sha256:5eb9405cb607f5a82b572db26489d5d6af1c032296f5e2e80cca16c71950f7bb",
+      "size": 4524
+    },
+    "rock_large_6_1x1_A-23f4c5d0.webp": {
+      "checksum": "sha256:23f4c5d0da60d75e50500cb661d73aa09c84665f182435bf70a083b79ecf0269",
+      "size": 3480
+    },
+    "rock_medium_1_1x1_A-ac32e37f.webp": {
+      "checksum": "sha256:ac32e37fc1cd2f2298839cdac303cf2c1488aeb28f48a2b4091e6c8fd2519698",
+      "size": 1854
+    },
+    "rock_medium_2_1x1_A-e229614e.webp": {
+      "checksum": "sha256:e229614e3eab4a1e0d609463a390f069795230cb86ce69835763fa0f93f954c2",
+      "size": 1686
+    },
+    "rock_medium_3_1x1_A-844d40d2.webp": {
+      "checksum": "sha256:844d40d2ebbd61276b4e2a3af3eb3965c5341e91d85fac4b5c07101ed9fa1388",
+      "size": 1922
+    },
+    "rock_medium_4_1x1_A-ea9d9fbf.webp": {
+      "checksum": "sha256:ea9d9fbf489732a5819474dc0c12098f4f9d41fdca05ad40888ea4adea75532a",
+      "size": 1520
+    },
+    "rock_medium_5_1x1_A-f2f854ea.webp": {
+      "checksum": "sha256:f2f854ea7496d9e5327f707f4f95008c30c1586d8fc906ab04298b2ef4be0284",
+      "size": 2104
+    },
+    "rock_medium_6_1x1_A-34f63b0a.webp": {
+      "checksum": "sha256:34f63b0a69131d054b54b20ce39610ca33c2219dd24f14da658119cc70287ff6",
+      "size": 1818
+    },
+    "rock_medium_7_1x1_A-b0951010.webp": {
+      "checksum": "sha256:b095101057227225eab728a5fa3eadf272df4c76ff5f0f137bb249966919da64",
+      "size": 2036
+    },
+    "rock_medium_8_1x1_A-e4157ec0.webp": {
+      "checksum": "sha256:e4157ec074565a52733bcc8553d87b7b5286fc8e6561554c3a5ab7437f1d007a",
+      "size": 1596
+    },
+    "rock_small_1_1x1_A-e3a0fd68.webp": {
+      "checksum": "sha256:e3a0fd6882746b02d77cc7b59779917e9da8b68304ea778c96a2b4afafea05d3",
+      "size": 1174
+    },
+    "rock_small_2_1x1_A-2a7a2ef4.webp": {
+      "checksum": "sha256:2a7a2ef442b4ddcd91d18eb6bd013c7cf4ff48b0c88c099b7393239e3e13c25b",
+      "size": 958
+    },
+    "rock_small_3_1x1_A-a262e798.webp": {
+      "checksum": "sha256:a262e79819d6ad3dba64d6255e5cf587452b4077780a7e05e32cd32cf0fcb80d",
+      "size": 894
+    },
+    "rock_small_4_1x1_A-a6b0e51b.webp": {
+      "checksum": "sha256:a6b0e51b1607d5678ef146d734b3cc2795dceb4825356767432125189e7dca39",
+      "size": 1046
+    },
+    "rock_small_5_1x1_A-11931c9f.webp": {
+      "checksum": "sha256:11931c9f4df195709bc383759bf0b5468cddea0d0c8ea3a767f295a80a940e22",
+      "size": 912
+    },
+    "rock_small_6_1x1_A-c606056d.webp": {
+      "checksum": "sha256:c606056df41449e3480021bee1b5117d7dea4da36cc04325a0ec41ddec39362a",
+      "size": 1164
+    },
+    "rock_small_7_1x1_A-8d0a90ac.webp": {
+      "checksum": "sha256:8d0a90ac83d117345df8f9bede5b82a8946547f71c452999ac02b422364c04f1",
+      "size": 992
+    },
+    "rock_small_8_1x1_A-fbb95a4e.webp": {
+      "checksum": "sha256:fbb95a4e5f5895de91f8e0590e357649c7f03ecf94fe220dec063171f7aea36d",
+      "size": 894
+    },
+    "rock_step_1_1x1_A-a9c5c8aa.webp": {
+      "checksum": "sha256:a9c5c8aa4709367d3bfe1170576db344cd1df8fe4d62f387531c2b3000f823f1",
+      "size": 8320
+    },
+    "rock_step_2_2x1_A-04c85914.webp": {
+      "checksum": "sha256:04c85914a5a3f9da7d9cbe47d0deb5b38399080750a9440d7daac1bab9a58463",
+      "size": 15714
+    },
+    "rock_step_3_3x1_A-8ad6346b.webp": {
+      "checksum": "sha256:8ad6346b3ca46878818b23cf9ff75d436f3e89dd26543e94198fdc6af2bdf521",
+      "size": 25510
+    },
     "rockledge_1x2_A-1eedd3bb.webp": {
       "checksum": "sha256:1eedd3bbfc8d002be40aaae4648539a4dd0f71f752aee3ea86a3244266e297f9",
       "size": 16958
@@ -2952,6 +4752,18 @@
       "checksum": "sha256:1c709568c553d8dcfd0f7470729ec312cfeecb6c67f902141e9019df19a9a115",
       "size": 53074
     },
+    "stalagmite_1_1x1_A-6521460a.webp": {
+      "checksum": "sha256:6521460a96c532ebe28d95712af14a4b08d68a72bcf7004b8be2ea007690a6dd",
+      "size": 3060
+    },
+    "stalagmite_2_1x1_A-51705454.webp": {
+      "checksum": "sha256:517054541527fc858b60414b7661de72284edcbac3c51c61e674f11358f5fb90",
+      "size": 4596
+    },
+    "stalagmite_3_1x1_A-9a0e0e01.webp": {
+      "checksum": "sha256:9a0e0e0118520aac2e9adf494e4b6d48203927600807c1f868b4ed4aa52222b9",
+      "size": 5574
+    },
     "wall_short_2x2_A-479bf070.webp": {
       "checksum": "sha256:479bf07087d4be26efa0b0ab6bbd36eb07197913c6b6a597efce5bef59fc74a1",
       "size": 20316
@@ -2963,7 +4775,31 @@
     "wall_short_2x6_A-dac3f2b8.webp": {
       "checksum": "sha256:dac3f2b8e21beec51036fe4171c8c41a34b23258c6bd4b6908d3d9aaf31d031d",
       "size": 58820
+    },
+    "wild_dirt_8x8_A-8d470169.webp": {
+      "checksum": "sha256:8d470169c4666b4664b59eeafb12f5f04d0994679a945f23d71cd638bb0ae089",
+      "size": 123518
+    },
+    "wild_grass_8x8_A-1f7e6b68.webp": {
+      "checksum": "sha256:1f7e6b6874818c9c9c6d15edaf32de276efe7bebe8a51cfe3c0bcbeaa771c93e",
+      "size": 155688
+    },
+    "wild_grass_dark_8x8_A-081691f5.webp": {
+      "checksum": "sha256:081691f5799250127370bf195f8b25f6ed5416fc620202fa6305ff804be759d2",
+      "size": 137114
+    },
+    "wild_sand_8x8_A-1a64e2a9.webp": {
+      "checksum": "sha256:1a64e2a924a569e40c7d27958856f6351066e7d29b9a2b3a3663eac87238eac2",
+      "size": 85392
+    },
+    "wild_water_8x8_A-c252e8ef.webp": {
+      "checksum": "sha256:c252e8efae9b10d31093f01c177e18255e2f9af5373dd916df288be3c878cfb2",
+      "size": 204316
+    },
+    "wild_water_deep_8x8_A-55e973ce.webp": {
+      "checksum": "sha256:55e973ce8e1df65f4f44e9634f40da9c2c1b10ac3315afcec52d718f8c7d8baa",
+      "size": 106222
     }
   },
-  "bundleSize": 2005946
+  "bundleSize": 3137886
 }
