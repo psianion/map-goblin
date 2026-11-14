@@ -2,7 +2,7 @@
 // merged floor answers at once; painted terrain is read back off the GPU for the ring's box
 // only when the floor alone does not carry the ring.
 
-import type { Command, DungeonLayer, PlateauChild } from '../store/types';
+import type { Command, DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
 import { computeMergedFloor } from './mergedFloor';
@@ -10,7 +10,6 @@ import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import {
   GROUND_MESSAGE,
   groundShare,
-  groundVerdict,
   inRingsTest,
   PLATEAU_GROUND_SHARE,
   PLATEAU_MIN_AREA,
@@ -19,7 +18,9 @@ import {
   type GroundVerdict,
 } from '../shared/plateauGround';
 import { shapeRing } from '../shared/plateaus';
-import { patchCovers } from '../shared/materialPatch';
+import { inFrame, isGroundPiece, pieceCovers } from '../shared/pieces';
+import { baseGroundFrame, cutToFrame, toolFrame } from './mapFrame';
+import { floorPieces } from '../shared/floorPieces';
 import { notify } from '../shared/notify';
 import { undoManager } from '../store/undoManager';
 
@@ -68,15 +69,26 @@ export async function keepPlateausOnGround(cmd: Command, ids: readonly string[])
   return true;
 }
 
-/** Whether `ring` may stand as a plateau on `layer`: over its floor or painted terrain, and a cell at least. */
+/**
+ * Whether `ring` may stand as a plateau on `layer`: over its floor or painted terrain, and a
+ * cell at least. On a sized map only the part inside the frame is judged: a plateau may run
+ * past the edge, where nothing of it is drawn.
+ */
 export async function plateauGround(layer: DungeonLayer, ring: Polygon): Promise<GroundVerdict> {
-  if (ringArea(ring) < PLATEAU_MIN_AREA) return 'small';
+  const parts = toolFrame() ? floorPieces(cutToFrame([ring])).map(([outer]) => outer) : [ring];
+  const area = parts.reduce((a, r) => a + ringArea(r), 0);
+  if (area < PLATEAU_MIN_AREA) return 'small';
+  // The share over ground of all the parts, each weighed by its area.
+  const share = (onGround: (x: number, y: number) => boolean) => parts.reduce((a, r) => a + groundShare(r, onGround) * ringArea(r), 0) / area;
   const onFloor = inRingsTest(layer.mergedFloor ?? computeMergedFloor(layer) ?? []);
-  // Ground painted with the Material brush is ground to stand on, as a floor is.
-  const ground = (layer.materials ?? []).filter((p) => p.ground);
-  const inFloor = (x: number, y: number): boolean => onFloor(x, y) || ground.some((p) => patchCovers(p, null, x, y));
-  if (groundShare(ring, inFloor) >= PLATEAU_GROUND_SHARE) return 'ok';
+  // Ground pieces are ground to stand on, as a floor is, and so is the base ground,
+  // everywhere inside the map's frame.
+  const ground = layer.children.filter((c) => isGroundPiece(c) && !c.keptToFloors && c.visible !== false) as ShapeChild[];
+  const base = baseGroundFrame(layer);
+  const inFloor = (x: number, y: number): boolean =>
+    onFloor(x, y) || (base !== null && inFrame(base, x, y)) || ground.some((p) => pieceCovers(p, x, y));
+  if (share(inFloor) >= PLATEAU_GROUND_SHARE) return 'ok';
   const painted = await paintedUnder(ring);
   if (!painted) return 'void';
-  return groundVerdict(ring, (x, y) => inFloor(x, y) || painted(x, y));
+  return share((x, y) => inFloor(x, y) || painted(x, y)) >= PLATEAU_GROUND_SHARE ? 'ok' : 'void';
 }

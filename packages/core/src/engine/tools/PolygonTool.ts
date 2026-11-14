@@ -2,12 +2,10 @@ import type { Point } from '../../types/geometry';
 import { snapToAngle } from '../../geometry/drawAssist';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand } from '../../store/commands';
-import { undoManager } from '../../store/undoManager';
 import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
-import { newFloorLook } from './newFloor';
+import { commitNewFloor, floorsOnMap } from './newFloor';
 import { flattenRing, smoothRing } from '../../shared/bezier';
 import { resolveEditableLayer } from './layerGuard';
 import type { ShapeCommit } from './RectangleTool';
@@ -150,8 +148,11 @@ export class PolygonTool implements DrawingTool {
         textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, { ...child, ...newFloorLook() }));
+      if (this.onShape) {
+        // A room's floor stops at a sized map's edge like any other.
+        const [onMap] = floorsOnMap(child);
+        if (onMap) this.onShape(activeLayer, onMap);
+      } else commitNewFloor('Draw polygon', activeLayerId, child);
     }
   }
 }

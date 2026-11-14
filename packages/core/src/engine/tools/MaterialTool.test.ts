@@ -1,17 +1,17 @@
+// The brush paints floor pieces in the layer's one stack: a stroke merges into the piece of
+// the same look it touches only when nothing lies over it there, keeps to its side of the
+// walls unless Paint over rooms is on, and Erase cuts the top piece alone (eraseShapes.ts).
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Container } from 'pixi.js';
-import { MaterialTool } from './MaterialTool';
+import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { setClipperModule } from '../../geometry/Clipper2Engine';
+import type { DungeonLayer, MaterialToolSettings, ShapeChild } from '../../store/types';
+import type { Polygon } from '../../types/geometry';
 import { patchArea } from '../../shared/materialPatch';
-import { caveEdgeOpen, caveEdges, caveOpeningGaps } from '../../shared/caveFloor';
-import { resolveWalls } from '../../shared/wallResolve';
+import { pieceCovers } from '../../shared/pieces';
 import { computeMergedFloor } from '../mergedFloor';
-import { layOutlineBand } from '../caveBandRenderer';
-import { jointsOf } from '../../assets/caveWallKit';
-import type { RenderEngine } from '../RenderEngine';
-import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { hasPieceLook, keepToRooms, mergeTarget, paintGroundPiece, pieceLook, type PieceLook } from './MaterialTool';
+import { carveFloors, eraseTargets, pieceRegion, planErase } from './eraseShapes';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -21,338 +21,182 @@ beforeAll(async () => {
   setClipperModule(await mod.default({ wasmBinary }));
 }, 30_000);
 
-const engine = { stage: () => ({ scale: { x: 1 } }) } as unknown as RenderEngine;
-const layer = () => useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+const GRASS = 'pack:wild_grass_8x8_floor_A';
+const DIRT = 'pack:wild_dirt_8x8_floor_A';
 
-function stroke(tool: MaterialTool, points: [number, number][]): void {
-  tool.onPointerDown({ x: points[0][0], y: points[0][1] });
-  for (const [x, y] of points.slice(1)) tool.onPointerMove({ x, y });
-  tool.onPointerUp();
+const rect = (x0: number, y0: number, x1: number, y1: number): Polygon => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+
+function piece(id: string, ring: Polygon, extra: Partial<ShapeChild> = {}): ShapeChild {
+  return {
+    id, name: id, childType: 'shape', visible: true, shapeType: 'polygon', contours: [ring],
+    textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+    ...extra,
+  };
 }
 
-describe('MaterialTool', () => {
-  let tool: MaterialTool;
+const ground = (id: string, ring: Polygon, textureId: string, extra: Partial<ShapeChild> = {}) => piece(id, ring, { ground: true, textureId, ...extra });
 
-  beforeEach(() => {
-    useStore.getState().resetToDefault();
-    useStore.getState().setActiveLayerId(layer().id);
-    undoManager.clear();
-    // The patch cases: Paint a real floor (on by default) has its own block below.
-    useStore.setState((s) => {
-      s.tools.settings.material.floor = false;
-    });
-    tool = new MaterialTool(engine, new Container());
+let layerId = '';
+beforeEach(() => {
+  undoManager.clear();
+  useStore.getState().resetToDefault();
+  layerId = useStore.getState().layers.find((l) => l.type === 'dungeon')!.id;
+});
+
+function setPieces(...children: ShapeChild[]): DungeonLayer {
+  useStore.setState((s) => {
+    const l = s.layers.find((x) => x.id === layerId) as DungeonLayer;
+    l.children = children;
+    l.mergedFloor = computeMergedFloor({ ...l, children } as DungeonLayer);
+  });
+  return layer();
+}
+
+const layer = () => useStore.getState().layers.find((l) => l.id === layerId) as DungeonLayer;
+const shapes = () => layer().children.filter((c): c is ShapeChild => c.childType === 'shape');
+const area = (id: string) => patchArea(pieceRegion(shapes().find((c) => c.id === id)!));
+const settings = (extra: Partial<MaterialToolSettings> = {}): MaterialToolSettings => ({ material: GRASS, radius: 2, smooth: false, border: false, floor: false, ...extra });
+const look = (textureId: string): PieceLook => ({ textureId });
+
+describe('what a stroke paints with', () => {
+  it('takes the texture, Strength as opacity and the height, and nothing it was not given', () => {
+    expect(pieceLook(GRASS, settings())).toEqual({ textureId: GRASS, soft: 1 });
+    expect(pieceLook(GRASS, settings({ strength: 0.5, height: 1 }))).toEqual({ textureId: GRASS, soft: 1, opacity: 0.5, height: 1 });
+    expect(pieceLook(GRASS, settings({ strength: 1, feather: 0 }))).toEqual({ textureId: GRASS });
   });
 
-  it('closes a stroke into one patch of the material in hand, one undo step', () => {
-    stroke(tool, [[0, 0], [3, 0], [6, 0]]);
-    const [patch] = layer().materials!;
-    expect(patch).toMatchObject({ material: 'GG_Cave_Ink', smooth: true, border: true });
-    expect(patchArea(patch.rings)).toBeCloseTo(6 * 6 + Math.PI * 9, 0);
-    stroke(tool, [[6, 0], [12, 0]]);
-    expect(layer().materials).toHaveLength(1);
+  it('merges only with ground of the very same look', () => {
+    expect(hasPieceLook(ground('a', rect(0, 0, 2, 2), GRASS), look(GRASS))).toBe(true);
+    expect(hasPieceLook(ground('a', rect(0, 0, 2, 2), GRASS, { opacity: 0.5 }), look(GRASS))).toBe(false);
+    expect(hasPieceLook(ground('a', rect(0, 0, 2, 2), DIRT), look(GRASS))).toBe(false);
+    // A walled floor is never painted into, whatever its texture.
+    expect(hasPieceLook(piece('a', rect(0, 0, 2, 2), { textureId: GRASS }), look(GRASS))).toBe(false);
+  });
+});
+
+describe('where a stroke lands in the stack', () => {
+  it('is a new ground piece on top of an empty layer', () => {
+    setPieces();
+    paintGroundPiece(layer(), layerId, [rect(0, 0, 4, 4)], GRASS, look(GRASS), false);
+    expect(shapes()).toHaveLength(1);
+    expect(shapes()[0]).toMatchObject({ ground: true, textureId: GRASS, contours: [rect(0, 0, 4, 4)] });
+    expect(shapes()[0].name).toMatch(/ 1$/);
+    expect(layer().mergedFloor ?? null).toBeNull();
+  });
+
+  it('merges into the piece of the same look it touches, which keeps its id and place', () => {
+    setPieces(ground('grass', rect(0, 0, 4, 4), GRASS), ground('dirt', rect(20, 0, 24, 4), DIRT));
+    paintGroundPiece(layer(), layerId, [rect(3, 0, 8, 4)], GRASS, look(GRASS), false);
+    expect(shapes().map((c) => c.id)).toEqual(['grass', 'dirt']);
+    expect(area('grass')).toBeCloseTo(32, 6);
     undoManager.undo();
-    expect(patchArea(layer().materials![0].rings)).toBeCloseTo(6 * 6 + Math.PI * 9, 0);
+    expect(area('grass')).toBeCloseTo(16, 6);
+  });
+
+  it('lands on top as a new piece when another piece lies over the stroke: paint never goes under what covers it', () => {
+    const below = setPieces(ground('grass', rect(0, 0, 10, 10), GRASS), ground('path', rect(4, 0, 6, 10), DIRT));
+    // The stroke crosses the path: the grass under it is buried there.
+    expect(mergeTarget(below, [rect(2, 4, 8, 6)], look(GRASS))).toBeNull();
+    paintGroundPiece(below, layerId, [rect(2, 4, 8, 6)], GRASS, look(GRASS), false);
+    expect(shapes().map((c) => c.id).slice(0, 2)).toEqual(['grass', 'path']);
+    expect(shapes()).toHaveLength(3);
+    expect(shapes()[2]).toMatchObject({ ground: true, textureId: GRASS });
+    expect(area('grass')).toBeCloseTo(100, 6);
+  });
+
+  it('merges into the buried piece where the stroke stays clear of what covers it', () => {
+    const l = setPieces(ground('grass', rect(0, 0, 10, 10), GRASS), ground('path', rect(4, 0, 6, 10), DIRT));
+    expect(mergeTarget(l, [rect(-2, 4, 2, 6)], look(GRASS))?.id).toBe('grass');
+  });
+
+  it('merges into the top one of two pieces of the same look', () => {
+    const l = setPieces(ground('low', rect(0, 0, 10, 10), GRASS), ground('high', rect(4, 4, 14, 14), GRASS));
+    expect(mergeTarget(l, [rect(5, 5, 7, 7)], look(GRASS))?.id).toBe('high');
+  });
+
+  it('does not merge into a locked piece or one of another look', () => {
+    expect(mergeTarget(setPieces(ground('grass', rect(0, 0, 4, 4), GRASS, { locked: true })), [rect(1, 1, 3, 3)], look(GRASS))).toBeNull();
+    expect(mergeTarget(setPieces(ground('dirt', rect(0, 0, 4, 4), DIRT)), [rect(1, 1, 3, 3)], look(GRASS))).toBeNull();
+  });
+});
+
+describe('Paint over rooms', () => {
+  const room = () => setPieces(piece('room', rect(0, 0, 6, 6)));
+
+  it('off, a stroke begun outside the walls stops at them', () => {
+    const kept = keepToRooms(room(), [rect(-4, 2, 4, 4)], [-3, 3], false);
+    expect(patchArea(kept)).toBeCloseTo(8, 6);
+  });
+
+  it('off, a stroke begun inside stays inside', () => {
+    const kept = keepToRooms(room(), [rect(-4, 2, 4, 4)], [3, 3], false);
+    expect(patchArea(kept)).toBeCloseTo(8, 6);
+    expect(kept.flat().every(([x]) => x >= -1e-6)).toBe(true);
+  });
+
+  it('on, the stroke covers whatever is under it; and a layer with no walled floor has nothing to keep to', () => {
+    const swept = [rect(-4, 2, 4, 4)];
+    expect(keepToRooms(room(), swept, [-3, 3], true)).toBe(swept);
+    expect(keepToRooms(setPieces(ground('grass', rect(0, 0, 6, 6), GRASS)), swept, [3, 3], false)).toBe(swept);
+  });
+});
+
+describe('the eraser', () => {
+  const stack = () => setPieces(ground('grass', rect(0, 0, 10, 10), GRASS), ground('path', rect(4, 0, 6, 10), DIRT));
+
+  it('cuts only the top piece at every point: erasing a path shows the grass under it, untouched', () => {
+    stack();
+    // Across the path and out over the grass either side.
+    expect(carveFloors(layer(), layerId, [rect(2, 4, 8, 6)], [], 'Erase')).toBe(true);
+    // The path is cut in two: each half is a new piece, in the path's place over the grass.
+    const halves = shapes().filter((c) => c.textureId === DIRT);
+    expect(halves).toHaveLength(2);
+    expect(halves.reduce((n, c) => n + patchArea(pieceRegion(c)), 0)).toBeCloseTo(20 - 4, 6);
+    expect(shapes()[0].id).toBe('grass');
+    // The grass lost only where it was itself on top.
+    expect(area('grass')).toBeCloseTo(100 - 8, 6);
+    const grass = shapes().find((c) => c.id === 'grass')!;
+    expect(pieceCovers(grass, 5, 5)).toBe(true);
+    expect(pieceCovers(grass, 3, 5)).toBe(false);
     undoManager.undo();
-    expect(layer().materials).toBeUndefined();
+    expect(area('grass')).toBeCloseTo(100, 6);
+    expect(area('path')).toBeCloseTo(20, 6);
   });
 
-  describe('with Paint a real floor on', () => {
-    const floors = () => layer().children.filter((c): c is ShapeChild => c.childType === 'shape');
-    beforeEach(() => {
-      useStore.setState((s) => {
-        s.tools.settings.material.floor = true;
-      });
-    });
-
-    it('lands a stroke as one cave floor marked with the band, no patch, one undo step', () => {
-      stroke(tool, [[0, 0], [3, 0], [6, 0]]);
-      expect(layer().materials).toBeUndefined();
-      expect(floors()).toHaveLength(1);
-      expect(floors()[0]).toMatchObject({ name: 'Cave 1', shapeType: 'polygon', edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
-      expect(patchArea(floors()[0].contours)).toBeCloseTo(6 * 6 + Math.PI * 9, -1);
-      undoManager.undo();
-      expect(floors()).toHaveLength(0);
-    });
-
-    it('merges a stroke into the floors of the same look it touches, keeping the first one’s id and name', () => {
-      stroke(tool, [[0, 0], [6, 0]]);
-      stroke(tool, [[20, 0], [26, 0]]);
-      expect(floors().map((f) => f.name)).toEqual(['Cave 1', 'Cave 2']);
-      const [a] = floors();
-      stroke(tool, [[6, 0], [20, 0]]);
-      expect(floors()).toHaveLength(1);
-      expect(floors()[0]).toMatchObject({ id: a.id, name: 'Cave 1', edgeMaterial: 'GG_Cave_Ink' });
-      expect(floors()[0].contours).toHaveLength(1);
-      undoManager.undo();
-      expect(floors()).toHaveLength(2);
-    });
-
-    it('keeps a stroke with Border off its own floor, unmarked and pinned to no stone', () => {
-      stroke(tool, [[0, 0], [6, 0]]);
-      useStore.setState((s) => {
-        s.tools.settings.material.border = false;
-      });
-      stroke(tool, [[3, 0], [10, 0]]);
-      expect(floors().map((f) => [f.edgeMaterial, f.styleOverrides?.wallTextureSetId])).toEqual([
-        ['GG_Cave_Ink', ''],
-        [undefined, ''],
-      ]);
-    });
-
-    it('lands a stroke over an existing floor as a marked cave of its own, which owns its wall', () => {
-      useStore.getState().addChild(layer().id, {
-        id: 'base', name: 'Base', childType: 'shape', visible: true, shapeType: 'rectangle',
-        contours: [[[-20, -20], [40, -20], [40, 20], [-20, 20]]],
-        textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
-      } as ShapeChild);
-      stroke(tool, [[0, 0], [6, 0]]);
-      expect(floors().map((f) => [f.id === 'base' ? 'base' : f.name, f.edgeMaterial])).toEqual([
-        ['base', undefined],
-        ['Cave 1', 'GG_Cave_Ink'],
-      ]);
-      expect(caveEdges(layer())).toHaveLength(1);
-    });
-
-    it('carves an erase out of the floors under it, one undo step', () => {
-      stroke(tool, [[0, 0], [12, 0]]);
-      const before = patchArea(floors()[0].contours);
-      useStore.getState().setEraseMode(true);
-      stroke(tool, [[6, -5], [6, 5]]);
-      expect(floors()).toHaveLength(2);
-      expect(floors().reduce((n, f) => n + patchArea(f.contours), 0)).toBeLessThan(before);
-      undoManager.undo();
-      expect(floors()).toHaveLength(1);
-    });
+  it('walks the pieces top down, each losing what is left of the area', () => {
+    const { cuts } = planErase(stack(), [rect(2, 4, 8, 6)]);
+    expect(cuts.map((c) => c.shape.id)).toEqual(['path', 'grass']);
+    expect(patchArea(cuts[0].cut)).toBeCloseTo(4, 6);
+    expect(patchArea(cuts[1].cut)).toBeCloseTo(8, 6);
   });
 
-  describe('erasing across a painted cave’s rock', () => {
-    const floors = () => layer().children.filter((c): c is ShapeChild => c.childType === 'shape');
-    const floorArea = () => floors().reduce((n, f) => n + patchArea(f.contours), 0);
-    /** The layer with its floor union, as the engine keeps it. */
-    const live = (): DungeonLayer => ({ ...layer(), mergedFloor: computeMergedFloor(layer()) });
-    /** Midpoints of the cave's ring edges, open ones or standing ones. */
-    const mids = (open: boolean): [number, number][] =>
-      caveEdges(layer()).flatMap((c) =>
-        c.rings.flatMap((ring) =>
-          ring.flatMap((a, i): [number, number][] => {
-            const b = ring[(i + 1) % ring.length];
-            return caveEdgeOpen(a, b, layer().caveOpenings) === open ? [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]] : [];
-          }),
-        ),
-      );
-    /** How near any resolved wall of the layer passes to `p`. */
-    const wallNear = (p: [number, number]): number => {
-      let best = Infinity;
-      for (const w of resolveWalls(live())) {
-        for (let i = 0; i + 1 < w.points.length; i++) {
-          const [a, b] = [w.points[i], w.points[i + 1]];
-          const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
-          const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
-          best = Math.min(best, Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dy * t)));
-        }
-      }
-      return best;
-    };
-    /** How near the cave's rock, as laid, comes to `p`. */
-    const rockNear = (p: [number, number]): number => {
-      let best = Infinity;
-      for (const cave of caveEdges(layer())) {
-        for (const pl of layOutlineBand(cave.rings, undefined, caveOpeningGaps(cave, layer().caveOpenings)).flat()) {
-          for (const j of jointsOf(pl.piece, pl.at)) best = Math.min(best, Math.hypot(j[0] - p[0], j[1] - p[1]));
-        }
-      }
-      return best;
-    };
-    const erase = (points: [number, number][], radius: number) => {
-      useStore.setState((s) => {
-        s.tools.settings.material.radius = radius;
-      });
-      useStore.getState().setEraseMode(true);
-      stroke(tool, points);
-      useStore.getState().setEraseMode(false);
-    };
-
-    beforeEach(() => {
-      useStore.setState((s) => {
-        s.tools.settings.material.floor = true;
-      });
-      // A cave from x -3 to 15, 6 tall.
-      stroke(tool, [[0, 0], [6, 0], [12, 0]]);
-      undoManager.clear();
-    });
-
-    it('leaves the cut open where the stroke crosses the outer rock: no rock, no wall of any kind, the floor cut as ever, one undo step', () => {
-      const before = floorArea();
-      expect(rockNear([12, 3.4])).toBeLessThan(1);
-      erase([[15, 0], [19, 0]], 3);
-      expect(floorArea()).toBeLessThan(before - 5);
-      expect(layer().caveOpenings).toBeDefined();
-      const open = mids(true);
-      expect(open.length).toBeGreaterThan(3);
-      // The bite's edge, at its deepest, is one of them.
-      expect(open.some((m) => Math.hypot(m[0] - 12, m[1]) < 0.6)).toBe(true);
-      for (const m of open) {
-        expect(wallNear(m)).toBeGreaterThan(0.01);
-        expect(rockNear(m)).toBeGreaterThan(0.3);
-      }
-      // No stone wall stands in for the rock: nothing but the cave's own wall is resolved, and it stops short.
-      expect(resolveWalls(live()).every((w) => w.kind === 'cave')).toBe(true);
-      expect(rockNear([12, 0])).toBeGreaterThan(1);
-      // The rest of the cave keeps its rock and its wall.
-      expect(wallNear([-3, 0])).toBeLessThan(0.3);
-      // (Joints sit at the ends of pieces a couple of cells long.)
-      expect(rockNear([-3, 0])).toBeLessThan(2.5);
-      undoManager.undo();
-      expect(floorArea()).toBeCloseTo(before, 3);
-      expect(layer().caveOpenings).toBeUndefined();
-      expect(undoManager.canUndo()).toBe(false);
-    });
-
-    it('rocks a hole all round when the stroke stays inside the cave, and records nothing', () => {
-      erase([[6, 0]], 1);
-      expect(layer().caveOpenings).toBeUndefined();
-      expect(caveEdges(layer())[0].rings).toHaveLength(2);
-      expect(mids(true)).toHaveLength(0);
-      expect(resolveWalls(live()).filter((w) => w.kind === 'cave')).toHaveLength(2);
-      expect(rockNear([7, 0])).toBeLessThan(1.2);
-    });
-
-    it('re-forms the rock round a crossing cut with Rock on cut edge on, and records nothing', () => {
-      useStore.setState((s) => {
-        s.tools.settings.material.rockOnCut = true;
-      });
-      const before = floorArea();
-      erase([[15, 0], [19, 0]], 3);
-      expect(floorArea()).toBeLessThan(before - 5);
-      expect(layer().caveOpenings).toBeUndefined();
-      expect(mids(true)).toHaveLength(0);
-      expect(rockNear([12, 0])).toBeLessThan(1.2);
-    });
-
-    it('closes the opening when cave is painted back over it: the region goes and the rock is back, one undo step', () => {
-      erase([[15, 0], [19, 0]], 3);
-      expect(mids(true).length).toBeGreaterThan(0);
-      undoManager.clear();
-      useStore.setState((s) => {
-        s.tools.settings.material.radius = 3;
-      });
-      stroke(tool, [[11, 0], [19, 0]]);
-      expect(layer().caveOpenings).toBeUndefined();
-      expect(mids(true)).toHaveLength(0);
-      expect(rockNear([22, 0])).toBeLessThan(1.2);
-      undoManager.undo();
-      expect(layer().caveOpenings).toBeDefined();
-      expect(mids(true).length).toBeGreaterThan(0);
-      expect(undoManager.canUndo()).toBe(false);
-    });
-
-    it('opens the edge under a stroke over the rock alone, outside the floor, and leaves the floor as it was', () => {
-      const before = floors().map((f) => f.contours);
-      erase([[15.4, 0]], 0.3);
-      expect(floors().map((f) => f.contours)).toEqual(before);
-      expect(layer().caveOpenings).toBeDefined();
-      const open = mids(true);
-      expect(open.length).toBeGreaterThan(0);
-      for (const m of open) {
-        expect(Math.hypot(m[0] - 15.4, m[1])).toBeLessThan(1.5);
-        expect(wallNear(m)).toBeGreaterThan(0.01);
-      }
-      expect(mids(false).length).toBeGreaterThan(open.length);
-      undoManager.undo();
-      expect(layer().caveOpenings).toBeUndefined();
-    });
-
-    it('leaves the floor a cave stands on whole under the cut, and still carves that floor away from the cave', () => {
-      const ground: [number, number][] = [[-10, -10], [40, -10], [40, 10], [-10, 10]];
-      useStore.getState().addChild(layer().id, { id: 'ground', name: 'Ground', childType: 'shape', visible: true, shapeType: 'rectangle', contours: [ground] } as ShapeChild);
-      undoManager.clear();
-      const groundNow = () => floors().find((f) => f.id === 'ground')!.contours;
-      const caveBefore = floorArea() - patchArea([ground]);
-      // Across the rock: the cave is cut and opened, the ground under it is not holed.
-      erase([[15, 0], [19, 0]], 3);
-      expect(groundNow()).toEqual([ground]);
-      expect(floorArea() - patchArea([ground])).toBeLessThan(caveBefore - 5);
-      expect(layer().caveOpenings).toBeDefined();
-      // Out on the ground, well clear of the cave, the same eraser carves the ground as before.
-      erase([[32, 0]], 1);
-      expect(groundNow()).toHaveLength(2);
-    });
-
-    it('opens nothing for an erase nowhere near a cave', () => {
-      erase([[40, 40]], 1);
-      expect(layer().caveOpenings).toBeUndefined();
-      expect(undoManager.canUndo()).toBe(false);
-    });
+  it('with a piece selected cuts only that piece, by the whole area', () => {
+    stack();
+    useStore.getState().setSelectedIds(['grass']);
+    carveFloors(layer(), layerId, [rect(2, 4, 8, 6)], [], 'Erase');
+    expect(area('grass')).toBeCloseTo(100 - 12, 6);
+    expect(area('path')).toBeCloseTo(20, 6);
   });
 
-  it('erases with Erase mode, and an erase that takes it all leaves none', () => {
-    stroke(tool, [[0, 0]]);
-    useStore.getState().setEraseMode(true);
-    stroke(tool, [[0, 0], [0.5, 0]]);
-    expect(layer().materials).toBeUndefined();
-    undoManager.undo();
-    expect(layer().materials).toHaveLength(1);
+  it('passes over a locked piece to the one under it, and cuts nothing over bare ground', () => {
+    const l = setPieces(ground('grass', rect(0, 0, 10, 10), GRASS), ground('path', rect(4, 0, 6, 10), DIRT, { locked: true }));
+    expect(planErase(l, [rect(4.5, 4, 5.5, 6)]).cuts.map((c) => c.shape.id)).toEqual(['grass']);
+    expect(planErase(l, [rect(20, 20, 22, 22)]).cuts).toEqual([]);
+    expect(carveFloors(l, layerId, [rect(20, 20, 22, 22)])).toBe(false);
   });
 
-  describe('a plain texture, by where the stroke starts', () => {
-    const FLOOR: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
-    const xs = () => layer().materials!.flatMap((p) => p.rings.flat().map((pt) => pt[0]));
-    beforeEach(() => {
-      useStore.setState((s) => {
-        s.tools.settings.material.material = 'p:grass';
-        s.tools.settings.material.radius = 1;
-        const l = s.layers.find((x): x is DungeonLayer => x.type === 'dungeon')!;
-        l.mergedFloor = [FLOOR];
-      });
-    });
-
-    it('paints the floor it starts on and stops at its edge: stored trimmed, no ground flag', () => {
-      stroke(tool, [[5, 5], [14, 5]]);
-      const [patch] = layer().materials!;
-      expect(patch).not.toHaveProperty('ground');
-      expect(Math.max(...xs())).toBeCloseTo(10, 1);
-    });
-
-    it('paints ground when it starts off every floor: stored whole and flagged, even where it runs onto a floor', () => {
-      stroke(tool, [[14, 5], [5, 5]]);
-      const [patch] = layer().materials!;
-      expect(patch.ground).toBe(true);
-      expect(Math.min(...xs())).toBeCloseTo(4, 1);
-      expect(Math.max(...xs())).toBeCloseTo(15, 1);
-    });
-
-    it('keeps ground and floor paint of one material as two patches, and paints ground on a layer with no floor', () => {
-      stroke(tool, [[5, 5], [8, 5]]);
-      stroke(tool, [[14, 5], [8, 5]]);
-      expect(layer().materials!.map((p) => p.ground)).toEqual([undefined, true]);
-      useStore.setState((s) => {
-        const l = s.layers.find((x): x is DungeonLayer => x.type === 'dungeon')!;
-        l.mergedFloor = null;
-        l.materials = undefined;
-      });
-      stroke(tool, [[5, 5], [8, 5]]);
-      expect(layer().materials!.map((p) => p.ground)).toEqual([true]);
-    });
-
-    it('leaves a band set patch as it was: whole and unflagged wherever it starts', () => {
-      useStore.setState((s) => {
-        s.tools.settings.material.material = 'GG_Cave_Ink';
-      });
-      stroke(tool, [[14, 5], [5, 5]]);
-      expect(layer().materials![0]).not.toHaveProperty('ground');
-      expect(Math.min(...xs())).toBeCloseTo(4, 1);
-    });
+  it('cuts a walled floor like any piece, and the union follows', () => {
+    const l = setPieces(piece('room', rect(0, 0, 6, 6)), ground('rug', rect(2, 2, 4, 4), DIRT));
+    const { cuts } = planErase(l, [rect(1, 1, 5, 5)]);
+    expect(cuts.map((c) => c.shape.id)).toEqual(['rug', 'room']);
+    expect(patchArea(cuts[1].cut)).toBeCloseTo(16 - 4, 6);
   });
 
-  it('commits nothing for an erase over bare ground, or a stroke Escape drops', () => {
-    useStore.getState().setEraseMode(true);
-    stroke(tool, [[0, 0]]);
-    useStore.getState().setEraseMode(false);
-    tool.onPointerDown({ x: 0, y: 0 });
-    tool.cancel();
-    tool.onPointerUp();
-    expect(layer().materials).toBeUndefined();
-    expect(undoManager.canUndo()).toBe(false);
+  it('washes the piece under the pointer, or the selection, and nothing over bare ground', () => {
+    const l = stack();
+    expect(eraseTargets(l, 5, 5, []).map((c) => c.id)).toEqual(['path']);
+    expect(eraseTargets(l, 1, 5, []).map((c) => c.id)).toEqual(['grass']);
+    expect(eraseTargets(l, 50, 50, [])).toEqual([]);
+    expect(eraseTargets(l, 5, 5, ['grass']).map((c) => c.id)).toEqual(['grass']);
   });
 });

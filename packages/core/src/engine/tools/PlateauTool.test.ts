@@ -4,7 +4,7 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { setNotify } from '../../store/notify';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
-import { keepPlateausOnGround } from '../plateauGround';
+import { keepPlateausOnGround, plateauGround } from '../plateauGround';
 import { UpdateChildCommand } from '../../store/commands';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../../store/types';
 
@@ -146,5 +146,38 @@ describe('PlateauTool', () => {
     const ok = new UpdateChildCommand('Move', layer().id, p.id, { contours: p.contours }, { contours: [p.contours[0].map(([x, y]): [number, number] => [x + 2, y])] });
     undoManager.execute(ok);
     expect(await keepPlateausOnGround(ok, [p.id])).toBe(true);
+  });
+});
+
+describe('a plateau at the edge of a sized map', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+    warning.mockClear();
+    useStore.setState((s) => {
+      s.grid.snapEnabled = false;
+      s.mapSettings.fixedSize = { width: 30, height: 30, locked: true };
+      s.mapSettings.ground = { color: '#6b7a4f' };
+    });
+  });
+
+  it('is drawn across the edge as one plateau of what lies inside the frame', async () => {
+    drag(new PlateauTool(), aroundBox(-3, 25, 8, 33));
+    await settle();
+    expect(warning).not.toHaveBeenCalled();
+    expect(plateaus()).toHaveLength(1);
+    const [p] = plateaus();
+    for (const [x, y] of p.contours[0]) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(30);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(30);
+    }
+    expect(useStore.getState().selection.selectedIds).toEqual([p.id]);
+  });
+
+  it('is judged by the part inside the frame', async () => {
+    expect(await plateauGround(layer(), [[-5, 10], [5, 10], [5, 14], [-5, 14]])).toBe('ok');
+    expect(await plateauGround(layer(), [[-9, 10], [-5, 10], [-5, 14], [-9, 14]])).toBe('small');
   });
 });

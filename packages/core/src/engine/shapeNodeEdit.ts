@@ -27,6 +27,7 @@ import {
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { pointInPolygon } from './hitTest';
 import { notify } from '../shared/notify';
+import { pieceRings } from '../shared/pieces';
 import {
   edgeControls,
   edgeIsCurved,
@@ -194,13 +195,24 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
   );
   if (!shape) return null;
 
+  const own = ringOf(shape);
+  if (own.length < 3) return null;
+  // A ground piece is in no union: its outline is its own ring, its holes its own.
+  if (shape.ground) {
+    return {
+      layer,
+      outline: own,
+      tangents: ringTangentsOf(shape) ?? [],
+      holes: pieceRings(shape).slice(1),
+      contributors: () => [shape],
+    };
+  }
+
   const rings = layer.mergedFloor ?? [];
   const outers = rings.filter((r) => r.length >= 3 && signedArea(r) >= 0);
 
   // The outer ring this shape sits in. Its own centroid can fall in a hole or,
   // for an L-shape, outside the ring entirely, so fall back to any vertex.
-  const own = ringOf(shape);
-  if (own.length < 3) return null;
   const probe = centroid(own);
   const outline =
     outers.find((r) => pointInPolygon(probe, r)) ??
@@ -270,7 +282,7 @@ function targetFor(layer: DungeonLayer, outline: Polygon): OutlineTarget {
   const bounds = ringBounds(outline);
   const contributors = () =>
     layer.children.filter((c): c is ShapeChild => {
-      if (c.childType !== 'shape' || !c.visible) return false;
+      if (c.childType !== 'shape' || !c.visible || c.ground) return false;
       // Curves contribute their flattened extent, so overlap is tested on the
       // same ring the union saw — the authored anchors of a bowed edge can sit
       // entirely inside a neighbour they do not actually touch.

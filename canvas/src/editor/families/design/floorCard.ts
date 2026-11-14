@@ -15,7 +15,13 @@ import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/sel
 import { editChildren, editKey } from './cardWrites';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
 import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
-import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, TextureField } from './FloorFields';
+import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, TextureField, WallsField } from './FloorFields';
+import { ShoreField } from '@/editor/families/terrain/MaterialsColumn';
+import { defaultShoreId, isWaterMaterial } from '@dnd/core/src/assets/materialKit';
+import { SHORE_DEFAULT_WIDTH, SHORE_MAX_WIDTH, SHORE_MIN_WIDTH, shoreWidthOf } from '@dnd/core/src/shared/materialPatch';
+
+/** The softest edge the card sets, cells. */
+const SOFT_MAX = 2;
 import { defaultBorderTexture } from '@dnd/core/src/engine/plateauKit';
 import { BORDER_DEFAULT_WIDTH, BORDER_MAX_WIDTH, BORDER_MIN_WIDTH, borderWidthOf } from '@dnd/core/src/shared/plateauShade';
 import { GROUND_HEIGHT_MAX, GROUND_HEIGHT_MIN, GROUND_HEIGHT_STEP, groundHeightOf } from '@dnd/core/src/shared/plateaus';
@@ -66,6 +72,98 @@ const height = defineCardField<'shape', number>({
   read: (o) => groundHeightOf(o.height),
   // 0 is the default, so it is stored as nothing.
   write: (_store, ids, h) => editChildren('Floor height', ids, () => ({ height: groundHeightOf(h) || undefined })),
+});
+
+/**
+ * Walls: None turns the piece into ground (no wall, no room, out of the floor union); a wall
+ * set turns it into a walled floor with that set pinned on it.
+ */
+const walls = defineCardField<'shape', string | null>({
+  id: 'card.floor.walls',
+  label: 'Walls',
+  schema: z.string().nullable(),
+  default: null,
+  home: 'card',
+  control: 'custom',
+  render: WallsField,
+  read: (o) => {
+    if (o.ground) return null;
+    const pin = o.styleOverrides?.wallTextureSetId;
+    // A walled floor with no pin of its own shows its layer's set.
+    return typeof pin === 'string' && pin !== '' ? pin : (styleOf(o)?.wallTextureSetId || o.edgeMaterial || LAYER_WALLS);
+  },
+  write: (_store, ids, v) =>
+    editChildren('Floor walls', ids, (c) => {
+      if (c.childType !== 'shape') return null;
+      if (v === null) return c.ground ? null : { ground: true };
+      if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
+      return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v } };
+    }),
+});
+
+/** How far the piece's edge blends into what is under it, cells; 0 is a crisp edge. */
+const soft = defineCardField<'shape', number>({
+  id: 'card.floor.soft',
+  label: 'Edge softness',
+  schema: z.number().min(0).max(SOFT_MAX),
+  default: 0,
+  home: 'card',
+  control: 'stepper',
+  section: 'Look',
+  range: { min: 0, max: SOFT_MAX, step: 0.25, unit: 'sq' },
+  // A walled floor's edge is its wall's: softness is for ground.
+  visibleWhen: (o) => o.ground === true && hasLiveTexture(o.textureId),
+  read: (o) => o.soft ?? 0,
+  write: (_store, ids, v) => editChildren('Edge softness', ids, (c) => (c.childType === 'shape' ? { soft: v > 0 ? v : undefined } : null), editKey('floor.soft', ids)),
+});
+
+const isWater = (o: ShapeChild) => !!o.textureId && isWaterMaterial(o.textureId);
+
+/** A water piece's shore: a ground texture on the land side, or None. */
+const shore = defineCardField<'shape', string>({
+  id: 'card.floor.shore',
+  label: 'Shore',
+  schema: z.string(),
+  default: '',
+  home: 'card',
+  control: 'custom',
+  section: 'Water',
+  render: ShoreField,
+  visibleWhen: isWater,
+  // '' is the default shore (the dirt floor); the field shows it by name.
+  read: (o) => o.shore ?? '',
+  write: (_store, ids, v) => {
+    if (v) editChildren('Shore', ids, (c) => (c.childType === 'shape' ? { shore: v === defaultShoreId() ? undefined : v } : null));
+  },
+});
+
+/** The shore band's width, cells. */
+const shoreWidth = defineCardField<'shape', number>({
+  id: 'card.floor.shoreWidth',
+  label: 'Shore width',
+  schema: z.number().min(SHORE_MIN_WIDTH).max(SHORE_MAX_WIDTH),
+  default: SHORE_DEFAULT_WIDTH,
+  home: 'card',
+  control: 'stepper',
+  section: 'Water',
+  range: { min: SHORE_MIN_WIDTH, max: SHORE_MAX_WIDTH, step: 0.25, unit: 'sq' },
+  visibleWhen: isWater,
+  read: (o) => shoreWidthOf(o.shoreWidth),
+  write: (_store, ids, w) => editChildren('Shore width', ids, (c) => (c.childType === 'shape' ? { shoreWidth: w === SHORE_DEFAULT_WIDTH ? undefined : w } : null)),
+});
+
+/** A pale line just inside the water along its edge. */
+const shallowLine = defineCardField<'shape', boolean>({
+  id: 'card.floor.shallowLine',
+  label: 'Shallow line',
+  schema: z.boolean(),
+  default: false,
+  home: 'card',
+  control: 'switch',
+  section: 'Water',
+  visibleWhen: isWater,
+  read: (o) => o.shallowLine === true,
+  write: (_store, ids, on) => editChildren('Shallow line', ids, (c) => (c.childType === 'shape' ? { shallowLine: on ? true : undefined } : null)),
 });
 
 /** How many nodes the outline has, while it is open in node mode. */
@@ -254,5 +352,5 @@ export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: FLOOR_VERBS,
-  fields: [size, layer, height, nodes, colour, texture, tint, opacity, fill, edgeBand, edgePaint, edgePaintWidth],
+  fields: [size, layer, walls, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
 });

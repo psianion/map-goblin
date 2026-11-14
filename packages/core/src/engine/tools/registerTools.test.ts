@@ -47,17 +47,16 @@ import { registerAllTools } from './registerTools';
 const EXPECTED_GATED = [
   'rectangle', 'polygon', 'regularPolygon', 'plateau', 'wall',
   'light', 'text', 'scatterBrush',
-  'roomRect', 'roomPolygon', 'divide', 'water', 'material', 'path',
+  'roomRect', 'roomPolygon', 'divide', 'water', 'material', 'path', 'terrain',
 ].sort();
 
 /**
  * door is carved out deliberately (DR10 — locked-layer selection must still
  * work; see DoorTool.onPointerDown), and zone for the same reason (it owns
  * all zone interaction, so it self-guards placement/drag/delete).
- * select/ruler/terrain never write to a layer at all, or gate their own way
- * (terrain checks map-level visibility).
+ * select and ruler never write to a layer at all.
  */
-const EXPECTED_UNGATED = ['select', 'ruler', 'terrain', 'door', 'zone'].sort();
+const EXPECTED_UNGATED = ['select', 'ruler', 'door', 'zone'].sort();
 
 describe('registerAllTools — editsActiveLayer coverage', () => {
   it('gates exactly the layer-editing tools, and none of the others', () => {

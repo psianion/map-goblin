@@ -30,8 +30,9 @@ import {
 } from '../shared/shadows';
 import { timeBucket, type MapEnvironment, type SunVector } from '../shared/world';
 import { cliffSunAt, type SkyFrame } from '../shared/sky';
-import { edgeRuns, groundReliefs, hasGroundHeight, hasPlateaus, layerPlateaus } from '../shared/plateaus';
-import { patchOutline } from '../shared/materialPatch';
+import { edgeRuns, groundReliefs, hasGroundHeight, hasPlateaus, layerPlateaus, unionShapes } from '../shared/plateaus';
+import { frameRing, isGroundPiece } from '../shared/pieces';
+import { baseGroundFrame } from './mapFrame';
 import {
   BLUR_WEIGHTS_5,
   SUN_SHADOW_ALPHA,
@@ -114,8 +115,12 @@ function shadowsOf(layerId: string): LayerShadows | null {
 function groundOf(layer: DungeonLayer): Polygon[] {
   const ground: Polygon[] = [];
   for (const ring of layer.mergedFloor ?? []) if (ring.length >= 3) ground.push(ring);
-  // Ground painted with the Material brush is ground to cast onto.
-  for (const p of layer.materials ?? []) if (p.ground) ground.push(...patchOutline(p).filter((r) => r.length >= 3));
+  // Ground pieces are ground to cast onto, and so is the base ground, over the map's frame.
+  for (const c of layer.children) {
+    if (isGroundPiece(c) && !c.keptToFloors && c.visible !== false) ground.push(...unionShapes([c]).filter((r) => r.length >= 3));
+  }
+  const base = baseGroundFrame(layer);
+  if (base) ground.push(frameRing(base));
   const b = useStore.getState().mapSettings.terrain?.bounds;
   if (b) ground.push([[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]]);
   return ground;
@@ -176,11 +181,12 @@ export function updateShadows(
     // that wants it, moving no shape key, no wall epoch and no clock with it.
     const terrain = useStore.getState().mapSettings.terrain?.bounds ?? null;
     const signature = shadowSignature(layer.id, wallEpoch, step, orientation, castsHere, { ...frame, sun: cliffSun });
-    // A floor's or patch's height moves no wall and no union: while any has one, its
-    // shadow is redrawn when the layer's children or patches change.
-    // Ground patches are ground to cast onto: with any, the patches are part of the key too.
+    // A piece's height moves no wall and no union: while any has one, its shadow is redrawn
+    // when the layer's children change. Ground pieces are ground to cast onto: with any, the
+    // children are part of the key too, and so is the frame the base ground lies on.
     const raised = hasGroundHeight(layer);
-    const relief = raised || layer.materials?.some((p) => p.ground) ? [raised ? layer.children : null, layer.materials] : null;
+    const grounded = layer.children.some((c) => isGroundPiece(c));
+    const relief = raised || grounded ? [layer.children, useStore.getState().mapSettings.fixedSize ?? null] : null;
     if (
       signature === state.signature &&
       layer.mergedFloor === state.groundRef &&

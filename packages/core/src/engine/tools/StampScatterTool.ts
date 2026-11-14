@@ -12,6 +12,7 @@ import { undoManager } from '../../store/undoManager';
 import { notify } from '../../shared/notify';
 import { setAssetChildrenAlpha } from '../subscribeToAssets';
 import { getEditorDesk } from '../editorDesk';
+import { baseGroundFrame, onMap } from '../mapFrame';
 import { dashSpine } from '../wallNodeRenderer';
 import { eraseHits, footprintSnap, naturalSizeOf } from './propPlacement';
 import { beginStroke, scatterDab, MAX_DAB, type Placement, type ScatterCtx, type StrokeStats } from './scatter';
@@ -387,7 +388,7 @@ export class StampScatterTool implements DrawingTool {
 
   private beginScatter(point: Point, layer: DungeonLayer, settings: ScatterBrushSettings): void {
     this.strokeNo++;
-    const ctx = beginStroke(layer, settings, this.strokeNo);
+    const ctx = beginStroke(layer, settings, this.strokeNo, baseGroundFrame(layer));
     this.stroke = { kind: 'scatter', layerId: layer.id, ctx, placements: [], dabNo: 0, last: point };
     setEstimate(null);
     this.dab(point);
@@ -398,6 +399,8 @@ export class StampScatterTool implements DrawingTool {
     if (stroke?.kind !== 'scatter') return;
     const got = scatterDab(stroke.ctx, at, stroke.dabNo++);
     for (const p of got) {
+      // A sized map ends at its frame: a stroke that leaves it places nothing past the edge.
+      if (!onMap(p.position.x, p.position.y)) continue;
       stroke.placements.push(p);
       this.showStrokeSprite(p);
     }

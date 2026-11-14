@@ -3,13 +3,13 @@
 // erase brush touches. No Pixi objects and no store writes live here.
 
 import type { Point } from '../../types/geometry';
-import type { AssetChild, DungeonLayer } from '../../store/types';
+import type { AssetChild, DungeonLayer, ShapeChild } from '../../store/types';
 import { getCatalogEntry, GRID_CELL_PX } from '../../assets/packCatalog';
 import { resolveTexture } from '../../assets/textureLoader';
 import { isCaveBandAsset } from '../../assets/caveWallKit';
 import { roomIndexOf } from '../../shared/roomIndex';
 import { pointInRing, roomFace } from '../../shared/roomUtils';
-import { patchCovers } from '../../shared/materialPatch';
+import { inFrame, isGroundPiece, pieceCovers } from '../../shared/pieces';
 
 /** An oriented box: centre, half extents along its own axes, rotation in radians. */
 export interface Obb {
@@ -222,10 +222,13 @@ export type FloorTest = (o: Obb) => boolean;
  * brush counts as floor in both. A layer with none of the three has no floor to
  * test against: null.
  */
-export function floorTest(layer: DungeonLayer): FloorTest | null {
-  // Ground painted with the Material brush is floor to stand on, wherever the rooms are.
-  const ground = (layer.materials ?? []).filter((p) => p.ground);
-  const onGround = (x: number, y: number): boolean => ground.some((p) => patchCovers(p, null, x, y));
+export function floorTest(layer: DungeonLayer, baseFrame: { minX: number; minY: number; maxX: number; maxY: number } | null = null): FloorTest | null {
+  // Ground pieces are floor to stand on, wherever the rooms are, and so is the base ground:
+  // `baseFrame` is the map's frame when the layer's level has one (mapFrame's `baseGroundFrame`).
+  const pieces = layer.children.filter((c) => isGroundPiece(c) && !c.keptToFloors && c.visible !== false) as ShapeChild[];
+  const ground = { length: pieces.length + (baseFrame ? 1 : 0) };
+  const onGround = (x: number, y: number): boolean =>
+    (baseFrame !== null && inFrame(baseFrame, x, y)) || pieces.some((p) => pieceCovers(p, x, y));
   const allOnGround = (o: Obb): boolean => ground.length > 0 && onGround(o.cx, o.cy) && obbCorners(o).every((p) => onGround(p.x, p.y));
   const rooms = layer.rooms ?? [];
   if (rooms.some((r) => roomFace(r).length >= 3)) {

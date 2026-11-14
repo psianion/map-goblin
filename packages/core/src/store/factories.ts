@@ -85,7 +85,7 @@ export function createImageLayer(levelId: string, imageKey: string, fileName: st
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setFixedSize' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setMapRules' | 'setTerrainData' | 'setTerrainSplats'
+  | 'setMapName' | 'setFixedSize' | 'setMapGround' | 'setCellScale' | 'setAmbientLight' | 'setFogLook' | 'setEnvironmentSettings' | 'setMapRules' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'setChildOrder' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'

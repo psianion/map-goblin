@@ -20,6 +20,7 @@ import { notify } from '@dnd/ui/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { setPackManagerFactory } from '@dnd/core/src/store/packIO';
 import { loadMapAssets } from '@/canvas/assetLoading';
+import { applyBlankMapDefaults } from '@/editor/dialogs/sizedMap';
 import { initFocusMode } from '@/editor/viewPrefs';
 
 // Before the first render, so the remembered focus mode is what the editor comes up in.
@@ -122,6 +123,9 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
         const { mapIndex } = useStore.getState();
         if (mapIndex.length === 0) {
           await useStore.getState().createNewMap('Untitled Map');
+          // The first map is a sized map on grass, as the New map dialog makes them.
+          applyBlankMapDefaults();
+          await useStore.getState().saveCurrentMap();
         }
 
         // Load the most recent map (first in index since sorted by updatedAt desc)

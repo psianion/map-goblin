@@ -28,11 +28,20 @@ import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomRefresh';
 import * as textureLoader from '../assets/textureLoader';
-import { drawLayerWater } from './water/waterRenderer';
 import { drawLayerMaterials } from './material/materialRenderer';
 import { drawLayerPaths, pathsKey } from './path/pathRenderer';
 import { drawTraceLayer } from './trace/traceRenderer';
 import { computeMapFrame } from '../shared/mapBounds';
+
+/**
+ * The part of a piece's render key that is its dressing: what the floor bake draws round the
+ * fill at the piece's own place (soft edge, painted border, shore, rock rim). Empty for a
+ * floor that carries none, so a plain floor's key reads as it always did.
+ */
+function pieceDressingKey(c: ShapeChild): string {
+  if (!c.ground && !c.soft && !c.edgePaint && c.shore === undefined && !c.shallowLine && !c.height) return '';
+  return `:${c.ground ? 'g' : 'w'}:${c.soft ?? 0}:${c.edgePaint ?? ''}:${c.edgePaintWidth ?? ''}:${c.shore ?? ''}:${c.shoreWidth ?? ''}:${c.shallowLine ? 1 : 0}:${c.keptToFloors ? 1 : 0}:${c.edgeMaterial ?? ''}:${c.height ?? 0}`;
+}
 
 /** The compare pass's greying, made on first use and shared by every compared layer. */
 let compareGreyFilter: ColorMatrixFilter | null = null;
@@ -442,76 +451,40 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubLayers);
 
-  // ─── Water ────────────────────────────────────────────
-  // Redrawn only for a layer whose water moved: a stroke, an undo, a look change, a load.
-  // After the layer list's subscription, so a new layer's entry already exists.
-  const drawnWater = new Map<string, DungeonLayer['water']>();
-  const unsubWater = useStore.subscribe(
+  // ─── Painted caves' rock ──────────────────────────────
+  // The rock round a layer's painted caves (the walled floors marked with an edge material)
+  // redraws when one of them is a new object or comes or goes, or a door moves on the layer
+  // (the rock is cut at its doors). After the layer list's subscription, so a new layer's
+  // entry already exists. Every other piece's dressing is drawn with the piece itself.
+  const drawnCaves = new Map<string, { caves: ShapeChild[]; doors: string; openings: DungeonLayer['caveOpenings'] }>();
+  const unsubCaves = useStore.subscribe(
     (state) => state.layers,
     (layers) => {
       const live = new Set<string>();
       for (const layer of layers) {
         if (layer.type !== 'dungeon') continue;
         live.add(layer.id);
-        const drawn = drawnWater.has(layer.id);
-        if (drawn ? drawnWater.get(layer.id) === layer.water : !layer.water) {
-          drawnWater.set(layer.id, layer.water);
-          continue;
-        }
-        drawnWater.set(layer.id, layer.water);
-        drawLayerWater(layer);
-      }
-      for (const id of [...drawnWater.keys()]) if (!live.has(id)) drawnWater.delete(id);
-    },
-    { fireImmediately: true },
-  );
-  unsubscribers.push(unsubWater);
-
-  // ─── Material patches and painted caves' rock ─────────
-  // The same, for a layer's Material brush patches, and the rock round its painted caves
-  // (the floors marked with an edge material): those redraw when one of them is a new
-  // object or comes or goes, or a door moves on the layer (the rock is cut at its doors).
-  // Patches are trimmed to the layer's floors, so a layer with patches redraws when its floor union moves too.
-  const drawnPatches = new Map<
-    string,
-    { materials: DungeonLayer['materials']; caves: ShapeChild[]; doors: string; floor: DungeonLayer['mergedFloor']; plateaus: AnyChild[]; openings: DungeonLayer['caveOpenings'] }
-  >();
-  const unsubPatches = useStore.subscribe(
-    (state) => state.layers,
-    (layers) => {
-      const live = new Set<string>();
-      for (const layer of layers) {
-        if (layer.type !== 'dungeon') continue;
-        live.add(layer.id);
-        // Floors with a painted border redraw here too: the border is drawn with the patches.
-        const caves = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && (!!c.edgeMaterial || !!c.edgePaint));
+        const caves = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !!c.edgeMaterial && !c.ground);
         const doors = caves.length === 0 ? '' : layer.children
           .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
           .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
           .join(',');
-        const floor = layer.materials?.length ? layer.mergedFloor : null;
-        // Water falls where it crosses a plateau's cliff: a layer with patches redraws when its plateaus move.
-        const plateaus = layer.materials?.length ? layer.children.filter((c) => c.childType === 'plateau') : [];
-        const prev = drawnPatches.get(layer.id);
+        const prev = drawnCaves.get(layer.id);
         const same = prev
-          ? prev.materials === layer.materials &&
-            // A cave's rock stops where it was erased open.
+          ? // A cave's rock stops where it was erased open.
             prev.openings === layer.caveOpenings &&
             prev.doors === doors &&
-            prev.floor === floor &&
             prev.caves.length === caves.length &&
-            prev.caves.every((c, i) => c === caves[i]) &&
-            prev.plateaus.length === plateaus.length &&
-            prev.plateaus.every((c, i) => c === plateaus[i])
-          : !layer.materials?.length && caves.length === 0;
-        drawnPatches.set(layer.id, { materials: layer.materials, caves, doors, floor, plateaus, openings: layer.caveOpenings });
+            prev.caves.every((c, i) => c === caves[i])
+          : caves.length === 0;
+        drawnCaves.set(layer.id, { caves, doors, openings: layer.caveOpenings });
         if (!same) drawLayerMaterials(layer);
       }
-      for (const id of [...drawnPatches.keys()]) if (!live.has(id)) drawnPatches.delete(id);
+      for (const id of [...drawnCaves.keys()]) if (!live.has(id)) drawnCaves.delete(id);
     },
     { fireImmediately: true },
   );
-  unsubscribers.push(unsubPatches);
+  unsubscribers.push(unsubCaves);
 
   // ─── Paths ────────────────────────────────────────────
   // A layer's paths redraw when any of its path children is a new object (immer hands out a
@@ -661,8 +634,9 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             // styleOverrides too: a per-shape floor colour is painted by this bake,
             // and leaving it out meant setting one changed the store and nothing else.
-            // Opacity for the same reason: the bake is what fades the fill.
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${c.opacity ?? 1}`)
+            // Opacity for the same reason: the bake is what fades the fill. And the soft erases'
+            // fades, by identity: an erase below full strength cuts nothing, so only they change.
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${c.opacity ?? 1}${pieceDressingKey(c)}${c.fades ? `:f${refId(c.fades)}` : ''}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no
@@ -673,7 +647,8 @@ export function subscribeToStore(
           // and so the walls, the rooms and the lights.
           shapeGeometryKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.edgeMaterial ?? ''}`)
+            // And whether the piece is ground: a ground piece is in no union at all.
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.edgeMaterial ?? ''}${c.ground ? ':ground' : ''}`)
             .join(','),
           // Door GEOMETRY (id/visible/width/position/wallId) — a change here
           // still needs the full rebuild below because withoutDoorGaps
@@ -866,6 +841,7 @@ export function subscribeToStore(
           item.id === b[i].id &&
           item.shapeCount === b[i].shapeCount &&
           item.wallCount === b[i].wallCount &&
+          item.floorTextureEpoch === b[i].floorTextureEpoch &&
           item.shapeKeys === b[i].shapeKeys &&
           item.doorGeometryKey === b[i].doorGeometryKey &&
           item.doorStateKey === b[i].doorStateKey &&

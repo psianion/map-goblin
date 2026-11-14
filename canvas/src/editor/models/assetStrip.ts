@@ -496,6 +496,10 @@ function activeDungeon(store: MapBuilderStore): DungeonLayer | undefined {
   return active && active.type === 'dungeon' ? (active as DungeonLayer) : undefined;
 }
 
+/** The brush's three rail entries: with one in hand a floor texture picked is what it paints next. */
+const BRUSH_ENTRIES: readonly string[] = ['material', 'terrain', 'water'];
+const BRUSH_PICK_HINT = 'Click a texture to paint with it';
+
 /** "Click a texture to apply it to …", naming the floors a pick changes right now. */
 function applyHint(t: FloorTargets): string {
   if (t.parts.length === 0) return 'Click a texture to use it for new floors on this layer';
@@ -511,9 +515,7 @@ export function floorBrowserHint(store: MapBuilderStore): string {
   const target = selectedLookTarget(store);
   if (target) return `Click a texture to pin it on ${targetName(store, target)}`;
   const t = floorTargets(store);
-  if (t.scope !== 'selected' && store.tools.activeTool === 'terrain') {
-    return `Click a texture to assign it to slot ${store.tools.settings.terrainBrush.slot + 1}`;
-  }
+  if (t.scope !== 'selected' && BRUSH_ENTRIES.includes(store.tools.activeTool)) return BRUSH_PICK_HINT;
   if (t.parts.length === 0 && !t.active) return 'Pick a map layer to texture its floors';
   return applyHint(t);
 }
@@ -527,9 +529,7 @@ export function assetBrowserHint(store: MapBuilderStore): string | undefined {
   if (target) return `Click a texture to pin it on ${targetName(store, target)}`;
   const t = floorTargets(store);
   if (t.scope === 'selected') return applyHint(t);
-  if (store.tools.activeTool === 'terrain') {
-    return `Click a texture to assign it to slot ${store.tools.settings.terrainBrush.slot + 1}`;
-  }
+  if (BRUSH_ENTRIES.includes(store.tools.activeTool)) return BRUSH_PICK_HINT;
   if (FLOOR_TOOLS.includes(store.tools.activeTool) && t.active) return `${applyHint(t)}, or a prop to stamp it`;
   return undefined;
 }
@@ -547,8 +547,13 @@ export function pickAssetForTool(assetId: string): void {
   const tool = store.tools.activeTool;
   if (entry?.type === 'floor') {
     const t = floorTargets(store);
-    if (!selectedLookTarget(store) && t.scope !== 'selected' && tool === 'terrain') {
-      pickTerrainSlotTexture(store.tools.settings.terrainBrush.slot, assetId);
+    if (!selectedLookTarget(store) && t.scope !== 'selected' && BRUSH_ENTRIES.includes(tool)) {
+      // With the brush in hand a floor texture is what its next stroke paints.
+      useStore.setState((s) => {
+        if (tool === 'terrain') s.tools.settings.material.groundMaterial = assetId;
+        else if (tool === 'water') s.tools.settings.material.waterMaterial = assetId;
+        else s.tools.settings.material.material = assetId;
+      });
     } else if (t.parts.length === 0 && !t.active && !selectedLookTarget(store)) {
       notify.warning('Pick a map layer first');
     } else {

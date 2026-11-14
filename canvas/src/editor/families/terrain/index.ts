@@ -1,5 +1,6 @@
-// The Terrain family (plan 6.2): the Terrain brush, the Water brush, the Material brush and
-// Path, with the path card. The terrain layer's Visible and Opacity stay on its layer sheet.
+// The Terrain family (plan 6.2): the brush under its three entries (Terrain, Water, Material:
+// one tool, one stack of floor pieces) and Path, with the path card. An older map's terrain
+// paint keeps its Visible and Opacity on its layer sheet.
 //
 // Not built yet, and deliberately not registered, so nothing shows a control that changes
 // nothing (plan 8.5):
@@ -10,8 +11,7 @@
 
 import { Mountain } from 'lucide-react';
 import { defineFamily } from '@/editor/registry/define';
-import { terrainBrushTool } from './brush';
-import { waterBrushTool } from './water';
+import { terrainBrushTool, waterBrushTool } from './brush';
 import { materialBrushTool } from './material';
 import { pathTool } from './path';
 import { pathCard } from './pathCard';

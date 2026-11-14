@@ -38,22 +38,28 @@ function saved(materials: MaterialPatch[]): SerializedMapData {
 const kit = { isBandSet: () => false, isCaveBandAsset: () => false, fillOf: (m: string) => (m === 'GG_Cave_Ink' ? 'p:cave_floor' : undefined) };
 
 describe('map format 3.10', () => {
-  it('is the version saved, and 3.9 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.10');
+  it('is still read, as 3.9 is', () => {
+    expect(CURRENT_VERSION).toBe('3.11');
     expect(SUPPORTED_VERSIONS).toContain('3.9');
-    expect(useStore.getState().getSerializableState().version).toBe('3.10');
+    expect(SUPPORTED_VERSIONS).toContain('3.10');
   });
 
-  it('loads a 3.9 map with its patches as they were', () => {
+  it('loads a 3.9 map with its paint-only patch as a ground piece with its rock rim (3.11), and as it was while its fill cannot be named', () => {
     const old = { ...saved([patch()]), version: '3.9' } as SerializedMapData;
-    expect(dungeon(migrateToLatest(old, kit)).materials).toEqual([patch()]);
+    const layer = dungeon(migrateToLatest(old, kit));
+    expect(layer.materials).toBeUndefined();
+    expect(layer.children.find((c) => c.id === 'p1')).toMatchObject({ childType: 'shape', ground: true, textureId: 'p:cave_floor', edgeMaterial: 'GG_Cave_Ink' });
+    expect(computeMergedFloor(layer)).toBeNull();
+    expect(dungeon(migrateToLatest(old)).materials).toEqual([patch()]);
   });
 
   it('loads a patch whose edge was a wall as a cave floor, pinned to the fill and marked with the band, and drops the patch', () => {
     const data = migrateToLatest(saved([patch({ wall: true }), patch({ id: 'p2', rings: [[[20, 0], [24, 0], [24, 4], [20, 4]]] })]), kit);
     const layer = dungeon(data);
-    expect(layer.materials?.map((p) => p.id)).toEqual(['p2']);
-    const floors = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+    // The other patch is paint only: a ground piece, in no union and no wall.
+    expect(layer.materials).toBeUndefined();
+    const floors = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !c.ground);
+    expect(layer.children.find((c) => c.id === 'p2')).toMatchObject({ ground: true });
     expect(floors).toHaveLength(1);
     expect(floors[0]).toMatchObject({ name: 'Cave 1', textureId: 'p:cave_floor', edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
     expect(floors[0].contours).toHaveLength(1);

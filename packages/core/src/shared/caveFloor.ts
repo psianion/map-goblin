@@ -35,6 +35,10 @@ export interface CaveLook {
   fill: string | undefined;
   /** Off, the floor is pinned to no stone at all. */
   border: boolean;
+  /** The floor's own opacity (the brush's Strength); absent = full. */
+  opacity?: number;
+  /** The floor's height, cells (the brush's Height); absent = 0. */
+  height?: number;
 }
 
 /** Douglas-Peucker over a closed ring: its seam point is kept, so the ring stays closed. */
@@ -90,12 +94,20 @@ export function caveFloorShape(contours: Polygon[], look: CaveLook, id: string, 
   if (look.fill) shape.textureId = look.fill;
   const edge = edgeOf(look);
   if (edge) shape.edgeMaterial = edge;
+  if (look.opacity !== undefined) shape.opacity = look.opacity;
+  if (look.height) shape.height = look.height;
   return shape;
 }
 
-/** Whether `shape` is a cave floor of `look` (same fill, same edge marker), so a stroke merges with it. */
+/** Whether `shape` is a cave floor of `look` (same fill, edge marker, opacity and height), so a stroke merges with it. */
 export function hasCaveLook(shape: ShapeChild, look: CaveLook): boolean {
-  return shape.textureId === look.fill && shape.edgeMaterial === edgeOf(look) && shape.styleOverrides?.wallTextureSetId === '';
+  return (
+    shape.textureId === look.fill &&
+    shape.edgeMaterial === edgeOf(look) &&
+    shape.styleOverrides?.wallTextureSetId === '' &&
+    (shape.opacity ?? 1) === (look.opacity ?? 1) &&
+    (shape.height || 0) === (look.height || 0)
+  );
 }
 
 /* ── A cave's own edge ────────────────────────────────────── */
@@ -135,7 +147,8 @@ export function caveEdges(layer: { id: string; children: readonly AnyChild[] }):
   for (const c of layer.children) {
     if (c.childType !== 'shape' || c.visible === false) continue;
     const shape = c as ShapeChild;
-    if (!shape.edgeMaterial) continue;
+    // A ground piece's rock rim is paint: no wall runs along it and no room is cut by it.
+    if (!shape.edgeMaterial || shape.ground) continue;
     byMaterial.set(shape.edgeMaterial, [...(byMaterial.get(shape.edgeMaterial) ?? []), shape]);
   }
   const out: CaveEdge[] = [];

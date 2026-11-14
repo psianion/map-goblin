@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
 import { Toaster, toast } from 'sonner';
 import { useStore } from '@/store/store';
@@ -141,6 +141,13 @@ describe('HomeScreen cards', () => {
   });
 
   describe('new map modal', () => {
+    // The dialog is a chunk of its own that brings the engine with it. Load it before the
+    // test's clock starts, so finding the dialog is about the click and not about how long
+    // a cold import takes.
+    beforeAll(async () => {
+      await import('@/editor/dialogs/NewMapModal');
+    }, 30_000);
+
     it('Escape closes it with focus on the dialog or in its name field, past the key shield', async () => {
       const heard = vi.fn();
       document.addEventListener('keydown', heard);

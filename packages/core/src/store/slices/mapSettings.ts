@@ -5,6 +5,8 @@ import type { MapBuilderStore, MapEnvironment, MapRules, MapSettings, TerrainDat
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
   setFixedSize: (size: MapSettings['fixedSize']) => void;
+  /** The map's base ground; null takes it away. */
+  setMapGround: (ground: MapSettings['ground']) => void;
   setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
@@ -33,12 +35,12 @@ export const MAX_FIXED_CELLS = 1000;
  */
 export function normalizeFixedSize(
   size: MapSettings['fixedSize'],
-): { width: number; height: number } | null {
+): { width: number; height: number; locked?: true } | null {
   if (!size) return null;
   const ok = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_FIXED_CELLS;
-  return ok(size.width) && ok(size.height)
-    ? { width: size.width, height: size.height }
-    : null;
+  if (!ok(size.width) || !ok(size.height)) return null;
+  // The lock rides on the size only when set, so a pinned minimum saves as it always did.
+  return size.locked ? { width: size.width, height: size.height, locked: true } : { width: size.width, height: size.height };
 }
 
 /** The units a cell can be measured in. Everything that prints a distance prints this unit. */
@@ -72,6 +74,11 @@ export const createMapSettingsSlice: StateCreator<
   setFixedSize: (size) =>
     set((state) => {
       state.mapSettings.fixedSize = normalizeFixedSize(size);
+    }),
+  setMapGround: (ground) =>
+    set((state) => {
+      if (ground && (ground.textureId || ground.color)) state.mapSettings.ground = ground;
+      else delete state.mapSettings.ground;
     }),
   // Same door as setFixedSize: an invalid scale is refused outright and the map keeps the
   // one it has, since unlike a size there is no "no scale" to fall back to.

@@ -9,8 +9,9 @@ import type { DownloadPillPack, LoadProgress } from '@dnd/ui';
 import { dropPlacedCaveBand } from '@dnd/core/src/store/migration';
 import { isBandSet } from '@dnd/core/src/assets/packCatalog';
 import { isCaveBandAsset } from '@dnd/core/src/assets/caveWallKit';
-import { materialFillId } from '@dnd/core/src/assets/materialKit';
+import { materialFillId, pieceNameOf } from '@dnd/core/src/assets/materialKit';
 import { wallPatchesToFloors } from '@dnd/core/src/shared/caveFloor';
+import { patchesToPieces } from '@dnd/core/src/shared/legacyPaint';
 import { useStore } from '@/store/store';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 import {
@@ -94,7 +95,11 @@ export function startAssetBoot(): Promise<void> {
       // catalog to tell a band kit and its pieces apart, and for a 3.10 wall patch's floors,
       // which need the catalog to name the material's fill.
       const { layers, levels } = useStore.getState();
-      const kept = wallPatchesToFloors(dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset }), materialFillId);
+      // The patches left waiting for a band set's fill become pieces now too.
+      const kept = patchesToPieces(
+        wallPatchesToFloors(dropPlacedCaveBand(layers, levels, { isBandSet, isCaveBandAsset }), materialFillId),
+        { fillOf: materialFillId, nameOf: pieceNameOf },
+      );
       if (kept !== layers) useStore.setState({ layers: kept });
       pm.checkForUpdates()
         .then((updates) => {

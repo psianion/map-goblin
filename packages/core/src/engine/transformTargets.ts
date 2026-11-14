@@ -14,6 +14,7 @@ import { createPropPatchCommand, type AlignEdge, type PropPatch } from '../store
 import { doorwayEditCommand } from '../store/doorwayCommands';
 import { isLockedObject, resolveSelection } from '../store/selectionResolve';
 import { flattenRing } from '../shared/bezier';
+import { mapFades } from '../shared/pieceFades';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
 import { pointInRing } from '../shared/roomUtils';
 import {
@@ -107,7 +108,9 @@ function mirrorRings(snap: Extract<ChildSnapshot, { kind: 'rings' }>, axis: 'h' 
       return vt ? { ...(vt.tout ? { tin: m(vt.tout) } : {}), ...(vt.tin ? { tout: m(vt.tin) } : {}) } : null;
     }).reverse(),
   );
-  return { contours, tangents } as Partial<AnyChild>;
+  // A floor piece's fades flip with it.
+  const fades = snap.fades ? mapFades(snap.fades, (ring) => ring.map((p) => m(p)).reverse()) : undefined;
+  return { contours, tangents, ...(fades ? { fades } : {}) } as Partial<AnyChild>;
 }
 
 function childTarget(layer: DungeonLayer, child: AnyChild): TransformTarget {

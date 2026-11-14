@@ -1,10 +1,11 @@
 import type { StateCreator } from 'zustand';
-import type { Level, MapBuilderStore, RoomLook } from '../types';
+import type { BaseGround, Level, MapBuilderStore, RoomLook } from '../types';
 
 export interface LevelActions {
   addLevel: (level: Level, index?: number) => void;
   removeLevel: (levelId: string) => void;
-  updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook }) => void;
+  /** `ground`: this level's own base ground, null for none; `undefined` takes the override off. */
+  updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook; ground?: BaseGround | null }) => void;
   setLayerLevel: (layerId: string, levelId: string) => void;
   reorderLevel: (from: number, to: number) => void;
 }
@@ -51,6 +52,10 @@ export const createLevelsSlice: StateCreator<
       if ('look' in patch) {
         if (patch.look && Object.keys(patch.look).length > 0) level.look = patch.look;
         else delete level.look;
+      }
+      if ('ground' in patch) {
+        if (patch.ground === undefined) delete level.ground;
+        else level.ground = patch.ground;
       }
     }),
   setLayerLevel: (layerId, levelId) =>

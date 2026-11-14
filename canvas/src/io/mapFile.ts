@@ -133,6 +133,30 @@ const patch310 = patch.extend({ wall: z.boolean().optional() });
 /** 3.10: a painted cave's edge material on its floor (absent, a plain floor). */
 const child310 = child39.and(z.object({ edgeMaterial: z.string().optional() }).passthrough());
 const layer310 = layer37.extend({ children: z.array(child310).optional(), materials: z.array(patch310).optional() }).superRefine(trace39Check);
+/**
+ * 3.11: floor pieces. A floor may be ground (no wall, no room), with a soft edge and a water
+ * piece's shore; the map and a level may carry a base ground; a map's size may be locked.
+ * Patches and water masks load as pieces, so a 3.11 file carries neither (an older one's
+ * are still read here and converted on load).
+ */
+const baseGround = z.object({ textureId: z.string().optional(), color: z.string().optional() }).passthrough();
+const child311 = child310.and(
+  z
+    .object({
+      ground: z.boolean().optional(),
+      soft: z.number().min(0).optional(),
+      shore: z.string().optional(),
+      shoreWidth: z.number().positive().optional(),
+      shallowLine: z.boolean().optional(),
+      keptToFloors: z.boolean().optional(),
+    })
+    .passthrough(),
+);
+const layer311 = layer37.extend({ children: z.array(child311).optional(), materials: z.array(patch310).optional() }).superRefine(trace39Check);
+const settings311 = settings35.extend({
+  ground: baseGround.nullable().optional(),
+  fixedSize: z.object({ width: z.number(), height: z.number(), locked: z.literal(true).optional() }).passthrough().nullable().optional(),
+});
 
 const v3 = (version: Exclude<Version, '2.0'>, settings: z.ZodType = mapSettings, layers: z.ZodType = layer) =>
   z
@@ -168,6 +192,8 @@ export const MAP_SCHEMAS: Record<Version, z.ZodType> = {
   '3.9': v3('3.9', settings35, layer39),
   // 3.10 adds a material patch's wall flag (absent, its edge is no wall).
   '3.10': v3('3.10', settings35, layer310),
+  // 3.11 adds ground pieces, the base ground and a locked size.
+  '3.11': v3('3.11', settings311, layer311),
 };
 
 /** The first problem with a document, said plainly. */

@@ -5,8 +5,12 @@ import { levelOf } from '../shared/lookScope'
 import { DEFAULT_SIGHT_DROP_CELLS, defaultCrossingKinds } from '../shared/crossingKinds'
 import { dropRemovedFields } from './removedFields'
 import { wallPatchesToFloors } from '../shared/caveFloor'
+import { patchesToPieces } from '../shared/legacyPaint'
+import type { AnyChild, ShapeChild } from '../shared/types'
+import { isDenseRing, tidyRing, tidyRings } from '../shared/tidyRings'
+import { ringArea } from '../shared/plateauGround'
 
-export const CURRENT_VERSION = '3.10' as const
+export const CURRENT_VERSION = '3.11' as const
 
 /**
  * Every file version a reader must accept, oldest first. THE one list — the
@@ -25,9 +29,12 @@ export const CURRENT_VERSION = '3.10' as const
  * below-water flag and trace layers (type 'image'). '3.8' → '3.9' is additive: an imported
  * picture's file name and source pixel size, `imageSource`, and a trace's `placement`.
  * '3.9' → '3.10' is additive: a material patch's `wall` flag. A patch carrying it is a painted
- * cave and loads as floors, see `wallPatchesToFloors`.)
+ * cave and loads as floors, see `wallPatchesToFloors`. '3.10' → '3.11' makes everything
+ * floor-like one kind of piece: a layer's patches load as ground pieces (`patchesToPieces`,
+ * here) and its water mask as water pieces (once Clipper is loaded, engine/legacyPaint.ts);
+ * the new fields are optional, so a floor with none is the walled floor it always was.)
  */
-export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10']
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10', '3.11']
 
 export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
   return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
@@ -69,6 +76,10 @@ export interface CaveKitLookup {
    * floors (`wallPatchesToFloors`). Without it, or before it can name the fill, the patch stays.
    */
   fillOf?: (material: string) => string | undefined
+  /** The name a piece converted from a patch takes (materialKit's `pieceNameOf`); absent, `Ground`. */
+  nameOf?: (material: string) => string
+  /** Passed on to `patchesToPieces`: a layer's patches wait together (the catalog is not in yet). */
+  whole?: boolean
 }
 
 export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: CaveKitLookup): SerializedMapData {
@@ -93,6 +104,7 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
     result.version !== '3.7' &&
     result.version !== '3.8' &&
     result.version !== '3.9' &&
+    result.version !== '3.10' &&
     result.version !== CURRENT_VERSION
   ) {
     throw new Error(
@@ -106,11 +118,83 @@ export function migrateToLatest(data: V2Data | SerializedMapData, caveKit?: Cave
   if (plateaus !== (result as SerializedMapData).layers) result = { ...result, layers: plateaus } as SerializedMapData
   // The settings dropped in the editor rework go too (removedFields.ts).
   const migrated = withPlateauSettings(neutralizeLegacyTint(dropRetiredFields(dropRemovedFields(result as SerializedMapData))))
-  if (!caveKit) return migrated
-  let layers = dropPlacedCaveBand(migrated.layers, migrated.levels ?? [], caveKit)
-  // A 3.10 patch whose edge was a wall is a painted cave: it loads as the floors the brush paints.
-  if (caveKit.fillOf) layers = wallPatchesToFloors(layers, caveKit.fillOf)
+  let layers = migrated.layers
+  if (caveKit) {
+    layers = dropPlacedCaveBand(layers, migrated.levels ?? [], caveKit)
+    // A 3.10 patch whose edge was a wall is a painted cave: it loads as the floors the brush paints.
+    if (caveKit.fillOf) layers = wallPatchesToFloors(layers, caveKit.fillOf)
+  }
+  // 3.11: every other patch loads as a ground piece in the layer's stack. Runs on every load
+  // and changes nothing the second time; a band set's patch waits for the catalog to name its fill.
+  layers = patchesToPieces(layers, { fillOf: caveKit?.fillOf, nameOf: caveKit?.nameOf, whole: caveKit?.whole })
+  // Brush outlines stored before they were tidied are tidied, and the crumbs erases left go.
+  layers = tidyBrushOutlines(layers)
   return layers === migrated.layers ? migrated : { ...migrated, layers }
+}
+
+/** A brush-made piece smaller than this, in square cells, with fades or a dense outline, is an erase's crumb. */
+const CRUMB_AREA = 0.5
+/** A ring with fewer points than this is never thinned on load, dense or not. */
+const DENSE_MIN_POINTS = 24
+
+/**
+ * Outlines the brush stored as a boolean handed them back, tidied (`tidyRing`), on every
+ * dungeon layer: a shape's dense rings of 24 points or more (a curved shape, one with
+ * `tangents`, is left alone), every fade's rings, and the layer's cave openings. A brush-made
+ * piece (ground, or a cave with a rim) under half a square cell with fades or a dense outline
+ * is a crumb an erase left and is removed; nothing else is. Pure, and a second run changes
+ * nothing. Hands back `layers` itself when nothing changed.
+ */
+export function tidyBrushOutlines<L extends SerializedMapData['layers'][number]>(layers: L[]): L[] {
+  let changed = false
+  const out = layers.map((layer) => {
+    if (layer.type !== 'dungeon') return layer
+    let touched = false
+    const children: AnyChild[] = []
+    for (const c of layer.children ?? []) {
+      if (c.childType !== 'shape') {
+        children.push(c)
+        continue
+      }
+      const outer = c.contours[0]
+      const faded = !!c.fades && c.fades.length > 0
+      if ((c.ground === true || !!c.edgeMaterial) && outer && ringArea(outer) < CRUMB_AREA && (faded || isDenseRing(outer))) {
+        touched = true
+        continue
+      }
+      // A ring the tidy would leave under 3 points stays as it is: the shape keeps its outline.
+      const thin = (r: [number, number][]) => {
+        const t = tidyRing(r)
+        return t.length >= 3 ? t : r
+      }
+      const contours = c.tangents ? c.contours : c.contours.map((r) => (r.length >= DENSE_MIN_POINTS && isDenseRing(r) ? thin(r) : r))
+      const fades = c.fades?.map((f) => {
+        const rings = tidyRings(f.rings)
+        const within = f.within ? tidyRings(f.within) : undefined
+        const same = sameRings(rings, f.rings) && (!f.within || sameRings(within!, f.within))
+        return same ? f : { ...f, rings, ...(within ? { within } : {}) }
+      })
+      const contoursChanged = contours.some((r, i) => r !== c.contours[i])
+      const fadesChanged = !!fades && fades.some((f, i) => f !== c.fades![i])
+      if (!contoursChanged && !fadesChanged) {
+        children.push(c)
+        continue
+      }
+      touched = true
+      children.push({ ...c, contours, ...(fadesChanged ? { fades } : {}) } as ShapeChild)
+    }
+    const openings = layer.caveOpenings && tidyRings(layer.caveOpenings)
+    const openingsChanged = !!openings && !sameRings(openings, layer.caveOpenings!)
+    if (!touched && !openingsChanged) return layer
+    changed = true
+    return { ...layer, children, ...(openingsChanged ? { caveOpenings: openings } : {}) }
+  })
+  return changed ? out : layers
+}
+
+/** Whether tidied rings are the rings they came from, ring for ring. */
+function sameRings(tidied: readonly unknown[], rings: readonly unknown[]): boolean {
+  return tidied.length === rings.length && tidied.every((r, i) => r === rings[i])
 }
 
 /**

@@ -268,4 +268,35 @@ describe('ToolManager preview on the overlay', () => {
     expect(overlay.children.at(-1)).toBe(marquee);
     expect([marquee.position.x, marquee.position.y, marquee.scale.x]).toEqual([10, 20, 3]);
   });
+
+  it('mounts the erase wash in the preview container, not on the world', () => {
+    const world = { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, addChild: vi.fn() };
+    const overlay = { addChild: vi.fn() };
+    const preview = { addChild: vi.fn() };
+    new ToolManager(world as never, overlay as never, preview as never);
+    expect(world.addChild).not.toHaveBeenCalled();
+    expect(preview.addChild).toHaveBeenCalledTimes(1);
+    expect((preview.addChild.mock.calls[0][0] as { label: string }).label).toBe('eraseWash');
+  });
+});
+
+describe('ToolManager on a sized map', () => {
+  it('refuses a point tool pressed past the edge, and lets a floor tool through', () => {
+    useStore.getState().resetToDefault();
+    useStore.getState().setFixedSize({ width: 10, height: 10, locked: true });
+    const tm = new ToolManager(new Container() as never);
+    const wall = fakeTool('wall');
+    const rectangle = fakeTool('rectangle');
+    tm.registerTool(wall);
+    tm.registerTool(rectangle);
+    const press = { button: 0 } as PointerEvent;
+    useStore.getState().setActiveTool('wall');
+    tm.onPointerDown({ x: 50, y: 50 }, press);
+    expect(wall.onPointerDown).not.toHaveBeenCalled();
+    tm.onPointerDown({ x: 5, y: 5 }, press);
+    expect(wall.onPointerDown).toHaveBeenCalledTimes(1);
+    useStore.getState().setActiveTool('rectangle');
+    tm.onPointerDown({ x: 50, y: 50 }, press);
+    expect(rectangle.onPointerDown).toHaveBeenCalledTimes(1);
+  });
 });

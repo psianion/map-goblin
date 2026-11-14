@@ -451,23 +451,27 @@ function RowView(props: RowProps) {
 function PinnedRows({ onOpenLayerSettings }: { onOpenLayerSettings: (id: string) => void }) {
   const bg = useStore((s) => s.layers.find((l) => l.type === 'background')) as Layer | undefined;
   const terrainVisible = useStore((s) => s.mapSettings.terrain?.visible ?? true);
+  // Only an older map with terrain paint has a Terrain row: nothing paints it any more.
+  const terrainPainted = useStore((s) => !!s.mapSettings.terrain?.bounds);
   const activeId = useStore((s) => s.ui.activeLayerId);
   const pinned = (on: boolean, dim: boolean) => cn('group/row', row, 'pl-1.5', on && 'bg-panel-3 hover:bg-panel-3', dim && 'text-text-3');
   return (
     <div className="flex flex-col border-t border-line px-1.5 py-1" data-testid="shell-layers-pinned">
-      <div className={pinned(activeId === TERRAIN_PANEL_ID, !terrainVisible)} data-testid="shell-layers-terrain" onClick={() => useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID)}>
-        <Mountain aria-hidden strokeWidth={1.75} className={glyph} />
-        <span className={name}>Terrain</span>
-        <span className="text-[10px] text-text-3">map-wide</span>
-        <span className={cn(icons, 'opacity-100')}>
-          <RowButton
-            icon={terrainVisible ? Eye : EyeOff}
-            label={terrainVisible ? 'Hide Terrain' : 'Show Terrain'}
-            onClick={() => undoManager.execute(new TerrainAppearanceCommand({ visible: terrainVisible }, { visible: !terrainVisible }))}
-          />
-          <RowButton icon={Settings2} label="Terrain settings" onClick={() => onOpenLayerSettings(TERRAIN_PANEL_ID)} />
-        </span>
-      </div>
+      {terrainPainted && (
+        <div className={pinned(activeId === TERRAIN_PANEL_ID, !terrainVisible)} data-testid="shell-layers-terrain" onClick={() => useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID)}>
+          <Mountain aria-hidden strokeWidth={1.75} className={glyph} />
+          <span className={name}>Terrain</span>
+          <span className="text-[10px] text-text-3">old paint</span>
+          <span className={cn(icons, 'opacity-100')}>
+            <RowButton
+              icon={terrainVisible ? Eye : EyeOff}
+              label={terrainVisible ? 'Hide Terrain' : 'Show Terrain'}
+              onClick={() => undoManager.execute(new TerrainAppearanceCommand({ visible: terrainVisible }, { visible: !terrainVisible }))}
+            />
+            <RowButton icon={Settings2} label="Terrain settings" onClick={() => onOpenLayerSettings(TERRAIN_PANEL_ID)} />
+          </span>
+        </div>
+      )}
       {bg && (
         <div className={pinned(activeId === bg.id, !bg.visible)} data-testid="shell-layers-background" onClick={() => useStore.getState().setActiveLayerId(bg.id)}>
           <Square aria-hidden strokeWidth={1.75} className={glyph} />

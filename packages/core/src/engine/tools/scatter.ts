@@ -47,13 +47,21 @@ export interface ScatterCtx {
   stats: StrokeStats;
 }
 
-/** Start a stroke on `layer`. `strokeNo` keeps two strokes from the same seed apart. */
-export function beginStroke(layer: DungeonLayer, settings: ScatterBrushSettings, strokeNo: number): ScatterCtx {
+/**
+ * Start a stroke on `layer`. `strokeNo` keeps two strokes from the same seed apart.
+ * `baseFrame` is the map's frame when the layer's level has a base ground: floor everywhere inside.
+ */
+export function beginStroke(
+  layer: DungeonLayer,
+  settings: ScatterBrushSettings,
+  strokeNo: number,
+  baseFrame: Parameters<typeof floorTest>[1] = null,
+): ScatterCtx {
   const hash = new ObbHash();
   for (const c of layer.children) {
     if (c.childType === 'asset' && c.visible) hash.insert(obbOfChild(c as AssetChild));
   }
-  const floor = floorTest(layer);
+  const floor = floorTest(layer, baseFrame);
   return {
     layer,
     settings,

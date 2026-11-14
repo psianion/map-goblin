@@ -215,6 +215,55 @@ export interface ShapeChild extends LayerChild {
    * wall or a room. Absent = 0.
    */
   height?: number;
+  /**
+   * A wall-less piece: ground. Never part of the floor union, never a wall, never a room;
+   * with `edgeMaterial` its rock rim is paint only. Absent = a walled floor, as every floor
+   * drawn before the flag is.
+   */
+  ground?: boolean;
+  /** How far the piece's edge blends into what is under it, cells. Absent or 0 = a crisp edge. */
+  soft?: number;
+  /** Soft erasing: where the fill fades out without the outline being cut. Absent = none. */
+  fades?: PieceFade[];
+  /**
+   * A water piece's shore: a floor texture id laid as a band on the land side, or 'none'.
+   * Absent = the outdoor dirt floor. Only pieces filled with a water texture draw it.
+   */
+  shore?: string;
+  /** The shore band's width, cells. Absent = 0.5. */
+  shoreWidth?: number;
+  /** A pale line just inside the water along its edge. Absent = off. */
+  shallowLine?: boolean;
+  /**
+   * A brush patch from an older map that was painted on floors: drawn only where the layer's
+   * walled floors are, as it was then. Nothing new carries it.
+   */
+  keptToFloors?: boolean;
+}
+
+/**
+ * One soft erase on a piece (shared/pieceFades.ts): its fill fades out over the stroke's
+ * area, from nothing at the stroke's outline to `depth` once `feather` cells in.
+ */
+export interface PieceFade {
+  /** The erased area's outline (the stroke at the full brush radius), in the space of `contours`. */
+  rings: [number, number][][];
+  /** Cells from that outline inward over which the erase rises from nothing to `depth`. */
+  feather: number;
+  /** How much is erased past the feather, 0 to 1. Absent = 1. */
+  depth?: number;
+  /** Where the fade applies; absent = wherever the piece is. */
+  within?: [number, number][][];
+}
+
+/**
+ * The ground a map starts covered by, edge to edge of its frame: a floor texture, or a plain
+ * colour. Not a child: never selected, never erased.
+ */
+export interface BaseGround {
+  textureId?: string;
+  /** '#rrggbb'; read when no texture is named. */
+  color?: string;
 }
 
 /**
@@ -628,6 +677,8 @@ export interface Level {
   id: string;
   name: string;
   look?: RoomLook;
+  /** This level's own base ground: null for none. Absent = the map's (`MapSettings.ground`). */
+  ground?: BaseGround | null;
 }
 
 /**

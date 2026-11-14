@@ -75,7 +75,7 @@ describe('painted terrain over the floor', () => {
   beforeEach(() => useStore.getState().resetToDefault());
   afterEach(() => setTerrainRenderer(null));
 
-  it('draws the terrain quad above the floor fill and clips it to the floor', () => {
+  it('draws the terrain quad over the walled floors, in a box clipped to them', () => {
     const { fake, meshes } = fakeTerrain();
     setTerrainRenderer(fake);
     const entry = makeEntry();
@@ -83,11 +83,14 @@ describe('painted terrain over the floor', () => {
     rebuildDungeonLayer(layerWithFloor(), entry);
 
     const floor = entry.sublayers!.floor;
+    const walled = floor.children.find((c) => c.label === 'floor-walled')!;
     expect(meshes.length).toBe(1);
-    // Last child = on top of the fill, the mask and the edge transitions.
-    expect(floor.children[floor.children.length - 1]).toBe(meshes[0]);
-    // Without the mask the quad would repaint ground the base quad already covers.
-    expect(floor.mask).not.toBeNull();
+    // The box is on top of every floor fill, and the quad on top of what else the box holds.
+    expect(floor.children[floor.children.length - 1]).toBe(walled);
+    expect(walled.children[walled.children.length - 1]).toBe(meshes[0]);
+    // The box is clipped to the floors; the floor sublayer is not, so ground pieces draw past them.
+    expect(walled.mask).toBeTruthy();
+    expect(floor.mask ?? null).toBeNull();
   });
 
   it('is skipped, without touching the floor, when no terrain renderer exists', () => {
@@ -107,23 +110,24 @@ describe('painted terrain over the floor', () => {
     rebuildDungeonLayer(layer, entry);
     rebuildDungeonLayer(layer, entry);
 
-    const floor = entry.sublayers!.floor;
-    expect(floor.children.filter((c) => c.label === 'terrainFloorMesh').length).toBe(1);
+    const boxes = entry.sublayers!.floor.children.filter((c) => c.label === 'floor-walled');
+    expect(boxes.length).toBe(1);
+    expect(boxes[0].children.filter((c) => c.label === 'terrainFloorMesh').length).toBe(1);
   });
 });
 
-/** Every fill painted in `floor` (its mask aside), bottom to top, as the alpha it reaches the screen with. */
+/** Every fill painted in `floor` (masks aside), bottom to top, as the alpha it reaches the screen with. */
 function paintedAlphas(floor: Container): number[] {
   const out: number[] = [];
-  const walk = (node: Container, alpha: number): void => {
-    if (node === floor.mask) return;
+  const walk = (node: Container, alpha: number, parent: Container): void => {
+    if (parent.mask === node) return;
     const a = alpha * node.alpha;
     if (node instanceof Graphics) {
       for (const i of node.context.instructions) if (i.action === 'fill') out.push(a * (i.data.style.alpha ?? 1));
     }
-    for (const child of node.children) walk(child as Container, a);
+    for (const child of node.children) walk(child as Container, a, node);
   };
-  for (const child of floor.children) walk(child as Container, 1);
+  for (const child of floor.children) walk(child as Container, 1, floor);
   return out;
 }
 

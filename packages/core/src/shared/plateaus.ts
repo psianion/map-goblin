@@ -461,16 +461,17 @@ export function cliffOccluders(
 
 // ─── The table: where a token stands, and what it crosses ──
 
-// ─── Floors and patches with a height ──────────────────────
+// ─── Floor pieces with a height ────────────────────────────
 
-/** What a floor's or patch's height reads from a layer: its children, and its patches when it has any. */
+/** What a piece's height reads from a layer: its children. */
 export type GroundLayer = Pick<DungeonLayer, 'children'> & {
+  /** Patches a document still carries: the server reads a stored map as it was uploaded, before any load turns them into pieces. */
   materials?: readonly Pick<MaterialPatch, 'rings' | 'smooth' | 'height' | 'material' | 'ground'>[];
-  /** The layer's floor union: a plain patch painted on a floor stands only where the floor is. */
+  /** The layer's floor union: a piece kept to the floors (`keptToFloors`) stands only where the floor is. */
   mergedFloor?: DungeonLayer['mergedFloor'];
 };
 
-/** A floor's or patch's height, cells: whole or half steps, kept to GROUND_HEIGHT_MIN..GROUND_HEIGHT_MAX. */
+/** A piece's height, cells: whole or half steps, kept to GROUND_HEIGHT_MIN..GROUND_HEIGHT_MAX. */
 export const GROUND_HEIGHT_MIN = -10;
 export const GROUND_HEIGHT_MAX = 10;
 export const GROUND_HEIGHT_STEP = 0.5;
@@ -483,22 +484,25 @@ export function groundHeightOf(height: number | undefined): number {
 
 const isFloor = (c: AnyChild): c is ShapeChild => c.childType === 'shape' && c.visible !== false;
 
-/** True when any visible floor or any patch on the layer has a height: the only case the ground answers anything but 0. */
+/** True when any visible piece on the layer has a height: the only case the ground answers anything but 0. */
 export function hasGroundHeight(layer: GroundLayer): boolean {
   return layer.children.some((c) => isFloor(c) && groundHeightOf(c.height) !== 0) || (layer.materials ?? []).some((p) => groundHeightOf(p.height) !== 0);
 }
 
 /**
- * The heights of every floor and patch covering a point, added up: pieces stack, so a patch
- * of height 0 on a floor of +1 stands at 1. Each is measured where it is drawn (a patch's
- * rounded outline, kept to the floors when it is painted on one); 0 where none covers it.
+ * The heights of every piece covering a point, added up: pieces stack, so ground of height 0
+ * on a floor of +1 stands at 1. Each is measured where it is drawn (a piece kept to the
+ * floors only where the floor is); 0 where none covers it.
  */
 export function groundHeightAt(layer: GroundLayer, x: number, y: number): number {
   if (!hasGroundHeight(layer)) return 0;
   let height = 0;
+  const floor = layer.mergedFloor;
   for (const c of layer.children) {
     if (!isFloor(c) || c.contours.length === 0 || groundHeightOf(c.height) === 0) continue;
-    if (inRings(x, y, c.contours.map((_, k) => shapeRing(c, k)))) height += groundHeightOf(c.height);
+    if (!inRings(x, y, c.contours.map((_, k) => shapeRing(c, k)))) continue;
+    if (c.keptToFloors && floor && floor.length > 0 && !inRings(x, y, floor)) continue;
+    height += groundHeightOf(c.height);
   }
   for (const p of layer.materials ?? []) {
     if (groundHeightOf(p.height) !== 0 && patchCovers(p, layer.mergedFloor, x, y)) height += groundHeightOf(p.height);
@@ -506,13 +510,13 @@ export function groundHeightAt(layer: GroundLayer, x: number, y: number): number
   return height;
 }
 
-/** A floor or patch with a height: how high, and its outline wound with the outside on the left of travel. */
+/** A piece with a height: how high, and its outline wound with the outside on the left of travel. */
 export interface GroundRelief {
   height: number;
   rings: Polygon[];
 }
 
-/** Every visible floor and patch on the layer with a height, floors first, as drawn. */
+/** Every visible piece on the layer with a height, in their order, as drawn. */
 export function groundReliefs(layer: GroundLayer): GroundRelief[] {
   if (!hasGroundHeight(layer)) return [];
   const out: GroundRelief[] = [];

@@ -32,8 +32,8 @@ import {
   type WorldTransform,
 } from './childTransform';
 import {
-  pickAllLayers,
-  pickStackAt,
+  pickAt as pickAtPoint,
+  pickStackAtPoint,
   getChildFootprint,
   boxesByFootprint,
   getWallBounds,
@@ -50,6 +50,7 @@ import {
 } from '../hitTest';
 import { setAnchorPreview } from '../roomAnchorDrag';
 import { flattenRing } from '../../shared/bezier';
+import { inFrame, lockedFrame } from '../../shared/pieces';
 import { blockedLayerReason } from './layerGuard';
 import { notify } from '../../shared/notify';
 import { keepPlateausOnGround } from '../plateauGround';
@@ -554,8 +555,7 @@ export class SelectTool implements DrawingTool {
 
   /** The one pick, at a raw world point (see `pickAt` in hitTest.ts). */
   private pickAt(raw: Point): PickHit | null {
-    const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-    return pickAllLayers(layers, [raw.x, raw.y], { zoom: this.engine.stage().scale.x, includeLockedObjects: true });
+    return pickAtPoint([raw.x, raw.y], { zoom: this.engine.stage().scale.x });
   }
 
   /** A pointer event's position on the canvas, px. */
@@ -1052,6 +1052,8 @@ export class SelectTool implements DrawingTool {
                 contours: structuredClone((child as { contours: [number, number][][] }).contours),
                 tangents: structuredClone((child as { tangents?: unknown }).tangents),
                 transform: (child as { transform?: unknown }).transform,
+                // A faded piece's fades move with it, so they are part of what the patch writes.
+                ...((child as { fades?: unknown }).fades ? { fades: structuredClone((child as { fades?: unknown }).fades) } : {}),
               } as Partial<AnyChild>)
             : snap.kind === 'box'
               ? ({
@@ -1297,11 +1299,7 @@ export class SelectTool implements DrawingTool {
     const store = useStore.getState();
     this.state = store.selection.selectedIds.length > 0 ? 'SELECTED' : 'IDLE';
     if (!press) return;
-    const layers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
-    const stack = pickStackAt(layers, [press.raw.x, press.raw.y], {
-      zoom: this.engine.stage().scale.x,
-      includeLockedObjects: true,
-    });
+    const stack = pickStackAtPoint([press.raw.x, press.raw.y], { zoom: this.engine.stage().scale.x });
     if (stack.length === 0) return;
     const selected = store.selection.selectedIds;
     const at = stack.findIndex((h) => selected.includes(h.id));
@@ -1690,6 +1688,10 @@ export class SelectTool implements DrawingTool {
     const boundsInside = (b: { x: number; y: number; width: number; height: number }, r: typeof dragRect): boolean =>
       b.x >= r.x && b.y >= r.y && b.x + b.width <= r.x + r.width && b.y + b.height <= r.y + r.height;
     const wholeOnly = !!getEditorDesk();
+    // On a sized map nothing past the frame is drawn, so a marquee takes nothing that lies wholly past it.
+    const frame = lockedFrame(store.mapSettings);
+    const frameRect = frame ? { x: frame.minX, y: frame.minY, width: frame.maxX - frame.minX, height: frame.maxY - frame.minY } : null;
+    const onFrame = (b: { x: number; y: number; width: number; height: number }): boolean => !frameRect || boundsIntersect(b, frameRect);
 
     const collected: string[] = [];
     // Merged groups are atomic: a member the box touches brings the rest. Plain groups stay
@@ -1710,6 +1712,7 @@ export class SelectTool implements DrawingTool {
         // A light by its marker: its radius is light, not the object.
         const bounds = getChildFootprint(child);
         if (!boundsIntersect(bounds, dragRect)) continue;
+        if (!onFrame(bounds)) continue;
         // On v2 a floor joins only when the box covers it whole, as a room
         // does: a box drawn inside a room is about what stands there, not the cave floor
         // under the whole map.
@@ -1727,6 +1730,7 @@ export class SelectTool implements DrawingTool {
           if (wall.points.length < 2 || wall.visible === false) continue;
           const reach = wallReach(wall, layer);
           if (!boundsIntersect(getWallBounds(wall, reach), dragRect)) continue;
+          if (!onFrame(getWallBounds(wall, reach))) continue;
           if (wallTouchesRect(wall, dragRect, reach)) take(wall.id);
         }
       }
@@ -1735,7 +1739,7 @@ export class SelectTool implements DrawingTool {
       if (roomPickingEnabled() && takes('room')) {
         for (const room of layer.rooms ?? []) {
           const face = roomFace(room);
-          if (face.length >= 3 && face.every(inRect)) take(room.id);
+          if (face.length >= 3 && face.every(inRect) && (!frame || face.some(([x, y]) => inFrame(frame, x, y)))) take(room.id);
         }
       }
     }

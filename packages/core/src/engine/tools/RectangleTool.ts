@@ -1,12 +1,10 @@
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand } from '../../store/commands';
-import { undoManager } from '../../store/undoManager';
 import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
-import { newFloorLook } from './newFloor';
+import { commitNewFloor, floorsOnMap } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
@@ -121,8 +119,11 @@ export class RectangleTool implements DrawingTool {
         textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      if (this.onShape) this.onShape(activeLayer, child);
-      else undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, { ...child, ...newFloorLook() }));
+      if (this.onShape) {
+        // A room's floor stops at a sized map's edge like any other.
+        const [onMap] = floorsOnMap(child);
+        if (onMap) this.onShape(activeLayer, onMap);
+      } else commitNewFloor('Draw rectangle', activeLayerId, child);
     }
   }
 

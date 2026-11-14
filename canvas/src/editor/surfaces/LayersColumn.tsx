@@ -269,23 +269,20 @@ export function LayersColumn() {
             onSettings={() => settings(background.id)}
           />
         )}
-        <LayerTile
-          id={TERRAIN_PANEL_ID}
-          name="Terrain"
-          tip="Terrain"
-          active={activeLayerId === TERRAIN_PANEL_ID}
-          visible={terrainVisible}
-          preview={
-            terrainPainted ? (
-              <Thumb thumbKey={TERRAIN_THUMB} fallback={<Mountain aria-hidden strokeWidth={1.75} className="absolute inset-0 m-auto size-4 text-text-3" />} />
-            ) : (
-              <Mountain aria-hidden strokeWidth={1.75} className="absolute inset-0 m-auto size-4 text-text-3" />
-            )
-          }
-          onPick={pickTerrain}
-          onToggleVisible={() => undoManager.execute(new TerrainAppearanceCommand({ visible: terrainVisible }, { visible: !terrainVisible }))}
-          onSettings={() => settings(TERRAIN_PANEL_ID)}
-        />
+        {/* Only an older map with terrain paint has a Terrain row: nothing paints it any more. */}
+        {terrainPainted && (
+          <LayerTile
+            id={TERRAIN_PANEL_ID}
+            name="Terrain"
+            tip="Old terrain paint"
+            active={activeLayerId === TERRAIN_PANEL_ID}
+            visible={terrainVisible}
+            preview={<Thumb thumbKey={TERRAIN_THUMB} fallback={<Mountain aria-hidden strokeWidth={1.75} className="absolute inset-0 m-auto size-4 text-text-3" />} />}
+            onPick={pickTerrain}
+            onToggleVisible={() => undoManager.execute(new TerrainAppearanceCommand({ visible: terrainVisible }, { visible: !terrainVisible }))}
+            onSettings={() => settings(TERRAIN_PANEL_ID)}
+          />
+        )}
         <span role="presentation" className="mx-0.5 h-11 w-px shrink-0 bg-line" />
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={ids} strategy={horizontalListSortingStrategy}>

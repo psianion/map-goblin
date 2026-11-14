@@ -10,7 +10,7 @@ import type { Container, Texture } from 'pixi.js';
 import type { Polygon } from '../types/geometry';
 import { BORDER_FADE, BORDER_WOBBLE, nestedAlphas, wobbleNoise, wobbleRings } from '../shared/plateauShade';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { paintTiled } from './floorWallRenderer';
+import { paintTiled, type TiledLook } from './floorWallRenderer';
 
 /** How many steps a soft edge fades in. */
 export const SOFT_EDGE_STEPS = 8;
@@ -64,9 +64,10 @@ export function innerBandLayers(rings: Polygon[], width: number, seed: number): 
 /**
  * Tile `texture` over each step, as a floor is tiled, at the step's opacity. Every step is
  * laid from the box of them all: a step tiled from its own smaller box starts the texture
- * somewhere else, and the stack smears.
+ * somewhere else, and the stack smears. `look` lays the texture as a floor's is (scale,
+ * turn, offset, tint; its alpha scales every step); absent, at scale 1.
  */
-export function paintSoftTiled(parent: Container, layers: readonly SoftLayer[], texture: Texture): void {
+export function paintSoftTiled(parent: Container, layers: readonly SoftLayer[], texture: Texture, look: TiledLook = { scale: 1 }): void {
   const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   for (const l of layers) {
     for (const [x, y] of l.rings.flat()) {
@@ -76,5 +77,5 @@ export function paintSoftTiled(parent: Container, layers: readonly SoftLayer[], 
       bounds.maxY = Math.max(bounds.maxY, y);
     }
   }
-  for (const l of layers) paintTiled(parent, l.rings, texture, { scale: 1, holes: true, alpha: l.alpha, bounds });
+  for (const l of layers) paintTiled(parent, l.rings, texture, { ...look, holes: true, alpha: l.alpha * (look.alpha ?? 1), bounds });
 }

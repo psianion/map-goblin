@@ -93,7 +93,7 @@ describe('MapSettingsModal', () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     const state = useStore.getState();
     expect(state.renameMap).toHaveBeenCalledWith('m1', 'Guard Barracks');
-    expect(state.mapSettings.fixedSize).toEqual({ width: 40, height: 25 });
+    expect(state.mapSettings.fixedSize).toEqual({ width: 40, height: 25, locked: true });
     expect(state.mapSettings.cellScale).toEqual({ value: 1.5, unit: 'm' });
     expect(state.saveCurrentMap).toHaveBeenCalled();
     expect(notify.success).toHaveBeenCalledWith('Settings saved');

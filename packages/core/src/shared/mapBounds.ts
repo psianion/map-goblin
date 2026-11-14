@@ -265,6 +265,9 @@ const EDGE_EPSILON = 1e-6;
  * geometry hanging off its edge into the void, the export or the fog. "Past" means the
  * geometry itself, not its stroke padding: a battlemap or a room built flush to the pinned
  * edge leaves the frame exactly where the DM pinned it. No tool clamps to this.
+ *
+ * With `fixedSize.locked` (a sized map) the frame is the size itself and never grows; the
+ * tools stop at its edge instead.
  */
 export function computeMapFrame(
   layers: readonly Layer[],
@@ -274,6 +277,8 @@ export function computeMapFrame(
   const pinned = fixedSize
     ? { minX: 0, minY: 0, maxX: fixedSize.width, maxY: fixedSize.height }
     : null;
+  // A size-locked map is exactly its size: nothing drawn past an edge moves it.
+  if (pinned && fixedSize?.locked) return pinned;
   const drawn = drawnBounds(layers, terrainBounds, pinned);
   if (!drawn) return pinned;
   const pad = strokePad(layers);
