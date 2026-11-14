@@ -29,9 +29,9 @@ const barrel = (extra: Partial<AssetChild> = {}): AssetChild => ({
 
 describe('map format 3.8', () => {
   it('is the version saved, and 3.7 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.10');
+    expect(CURRENT_VERSION).toBe('3.11');
     expect(SUPPORTED_VERSIONS).toContain('3.7');
-    expect(useStore.getState().getSerializableState().version).toBe('3.10');
+    expect(useStore.getState().getSerializableState().version).toBe('3.11');
   });
 
   it('loads a 3.7 map with its props drawn as they are', () => {
@@ -45,7 +45,7 @@ describe('map format 3.8', () => {
 
   it('round-trips a prop below water through save and load', () => {
     const data = saved((l) => l.children.push(barrel({ belowWater: true })));
-    expect(data.version).toBe('3.10');
+    expect(data.version).toBe('3.11');
     useStore.getState().resetToDefault();
     useStore.getState().loadFromFile(migrateToLatest(data));
     const prop = dungeon(useStore.getState().getSerializableState()).children.find((c) => c.id === 'b1');

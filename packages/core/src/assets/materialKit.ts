@@ -83,6 +83,74 @@ export function materialLabel(setId: string): string {
   return label ? label[0].toUpperCase() + label.slice(1) : setId;
 }
 
+/** The name stem a painted piece takes, numbered on its layer: Water, Cave for a band set, else its texture's (Grass, Dirt). */
+export function pieceNameOf(material: string): string {
+  if (!isTextureMaterial(material)) return 'Cave';
+  if (isWaterMaterial(material)) return 'Water';
+  // The last word alone, so every grass is "Grass N" whatever its shade (Darker grass → Grass).
+  const words = materialLabel(material).split(' ');
+  const word = words[words.length - 1] || 'Ground';
+  return word[0].toUpperCase() + word.slice(1);
+}
+
+/** How far a ground texture's edge blends into what is under it unless set, cells. */
+export const GROUND_SOFT_EDGE = 0.5;
+
+/**
+ * The edge softness a new piece of `textureId` takes: outdoor ground soft, so a trail runs
+ * into the grass with nothing to set; water crisp (its shore is its edge); anything else,
+ * a cave floor or a dungeon floor among them, crisp.
+ */
+export function defaultSoftOf(textureId: string | undefined): number | undefined {
+  if (!textureId || !isTextureMaterial(textureId)) return undefined;
+  const tags = getCatalogEntry(textureId)?.tags ?? [];
+  return tags.includes('outdoor') && !tags.includes('water') ? GROUND_SOFT_EDGE : undefined;
+}
+
+/** The installed water textures: floors tagged `water`. */
+export function waterTextureIds(): string[] {
+  return getEntriesByType('floor').filter((e) => e.tags.includes('water')).map((e) => e.id);
+}
+
+/** The installed outdoor ground textures that are not water: what the Terrain entry of the brush lists first. */
+export function groundTextureIds(): string[] {
+  return getEntriesByType('floor').filter((e) => e.tags.includes('outdoor') && !e.tags.includes('water')).map((e) => e.id);
+}
+
+/** The installed water texture an older map's water mask is filled with: still water before deep. */
+export function defaultWaterId(): string | undefined {
+  const waters = waterTextureIds();
+  return waters.find((id) => !isDeepWater(id)) ?? waters[0];
+}
+
+/** The ground a new map is covered by unless another is picked: the outdoor floor tagged `grass`, else the first outdoor ground. */
+export function defaultGroundId(): string | undefined {
+  const grounds = getEntriesByType('floor').filter((e) => e.tags.includes('outdoor') && !e.tags.includes('water'));
+  return (grounds.find((e) => e.tags.includes('grass') || /grass/i.test(e.material ?? e.id)) ?? grounds[0])?.id;
+}
+
+/** Every material as an entry of the brush lists it, its own kind first: ground for Terrain, water for Water, the band sets for Material. */
+export function brushMaterialIds(kind: 'material' | 'terrain' | 'water'): string[] {
+  const all = materialIds();
+  if (kind === 'material') return all;
+  const first = kind === 'terrain' ? groundTextureIds() : waterTextureIds();
+  return [...first, ...all.filter((id) => !first.includes(id))];
+}
+
+/**
+ * What an entry of the brush paints with. The Material entry paints its picked material (a
+ * band set or a texture); the Terrain and Water entries each remember a texture of their
+ * own, starting on the first ground texture and the still water.
+ */
+export function brushMaterial(
+  s: { material: string; groundMaterial?: string; waterMaterial?: string },
+  kind: 'material' | 'terrain' | 'water',
+): string {
+  if (kind === 'terrain') return s.groundMaterial ?? defaultGroundId() ?? s.material;
+  if (kind === 'water') return s.waterMaterial ?? defaultWaterId() ?? s.material;
+  return s.material;
+}
+
 /** The outdoor floors, named as the Material brush names them: what a shore or a floor's painted border is laid with. */
 export function outdoorFloorChoices(): { value: string; label: string }[] {
   return outdoorFloorIds().map((id) => ({ value: id, label: materialLabel(id) }));

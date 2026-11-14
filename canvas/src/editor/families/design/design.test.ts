@@ -157,7 +157,7 @@ describe('the Design family', () => {
 
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
-    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'edit.curve', 'edit.nodeMode', 'floor.height']);
+    expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'floor.walls', 'edit.curve', 'edit.nodeMode', 'floor.height']);
     expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 
@@ -408,6 +408,17 @@ describe('the floor card', () => {
     expect(undoManager.size()).toBe(1);
     write('shape', 'card.floor.opacity', ['a'], 1);
     expect(child<ShapeChild>('a').opacity).toBeUndefined();
+  });
+
+  it('turns a floor into ground with Walls on None, and back into a walled floor with a set', () => {
+    seed([shape('a')], ['a']);
+    write('shape', 'card.floor.walls', ['a'], null);
+    expect(child<ShapeChild>('a').ground).toBe(true);
+    expect(read('shape', 'card.floor.walls', child<ShapeChild>('a'))).toBeNull();
+    write('shape', 'card.floor.walls', ['a'], 'GG_Brick');
+    expect(child<ShapeChild>('a').ground).toBeUndefined();
+    expect(child<ShapeChild>('a').styleOverrides?.wallTextureSetId).toBe('GG_Brick');
+    expect(read('shape', 'card.floor.walls', child<ShapeChild>('a'))).toBe('GG_Brick');
   });
 
   it("reads the layer's band until the floor picks its own; the layer's own unpins it", () => {

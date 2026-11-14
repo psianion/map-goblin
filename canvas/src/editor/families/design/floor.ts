@@ -10,7 +10,7 @@ import type { DockColumnDef, EditorState, HintLine } from '@/editor/registry/typ
 import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 import { activeDungeonLayer, setActiveStyle } from './layerStyle';
 import { FloorLook } from './LookColumn';
-import { EdgeBandField } from './FloorFields';
+import { EdgeBandField, WallsField } from './FloorFields';
 import { layerBandOf } from './floorModel';
 import { GROUND_HEIGHT_MAX, GROUND_HEIGHT_MIN, GROUND_HEIGHT_STEP, groundHeightOf } from '@dnd/core/src/shared/plateaus';
 
@@ -113,6 +113,29 @@ export const floorBlend = defineSetting<boolean>({
 });
 
 /**
+ * Walls: what a new floor is walled with. None, the default, draws a floor with no wall and
+ * no room (a ground piece); a wall set draws a walled floor with that set pinned on it.
+ * Walls are chosen, never automatic.
+ */
+export const floorWalls = defineSetting<string | null>({
+  id: 'floor.walls',
+  label: 'Walls',
+  schema: z.string().nullable(),
+  default: null,
+  home: 'dock',
+  control: 'custom',
+  section: 'Walls',
+  render: WallsField,
+  bind: {
+    read: (s) => s.tools.settings.floorWalls ?? null,
+    write: (store, v) =>
+      store.setState((draft) => {
+        draft.tools.settings.floorWalls = v || undefined;
+      }),
+  },
+});
+
+/**
  * The edge band new floors take. Unset, it reads as the active layer's band and new floors
  * follow their layer; picking another pins it on them, picking the layer's own unsets it.
  * Not saved in prefs: the value it reads depends on the layer in hand.
@@ -207,7 +230,7 @@ export const floorTool = defineTool({
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
   // Curve and Node mode share the Edit column, as on walls: Curve smooths a drawn
   // polygon and bends a dragged edge in node mode.
-  settings: [floorShape, floorSides, editCurve, editNodeMode, floorHeight, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
+  settings: [floorShape, floorSides, floorWalls, editCurve, editNodeMode, floorHeight, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
   hint: (s) => (s.tools.floorMode === 'carve' ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
 });

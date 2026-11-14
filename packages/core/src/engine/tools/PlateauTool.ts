@@ -4,12 +4,15 @@ import { simplifyPath } from '../../geometry/simplify';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { AddChildCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand } from '../../store/commands';
 import type { DungeonLayer, PlateauChild, PlateauToolSettings } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
 import { notify } from '../../shared/notify';
-import { GROUND_MESSAGE, SMALL_MESSAGE } from '../../shared/plateauGround';
+import { GROUND_MESSAGE, PLATEAU_MIN_AREA, SMALL_MESSAGE, ringArea } from '../../shared/plateauGround';
 import { plateauGround } from '../plateauGround';
+import { cutToFrame, toolFrame } from '../mapFrame';
+import { floorPieces } from '../../shared/floorPieces';
+import { tidyRing } from '../../shared/tidyRings';
 
 /** A press that travels this far (screen px) before release draws freehand, as the Path tool's does. */
 const FREEHAND_PX = 4;
@@ -38,36 +41,52 @@ function snapToGrid(point: Point): Point {
 /**
  * Adds plateau `ring` to layer `layerId` at the tool's height and edge, selected, as one undo
  * step: only where it stands on ground (the layer's floor or painted terrain) and covers a
- * cell, else a toast and nothing. Resolves to the new plateau, or null.
+ * cell, else a toast and nothing. On a sized map the ring is cut to the frame first, and each
+ * part inside that covers a cell becomes a plateau, all in the one step. Resolves to the
+ * (first) new plateau, or null.
  */
 export async function commitPlateau(layerId: string, ring: Point[]): Promise<PlateauChild | null> {
   const layer = resolveEditableLayer(layerId);
   if (!layer || ring.length < 3) return null;
   const contour = ring.map((p): [number, number] => [p.x, p.y]);
-  const verdict = await plateauGround(layer as DungeonLayer, contour);
-  if (verdict !== 'ok') {
-    notify.warning(verdict === 'small' ? SMALL_MESSAGE : GROUND_MESSAGE);
+  const contours = toolFrame()
+    ? floorPieces(cutToFrame([contour]))
+        .map(([outer]) => tidyRing(outer))
+        .filter((r) => r.length >= 3 && ringArea(r) >= PLATEAU_MIN_AREA)
+    : [contour];
+  if (contours.length === 0) {
+    notify.warning(SMALL_MESSAGE);
     return null;
+  }
+  for (const c of contours) {
+    const verdict = await plateauGround(layer as DungeonLayer, c);
+    if (verdict !== 'ok') {
+      notify.warning(verdict === 'small' ? SMALL_MESSAGE : GROUND_MESSAGE);
+      return null;
+    }
   }
   const now = resolveEditableLayer(layerId);
   if (!now) return null;
   const s = plateauSettings();
-  const count = now.children.filter((c) => c.childType === 'plateau').length + 1;
-  const plateau: PlateauChild = {
-    id: crypto.randomUUID(),
-    name: `Plateau ${count}`,
-    childType: 'plateau',
-    visible: true,
-    contours: [contour],
-    height: s.height,
-    edge: s.edge,
-    // A cliff takes the art (and a painted border its width) the tool is set to.
-    ...(s.edge === 'cliff' && s.edgeArt !== undefined ? { edgeArt: s.edgeArt } : {}),
-    ...(s.edge === 'cliff' && s.borderWidth !== undefined ? { borderWidth: s.borderWidth } : {}),
-  };
-  undoManager.execute(new AddChildCommand('Add plateau', layerId, plateau));
-  useStore.getState().setSelectedIds([plateau.id]);
-  return plateau;
+  const count = now.children.filter((c) => c.childType === 'plateau').length;
+  const added = contours.map(
+    (c, i): PlateauChild => ({
+      id: crypto.randomUUID(),
+      name: `Plateau ${count + i + 1}`,
+      childType: 'plateau',
+      visible: true,
+      contours: [c],
+      height: s.height,
+      edge: s.edge,
+      // A cliff takes the art (and a painted border its width) the tool is set to.
+      ...(s.edge === 'cliff' && s.edgeArt !== undefined ? { edgeArt: s.edgeArt } : {}),
+      ...(s.edge === 'cliff' && s.borderWidth !== undefined ? { borderWidth: s.borderWidth } : {}),
+    }),
+  );
+  const commands = added.map((p) => new AddChildCommand('Add plateau', layerId, p));
+  undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Add plateau', commands));
+  useStore.getState().setSelectedIds(added.map((p) => p.id));
+  return added[0];
 }
 
 /**

@@ -13,11 +13,15 @@ import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { initRingNodeOverlay } from './ringNodeEdit';
 import { initPathNodeOverlay } from './pathNodeEdit';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
+import { dropSoftMasks, setSoftPieceEngine } from './softPiece';
+import { useStore } from '../store/store';
 
 export interface SceneGraph {
   worldContainer: Container;
   overlayContainer: Container;
   backgroundLayer: Container;
+  /** The map's base ground, drawn over its frame under everything else on the map. */
+  mapGround: Container;
   layerContainer: Container;
   /**
    * Overhead props (canopies, webs, beams) of every layer, above all of them: they hang
@@ -153,6 +157,19 @@ export function buildSceneGraph(
   backgroundLayer.label = 'backgroundLayer';
   worldContainer.addChild(backgroundLayer);
 
+  // The base ground: over the map's frame, above the background, under the older terrain
+  // paint and every layer (mapGroundRenderer.ts fills it).
+  const mapGround = new Container();
+  mapGround.label = 'mapGround';
+  worldContainer.addChild(mapGround);
+
+  // Soft pieces render their edge masks with this engine; when the GL context comes back
+  // every floor is baked again, since the masks went with it.
+  setSoftPieceEngine(engine, () => {
+    const store = useStore.getState();
+    for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+  });
+
   // Terrain splatmap — painted ground, above background / below grid+layers
   const terrainRenderer = new TerrainRenderer(engine);
   setTerrainRenderer(terrainRenderer);
@@ -178,7 +195,7 @@ export function buildSceneGraph(
   worldContainer.addChild(previewContainer);
 
   // Tool manager — handles drawing tools and preview rendering
-  const toolManager = new ToolManager(worldContainer, overlayContainer);
+  const toolManager = new ToolManager(worldContainer, overlayContainer, previewContainer);
 
   // Tool settings preview — ghost shape shown while editing tool popover
   const settingsPreview = new Graphics();
@@ -227,6 +244,7 @@ export function buildSceneGraph(
     worldContainer,
     overlayContainer,
     backgroundLayer,
+    mapGround,
     layerContainer,
     overheadContainer,
     previewContainer,
@@ -323,6 +341,7 @@ export function removeLayerFromScene(
   entry.renderTexture?.destroy(true);
   entry.container.destroy({ children: true });
   layerEntries.delete(layerId);
+  dropSoftMasks(layerId);
 }
 
 /**

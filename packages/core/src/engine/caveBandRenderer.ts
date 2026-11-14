@@ -738,8 +738,9 @@ export function ringFloorOf(layer: DungeonLayer): (ring: number) => BandFloor {
   return (ring) => {
     const hit = memo.get(ring);
     if (hit) return hit;
+    // Walled floors only: a ground piece owns no ring of the union.
     shapes ??= layer.children.filter(
-      (c): c is ShapeChild => c.childType === 'shape' && c.visible !== false,
+      (c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground,
     );
     const rings = layer.mergedFloor ?? [];
     const poly = rings[ring < 0 ? 0 : ring];

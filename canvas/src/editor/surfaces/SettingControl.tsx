@@ -3,7 +3,7 @@
 // buttons, a switch with an icon becomes one icon button. Values pass through as the
 // registry types them; a seg or select keys its options by position, so any value type works.
 
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   ColourRow,
   IconKeyButton,
@@ -141,8 +141,86 @@ export function FieldControl({ meta, value, onChange }: FieldProps): ReactNode {
   }
 }
 
+/** A typed number in the units the readout shows: a percent of a 0..1 range is a share. */
+function fromTyped(meta: SettingMeta<unknown>, text: string): number | null {
+  const n = parseFloat(text);
+  if (!Number.isFinite(n)) return null;
+  const range = meta.range ?? { min: 0, max: 1, step: 0.01 };
+  const v = range.unit === '%' && range.max <= 1 ? n / 100 : n;  return Math.min(range.max, Math.max(range.min, v));
+}
+
+/** The readout of a typed slider: click it to type the value; Enter or leaving commits, Escape cancels. */
+function TypedValue({ meta, value, onChange }: { meta: SettingMeta<unknown>; value: number; onChange: (value: unknown) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Set once the field is done with, so the blur its closing fires commits nothing more.
+  const done = useRef(false);
+  const shown = formatValue(meta, value);
+  if (draft === null) {
+    return (
+      <button
+        type="button"
+        aria-label={`${meta.label}: type a value`}
+        className="w-9 text-right font-mono text-[11px] text-text tabular-nums hover:underline"
+        onClick={() => {
+          done.current = false;
+          setDraft(shown.replace(/[^\d.-]/g, ''));
+        }}
+      >
+        {shown}
+      </button>
+    );
+  }
+  const close = () => {
+    done.current = true;
+    setDraft(null);
+  };
+  const commit = () => {
+    if (done.current) return;
+    const v = fromTyped(meta, draft);
+    close();
+    if (v !== null) onChange(v);
+  };
+  return (
+    <input
+      aria-label={meta.label}
+      autoFocus
+      inputMode="decimal"
+      className="h-5 w-9 rounded-control border border-line bg-transparent px-0.5 text-right font-mono text-[11px] text-text tabular-nums"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') close();
+      }}
+    />
+  );
+}
+
+/** A slider in the dock: the track, the value beside it, under the column's caption. */
+function DockSlider({ meta, value, onChange }: FieldProps) {
+  const range = meta.range;
+  const v = Number(value);
+  return (
+    <span className="flex w-[132px] items-center gap-2">
+      <Slider
+        aria-label={meta.label}
+        className="flex-1"
+        value={[v]}
+        min={range?.min}
+        max={range?.max}
+        step={range?.step}
+        onValueChange={(next: number | readonly number[]) => onChange(typeof next === 'number' ? next : next[0])}
+      />
+      <TypedValue meta={meta} value={v} onChange={onChange} />
+    </span>
+  );
+}
+
 /** The dock's compact form; anything without one draws as its row. */
 export function DockControl({ meta, value, onChange }: FieldProps): ReactNode {
+  if (meta.control === 'slider' && meta.typed) return <DockSlider meta={meta} value={value} onChange={onChange} />;
   if (meta.control === 'seg' && meta.options?.every((o) => o.icon)) {
     return (
       <span role="group" aria-label={meta.label} className="flex items-center gap-1">

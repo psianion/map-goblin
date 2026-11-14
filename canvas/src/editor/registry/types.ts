@@ -74,6 +74,8 @@ export interface SettingMeta<T> {
   options?: ReadonlyArray<SettingOption<T>>;
   /** For slider, range and stepper. */
   range?: { min: number; max: number; step: number; unit?: string };
+  /** A dock slider whose readout turns into a field to type the value in when clicked. */
+  typed?: true;
   /** A dock switch draws as this icon button, with `key` at its corner. */
   icon?: LucideIcon;
   key?: string;

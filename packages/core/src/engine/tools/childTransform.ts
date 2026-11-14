@@ -5,10 +5,11 @@
 // is the missing half.
 
 import type { AnyChild } from '../../store/types';
-import type { RingGeometry, ZoneShape } from '../../shared/types';
+import type { PieceFade, RingGeometry, ZoneShape } from '../../shared/types';
 import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
 import { localScaleFor } from './transformMath';
+import { bakedFades, mapFades } from '../../shared/pieceFades';
 
 /** A similarity transform in world units, about a point that stays fixed. */
 export interface WorldTransform {
@@ -115,7 +116,8 @@ export function effectiveTangents(shape: RingGeometry): RingTangents[] | undefin
  * and one undo entry covers the whole gesture.
  */
 export type ChildSnapshot =
-  | { kind: 'rings'; contours: [number, number][][]; tangents?: RingTangents[] }
+  /** `fades`: a floor piece's soft erases, in the space of its rings; they move with them. */
+  | { kind: 'rings'; contours: [number, number][][]; tangents?: RingTangents[]; fades?: PieceFade[] }
   | {
       kind: 'box';
       position: { x: number; y: number };
@@ -137,7 +139,10 @@ export type ChildSnapshot =
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
     // A path's nodes are one open ring: it moves, turns and scales point by point too.
-    case 'shape':
+    case 'shape': {
+      const fades = bakedFades(child);
+      return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child), ...(fades ? { fades } : {}) };
+    }
     case 'plateau':
     case 'pathway':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
@@ -180,6 +185,16 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
         tangents: mapTangents(snap.tangents, ([x, y]) => mapPoint(x, y, t)),
         // The rings now carry the whole transform; a leftover one would apply twice.
         transform: undefined,
+        // A piece's fades go where its rings go, their feather scaled with it.
+        ...(snap.fades
+          ? {
+              fades: mapFades(
+                snap.fades,
+                (ring) => ring.map(([x, y]) => mapPoint(x, y, t)),
+                Math.sqrt(Math.abs(t.scaleX * t.scaleY)),
+              ),
+            }
+          : {}),
       } as Partial<AnyChild>;
     case 'box': {
       const [x, y] = mapPoint(snap.position.x, snap.position.y, t);

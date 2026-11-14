@@ -31,7 +31,7 @@ const pool = encodeWater(paintWaterDisc(emptyWaterGrid(), 4, 4, 2, false), { sha
 
 describe('map format 3.7', () => {
   it('is still read, as 3.6 is', () => {
-    expect(CURRENT_VERSION).toBe('3.10');
+    expect(CURRENT_VERSION).toBe('3.11');
     expect(SUPPORTED_VERSIONS).toContain('3.6');
     expect(SUPPORTED_VERSIONS).toContain('3.7');
   });
@@ -46,7 +46,7 @@ describe('map format 3.7', () => {
     expect(l.children.some((c) => c.childType === 'pathway')).toBe(false);
   });
 
-  it('round-trips a layer of water, a material patch and a path through save and load', () => {
+  it('loads a layer of water, a material patch and a path: the path as it was, the water and the patch kept until they can become pieces', () => {
     const data = saved((l) => {
       l.water = structuredClone(pool);
       l.materials = [structuredClone(patch)];
@@ -55,6 +55,8 @@ describe('map format 3.7', () => {
     useStore.getState().resetToDefault();
     useStore.getState().loadFromFile(migrateToLatest(data));
     const l = dungeon(useStore.getState().getSerializableState());
+    // The mask waits for Clipper and the pack's water texture (engine/legacyPaint.ts), and a
+    // band set's patch for the catalog to name its fill: neither is lost meanwhile.
     expect(l.water).toEqual(pool);
     expect(l.materials).toEqual([patch]);
     // A path is not the retired Path tool's 'path' child, which a load drops.

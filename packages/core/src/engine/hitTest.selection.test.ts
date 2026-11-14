@@ -140,6 +140,17 @@ describe('hit testing every kind', () => {
     expect(pickAt([2, 2], { zoom: 20 })?.id).toBe('p');
   });
 
+  it('picks nothing past the edge of a sized map', () => {
+    const l = dungeon();
+    useStore.getState().addChild(l.id, asset('in', 2, 2));
+    useStore.getState().addChild(l.id, asset('out', 30, 2));
+    expect(pickAt([30, 2], { zoom: 20 })?.id).toBe('out');
+    useStore.getState().setFixedSize({ width: 10, height: 10, locked: true });
+    expect(pickAt([30, 2], { zoom: 20 })).toBeNull();
+    expect(pickStackAtPoint([30, 2], { zoom: 20 })).toEqual([]);
+    expect(pickAt([2, 2], { zoom: 20 })?.id).toBe('in');
+  });
+
   it('a light’s footprint is its marker square; other kinds keep their bounds', () => {
     const lamp = { id: 'l', name: 'l', childType: 'light', visible: true, radius: 6, position: { x: 4, y: 7 } } as unknown as AnyChild;
     expect(getChildFootprint(lamp)).toEqual({ x: 3.5, y: 6.5, width: 1, height: 1 });

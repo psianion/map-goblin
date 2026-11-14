@@ -10,6 +10,7 @@ import { useStore } from '../store/store';
 import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
+import { inFrame, inRingsEvenOdd, lockedFrame } from '../shared/pieces';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -180,6 +181,9 @@ function* childHits(
     if (child.locked && !takesLocked(opts)) continue;
     switch (child.childType) {
       case 'shape':
+        // A patch kept to the floors is picked only where it shows.
+        if (pointInShape(child, point) && (!child.keptToFloors || !layer?.mergedFloor?.length || inRingsEvenOdd(point[0], point[1], layer.mergedFloor))) yield child;
+        break;
       case 'plateau':
         if (pointInShape(child, point)) yield child;
         break;
@@ -626,14 +630,24 @@ export function pickAllLayers(
  * shown and unlocked, objects locked on their own included and flagged.
  */
 export function pickAt(point: [number, number], opts: { zoom: number }): PickHit | null {
-  const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  const state = useStore.getState();
+  if (offSizedMap(state, point)) return null;
+  const layers = state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
   return pickAllLayers(layers, point, { zoom: opts.zoom, includeLockedObjects: true });
 }
 
 /** `pickStackAt` over the store's dungeon layers, with the same options as `pickAt`. */
 export function pickStackAtPoint(point: [number, number], opts: { zoom: number }): PickHit[] {
-  const layers = useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  const state = useStore.getState();
+  if (offSizedMap(state, point)) return [];
+  const layers = state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
   return pickStackAt(layers, point, { zoom: opts.zoom, includeLockedObjects: true });
+}
+
+/** On a sized map nothing past the frame is drawn, so nothing there is picked. */
+function offSizedMap(state: { mapSettings: Parameters<typeof lockedFrame>[0] }, point: [number, number]): boolean {
+  const frame = lockedFrame(state.mapSettings);
+  return frame !== null && !inFrame(frame, point[0], point[1]);
 }
 
 /**

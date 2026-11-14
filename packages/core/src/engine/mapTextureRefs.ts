@@ -85,6 +85,9 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
 
   for (const id of mapData.mapSettings.terrain?.palette ?? []) add(id);
   for (const level of mapData.levels ?? []) addLook(level.look);
+  // The base ground, the map's and each level's own.
+  add(mapData.mapSettings.ground?.textureId);
+  for (const level of mapData.levels ?? []) add(level.ground?.textureId);
 
   for (const layer of mapData.layers) {
     if (layer.type === 'dungeon') {
@@ -99,6 +102,9 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
           case 'shape': {
             add(child.textureId);
             add(child.edgePaint);
+            // A water piece's shore, and a ground piece's rock rim.
+            if (child.textureId && isWaterMaterial(child.textureId)) add(shoreTextureOf(child.shore));
+            if (child.ground && child.edgeMaterial) for (const e of bandSetArt(child.edgeMaterial).values()) add(e.id);
             // A floor a preset pinned keeps its outline's wall set (wallLook.ts
             // ringStyles), which may not be the layer's.
             const pinned = child.styleOverrides?.wallTextureSetId;

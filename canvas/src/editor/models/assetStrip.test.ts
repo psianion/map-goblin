@@ -454,12 +454,12 @@ describe('pickAssetForTool', () => {
     expect(brush().assetIds).toEqual([]);
   });
 
-  it('a floor texture with the terrain brush in hand fills the brush slot', () => {
+  it('a floor texture with the terrain brush in hand is what the brush paints next', () => {
     useStore.getState().setActiveTool('terrain');
-    useStore.getState().updateTerrainBrushSettings({ slot: 2 });
     pickAssetForTool('p:floor_c');
 
-    expect(useStore.getState().mapSettings.terrain?.palette[2]).toBe('p:floor_c');
+    expect(useStore.getState().tools.settings.material.groundMaterial).toBe('p:floor_c');
+    expect(useStore.getState().mapSettings.terrain?.palette[2]).not.toBe('p:floor_c');
     expect(useStore.getState().tools.activeTool).toBe('terrain');
     expect(brush().assetIds).toEqual([]);
   });
@@ -501,15 +501,14 @@ describe('assetBrowserHint', () => {
     useStore.getState().setActiveTool('select');
     expect(hint()).toBe('Click a texture to apply it to every floor on the map');
     useStore.getState().setActiveTool('terrain');
-    expect(hint()).toMatch(/^Click a texture to assign it to slot/);
+    expect(hint()).toBe('Click a texture to paint with it');
     useStore.getState().setSelectedIds(['a']);
     expect(hint()).toBe('Click a texture to apply it to the selected floors');
   });
 
-  it('names the selected floors first, the terrain slot second', () => {
+  it('names the selected floors first, the brush second', () => {
     useStore.getState().setActiveTool('terrain');
-    useStore.getState().updateTerrainBrushSettings({ slot: 2 });
-    expect(assetBrowserHint(useStore.getState())).toBe('Click a texture to assign it to slot 3');
+    expect(assetBrowserHint(useStore.getState())).toBe('Click a texture to paint with it');
 
     useStore.getState().addChild(dungeon().id, shape('a', 'p:floor_a'));
     useStore.getState().setSelectedIds(['a']);

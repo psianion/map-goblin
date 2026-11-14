@@ -27,6 +27,8 @@ import { MAP_FILE_ACCEPT, isMapFile } from '@/io/mapFile';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
 import { SizeFields, type SizeMode } from './SizeFields';
+import { GroundField, MapSizeFields } from './MapSizeGround';
+import { choiceToGround, DEFAULT_SIZE_PRESET, defaultGroundChoice, presetSize, SIZE_CUSTOM } from './sizedMap';
 import { ImportReport, type ImportOutcome } from './ImportReport';
 
 /**
@@ -160,6 +162,9 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
   const [sizeMode, setSizeMode] = useState<SizeMode>('expanding');
   const [widthText, setWidthText] = useState('30');
   const [heightText, setHeightText] = useState('20');
+  const [preset, setPreset] = useState<string>(DEFAULT_SIZE_PRESET);
+  // null until picked: grass once the packs have landed, whenever that is.
+  const [groundChoice, setGroundChoice] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [useAs, setUseAs] = useState<UseAs>('battlemap');
@@ -227,9 +232,14 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     () => normalizeFixedSize({ width: Number(widthText), height: Number(heightText) }),
     [widthText, heightText],
   );
+  // A blank map is made at a size, from the presets or typed, and keeps it.
+  const blankSize = useMemo(
+    () => (preset === SIZE_CUSTOM ? fixedSize : presetSize(preset)),
+    [preset, fixedSize],
+  );
   // VTT and map files bring their own name and size.
   const ownFields = source === 'blank' || source === 'image';
-  const sizeInvalid = ownFields && sizeMode === 'fixed' && fixedSize === null;
+  const sizeInvalid = source === 'blank' ? blankSize === null : ownFields && sizeMode === 'fixed' && fixedSize === null;
 
   const chooseSource = (next: Source) => {
     setSource(next);
@@ -383,7 +393,8 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
   const submit = useCallback(async () => {
     if (!canSubmit) return;
     const trimmed = name.trim() || FALLBACK_NAME;
-    const wanted = sizeMode === 'fixed' ? fixedSize : null;
+    // An image map pins a minimum size or grows; a blank map is sized and stays that size.
+    const wanted = source === 'blank' ? (blankSize ? { ...blankSize, locked: true as const } : null) : sizeMode === 'fixed' ? fixedSize : null;
     setBusy(true);
     try {
       if (source === 'file') {
@@ -414,6 +425,8 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
 
       await useStore.getState().createNewMap(trimmed);
       if (wanted) useStore.getState().setFixedSize(wanted);
+      // A blank map opens with every square covered by the ground picked.
+      if (source === 'blank') useStore.getState().setMapGround(choiceToGround(groundChoice ?? defaultGroundChoice()));
 
       // A trace is drawn over, not lined up: the map at the chosen size, the picture
       // stretched to it on the first level, no Battlemap layer.
@@ -454,7 +467,7 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, name, sizeMode, fixedSize, source, mapFile, rows, checked, image, imageInfo, useAs, onOpenChange, onEnter]);
+  }, [canSubmit, name, sizeMode, fixedSize, blankSize, groundChoice, source, mapFile, rows, checked, image, imageInfo, useAs, onOpenChange, onEnter]);
 
   const importing = progress !== null && busy;
   const imported = outcome ? outcome.results.filter((r) => r.ok).length : 0;
@@ -546,7 +559,22 @@ export function NewMapModal({ open, onOpenChange, onEnter }: NewMapModalProps) {
               </Field>
             )}
 
-            {ownFields && (
+            {source === 'blank' && (
+              <>
+                <MapSizeFields
+                  preset={preset}
+                  onPresetChange={setPreset}
+                  widthText={widthText}
+                  heightText={heightText}
+                  onWidthChange={setWidthText}
+                  onHeightChange={setHeightText}
+                  invalid={sizeInvalid}
+                />
+                <GroundField value={groundChoice ?? defaultGroundChoice()} onPick={setGroundChoice} />
+              </>
+            )}
+
+            {source === 'image' && (
               <SizeFields
                 mode={sizeMode}
                 onModeChange={setSizeMode}

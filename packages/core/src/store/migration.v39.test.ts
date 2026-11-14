@@ -28,9 +28,9 @@ const picture = (extra: Partial<AssetChild> = {}): AssetChild => ({
 
 describe('map format 3.9', () => {
   it('is the version saved, and 3.8 is still read', () => {
-    expect(CURRENT_VERSION).toBe('3.10');
+    expect(CURRENT_VERSION).toBe('3.11');
     expect(SUPPORTED_VERSIONS).toContain('3.8');
-    expect(useStore.getState().getSerializableState().version).toBe('3.10');
+    expect(useStore.getState().getSerializableState().version).toBe('3.11');
   });
 
   it('loads a 3.8 map with its picture as it was, no source size', () => {
@@ -45,7 +45,7 @@ describe('map format 3.9', () => {
   it('round-trips a picture with its file name and source size', () => {
     const imageSource = { fileName: 'Crypt 36x24.jpg', width: 5040, height: 3360 };
     const data = saved(picture({ imageSource }));
-    expect(data.version).toBe('3.10');
+    expect(data.version).toBe('3.11');
     useStore.getState().resetToDefault();
     useStore.getState().loadFromFile(migrateToLatest(data));
     const child = dungeon(useStore.getState().getSerializableState()).children.find((c) => c.id === 'img');

@@ -20,6 +20,7 @@ const manager = {
   getTexture: (id: string) => textures.get(id) ?? { width: 1, height: 1 },
   getFrame: () => null,
   waitForTexture: vi.fn(() => new Promise(() => {})),
+  subscribeCatalog: () => () => {},
 };
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 

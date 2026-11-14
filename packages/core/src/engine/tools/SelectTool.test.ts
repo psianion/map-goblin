@@ -458,3 +458,47 @@ describe('SelectTool — props: lock, overhead, oriented gizmo', () => {
     expect((findChild(table.id) as AssetChild).width).toBe(2);
   });
 });
+
+describe('SelectTool — a faded piece through the gizmo', () => {
+  let tool: SelectTool;
+  const fades = [{ rings: [[[1, 1], [3, 1], [3, 3], [1, 3]] as [number, number][]], feather: 0.5, depth: 0.5 }];
+
+  function addFaded(): ShapeChild {
+    const piece: ShapeChild = {
+      id: crypto.randomUUID(), name: 'Grass 1', childType: 'shape', visible: true, shapeType: 'polygon',
+      contours: [[[0, 0], [6, 0], [6, 6], [0, 6]]],
+      textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+      ground: true, fades: structuredClone(fades),
+    };
+    useStore.getState().addChild(layer().id, piece);
+    return piece;
+  }
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      s.grid.snapEnabled = false;
+    });
+    tool = new SelectTool(makeEngine());
+  });
+
+  it('gives the fades back with the outline when the move is undone', () => {
+    const piece = addFaded();
+    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 7, y: 8 }, dragEvent(2, 3));
+    tool.onPointerUp({ x: 7, y: 8 }, dragEvent(2, 3));
+    expect((findChild(piece.id) as ShapeChild).fades).not.toEqual(fades);
+    undoManager.undo();
+    expect((findChild(piece.id) as ShapeChild).contours).toEqual(piece.contours);
+    expect((findChild(piece.id) as ShapeChild).fades).toEqual(fades);
+  });
+
+  it('gives the fades back when the drag is cancelled with Escape', () => {
+    const piece = addFaded();
+    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 7, y: 8 }, dragEvent(2, 3));
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect((findChild(piece.id) as ShapeChild).fades).toEqual(fades);
+  });
+});

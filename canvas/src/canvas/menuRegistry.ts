@@ -612,7 +612,9 @@ registerMenu('text', (ctx) => [
   ...sharedVerbs(ctx),
 ])
 
-registerMenu('shape', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
+// A floor piece's place in the stack decides what it covers and what covers it: Order moves
+// it past the next piece, or to the top or the bottom.
+registerMenu('shape', (ctx) => [headerRow(ctx.child), orderRow([ctx.child.id]), ...sharedVerbs(ctx)])
 registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 
 // ─── Rooms and areas ───────────────────────────────────────────────────────
@@ -918,7 +920,8 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
   const arrangeable =
     sel.children.filter(({ child }) => child.childType !== 'door' && !child.locked).length +
     sel.walls.filter(({ wall }) => !wall.locked).length
-  const propCount = sel.children.filter(({ child }) => child.childType === 'asset').length
+  // Props and floor pieces both have an order within their layer.
+  const propCount = sel.children.filter(({ child }) => child.childType === 'asset' || child.childType === 'shape').length
   const members = sel.children.length + sel.walls.length
   const allLocked = members > 0 && sel.locked.length === members
   const arrangeRows: MenuRow[] =
@@ -944,7 +947,7 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
   const propRows: MenuRow[] =
     propCount > 0
       ? [
-          orderRow(selected.filter((id) => sel.children.some(({ child }) => child.id === id && child.childType === 'asset'))),
+          orderRow(selected.filter((id) => sel.children.some(({ child }) => child.id === id && (child.childType === 'asset' || child.childType === 'shape')))),
         ]
       : []
   const lockRow: MenuRow[] = [

@@ -305,6 +305,7 @@ describe('buildMultiMenu', () => {
       'Rotate 90°',
       'Align',
       'Distribute',
+      'Order',
       'Lock all',
       'Hide',
       'Move to layer',

@@ -11,7 +11,7 @@ import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { defaultBorderTexture } from '@dnd/core/src/engine/plateauKit';
 import { SwatchPicker, type Swatch } from '@/editor/SwatchPicker';
 import { swatchLabel } from '@/editor/swatchLabel';
-import { wallSetLabel, wallSetThumb } from '@/editor/models/assetStrip';
+import { installedWallSets, wallSetLabel, wallSetThumb } from '@/editor/models/assetStrip';
 import type { SettingProps } from '@/editor/registry/types';
 import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren } from './cardWrites';
@@ -32,6 +32,28 @@ export function EdgeBandField({ def, value, onChange }: SettingProps<string | nu
   const swatches = [{ value: NO_BAND, label: 'None' }, ...ids.map(bandSwatch)];
   return (
     <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} />
+  );
+}
+
+/** The Walls value that means no wall at all: a ground piece. */
+export const NO_WALLS = '__nowalls__';
+/** The Walls value a walled floor shows when its walls are a plain line, with no set. */
+export const PLAIN_WALLS = '__plain__';
+
+/**
+ * Walls, by picture: None first (a floor with no wall, no room), then every installed wall
+ * set. Walls are chosen, never automatic.
+ */
+export function WallsField({ def, value, onChange }: SettingProps<string | null>) {
+  // Wall sets arrive after boot; re-read them when the pack list moves.
+  useStore((s) => s.packs.installedPacks);
+  const ids = installedWallSets();
+  if (value && value !== PLAIN_WALLS && !ids.includes(value)) ids.push(value);
+  const swatches = [{ value: NO_WALLS, label: 'None' }, ...ids.map(bandSwatch)];
+  // A walled floor whose walls are a plain line has no set to picture: a named tile, shown only for it.
+  if (value === PLAIN_WALLS) swatches.push({ value: PLAIN_WALLS, label: 'Plain line' });
+  return (
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_WALLS} onPick={(v) => onChange(v === NO_WALLS ? null : v)} />
   );
 }
 

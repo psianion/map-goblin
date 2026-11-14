@@ -149,6 +149,15 @@ describe('computeMapFrame', () => {
     expect(computeMapFrame([layerWith(null)], null)).toBeNull();
   });
 
+  it('a locked size is the frame itself, whatever is drawn past it', () => {
+    const layers = [layerWith([[[-4, -4], [40, -4], [40, 30], [-4, 30]]])];
+    expect(computeMapFrame(layers, null, { width: 20, height: 10, locked: true })).toEqual({ minX: 0, minY: 0, maxX: 20, maxY: 10 });
+    // The same size not locked is a minimum: the frame grows to hold what is drawn.
+    const grown = computeMapFrame(layers, null, { width: 20, height: 10 })!;
+    expect(grown.minX).toBeLessThan(0);
+    expect(grown.maxX).toBeGreaterThan(20);
+  });
+
   it('snaps content bounds out to the enclosing whole cells, plus a cell all round', () => {
     const frame = computeMapFrame([layerWith([[[2, 2], [7, 2], [7, 5], [2, 5]]])], null);
     // Content bounds carry sub-cell padding (half the wall stroke + AA, 0.3 with the

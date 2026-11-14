@@ -33,6 +33,8 @@ import { glowOf } from '../shared/propFields';
 import { isFrozen } from '../shared/freeze';
 import { getEditorDesk, setAuthoredLookHold, sheetColor } from './editorDesk';
 import { computeMapFrame, type WorldBounds } from '../shared/mapBounds';
+import { lockedFrame } from '../shared/pieces';
+import { syncMapGround } from './mapGroundRenderer';
 
 /** The canvas clear colour without a desk; matches `PixiRenderEngine`'s init. */
 const VOID_COLOR = 0x0f100e;
@@ -211,6 +213,11 @@ export function setupRenderLoop(
     };
   };
   const applySheetClip = makeClip([sceneGraph.backgroundLayer], 'sheetClip');
+  // A sized map's frame: the older terrain paint, every layer and the overhead props are held to it.
+  const applyMapClip = makeClip(
+    [sceneGraph.terrainRenderer?.container, sceneGraph.layerContainer, sceneGraph.overheadContainer].filter((c): c is Container => !!c),
+    'mapClip',
+  );
 
   // What the map looks like as authored, kept up to date by the tick below; the export
   // asks for it back for the length of its render (`holdAuthoredLook`).
@@ -375,6 +382,16 @@ export function setupRenderLoop(
     // pinned size, so it moves out with anything drawn past the pin.
     if (sceneGraph.mapBoundaryRenderer) {
       sceneGraph.mapBoundaryRenderer.update(engine, mapFrame(useStore.getState()));
+    }
+
+    // (4a') The base ground over the frame, and a sized map's edge: nothing drawn past it
+    // shows (shrinking a map hides what falls outside, it deletes nothing). Both no-op
+    // unless the ground or the frame changed.
+    {
+      const state = useStore.getState();
+      const grounded = !!state.mapSettings.ground || state.levels.some((l) => l.ground);
+      if (sceneGraph.mapGround) syncMapGround(sceneGraph.mapGround, grounded ? mapFrame(state) : null);
+      applyMapClip(lockedFrame(state.mapSettings));
     }
 
     // (4b) Terrain crisp-window settle check — re-bakes the viewport window

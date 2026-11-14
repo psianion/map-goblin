@@ -4,6 +4,7 @@ export * from '../shared/world';
 export * from '../shared/fogLook';
 import type {
   AnyChild,
+  BaseGround,
   CrossingKind,
   WallSegment,
   WallEdits,
@@ -69,8 +70,18 @@ export interface MapSettings extends MapEnvironment {
    * normal state — measures the frame from content alone (`shared/mapBounds.computeMapFrame`).
    * Nothing clamps to it: drawing past a pinned edge grows the frame out on that side, so
    * the frame always encloses everything drawn.
+   *
+   * With `locked` it is the map's exact size instead: the frame is this rectangle and never
+   * grows, tools stop at its edge, and nothing outside it is drawn, exported or picked. The
+   * flag rides on the size so every reader that is handed the size reads the lock with it.
+   * Absent on every map made before sized maps, and on every import.
    */
-  fixedSize?: { width: number; height: number } | null;
+  fixedSize?: { width: number; height: number; locked?: true } | null;
+  /**
+   * The base ground: what every square of the frame is covered by, under everything drawn.
+   * null/absent = none, as on every older map. A level may carry its own (`Level.ground`).
+   */
+  ground?: BaseGround | null;
   /**
    * 2 once `store/roomMigration.ts` has turned the map's rooms into anchored places
    * (and given it levels). Absent on every older file, which is what runs the migration.
@@ -283,9 +294,9 @@ export type ToolType =
   | 'divide'
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
   | 'plateau'
-  /** Paints the active layer's water mask. */
+  /** The brush, listing water textures first: paints water pieces on the active layer. */
   | 'water'
-  /** Paints Material brush patches on the active layer. */
+  /** The brush: paints floor pieces on the active layer ('terrain' and 'water' are the same tool). */
   | 'material'
   /** Draws a path: units laid along a line of clicked nodes. */
   | 'path';
@@ -338,7 +349,30 @@ export interface MaterialToolSettings {
    * cut; off (absent), the cut stays open (`DungeonLayer.caveOpenings`).
    */
   rockOnCut?: boolean;
+  /** The texture the Terrain entry of the brush paints with. Absent = the first outdoor ground. */
+  groundMaterial?: string;
+  /** The texture the Water entry of the brush paints with. Absent = the pack's still water. */
+  waterMaterial?: string;
+  /**
+   * Strength: the opacity a new piece takes, 0 to 1 (`ShapeChild.opacity`); erasing, how much
+   * a pass takes off (below 1 it fades the piece instead of cutting it). Absent = 1.
+   */
+  strength?: number;
+  /**
+   * Feather: the share of the brush radius that fades, 0 to 1, painting and erasing alike.
+   * 0 is a hard brush. Absent = 0.5 (`FEATHER_DEFAULT`).
+   */
+  feather?: number;
+  /**
+   * Paint over rooms: on, a stroke covers whatever is under it. Off (absent), a stroke that
+   * starts outside the walled floors is cut to stay outside them, one that starts inside
+   * stays inside.
+   */
+  overRooms?: boolean;
 }
+
+/** The three rail entries of the one brush: they differ only in the texture each remembers. */
+export type BrushKind = 'material' | 'terrain' | 'water';
 
 /** The Path tool: what the next path is drawn with. */
 export interface PathToolSettings {
@@ -445,6 +479,11 @@ export interface ToolSettings {
   floorEdgeBand?: string | null;
   /** The height new floors take, cells (`ShapeChild.height`). Absent = 0. */
   floorHeight?: number;
+  /**
+   * The Floor panel's Walls: the wall set a new floor is walled with (pinned on it), or
+   * null/absent for None, which draws a ground piece with no wall at all.
+   */
+  floorWalls?: string | null;
   /** Absent on settings saved before the plateau tool: its defaults. */
   plateau?: PlateauToolSettings;
 }
@@ -758,7 +797,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7' | '3.8' | '3.9' | '3.10';
+  version: '2.0' | '3.0' | '3.1' | '3.2' | '3.3' | '3.4' | '3.5' | '3.6' | '3.7' | '3.8' | '3.9' | '3.10' | '3.11';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
@@ -833,6 +872,7 @@ export interface MapBuilderStore {
   // mapSettings actions
   setMapName: (name: string) => void;
   setFixedSize: (size: MapSettings['fixedSize']) => void;
+  setMapGround: (ground: MapSettings['ground']) => void;
   setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
   setFogLook: (look: FogLook | undefined) => void;
@@ -884,7 +924,7 @@ export interface MapBuilderStore {
   /** Appends the level, or inserts it at `index`. */
   addLevel: (level: Level, index?: number) => void;
   removeLevel: (levelId: string) => void;
-  updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook }) => void;
+  updateLevel: (levelId: string, patch: { name?: string; look?: RoomLook; ground?: BaseGround | null }) => void;
   setLayerLevel: (layerId: string, levelId: string) => void;
   /** Moves the level at `from` to `to` in the level order. */
   reorderLevel: (from: number, to: number) => void;

@@ -418,8 +418,29 @@ function TerrainBody() {
       <div {...edit.wrap}>
         <SliderRow label="Opacity" value={opacity} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onValueChange={edit.change} />
       </div>
+      <SecondaryButton data-testid="terrain-clear-old" onClick={clearOldTerrainPaint}>
+        Clear old terrain paint
+      </SecondaryButton>
     </Section>
   );
+}
+
+/**
+ * Takes an older map's terrain paint off it. The Terrain brush paints floor pieces now, so
+ * the paint is read-only: it draws as it always did until it is cleared here, for good (the
+ * paint is a bitmap, outside the undo history), and the Terrain row goes with it.
+ */
+function clearOldTerrainPaint(): void {
+  if (!window.confirm('Clear the old terrain paint from this map? This cannot be undone.')) return;
+  const store = useStore.getState();
+  store.setTerrainSplats([null, null, null]);
+  store.setTerrainData({ bounds: null });
+  // The Terrain row is gone with the paint: hand the layer in hand back to a map layer.
+  if (store.ui.activeLayerId === TERRAIN_PANEL_ID) {
+    const next = [...store.layers].reverse().find((l) => l.type === 'dungeon' && isOnShownLevel(store, l));
+    if (next) store.setActiveLayerId(next.id);
+  }
+  notify.success('Old terrain paint cleared');
 }
 
 /**

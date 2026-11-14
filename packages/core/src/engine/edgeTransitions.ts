@@ -132,7 +132,8 @@ export function renderEdgeTransitions(
 ): void {
   const s = layer.style;
   if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
-  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+  // Between walled floors only: the strips are clipped to their union, where no ground piece is.
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !c.ground);
   if (shapeChildren.length < 2) return;
 
   const strips = detectEdgeTransitions(shapeChildren, s.edgeTransitionWidth);

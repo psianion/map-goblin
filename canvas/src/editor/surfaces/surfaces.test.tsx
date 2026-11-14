@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { createDefaultState } from '@/store/factories';
 import type { AnyChild, DungeonLayer } from '@/store/types';
@@ -57,7 +57,7 @@ describe('Dock', () => {
     const dock = getByTestId('shell-dock');
     expect(shown(dock)).toEqual(ids('dock'));
     for (const id of ids('panel')) expect(dock.querySelector(`[data-setting="${id}"]`)).toBeNull();
-    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'Height', 'look']);
+    expect(columns(dock)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Walls', 'Edit', 'Height', 'look']);
   });
 
   it('shows the family of the tool in hand, else of the open flyout, and picks from it', () => {
@@ -168,5 +168,30 @@ describe('Card', () => {
     const verbs = [...card.querySelectorAll('[data-composite="action-row"] button')];
     expect(verbs).toHaveLength(8);
     expect(verbs.at(-1)?.getAttribute('aria-label')).toBe('Delete');
+  });
+});
+
+describe('a typed dock slider', () => {
+  it('takes a typed Feather in percent on Enter, clamped to the range, and drops it on Escape', () => {
+    act(() => useStore.getState().setActiveTool('material'));
+    act(() => useStore.getState().setEraseMode(true));
+    const { getByTestId } = withRegistry(<Dock />);
+    const dock = () => getByTestId('shell-dock');
+    const type = (text: string, key: string) => {
+      act(() => dock().querySelector<HTMLElement>('[aria-label="Feather: type a value"]')!.click());
+      const field = dock().querySelector<HTMLInputElement>('[data-setting="material.feather"] input[inputmode="decimal"]')!;
+      act(() => {
+        fireEvent.change(field, { target: { value: text } });
+        fireEvent.keyDown(field, { key });
+      });
+    };
+    expect(dock().querySelector('[data-setting="material.feather"] [aria-label="Feather: type a value"]')!.textContent).toBe('50%');
+    type('35', 'Enter');
+    expect(useStore.getState().tools.settings.material.feather).toBe(0.35);
+    type('500', 'Enter');
+    expect(useStore.getState().tools.settings.material.feather).toBe(1);
+    type('10', 'Escape');
+    expect(useStore.getState().tools.settings.material.feather).toBe(1);
+    expect(dock().querySelector('[data-setting="material.feather"] input[inputmode="decimal"]')).toBeNull();
   });
 });

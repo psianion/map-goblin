@@ -1,12 +1,10 @@
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand } from '../../store/commands';
-import { undoManager } from '../../store/undoManager';
 import { carveFloors } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
-import { newFloorLook } from './newFloor';
+import { commitNewFloor } from './newFloor';
 import { resolveEditableLayer } from './layerGuard';
 
 function generateRegularPolygon(
@@ -103,7 +101,7 @@ export class RegularPolygonTool implements DrawingTool {
         textureTint: activeLayer.style.defaultTextureTint ?? lastTextured?.textureTint ?? '#ffffff',
       };
 
-      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, { ...child, ...newFloorLook() }));
+      commitNewFloor('Draw regular polygon', activeLayerId, child);
     }
   }
 

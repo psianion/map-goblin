@@ -14,7 +14,6 @@ import { renderDoors } from './doorRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
-import { flattenRing } from '../shared/bezier';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
 import { renderPlateaus } from './plateauRenderer';
@@ -24,6 +23,9 @@ import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
+import { healLegacyPaint } from './legacyPaint';
+import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
+import { pruneSoftMasks } from './softPiece';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
 function parseColor(hex: string | undefined): number {
@@ -58,6 +60,23 @@ export function armLateTextureRebuild(layerId: string, textureId: string): void 
       // Timed out (bad id, install failed): stay on the fallback quietly.
       if (tex) useStore.getState().bumpFloorTextureEpoch(layerId);
     });
+}
+
+/**
+ * A texture the catalogue does not list paints flat, as retired art. While the packs are
+ * still being read that judgement is early: a pack read after the bake lists it. So once a
+ * floor paints flat for it, the catalogue is watched, and every change to it bakes every
+ * dungeon layer's floors again, once.
+ */
+let catalogWatched: unknown = null;
+function watchCatalog(): void {
+  const manager = getAssetPackManager();
+  if (catalogWatched === manager) return;
+  catalogWatched = manager;
+  manager.subscribeCatalog(() => {
+    const store = useStore.getState();
+    for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+  });
 }
 
 /**
@@ -195,49 +214,8 @@ function polygonBounds(points: [number, number][]): { minX: number; minY: number
  */
 const PX_PER_GRID_CELL = 200;
 
-/**
- * Render a single textured shape: TilingSprite masked to the shape polygon.
- * The TilingSprite is sized to the shape's bounding box and the texture
- * tiles seamlessly anchored to world origin.
- */
-/**
- * The ring(s) a shape's floor is painted to: its own outline, grown outward by
- * `bleed` when the layer asks for it (see DungeonStyle.floorBleed).
- *
- * Growing can only ever fatten a ring, never split one, so the usual answer is a
- * single ring — but Clipper is free to hand back more than one and each is drawn,
- * because a dropped ring is a hole in the floor, which is the exact defect the
- * bleed exists to prevent.
- */
-function fillRings(shape: ShapeChild, bleed: number): Polygon[] {
-  // Curved rooms mask their fill to the drawn curve, not the anchor chords.
-  const ring = flattenRing(shape.contours[0], shape.tangents?.[0]);
-  if (bleed <= 0) return [ring];
-  const grown = clipper2Engine.inflate([ring], bleed);
-  return grown.length > 0 ? grown : [ring];
-}
-
 /** A floor's own alpha, fill and texture only. */
 const floorAlpha = (shape: ShapeChild): number => Math.min(1, Math.max(0, shape.opacity ?? 1));
-
-function renderTexturedShape(
-  parent: Container,
-  shape: ShapeChild,
-  texture: Texture,
-  bleed: number,
-): void {
-  const tint = shape.textureTint && shape.textureTint !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
-  const alpha = floorAlpha(shape);
-  paintTiled(parent, fillRings(shape, bleed), texture, {
-    alpha: alpha < 1 ? alpha : undefined,
-    // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
-    scale: shape.textureScale || 1,
-    rotation: shape.textureFillRotation,
-    offsetX: shape.textureOffsetX ?? 0,
-    offsetY: shape.textureOffsetY ?? 0,
-    tint: isNaN(tint) ? undefined : tint,
-  });
-}
 
 /** How a tiled fill lays its texture: cells per 200 px, turn, offset from the world origin, tint. */
 export interface TiledLook {
@@ -325,7 +303,11 @@ export function shapeFloorFill(
   // the default floor rather than throwing on the missing colour.
   const floorColor = floorColorOf(resolved);
   const textureId = shape.textureId || fallbackTextureId;
-  if (!textureId || !hasLiveTexture(textureId)) return { kind: 'solid', color: floorColor };
+  if (!textureId) return { kind: 'solid', color: floorColor };
+  if (!hasLiveTexture(textureId)) {
+    watchCatalog();
+    return { kind: 'solid', color: floorColor };
+  }
   // unitTexture, not resolveTexture: a variant-sheet source file must fill
   // with just its one unit — keeps the fill in scale with the palette/brush.
   const texture = unitTexture(textureId).texture;
@@ -336,21 +318,6 @@ export function shapeFloorFill(
   const tint =
     shape.textureTint && shape.textureTint.toLowerCase() !== '#ffffff' ? parseColor(shape.textureTint) : NaN;
   return { kind: 'solid', color: isNaN(tint) ? floorColor : tint, waitFor: textureId };
-}
-
-/**
- * Render a single solid-color shape fill.
- */
-function renderSolidShape(
-  parent: Container,
-  shape: ShapeChild,
-  color: number,
-  bleed: number,
-): void {
-  const g = new Graphics();
-  for (const r of fillRings(shape, bleed)) traceSinglePolygon(g, r);
-  g.fill({ color, alpha: floorAlpha(shape) });
-  parent.addChild(g);
 }
 
 /**
@@ -414,9 +381,49 @@ export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
 export function redrawRoomFills(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
   const { floor } = entry.sublayers;
-  if (!layer.mergedFloor || layer.mergedFloor.length === 0 || floor.children.length === 0) return;
+  const walled = walledBoxOf(floor);
+  if (!layer.mergedFloor || layer.mergedFloor.length === 0 || walled.parent !== floor) return;
   // Above the floor's own fills, below the terrain paint: re-inserted where the rebuild put it.
-  drawRoomFills(floor, layer);
+  drawRoomFills(walled, layer);
+}
+
+/**
+ * What stays clipped to the walled floors' union, in a container of its own in the stack:
+ * the edge transitions, the room fills and the older terrain paint. One per floor sublayer,
+ * kept across rebuilds: the room fills live in it and outlive the bake.
+ */
+const walledBoxes = new WeakMap<Container, Container>();
+function walledBoxOf(floor: Container): Container {
+  let box = walledBoxes.get(floor);
+  if (!box || box.destroyed) {
+    box = new Container();
+    box.label = 'floor-walled';
+    walledBoxes.set(floor, box);
+  }
+  return box;
+}
+
+/** A layer with no union, by one identity, so what is kept per union stays kept. */
+const NO_FLOOR: Polygon[] = [];
+
+const groundGridMemo = new Map<string, { pieces: ShapeChild[]; floor: Polygon[]; rings: Polygon[] }>();
+
+/**
+ * Where a layer's ground pieces carry grid lines: all of them as one region, less the walled
+ * floors (which line themselves), so no line is drawn twice where pieces overlap. Kept per
+ * layer while neither the pieces nor the union change: this runs on every step of a drag.
+ */
+function groundGridRings(layerId: string, pieces: ShapeChild[], floor: Polygon[]): Polygon[] {
+  if (pieces.length === 0) {
+    groundGridMemo.delete(layerId);
+    return [];
+  }
+  const hit = groundGridMemo.get(layerId);
+  if (hit && hit.floor === floor && hit.pieces.length === pieces.length && hit.pieces.every((p, i) => p === pieces[i])) return hit.rings;
+  const all = pieces.flatMap((p) => pieceOutline(p));
+  const rings = pieces.length === 1 && floor.length === 0 ? all : clipper2Engine.difference(clipper2Engine.union(all, []), floor);
+  groundGridMemo.set(layerId, { pieces, floor, rings });
+  return rings;
 }
 
 /**
@@ -430,12 +437,15 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const gridSub = entry.sublayers.grid;
   for (const child of gridSub.removeChildren()) child.destroy();
 
-  const polygons = layer.mergedFloor;
-  if (!polygons || polygons.length === 0) return;
+  const polygons = layer.mergedFloor ?? NO_FLOOR;
+  // Ground pieces carry the grid too: lines mean "the built map", and ground is built.
+  const ground = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.ground === true && c.visible !== false);
+  const groundRings = groundGridRings(layer.id, ground, polygons);
+  if (polygons.length === 0 && groundRings.length === 0) return;
 
   // Compute bounding box of all floor polygons
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const polygon of polygons) {
+  for (const polygon of [...polygons, ...groundRings]) {
     for (const [x, y] of polygon) {
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
@@ -462,7 +472,11 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   // Whole cells, and in the editor the snap step between them (the table's desk turns it off).
   const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
-  for (const [color, rings] of byColor) {
+  // Ground takes the layer's own line colour, over what the floors do not already line.
+  const groups: [string, Polygon[]][] = [...byColor];
+  if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings]);
+
+  for (const [color, rings] of groups) {
     // Mask to clip grid lines within floor shape
     const maskG = new Graphics();
     fillPolygonsWithHoles(maskG, rings, { color: 0xffffff });
@@ -473,6 +487,39 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     gridContainer.mask = maskG;
     gridSub.addChild(gridContainer);
   }
+}
+
+/**
+ * Puts what stays on the walled floors into the stack, after what `floor` holds: the edge
+ * transitions between differently textured floors, the looks pinned on rooms, areas and the
+ * level, and the older terrain paint, all clipped to the floors' union. The union is grown by
+ * the fills' bleed, or the clip would crop them straight back to the authored edge; erase
+ * holes grow too (Clipper offsets a hole ring inward for a positive delta), so an erased
+ * opening keeps its own margin.
+ */
+function drawWalledExtras(floor: Container, walled: Container, layer: DungeonLayer, polygons: Polygon[], bleed: number, covered: Polygon[]): void {
+  const mask = new Graphics();
+  const union = bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons;
+  // Off a ground piece that lies on the floors: it is above them, so above their room look and older paint too.
+  fillPolygonsWithHoles(mask, covered.length > 0 ? clipper2Engine.difference(union, covered) : union, { color: 0xffffff });
+  walled.addChild(mask);
+  walled.mask = mask;
+
+  // ── Edge transitions (between differently-textured shapes) ───
+  renderEdgeTransitions(walled, layer);
+
+  // ── Floor looks pinned on rooms, areas and the level ─────────
+  drawRoomFills(walled, layer);
+
+  // ── Painted terrain over the floor ──────────────────────────
+  // A floor is ground with walls around it, so a stroke runs across the boundary
+  // instead of stopping at it. Above the fill and the transitions, below
+  // grid/walls/doors; the mask keeps it from double-painting the ground
+  // quad that already covers everything outside this floor.
+  const terrainMesh = getTerrainRenderer()?.createFloorMesh();
+  if (terrainMesh) walled.addChild(terrainMesh);
+
+  floor.addChild(walled);
 }
 
 /**
@@ -493,6 +540,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Rebuilding IS the moment the entry exists, so compute it here and write it
   // back for rooms, fog and wall resolution to read. The shapes subscriber does
   // not select mergedFloor, so the write cannot loop this rebuild.
+  // An older map's patches and water mask become pieces here, once the catalog and Clipper
+  // are at hand to convert what the load could not (legacyPaint.ts).
+  layer = healLegacyPaint(layer);
+
   if (layer.mergedFloor == null) {
     const computed = computeMergedFloor(layer);
     if (computed) {
@@ -509,8 +560,12 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Clear all sublayers (reset floor mask from prior textured render). The room fills
   // outlive the bake: they are redrawn on their own key, not on every rebuild.
   floor.mask = null;
-  detachRoomFills(floor);
-  for (const child of floor.removeChildren()) child.destroy();
+  const walled = walledBoxOf(floor);
+  detachRoomFills(walled);
+  if (walled.parent === floor) floor.removeChild(walled);
+  walled.mask = null;
+  for (const child of walled.removeChildren()) child.destroy({ children: true });
+  for (const child of floor.removeChildren()) child.destroy({ children: true });
   // Not the walls: `renderNodeWalls` pools its stone sprites, reassigning the
   // ones already in the container and trimming the tail itself. Emptying it
   // here would throw the pool away on every rebuild, which is the allocation
@@ -564,24 +619,31 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   // The authored boundary itself. A ring's stones stand on it, and dragging one
   // moves it (see ringStoneDrag), so there is nothing here to bend to match.
-  const polygons = layer.mergedFloor;
-  if (!polygons || polygons.length === 0) return;
+  const polygons = layer.mergedFloor ?? NO_FLOOR;
+
+  // ── The pieces, in their order ───────────────────────────────
+  // Every floor piece, walled or ground, is drawn at its own place in `children`, so the top
+  // one wins. Each is painted to its own region (its ring less its own holes) rather than
+  // under one mask of the union: a hole in one piece shows the piece under it.
+  const pieces = layer.children.filter(
+    (c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && (c.contours[0]?.length ?? 0) >= 3,
+  );
+  if (polygons.length === 0 && pieces.length === 0) {
+    pruneSoftMasks(layer.id, new Set());
+    redrawGrid(layer, entry);
+    return;
+  }
 
   const s = layer.style ?? ({} as DungeonStyle);
   const floorColorNum = floorColorOf(s);
   // Paint-only overshoot, per floor: a floor a preset pinned carries its own, so the
-  // paint of drawn work stays put. The mask below grows by the widest of them — a fill
-  // grown past a mask that was not is just a more expensive way to draw the same edge.
+  // paint of drawn work stays put.
   const bleedOf = (shape: ShapeChild) =>
     Math.max(0, resolveStyle(s, shape.styleOverrides as Partial<DungeonStyle> | undefined).floorBleed ?? 0);
 
-  // ── Floor fill (per-shape back-to-front) ─────────────────────
-  // Render each shape individually: textured shapes get a TilingSprite
-  // masked to their polygon; non-textured shapes get solid color fill.
-  // A mergedFloor mask on the floor container clips everything to handle
-  // erase holes automatically.
-
-  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+  // The walled floors: what the union, the transitions, the room fills and the older
+  // terrain paint are about.
+  const shapeChildren = pieces.filter((c) => !c.ground);
   // A texture id no installed pack lists (a retired pack's art) never loads, so
   // such a shape counts as untextured and paints its floor colour.
   // A floor with no texture of its own takes its level's, on a layer that names none.
@@ -591,60 +653,54 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Fast-path detection: check if ANY shape has styleOverrides before
   // enabling per-shape resolution (avoids overhead in the common case).
   const hasStyleOverrides = shapeChildren.some((sh) => sh.styleOverrides && Object.keys(sh.styleOverrides).length > 0);
-  // A floor below full opacity is painted on its own, so what is under it shows through.
-  const perShape = hasTexturedShapes || hasStyleOverrides || shapeChildren.some((sh) => floorAlpha(sh) < 1);
-  // The mask grows by the widest bleed any fill takes, or it would crop that fill back.
+  // A floor below full opacity, or faded by a soft erase, is painted on its own, so what is under it shows through.
+  const perShape = hasTexturedShapes || hasStyleOverrides || shapeChildren.some((sh) => floorAlpha(sh) < 1 || (sh.fades?.length ?? 0) > 0);
+  // The widest bleed any walled fill takes: what is clipped to the union below grows by it.
   const bleed = perShape
     ? shapeChildren.reduce((m, sh) => Math.max(m, bleedOf(sh)), 0)
     : Math.max(0, s.floorBleed ?? 0);
 
-  if (perShape) {
-    // Per-shape rendering: iterate back-to-front (array order = render order)
-    for (const shape of shapeChildren) {
-      if ((shape.contours[0]?.length ?? 0) < 3) continue;
-      const fill = shapeFloorFill(shape, s, floorFallback);
-      const own = bleedOf(shape);
-      if (fill.kind === 'texture') {
-        renderTexturedShape(floor, shape, fill.texture, own);
-      } else {
-        // Texture not loaded yet: re-bake when it lands.
-        if (fill.waitFor) armLateTextureRebuild(layer.id, fill.waitFor);
-        renderSolidShape(floor, shape, fill.color, own);
-      }
-    }
-  } else {
-    // No textured shapes, no style overrides — use original merged floor fill (faster)
-    const floorG = new Graphics();
-    fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
-    floor.addChild(floorG);
-  }
+  // Plain floors (no texture, no override, full opacity) are filled as one union in one
+  // colour, which is faster. Only while no ground piece lies between them in the order:
+  // one fill cannot go both under and over it.
+  const firstWalled = pieces.findIndex((c) => !c.ground);
+  const lastWalled = pieces.reduce((at, c, i) => (c.ground ? at : i), -1);
+  const unionFilled =
+    !perShape && polygons.length > 0 && !pieces.some((c, i) => c.ground === true && i > firstWalled && i < lastWalled);
 
-  // Clip the whole floor container to mergedFloor: it handles erase holes in the
-  // per-shape fills, and it is what keeps the terrain quad below on the floor.
-  // Grown by the same bleed as the fills, or it would crop them straight back to
-  // the authored edge. Erase holes grow too — Clipper offsets a hole ring inward
-  // for a positive delta — so an erased opening keeps its own margin instead of
-  // being sealed shut by the overshoot.
-  const floorMask = new Graphics();
-  fillPolygonsWithHoles(floorMask, bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons, {
-    color: 0xffffff,
+  // Every water piece's outline, as one: a shore stops where water meets water.
+  const waters = pieces.filter((c) => isWaterPiece(c));
+  const water = waters.length > 1 ? clipper2Engine.union(waters.flatMap((c) => pieceOutline(c)), []) : waters.flatMap((c) => pieceOutline(c));
+  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0 };
+
+  // A ground piece between two walled floors lies over the floors under it: where it shows
+  // (no later walled floor covers it) the walled extras stay off it.
+  let covered: Polygon[] = [];
+  pieces.forEach((g, i) => {
+    if (!g.ground || i < firstWalled || i > lastWalled) return;
+    const later = pieces.slice(i + 1).filter((c) => !c.ground).flatMap((c) => pieceOutline(c));
+    const own = clipper2Engine.difference(pieceOutline(g), later);
+    covered = covered.length > 0 ? clipper2Engine.union(covered, own) : own;
   });
-  floor.addChild(floorMask);
-  floor.mask = floorMask;
+  const walledExtras = (): void => {
+    drawWalledExtras(floor, walled, layer, polygons, bleed, covered);
+    // The walled floors' painted borders go over the room looks and the older paint, as they
+    // always did. A ground piece drawn after this still covers them.
+    for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh);
+  };
 
-  // ── Edge transitions (between differently-textured shapes) ───
-  renderEdgeTransitions(floor, layer);
-
-  // ── Floor looks pinned on rooms, areas and the level ─────────
-  drawRoomFills(floor, layer);
-
-  // ── Painted terrain over the floor ──────────────────────────
-  // A floor is ground with walls around it, so a stroke runs across the boundary
-  // instead of stopping at it. Above the fill and the transitions, below
-  // grid/walls/doors; the floor mask keeps it from double-painting the ground
-  // quad that already covers everything outside this floor.
-  const terrainMesh = getTerrainRenderer()?.createFloorMesh();
-  if (terrainMesh) floor.addChild(terrainMesh);
+  pieces.forEach((shape, i) => {
+    if (unionFilled && i === firstWalled) {
+      const floorG = new Graphics();
+      fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
+      floor.addChild(floorG);
+    }
+    drawPiece(floor, shape, ctx);
+    if (i === lastWalled && polygons.length > 0) walledExtras();
+  });
+  // A union with no drawable floor behind it (rings too short to draw) still carries its extras.
+  if (lastWalled < 0 && polygons.length > 0) walledExtras();
+  pruneSoftMasks(layer.id, ctx.soft);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
   redrawGrid(layer, entry);

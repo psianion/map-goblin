@@ -9,7 +9,7 @@ import {
   type Obb,
 } from './propPlacement';
 import { useStore } from '../../store/store';
-import type { AssetChild, DungeonLayer } from '../../store/types';
+import type { AssetChild, DungeonLayer, ShapeChild } from '../../store/types';
 import type { Room } from '../../shared/types';
 import { seedCaveBandPack, caveBandChildren, resetAssetPackManager } from '../../testing/seedCatalog';
 
@@ -157,22 +157,31 @@ describe('floorTest', () => {
     expect(test!(box(9.8, 2, 0.5, 0.5))).toBe(false);
   });
 
-  it('counts ground painted with the Material brush as floor, beside the floor, outside the rooms, and alone', () => {
-    const ground = { id: 'g', material: 'p:grass', rings: [[[10, 0], [20, 0], [20, 10], [10, 10]]] as [number, number][][], smooth: false, border: false, ground: true };
-    const beside = floorTest({ ...baseLayer(), mergedFloor: [[[0, 0], [10, 0], [10, 10], [0, 10]]], materials: [ground] });
+  it('counts ground pieces as floor, beside the floor, outside the rooms, and alone; and the base ground inside the frame', () => {
+    const ground: ShapeChild = {
+      id: 'g', name: 'g', childType: 'shape', visible: true, shapeType: 'polygon',
+      contours: [[[10, 0], [20, 0], [20, 10], [10, 10]]],
+      textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff', ground: true,
+    };
+    const floor: [number, number][][] = [[[0, 0], [10, 0], [10, 10], [0, 10]]];
+    const beside = floorTest({ ...baseLayer(), mergedFloor: floor, children: [ground] });
     expect(beside!(box(15, 5, 0.5, 0.5))).toBe(true);
     // Half on the floor and half on the ground beside it.
     expect(beside!(box(10, 5, 0.5, 0.5))).toBe(true);
     expect(beside!(box(25, 5, 0.5, 0.5))).toBe(false);
-    // Paint on a floor is not ground: it adds no floor of its own.
-    const paint = floorTest({ ...baseLayer(), mergedFloor: [[[0, 0], [10, 0], [10, 10], [0, 10]]], materials: [{ ...ground, ground: undefined }] });
+    // A patch from an older map that was painted on a floor is not ground: it adds no floor of its own.
+    const paint = floorTest({ ...baseLayer(), mergedFloor: floor, children: [{ ...ground, keptToFloors: true }] });
     expect(paint!(box(15, 5, 0.5, 0.5))).toBe(false);
-    const rooms = floorTest({ ...baseLayer(), rooms: [room('a', 0, 6)], materials: [ground] });
+    const rooms = floorTest({ ...baseLayer(), rooms: [room('a', 0, 6)], children: [ground] });
     expect(rooms!(box(15, 5, 0.5, 0.5))).toBe(true);
     expect(rooms!(box(3, 3, 0.5, 0.5))).toBe(true);
-    const alone = floorTest({ ...baseLayer(), materials: [ground] });
+    const alone = floorTest({ ...baseLayer(), children: [ground] });
     expect(alone!(box(15, 5, 0.5, 0.5))).toBe(true);
     expect(alone!(box(5, 5, 0.5, 0.5))).toBe(false);
+    // The base ground is floor everywhere inside the map's frame.
+    const based = floorTest(baseLayer(), { minX: 0, minY: 0, maxX: 30, maxY: 20 });
+    expect(based!(box(25, 5, 0.5, 0.5))).toBe(true);
+    expect(based!(box(35, 5, 0.5, 0.5))).toBe(false);
   });
 
   it('a layer with neither rooms nor floor has no test', () => {

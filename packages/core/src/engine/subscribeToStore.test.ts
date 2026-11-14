@@ -377,6 +377,21 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(invalidateAll).not.toHaveBeenCalled();
   });
 
+  // A texture that lands after the bake asks for a repaint through the layer's epoch, and
+  // nothing else in the document changes with it.
+  it('a floor texture epoch bump alone redraws the layer', () => {
+    const layerId = seed({ children: [shape('s1', 500, 500)] });
+
+    unsub = start();
+    vi.clearAllMocks();
+
+    useStore.getState().bumpFloorTextureEpoch(layerId);
+    flushLayerDraws();
+
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+  });
+
   it('occlusion and the light polygon do update on a toggle', () => {
     const layerId = seed({
       children: [shape('s1', 500, 500), door('d1', 'w1', 50, 0), light('l1', 50, -30)],
@@ -731,6 +746,24 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     useStore.getState().updateChild(layerId, 's1', { opacity: undefined });
     flushLayerDraws();
     expect(rebuildDungeonLayer).toHaveBeenCalledTimes(3);
+  });
+
+  // Fades were missing from the shape keys: an erase below full strength cuts nothing, so it
+  // stored its fade on the piece and the floor kept its old bake, with nothing faded on screen.
+  it('a fade added or cleared on its own re-bakes the floor without re-unioning', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0), shape('s2', 20, 0)] });
+    unsub = start();
+    vi.clearAllMocks();
+
+    const fade = { rings: [[[1, 1], [4, 1], [4, 4], [1, 4]] as [number, number][]], feather: 1, depth: 0.5 };
+    useStore.getState().updateChild(layerId, 's1', { fades: [fade] } as Partial<ShapeChild>);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+
+    useStore.getState().updateChild(layerId, 's1', { fades: undefined } as Partial<ShapeChild>);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(2);
   });
 
   // The clone baked its floor at 0%, and setting it back to 100% re-baked nothing,

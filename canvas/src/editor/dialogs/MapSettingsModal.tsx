@@ -17,6 +17,8 @@ import type { Command } from '@/store/types';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
 import { SizeFields, type SizeMode } from './SizeFields';
+import { GroundField, MapSizeFields } from './MapSizeGround';
+import { choiceToGround, GROUND_NONE, groundToChoice, presetOf, presetSize, SIZE_CUSTOM } from './sizedMap';
 import { PlateauRules } from './PlateauRules';
 import { crossingIdsInUse } from './plateauRulesModel';
 
@@ -37,6 +39,11 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
   const [sizeMode, setSizeMode] = useState<SizeMode>('expanding');
   const [widthText, setWidthText] = useState('30');
   const [heightText, setHeightText] = useState('20');
+  // A sized map (its size locked) is resized from the presets; an older map still chooses
+  // between growing and a size, and giving it a size is what locks it.
+  const [locked, setLocked] = useState(false);
+  const [preset, setPreset] = useState<string>(SIZE_CUSTOM);
+  const [groundChoice, setGroundChoice] = useState<string>(GROUND_NONE);
   const [scaleText, setScaleText] = useState('5');
   const [unit, setUnit] = useState<CellScaleUnit>('ft');
   const [busy, setBusy] = useState(false);
@@ -56,6 +63,9 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     setName(current);
     setOriginalName(current);
     setSizeMode(settings.fixedSize ? 'fixed' : 'expanding');
+    setLocked(settings.fixedSize?.locked === true);
+    setPreset(presetOf(settings.fixedSize));
+    setGroundChoice(groundToChoice(settings.ground));
     // Fixed starts at what the map already measures, so pinning it is one click rather
     // than reading the size off the canvas and typing it back in.
     const measured = measureGridSize(state.layers, settings.terrain?.bounds ?? null);
@@ -78,7 +88,8 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     () => normalizeFixedSize({ width: Number(widthText), height: Number(heightText) }),
     [widthText, heightText],
   );
-  const sizeInvalid = sizeMode === 'fixed' && fixedSize === null;
+  const sizedSize = locked && preset !== SIZE_CUSTOM ? presetSize(preset) : fixedSize;
+  const sizeInvalid = locked ? sizedSize === null : sizeMode === 'fixed' && fixedSize === null;
   const cellScale = useMemo(
     () => normalizeCellScale({ value: scaleText.trim() === '' ? NaN : Number(scaleText), unit }),
     [scaleText, unit],
@@ -96,7 +107,18 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
       const trimmed = name.trim();
       // An emptied name keeps the one the map has rather than inventing a placeholder.
       if (id && trimmed && trimmed !== originalName) await store.renameMap(id, trimmed);
-      store.setFixedSize(sizeMode === 'fixed' ? fixedSize : null);
+      // A sized map is resized and stays sized: shrinking hides what falls outside, it
+      // deletes nothing. An older map left on the size it was pinned to stays a minimum, as
+      // it was; given a size here (from growing, or a new one) it becomes a sized map.
+      const before = store.mapSettings.fixedSize ?? null;
+      if (locked) {
+        if (sizedSize) store.setFixedSize({ ...sizedSize, locked: true });
+      } else if (sizeMode !== 'fixed' || !fixedSize) {
+        store.setFixedSize(null);
+      } else if (!before || before.width !== fixedSize.width || before.height !== fixedSize.height) {
+        store.setFixedSize({ ...fixedSize, locked: true });
+      }
+      if (groundChoice !== groundToChoice(store.mapSettings.ground)) store.setMapGround(choiceToGround(groundChoice));
       store.setCellScale(cellScale);
       // The plateau rules are undoable like any edit: one step for whatever changed.
       const trimmedKinds = kinds.map((k) => ({ ...k, name: k.name.trim() }));
@@ -114,7 +136,7 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
     } finally {
       setBusy(false);
     }
-  }, [canSubmit, cellScale, name, originalName, sizeMode, fixedSize, onOpenChange, sightDrop, kinds]);
+  }, [canSubmit, cellScale, name, originalName, sizeMode, fixedSize, locked, sizedSize, groundChoice, onOpenChange, sightDrop, kinds]);
 
   // Escape closes from anywhere in the dialog, a focused field included.
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
@@ -141,15 +163,29 @@ export function MapSettingsModal({ open, onOpenChange }: MapSettingsModalProps) 
           <Input id="v2-map-settings-name" ref={nameRef} value={name} placeholder={originalName} onChange={(e) => setName(e.target.value)} />
         </Field>
 
-        <SizeFields
-          mode={sizeMode}
-          onModeChange={setSizeMode}
-          widthText={widthText}
-          heightText={heightText}
-          onWidthChange={setWidthText}
-          onHeightChange={setHeightText}
-          invalid={sizeInvalid}
-        />
+        {locked ? (
+          <MapSizeFields
+            preset={preset}
+            onPresetChange={setPreset}
+            widthText={widthText}
+            heightText={heightText}
+            onWidthChange={setWidthText}
+            onHeightChange={setHeightText}
+            invalid={sizeInvalid}
+          />
+        ) : (
+          <SizeFields
+            mode={sizeMode}
+            onModeChange={setSizeMode}
+            widthText={widthText}
+            heightText={heightText}
+            onWidthChange={setWidthText}
+            onHeightChange={setHeightText}
+            invalid={sizeInvalid}
+          />
+        )}
+
+        <GroundField value={groundChoice} onPick={setGroundChoice} />
 
         <Field label="Cell scale">
           <div className="flex items-center gap-1.5 text-[12px] text-text-2">

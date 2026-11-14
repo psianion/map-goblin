@@ -269,7 +269,8 @@ export function ringStyles(layer: DungeonLayer, level?: RoomLook): DungeonStyle[
     if (noBand && style.wallTextureSetId && isBandSetId(style.wallTextureSetId)) style.wallTextureSetId = '';
     return style;
   };
-  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false);
+  // Walled floors only: the rings are the union's, which no ground piece is part of.
+  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground);
   const pins = shapes.map(outlinePins);
   let out: DungeonStyle[];
   if (pins.every((p) => p === null)) {

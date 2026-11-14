@@ -13,6 +13,7 @@ import { MIN_ZOOM, MAX_ZOOM } from '@/editor/zoomControl';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
 import { pickAt, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
+import { onMap } from '@dnd/core/src/engine/mapFrame';
 import { notify } from '@dnd/ui/toast';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import type { DungeonLayer } from '@/store/types';
@@ -121,6 +122,7 @@ const RAW_POINT_TOOLS = new Set(['scatterBrush', 'plateau']);
  */
 export function roomUnder(world: Point, zoom: number): { layerId: string; anchor: [number, number] } | null {
   if (!roomPickingEnabled()) return null;
+  if (!onMap(world.x, world.y)) return null;
   const state = useStore.getState();
   for (let i = state.layers.length - 1; i >= 0; i--) {
     const l = state.layers[i];

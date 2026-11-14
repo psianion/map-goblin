@@ -153,11 +153,30 @@ export class AssetPackManager {
   private progressJobs: AssetProgress[] = []
   private progressSnapshot: AssetProgress = IDLE
 
+  private catalogSubs: Set<() => void> = new Set()
+  private catalogVersionValue = 0
+
   /**
    * Bumped whenever the set of installed packs or their manifests changes.
-   * packCatalog memoizes its derived views against this.
+   * packCatalog memoizes its derived views against this. Every bump is heard by
+   * `subscribeCatalog`.
    */
-  catalogVersion = 0
+  get catalogVersion(): number {
+    return this.catalogVersionValue
+  }
+
+  set catalogVersion(version: number) {
+    this.catalogVersionValue = version
+    for (const cb of [...this.catalogSubs]) cb()
+  }
+
+  /** Call `cb` after every change to the catalogue (a pack read, installed, updated or removed). Returns the unsubscribe. */
+  subscribeCatalog(cb: () => void): () => void {
+    this.catalogSubs.add(cb)
+    return () => {
+      this.catalogSubs.delete(cb)
+    }
+  }
 
   /** Bumped once per decoded file. See `subscribeTextures`. */
   textureVersion = 0
