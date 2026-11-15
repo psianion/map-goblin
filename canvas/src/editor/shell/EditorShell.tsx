@@ -29,6 +29,7 @@ import { Sundial } from '@/editor/families/environment/Sundial';
 import { RegistryProvider } from './RegistryProvider';
 import { useRegistryKeys } from './shellKeys';
 import { useSpacePan } from './spacePan';
+import { useSheetHold } from './sheetHold';
 import { resetShell, useShell } from './shellStore';
 import { getGridCalibration } from '@/canvas/gridCalibration';
 
@@ -72,6 +73,9 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
   useRegistryKeys(registry);
   // Hold Space to pan with any tool.
   useSpacePan();
+  // The Sky sheet holds the tool in hand while it is open. Before the reset below, so an
+  // unmount hands the tool back first.
+  useSheetHold(registry);
   useEffect(() => () => resetShell(), []);
 
   useEffect(() => {

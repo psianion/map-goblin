@@ -1,6 +1,7 @@
 // The Environment family (plan 6.4): the Light tool, the Sky entry and the light card. Sky is
 // not a tool: picking it opens the map's Sky sheet (SkyMoodSheet), which the Sheet surface
-// hosts, and leaves the tool in hand as it was.
+// hosts. While it is open it stands in hand and holds the tool before it (shell/sheetHold.ts),
+// which comes back when the sheet closes.
 //
 // Not built yet (plan 8.5 and section 9): light shapes, when assets arrive. Removed and not
 // coming back: the Flicker switch, Falloff, Night only, Darkvision sees through, the

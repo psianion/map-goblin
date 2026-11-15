@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { firePointer, gotoApp, pressShortcut, waitFrame } from './helpers'
 import { dockColumns, openEditor, pickFromFlyout, pickTool, shot } from './shell'
-import { NOON, addLight, floorNear, inPage, lightOf, litChip, lum, openWarren, roomAnchor, select, toggleLit, undo } from './lighting'
+import { NOON, addLight, inPage, lightOf, litChip, lum, openWarren, roomAnchor, select, toggleLit, undo } from './lighting'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -124,7 +124,10 @@ test('placing a light with the preview unlit lights it at Day: the chip reads Pr
   await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'underground' }))
   await waitFrame(page, 4)
   await expect(litChip(page)).toHaveText('Unlit')
-  const floor = floorNear(await roomAnchor(page, 'Warren Hall'))
+  // Plain floor up and to the right of the hall's anchor: at the fitted zoom the box just above
+  // the anchor (floorNear) takes in a stool and the top of the room's number badge.
+  const hall = await roomAnchor(page, 'Warren Hall')
+  const floor = { x: hall.x + 3, y: hall.y - 3 }
   const unlit = await lum(page, floor, 6)
   await pickFromFlyout(page, 'Environment', 'Light')
   await page.getByTestId('shell-dock').getByRole('button', { name: /^Torch/ }).click()
@@ -155,25 +158,50 @@ test('the Sky sheet says the map is shown unlit; picking a place leaves the prev
   await expect(sheet.getByText('Shown unlit.', { exact: false })).toHaveCount(0)
 })
 
-test('the Sky entry opens its sheet on K and leaves the tool in hand; closing the sheet keeps it', { tag: '@environment' }, async ({ page }) => {
+test('the Sky entry opens its sheet on K and holds the tool in hand: no tool panel, the canvas only pans; closing the sheet gives the tool back', { tag: '@environment' }, async ({ page }) => {
   await openEditor(page)
   await pickFromFlyout(page, 'Environment', 'Light')
   const tool = () => page.evaluate(() => (window as Any).__store.getState().tools.activeTool)
+  const selected = () => page.evaluate(() => (window as Any).__store.getState().selection.selectedIds.length as number)
+  const railPressed = (name: string) => page.getByTestId('shell-rail').getByRole('button', { name }).getAttribute('aria-pressed')
   expect(await tool()).toBe('light')
+  await expect(page.getByTestId('shell-slot')).toBeVisible()
+  const lightColumns = await dockColumns(page)
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Environment' }).click()
   const row = page.getByTestId('shell-flyout').getByRole('button', { name: /^Sky/ })
   await expect(row).toContainText('K')
   await row.click()
   await expect(page.getByTestId('shell-sky-sheet')).toBeVisible()
-  expect(await tool()).toBe('light')
+  // Sky is in hand: the Light panel and dock sections are gone, Environment is lit on the rail,
+  // and the canvas only pans.
+  expect(await tool()).toBe('pan')
+  await expect(page.getByTestId('shell-slot')).toHaveCount(0)
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family'])
+  expect(await railPressed('Environment')).toBe('true')
+  expect(await railPressed('Pan')).toBe('false')
+  // The canvas fills the window; this point is clear of the chrome.
+  const before = await lights(page)
+  const vp = page.viewportSize()!
+  await page.mouse.click(vp.width * 0.4, vp.height * 0.5)
+  await page.mouse.click(vp.width * 0.4, vp.height * 0.5, { button: 'right' })
+  expect((await lights(page)).count).toBe(before.count)
+  expect(await selected()).toBe(0)
+  await expect(page.getByRole('menu')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('shell-sky-sheet')).toHaveCount(0)
   expect(await tool()).toBe('light')
-  // The key does the same from the canvas.
+  await expect(page.getByTestId('shell-slot')).toBeVisible()
+  expect(await dockColumns(page)).toEqual(lightColumns)
+  // From the canvas K is the Environment family's key: open its flyout, then K.
   await pickTool(page, 'select')
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+  await page.keyboard.press('e')
+  await expect(page.getByTestId('shell-flyout')).toBeVisible()
   await page.keyboard.press('k')
   await expect(page.getByTestId('shell-sky-sheet')).toBeVisible()
+  expect(await tool()).toBe('pan')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('shell-sky-sheet')).toHaveCount(0)
   expect(await tool()).toBe('select')
 })
 
@@ -268,12 +296,17 @@ test('the selected light shows its rings; a pointer that moves changes nothing; 
   expect((await lightOf(page, id)).radius).toBe(8)
 })
 
-// The sundial: a ring over the canvas while the Sky sheet is open and Cast shadows is on, with
-// one handle. Pressing it jumps the handle, a drag snaps to the compass points and is one undo
-// step, the map stays live inside the ring, and the sheet's readout turns the sun on Left and Right.
-test('the sundial: one handle, a drag turns the sun in one undo step, the sheet reads it out', { tag: '@environment' }, async ({ page }) => {
+// The sundial: a ring around the map while the Sky sheet is open and Cast shadows is on, with
+// one handle. It follows the map through pan and zoom, and zoomed in it rests at the interface's
+// borders with a shadow outside it. Pressing it jumps the handle, a drag snaps to the compass
+// points and is one undo step, the map stays live inside the ring, and the sheet's readout
+// turns the sun on Left and Right.
+test('the sundial: a ring around the map, one handle, a drag turns the sun in one undo step, the sheet reads it out', { tag: '@environment' }, async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
+  // Large enough that the warren's whole circle fits the clear area at the editor's minimum
+  // zoom, so the test sees both the ring around the whole map and the ring resting zoomed in.
+  await page.setViewportSize({ width: 2400, height: 1600 })
   await openWarren(page)
   await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ naturalLight: true, orientation: 0 }))
   const orientation = () => page.evaluate(() => ((window as Any).__store.getState().mapSettings.orientation ?? 0) as number)
@@ -286,13 +319,59 @@ test('the sundial: one handle, a drag turns the sun in one undo step, the sheet 
   await expect(dial).toBeVisible()
   await expect(dial.getByText('Rises here')).toHaveCount(1)
   await expect(page.getByTestId('sundial-handle')).toHaveCount(1)
+  // A sun at Day; the preview's Night puts a moon on the handle.
+  await expect(page.getByTestId('sundial-handle')).toHaveAttribute('data-icon', 'sun')
 
-  // The ring fills the clear canvas area: inside the window, clear of the sheet.
   const ring = page.getByTestId('sundial-ring')
-  const g = await ring.evaluate((el) => ({ cx: +el.getAttribute('cx')!, cy: +el.getAttribute('cy')!, r: +el.getAttribute('r')! }))
+  const shadow = page.getByTestId('sundial-shadow')
+  const geom = () => ring.evaluate((el) => ({ cx: +el.getAttribute('cx')!, cy: +el.getAttribute('cy')!, r: +el.getAttribute('r')! }))
+  const zoom = () => page.evaluate(() => (window as Any).__pixiApp.stage.children[0].scale.x as number)
   const sheetBox = (await sheet.boundingBox())!
+
+  // Zoomed out, the ring is the map's own circle: no shadow, and its radius in squares stays put
+  // as the zoom changes.
+  let g = await geom()
+  for (let i = 0; i < 15 && (await shadow.count()) > 0; i++) {
+    await page.mouse.move(g.cx, g.cy)
+    await page.mouse.wheel(0, 120)
+    await waitFrame(page, 2)
+  }
+  await expect(shadow).toHaveCount(0)
+  g = await geom()
+  expect(g.cx + g.r).toBeLessThanOrEqual(sheetBox.x)
+  const squares = g.r / (await zoom())
+  await page.mouse.move(g.cx, g.cy)
+  await page.mouse.wheel(0, 120)
+  await waitFrame(page, 2)
+  if ((await shadow.count()) === 0) expect((await geom()).r / (await zoom())).toBeCloseTo(squares, 3)
+  // Panning the map (Sky holds Pan in hand) carries the ring with it.
+  g = await geom()
+  await page.mouse.move(g.cx, g.cy)
+  await page.mouse.down()
+  await page.mouse.move(g.cx + 30, g.cy + 20, { steps: 4 })
+  await page.mouse.up()
+  await waitFrame(page, 2)
+  const moved = await geom()
+  expect(moved.cx - g.cx).toBeCloseTo(30, 0)
+  expect(moved.cy - g.cy).toBeCloseTo(20, 0)
+  expect(await orientation()).toBe(0)
+
+  // Zoomed in, the ring rests at the interface's borders and keeps its size, with the shadow out.
+  for (let i = 0; i < 12; i++) {
+    await page.mouse.move(moved.cx, moved.cy)
+    await page.mouse.wheel(0, -120)
+    await waitFrame(page, 1)
+  }
+  await waitFrame(page, 2)
+  await expect(shadow).toHaveCount(1)
+  g = await geom()
+  expect(Number(await shadow.getAttribute('data-strength'))).toBeGreaterThan(0)
   expect(g.r).toBeGreaterThan(100)
   expect(g.cx + g.r).toBeLessThanOrEqual(sheetBox.x)
+  await page.mouse.move(g.cx, g.cy)
+  await page.mouse.wheel(0, -120)
+  await waitFrame(page, 2)
+  expect((await geom()).r).toBeCloseTo(g.r, 3)
   const onRing = (deg: number) => ({ x: g.cx + Math.cos((deg * Math.PI) / 180) * g.r, y: g.cy + Math.sin((deg * Math.PI) / 180) * g.r })
 
   // Inside the ring the pointer belongs to the map.
@@ -330,6 +409,14 @@ test('the sundial: one handle, a drag turns the sun in one undo step, the sheet 
   await expect(dial).toHaveCount(0)
   await sheet.getByRole('switch', { name: 'Cast shadows' }).click()
   await expect(page.getByTestId('sundial')).toBeVisible()
+  // Previewing Night, the handle carries a moon.
+  await litChip(page).click()
+  await page.getByTestId('shell-preview-popover').getByRole('group', { name: 'Preview as' }).getByRole('button', { name: 'Night' }).click()
+  await expect(page.getByTestId('sundial-handle')).toHaveAttribute('data-icon', 'moon')
+  // Escape closes the popover alone (it was opened last); the next one closes the sheet.
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('shell-preview-popover')).toHaveCount(0)
+  await expect(sheet).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('sundial')).toHaveCount(0)
   expect(errors).toEqual([])

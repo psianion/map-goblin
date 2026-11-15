@@ -4,7 +4,7 @@ import { undoManager } from '@/store/undoManager';
 import { SUN_RISE, sunAt } from '@dnd/core/src/shared/world';
 import { RAIL_W } from '@/editor/surfaces/Rail';
 import { SHEET_W } from '@/editor/surfaces/SheetFrame';
-import { fallbackClearArea, orientationFor, riseAngle, riseLabel, snapCompass, sundialFrame, turnSun } from './sundialModel';
+import { MAP_GAP, fallbackClearArea, mapCircle, orientationFor, riseAngle, riseLabel, snapCompass, sundialFit, sundialFrame, turnSun } from './sundialModel';
 
 const st = () => useStore.getState();
 
@@ -87,24 +87,103 @@ describe('the readout wording', () => {
   });
 });
 
-describe('the ring', () => {
-  it('is centred on the clear area, its diameter the smaller side less 48 px', () => {
-    expect(sundialFrame({ left: 100, top: 20, right: 900, bottom: 620 })).toEqual({ cx: 500, cy: 320, r: (600 - 48) / 2 });
-    expect(sundialFrame({ left: 0, top: 0, right: 300, bottom: 700 })).toEqual({ cx: 150, cy: 350, r: (300 - 48) / 2 });
+describe('the map circle', () => {
+  it('is centred on the map’s bounds, half their diagonal plus 2 squares, through the camera', () => {
+    // A 6 by 8 map: diagonal 10, so 5 + 2 = 7 squares; at 20 px a square, offset (100, 50).
+    const c = mapCircle({ minX: 0, minY: 0, maxX: 6, maxY: 8 }, { x: 100, y: 50, zoom: 20 });
+    expect(c).toEqual({ cx: 100 + 3 * 20, cy: 50 + 4 * 20, r: 7 * 20 });
+    expect(MAP_GAP).toBe(2);
   });
 
-  it('depends on the area alone: the same area gives the same ring', () => {
-    const area = { left: 56, top: 40, right: 800, bottom: 560 };
-    expect(sundialFrame(area)).toEqual(sundialFrame({ ...area }));
+  it('keeps every corner inside with 2 squares of air', () => {
+    const b = { minX: -7, minY: 3, maxX: 15, maxY: 11 };
+    const cam = { x: -40, y: 12, zoom: 33 };
+    const c = mapCircle(b, cam);
+    for (const [x, y] of [[b.minX, b.minY], [b.maxX, b.minY], [b.minX, b.maxY], [b.maxX, b.maxY]] as const) {
+      const d = Math.hypot(x * cam.zoom + cam.x - c.cx, y * cam.zoom + cam.y - c.cy);
+      expect(c.r - d).toBeCloseTo(MAP_GAP * cam.zoom, 6);
+    }
+  });
+
+  it('follows pan and zoom', () => {
+    const b = { minX: 0, minY: 0, maxX: 10, maxY: 10 };
+    const a = mapCircle(b, { x: 0, y: 0, zoom: 10 });
+    const panned = mapCircle(b, { x: 30, y: -20, zoom: 10 });
+    expect([panned.cx - a.cx, panned.cy - a.cy, panned.r]).toEqual([30, -20, a.r]);
+    expect(mapCircle(b, { x: 0, y: 0, zoom: 20 }).r).toBe(a.r * 2);
+  });
+});
+
+describe('the ring', () => {
+  const area = { left: 100, top: 20, right: 900, bottom: 620 };
+  // The largest ring here: centre (500, 320), radius (600 - 48) / 2.
+  const FIT = { cx: 500, cy: 320, r: 276 };
+
+  it('the largest is centred on the clear area, its diameter the smaller side less 48 px', () => {
+    expect(sundialFit(area)).toEqual(FIT);
+    expect(sundialFit({ left: 0, top: 0, right: 300, bottom: 700 })).toEqual({ cx: 150, cy: 350, r: (300 - 48) / 2 });
+  });
+
+  it('is the map circle, with no shadow, while that fits', () => {
+    const map = { cx: 450, cy: 300, r: 200 };
+    expect(sundialFrame(area, map)).toEqual({ ...map, shadow: 0 });
+  });
+
+  it('is the largest ring, resting at the borders, once the map outgrows it, with the shadow eased in', () => {
+    const at = (r: number) => sundialFrame(area, { cx: 500, cy: 320, r })!;
+    expect(at(FIT.r)).toEqual({ ...FIT, shadow: 0 });
+    // Clamping starts: the shadow grows with how far the map outgrows the ring, not all at once.
+    const s1 = at(FIT.r * 1.03).shadow;
+    const s2 = at(FIT.r * 1.08).shadow;
+    expect(s1).toBeGreaterThan(0);
+    expect(s1).toBeLessThan(s2);
+    expect(s2).toBeLessThan(1);
+    expect(at(FIT.r * 3)).toEqual({ ...FIT, shadow: 1 });
+  });
+
+  it('keeps the whole ring inside the clear area when the map is panned off it', () => {
+    for (const map of [{ cx: -400, cy: 320, r: 150 }, { cx: 2000, cy: 900, r: 150 }, { cx: 500, cy: -50, r: 5000 }]) {
+      const f = sundialFrame(area, map)!;
+      expect(f.cx - f.r).toBeGreaterThanOrEqual(area.left + 24 - 1e-9);
+      expect(f.cx + f.r).toBeLessThanOrEqual(area.right - 24 + 1e-9);
+      expect(f.cy - f.r).toBeGreaterThanOrEqual(area.top + 24 - 1e-9);
+      expect(f.cy + f.r).toBeLessThanOrEqual(area.bottom - 24 + 1e-9);
+    }
+    // On the tight axis a full-size ring sits at the area's centre; on the loose one it follows.
+    const big = sundialFrame(area, { cx: 300, cy: 100, r: 1000 })!;
+    expect(big.cy).toBe(FIT.cy);
+    expect(big.cx).toBe(100 + 24 + FIT.r);
+  });
+
+  it('moves continuously through zoom and pan: no jump between fitting and resting', () => {
+    const bounds = { minX: 0, minY: 0, maxX: 20, maxY: 12 };
+    let prev: ReturnType<typeof sundialFrame> = null;
+    // Zoom in about a point while panning, in small steps, across the clamp.
+    for (let zoom = 5; zoom <= 60; zoom += 0.05) {
+      const f = sundialFrame(area, mapCircle(bounds, { x: 500 - 10 * zoom + (zoom - 5) * 3, y: 320 - 6 * zoom, zoom }))!;
+      if (prev) {
+        expect(Math.abs(f.r - prev.r)).toBeLessThan(1);
+        expect(Math.abs(f.cx - prev.cx)).toBeLessThan(1);
+        expect(Math.abs(f.cy - prev.cy)).toBeLessThan(1);
+        expect(Math.abs(f.shadow - prev.shadow)).toBeLessThan(0.05);
+      }
+      prev = f;
+    }
+    expect(prev!.r).toBe(FIT.r);
+  });
+
+  it('is the largest ring with no shadow while there is no camera', () => {
+    expect(sundialFrame(area, null)).toEqual({ ...FIT, shadow: 0 });
   });
 
   it('is null for a degenerate area', () => {
-    expect(sundialFrame({ left: 100, top: 0, right: 100, bottom: 500 })).toBeNull();
-    expect(sundialFrame({ left: 500, top: 0, right: 100, bottom: 500 })).toBeNull();
-    expect(sundialFrame({ left: 0, top: 300, right: 500, bottom: 300 })).toBeNull();
-    expect(sundialFrame({ left: 0, top: 0, right: 48, bottom: 500 })).toBeNull();
-    expect(sundialFrame({ left: 0, top: 0, right: 40, bottom: 40 })).toBeNull();
-    expect(sundialFrame({ left: 0, top: 0, right: 49, bottom: 49 })).not.toBeNull();
+    const map = { cx: 0, cy: 0, r: 10 };
+    expect(sundialFrame({ left: 100, top: 0, right: 100, bottom: 500 }, map)).toBeNull();
+    expect(sundialFrame({ left: 500, top: 0, right: 100, bottom: 500 }, map)).toBeNull();
+    expect(sundialFrame({ left: 0, top: 300, right: 500, bottom: 300 }, map)).toBeNull();
+    expect(sundialFrame({ left: 0, top: 0, right: 48, bottom: 500 }, map)).toBeNull();
+    expect(sundialFrame({ left: 0, top: 0, right: 40, bottom: 40 }, null)).toBeNull();
+    expect(sundialFrame({ left: 0, top: 0, right: 49, bottom: 49 }, map)).not.toBeNull();
   });
 
   it('falls back to the window less the rail and the sheet', () => {

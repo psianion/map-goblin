@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, cleanup } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createDefaultState, createDungeonLayer } from '@/store/factories';
@@ -11,7 +11,14 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
-import { pickTool } from '@/editor/surfaces/hooks';
+import { pickTool, toolInHand } from '@/editor/surfaces/hooks';
+import { Dock } from '@/editor/surfaces/Dock';
+import { Rail } from '@/editor/surfaces/Rail';
+import { Slot } from '@/editor/surfaces/Slot';
+import { RegistryProvider } from '@/editor/shell/RegistryProvider';
+import { useSheetHold } from '@/editor/shell/sheetHold';
+import { shellKeyActions } from '@/editor/shell/shellKeys';
+import { registryShortcuts } from '@/shortcuts/registryShortcuts';
 import { resetShell, useShell } from '@/editor/shell/shellStore';
 import { getPreview, resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
 import { ENVIRONMENT_CARDS, SkyMoodSheet, environment, skyEntry } from './index';
@@ -211,14 +218,96 @@ describe('the Sky entry', () => {
     expect(skyEntry).toMatchObject({ id: 'sky', label: 'Sky', key: 'K', sheet: 'sky', engine: [] });
   });
 
-  it('opens the Sky sheet without changing the tool in hand', () => {
-    st().setActiveTool('light');
-    pickTool(skyEntry);
+  it('stands in hand while its sheet is open: the tool before it is held and the canvas only pans', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('light'));
+    act(() => pickTool(skyEntry));
     expect(useShell.getState().sheet).toBe('sky');
+    expect(useShell.getState().held).toBe('light');
+    expect(st().tools.activeTool).toBe('pan');
+    expect(toolInHand(reg)?.id).toBe('sky');
+    expect(reg.familyOfTool(toolInHand(reg)!.id)?.id).toBe('environment');
+  });
+
+  it('hands the held tool back however the sheet closes', () => {
+    const hook = renderHook(() => useSheetHold(reg));
+    for (const close of [() => useShell.getState().closeSheet(), () => useShell.getState().openSheet('layers'), () => hook.unmount()]) {
+      act(() => st().setActiveTool('wall'));
+      act(() => pickTool(skyEntry));
+      expect(st().tools.activeTool).toBe('pan');
+      act(close);
+      expect(st().tools.activeTool).toBe('wall');
+      expect(useShell.getState().held).toBeNull();
+    }
+  });
+
+  it('a pick while the sheet is open closes it and leaves the picked tool in hand', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('wall'));
+    act(() => pickTool(skyEntry));
+    act(() => pickTool(environment.tools.find((t) => t.id === 'light')!));
+    expect(useShell.getState().sheet).toBeNull();
     expect(st().tools.activeTool).toBe('light');
-    st().setActiveTool('select');
-    pickTool(skyEntry);
+    // Pan from the rail is a pick too, though Pan stood in while the sheet was up.
+    act(() => pickTool(skyEntry));
+    act(() => pickTool(reg.toolById('pan')!));
+    expect(useShell.getState().sheet).toBeNull();
+    expect(st().tools.activeTool).toBe('pan');
+    expect(useShell.getState().held).toBeNull();
+  });
+
+  it('a tool put in hand some other way while the sheet is open keeps its place, and the sheet goes', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('wall'));
+    act(() => pickTool(skyEntry));
+    act(() => st().setActiveTool('select'));
+    expect(useShell.getState().sheet).toBeNull();
     expect(st().tools.activeTool).toBe('select');
+  });
+
+  it('shows no tool panel and no tool dock sections while open, Environment on the rail; all back on close', () => {
+    renderHook(() => useSheetHold(reg));
+    const { getByTestId, queryByTestId } = render(
+      <RegistryProvider registry={reg}>
+        <Rail />
+        <Slot />
+        <Dock />
+      </RegistryProvider>,
+    );
+    const columns = () => [...getByTestId('shell-dock').querySelectorAll<HTMLElement>('[data-composite="dock-column"]')].map((el) => el.dataset.column);
+    const pressed = (name: string) => getByTestId('shell-rail').querySelector(`[aria-label="${name}"]`)?.getAttribute('aria-pressed');
+    act(() => pickTool(reg.toolById('floor')!));
+    const floorColumns = columns();
+    expect(queryByTestId('shell-tool-panel')).toBeTruthy();
+    expect(pressed('Design')).toBe('true');
+
+    act(() => pickTool(skyEntry));
+    expect(queryByTestId('shell-slot')).toBeNull();
+    expect(columns()).toEqual(['level', 'layers', 'family']);
+    expect(getByTestId('shell-dock').querySelector('[data-column="family"] [aria-label="Sky"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(pressed('Environment')).toBe('true');
+    expect(pressed('Design')).toBe('false');
+    expect(pressed('Pan')).toBe('false');
+
+    act(() => useShell.getState().closeSheet());
+    expect(queryByTestId('shell-tool-panel')).toBeTruthy();
+    expect(columns()).toEqual(floorColumns);
+    expect(pressed('Design')).toBe('true');
+  });
+
+  it('K is a family key: from the Environment flyout or with an Environment tool in hand, Sky included', () => {
+    renderHook(() => useSheetHold(reg));
+    const k = registryShortcuts(reg, settings, shellKeyActions(reg)).find((s) => s.id === 'tool.sky')!;
+    expect(k.combo).toBe('k');
+    act(() => st().setActiveTool('select'));
+    expect(k.when!()).toBe(false);
+    act(() => useShell.getState().setFlyout('environment'));
+    expect(k.when!()).toBe(true);
+    act(() => useShell.getState().setFlyout(null));
+    act(() => st().setActiveTool('light'));
+    expect(k.when!()).toBe(true);
+    act(() => pickTool(skyEntry));
+    expect(k.when!()).toBe(true);
   });
 
   it('leaves the preview where it was', () => {

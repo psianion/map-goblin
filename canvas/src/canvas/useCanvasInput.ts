@@ -12,6 +12,7 @@ import { cancelZoomAnimationRef } from '@/editor/zoomToFitRef';
 import { MIN_ZOOM, MAX_ZOOM } from '@/editor/zoomControl';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import { openCanvasMenuRef } from '@/editor/canvasMenuRef';
+import { useShell } from '@/editor/shell/shellStore';
 import { pickAt, pickInLayer, roomPickingEnabled, type PickHit } from '@dnd/core/src/engine/hitTest';
 import { onMap } from '@dnd/core/src/engine/mapFrame';
 import { notify } from '@dnd/ui/toast';
@@ -649,6 +650,8 @@ export function useCanvasInput(
     // event of the click) so nothing from the same click can close it.
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
+      // While the Sky sheet holds the tool, the canvas only pans and zooms: no pick, no menu.
+      if (useShell.getState().held !== null) return;
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       // The tool may take the right-click (the Props tool turns its stamp 90°).

@@ -1,13 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
+import { COALESCE_MS } from '@dnd/core/src/store/undoManager';
 import { clearEngineSingleton, setEngineSingleton } from '@/engine/engineSingleton';
 import { resetShell, useShell } from '@/editor/shell/shellStore';
-import { resetViewPrefsForTests } from '@/editor/viewPrefs';
+import { resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
+import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { Sundial } from './Sundial';
 import { SkyMoodSheet } from './SkyMoodSheet';
-import { orientationFor, riseAngle, riseLabel } from './sundialModel';
+import { mapCircle, orientationFor, riseAngle, riseLabel } from './sundialModel';
 
 const st = () => useStore.getState();
 
@@ -117,38 +119,116 @@ describe('when the sundial shows', () => {
   });
 });
 
-describe('the ring’s size', () => {
-  it('is the smaller side of the area the chrome leaves clear, less 48 px, centred on it', () => {
+/** A camera the test moves, read through a stand-in engine whose ticker the test runs. */
+const cam = { x: 0, y: 0, zoom: 10 };
+let ticks: Array<() => void> = [];
+function mountEngine(canvas?: HTMLCanvasElement): void {
+  const stage = {
+    position: { get x() { return cam.x; }, get y() { return cam.y; } },
+    scale: { get x() { return cam.zoom; } },
+  };
+  const ticker = { add: (f: () => void) => void ticks.push(f), remove: (f: () => void) => void (ticks = ticks.filter((t) => t !== f)) };
+  setEngineSingleton({ stage: () => stage, ticker: () => ticker, canvas: () => canvas } as never, {} as never);
+}
+const tick = () => act(() => ticks.forEach((f) => f()));
+/** The camera that puts the map's centre on the clear area's centre at `zoom`. */
+function centreAt(zoom: number): void {
+  const b = computeMapWorldBounds(st().layers);
+  cam.zoom = zoom;
+  cam.x = CX - ((b.minX + b.maxX) / 2) * zoom;
+  cam.y = CY - ((b.minY + b.maxY) / 2) * zoom;
+}
+const expected = () => mapCircle(computeMapWorldBounds(st().layers), cam);
+const shadow = () => screen.queryByTestId('sundial-shadow');
+
+describe('the ring around the map', () => {
+  beforeEach(() => {
+    ticks = [];
+    mountEngine();
+    centreAt(10);
+  });
+
+  it('is the map’s circle, 2 squares past its corners, while that fits, with no shadow', () => {
+    render(<Sundial />);
+    const c = expected();
+    expect(c.r).toBeLessThan(R);
+    expect(num(ring(), 'r')).toBeCloseTo(c.r, 6);
+    expect(num(ring(), 'cx')).toBeCloseTo(c.cx, 6);
+    expect(num(ring(), 'cy')).toBeCloseTo(c.cy, 6);
+    expect(shadow()).toBeNull();
+  });
+
+  it('follows pan and zoom on the render ticker', () => {
+    render(<Sundial />);
+    const r0 = num(ring(), 'r');
+    const cx0 = num(ring(), 'cx');
+    cam.x += 40;
+    tick();
+    expect(num(ring(), 'cx')).toBeCloseTo(cx0 + 40, 6);
+    cam.zoom = 15;
+    tick();
+    expect(num(ring(), 'r')).toBeCloseTo(r0 * 1.5, 6);
+  });
+
+  it('follows the map’s bounds', () => {
+    render(<Sundial />);
+    const before = num(ring(), 'r');
+    act(() => {
+      useStore.setState((s) => {
+        s.mapSettings.terrain = { palette: [], bounds: { minX: -8, minY: -6, maxX: 12, maxY: 9 } };
+      });
+    });
+    expect(num(ring(), 'r')).not.toBeCloseTo(before, 3);
+    expect(num(ring(), 'r')).toBeCloseTo(Math.min(expected().r, R), 6);
+  });
+
+  it('zoomed in, rests at the interface’s borders with a shadow outside it', () => {
+    render(<Sundial />);
+    centreAt(200);
+    tick();
+    expect(expected().r).toBeGreaterThan(R * 2);
+    expect([num(ring(), 'r'), num(ring(), 'cx'), num(ring(), 'cy')]).toEqual([R, CX, CY]);
+    // Outside the line: the shadow's band starts at the ring and reaches out from it.
+    const band = shadow()!;
+    expect(num(band, 'r') - num(band, 'stroke-width') / 2).toBeCloseTo(R, 6);
+    expect(Number(band.getAttribute('data-strength'))).toBe(1);
+  });
+
+  it('eases the shadow in as the ring starts to rest, rather than switching it on', () => {
+    render(<Sundial />);
+    const fitZoom = (cam.zoom * R) / expected().r;
+    const strength = (k: number) => {
+      centreAt(fitZoom * k);
+      tick();
+      const s = shadow();
+      return s ? Number(s.getAttribute('data-strength')) : 0;
+    };
+    expect(strength(0.99)).toBe(0);
+    const a = strength(1.02);
+    const b = strength(1.06);
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(a);
+    expect(b).toBeLessThan(1);
+    expect(strength(1.5)).toBe(1);
+  });
+
+  it('stays inside the clear area when the map is panned off it', () => {
+    render(<Sundial />);
+    cam.x -= 2000;
+    tick();
+    expect(num(ring(), 'cx') - num(ring(), 'r')).toBeGreaterThanOrEqual(260 + 24 - 1e-6);
+  });
+});
+
+describe('the ring without a camera yet', () => {
+  it('is the largest ring the clear area holds: the smaller side less 48 px, centred on it', () => {
     render(<Sundial />);
     expect(num(ring(), 'r')).toBe(R);
     expect(num(ring(), 'cx')).toBe(CX);
     expect(num(ring(), 'cy')).toBe(CY);
   });
 
-  it('is unchanged by the map: its size, its bounds, its pieces', () => {
-    render(<Sundial />);
-    const before = [num(ring(), 'r'), num(ring(), 'cx'), num(ring(), 'cy')];
-    act(() => {
-      useStore.setState((s) => {
-        s.mapSettings.terrain = { palette: [], bounds: { minX: -500, minY: -500, maxX: 900, maxY: 40 } };
-        s.mapSettings.fixedSize = { width: 5, height: 3 } as never;
-        s.ui.activeLevelId = 'elsewhere';
-      });
-    });
-    expect([num(ring(), 'r'), num(ring(), 'cx'), num(ring(), 'cy')]).toEqual(before);
-  });
-
-  it('never asks the engine for the camera: pan and zoom cannot move it', () => {
-    const touched: string[] = [];
-    const engine = new Proxy({}, { get: (_t, key) => (touched.push(String(key)), undefined) });
-    setEngineSingleton(engine as never, {} as never);
-    render(<Sundial />);
-    act(() => useShell.getState().openSheet('sky'));
-    expect(num(ring(), 'r')).toBe(R);
-    expect(touched).toEqual([]);
-  });
-
-  it('follows the clear area on a resize, and only that', () => {
+  it('follows the clear area on a resize', () => {
     render(<Sundial />);
     rects['shell-dock'] = { left: 300, top: 500, right: 950, bottom: 760 };
     act(() => {
@@ -193,6 +273,32 @@ describe('the handle', () => {
     }
   });
 
+  it('is a disc of 32 px with a grab target of 44 px', () => {
+    render(<Sundial />);
+    const radii = [...screen.getByTestId('sundial-handle').querySelectorAll(':scope > circle')].map((c) => num(c, 'r'));
+    expect(radii).toEqual([22, 16]);
+  });
+
+  it('carries a line sun at Dawn, Day, Dusk and Unlit, and a line moon at Night, no emoji', () => {
+    for (const pick of ['unlit', 'dawn', 'day', 'dusk', 'night'] as const) {
+      setPreview(pick);
+      render(<Sundial />);
+      const handle = screen.getByTestId('sundial-handle');
+      const icon = pick === 'night' ? 'moon' : 'sun';
+      expect(handle.getAttribute('data-icon'), pick).toBe(icon);
+      expect(handle.querySelector(`svg.lucide-${icon}`), pick).toBeTruthy();
+      expect(handle.textContent, pick).toBe('');
+      cleanup();
+    }
+  });
+
+  it('turns from sun to moon as the preview goes to Night', () => {
+    render(<Sundial />);
+    expect(screen.getByTestId('sundial-handle').getAttribute('data-icon')).toBe('sun');
+    act(() => setPreview('night'));
+    expect(screen.getByTestId('sundial-handle').getAttribute('data-icon')).toBe('moon');
+  });
+
   it('passes the pointer through everywhere but the ring’s stroke and the handle', () => {
     render(<Sundial />);
     const style = (el: Element) => (el as HTMLElement | SVGElement).style.pointerEvents;
@@ -235,6 +341,49 @@ describe('dragging the sun', () => {
     expect(st().mapSettings.orientation).toBe(0);
   });
 
+  it('is one undo step however long the drag pauses between moves', () => {
+    vi.useFakeTimers();
+    try {
+      render(<Sundial />);
+      const handle = screen.getByTestId('sundial-handle');
+      press(handle, 'pointerdown', ...onRing(10));
+      for (const deg of [40, 100, 160, 200]) {
+        vi.advanceTimersByTime(COALESCE_MS * 2);
+        press(handle, 'pointermove', ...onRing(deg));
+      }
+      vi.advanceTimersByTime(COALESCE_MS * 2);
+      press(handle, 'pointerup', ...onRing(200));
+      expect(st().mapSettings.orientation).toBe(orientationFor(200));
+      expect(undoManager.size()).toBe(1);
+      undoManager.undo();
+      expect(st().mapSettings.orientation).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('makes a press without a move one step, and a drag back to its start none', () => {
+    render(<Sundial />);
+    press(ring(), 'pointerdown', ...onRing(90));
+    press(ring(), 'pointerup', ...onRing(90));
+    expect(undoManager.size()).toBe(1);
+    const start = st().mapSettings.orientation;
+    press(ring(), 'pointerdown', ...onRing(150));
+    press(ring(), 'pointermove', ...onRing(90));
+    press(ring(), 'pointerup', ...onRing(90));
+    expect(st().mapSettings.orientation).toBe(start);
+    expect(undoManager.size()).toBe(1);
+  });
+
+  it('lands a drag cut short by the sheet closing as its one step', () => {
+    render(<Sundial />);
+    press(ring(), 'pointerdown', ...onRing(180));
+    act(() => useShell.getState().closeSheet());
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(st().mapSettings.orientation).toBe(0);
+  });
+
   it('ignores moves with no press, and moves of another pointer', () => {
     render(<Sundial />);
     press(ring(), 'pointermove', ...onRing(120));
@@ -251,7 +400,8 @@ describe('dragging the sun', () => {
     const canvas = document.createElement('canvas');
     const seen: WheelEvent[] = [];
     canvas.addEventListener('wheel', (e) => seen.push(e));
-    setEngineSingleton({ canvas: () => canvas } as never, {} as never);
+    ticks = [];
+    mountEngine(canvas);
     render(<Sundial />);
     fireEvent.wheel(ring(), { deltaY: -120, clientX: 400, clientY: 300 });
     expect(seen).toHaveLength(1);

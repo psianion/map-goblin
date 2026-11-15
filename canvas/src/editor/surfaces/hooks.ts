@@ -9,7 +9,7 @@ import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
 import { soleRoomTarget } from '@/editor/models/selectionModel';
 import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectKind, type Registry, type SettingDef, type ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
-import { useShell } from '@/editor/shell/shellStore';
+import { useShell, type ShellSheet } from '@/editor/shell/shellStore';
 
 /**
  * The registry tool driving the core tool in hand, if any does. Where several tools share
@@ -20,13 +20,28 @@ export function toolForEngine(registry: Registry, engine: string, state: EditorS
 }
 
 /**
+ * The tool in hand as the shell shows it: an entry whose sheet is open (Sky) stands in for the
+ * core tool it holds (shell/sheetHold.ts), else the registry tool driving the core tool.
+ */
+export function toolInHand(registry: Registry, state: EditorState = useStore.getState(), sheet: ShellSheet = useShell.getState().sheet): ToolDef | undefined {
+  const entry = typeof sheet === 'string' ? registry.tools.find((t) => t.sheet === sheet) : undefined;
+  return entry ?? toolForEngine(registry, state.tools.activeTool, state);
+}
+
+/**
  * Puts `tool` in hand: its first core tool, unless one of its core tools already is. An entry
- * with a sheet (Sky) opens it instead and leaves the tool in hand alone.
+ * with a sheet (Sky) opens it instead; the sheet holds the tool in hand until it closes. A pick
+ * while it is open closes it first, handing the held tool back, then takes the new one.
  */
 export function pickTool(tool: ToolDef): void {
   if (tool.sheet) {
     useShell.getState().openSheet(tool.sheet);
     return;
+  }
+  if (useShell.getState().held !== null) {
+    useShell.getState().closeSheet();
+    // This is a pick, not the held tool coming back.
+    useShell.setState({ spaceReturn: null });
   }
   const state = useStore.getState();
   if (!tool.engine.includes(state.tools.activeTool)) state.setActiveTool(tool.engine[0]);
@@ -35,8 +50,9 @@ export function pickTool(tool: ToolDef): void {
 
 export function useActiveTool(): ToolDef | undefined {
   const { registry } = useRegistry();
+  const sheet = useShell((s) => s.sheet);
   // The tool's id, so a store change that leaves the same tool in hand re-renders nothing.
-  const id = useStore((s) => toolForEngine(registry, s.tools.activeTool, s)?.id);
+  const id = useStore((s) => toolInHand(registry, s, sheet)?.id);
   return id ? registry.toolById(id) : undefined;
 }
 
