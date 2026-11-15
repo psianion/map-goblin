@@ -1,5 +1,6 @@
 import type { LightChild, DungeonLayer, AssetChild } from '../../store/types'
 import type { RegionLight } from '../../shared/regionGrade'
+import type { Spill } from '../../shared/daylightSpill'
 import type { VisibilityVertex } from './ClockwiseSweep'
 import { clockwiseSweep } from './ClockwiseSweep'
 import { SegmentQuadtree } from './SegmentQuadtree'
@@ -18,6 +19,8 @@ export interface RegionFace {
 export interface Regions {
   level: RegionLight
   rooms: RegionFace[]
+  /** Daylight fading into dark rooms through their open edges (`daylightSpill`). */
+  spills?: Spill[]
   /** Changes whenever anything above does — the grade mask redraws on it. */
   key: string
 }

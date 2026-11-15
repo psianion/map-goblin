@@ -169,14 +169,14 @@ describe('the Sky sheet', () => {
 });
 
 describe('the Sky sheet controls', () => {
-  it('shows the orientation slider whatever the map place', () => {
+  it('reads out where the sun rises whatever the map place', () => {
     for (const place of ['outdoor', 'indoor', 'underground'] as const) {
       cleanup();
       useStore.setState((s) => {
         s.mapSettings.environment = place;
       });
       render(<SkyMoodSheet />);
-      expect(screen.getByText('Orientation'), place).toBeTruthy();
+      expect(screen.getByRole('slider', { name: 'Where the sun rises' }), place).toBeTruthy();
     }
   });
 

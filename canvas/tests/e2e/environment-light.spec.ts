@@ -267,3 +267,70 @@ test('the selected light shows its rings; a pointer that moves changes nothing; 
   await undo(page)
   expect((await lightOf(page, id)).radius).toBe(8)
 })
+
+// The sundial: a ring over the canvas while the Sky sheet is open and Cast shadows is on, with
+// one handle. Pressing it jumps the handle, a drag snaps to the compass points and is one undo
+// step, the map stays live inside the ring, and the sheet's readout turns the sun on Left and Right.
+test('the sundial: one handle, a drag turns the sun in one undo step, the sheet reads it out', { tag: '@environment' }, async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openWarren(page)
+  await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ naturalLight: true, orientation: 0 }))
+  const orientation = () => page.evaluate(() => ((window as Any).__store.getState().mapSettings.orientation ?? 0) as number)
+
+  await expect(page.getByTestId('sundial')).toHaveCount(0)
+  await pickFromFlyout(page, 'Environment', 'Sky')
+  const sheet = page.getByTestId('shell-sky-sheet')
+  await expect(sheet).toBeVisible()
+  const dial = page.getByTestId('sundial')
+  await expect(dial).toBeVisible()
+  await expect(dial.getByText('Rises here')).toHaveCount(1)
+  await expect(page.getByTestId('sundial-handle')).toHaveCount(1)
+
+  // The ring fills the clear canvas area: inside the window, clear of the sheet.
+  const ring = page.getByTestId('sundial-ring')
+  const g = await ring.evaluate((el) => ({ cx: +el.getAttribute('cx')!, cy: +el.getAttribute('cy')!, r: +el.getAttribute('r')! }))
+  const sheetBox = (await sheet.boundingBox())!
+  expect(g.r).toBeGreaterThan(100)
+  expect(g.cx + g.r).toBeLessThanOrEqual(sheetBox.x)
+  const onRing = (deg: number) => ({ x: g.cx + Math.cos((deg * Math.PI) / 180) * g.r, y: g.cy + Math.sin((deg * Math.PI) / 180) * g.r })
+
+  // Inside the ring the pointer belongs to the map.
+  expect(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('[data-testid="sundial"]'), { x: g.cx, y: g.cy })).toBe(false)
+
+  // Press low on the ring: the handle jumps there. Drag past the left point, near it, and let go.
+  const press = onRing(90)
+  await page.mouse.move(press.x, press.y)
+  await page.mouse.down()
+  expect(await orientation()).toBe(90)
+  const near = onRing(177)
+  await page.mouse.move(onRing(130).x, onRing(130).y, { steps: 4 })
+  await page.mouse.move(near.x, near.y, { steps: 4 })
+  await page.mouse.up()
+  // Within 6 degrees of the left point: snapped onto it.
+  expect(await orientation()).toBe(180)
+  await expect(sheet.getByTestId('sky-rise')).toHaveText('Rise at the left')
+
+  // The whole drag was one undo step.
+  await undo(page)
+  expect(await orientation()).toBe(0)
+
+  // The readout: focus it, Right turns the sun 45 degrees, Left takes it back; each press is its own step.
+  await sheet.getByRole('slider', { name: 'Where the sun rises' }).focus()
+  await page.keyboard.press('ArrowRight')
+  expect(await orientation()).toBe(45)
+  await expect(sheet.getByTestId('sky-rise')).toHaveText('Rise at the lower right')
+  await page.keyboard.press('ArrowRight')
+  expect(await orientation()).toBe(90)
+  await page.keyboard.press('ArrowLeft')
+  expect(await orientation()).toBe(45)
+
+  // Cast shadows off, or the sheet closed, and the ring goes.
+  await sheet.getByRole('switch', { name: 'Cast shadows' }).click()
+  await expect(dial).toHaveCount(0)
+  await sheet.getByRole('switch', { name: 'Cast shadows' }).click()
+  await expect(page.getByTestId('sundial')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('sundial')).toHaveCount(0)
+  expect(errors).toEqual([])
+})

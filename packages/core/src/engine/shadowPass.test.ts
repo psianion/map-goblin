@@ -138,6 +138,10 @@ describe('the shadow clip', () => {
 
   beforeEach(() => {
     useStore.getState().resetToDefault();
+    // The sun falls by region: the map in the store is as Outdoor as the sky the frames are built on.
+    useStore.setState((s) => {
+      s.mapSettings.environment = MAP.environment;
+    });
     const container = new Container();
     const shadows = new Container();
     container.addChild(shadows);

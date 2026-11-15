@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { drawRect, firePointer, getPixelColor, gotoApp, waitFrame } from './helpers'
-import { pickTool } from './shell'
+import { lookAt, pickTool } from './shell'
 import {
   type Any,
   NIGHT,
@@ -382,4 +382,58 @@ test('sixty lights on screen: no console error, and the farthest one still light
   await waitFrame(page, 8)
   expect(await lum(page, far)).toBeGreaterThan(bare + 10)
   expect(errors).toEqual([])
+})
+
+test('daylight fades two cells into an Underground room through a threshold: lit at the mouth, unchanged deeper in', { tag: '@lighting' }, async ({ page }) => {
+  await openWarren(page, NOON)
+  await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'outdoor' }))
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const layer = st.layers.find((l: Any) => l.id === st.ui.activeLayerId)
+    const room = layer.rooms.find((r: Any) => r.name === 'Warren Hall')
+    st.updateRoom(layer.id, room.id, { look: { ...(room.look ?? {}), place: 'underground' } })
+  })
+  await waitFrame(page, 6)
+  // The Hall's longest face edge with room to spare behind it: its midpoint, and the unit step into the room.
+  const mouth = await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const layer = st.layers.find((l: Any) => l.id === st.ui.activeLayerId)
+    const face: [number, number][] = layer.rooms.find((r: Any) => r.name === 'Warren Hall').face
+    const inside = (x: number, y: number) => {
+      let on = false
+      for (let i = 0, j = face.length - 1; i < face.length; j = i++) {
+        const [xi, yi] = face[i]
+        const [xj, yj] = face[j]
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) on = !on
+      }
+      return on
+    }
+    const edges = face.map((a, i) => [a, face[(i + 1) % face.length]] as [[number, number], [number, number]])
+    edges.sort((e, f) => Math.hypot(f[1][0] - f[0][0], f[1][1] - f[0][1]) - Math.hypot(e[1][0] - e[0][0], e[1][1] - e[0][1]))
+    for (const [a, b] of edges) {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      const mid = { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 }
+      for (const sign of [1, -1]) {
+        const n = { x: (-(b[1] - a[1]) / len) * sign, y: ((b[0] - a[0]) / len) * sign }
+        const at = (d: number) => inside(mid.x + n.x * d, mid.y + n.y * d)
+        if (at(0.3) && at(1.5) && at(3.2) && !inside(mid.x - n.x * 0.3, mid.y - n.y * 0.3)) return { a, b, mid, n }
+      }
+    }
+    return null
+  })
+  expect(mouth, 'a face edge with room behind it').not.toBeNull()
+  const { a, b, mid, n } = mouth!
+  const at = (d: number) => ({ x: mid.x + n.x * d, y: mid.y + n.y * d })
+  await lookAt(page, at(1.5), 60)
+  const [shallowBefore, deepBefore] = [await lum(page, at(0.6), 3), await lum(page, at(3.2), 3)]
+  // Open the edge: a threshold along it, the way a split divider is saved.
+  await page.evaluate(({ a, b }) => {
+    ;(window as Any).__store.setState((s: Any) => {
+      const layer = s.layers.find((l: Any) => l.id === s.ui.activeLayerId)
+      layer.thresholds = [...(layer.thresholds ?? []), { id: 'qa-mouth', points: [a, b] }]
+    })
+  }, { a, b })
+  await waitFrame(page, 6)
+  expect(await lum(page, at(0.6), 3)).toBeGreaterThan(shallowBefore + 6)
+  expect(Math.abs((await lum(page, at(3.2), 3)) - deepBefore)).toBeLessThan(2)
 })

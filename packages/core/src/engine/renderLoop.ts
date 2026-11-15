@@ -29,6 +29,8 @@ import {
 import { SkyEaser, type SkyFrame } from '../shared/sky';
 import { levelPlace, roomPlace } from '../shared/regionGrade';
 import { roomFace } from '../shared/roomUtils';
+import { daylightSpill } from '../shared/daylightSpill';
+import type { Environment } from '../shared/world';
 import { glowOf } from '../shared/propFields';
 import { isFrozen } from '../shared/freeze';
 import { getEditorDesk, setAuthoredLookHold, sheetColor } from './editorDesk';
@@ -58,7 +60,8 @@ const skyNow = (state: StoreState): SkyFrame => worldFrame(state.mapSettings, st
 
 /**
  * A level's regions (its own place, then every room face with the place its look chain
- * resolves to, the table's live room places on top) and its glowing props, from `layers`. The
+ * resolves to, the table's live room places on top, and the daylight spilling into dark rooms
+ * through their open edges) and its glowing props, from `layers`. The
  * render loop feeds the shown level's to the lighting pass; the export, the level it draws.
  */
 export function levelLighting(
@@ -74,11 +77,13 @@ export function levelLighting(
   const parts: string[] = [`${levelLight.place}:${tint}`];
   const glows: GlowProp[] = [];
   const glowParts: string[] = [];
+  const places: Record<string, Environment> = {};
   for (const layer of layers) {
     for (const room of layer.rooms ?? []) {
       const face = roomFace(room);
       if (face.length < 3) continue;
       const place = live?.[room.id] ?? roomPlace(state, layer, room);
+      places[room.id] = place;
       rooms.push({ id: room.id, face, light: { place, tint } });
       parts.push(`${room.id}:${place}:${face.length}:${face[0]![0]},${face[0]![1]}`);
     }
@@ -92,7 +97,12 @@ export function levelLighting(
       );
     }
   }
-  return { regions: { level: levelLight, rooms, key: parts.join(',') }, glows, glowKey: glowParts.join(',') };
+  const spills = daylightSpill(state, layers, levelId, places);
+  for (const s of spills) {
+    const p = s.bands[s.bands.length - 1]?.[0]?.[0];
+    parts.push(`spill:${s.roomId}:${s.from}:${s.bands.map((b) => b.reduce((n, r) => n + r.length, 0)).join('/')}:${p ? `${p[0]},${p[1]}` : ''}`);
+  }
+  return { regions: { level: levelLight, rooms, spills, key: parts.join(',') }, glows, glowKey: glowParts.join(',') };
 }
 
 /**

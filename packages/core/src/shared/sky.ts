@@ -98,7 +98,7 @@ export function skyFrame(input: SkyInput): SkyFrame {
   const nightSky: NightSky = 'full-moon';
   const weather: Weather = 'clear';
   const w = weatherLight(weather);
-  const base = sunAt(minutes, input, environmentOf(input), nightSky);
+  const base = sunAt(minutes, input, nightSky);
   const intensity = base.intensity * w.sun;
   const sun: SunVector = { ...base, intensity };
   const derived = clamp01(1 - daylightAt(minutes, nightSky) * (1 - w.dark));
@@ -120,12 +120,13 @@ export function skyFrame(input: SkyInput): SkyFrame {
 /**
  * The sun cliffs cast by. Under an outdoor sky a cliff throws its shadow by default: unless
  * natural shadows are switched off outright, it is the frame's sun with natural light forced
- * on (weather included). Indoors, or switched off, it is the frame's own sun, which casts
- * nothing.
+ * on (weather included). On a map that is not Outdoor it casts nothing, and with shadows
+ * switched off it is the frame's own sun, which casts nothing either.
  */
 export function cliffSunAt(frame: SkyFrame, map: MapEnvironment): SunVector {
-  if (frame.sun.kind !== null || environmentOf(map) !== 'outdoor' || map.naturalLight === false) return frame.sun;
-  const base = sunAt(frame.minutes, { ...map, naturalLight: true }, 'outdoor', frame.nightSky);
+  if (environmentOf(map) !== 'outdoor') return { ...frame.sun, intensity: 0, kind: null };
+  if (frame.sun.kind !== null || map.naturalLight === false) return frame.sun;
+  const base = sunAt(frame.minutes, { ...map, naturalLight: true }, frame.nightSky);
   return { ...base, intensity: base.intensity * weatherLight(frame.weather).sun };
 }
 

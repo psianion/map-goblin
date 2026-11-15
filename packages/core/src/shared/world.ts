@@ -176,12 +176,12 @@ export interface SunVector {
   altitude: number;
   /** 0..1 — how hard it casts. 0 at the horizon, and 0 whenever `kind` is null. */
   intensity: number;
-  /** null ⇒ nothing is casting: an indoor map, a map with natural light off, a moonless night. */
+  /** null ⇒ nothing is casting: a map with natural light off, a moonless night. */
   kind: 'sun' | 'moon' | null;
 }
 
 /** Painterly sun arc: rise and set, and the moon taking the other half of the ring. */
-const SUN_RISE = 360;
+export const SUN_RISE = 360;
 const SUN_SET = 1080;
 const ARC_MINUTES = SUN_SET - SUN_RISE;
 /**
@@ -198,18 +198,15 @@ export const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, cre
  * Continuous through both horizons: `kind` only ever flips where the altitude and the
  * intensity are already 0, so nothing on screen can pop at a band edge.
  */
-export function sunAt(
-  minutes: number,
-  map: MapEnvironment,
-  environment: Environment,
-  sky: NightSky,
-): SunVector {
+export function sunAt(minutes: number, map: MapEnvironment, sky: NightSky): SunVector {
   const day = minutes >= SUN_RISE && minutes < SUN_SET;
   const progress = day
     ? (minutes - SUN_RISE) / ARC_MINUTES
     : wrap(minutes - SUN_SET) / ARC_MINUTES;
   const arc = Math.sin(Math.PI * progress);
-  const casts = environment === 'outdoor' && map.naturalLight === true;
+  // Whatever the map's place: which ground the light reaches is the shadow pass's question,
+  // asked region by region.
+  const casts = map.naturalLight === true;
   const strength = day ? 1 : MOON_INTENSITY[sky];
   return {
     azimuth: wrapDegrees((map.orientation ?? 0) + progress * 180),

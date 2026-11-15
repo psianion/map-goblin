@@ -18,8 +18,8 @@ describe('skyFrame: the sun and the moon', () => {
     expect(skyFrame({ ...OUTDOOR, time: 'night' }).sun.kind).toBe('moon');
   });
 
-  it('casts nothing indoors, as the resolver has always said', () => {
-    expect(skyFrame({ environment: 'indoor', naturalLight: true, time: 'day' }).sun.kind).toBeNull();
+  it('casts on an indoor map too, which ground it reaches being the shadow pass’s question', () => {
+    expect(skyFrame({ environment: 'indoor', naturalLight: true, time: 'day' }).sun.kind).toBe('sun');
   });
 });
 

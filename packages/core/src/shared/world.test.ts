@@ -67,8 +67,7 @@ describe('time colour', () => {
 
 describe('sun and moon', () => {
   const outdoor: MapEnvironment = { environment: 'outdoor', naturalLight: true };
-  const at = (minutes: number, map: MapEnvironment = outdoor, sky: NightSky = 'full-moon') =>
-    sunAt(minutes, map, environmentOf(map), sky);
+  const at = (minutes: number, map: MapEnvironment = outdoor, sky: NightSky = 'full-moon') => sunAt(minutes, map, sky);
 
   it('rises east, sets west, and stands highest at midday', () => {
     expect(at(360)).toMatchObject({ azimuth: 0, kind: 'sun' });
@@ -89,8 +88,8 @@ describe('sun and moon', () => {
     expect(at(0, outdoor, 'moonless')).toMatchObject({ kind: null, intensity: 0 });
   });
 
-  it('casts nothing indoors, or with natural light off', () => {
-    expect(at(720, { environment: 'indoor', naturalLight: true }).kind).toBeNull();
+  it('casts on any place with natural light on, and nothing with it off', () => {
+    expect(at(720, { environment: 'indoor', naturalLight: true }).kind).toBe('sun');
     expect(at(720, { environment: 'outdoor' }).kind).toBeNull();
   });
 

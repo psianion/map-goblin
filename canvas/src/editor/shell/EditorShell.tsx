@@ -25,6 +25,7 @@ import { Tip } from '@/editor/surfaces/Tip';
 import { TitleCard } from '@/editor/surfaces/TitleCard';
 import { TopActions } from '@/editor/surfaces/TopActions';
 import { openAssetsRef } from '@/editor/families/design/openAssets';
+import { Sundial } from '@/editor/families/environment/Sundial';
 import { RegistryProvider } from './RegistryProvider';
 import { useRegistryKeys } from './shellKeys';
 import { useSpacePan } from './spacePan';
@@ -169,6 +170,8 @@ export function EditorShell({ actions, onHome, openSettings = false, registry = 
         className="group/shell pointer-events-none fixed inset-0 z-20 font-sans text-[12px] leading-[1.4] text-text [&>*]:pointer-events-auto [&>[data-chrome]]:transition-opacity [&>[data-chrome]]:duration-[400ms] [&[data-faded]>[data-chrome]:not(:has(:focus-visible))]:opacity-[0.35]"
       >
         {settings}
+        {/* First, so every piece of chrome lies over the ring. */}
+        <Sundial />
         <Rail />
         <TitleCard onHome={onHome} />
         <TopActions actions={actions} onOpenSettings={() => setSettingsOpen(true)} />
