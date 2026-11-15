@@ -3,10 +3,11 @@ import { useStore } from '@dnd/core/src/store/store';
 import type { FogState } from '@dnd/mechanics/fog';
 import { sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers';
 import type { TriggerCondition } from '@dnd/core/src/shared/prep';
-import { Button, Caption, Seg, SliderRow, Switch, SwitchRow } from '@dnd/ui';
+import { Button, Caption, Chip, Seg, SliderRow, Switch, SwitchRow } from '@dnd/ui';
 import { frameWorldPoint } from '../../renderer/camera';
 import { openSheet } from '../../shell/sheets/registry';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { withoutSupersededSeats } from '../../shell/top/roster';
 import { CrossingsFold } from '../crossings/CrossingsFold';
 import { DoorActions } from '../doors/DoorActions';
 import { doorLabel, doorStatusLabel } from '../doors/doors';
@@ -70,7 +71,7 @@ export function MapBody() {
         </>
       )}
       {family === 'triggers' && <p className="text-xs text-text-3">Fired triggers narrate into the log.</p>}
-      {family === 'levels' && <p className="text-xs text-text-3">Go shows you a level. Seats follow their tokens unless pinned in World.</p>}
+      {family === 'levels' && <p className="text-xs text-text-3">Go shows you a level. Seats follow their tokens unless pinned on a level here.</p>}
       {family === 'rooms' && <CrossingsFold />}
       {family === 'labels' && (
         <SwitchRow label="Show map labels" className="w-full" checked={!labelsHidden} onCheckedChange={(on) => useStore.getState().setLabelsHidden(!on)} />
@@ -225,17 +226,36 @@ function LevelsStrip() {
   if (levels.length < 2) return <p className="text-xs text-text-3">This map has one level.</p>;
   const scene = state && sceneId ? sceneTriggersOf(state, sceneId) : undefined;
   const mine = scene?.dmLevelId ?? levels[0]!.id;
+  const seats = withoutSupersededSeats(roster).filter((p) => p.role !== 'dm');
   return (
     <ul className="flex gap-2" data-testid="map-levels">
       {levels.map((l) => {
-        const seats = roster.filter((p) => p.role !== 'dm' && scene?.seatLevel?.[p.identityId] === l.id).map((p) => p.name);
+        const pinned = seats.filter((p) => scene?.seatLevel?.[p.identityId] === l.id).map((p) => p.name);
         return (
           <li key={l.id} className={card} data-level-id={l.id}>
             <span className="truncate text-xs text-text">{l.name}</span>
-            <Caption>{seats.length ? `Seats see: ${seats.join(', ')}` : 'No seat pinned'}</Caption>
+            <Caption>{pinned.length ? `Seats see: ${pinned.join(', ')}` : 'No seat pinned'}</Caption>
             <Button variant="outline" size="xs" disabled={l.id === mine} data-testid="level-go" onClick={() => triggers('set-dm-level', { levelId: l.id })}>
               {l.id === mine ? 'Showing' : 'Go'}
             </Button>
+            {seats.length > 0 && (
+              <div className="flex flex-wrap gap-1" data-testid="level-seats">
+                {seats.map((p) => {
+                  const on = scene?.seatLevel?.[p.identityId] === l.id;
+                  return (
+                    <Chip
+                      key={p.identityId}
+                      pressed={on}
+                      aria-label={`Pin ${p.name} to ${l.name}`}
+                      data-testid={`level-seat-${p.identityId}`}
+                      onPressedChange={() => triggers('set-seat-level', { identity: p.identityId, levelId: on ? null : l.id })}
+                    >
+                      {p.name}
+                    </Chip>
+                  );
+                })}
+              </div>
+            )}
           </li>
         );
       })}

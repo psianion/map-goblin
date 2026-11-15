@@ -76,38 +76,23 @@ describe('resolveRoomLook / lookSource — five scopes', () => {
       wallTextureSetId: '',
       wallTextureTint: '#ffffff',
       wallWidth: 0.5,
-      // The map's mood is its environment: absent reads as indoor, which is Dim.
-      mood: 'dim',
-      moodTint: '#223344',
-      moodVision: 'darkness',
+      // The map's place is its environment: absent reads as indoor.
+      place: 'indoor',
     });
   });
 
-  it('takes the map mood from the environment: outdoor Lit, indoor Dim, underground Dark', () => {
-    expect(mapDefaults({ ambientLight: '#000000', environment: 'outdoor' }).mood).toBe('lit');
-    expect(mapDefaults({ ambientLight: '#000000', environment: 'indoor' }).mood).toBe('dim');
-    expect(mapDefaults({ ambientLight: '#000000', environment: 'underground' }).mood).toBe('dark');
-    expect(mapDefaults({ ambientLight: '#000000' }).mood).toBe('dim');
+  it('takes the map place from the environment, absent reading as indoor', () => {
+    expect(mapDefaults({ ambientLight: '#000000', environment: 'outdoor' }).place).toBe('outdoor');
+    expect(mapDefaults({ ambientLight: '#000000', environment: 'indoor' }).place).toBe('indoor');
+    expect(mapDefaults({ ambientLight: '#000000', environment: 'underground' }).place).toBe('underground');
+    expect(mapDefaults({ ambientLight: '#000000' }).place).toBe('indoor');
   });
 
-  it('inherits moodVision like mood, and a scope pins it', () => {
-    const c = chain({ level: { id: 'lvl', name: 'L', look: { moodVision: 'visible' } } });
-    expect(resolveLookKey(c, 'moodVision')).toBe('visible');
-    expect(lookSource(c, 'moodVision')).toBe('level');
-    const pinned = chain({ room: { ...ROOM, look: { moodVision: 'darkness' } }, level: { id: 'lvl', name: 'L', look: { moodVision: 'visible' } } });
-    expect(resolveLookKey(pinned, 'moodVision')).toBe('darkness');
-    expect(lookSource(pinned, 'moodVision')).toBe('room');
-  });
-
-  it('defaults moodVision to darkness at the map', () => {
-    expect(resolveLookKey(chain({ level: { id: 'lvl', name: 'Bare' } }), 'moodVision')).toBe('darkness');
-  });
-
-  it('resolves mood through the chain though nothing draws it yet (layers carry none)', () => {
-    const c = chain({ area: { ...AREA, look: { mood: 'dim' } }, room: { ...ROOM, look: undefined } });
-    expect(resolveLookKey(c, 'mood')).toBe('dim');
-    expect(lookSource(c, 'mood')).toBe('area');
-    expect(lookSource(chain({ layer: layer({ wallTextureTint: '#x' }) }), 'mood')).toBe('map');
+  it('resolves place through the chain (layers carry none)', () => {
+    const c = chain({ area: { ...AREA, look: { place: 'indoor' } }, room: { ...ROOM, look: undefined } });
+    expect(resolveLookKey(c, 'place')).toBe('indoor');
+    expect(lookSource(c, 'place')).toBe('area');
+    expect(lookSource(chain({ layer: layer({ wallTextureTint: '#x' }) }), 'place')).toBe('map');
   });
 });
 

@@ -50,14 +50,14 @@ interface SceneSweeps {
 }
 
 /**
- * The table's light state a sweep is judged against (the Lighting pass): the sky (clock,
- * weather, night sky and the DM's darkness slider, `worldSkyOf`), every live light edit, and
- * the live room moods. Null is a scene with nothing dark anywhere.
+ * The table's light state a sweep is judged against (the Lighting pass): the sky (time of day
+ * and the scene's darkness slider, `worldSkyOf`), every live light edit, and the live room
+ * places. Null is a scene with nothing dark anywhere.
  */
 export interface LightGate {
   sky: SkyFrame
   edits: Record<string, LightEdit>
-  roomMoods: Record<string, RoomEdit>
+  roomPlaces: Record<string, RoomEdit>
 }
 
 /** A darkness source's swept area, and whether darkvision sees through it. */
@@ -240,7 +240,7 @@ export function createSweeps(): Sweeps {
             darkvisionSees: s.darkvisionSees === true,
           })
         }
-        const test = darkTest(map.data, scene.layers, level, gate.sky, gate.roomMoods)
+        const test = darkTest(map.data, scene.layers, level, gate.sky, gate.roomPlaces)
         if (test.any || darkness.length > 0) {
           darkAt = test.dark
           lit = sources

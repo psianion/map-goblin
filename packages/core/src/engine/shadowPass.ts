@@ -46,7 +46,7 @@ import { worldFrame, type WorldFrame } from './worldOverride';
 /** The look under whichever sun this surface is standing — the Table's, or the Editor's own. */
 function shadowLookNow(): ShadowLook | null {
   const state = useStore.getState();
-  const frame = worldFrame(state.mapSettings, state.ui.previewClock, state.ui.previewSky, state.ui.previewWeather);
+  const frame = worldFrame(state.mapSettings, state.ui.previewTime);
   return shadowLook(frame.sun, frame.penumbraScale);
 }
 

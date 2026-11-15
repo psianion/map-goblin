@@ -1,6 +1,6 @@
 // The room, area and level cards' custom rows: typed names and numbers, the Area pick, the
-// Floor and Walls look sections (what the scope pins, else where it inherits from, with
-// Reset), the room's Key, and the counts with their way into the rooms list.
+// Floor, Walls and Place look sections (what the scope pins, else where it inherits from,
+// with Reset), the room's Key, and the counts with their way into the rooms list.
 
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -8,12 +8,12 @@ import { useStore } from '@/store/store';
 import type { MapBuilderStore } from '@/store/types';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
-import { Caption, ColourRow, InputRow, SecondaryButton, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
+import { Caption, ColourRow, InputRow, PlaceTiles, SecondaryButton, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
-import { chainOf, lookGesture, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
-import { FLOOR_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
+import { chainOf, inheritedPlace, lookGesture, ownLook, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
+import { FLOOR_KEYS, PLACE_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
 import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthIgnored } from '@/editor/models/assetStrip';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
@@ -190,6 +190,20 @@ export function WallsSection({ value: target }: SettingProps<LookTarget>) {
 }
 
 const NONE_SET = 'none';
+
+/** Place: Follows (what the scope above gives it, drawn faded), or one of the three pinned. */
+export function PlaceSection({ value: target }: SettingProps<LookTarget>) {
+  const { own, follows } = useStore(
+    useShallow((s: MapBuilderStore) => ({ own: ownLook(s, target)?.place ?? null, follows: inheritedPlace(s, target) })),
+  );
+  if (!follows) return null;
+  return (
+    <div className="flex flex-col gap-px" data-testid="look-place">
+      <SectionHead title="Place" target={target} keys={PLACE_KEYS} />
+      <PlaceTiles value={own} inherit={{ label: 'Follows', resolves: follows }} onPick={(place) => setLook(target, { place: place ?? undefined })} />
+    </div>
+  );
+}
 
 let commitTimer: ReturnType<typeof setTimeout> | null = null;
 

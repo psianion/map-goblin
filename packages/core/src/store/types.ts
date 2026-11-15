@@ -21,9 +21,9 @@ import type {
   RoomLook,
   ThresholdSegment,
 } from '../shared/types';
-import type { RoomKey, RoomNote, ScenePrep, TriggerDef, Weather } from '../shared/prep';
+import type { RoomKey, RoomNote, ScenePrep, TimeOfDay, TriggerDef } from '../shared/prep';
 import type { LightPresetId } from './lightPresets';
-import type { MapEnvironment, NightSky } from '../shared/world';
+import type { MapEnvironment } from '../shared/world';
 import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
 import type { WaterBody, WaterLook } from '../shared/waterMask';
@@ -578,20 +578,10 @@ export interface UISlice {
    */
   solo: { layerId: string } | null;
   /**
-   * The Editor's day-scrub preview clock, minutes 0-1439 — local, never persisted and never
-   * sent anywhere (the plan's "Editor preview clock must not leak into campaign state"). Null
-   * is "not scrubbing": the map is drawn at its own time, which is `fixedTime` on a fixed map
-   * and midday on one that follows the clock it cannot see from here.
+   * The time of day the Editor previews the map's light at — local, never persisted and never
+   * sent anywhere. A map carries no time of its own; the campaign does, at the Table.
    */
-  previewClock: number | null;
-  /**
-   * The Editor's preview of the campaign's night sky — same tier as `previewClock`: local,
-   * never persisted, never sent anywhere. Null is "not previewing": the Editor draws under
-   * the default full moon, same as an untouched campaign does at the Table.
-   */
-  previewSky: NightSky | null;
-  /** The Editor's preview of the table's weather — same tier as `previewSky`. Null = the map's default. */
-  previewWeather: Weather | null;
+  previewTime: TimeOfDay;
   /**
    * Whether the authored room/connector ink is drawn while neither authoring tool is
    * held (canvas/src/canvas/roomConnectorOverlay.ts). Same tier as `grid.visible`: a
@@ -956,9 +946,7 @@ export interface MapBuilderStore {
   toggleSoloLayer: (id: string) => void;
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;
-  setPreviewClock: (minutes: number | null) => void;
-  setPreviewSky: (sky: NightSky | null) => void;
-  setPreviewWeather: (weather: Weather | null) => void;
+  setPreviewTime: (time: TimeOfDay) => void;
   setRoomOverlayVisible: (visible: boolean) => void;
   /** Shows a level; selects its first layer when the active one is elsewhere. */
   setActiveLevelId: (levelId: string) => void;

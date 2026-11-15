@@ -2,6 +2,8 @@
 // Pure data types — no Zustand or PixiJS dependencies.
 // Consumed by both editor (src/store, src/engine) and future Game Runner.
 
+import type { Environment } from './world';
+
 // ---- Geometry ----
 export interface Point {
   x: number;
@@ -605,9 +607,8 @@ export type AnyChild =
  * below": room → area → layer style → level → map defaults
  * (`shared/lookScope.ts` is the one resolver).
  *
- * `mood` is how much sky light reaches the scope (Lit 100 %, Dim 40 %, Dark 0 %),
- * `moodTint` its ambient colour, and `moodVision` whether a scope that resolves
- * dark counts as darkness for player sight. `shared/regionGrade.ts` reads all three.
+ * `place` is how much sky light reaches the scope (Outdoor 100 %, Indoor 40 %,
+ * Underground 0 %); `shared/regionGrade.ts` reads it.
  */
 export interface RoomLook {
   floorTextureId?: string;
@@ -615,14 +616,8 @@ export interface RoomLook {
   wallTextureSetId?: string;
   wallTextureTint?: string;
   wallWidth?: number;
-  mood?: Mood;
-  moodTint?: string;
-  /** Absent = 'darkness': a region that resolves dark hides from sight unless lit. */
-  moodVision?: 'darkness' | 'visible';
+  place?: Environment;
 }
-
-/** How much sky light reaches a region. */
-export type Mood = 'lit' | 'dim' | 'dark';
 
 /**
  * A place on the map. Rooms are authored, not detected: the DM owns the id, the

@@ -10,7 +10,6 @@ import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
 import { CommandRouter } from './CommandRouter'
 import { markEvent, parseMark } from './marks'
-import { WorldTicker } from './WorldTicker'
 
 interface Session {
   id: string
@@ -59,8 +58,6 @@ export interface SessionManagerOptions {
    * the `table` slice is set from it (internal `table.sync`), so the seats are shown the row.
    */
   tableFlags?: (sessionId: string) => { paused: boolean; movementLocked: boolean } | null
-  /** P4 — how often each open session's world clock is checked. Test seam only. */
-  worldTickMs?: number
 }
 
 export class SessionManager {
@@ -70,7 +67,6 @@ export class SessionManager {
   private readonly timer: NodeJS.Timeout
   private readonly broadcaster: Broadcaster
   private readonly router: CommandRouter
-  private readonly worldTicker: WorldTicker
   private readonly scenes: SceneSource
   private readonly sessionActive: (sessionId: string) => boolean
   private readonly isBanned: (identityId: string) => boolean
@@ -88,7 +84,6 @@ export class SessionManager {
       sessionActive = () => true,
       isBanned = () => false,
       tableFlags = () => null,
-      worldTickMs,
     }: SessionManagerOptions = {},
   ) {
     this.missedPongLimit = missedPongLimit
@@ -104,8 +99,6 @@ export class SessionManager {
       redact ?? buildRedactor(modules, vision),
     )
     this.router = new CommandRouter(modules, this.broadcaster)
-    this.worldTicker =
-      worldTickMs === undefined ? new WorldTicker(modules) : new WorldTicker(modules, worldTickMs)
   }
 
   /** Takes ownership of a freshly upgraded socket. The client is not in a session until it joins. */
@@ -123,7 +116,6 @@ export class SessionManager {
 
   close(): void {
     clearInterval(this.timer)
-    this.worldTicker.close()
     for (const conn of this.connections) conn.terminate()
     this.connections.clear()
     this.sessions.clear()
@@ -139,7 +131,6 @@ export class SessionManager {
     if (!session) return
     this.broadcaster.broadcast(sessionId, { type: 'session-ended' })
     this.sessions.delete(sessionId)
-    this.worldTicker.stop(sessionId)
     for (const client of session.clients) client.close()
   }
 
@@ -272,10 +263,7 @@ export class SessionManager {
     }
     // ponytail: in-memory only, so an empty session is dropped. A3 persists sessions
     // and identities to SQLite, at which point this becomes a state transition instead.
-    if (session.clients.size === 0) {
-      this.sessions.delete(session.id)
-      this.worldTicker.stop(session.id)
-    }
+    if (session.clients.size === 0) this.sessions.delete(session.id)
   }
 
   /**
@@ -342,20 +330,9 @@ export class SessionManager {
     const existing = this.sessions.get(id)
     if (existing) return existing
 
-    // A `const` rather than reassigning the lookup: the ticker callbacks below close over it,
-    // and a `let` that started out possibly-undefined stays possibly-undefined inside a closure.
     const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false }
     this.sessions.set(id, session)
     this.syncTable(session)
-    // P4 — the world clock is campaign-global and ticks for as long as the table is open,
-    // unaffected by which scene is active or who is in it (read fresh on every tick below).
-    this.worldTicker.start({
-      sessionId: session.id,
-      campaignId: session.campaignId,
-      activeSceneId: () => this.scenes(session).activeSceneId,
-      players: () => [...session.players.values()],
-      broadcast: (msg) => this.broadcaster.broadcast(session.id, msg),
-    })
     return session
   }
 

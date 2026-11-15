@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { lightPreset, presetDefaults } from '@dnd/core/src/store/lightPresets';
 import {
@@ -6,18 +7,23 @@ import {
   LEGACY_FOCUS_MODE_KEY,
   LIGHT_BRUSH_KEY,
   LIT_PREVIEW_KEY,
+  PREVIEW_KEY,
   PROP_PREFS_KEY,
-  getLitPreview,
+  LIT_ON_TOAST,
+  getPreview,
   initFocusMode,
   initLightBrush,
   initPropPrefs,
+  litOnForEdit,
   loadLightBrush,
   loadPropPrefs,
   loadFocusMode,
   nextFocusMode,
+  previewLabel,
+  previewTime,
   resetViewPrefsForTests,
-  setLitPreview,
-  toggleLitPreview,
+  setPreview,
+  togglePreview,
 } from './viewPrefs';
 
 beforeEach(() => {
@@ -94,22 +100,72 @@ describe('focus mode', () => {
   });
 });
 
-describe('lit preview', () => {
-  it('is off by default', () => {
-    expect(getLitPreview()).toBe(false);
+describe('preview as', () => {
+  it('is unlit by default', () => {
+    expect(getPreview()).toBe('unlit');
   });
 
   it('is remembered', () => {
-    setLitPreview(true);
-    expect(localStorage.getItem(LIT_PREVIEW_KEY)).toBe('1');
+    setPreview('dusk');
+    expect(localStorage.getItem(PREVIEW_KEY)).toBe('dusk');
     resetViewPrefsForTests();
-    expect(getLitPreview()).toBe(true);
+    expect(getPreview()).toBe('dusk');
   });
 
-  it('toggles and reports the new value', () => {
-    expect(toggleLitPreview()).toBe(true);
-    expect(toggleLitPreview()).toBe(false);
-    expect(localStorage.getItem(LIT_PREVIEW_KEY)).toBe('0');
+  it('toggles between unlit and the last picked time', () => {
+    expect(togglePreview()).toBe('day');
+    setPreview('night');
+    expect(togglePreview()).toBe('unlit');
+    expect(togglePreview()).toBe('night');
+  });
+
+  it('reads the old lit switch once as Day', () => {
+    localStorage.setItem(LIT_PREVIEW_KEY, '1');
+    expect(getPreview()).toBe('day');
+    expect(localStorage.getItem(LIT_PREVIEW_KEY)).toBeNull();
+    expect(localStorage.getItem(PREVIEW_KEY)).toBe('day');
+  });
+
+  it('reads the old lit switch being off as unlit, and drops the old key', () => {
+    localStorage.setItem(LIT_PREVIEW_KEY, '0');
+    expect(getPreview()).toBe('unlit');
+    expect(localStorage.getItem(LIT_PREVIEW_KEY)).toBeNull();
+  });
+
+  it('prefers the new key over the old one, and ignores a value it does not know', () => {
+    localStorage.setItem(PREVIEW_KEY, 'dusk');
+    localStorage.setItem(LIT_PREVIEW_KEY, '1');
+    expect(getPreview()).toBe('dusk');
+    resetViewPrefsForTests();
+    localStorage.clear();
+    localStorage.setItem(PREVIEW_KEY, 'midnight');
+    expect(getPreview()).toBe('unlit');
+  });
+
+  it('remembers the saved time for I to go back to', () => {
+    localStorage.setItem(PREVIEW_KEY, 'dawn');
+    expect(getPreview()).toBe('dawn');
+    expect(togglePreview()).toBe('unlit');
+    expect(previewTime()).toBe('dawn');
+    expect(togglePreview()).toBe('dawn');
+  });
+
+  it('words the chip as Preview and the time, or Unlit', () => {
+    expect(previewLabel('unlit')).toBe('Unlit');
+    expect(previewLabel('dusk')).toBe('Preview · Dusk');
+  });
+
+  it('lights the preview at the last picked time for an edit only the lit view shows, never turning it off', () => {
+    const subtle = vi.spyOn(notify, 'subtle').mockImplementation(() => undefined as never);
+    setPreview('dusk');
+    setPreview('unlit');
+    litOnForEdit();
+    expect(getPreview()).toBe('dusk');
+    expect(subtle).toHaveBeenCalledWith(LIT_ON_TOAST, expect.anything());
+    litOnForEdit();
+    expect(getPreview()).toBe('dusk');
+    expect(subtle).toHaveBeenCalledTimes(1);
+    subtle.mockRestore();
   });
 });
 

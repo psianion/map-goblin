@@ -15,8 +15,13 @@ const WARREN = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../session/testdata/goblin-warren.mapbuilder', import.meta.url)), 'utf8'),
 )
 
-export const NOON = 720
-export const NIGHT = 120
+/** The four times the editor previews at (Preview as); the clock is gone, so a test names one. */
+export type Time = 'dawn' | 'day' | 'dusk' | 'night'
+export const NOON: Time = 'day'
+export const NIGHT: Time = 'night'
+
+/** The saved Preview as pick, the way the status chip's tiles write it. */
+export const PREVIEW_KEY = 'mapbuilder-preview'
 
 export async function inPage<T>(page: Page, fn: string, arg?: unknown): Promise<T> {
   return page.evaluate(
@@ -36,10 +41,10 @@ export async function inPage<T>(page: Page, fn: string, arg?: unknown): Promise<
   )
 }
 
-/** The editor under a freeze at `minutes`, the lit preview as asked, on a fresh copy of the warren. */
-export async function openWarren(page: Page, minutes = NOON, lit = true): Promise<void> {
-  await page.addInitScript((lit) => localStorage.setItem('mapbuilder-lit-preview', lit ? '1' : '0'), lit)
-  await page.goto(`/?e2e=1&freeze=${minutes}`)
+/** The editor under a frozen animation clock, previewing at `time` (or unlit), on a fresh copy of the warren. */
+export async function openWarren(page: Page, time: Time = NOON, lit = true): Promise<void> {
+  await page.addInitScript(({ key, pick }) => localStorage.setItem(key, pick), { key: PREVIEW_KEY, pick: lit ? time : 'unlit' })
+  await page.goto('/?e2e=1&freeze=720')
   await waitForBoot(page)
   await page.getByTestId('v2-new-map-card').click()
   await page.getByTestId('v2-new-map-submit').click()
@@ -133,8 +138,8 @@ export async function select(page: Page, ids: string[]): Promise<void> {
   await waitFrame(page, 3)
 }
 
-/** The status bar's lit chip. */
-export const litChip = (page: Page) => page.getByTestId('shell-status').getByRole('button', { name: /^Lit/ })
+/** The status bar's Preview as chip: "Unlit" or "Preview · Dusk". */
+export const litChip = (page: Page) => page.getByTestId('shell-preview-chip')
 
 /** Mean brightness (0..255) of a box `half` CSS px around world point `p`. */
 export async function lum(page: Page, p: { x: number; y: number }, half = 4): Promise<number> {
@@ -163,7 +168,7 @@ export async function lum(page: Page, p: { x: number; y: number }, half = 4): Pr
   )
 }
 
-/** Flip the Lit preview (key I). */
+/** Flip the preview between unlit and the last picked time (key I). */
 export async function toggleLit(page: Page): Promise<void> {
   await blur(page)
   await page.keyboard.press('i')

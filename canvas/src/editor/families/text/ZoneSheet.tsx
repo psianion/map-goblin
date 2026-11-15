@@ -29,7 +29,6 @@ import {
   Input,
   Switch,
 } from '@dnd/ui';
-import { TIMES, WEATHERS, vocabLabel } from '@/store/types';
 import type {
   Ability,
   AnyChild,
@@ -37,11 +36,9 @@ import type {
   LightChild,
   MonsterEntry,
   RoomNote,
-  TimeOfDay,
   TriggerAction,
   TriggerCondition,
   TriggerDef,
-  Weather,
   ZoneChild,
   ZoneShape,
 } from '@/store/types';
@@ -65,7 +62,6 @@ const ACTION_KINDS: { value: TriggerAction['kind']; label: string }[] = [
   { value: 'trap', label: 'Trap' },
   { value: 'ability-check', label: 'Ability check' },
   { value: 'prompt', label: 'Prompt' },
-  { value: 'environment', label: 'Environment' },
   { value: 'encounter', label: 'Encounter' },
 ];
 
@@ -83,10 +79,6 @@ const PROMPTS: { value: 'initiative' | 'attack'; label: string }[] = [
   { value: 'attack', label: 'Attack' },
 ];
 
-/** "Unchanged" is the action leaving the time or weather as it is. */
-const UNCHANGED = 'unchanged';
-const TIME_CHOICES = [{ value: UNCHANGED, label: 'Unchanged' }, ...TIMES.map((t) => ({ value: t as string, label: vocabLabel(t) }))];
-const WEATHER_CHOICES = [{ value: UNCHANGED, label: 'Unchanged' }, ...WEATHERS.map((w) => ({ value: w as string, label: vocabLabel(w) }))];
 /** The token art pick's placeholder disc. */
 const NO_ART = 'placeholder';
 
@@ -103,8 +95,6 @@ function defaultAction(kind: TriggerAction['kind'], firstLightId: string): Trigg
       return { kind, ability: 'str', dc: 10, text: '' };
     case 'prompt':
       return { kind, prompt: 'initiative' };
-    case 'environment':
-      return { kind };
     case 'encounter':
       return {
         kind,
@@ -661,25 +651,6 @@ function ActionEditor({
           <Seg aria-label="Prompt" value={action.prompt} options={PROMPTS} onValueChange={(prompt) => patch<'prompt'>({ prompt: prompt as 'initiative' | 'attack' })} />
           <DraftInput label="Prompt note" value={action.text ?? ''} placeholder="Optional note" onCommit={(v) => patch<'prompt'>({ text: v || undefined })} />
           <Note>DM log only, not shown at the table.</Note>
-        </>
-      )}
-
-      {action.kind === 'environment' && (
-        <>
-          <SelectRow
-            label="Time"
-            className={wide}
-            value={action.time ?? UNCHANGED}
-            options={TIME_CHOICES}
-            onValueChange={(v) => patch<'environment'>({ time: v === UNCHANGED ? undefined : (v as TimeOfDay) })}
-          />
-          <SelectRow
-            label="Weather"
-            className={wide}
-            value={action.weather ?? UNCHANGED}
-            options={WEATHER_CHOICES}
-            onValueChange={(v) => patch<'environment'>({ weather: v === UNCHANGED ? undefined : (v as Weather) })}
-          />
         </>
       )}
 

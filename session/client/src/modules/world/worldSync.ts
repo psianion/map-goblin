@@ -3,39 +3,38 @@
 //
 // Everything the world decides (the per-region grade, the lighting pass's sky key, the sun the
 // P3 shadow pass extrudes along, night-only lights) is composed inside core's render loop from
-// the map's own settings plus one `SkyFrame`. The Editor composes that frame from the map (the
-// scrub head, or a fixed hour); here it is the campaign's — the map's defaults, the world
-// clock, the live weather and night sky and the DM's darkness slider (`worldSkyOf`), the same
-// frame the referee gates sight with, so the badge, the mask and the picture cannot disagree.
+// the map's own settings plus one `SkyFrame`. The Editor composes that frame from its preview;
+// here it is the campaign's — the map's settings, the time of day and the scene's darkness
+// slider (`worldSkyOf`), the same frame the referee gates sight with, so the mask and the
+// picture cannot disagree.
 //
-// It also hands over the table's other two live lighting inputs: the room moods the DM set
-// (`triggers.roomEdits`) and the level this seat is looking at (`viewedLevel`), which the
-// engine shows through `ui.activeLevelId`.
+// It also hands over the table's other two live lighting inputs: the room places the DM set
+// for the scene (`triggers.roomEdits`) and the level this seat is looking at (`viewedLevel`),
+// which the engine shows through `ui.activeLevelId`.
 //
 // Shaped like `syncLightsToScene`/`syncDoorsToLighting`: a subscription on both stores, slice
 // identity as the whole test, and a cleanup the mounting effect returns.
 
 import {
   displayedSky,
-  setTableRoomMoods,
+  setTableRoomPlaces,
   setTableWorld,
   tableWorld,
 } from '@dnd/core/src/engine/worldOverride';
 import { useStore } from '@dnd/core/src/store/store';
 import { freezeOf } from '@dnd/core/src/shared/freeze';
 import type { SkyFrame } from '@dnd/core/src/shared/sky';
-import type { Mood } from '@dnd/core/src/shared/types';
+import { timeOfDayAt, type Environment } from '@dnd/core/src/shared/world';
 import {
   roomEditsOf,
   sceneTriggersOf,
   viewedLevel,
-  worldOf,
   worldSkyOf,
   type TriggersState,
 } from '@dnd/mechanics/triggers';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { useSessionStore } from '../../session/store';
-// The World panel's two client-only values (the slider under the DM's thumb, "Show me
+// The Sky tab's two client-only values (the slider under the DM's thumb, "Show me
 // everything lit") live in worldPrefs; this sync reads them and re-installs on any change.
 import { dmLit, getDarknessPreview, subscribeWorldPrefs } from './worldPrefs';
 
@@ -47,32 +46,26 @@ function activeSky(): SkyFrame | null {
   if (!sceneId || !triggers) return null;
   const freeze = freezeOf();
   const darknessPreview = getDarknessPreview();
-  const world = worldOf(triggers);
-  const patched: TriggersState =
-    freeze || darknessPreview !== null
-      ? {
-          ...triggers,
-          world: {
-            ...world,
-            ...(freeze ? { clock: freeze.minutes } : {}),
-            ...(darknessPreview !== null ? { darkness: darknessPreview } : {}),
-          },
-        }
-      : triggers;
-  return worldSkyOf(useStore.getState().mapSettings, patched);
+  let patched = triggers;
+  if (freeze) patched = { ...patched, world: { time: timeOfDayAt(freeze.minutes) } };
+  if (darknessPreview !== null) {
+    const scene = sceneTriggersOf(patched, sceneId);
+    patched = { ...patched, byScene: { ...patched.byScene, [sceneId]: { ...scene, darkness: darknessPreview } } };
+  }
+  return worldSkyOf(patched, useStore.getState().mapSettings, sceneId);
 }
 
-/** The table's live room moods, by room id. */
-function activeRoomMoods(): Record<string, Mood> | null {
+/** The table's live room places for the scene, by room id. */
+function activeRoomPlaces(): Record<string, Environment> | null {
   const session = useSessionStore.getState().session;
   const sceneId = session?.activeSceneId;
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   if (!sceneId || !triggers) return null;
-  const moods: Record<string, Mood> = {};
+  const places: Record<string, Environment> = {};
   for (const [roomId, edit] of Object.entries(roomEditsOf(sceneTriggersOf(triggers, sceneId)))) {
-    if (edit.mood) moods[roomId] = edit.mood;
+    if (edit.place) places[roomId] = edit.place;
   }
-  return moods;
+  return places;
 }
 
 /** The level this seat is looking at, or null when the map has one level (or none yet). */
@@ -112,7 +105,7 @@ export function syncWorldToScene(): () => void {
       snap: getDarknessPreview() !== null,
       allLit: dmLit() && you?.role === 'dm',
     });
-    setTableRoomMoods(activeRoomMoods());
+    setTableRoomPlaces(activeRoomPlaces());
     const level = activeLevel();
     if (level && core.ui.activeLevelId !== level) core.setActiveLevelId(level);
   };
@@ -125,6 +118,6 @@ export function syncWorldToScene(): () => void {
     unsubSession();
     unsubMap();
     setTableWorld(null);
-    setTableRoomMoods(null);
+    setTableRoomPlaces(null);
   };
 }

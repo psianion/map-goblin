@@ -7,11 +7,13 @@ import { useStore } from '@/store/store';
 import {
   areaChain,
   patchLook,
+  resolveLookKey,
   resolveRoomLook,
   roomChain,
   type LookChain,
   type ResolvedLook,
 } from '@dnd/core/src/shared/lookScope';
+import type { Environment } from '@dnd/core/src/shared/world';
 import { SetAreaLookCommand, SetLevelLookCommand, SetRoomLookCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer, MapBuilderStore, RoomLook } from '@/store/types';
@@ -68,6 +70,20 @@ export function chainOf(state: MapBuilderStore, target: LookTarget): LookChain |
 export function resolvedLookOf(state: MapBuilderStore, target: LookTarget): ResolvedLook | null {
   const chain = chainOf(state, target);
   return chain ? resolveRoomLook(chain) : null;
+}
+
+/**
+ * The place the target would take with no pin of its own: room → area → level → map, from
+ * the scope above it. What the Place section's "Follows" tile draws.
+ */
+export function inheritedPlace(state: MapBuilderStore, target: LookTarget): Environment | null {
+  const chain = chainOf(state, target);
+  if (!chain) return null;
+  const above: LookChain =
+    target.kind === 'room' ? { ...chain, room: undefined }
+    : target.kind === 'area' ? { ...chain, area: undefined }
+    : { ...chain, level: { ...chain.level, look: undefined } };
+  return resolveLookKey(above, 'place');
 }
 
 /** The target's own pins (not what it inherits). */

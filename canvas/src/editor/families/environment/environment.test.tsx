@@ -11,7 +11,10 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
-import { ENVIRONMENT_CARDS, SkyMoodSheet, environment } from './index';
+import { pickTool } from '@/editor/surfaces/hooks';
+import { resetShell, useShell } from '@/editor/shell/shellStore';
+import { getPreview, resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
+import { ENVIRONMENT_CARDS, SkyMoodSheet, environment, skyEntry } from './index';
 
 const input = () => ({ rail: RAIL_TOOLS, families: [...families], shared: SHARED_SETTINGS, cards: [...cards] });
 const reg = createRegistry(input());
@@ -57,7 +60,7 @@ describe('the Environment family', () => {
   });
 
   it('holds the Light tool under E, key L, its dock and panel as plan 6.4 has them', () => {
-    expect([environment.key, environment.tools.map((t) => [t.label, t.key])]).toEqual(['E', [['Light', 'L']]]);
+    expect([environment.key, environment.tools.map((t) => [t.label, t.key])]).toEqual(['E', [['Light', 'L'], ['Sky', 'K']]]);
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('light', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['light.bright', 'light.dim', 'light.intensity', 'light.colour']);
     expect(ids('panel')).toEqual(['light.cone', 'light.direction', 'light.effect', 'light.speed', 'light.throughWalls']);
@@ -147,22 +150,86 @@ describe('the light card', () => {
   });
 });
 
-describe('the Sky and mood sheet', () => {
-  it('has Environment, Mood tint and Lit preview, and no Climate, Weather, Night sky or Time', () => {
+describe('the Sky sheet', () => {
+  it('has Place, Cast shadows and Tint, and no Lit preview, Climate, Weather, Night sky or Time', () => {
     render(<SkyMoodSheet />);
-    expect(screen.getByRole('group', { name: 'Environment' })).toBeTruthy();
-    expect(screen.getByText('Mood tint')).toBeTruthy();
-    expect(screen.getByText('Lit preview')).toBeTruthy();
-    for (const gone of [/climate/i, /weather/i, /night sky/i, /^time$/i, /fixed hour/i]) expect(screen.queryByText(gone)).toBeNull();
+    expect(screen.getByRole('group', { name: 'Place' })).toBeTruthy();
+    expect(screen.getByText('Cast shadows')).toBeTruthy();
+    expect(screen.getByText('Tint')).toBeTruthy();
+    for (const gone of [/lit preview/i, /climate/i, /weather/i, /night sky/i, /^time$/i, /fixed hour/i]) expect(screen.queryByText(gone)).toBeNull();
   });
 
-  it('changes the environment as one undo step, and shows the sun controls outdoors only', () => {
+  it('changes the place as one undo step', () => {
     render(<SkyMoodSheet />);
-    expect(screen.queryByText('Natural shadows')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Outdoor' }));
     expect(st().mapSettings.environment).toBe('outdoor');
-    expect(screen.getByText('Natural shadows')).toBeTruthy();
     undoManager.undo();
     expect(st().mapSettings.environment ?? 'indoor').toBe('indoor');
+  });
+});
+
+describe('the Sky sheet controls', () => {
+  it('shows the orientation slider whatever the map place', () => {
+    for (const place of ['outdoor', 'indoor', 'underground'] as const) {
+      cleanup();
+      useStore.setState((s) => {
+        s.mapSettings.environment = place;
+      });
+      render(<SkyMoodSheet />);
+      expect(screen.getByText('Orientation'), place).toBeTruthy();
+    }
+  });
+
+  it('switches Cast shadows on and off through the environment command', () => {
+    useStore.setState((s) => {
+      s.mapSettings.naturalLight = true;
+    });
+    render(<SkyMoodSheet />);
+    fireEvent.click(screen.getByRole('switch', { name: 'Cast shadows' }));
+    expect(st().mapSettings.naturalLight).toBe(false);
+    undoManager.undo();
+    expect(st().mapSettings.naturalLight).toBe(true);
+  });
+
+  it('says so while the map is shown unlit, and not once a time is picked', () => {
+    render(<SkyMoodSheet />);
+    expect(screen.getByText(/Shown unlit/)).toBeTruthy();
+    cleanup();
+    setPreview('dusk');
+    render(<SkyMoodSheet />);
+    expect(screen.queryByText(/Shown unlit/)).toBeNull();
+  });
+});
+
+describe('the Sky entry', () => {
+  beforeEach(() => {
+    resetShell();
+    resetViewPrefsForTests();
+  });
+
+  it('is a sheet entry on K with no engine tool of its own', () => {
+    expect(skyEntry).toMatchObject({ id: 'sky', label: 'Sky', key: 'K', sheet: 'sky', engine: [] });
+  });
+
+  it('opens the Sky sheet without changing the tool in hand', () => {
+    st().setActiveTool('light');
+    pickTool(skyEntry);
+    expect(useShell.getState().sheet).toBe('sky');
+    expect(st().tools.activeTool).toBe('light');
+    st().setActiveTool('select');
+    pickTool(skyEntry);
+    expect(st().tools.activeTool).toBe('select');
+  });
+
+  it('leaves the preview where it was', () => {
+    pickTool(skyEntry);
+    expect(getPreview()).toBe('unlit');
+  });
+
+  it('picking the Light tool still activates it and opens no sheet', () => {
+    const light = environment.tools.find((t) => t.id === 'light')!;
+    pickTool(light);
+    expect(st().tools.activeTool).toBe(light.engine[0]);
+    expect(useShell.getState().sheet).toBeNull();
   });
 });

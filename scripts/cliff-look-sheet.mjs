@@ -84,7 +84,8 @@ async function shoot(page) {
     now.setActiveLayerId(now.layers.find((l) => l.type === 'dungeon' && l.children.some((c) => c.childType === 'shape')).id);
     window.__store.setState((s) => {
       s.mapSettings.environment = 'outdoor';
-      s.ui.previewClock = hour * 60;
+      const m = hour * 60;
+      s.ui.previewTime = m < 300 || m >= 1140 ? 'night' : m >= 1020 ? 'dusk' : m >= 420 ? 'day' : 'dawn';
     });
   }, { data: map, hour: HOUR });
   await page.keyboard.press('Control+0');

@@ -9,7 +9,7 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 
 /**
  * Whichever right sheet is open, all in the same 320 slot. Layers, a layer's settings, Packs
- * and the shortcuts are built here from the composites, Sky and mood by the Environment
+ * and the shortcuts are built here from the composites, Sky by the Environment
  * family, and Prep, a zone's sheet and the Rooms list by the Text family. The Rooms list
  * opens from the store (the room card's Open list and Key), so it frames itself.
  */
@@ -27,7 +27,7 @@ export function SheetHost() {
       {sheet === 'shortcuts' && <ShortcutsSheet onClose={close} />}
       <RoomsSheet />
       {sheet === 'sky' && (
-        <SheetFrame title="Sky and mood" onClose={close} testId="shell-sky-sheet">
+        <SheetFrame title="Sky" onClose={close} testId="shell-sky-sheet">
           <SkyMoodSheet />
         </SheetFrame>
       )}

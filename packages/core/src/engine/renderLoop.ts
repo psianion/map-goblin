@@ -20,14 +20,14 @@ import { updateShadows } from './shadowPass';
 import {
   setDisplayedSky,
   tableAllLit,
-  tableRoomMoods,
-  tableRoomMoodsVersion,
+  tableRoomPlaces,
+  tableRoomPlacesVersion,
   tableWorld,
   tableWorldSnaps,
   worldFrame,
 } from './worldOverride';
 import { SkyEaser, type SkyFrame } from '../shared/sky';
-import { levelMood, roomMood } from '../shared/regionGrade';
+import { levelPlace, roomPlace } from '../shared/regionGrade';
 import { roomFace } from '../shared/roomUtils';
 import { glowOf } from '../shared/propFields';
 import { isFrozen } from '../shared/freeze';
@@ -54,13 +54,12 @@ type StoreState = ReturnType<typeof useStore.getState>;
  * the map's own where none did (the Editor). One reader of `worldFrame`, which is this loop;
  * see `worldOverride`.
  */
-const skyNow = (state: StoreState): SkyFrame =>
-  worldFrame(state.mapSettings, state.ui.previewClock, state.ui.previewSky, state.ui.previewWeather);
+const skyNow = (state: StoreState): SkyFrame => worldFrame(state.mapSettings, state.ui.previewTime);
 
 /**
- * A level's regions (its own mood, then every room face with the mood its look chain resolves
- * to, the table's live room moods on top) and its glowing props, from `layers`. The render loop
- * feeds the shown level's to the lighting pass; the export, the level it draws.
+ * A level's regions (its own place, then every room face with the place its look chain
+ * resolves to, the table's live room places on top) and its glowing props, from `layers`. The
+ * render loop feeds the shown level's to the lighting pass; the export, the level it draws.
  */
 export function levelLighting(
   state: StoreState,
@@ -68,21 +67,20 @@ export function levelLighting(
   levelId: string,
 ): { regions: Regions; glows: GlowProp[]; glowKey: string } {
   const level = (state.levels ?? []).find((l) => l.id === levelId);
-  const levelMoodNow = levelMood(state.mapSettings, level);
-  const live = tableRoomMoods();
+  const tint = state.mapSettings.ambientLight;
+  const levelLight = { place: levelPlace(state.mapSettings, level), tint };
+  const live = tableRoomPlaces();
   const rooms: RegionFace[] = [];
-  const parts: string[] = [`${levelMoodNow.mood}:${levelMoodNow.moodTint}:${levelMoodNow.moodVision}`];
+  const parts: string[] = [`${levelLight.place}:${tint}`];
   const glows: GlowProp[] = [];
   const glowParts: string[] = [];
   for (const layer of layers) {
     for (const room of layer.rooms ?? []) {
       const face = roomFace(room);
       if (face.length < 3) continue;
-      const mood = roomMood(state, layer, room);
-      const override = live?.[room.id];
-      const resolved = override ? { ...mood, mood: override } : mood;
-      rooms.push({ id: room.id, face, mood: resolved });
-      parts.push(`${room.id}:${resolved.mood}:${resolved.moodTint}:${face.length}:${face[0]![0]},${face[0]![1]}`);
+      const place = live?.[room.id] ?? roomPlace(state, layer, room);
+      rooms.push({ id: room.id, face, light: { place, tint } });
+      parts.push(`${room.id}:${place}:${face.length}:${face[0]![0]},${face[0]![1]}`);
     }
     for (const c of layer.children) {
       if (c.childType !== 'asset' || !c.visible) continue;
@@ -94,7 +92,7 @@ export function levelLighting(
       );
     }
   }
-  return { regions: { level: levelMoodNow, rooms, key: parts.join(',') }, glows, glowKey: glowParts.join(',') };
+  return { regions: { level: levelLight, rooms, key: parts.join(',') }, glows, glowKey: glowParts.join(',') };
 }
 
 /**
@@ -110,7 +108,7 @@ function regionsFeeder(lightManager: LightManager) {
       state.mapSettings.ambientLight,
       state.mapSettings.environment,
       state.ui.activeLevelId,
-      tableRoomMoodsVersion(),
+      tableRoomPlacesVersion(),
     ];
     if (next.length === refs.length && next.every((v, i) => v === refs[i])) return;
     refs = next;

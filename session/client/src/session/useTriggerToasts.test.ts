@@ -53,9 +53,9 @@ describe('pickToastable', () => {
     expect(pickToastable([e], new Set(), undefined)).toEqual([]);
   });
 
-  it('surfaces a player-visible environment change (M4)', () => {
-    const e = entry({ id: 'e2', kind: 'environment', text: 'Weather: storm' });
-    expect(pickToastable([e], new Set(), undefined)).toEqual([e]);
+  it('leaves a time-of-day line in the log without a toast', () => {
+    const e = entry({ id: 'e2', kind: 'environment', text: 'Dusk settles.' });
+    expect(pickToastable([e], new Set(), undefined)).toEqual([]);
   });
 
   it('surfaces a player-visible light change (M5)', () => {
@@ -82,7 +82,7 @@ function session(log: TriggerLogEntry[]): SessionState {
     modules: {
       triggers: {
         byScene: {
-          'scene-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env: {}, prompts: [], log },
+          'scene-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, prompts: [], log },
         },
       } satisfies TriggersState,
     },
@@ -102,12 +102,12 @@ describe('useTriggerToasts (F2)', () => {
       useSessionStore.setState({
         session: session([
           entry({ id: 'e1', text: 'Dusk settles' }),
-          entry({ id: 'e2', kind: 'environment', text: 'Rain begins to fall' }),
+          entry({ id: 'e2', kind: 'light', text: 'The brazier lights' }),
         ]),
       });
     });
 
-    expect(useToasts.getState().toast?.message).toBe('Dusk settles\nRain begins to fall');
+    expect(useToasts.getState().toast?.message).toBe('Dusk settles\nThe brazier lights');
   });
 });
 

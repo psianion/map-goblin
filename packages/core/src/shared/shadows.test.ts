@@ -4,7 +4,7 @@
 // natural-light gate is the resolver's answer rather than a second opinion.
 
 import { describe, it, expect } from 'vitest';
-import { resolveWorldLight, type MapEnvironment, type NightSky } from './world';
+import { environmentOf, sunAt as worldSunAt, type MapEnvironment, type NightSky } from './world';
 import { extractWallSegments } from '../engine/lighting/raycaster';
 import { LightManager } from '../engine/lighting/LightManager';
 import type { DungeonLayer } from '../store/types';
@@ -23,14 +23,10 @@ import {
   type ShadowLook,
 } from './shadows';
 
-const sunAt = (minutes: number, map: MapEnvironment = {}, nightSky: NightSky = 'full-moon') =>
-  resolveWorldLight({
-    environment: 'outdoor',
-    naturalLight: true,
-    ...map,
-    clockMinutes: minutes,
-    nightSky,
-  }).sun;
+const sunAt = (minutes: number, map: MapEnvironment = {}, nightSky: NightSky = 'full-moon') => {
+  const env: MapEnvironment = { environment: 'outdoor', naturalLight: true, ...map };
+  return worldSunAt(minutes, env, environmentOf(env), nightSky);
+};
 
 const lookAt = (minutes: number, map?: MapEnvironment, sky?: NightSky): ShadowLook | null =>
   shadowLook(sunAt(minutes, map, sky));

@@ -51,10 +51,10 @@ beforeEach(() => {
 });
 
 describe('TitleCard', () => {
-  it('names the live scene and opens the World tab from the world chip', () => {
+  it('names the live scene and opens the Sky tab from the time chip', () => {
     render(<TitleCard />);
     expect(screen.getByTestId('title-scene').textContent).toBe('Web Gallery');
-    expect(screen.getByTestId('title-world').textContent).toMatch(/ · Clear$/);
+    expect(screen.getByTestId('title-world').textContent).toBe('Day');
     fireEvent.click(screen.getByTestId('title-world'));
     expect(useTableShell.getState().dockTab).toBe('world');
   });

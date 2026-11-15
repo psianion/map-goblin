@@ -10,7 +10,7 @@ import { prefersReducedMotion } from '../motion'
 import { LIGHT_FADE_MS, advancePresence, easePresence } from './presence'
 import { NEUTRAL, NOON } from '../../shared/world'
 import { litFrame, skyKey, type SkyFrame } from '../../shared/sky'
-import { regionGrade, type RegionMood } from '../../shared/regionGrade'
+import { regionGrade, type RegionLight } from '../../shared/regionGrade'
 import { animationTime, isFrozen } from '../../shared/freeze'
 import type { LightAnimation } from '../../shared/types'
 
@@ -803,14 +803,14 @@ export class LightingRenderer {
     const set = lightManager.getRegions()
     const regions: Regions = set.key
       ? set
-      : { level: { mood: 'lit', moodTint: ambientColor }, rooms: [], key: `ambient:${ambientColor}` }
+      : { level: { place: 'outdoor', tint: ambientColor }, rooms: [], key: `ambient:${ambientColor}` }
     return { sky, allLit, t: animationTime(performance.now()), regions }
   }
 
-  /** The sky and mood a region is graded with — everything lit, darkness 0, in the DM-lit view. */
-  private gradeOf(mood: RegionMood, inputs: FrameInputs): string {
-    if (inputs.allLit) return regionGrade({ ...mood, mood: 'lit' }, litFrame(inputs.sky))
-    return regionGrade(mood, inputs.sky)
+  /** The sky and place a region is graded with — everything Outdoor, darkness 0, in the DM-lit view. */
+  private gradeOf(region: RegionLight, inputs: FrameInputs): string {
+    if (inputs.allLit) return regionGrade({ ...region, place: 'outdoor' }, litFrame(inputs.sky))
+    return regionGrade(region, inputs.sky)
   }
 
   private levelGradeOf(inputs: FrameInputs): string {
@@ -824,7 +824,7 @@ export class LightingRenderer {
   /** The grade at a world point: the room face it is in, else the level's. */
   private gradeAt(x: number, y: number, inputs: FrameInputs): string {
     for (const room of inputs.regions.rooms) {
-      if (pointInPoly(x, y, room.face)) return this.gradeOf(room.mood, inputs)
+      if (pointInPoly(x, y, room.face)) return this.gradeOf(room.light, inputs)
     }
     return this.levelGradeOf(inputs)
   }
@@ -947,7 +947,7 @@ export class LightingRenderer {
         for (const room of inputs.regions.rooms) {
           if (room.face.length < 3) continue
           this.gradeFaces.poly(room.face.flat())
-          this.gradeFaces.fill({ color: hexNum(this.gradeOf(room.mood, inputs)), alpha: 1 })
+          this.gradeFaces.fill({ color: hexNum(this.gradeOf(room.light, inputs)), alpha: 1 })
         }
       }
       this.poseWorld(this.gradeFaces, zoom)

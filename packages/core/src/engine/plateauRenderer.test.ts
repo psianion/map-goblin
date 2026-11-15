@@ -681,7 +681,7 @@ describe('cliff shadows', () => {
   });
 
   it('casts under every sky: indoors from a fixed top-left sun at 70 %, 0.8 + 0.6 a cell of drop long', () => {
-    const at = (map: MapEnvironment) => cliffCaster(skyFrame({ ...map, minutes: 12 * 60 }), map);
+    const at = (map: MapEnvironment) => cliffCaster(skyFrame({ ...map, time: 'day' }), map);
     for (const map of [{ environment: 'indoor' }, { environment: 'outdoor', naturalLight: false }] as MapEnvironment[]) {
       const { sun, strength } = at(map);
       expect(sun.kind).toBe('sun');
@@ -691,7 +691,7 @@ describe('cliff shadows', () => {
     expect(at({ environment: 'outdoor' }).strength).toBe(1);
     // A sky whose light is out (below the horizon) casts from the fixed sun too.
     const dark = cliffCaster(
-      { ...skyFrame({ environment: 'outdoor', minutes: 12 * 60 }), sun: { azimuth: 90, altitude: -5, intensity: 0, kind: 'sun' } },
+      { ...skyFrame({ environment: 'outdoor', time: 'day' }), sun: { azimuth: 90, altitude: -5, intensity: 0, kind: 'sun' } },
       { environment: 'outdoor' },
     );
     expect(dark.sun.azimuth).toBe(225);

@@ -18,25 +18,23 @@ import type {
 } from '@dnd/core/src/shared/prep'
 import {
   NOON,
-  resolveWorldLight,
+  timeOfDayAt,
+  type Environment,
   type MapEnvironment,
-  type NightSky,
-  type TimeSpeed,
-  type WorldLight,
 } from '@dnd/core/src/shared/world'
 import { skyFrame, type SkyFrame } from '@dnd/core/src/shared/sky'
-import type { LightAnimation, Mood } from '@dnd/core/src/shared/types'
+import type { LightAnimation } from '@dnd/core/src/shared/types'
 
 // Consumers of the module (server wiring, table client) get the shared prep vocabulary from
 // here rather than deep-importing @dnd/core themselves. `normalizePrep` rides along as a
-// value for the same reason `resolveWorldLight` does: D3 bars the server from runtime-
-// importing @dnd/core directly, and this leaf is pure.
+// value for the same reason `skyFrame` does: D3 bars the server from runtime-importing
+// @dnd/core directly, and this leaf is pure.
 export { normalizePrep, roomLabel } from '@dnd/core/src/shared/prep'
 export type { Ability, AmbientLevel, RoomKey, RoomNote, TimeOfDay, TriggerDef, Weather }
-// …and the world rules with it, so the referee and the table read the light off one import
-// (`worldLightOf` below) the way they already read `needsLight`.
-export { resolveWorldLight, skyFrame }
-export type { MapEnvironment, Mood, NightSky, SkyFrame, TimeSpeed, WorldLight }
+// …and the world rules with it, so the referee and the table read the sky off one import
+// (`worldSkyOf` below) the way they already read `needsLight`.
+export { skyFrame }
+export type { Environment, MapEnvironment, SkyFrame }
 
 export interface ResolvedTrigger {
   def: TriggerDef
@@ -140,8 +138,9 @@ export type LightEdit = Partial<{
   darkvisionSees: boolean
 }>
 
-/** A DM's live edit to one room: today only its mood. Moods are not secrets, so these ship whole. */
-export type RoomEdit = { mood?: Mood }
+/** A DM's live edit to one room for the scene: today only its place. Places are not secrets, so
+ *  these ship whole. */
+export type RoomEdit = { place?: Environment }
 
 export interface SceneTriggers {
   /** triggerId → the `now()` it last fired. */
@@ -166,10 +165,9 @@ export interface SceneTriggers {
   /** The level of the room the session opened in (`set-start-level`). Absent ⇒ the map's
    *  first level. Every seat without a pick of its own looks here. */
   startLevelId?: string
-  /** Narration labels. `weather` here is legacy: the live weather is `world.weather` now.
-   *  A row saved before the Lighting pass may still carry an `ambient` key; `worldOf` folds
-   *  it into `world.darkness` on read (`legacyDarkness`). */
-  env: { time?: TimeOfDay; weather?: Weather }
+  /** The DM's darkness slider for this scene, 0..1 (`set-darkness`). Absent ⇒ Auto: follow
+   *  the time of day. */
+  darkness?: number
   /** Open prompts, cap 20 (drop oldest). */
   prompts: TriggerPrompt[]
   /** Cap 200 (drop oldest). */
@@ -177,23 +175,15 @@ export interface SceneTriggers {
 }
 
 /**
- * The campaign's live world — one clock and one sky for every scene in it, because a party
- * that walks from the courtyard into the cellar has not travelled through time.
+ * The campaign's live world — one time of day for every scene in it, because a party that
+ * walks from the courtyard into the cellar has not travelled through time.
  *
  * Beside `byScene` rather than inside it for exactly that reason, and absent on every campaign
- * that predates the clock: `worldOf` is the one reading, and its defaults are the state the
- * table has always played in (midday, nothing gated).
+ * that predates it: `worldOf` is the one reading, and its default is the state the table has
+ * always played in (day).
  */
 export interface WorldState {
-  /** Minutes 0-1439. */
-  clock: number
-  nightSky: NightSky
-  /** Auto-advance rate. Stored and synced here; the ticking that reads it is P4. */
-  timeSpeed: TimeSpeed
-  /** The live weather (light only). Absent ⇒ the map's default weather. */
-  weather?: Weather
-  /** The DM's darkness slider, 0..1. `null` ⇒ follow the sky; absent ⇒ not yet migrated. */
-  darkness?: number | null
+  time: TimeOfDay
 }
 
 /** The four voices a Journal card can carry — `vocabLabel`-style Title case is the UI's job,
@@ -244,56 +234,51 @@ export interface TriggersState {
   shareReceipts?: Record<string, ShareReceipt>
 }
 
-/** The old 3-state ambient dial as a darkness slider value (the Lighting pass migration). */
-export const AMBIENT_DARKNESS: Record<AmbientLevel, number> = { daylight: 0, dusk: 0.5, darkness: 1 }
-
 /** The darkness slider read back as the old 3-state level, for the badge and narration. */
 export function darknessLevel(darkness: number): AmbientLevel {
   return darkness >= 0.75 ? 'darkness' : darkness >= 0.25 ? 'dusk' : 'daylight'
 }
 
+/** The world as it stands, defaulted: day. */
+export const WORLD_DEFAULT: WorldState = { time: 'day' }
+
 /**
- * Read-compat for the Lighting pass: a row saved before the darkness slider carries the old
- * per-scene `env.ambient` dial. The first scene that has one becomes the campaign's slider
- * value; none is `null` (follow the sky). Only consulted while `world.darkness` is absent, so
- * the first `set-world` after an upgrade writes it down and this never runs again.
+ * The one reading of the optional slice. A campaign saved before the four times of day carries
+ * a clock instead, read as the time it falls in (midday when it has none). Its night sky, clock
+ * speed, weather and campaign-wide darkness are left behind: every scene starts on Auto.
  */
-export function legacyDarkness(state: TriggersState): number | null {
-  for (const scene of Object.values(state.byScene)) {
-    const ambient = (scene.env as { ambient?: AmbientLevel }).ambient
-    if (ambient && ambient in AMBIENT_DARKNESS) return AMBIENT_DARKNESS[ambient]
-  }
-  return null
-}
-
-/** The world as it stands, defaulted: midday, a full moon over it, and not moving. */
-export const WORLD_DEFAULT: WorldState = { clock: NOON, nightSky: 'full-moon', timeSpeed: 'paused' }
-
-/** The one reading of the optional slice — a campaign that predates the clock reads midday. */
 export const worldOf = (state: TriggersState): WorldState => {
-  const world = { ...WORLD_DEFAULT, ...state.world }
-  if (world.darkness === undefined) world.darkness = legacyDarkness(state)
-  return world
+  const stored = state.world as (Partial<WorldState> & { clock?: number }) | undefined
+  return { time: stored?.time ?? timeOfDayAt(stored?.clock ?? NOON) }
 }
+
+/** The legacy room moods, read as the place each one meant. */
+const MOOD_PLACE: Record<string, Environment> = { lit: 'outdoor', dim: 'indoor', dark: 'underground' }
 
 /**
- * The sky the table is playing under: the map's authored defaults, the campaign's clock, and
- * the DM's live weather, night sky and darkness on top. The one `SkyFrame` the referee, the
+ * The sky the table is playing under in one scene: the map's authored settings, the campaign's
+ * time of day, and that scene's darkness slider on top. The one `SkyFrame` the referee, the
  * table renderer and the fog all read.
  */
-export function worldSkyOf(map: MapEnvironment, state: TriggersState): SkyFrame {
-  const world = worldOf(state)
-  return skyFrame({
-    ...map,
-    minutes: world.clock,
-    nightSky: state.world?.nightSky ?? map.nightSky ?? world.nightSky,
-    weather: world.weather ?? map.weather,
-    override: world.darkness ?? null,
-  })
+export function worldSkyOf(state: TriggersState, map: MapEnvironment, sceneId?: string | null): SkyFrame {
+  const scene = sceneId ? state.byScene[sceneId] : undefined
+  return skyFrame({ ...map, time: worldOf(state).time, override: scene?.darkness ?? null })
 }
 
-/** A scene's room edits, defaulted: a row saved before the Lighting pass has none. */
-export const roomEditsOf = (scene: SceneTriggers): Record<string, RoomEdit> => scene.roomEdits ?? {}
+/**
+ * A scene's room edits, defaulted: a row saved before the Lighting pass has none, and a row
+ * saved before places carries a mood, read as the place it meant.
+ */
+export const roomEditsOf = (scene: SceneTriggers): Record<string, RoomEdit> => {
+  const edits = (scene.roomEdits ?? {}) as Record<string, RoomEdit & { mood?: string }>
+  if (!Object.values(edits).some((e) => e.mood !== undefined)) return edits
+  const out: Record<string, RoomEdit> = {}
+  for (const [roomId, { mood, ...edit }] of Object.entries(edits)) {
+    const place = edit.place ?? (mood ? MOOD_PLACE[mood] : undefined)
+    out[roomId] = place ? { ...edit, place } : edit
+  }
+  return out
+}
 
 /**
  * The level a seat is looking at: the DM's own pick for the DM; for a player, the level the
@@ -335,28 +320,6 @@ export const shareReceiptsOf = (state: TriggersState): Record<string, ShareRecei
   state.shareReceipts ?? {}
 
 /**
- * The scene's light, as the whole rule sees it: the map's authored environment, the campaign's
- * clock and sky, and the DM's own override on top.
- *
- * The badge and narration read this; the vision gate reads `worldSkyOf` and the per-region
- * rule (`isDarkRegion`). The DM's darkness slider stands in as the override, read back as the
- * old three levels (`darknessLevel`).
- */
-export function worldLightOf(
-  map: MapEnvironment,
-  state: TriggersState,
-  _sceneId?: string,
-): WorldLight {
-  const world = worldOf(state)
-  return resolveWorldLight({
-    ...map,
-    clockMinutes: world.clock,
-    nightSky: world.nightSky,
-    override: world.darkness === null || world.darkness === undefined ? null : darknessLevel(world.darkness),
-  })
-}
-
-/**
  * Read-compat for M2: a `module_state` row saved before `lightEdits` existed carries only the
  * boolean `lightOverrides`. Fold each into `lightEdits[id].visible` so a scene loaded from a
  * pre-M2 row reads exactly like one that always had `lightEdits` — every other field of the
@@ -382,7 +345,6 @@ export function sceneTriggersOf(state: TriggersState, sceneId: string): SceneTri
     disabled: {},
     lightOverrides: {},
     lightEdits: {},
-    env: {},
     prompts: [],
     log: [],
   }

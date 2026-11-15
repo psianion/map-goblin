@@ -6,12 +6,11 @@ import {
   cn,
   Dialog,
   DialogContent,
-  hhmm,
   PrimaryButton,
   Seg,
   SelectRow,
-  SliderRow,
   SwitchRow,
+  TimeTiles,
 } from '@dnd/ui';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { computeMapWorldBounds, runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
@@ -26,9 +25,9 @@ import { buildLevelsZip, levelsZipName } from '@/io/levelZip';
 import { notify } from '@dnd/ui/toast';
 import { useStore } from '@/store/store';
 import { shownLevelId } from '@/store/selectors';
-import { NOON, TERRAIN_PANEL_ID, type Layer, type Level, type NightSky, type TerrainData } from '@/store/types';
-import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
+import { TERRAIN_PANEL_ID, type Layer, type Level, type TerrainData, type TimeOfDay } from '@/store/types';
 import { isTraceLayer } from '@dnd/core/src/shared/traceLayer';
+import { getPreview } from '@/editor/viewPrefs';
 import { layerOnLevel } from '@/editor/models/roomModel';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
@@ -109,67 +108,22 @@ export interface ExportModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const SKIES: readonly { value: NightSky; label: string }[] = [
-  { value: 'full-moon', label: 'Full moon' },
-  { value: 'crescent', label: 'Crescent' },
-  { value: 'moonless', label: 'Moonless' },
-];
-
-/** The last hour the slider reaches: a quarter before midnight. */
-const LAST_MINUTE = 1440 - 15;
-
-/** The hour, sky and weather the file is lit at. */
+/** The time of day the file is lit at. */
 interface LightingPick {
-  minutes: number;
-  nightSky: NightSky;
-  weather: Weather;
+  time: TimeOfDay;
 }
 
-/**
- * Where the pickers start on each open: the editor's preview (clock, sky, weather), else the
- * map's fixed hour and its table defaults, else noon under a full moon in clear weather.
- */
+/** Where the pick starts on each open: the editor's Preview as, Day when it is unlit. */
 function seedLighting(): LightingPick {
-  const s = useStore.getState();
-  const map = s.mapSettings;
-  const fixed = map.timeMode === 'fixed' ? (map.fixedTime ?? NOON) : NOON;
-  return {
-    minutes: s.ui.previewClock ?? fixed,
-    nightSky: s.ui.previewSky ?? map.nightSky ?? 'full-moon',
-    weather: s.ui.previewWeather ?? map.weather ?? 'clear',
-  };
+  const preview = getPreview();
+  return { time: preview === 'unlit' ? 'day' : preview };
 }
 
-/** Hour, Sky and Weather under "Apply lighting". */
+/** The time tiles under "Apply lighting". */
 function LightingRows({ value, onChange }: { value: LightingPick; onChange: (v: LightingPick) => void }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-control bg-panel-2 px-3 py-2" data-testid="v2-export-lighting">
-      <SliderRow
-        className="w-full"
-        label="Hour"
-        min={0}
-        max={LAST_MINUTE}
-        step={15}
-        value={value.minutes}
-        format={hhmm}
-        onValueChange={(minutes) => onChange({ ...value, minutes })}
-      />
-      <div className="flex items-center justify-between gap-2.5">
-        <span className="text-[12px] text-text-2">Sky</span>
-        <Seg
-          aria-label="Sky"
-          value={value.nightSky}
-          onValueChange={(v) => onChange({ ...value, nightSky: v as NightSky })}
-          options={SKIES.map((o) => ({ value: o.value, label: o.label }))}
-        />
-      </div>
-      <SelectRow
-        className="w-full"
-        label="Weather"
-        value={value.weather}
-        options={WEATHERS.map((w) => ({ value: w, label: vocabLabel(w) }))}
-        onValueChange={(w) => onChange({ ...value, weather: w as Weather })}
-      />
+      <TimeTiles value={value.time} onPick={(time) => time !== 'unlit' && onChange({ time })} />
     </div>
   );
 }
@@ -203,9 +157,9 @@ const Group = ({ children }: { children: React.ReactNode }) => <div className="f
 /**
  * Export the open map: a picture of a level (PNG or JPEG), every level in one zip, or the
  * editable map file. "Apply lighting" starts at whatever the editor is showing on each open
- * (the lit preview), so the file looks like the canvas the DM was just looking at; the hour,
- * sky and weather start from the editor's preview too, and the file is lit at whatever they
- * are set to. Another level is drawn without switching the editor to it.
+ * (Preview as), so the file looks like the canvas the DM was just looking at; the time starts
+ * from the editor's preview too (Day when it is unlit), and the file is lit at whatever it is
+ * set to. Another level is drawn without switching the editor to it.
  *
  * Never taller than the window less 48 px: the head and the foot stay, the body scrolls. A
  * window that leaves the dialog 640 px wide or more puts the preview left and the options
@@ -278,9 +232,9 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ? levelsZipName(mapName)
       : buildExportFilename(mapName, dims.widthPx, dims.heightPx, Math.round(dims.pxPerCell), format);
 
-  // One value per pick, so the preview re-renders when the hour, sky or weather moves.
-  const { minutes, nightSky, weather } = pick;
-  const lit = useMemo(() => (lighting ? { minutes, nightSky, weather } : false), [lighting, minutes, nightSky, weather]);
+  // One value per pick, so the preview re-renders when the time changes.
+  const time = pick.time;
+  const lit = useMemo(() => (lighting ? { time } : false), [lighting, time]);
 
   // The picture the file will be, drawn small: the export pipeline itself at a thumbnail's scale
   // (the pipeline renders at DPR 1), again whenever an option changes. A blob url until replaced.
@@ -389,7 +343,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
         className={cn('max-h-[calc(100dvh-48px)] gap-0 overflow-hidden p-0', image && 'w-[820px]')}
         onKeyDown={(e) => {
           // Keep the canvas shortcuts out of the form, and let Enter export — but not the Enter
-          // that picks an option in an open list (Level, Weather).
+          // that picks an option in an open list (Level).
           e.stopPropagation();
           if (e.key !== 'Enter' || e.target instanceof HTMLButtonElement) return;
           if (e.target instanceof Element && e.target.closest('[role="listbox"]')) return;
@@ -477,7 +431,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                   <SwitchRow className="w-full" label="Apply lighting" checked={lighting} onCheckedChange={setLighting} />
                   <Hint>
                     {lighting
-                      ? "The map's mood and lights at the hour, sky and weather below."
+                      ? "The map's sky and lights at the time below."
                       : 'The map as the unlit editor shows it, on its plain background.'}
                   </Hint>
                   {lighting && <LightingRows value={pick} onChange={setPick} />}

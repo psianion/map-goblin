@@ -1,15 +1,18 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import { useStore } from '@dnd/core/src/store/store';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
-import { WorldBody, WorldStrip } from './WorldTab';
+import { WorldBody } from './WorldTab';
+import { setDarknessPreview, setDmLit } from './worldPrefs';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
 const pia: PlayerInfo = { identityId: 'p1', name: 'Pia', role: 'player', connected: true };
 
-function session(): SessionState {
+const BASE_SCENE = { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, prompts: [], log: [] };
+
+function session(scene: Record<string, unknown> = {}): SessionState {
   return {
     protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
@@ -17,7 +20,7 @@ function session(): SessionState {
     activeSceneId: 'a',
     scenes: [{ id: 'a', name: 'A', mapId: 'm' }],
     players: [dm, pia],
-    modules: { triggers: { byScene: {}, world: { clock: 600, nightSky: 'full-moon', timeSpeed: 'paused', weather: 'clear', darkness: null } } },
+    modules: { triggers: { byScene: Object.keys(scene).length ? { a: scene } : {}, world: { time: 'day' } } },
   };
 }
 
@@ -47,36 +50,69 @@ beforeEach(() => {
   });
 });
 
-describe('World tab', () => {
-  it('jumps the clock by +1h, +6h and to a named hour', () => {
+describe('Sky tab', () => {
+  it('sets the campaign time from the tiles', () => {
     const sent = capture();
     render(<WorldBody />);
-    fireEvent.click(screen.getByTestId('world-plus-1h'));
-    fireEvent.click(screen.getByTestId('world-plus-6h'));
-    fireEvent.click(screen.getByText('Dawn'));
-    expect(sent.map((m) => (m.payload as { clock: number }).clock)).toEqual([660, 960, expect.any(Number)]);
-    expect(sent.every((m) => m.module === 'triggers' && m.action === 'set-world')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Dusk' }));
+    expect(sent).toEqual([expect.objectContaining({ module: 'triggers', action: 'set-world', payload: { time: 'dusk' } })]);
+  });
+  it('marks the current time, and sends nothing for picking it again', () => {
+    const sent = capture();
+    render(<WorldBody />);
+    expect(screen.getByRole('button', { name: 'Day' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }));
+    expect(sent).toEqual([]);
   });
 
-  it('sets the weather and every light', () => {
+  it('has no weather, moon, clock speed or hour controls any more', () => {
+    render(<WorldBody />);
+    for (const name of [/weather/i, /moon/i, /speed/i, /pause/i, /rain/i, /storm/i]) {
+      expect(screen.queryByText(name)).toBeNull();
+    }
+  });
+
+  it('reads Darkness · Auto, with Auto disabled, while the scene has no slider value', () => {
+    render(<WorldBody />);
+    expect(screen.getByText('Darkness · Auto')).toBeTruthy();
+    expect((screen.getByTestId('world-darkness-auto') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('hands the scene back to Auto from the Auto button', () => {
+    useSessionStore.setState({ session: session({ ...BASE_SCENE, darkness: 0.7 }) });
     const sent = capture();
     render(<WorldBody />);
-    fireEvent.click(screen.getByTestId('weather-rain'));
-    fireEvent.click(screen.getByRole('button', { name: 'Off' }));
+    expect(screen.getByText('Darkness')).toBeTruthy();
+    expect(screen.getByText('0.70')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('world-darkness-auto'));
     expect(sent).toEqual([
-      expect.objectContaining({ action: 'set-world', payload: { weather: 'rain' } }),
-      expect.objectContaining({ action: 'set-lights-all', payload: { on: false } }),
+      expect.objectContaining({ module: 'triggers', action: 'set-darkness', payload: { sceneId: 'a', value: null } }),
     ]);
   });
 
-  it('pins a seat to a level and a room to a mood', () => {
+  it('commits the slider to this scene once the hand stops', () => {
+    vi.useFakeTimers();
     const sent = capture();
-    render(<WorldStrip />);
-    fireEvent.change(screen.getByTestId('world-seat-p1'), { target: { value: 'lv2' } });
-    fireEvent.change(screen.getByTestId('room-mood'), { target: { value: 'dark' } });
+    render(<WorldBody />);
+    fireEvent.change(document.querySelector('input[type="range"]')!, { target: { value: '80' } });
+    expect(sent).toEqual([]);
+    vi.advanceTimersByTime(400);
     expect(sent).toEqual([
-      expect.objectContaining({ action: 'set-seat-level', payload: { identity: 'p1', levelId: 'lv2' } }),
-      expect.objectContaining({ action: 'set-room', payload: { sceneId: 'a', roomId: 'r1', patch: { mood: 'dark' } } }),
+      expect.objectContaining({ module: 'triggers', action: 'set-darkness', payload: { sceneId: 'a', value: 0.8 } }),
     ]);
   });
+
+  it('turns the DM lit view on and off from the switch', () => {
+    render(<WorldBody />);
+    const lit = screen.getByRole('switch', { name: 'Show me everything lit' });
+    expect(lit.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(lit);
+    expect(screen.getByRole('switch', { name: 'Show me everything lit' }).getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  setDarknessPreview(null);
+  setDmLit(false);
 });

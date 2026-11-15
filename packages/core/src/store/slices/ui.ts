@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, NightSky, PendingSplit, RoomSuggestions, UISlice, Weather } from '../types';
+import type { MapBuilderStore, PendingSplit, RoomSuggestions, TimeOfDay, UISlice } from '../types';
 
 export interface UIActions {
   setActiveLayerId: (id: string) => void;
@@ -11,9 +11,7 @@ export interface UIActions {
   setRevealChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   clearSolo: () => void;
-  setPreviewClock: (minutes: number | null) => void;
-  setPreviewSky: (sky: NightSky | null) => void;
-  setPreviewWeather: (weather: Weather | null) => void;
+  setPreviewTime: (time: TimeOfDay) => void;
   setRoomOverlayVisible: (visible: boolean) => void;
   setActiveLevelId: (levelId: string) => void;
   setRoomLabels: (labels: UISlice['roomLabels']) => void;
@@ -103,21 +101,10 @@ export const createUISlice: StateCreator<
       state.ui.solo = null;
     }),
   // Same tier as solo: a view convenience, not an authored edit — never undoable, never
-  // serialized, and (unlike the Table's clock) never sent to anybody.
-  setPreviewClock: (minutes) =>
+  // serialized, and (unlike the Table's time) never sent to anybody.
+  setPreviewTime: (time) =>
     set((state) => {
-      state.ui.previewClock = minutes;
-    }),
-  // Same tier as setPreviewClock: a view convenience, never undoable, never serialized,
-  // never sent to anybody.
-  setPreviewSky: (sky) =>
-    set((state) => {
-      state.ui.previewSky = sky;
-    }),
-  // Same tier as setPreviewSky.
-  setPreviewWeather: (weather) =>
-    set((state) => {
-      state.ui.previewWeather = weather;
+      state.ui.previewTime = time;
     }),
   // Same tier as grid.visible: a view preference over editor-only ink, never undoable
   // and never serialized. The overlay itself ignores it while an authoring tool is held.

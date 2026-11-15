@@ -19,8 +19,15 @@ export function toolForEngine(registry: Registry, engine: string, state: EditorS
   return registry.tools.find((t) => t.engine.some((e) => e === engine) && (!t.inHand || t.inHand(state)));
 }
 
-/** Puts `tool` in hand: its first core tool, unless one of its core tools already is. */
+/**
+ * Puts `tool` in hand: its first core tool, unless one of its core tools already is. An entry
+ * with a sheet (Sky) opens it instead and leaves the tool in hand alone.
+ */
 export function pickTool(tool: ToolDef): void {
+  if (tool.sheet) {
+    useShell.getState().openSheet(tool.sheet);
+    return;
+  }
   const state = useStore.getState();
   if (!tool.engine.includes(state.tools.activeTool)) state.setActiveTool(tool.engine[0]);
   tool.onPick?.(useStore);

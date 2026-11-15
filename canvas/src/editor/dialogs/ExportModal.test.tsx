@@ -4,6 +4,7 @@ import { unzipSync } from 'fflate';
 import { setEditorDesk, type EditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { createDungeonLayer, createImageLayer } from '@dnd/core/src/store/factories';
 import { useStore } from '@/store/store';
+import { resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
 import { ExportModal } from './ExportModal';
 
 const { notify, pipeline, download, mapFile, bytesDownload } = vi.hoisted(() => ({
@@ -28,12 +29,11 @@ vi.mock('@/io/saveLoad', async (importOriginal) => ({
 
 const desk: EditorDesk = { desk: '#f2f2f2', dot: '#c6c6c6', sheet: '#fbfbfb', ink: '#1b1b1b' };
 const lighting = () => screen.getByRole('switch', { name: 'Apply lighting' });
-// jsdom keeps the slider thumb hidden until layout, so reach its range input directly.
-const hour = () => screen.getByTestId('v2-export-lighting').querySelector<HTMLInputElement>('input[type="range"]')!;
+const time = (name: string) => within(screen.getByTestId('v2-export-lighting')).getByRole('button', { name });
 const go = () => fireEvent.click(screen.getByTestId('v2-export-go'));
-type Lit = { minutes: number; nightSky: string; weather: string };
+type Lit = { time: string };
 type ExportOpts = { lighting?: Lit | false; format: string; pxPerCell: number; includeGrid: boolean };
-const NOON_LIT: Lit = { minutes: 720, nightSky: 'full-moon', weather: 'clear' };
+const NOON_LIT: Lit = { time: 'day' };
 const allOpts = () => (pipeline.mock.calls as unknown as [unknown, unknown, unknown, ExportOpts][]).map((c) => c[3]);
 // The preview renders through the same pipeline at a thumbnail's scale (48 px a square for the
 // default 10×10 frame); the file never goes under 64.
@@ -46,6 +46,8 @@ describe('ExportModal', () => {
     cleanup();
     vi.clearAllMocks();
     useStore.getState().resetToDefault();
+    localStorage.clear();
+    resetViewPrefsForTests();
     URL.createObjectURL = vi.fn(() => 'blob:preview');
     URL.revokeObjectURL = vi.fn();
   });
@@ -61,6 +63,38 @@ describe('ExportModal', () => {
     setEditorDesk({ ...desk, lit: true });
     render(<ExportModal open onOpenChange={() => {}} />);
     expect(lighting().getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('seeds the time tiles from the editor preview, and from Day when it is unlit', () => {
+    setEditorDesk({ ...desk, lit: true });
+    setPreview('dusk');
+    const first = render(<ExportModal open onOpenChange={() => {}} />);
+    expect(time('Dusk').getAttribute('aria-pressed')).toBe('true');
+    expect(time('Day').getAttribute('aria-pressed')).toBe('false');
+    first.unmount();
+    setPreview('unlit');
+    render(<ExportModal open onOpenChange={() => {}} />);
+    expect(time('Day').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('re-seeds the time from the preview on every open', () => {
+    setEditorDesk({ ...desk, lit: true });
+    setPreview('night');
+    const { rerender } = render(<ExportModal open onOpenChange={() => {}} />);
+    fireEvent.click(time('Dawn'));
+    expect(time('Dawn').getAttribute('aria-pressed')).toBe('true');
+    rerender(<ExportModal open={false} onOpenChange={() => {}} />);
+    rerender(<ExportModal open onOpenChange={() => {}} />);
+    expect(time('Night').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('exports at the seeded time without touching the tiles', async () => {
+    setEditorDesk({ ...desk, lit: true });
+    setPreview('dawn');
+    render(<ExportModal open onOpenChange={() => {}} />);
+    go();
+    await waitFor(() => expect(exports()).toHaveLength(1));
+    expect(lastOpts().lighting).toEqual({ time: 'dawn' });
   });
 
   it('re-reads the editor on every open', () => {
@@ -125,66 +159,30 @@ describe('ExportModal', () => {
     expect(exports()).toHaveLength(0);
   });
 
-  it('shows Hour, Sky and Weather under Apply lighting only while it is on', () => {
+  it('shows the time tiles under Apply lighting only while it is on', () => {
     setEditorDesk(desk);
     render(<ExportModal open onOpenChange={() => {}} />);
     expect(screen.queryByTestId('v2-export-lighting')).toBeNull();
     fireEvent.click(lighting());
-    const rows = screen.getByTestId('v2-export-lighting');
-    expect(rows.textContent).toContain('Hour');
-    expect(hour()).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Sky' })).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'Weather' })).toBeTruthy();
+    expect(within(screen.getByTestId('v2-export-lighting')).getByRole('group', { name: 'Time of day' })).toBeTruthy();
   });
 
-  it('seeds from the editor preview: its clock, sky and weather', () => {
+  it('exports at the picked time', async () => {
     setEditorDesk({ ...desk, lit: true });
-    const s = useStore.getState();
-    s.setPreviewClock(120);
-    s.setPreviewSky('crescent');
-    s.setPreviewWeather('overcast');
-    render(<ExportModal open onOpenChange={() => {}} />);
-    expect(screen.getByTestId('v2-export-lighting').textContent).toContain('02:00');
-    expect(screen.getByRole('button', { name: 'Crescent' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('combobox', { name: 'Weather' }).textContent).toContain('Overcast');
-  });
-
-  it('without a preview, seeds from the map: its fixed hour and table defaults', () => {
-    setEditorDesk({ ...desk, lit: true });
-    useStore.getState().setEnvironmentSettings({ timeMode: 'fixed', fixedTime: 1290, nightSky: 'moonless', weather: 'fog' });
-    render(<ExportModal open onOpenChange={() => {}} />);
-    expect(screen.getByTestId('v2-export-lighting').textContent).toContain('21:30');
-    expect(screen.getByRole('button', { name: 'Moonless' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('combobox', { name: 'Weather' }).textContent).toContain('Fog');
-  });
-
-  it('a map following the clock, with no preview, starts at noon under a full moon in clear weather', () => {
-    setEditorDesk({ ...desk, lit: true });
-    render(<ExportModal open onOpenChange={() => {}} />);
-    expect(screen.getByTestId('v2-export-lighting').textContent).toContain('12:00');
-    expect(screen.getByRole('button', { name: 'Full moon' }).getAttribute('aria-pressed')).toBe('true');
-  });
-
-  // The weather pick goes through the select list, which jsdom cannot drive; the export spec
-  // picks it in the browser.
-  it('exports at the picked hour and sky, in the weather the editor previews', async () => {
-    setEditorDesk({ ...desk, lit: true });
-    useStore.getState().setPreviewWeather('storm');
     const onOpenChange = vi.fn();
     render(<ExportModal open onOpenChange={onOpenChange} />);
-    fireEvent.change(hour(), { target: { value: '120' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Moonless' }));
+    fireEvent.click(time('Night'));
     go();
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(lastOpts().lighting).toEqual({ minutes: 120, nightSky: 'moonless', weather: 'storm' });
+    expect(lastOpts().lighting).toEqual({ time: 'night' });
   });
 
-  it('re-renders the preview when the hour moves, and sends false when lighting is off', async () => {
+  it('re-renders the preview when the time changes, and sends false when lighting is off', async () => {
     setEditorDesk({ ...desk, lit: true });
     render(<ExportModal open onOpenChange={() => {}} />);
     await waitFor(() => expect(previews().at(-1)?.lighting).toEqual(NOON_LIT));
-    fireEvent.change(hour(), { target: { value: '120' } });
-    await waitFor(() => expect(previews().at(-1)?.lighting).toEqual({ ...NOON_LIT, minutes: 120 }));
+    fireEvent.click(time('Night'));
+    await waitFor(() => expect(previews().at(-1)?.lighting).toEqual({ time: 'night' }));
     fireEvent.click(lighting());
     await waitFor(() => expect(previews().at(-1)?.lighting).toBe(false));
   });

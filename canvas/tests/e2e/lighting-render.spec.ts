@@ -19,17 +19,17 @@ import {
 } from './lighting'
 
 /**
- * The lit preview as it renders, on a copy of the goblin warren under `?freeze=` (the clock,
+ * The lit preview as it renders, on a copy of the goblin warren under `?freeze=` (the animation clock,
  * the flicker and the fades stand still): a light's footprint stays local, bare sheet keeps
  * the paper colour, a floor at noon outdoors reads as drawn, underground darkens, a cone, a
  * darkness source, levels kept apart, a prop that blocks light, a prop's shadow, a light
- * through a wall, export at two hours and sixty lights at once.
+ * through a wall, export at two times and sixty lights at once.
  */
 
 test('a placed light visibly brightens its own footprint, not the far corner', { tag: '@lighting' }, async ({ page }) => {
   // The lit preview on from the start: the first light placed would turn it on, and that
   // changes the whole canvas, not the light's footprint.
-  await page.addInitScript(() => localStorage.setItem('mapbuilder-lit-preview', '1'))
+  await page.addInitScript(() => localStorage.setItem('mapbuilder-preview', 'day'))
   await gotoApp(page)
   // The entry fit animates for 150 ms; the samples below are world points, read through the camera
   // as it stands at each read, so they stay on the same spot of the map either way.
@@ -112,7 +112,7 @@ test('a placed light visibly brightens its own footprint, not the far corner', {
   expect(diff(afterCorner, beforeCorner)).toBeLessThan(diff(afterCenter, beforeCenter))
 })
 
-test('bare sheet inside the map frame reads the paper colour at 02:00, Lit preview on exactly as off', { tag: '@lighting' }, async ({ page }) => {
+test('bare sheet inside the map frame reads the paper colour at Night, preview on exactly as off', { tag: '@lighting' }, async ({ page }) => {
   await openWarren(page, NIGHT)
   const floor = floorNear(await roomAnchor(page, 'Warren Hall'))
   const floorLit = await lum(page, floor)
@@ -135,6 +135,24 @@ test('bare sheet under a torch pool stays the paper colour', { tag: '@lighting' 
   const dx = await page.evaluate(() => 40 / (window as Any).__pixiApp.stage.children[0].scale.x)
   await addLight(page, { x: at.x + dx, y: at.y }, { radius: 8, featherRadius: 4, intensity: 1 })
   expect(Math.abs((await lum(page, at)) - off)).toBeLessThan(0.5)
+})
+
+test('an Underground room on an Outdoor map is dark at Day, and its neighbour stays bright', { tag: '@lighting' }, async ({ page }) => {
+  await openWarren(page, NOON)
+  await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'outdoor' }))
+  await waitFrame(page, 4)
+  const hall = floorNear(await roomAnchor(page, 'Warren Hall'))
+  const gallery = floorNear(await roomAnchor(page, 'Web Gallery'))
+  const [hallOutdoor, galleryOutdoor] = [await lum(page, hall, 6), await lum(page, gallery, 6)]
+  await page.evaluate(() => {
+    const st = (window as Any).__store.getState()
+    const layer = st.layers.find((l: Any) => l.id === st.ui.activeLayerId)
+    const room = layer.rooms.find((r: Any) => r.name === 'Warren Hall')
+    st.updateRoom(layer.id, room.id, { look: { ...(room.look ?? {}), place: 'underground' } })
+  })
+  await waitFrame(page, 6)
+  expect(await lum(page, hall, 6)).toBeLessThan(hallOutdoor - 10)
+  expect(Math.abs((await lum(page, gallery, 6)) - galleryOutdoor)).toBeLessThan(3)
 })
 
 test('a floor cell at noon outdoors reads as drawn: within 3 luma of the unlit art', { tag: '@lighting' }, async ({ page }) => {
@@ -258,12 +276,12 @@ test('a prop that blocks light, switched on in its card, shades the floor behind
 })
 
 test('Casts shadow off, from the card, drops the prop shadow under a low sun', { tag: '@lighting' }, async ({ page }) => {
-  await openWarren(page, 450)
+  await openWarren(page, 'dawn')
   await darkStage(page, 'outdoor')
   await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ naturalLight: true, orientation: 0 }))
   // A rubble pile on open floor in the Web Gallery.
   const prop = await inPage<Any>(page, `(s, layer) => layer().children.find((c) => c.id === 'asset-155-rubble')`)
-  // At 07:30 with sunrise east, a prop's shadow is a short smear west along its foot. The band
+  // At dawn with sunrise east, a prop's shadow is a short smear west along its foot. The band
   // is under half a cell tall, so the camera closes in until the sample box fits inside it.
   const shade = { x: prop.position.x - 0.35 * prop.width * prop.scale, y: prop.position.y + 0.39 * prop.height * prop.scale }
   const frame = () =>
@@ -304,7 +322,7 @@ test('Through walls, from the card, lights the far side of a wall; a plain light
   expect(await lum(page, behind)).toBeGreaterThan(blocked + 10)
 })
 
-test('export at 02:00 is darker than at 12:00', { tag: '@lighting' }, async ({ page }) => {
+test('export at Night is darker than at Day', { tag: '@lighting' }, async ({ page }) => {
   await openWarren(page)
   await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'outdoor' }))
   await page.keyboard.press('Control+e')
@@ -328,16 +346,12 @@ test('export at 02:00 is darker than at 12:00', { tag: '@lighting' }, async ({ p
       return sum / (d.length / 4)
     })
   }
-  // The Hour slider steps a quarter hour a key: Home is 00:00, then up to noon and back to 02:00.
-  const hour = modal.getByTestId('v2-export-lighting').getByRole('slider')
-  await hour.focus()
-  await page.keyboard.press('Home')
-  for (let i = 0; i < 48; i++) await page.keyboard.press('ArrowRight')
-  await expect(modal.getByTestId('v2-export-lighting')).toContainText('12:00')
+  const times = modal.getByTestId('v2-export-lighting')
+  await times.getByRole('button', { name: 'Day' }).click()
+  await expect(times.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
   const noon = await mean()
-  await page.keyboard.press('Home')
-  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight')
-  await expect(modal.getByTestId('v2-export-lighting')).toContainText('02:00')
+  await times.getByRole('button', { name: 'Night' }).click()
+  await expect(times.getByRole('button', { name: 'Night' })).toHaveAttribute('aria-pressed', 'true')
   const night = await mean()
   expect(night).toBeLessThan(noon - 10)
 })

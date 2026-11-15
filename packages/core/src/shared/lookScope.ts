@@ -1,5 +1,5 @@
 import type { DungeonLayer, DungeonStyle, Layer, MapSettings } from '../store/types';
-import type { Level, Mood, Room, RoomArea, RoomLook } from './types';
+import type { Level, Room, RoomArea, RoomLook } from './types';
 import { environmentOf, type Environment } from './world';
 import { STYLE_TO_LOOK_KEY } from './wallLook';
 
@@ -24,7 +24,7 @@ import { STYLE_TO_LOOK_KEY } from './wallLook';
  * - Wall tint, wall width — always present on a layer style, so the level could never
  *   be reached through them: room ?? area ?? level ?? layer ?? map. An explicit level
  *   pin wins over the layer's value; a room or area pin wins over both.
- * - Mood keys have no layer value: room ?? area ?? level ?? map.
+ * - Place has no layer value: room ?? area ?? level ?? map.
  */
 
 /** Every look key, in the order cards list them. */
@@ -34,9 +34,7 @@ export const LOOK_KEYS = [
   'wallTextureSetId',
   'wallTextureTint',
   'wallWidth',
-  'mood',
-  'moodTint',
-  'moodVision',
+  'place',
 ] as const satisfies readonly (keyof RoomLook)[];
 
 export type LookKey = (typeof LOOK_KEYS)[number];
@@ -51,9 +49,7 @@ export interface ResolvedLook {
   wallTextureSetId: string;
   wallTextureTint: string;
   wallWidth: number;
-  mood: Mood;
-  moodTint: string;
-  moodVision: 'darkness' | 'visible';
+  place: Environment;
 }
 
 /** The scopes one room's look is resolved through. `room`/`area` absent resolves the layer itself. */
@@ -65,12 +61,6 @@ export interface LookChain {
   room?: Room;
 }
 
-/**
- * The map's mood IS its environment: outdoor is Lit (all the sky reaches it), indoor Dim
- * (40 %), underground Dark (none) — the same three steps as `DAMPING` in world.ts.
- */
-export const ENVIRONMENT_MOOD: Record<Environment, Mood> = { outdoor: 'lit', indoor: 'dim', underground: 'dark' };
-
 /** The map's own answer for every key: what a map with nothing pinned anywhere draws. */
 export function mapDefaults(map: Pick<MapSettings, 'ambientLight' | 'environment'>): ResolvedLook {
   return {
@@ -79,10 +69,7 @@ export function mapDefaults(map: Pick<MapSettings, 'ambientLight' | 'environment
     wallTextureSetId: '',
     wallTextureTint: '#ffffff',
     wallWidth: 0.5,
-    mood: ENVIRONMENT_MOOD[environmentOf(map)],
-    // The map's mood tint is its ambient colour, the base the grade starts from.
-    moodTint: map.ambientLight,
-    moodVision: 'darkness',
+    place: environmentOf(map),
   };
 }
 

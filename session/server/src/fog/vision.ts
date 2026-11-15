@@ -279,26 +279,21 @@ export function createVision(stores: Stores): Vision {
     //
     // P3 — and the light with it. The triggers module holds both halves of the light state the
     // table is actually playing (the scene's ambient dial and every relit light), and any write
-    // to it bumps the revision this record is keyed on, so a `set-environment` or a trigger
-    // firing re-derives the answer for free. Outside `darkness` no light sweep is taken at all:
-    // `lit: null` is the P2 behaviour, unchanged, which is what an untouched scene keeps.
+    // to it bumps the revision this record is keyed on, so a `set-world`, a `set-darkness` or a
+    // trigger firing re-derives the answer for free.
     //
-    // …and P2 puts the world clock in front of it. The gate is no longer the scene's dial
-    // alone: on a map authored as outdoor the campaign's clock and sky decide it, and the
-    // dial — every value a DM has ever set — is the override that still beats them
-    // (`worldLightOf`). The same function the table's mask calls, on the same two slices, so
-    // the referee and the canvas cannot disagree about whether the party needs a torch.
-    //
-    // …and the Lighting pass makes the gate per region: the sky (clock, weather, night sky, the
-    // DM's darkness slider) through each room's mood decides which ground needs light
-    // (`isDarkRegion`), so the gate is the sky, the live light edits and the live room moods.
+    // The gate is per region: the sky (the campaign's time of day and this scene's darkness
+    // slider) through each room's place decides which ground needs light (`isDarkRegion`), so
+    // the gate is the sky, the live light edits and the live room places. The same function
+    // the table's mask calls, on the same slices, so the referee and the canvas cannot disagree
+    // about whether the party needs a torch.
     const triggersState = read(campaignId, 'triggers', NO_TRIGGERS)
     const triggers = sceneTriggersOf(triggersState, sceneId)
     const mapSettings = map.data.mapSettings ?? ({} as NonNullable<typeof map.data.mapSettings>)
     const gate: LightGate = {
-      sky: worldSkyOf(mapSettings, triggersState),
+      sky: worldSkyOf(triggersState, mapSettings, sceneId),
       edits: triggers.lightEdits,
-      roomMoods: roomEditsOf(triggers),
+      roomPlaces: roomEditsOf(triggers),
     }
     const vision = fogModeOf(fog) === 'vision'
     const firstLevel = firstLevelId(map.data)

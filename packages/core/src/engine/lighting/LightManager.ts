@@ -1,5 +1,5 @@
 import type { LightChild, DungeonLayer, AssetChild } from '../../store/types'
-import type { RegionMood } from '../../shared/regionGrade'
+import type { RegionLight } from '../../shared/regionGrade'
 import type { VisibilityVertex } from './ClockwiseSweep'
 import { clockwiseSweep } from './ClockwiseSweep'
 import { SegmentQuadtree } from './SegmentQuadtree'
@@ -7,16 +7,16 @@ import { extractWallSegments } from './raycaster'
 import { useStore } from '../../store/store'
 import type { Segment } from './raycaster'
 
-/** One room face of the shown level and the mood it resolves to (the grade mask's input). */
+/** One room face of the shown level and the place it resolves to (the grade mask's input). */
 export interface RegionFace {
   id: string
   face: [number, number][]
-  mood: RegionMood
+  light: RegionLight
 }
 
-/** The shown level's regions: its own mood for ground outside every room, then each room. */
+/** The shown level's regions: its own place for ground outside every room, then each room. */
 export interface Regions {
-  level: RegionMood
+  level: RegionLight
   rooms: RegionFace[]
   /** Changes whenever anything above does — the grade mask redraws on it. */
   key: string
@@ -52,7 +52,7 @@ export class LightManager {
    * `lightingKey` change, whose terms are every input `extractWallSegments` reads.
    */
   private wallEpoch = 0
-  private regions: Regions = { level: { mood: 'lit', moodTint: '#ffffff' }, rooms: [], key: '' }
+  private regions: Regions = { level: { place: 'outdoor', tint: '#ffffff' }, rooms: [], key: '' }
   private glows: GlowProp[] = []
   private glowKey = ''
 

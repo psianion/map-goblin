@@ -89,16 +89,16 @@ import { updateShadows } from './shadowPass';
 import { setTableWorld } from './worldOverride';
 import { type MapEnvironment } from '../shared/world';
 import { skyFrame, type SkyFrame } from '../shared/sky';
+import type { TimeOfDay } from '../shared/prep';
 import { SHADOW_STEPS } from '../shared/shadows';
 import { useStore } from '../store/store';
 import { getLayerEntry } from './sceneGraph';
 import type { DungeonLayer, Polygon } from '../store/types';
 
 const MAP: MapEnvironment = { environment: 'outdoor', naturalLight: true, orientation: 90 };
-/** 17:00 — a low sun, well clear of the sunset zero. */
-const EVENING = 1020;
-const frameAt = (minutes: number, over: Partial<Parameters<typeof skyFrame>[0]> = {}): SkyFrame =>
-  skyFrame({ ...MAP, minutes, nightSky: 'full-moon', ...over });
+/** Dusk — a low sun, still clear of the sunset zero. */
+const EVENING: TimeOfDay = 'dusk';
+const frameAt = (time: TimeOfDay): SkyFrame => skyFrame({ ...MAP, time });
 
 const COURTYARD: Polygon[] = [[[2, 43], [26, 43], [26, 58], [2, 58]]];
 
@@ -192,29 +192,6 @@ describe('the shadow clip', () => {
     updateShadows([layer], 1, frameAt(EVENING));
     expect(drawnOf().paths).toBe(first);
     expect(drawnOf().fills).toBe(SHADOW_STEPS);
-  });
-
-  // Agreed gap: the redraw key ignored the sky, so a full moon going to a crescent (or a
-  // storm rolling in) under a paused clock left the old shadows on the ground.
-  it('redraws when the moon changes under the same clock bucket', () => {
-    const layer = freshLayer();
-    layer.mergedFloor = COURTYARD;
-    const midnight = 30;
-    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'full-moon' }));
-    const full = drawnOf().clears;
-    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'full-moon' }));
-    expect(drawnOf().clears).toBe(full);
-    updateShadows([layer], 1, frameAt(midnight, { nightSky: 'crescent' }));
-    expect(drawnOf().clears).toBeGreaterThan(full);
-  });
-
-  it('redraws when the weather softens the shadows under the same clock bucket', () => {
-    const layer = freshLayer();
-    layer.mergedFloor = COURTYARD;
-    updateShadows([layer], 1, frameAt(EVENING));
-    const clear = drawnOf().clears;
-    updateShadows([layer], 1, frameAt(EVENING, { weather: 'storm' }));
-    expect(drawnOf().clears).toBeGreaterThan(clear);
   });
 
   it('hangs no PixiJS mask on the sublayer — the clip is in the geometry', () => {

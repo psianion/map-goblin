@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from '@/store/store';
-import type { LightDefaults, UISlice } from '@/store/types';
+import type { LightDefaults, TimeOfDay, UISlice } from '@/store/types';
 import { LIGHT_PRESETS, lightPreset, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
 import { onLightPlaced } from '@dnd/core/src/engine/tools/LightTool';
 import { notify } from '@dnd/ui/toast';
 
 /**
  * How the editor is viewed, remembered per browser: the focus mode (the store holds the
- * live value, this remembers it across reloads) and the lit preview (canvas-side only; the
- * store never sees it). Storage can be unavailable, in which case a choice lasts the session.
+ * live value, this remembers it across reloads) and Preview as (canvas-side; the store only
+ * sees its time). Storage can be unavailable, in which case a choice lasts the session.
  */
 
 export type FocusMode = 'auto' | 'manual' | 'fullscreen';
@@ -19,6 +19,7 @@ export const FOCUS_MODES: readonly FocusMode[] = ['auto', 'manual', 'fullscreen'
 export const FOCUS_MODE_KEY = 'mapbuilder-focus-mode';
 /** Where v1 kept the mode. Read once, moved to the new key, then dropped. */
 export const LEGACY_FOCUS_MODE_KEY = 'focusMode';
+/** Where the lit switch was kept before Preview as. Read once, moved over, then dropped. */
 export const LIT_PREVIEW_KEY = 'mapbuilder-lit-preview';
 
 function isFocusMode(value: unknown): value is FocusMode {
@@ -330,68 +331,107 @@ export function initLightBrush(): void {
   });
 }
 
-// ── Lit preview ───────────────────────────────────────────
+// ── Preview as ────────────────────────────────────────────
 
-const litListeners = new Set<() => void>();
-let lit: boolean | null = null;
+/** What the editor draws the map under: unlit, or lit at one of the four times. */
+export type PreviewPref = 'unlit' | TimeOfDay;
 
-function readLitPreview(): boolean {
+export const PREVIEW_KEY = 'mapbuilder-preview';
+
+const TIMES: readonly TimeOfDay[] = ['dawn', 'day', 'dusk', 'night'];
+const isTime = (v: unknown): v is TimeOfDay => TIMES.includes(v as TimeOfDay);
+
+/** Display names, for the status chip and the toasts. */
+export const TIME_NAMES: Record<TimeOfDay, string> = { dawn: 'Dawn', day: 'Day', dusk: 'Dusk', night: 'Night' };
+
+const previewListeners = new Set<() => void>();
+let preview: PreviewPref | null = null;
+/** The time `I` and `litOnForEdit` go back to: the last one picked, Day at first. */
+let lastTime: TimeOfDay = 'day';
+
+/** The saved pick; with none, the old lit switch read once (on is Day), then dropped. */
+function readPreview(): PreviewPref {
   try {
-    return localStorage.getItem(LIT_PREVIEW_KEY) === '1';
+    const saved = localStorage.getItem(PREVIEW_KEY);
+    if (saved === 'unlit' || isTime(saved)) return saved;
+    const legacy = localStorage.getItem(LIT_PREVIEW_KEY);
+    if (legacy !== null) {
+      localStorage.removeItem(LIT_PREVIEW_KEY);
+      const moved: PreviewPref = legacy === '1' ? 'day' : 'unlit';
+      localStorage.setItem(PREVIEW_KEY, moved);
+      return moved;
+    }
   } catch {
-    return false;
+    /* storage unavailable */
   }
+  return 'unlit';
 }
 
-/** Show the map's lighting and mood while editing. Off unless the DM turned it on. */
-export function getLitPreview(): boolean {
-  if (lit === null) lit = readLitPreview();
-  return lit;
+/** How the map is previewed while editing. Unlit unless the DM picked a time. */
+export function getPreview(): PreviewPref {
+  if (preview === null) {
+    preview = readPreview();
+    if (preview !== 'unlit') lastTime = preview;
+  }
+  return preview;
 }
 
-export function setLitPreview(on: boolean): void {
-  if (getLitPreview() === on) return;
-  lit = on;
+/** The time the preview is lit at, or would be lit at once turned on. */
+export function previewTime(): TimeOfDay {
+  getPreview();
+  return lastTime;
+}
+
+export function setPreview(next: PreviewPref): void {
+  if (getPreview() === next) return;
+  preview = next;
+  if (next !== 'unlit') lastTime = next;
   try {
-    localStorage.setItem(LIT_PREVIEW_KEY, on ? '1' : '0');
+    localStorage.setItem(PREVIEW_KEY, next);
   } catch {
     /* private mode: the choice lasts the session */
   }
-  for (const l of litListeners) l();
+  for (const l of previewListeners) l();
 }
 
-/** Flips the lit preview and returns the new value. */
-export function toggleLitPreview(): boolean {
-  setLitPreview(!getLitPreview());
-  return getLitPreview();
+/** Unlit to the last picked time and back (the `I` key); returns the new pick. */
+export function togglePreview(): PreviewPref {
+  setPreview(getPreview() === 'unlit' ? previewTime() : 'unlit');
+  return getPreview();
 }
 
-export const LIT_ON_TOAST = 'Lit preview on · press I to toggle';
+/** The status chip's words: "Preview · Dusk", or "Unlit". */
+export function previewLabel(pick: PreviewPref): string {
+  return pick === 'unlit' ? 'Unlit' : `Preview · ${TIME_NAMES[pick]}`;
+}
+
+export const LIT_ON_TOAST = 'Preview lit · press I to toggle';
 
 /**
- * A change only the lit preview shows (a light placed; the environment or the time set in
- * the Sky sheet): turn the preview on, with one toast saying so. Never turns it off.
+ * A change only the lit preview shows (a light placed; the place or the shadows set in the
+ * Sky sheet): light the preview at the last picked time, with one toast saying so. Never
+ * turns it off.
  */
 export function litOnForEdit(): void {
-  if (getLitPreview()) return;
-  setLitPreview(true);
+  if (getPreview() !== 'unlit') return;
+  setPreview(previewTime());
   notify.subtle(LIT_ON_TOAST, { icon: 'eye' });
 }
 
 let stopLitOnLight: (() => void) | null = null;
 
-/** Placing a light with the Light tool turns the lit preview on (`litOnForEdit`). Called once. */
+/** Placing a light with the Light tool lights the preview (`litOnForEdit`). Called once. */
 export function initLitOnLight(): void {
   stopLitOnLight ??= onLightPlaced(litOnForEdit);
 }
 
-function subscribeLit(listener: () => void): () => void {
-  litListeners.add(listener);
-  return () => litListeners.delete(listener);
+function subscribePreview(listener: () => void): () => void {
+  previewListeners.add(listener);
+  return () => previewListeners.delete(listener);
 }
 
-export function useLitPreview(): boolean {
-  return useSyncExternalStore(subscribeLit, getLitPreview, () => false);
+export function usePreview(): PreviewPref {
+  return useSyncExternalStore(subscribePreview, getPreview, () => 'unlit' as const);
 }
 
 export const LAYERS_SHEET_FILTER_KEY = 'mapbuilder-layers-sheet-filter';
@@ -416,7 +456,8 @@ export function saveLayersSheetFilter(text: string): void {
 
 /** Tests only: forget the cached values so the next read goes back to storage. */
 export function resetViewPrefsForTests(): void {
-  lit = null;
+  preview = null;
+  lastTime = 'day';
   stopFocusMode?.();
   stopFocusMode = null;
   stopRoomPrefs?.();

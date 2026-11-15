@@ -97,7 +97,7 @@ type MapBuilderState = Omit<
   | 'setActiveLayerId' | 'toggleExpandedLayerId'
   | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleChildGroup' | 'setRevealChildId'
-  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setPreviewWeather' | 'setRoomOverlayVisible'
+  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewTime' | 'setRoomOverlayVisible'
   | 'setActiveLevelId' | 'setRoomLabels' | 'setRoomSuggestions' | 'setRoomsSheetOpen' | 'setRoomsSheetRoomId'
   | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setLabelsHidden' | 'setMarqueeFilter' | 'setPropReplaceIds' | 'setCompare'
   | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -247,9 +247,7 @@ export function createDefaultState(): MapBuilderState {
       childGroupOverrides: [],
       revealChildId: null,
       solo: null,
-      previewClock: null,
-      previewSky: null,
-      previewWeather: null,
+      previewTime: 'day' as const,
       roomOverlayVisible: true,
       activeLevelId: level.id,
       roomLabels: 'both' as const,

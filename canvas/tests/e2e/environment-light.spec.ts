@@ -16,7 +16,7 @@ const lights = (page: Page) =>
 const env = (page: Page) => page.evaluate(() => (window as Any).__store.getState().mapSettings.environment ?? 'indoor')
 
 // The Light tool: Bright and Intensity in the dock and Effect in the panel set up
-// the next light, which lands with them; the Sky and mood sheet changes the environment;
+// the next light, which lands with them; the Sky sheet, from its own entry, changes the place;
 // undo takes both back.
 test('environment: a light from the dock and panel, the sky sheet, undo', { tag: '@environment' }, async ({ page }) => {
   const errors: string[] = []
@@ -59,15 +59,14 @@ test('environment: a light from the dock and panel, the sky sheet, undo', { tag:
   await page.mouse.move(1390, 700)
   await shot(page, '13-light')
 
-  // The Sky and mood sheet, from the Light panel.
-  await pickFromFlyout(page, 'Environment', 'Light')
-  await page.getByTestId('shell-tool-panel').getByRole('button', { name: /Sky and mood/ }).click()
+  // The Sky sheet, from the Sky entry of the Environment flyout.
+  await pickFromFlyout(page, 'Environment', 'Sky')
   const sheet = page.getByTestId('shell-sky-sheet')
   await expect(sheet).toBeVisible()
-  for (const gone of ['Climate', 'Weather', 'Night sky', 'Fixed hour']) await expect(sheet.getByText(gone)).toHaveCount(0)
+  for (const gone of ['Climate', 'Weather', 'Night sky', 'Fixed hour', 'Lit preview']) await expect(sheet.getByText(gone)).toHaveCount(0)
   const was = await env(page)
   const to = was === 'outdoor' ? 'Underground' : 'Outdoor'
-  await sheet.getByRole('button', { name: to, exact: true }).click()
+  await sheet.getByRole('group', { name: 'Place' }).getByRole('button', { name: to, exact: true }).click()
   expect(await env(page)).toBe(to.toLowerCase())
   await shot(page, '13-sky')
 
@@ -120,11 +119,11 @@ test('the ambient light and a light’s visibility write to the map', { tag: '@e
   expect((await lightOf(page, id)).visible).toBe(false)
 })
 
-test('placing a light with the lit preview off turns it on: the chip reads on, the canvas darkens, I turns it back off', { tag: '@environment' }, async ({ page }) => {
+test('placing a light with the preview unlit lights it at Day: the chip reads Preview · Day, the canvas darkens, I turns it back off', { tag: '@environment' }, async ({ page }) => {
   await openWarren(page, NOON, false)
   await page.evaluate(() => (window as Any).__store.getState().setEnvironmentSettings({ environment: 'underground' }))
   await waitFrame(page, 4)
-  await expect(litChip(page)).toHaveText('Lit · off')
+  await expect(litChip(page)).toHaveText('Unlit')
   const floor = floorNear(await roomAnchor(page, 'Warren Hall'))
   const unlit = await lum(page, floor, 6)
   await pickFromFlyout(page, 'Environment', 'Light')
@@ -134,26 +133,64 @@ test('placing a light with the lit preview off turns it on: the chip reads on, t
   await firePointer(page, 'pointerdown', nook.x, nook.y, 0.5, 1)
   await firePointer(page, 'pointerup', nook.x, nook.y)
   await waitFrame(page, 3)
-  await expect(litChip(page)).toHaveText('Lit · on')
-  await expect(page.getByText('Lit preview on · press I to toggle')).toBeVisible()
+  await expect(litChip(page)).toHaveText('Preview · Day')
+  await expect(page.getByText('Preview lit · press I to toggle')).toBeVisible()
   expect(await lum(page, floor, 6)).toBeLessThan(unlit - 10)
   await toggleLit(page)
-  await expect(litChip(page)).toHaveText('Lit · off')
+  await expect(litChip(page)).toHaveText('Unlit')
   expect(Math.abs((await lum(page, floor, 6)) - unlit)).toBeLessThan(1)
 })
 
-test('the Sky and mood sheet says the map is shown unlit, and its Lit preview switch turns the preview on', { tag: '@environment' }, async ({ page }) => {
+test('the Sky sheet says the map is shown unlit; picking a place leaves the preview alone, picking a time lights it', { tag: '@environment' }, async ({ page }) => {
   await openWarren(page, NOON, false)
-  await pickFromFlyout(page, 'Environment', 'Light')
-  await page.getByTestId('shell-tool-panel').getByRole('button', { name: /Sky and mood/ }).click()
+  await pickFromFlyout(page, 'Environment', 'Sky')
   const sheet = page.getByTestId('shell-sky-sheet')
-  await expect(sheet).toContainText('Shown unlit. Turn on Lit preview below to see these changes.')
-  await sheet.getByRole('group', { name: 'Environment' }).getByRole('button', { name: 'Underground' }).click()
-  // Picking an environment changes the map, not the preview: the sheet keeps saying so.
-  await expect(litChip(page)).toHaveText('Lit · off')
-  await sheet.getByRole('switch', { name: 'Lit preview' }).click()
-  await expect(litChip(page)).toHaveText('Lit · on')
+  await expect(sheet).toContainText('Shown unlit. Pick a time under Preview as, on the status bar, to see these changes.')
+  await sheet.getByRole('group', { name: 'Place' }).getByRole('button', { name: 'Underground' }).click()
+  // Picking a place changes the map, not the preview: the sheet keeps saying so.
+  await expect(litChip(page)).toHaveText('Unlit')
+  await litChip(page).click()
+  await page.getByTestId('shell-preview-popover').getByRole('group', { name: 'Preview as' }).getByRole('button', { name: 'Dusk' }).click()
+  await expect(litChip(page)).toHaveText('Preview · Dusk')
   await expect(sheet.getByText('Shown unlit.', { exact: false })).toHaveCount(0)
+})
+
+test('the Sky entry opens its sheet on K and leaves the tool in hand; closing the sheet keeps it', { tag: '@environment' }, async ({ page }) => {
+  await openEditor(page)
+  await pickFromFlyout(page, 'Environment', 'Light')
+  const tool = () => page.evaluate(() => (window as Any).__store.getState().tools.activeTool)
+  expect(await tool()).toBe('light')
+  await page.getByTestId('shell-rail').getByRole('button', { name: 'Environment' }).click()
+  const row = page.getByTestId('shell-flyout').getByRole('button', { name: /^Sky/ })
+  await expect(row).toContainText('K')
+  await row.click()
+  await expect(page.getByTestId('shell-sky-sheet')).toBeVisible()
+  expect(await tool()).toBe('light')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('shell-sky-sheet')).toHaveCount(0)
+  expect(await tool()).toBe('light')
+  // The key does the same from the canvas.
+  await pickTool(page, 'select')
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
+  await page.keyboard.press('k')
+  await expect(page.getByTestId('shell-sky-sheet')).toBeVisible()
+  expect(await tool()).toBe('select')
+})
+
+test('Preview as: the status chip picks Unlit or one of four times, and I goes between unlit and the last pick', { tag: '@environment' }, async ({ page }) => {
+  await openWarren(page, NOON, false)
+  await expect(litChip(page)).toHaveText('Unlit')
+  await litChip(page).click()
+  const tiles = page.getByTestId('shell-preview-popover').getByRole('group', { name: 'Preview as' })
+  await expect(tiles.getByRole('button')).toHaveText(['Unlit', 'Dawn', 'Day', 'Dusk', 'Night'])
+  await tiles.getByRole('button', { name: 'Night' }).click()
+  await expect(litChip(page)).toHaveText('Preview · Night')
+  expect(await page.evaluate(() => (window as Any).__store.getState().ui.previewTime)).toBe('night')
+  await page.keyboard.press('Escape')
+  await toggleLit(page)
+  await expect(litChip(page)).toHaveText('Unlit')
+  await toggleLit(page)
+  await expect(litChip(page)).toHaveText('Preview · Night')
 })
 
 test('a torch from its preset tile lands where clicked as 20/40 ft, its card reads the same, and one undo removes it', { tag: '@environment' }, async ({ page }) => {

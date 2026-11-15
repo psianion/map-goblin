@@ -11,8 +11,8 @@ import type { DungeonLayer, MapSettings, SerializedMapData } from '@dnd/core/src
 import { createSweeps, seen, type LightGate } from './sweep'
 import type { SceneMap } from './sceneMap'
 
-const NOON: SkyFrame = skyFrame({ environment: 'outdoor', minutes: 720 })
-const MIDNIGHT: SkyFrame = skyFrame({ environment: 'outdoor', minutes: 0, nightSky: 'moonless' })
+const NOON: SkyFrame = skyFrame({ environment: 'outdoor', time: 'day' })
+const MIDNIGHT: SkyFrame = skyFrame({ environment: 'outdoor', time: 'night' })
 
 const square = (x: number, y: number, w: number, h: number): [number, number][] => [
   [x, y],
@@ -112,7 +112,7 @@ const eye = (id: string, x: number, y: number, over: Partial<Token> = {}): Token
     ...over,
   }) as Token
 
-const gate = (sky: SkyFrame, over: Partial<LightGate> = {}): LightGate => ({ sky, edits: {}, roomMoods: {}, ...over })
+const gate = (sky: SkyFrame, over: Partial<LightGate> = {}): LightGate => ({ sky, edits: {}, roomPlaces: {}, ...over })
 
 function visionOf(map: SceneMap, tokens: Token[], g: LightGate | null, levelId?: string) {
   return createSweeps().partyVision(
@@ -130,7 +130,7 @@ function visionOf(map: SceneMap, tokens: Token[], g: LightGate | null, levelId?:
 const DARKVISION = (range: number) => ({ range, angle: 360, visionMode: 'darkvision' as const })
 
 describe('the per-region darkness gate', () => {
-  const cellar = room('cellar', square(10, 0, 6, 6), { mood: 'dark' })
+  const cellar = room('cellar', square(10, 0, 6, 6), { place: 'underground' })
   const hall = room('hall', square(0, 0, 6, 6))
 
   it('a lit room at noon is seen without any light (fast path: nothing dark)', () => {
@@ -157,31 +157,25 @@ describe('the per-region darkness gate', () => {
     expect(seen(v, 15.5, 3)).toBe(false)
   })
 
-  it('a Dark room whose look says dark is visible counts as lit for sight', () => {
-    const shown = room('cellar', square(10, 0, 6, 6), { mood: 'dark', moodVision: 'visible' })
-    const v = visionOf(scene({ rooms: [hall, shown] }), [eye('a', 1, 1)], gate(NOON))
-    expect(seen(v, 13, 3)).toBe(true)
-  })
-
   it('the DM’s slider at 1 darkens a lit room: a normal eye needs light again', () => {
     const map = scene({ rooms: [hall], lights: [lamp('torch', 1, 1, { radius: 2 })] })
-    const v = visionOf(map, [eye('a', 1, 1)], gate(skyFrame({ environment: 'outdoor', minutes: 720, override: 1 })))
+    const v = visionOf(map, [eye('a', 1, 1)], gate(skyFrame({ environment: 'outdoor', time: 'day', override: 1 })))
     expect(seen(v, 1.5, 1.5)).toBe(true)
     expect(seen(v, 5, 5)).toBe(false)
   })
 
-  it('a live room mood (set-room) darkens that room alone', () => {
-    const v = visionOf(scene({ rooms: [hall] }), [eye('a', 1, 1)], gate(NOON, { roomMoods: { hall: { mood: 'dark' } } }))
+  it('a live room place (set-room) darkens that room alone', () => {
+    const v = visionOf(scene({ rooms: [hall] }), [eye('a', 1, 1)], gate(NOON, { roomPlaces: { hall: { place: 'underground' } } }))
     expect(seen(v, 4, 4)).toBe(false)
   })
 
-  it('a moonless midnight darkens an outdoor map everywhere; noon does not', () => {
+  it('night darkens an outdoor map everywhere; noon does not', () => {
     const map = scene({})
     expect(seen(visionOf(map, [eye('a', 0, 0)], gate(MIDNIGHT)), 5, 0)).toBe(false)
     expect(seen(visionOf(map, [eye('a', 0, 0)], gate(NOON)), 5, 0)).toBe(true)
   })
 
-  it('an underground map is dark at noon (its mood is Dark)', () => {
+  it('an underground map is dark at noon (its place is Underground)', () => {
     const v = visionOf(scene({ environment: 'underground' }), [eye('a', 0, 0)], gate(NOON))
     expect(seen(v, 5, 0)).toBe(false)
   })
@@ -290,7 +284,7 @@ describe('§13 bench: a vision update on a 60×46 map with 8 rooms and 30 lights
     for (let i = 0; i < 8; i++) {
       const x = (i % 4) * 15
       const y = Math.floor(i / 4) * 23
-      rooms.push(room(`r${i}`, square(x, y, 14, 22), i % 2 ? { mood: 'dark' } : undefined))
+      rooms.push(room(`r${i}`, square(x, y, 14, 22), i % 2 ? { place: 'underground' } : undefined))
     }
     const walls: WallSegment[] = []
     for (const r of rooms) {

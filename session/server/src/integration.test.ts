@@ -1381,7 +1381,7 @@ describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
       // Lights out: sight reaches the whole room by line of sight in daylight, and the only
       // ring `range` still draws is darkvision's in the dark.
       const dark = nextState(dm, 'triggers')
-      sendCommand(dm, 'triggers', 'set-environment', { sceneId, ambient: 'darkness' })
+      sendCommand(dm, 'triggers', 'set-darkness', { sceneId, value: 1 })
       await dark
 
       // A scout in the middle of the west room, seeing only three cells of it…

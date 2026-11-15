@@ -18,7 +18,6 @@ export type {
   AssetChild,
   LightChild,
   LightAnimation,
-  Mood,
   DoorChild,
   RoomChild,
   ConnectorChild,
@@ -74,7 +73,6 @@ export {
   mapDefaults,
   patchLook,
   LOOK_KEYS,
-  ENVIRONMENT_MOOD,
 } from './shared/lookScope';
 export type { LookChain, LookKey, LookSource, ResolvedLook } from './shared/lookScope';
 export { authoredRing, authoredRoomChildren, connectorChildren } from './shared/authoredRooms';
@@ -100,7 +98,7 @@ export { SegmentQuadtree } from './engine/lighting/SegmentQuadtree';
 export { extractWallSegments } from './engine/lighting/raycaster';
 
 // Lighting pass: sky, region grade, light commands and presets, freeze mode
-export { skyFrame, skyKey, skyMinutes, weatherLight, daylightAt, litFrame } from './shared/sky';
+export { skyFrame, skyKey, weatherLight, daylightAt, litFrame } from './shared/sky';
 export type { SkyFrame, SkyInput, WeatherLight } from './shared/sky';
 export {
   regionGrade,
@@ -108,13 +106,13 @@ export {
   regionDarkness,
   isDarkRegion,
   levelGrade,
-  levelMood,
-  roomMood,
-  MOOD_SKY,
+  levelPlace,
+  roomPlace,
+  SKY_SHARE,
   SLIDER_WEIGHT,
   DARK_LUMA,
 } from './shared/regionGrade';
-export type { RegionMood } from './shared/regionGrade';
+export type { RegionLight } from './shared/regionGrade';
 export { freezeOf, isFrozen, animationTime, clearFreeze } from './shared/freeze';
 export type { Freeze } from './shared/freeze';
 export {

@@ -14,7 +14,6 @@ import { roll, type RollResult } from '../dice/roll'
 import { ringOffsets } from '../tokens/fan'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
-  AMBIENT_DARKNESS,
   darknessLevel,
   JOURNAL_KICKERS,
   journalOf,
@@ -37,21 +36,15 @@ import {
   type TriggerLogEntry,
   type TriggerPrompt,
   type TriggersState,
-  type WorldState,
 } from './types'
 import {
-  AMBIENTS,
   TIMES,
-  WEATHERS,
   type AmbientLevel,
   type MonsterEntry,
   type TimeOfDay,
   type TriggerAction,
-  type Weather,
 } from '@dnd/core/src/shared/prep'
-import { DAY_MINUTES, NIGHT_SKIES, TIME_SPEEDS, timeOfDayAt } from '@dnd/core/src/shared/world'
-
-const MOODS = ['lit', 'dim', 'dark'] as const
+import { ENVIRONMENTS } from '@dnd/core/src/shared/world'
 
 export * from './types'
 
@@ -126,8 +119,8 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
   return {
     name: 'triggers',
     commands: {
-      'set-environment': ['dm'],
       'set-world': ['dm'],
+      'set-darkness': ['dm'],
       fire: ['dm'],
       rearm: ['dm'],
       'set-enabled': ['dm'],
@@ -158,13 +151,13 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
     },
 
     // player: prompts and log lines are per-seat (D4 style), fired/armed/disabled are the
-    // DM's own bookkeeping and never ride to a player at all. env and lightOverrides are
+    // DM's own bookkeeping and never ride to a player at all. darkness and lightOverrides are
     // world state everyone already sees on the table. Pure and idempotent: a scene with
     // nothing addressed to this viewer re-filters to the same empty arrays every time.
     //
     // This function rebuilds its answer key by key, so anything NOT copied here is dropped
-    // from every player's copy — `world` is copied for the same reason `env` is: the clock and
-    // the sky are what the whole table is looking at. `journal` rides the same way: a card is
+    // from every player's copy — `world` is copied for the same reason the scene's `darkness`
+    // is: the time of day and the dark are what the whole table is looking at. `journal` rides the same way: a card is
     // published (i.e. shared) by definition, so there is nothing about it to hide. Its DM-only
     // sibling `shareReceipts` is dropped instead — a player must not learn a note exists just
     // because the DM has, or hasn't, shared it.
@@ -173,7 +166,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       const byScene: TriggersState['byScene'] = {}
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
         // A light in a room the party has not explored is not on the player's map, so its live
-        // edit does not ship either. Room moods are not secrets: `roomEdits` ship whole. The
+        // edit does not ship either. Room places are not secrets: `roomEdits` ship whole. The
         // DM's own level pick stays the DM's; seat pins and the start level ship (each seat
         // reads its own).
         const kept = deps.keptLightsOf?.(sceneId) ?? null
@@ -186,7 +179,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           ...(scene.roomEdits ? { roomEdits: scene.roomEdits } : {}),
           ...(scene.seatLevel ? { seatLevel: scene.seatLevel } : {}),
           ...(scene.startLevelId ? { startLevelId: scene.startLevelId } : {}),
-          env: scene.env,
+          ...(scene.darkness !== undefined ? { darkness: scene.darkness } : {}),
           prompts: scene.prompts.filter((p) => p.targetIdentityId === viewer.identityId),
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
         }
@@ -198,10 +191,10 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
 
 function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   switch (action) {
-    case 'set-environment':
-      return setEnvironment(p, ctx)
     case 'set-world':
       return setWorld(p, ctx)
+    case 'set-darkness':
+      return setDarkness(p, ctx)
     case 'fire':
       return fireCommand(p, ctx, deps)
     case 'rearm':
@@ -246,17 +239,8 @@ function sceneOf(p: Payload, ctx: Ctx): string {
   return sceneId
 }
 
-/** A weather an authored `environment` action set while firing into `scene`: `setScene` writes
- *  it to `world.weather` in the same `setState`. */
-const pendingWeather = new WeakMap<SceneTriggers, Weather>()
-
 function setScene(ctx: Ctx, sceneId: string, scene: SceneTriggers): void {
-  const weather = pendingWeather.get(scene)
-  ctx.setState({
-    ...ctx.state,
-    byScene: { ...ctx.state.byScene, [sceneId]: scene },
-    ...(weather ? { world: { ...worldOf(ctx.state), weather } } : {}),
-  })
+  ctx.setState({ ...ctx.state, byScene: { ...ctx.state.byScene, [sceneId]: scene } })
 }
 
 /** `record` with only the keys in `kept`. */
@@ -284,14 +268,6 @@ const TIME_PHRASES: Record<TimeOfDay, string> = {
   dusk: 'Dusk settles',
   night: 'Night falls',
 }
-const WEATHER_PHRASES: Record<Weather, string> = {
-  clear: 'The sky clears',
-  overcast: 'Clouds gather',
-  rain: 'Rain begins to fall',
-  storm: 'A storm rolls in',
-  fog: 'Fog creeps in',
-  snow: 'Snow begins to fall',
-}
 
 /** The light level in the same voice — what the table *sees* happen, never "ambient: darkness". */
 const AMBIENT_PHRASES: Record<AmbientLevel, string> = {
@@ -309,20 +285,6 @@ function darknessText(darkness: number | null): string {
   return AMBIENT_PHRASES[darknessLevel(darkness)]
 }
 
-type EnvDelta = { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
-
-/** Shared by `set-environment` and the `environment` fire-action — one sentence, one place.
- *  Takes the DELTA (only the field(s) this change actually touches), never the whole merged
- *  env: restating an unchanged field alongside the one that moved would narrate a no-op. */
-function envText(delta: EnvDelta, ambientCleared = false): string {
-  const parts: string[] = []
-  if (delta.time) parts.push(TIME_PHRASES[delta.time])
-  if (delta.weather) parts.push(WEATHER_PHRASES[delta.weather])
-  if (delta.ambient) parts.push(AMBIENT_PHRASES[delta.ambient])
-  if (ambientCleared) parts.push(AMBIENT_CLEARED)
-  return parts.map((p) => p + '.').join(' ')
-}
-
 /** The `light` fire-action's log line — the light's own authored name, or the nameless
  *  fallback. Never the id: that means nothing to a player. A default auto-name like
  *  "Light 3" is not authorship, so it narrates nameless too. */
@@ -336,108 +298,48 @@ function lightText(name: string | undefined, on: boolean): string {
 // ── DM commands ──────────────────────────────────────────────────────────────
 
 /**
- * The narration labels, plus two compatibility paths for clients built before the Lighting
- * pass: `weather` also lands on `world.weather` (the live weather lives beside the clock
- * now), and the old 3-state `ambient` dial lands on the darkness slider (daylight 0, dusk 0.5,
- * darkness 1, `null` = follow the sky). Nothing is stored in `env.ambient` any more.
+ * The campaign's time of day (`WorldState`), one for every scene, so this is the one handler
+ * that writes beside `byScene` rather than into it. A change narrates into the active scene in
+ * the voice the old time dial used (`TIME_PHRASES`), and only when the time actually changes.
  */
-function setEnvironment(p: Payload, ctx: Ctx): void {
-  const sceneId = sceneOf(p, ctx)
-  const scene = sceneTriggersOf(ctx.state, sceneId)
-  if (p.time === undefined && p.weather === undefined && p.ambient === undefined) {
-    bad('set-environment needs time, weather or ambient')
+function setWorld(p: Payload, ctx: Ctx): void {
+  if (p.time === undefined) bad('set-world needs time')
+  const before = worldOf(ctx.state)
+  const time = oneOf(p.time, TIMES, 'time')
+  const world = { time }
+  const sceneId = ctx.activeSceneId
+  if (time !== before.time && sceneId) {
+    const scene = sceneTriggersOf(ctx.state, sceneId)
+    const narrated = { ...scene, log: [...scene.log] }
+    pushLog(narrated, { kind: 'environment', text: `${TIME_PHRASES[time]}.`, toPlayers: true }, Date.now())
+    ctx.setState({ ...ctx.state, world, byScene: { ...ctx.state.byScene, [sceneId]: narrated } })
+    return
   }
-  const delta: EnvDelta = {}
-  if (p.time !== undefined) delta.time = oneOf(p.time, TIMES, 'time')
-  if (p.weather !== undefined) delta.weather = oneOf(p.weather, WEATHERS, 'weather')
-  const clearAmbient = p.ambient === null
-  if (p.ambient !== undefined && !clearAmbient) delta.ambient = oneOf(p.ambient, AMBIENTS, 'ambient')
-  const env: SceneTriggers['env'] = { ...scene.env }
-  delete (env as { ambient?: unknown }).ambient
-  if (delta.time) env.time = delta.time
-  if (delta.weather) env.weather = delta.weather
-  const next = { ...scene, env, log: [...scene.log] }
-  pushLog(
-    next,
-    { kind: 'environment', text: envText(delta, clearAmbient), toPlayers: true },
-    Date.now(),
-  )
-  const world: WorldState = { ...worldOf(ctx.state) }
-  if (delta.weather) world.weather = delta.weather
-  if (delta.ambient) world.darkness = AMBIENT_DARKNESS[delta.ambient]
-  if (clearAmbient) world.darkness = null
-  const touchesWorld = delta.weather !== undefined || delta.ambient !== undefined || clearAmbient
-  ctx.setState({
-    ...ctx.state,
-    byScene: { ...ctx.state.byScene, [sceneId]: next },
-    ...(touchesWorld ? { world } : {}),
-  })
+  ctx.setState({ ...ctx.state, world })
 }
 
 /**
- * The world's own dials — one clock and one sky for the whole campaign (`WorldState`), so this
- * is the one handler that writes beside `byScene` rather than into it.
- *
- * The clock is where `env.time` came from all along: rather than keep a second source of truth
- * for the hour, moving the clock across a band narrates the change in exactly the voice the
- * time dial used (`TIME_PHRASES`), and only when the band actually turns over — a DM nudging
- * the slider through the afternoon is not four announcements of the same daylight.
+ * DM-only: one scene's darkness slider, 0..1, or `null` to hand it back to Auto (follow the
+ * time of day). The landing narrates like the dial it replaced, and only when it changes; a DM
+ * dragging the slider commits once, on release.
  */
-function setWorld(p: Payload, ctx: Ctx): void {
-  if (
-    p.clock === undefined &&
-    p.nightSky === undefined &&
-    p.timeSpeed === undefined &&
-    p.weather === undefined &&
-    p.darkness === undefined
-  ) {
-    bad('set-world needs clock, nightSky, timeSpeed, weather or darkness')
+function setDarkness(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  if (p.value === undefined) bad('set-darkness needs value')
+  let value: number | null = null
+  if (p.value !== null) {
+    value = num(p.value, 'value')
+    if (!(value >= 0 && value <= 1)) bad('value must be 0..1, or null for Auto')
   }
-  const before = worldOf(ctx.state)
-  const next: WorldState = { ...before }
-  if (p.clock !== undefined) {
-    const clock = Math.floor(num(p.clock, 'clock'))
-    if (!Number.isFinite(clock) || clock < 0 || clock >= DAY_MINUTES) {
-      bad(`clock must be a minute of the day, 0-${DAY_MINUTES - 1}`)
-    }
-    next.clock = clock
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  const next: SceneTriggers = { ...scene }
+  if (value === null) delete next.darkness
+  else next.darkness = value
+  if ((scene.darkness ?? null) !== value) {
+    next.log = [...scene.log]
+    pushLog(next, { kind: 'environment', text: `${darknessText(value)}.`, toPlayers: true }, Date.now())
   }
-  if (p.nightSky !== undefined) next.nightSky = oneOf(p.nightSky, NIGHT_SKIES, 'nightSky')
-  if (p.timeSpeed !== undefined) next.timeSpeed = oneOf(p.timeSpeed, TIME_SPEEDS, 'timeSpeed')
-  if (p.weather !== undefined) next.weather = oneOf(p.weather, WEATHERS, 'weather')
-  if (p.darkness !== undefined) {
-    if (p.darkness === null) next.darkness = null
-    else {
-      const darkness = num(p.darkness, 'darkness')
-      if (!(darkness >= 0 && darkness <= 1)) bad('darkness must be 0..1, or null to follow the sky')
-      next.darkness = darkness
-    }
-  }
-  // The weather and the slider landing narrate like the dials they replace, and only when
-  // they actually change. A DM dragging the slider commits once, on release.
-  const said: string[] = []
-  if (next.weather && next.weather !== before.weather) said.push(`${WEATHER_PHRASES[next.weather]}.`)
-  if (p.darkness !== undefined && next.darkness !== before.darkness) {
-    said.push(`${darknessText(next.darkness ?? null)}.`)
-  }
-
-  const band = timeOfDayAt(next.clock)
-  if (band !== timeOfDayAt(before.clock)) said.unshift(`${TIME_PHRASES[band]}.`)
-  if (said.length > 0) {
-    const sceneId = ctx.activeSceneId
-    if (sceneId) {
-      const scene = sceneTriggersOf(ctx.state, sceneId)
-      const narrated = { ...scene, log: [...scene.log] }
-      pushLog(narrated, { kind: 'environment', text: said.join(' '), toPlayers: true }, Date.now())
-      ctx.setState({
-        ...ctx.state,
-        world: next,
-        byScene: { ...ctx.state.byScene, [sceneId]: narrated },
-      })
-      return
-    }
-  }
-  ctx.setState({ ...ctx.state, world: next })
+  setScene(ctx, sceneId, next)
 }
 
 function setEnabled(p: Payload, ctx: Ctx): void {
@@ -552,17 +454,17 @@ function setLightsAll(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   setScene(ctx, sceneId, { ...scene, lightEdits })
 }
 
-/** DM-only: a room's live mood (`patch.mood`; `null` hands it back to the map's look chain). */
+/** DM-only: a room's place for the scene (`patch.place`; `null` hands it back to the map's look chain). */
 function setRoom(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const roomId = str(p.roomId, 'roomId', ID_MAX)
   const patch = obj(p.patch, 'patch')
-  if (patch.mood === undefined) bad('patch needs mood')
+  if (patch.place === undefined) bad('patch needs place')
   const scene = sceneTriggersOf(ctx.state, sceneId)
   const roomEdits = { ...roomEditsOf(scene) }
   const edit: RoomEdit = { ...roomEdits[roomId] }
-  if (patch.mood === null) delete edit.mood
-  else edit.mood = oneOf(patch.mood, MOODS, 'patch.mood')
+  if (patch.place === null) delete edit.place
+  else edit.place = oneOf(patch.place, ENVIRONMENTS, 'patch.place')
   if (Object.keys(edit).length === 0) delete roomEdits[roomId]
   else roomEdits[roomId] = edit
   setScene(ctx, sceneId, { ...scene, roomEdits })
@@ -1058,7 +960,6 @@ function cloneScene(scene: SceneTriggers): SceneTriggers {
     disabled: { ...scene.disabled },
     lightOverrides: { ...scene.lightOverrides },
     lightEdits: { ...scene.lightEdits },
-    env: { ...scene.env },
     prompts: [...scene.prompts],
     log: [...scene.log],
   }
@@ -1206,20 +1107,6 @@ function runFireAction(
         now,
       )
       return
-
-    case 'environment': {
-      // ponytail: an authored trigger sets time/weather only — the light level is the DM's
-      // live dial (§1). Add `ambient` to the action the day a map wants to author a blackout,
-      // which is an editor field as much as a line here.
-      const delta: EnvDelta = {}
-      if (action.time !== undefined) delta.time = action.time
-      if (action.weather !== undefined) delta.weather = action.weather
-      scene.env = { ...scene.env, ...delta }
-      // The live weather is the world's now; `setScene` writes it there in the same write.
-      if (delta.weather) pendingWeather.set(scene, delta.weather)
-      pushLog(scene, { triggerId: t.def.id, kind: 'environment', text: envText(delta), toPlayers: true }, now)
-      return
-    }
 
     case 'encounter':
       runEncounter(scene, action, { at: t.spawnAt }, { triggerId: t.def.id }, deps, now, sceneId, ctx)

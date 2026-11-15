@@ -42,7 +42,7 @@ import {
 import { openNewMapRef, priorActiveLayerRef, togglePopoverRef } from '@/editor/toolConstants';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
-import { nextFocusMode, toggleLitPreview } from '@/editor/viewPrefs';
+import { nextFocusMode, previewLabel, togglePreview } from '@/editor/viewPrefs';
 import { acceptAllSuggestions, dismissSuggestions } from '@/editor/models/roomActions';
 import { editSessionActive, editSessionOwnsKey } from '@/canvas/editSessionKeys';
 import { exitNodeEdit, handleNodeKey } from '@/canvas/wallNodeEdit';
@@ -906,9 +906,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
       const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
       notify.subtle(labels[next], { icon: 'focus' });
     } },
-  { id: 'view.litPreview', combo: 'i', group: 'View', scope: 'canvas', label: 'Lit preview',
+  { id: 'view.litPreview', combo: 'i', group: 'View', scope: 'canvas', label: 'Preview lit or unlit',
     run: () => {
-      notify.subtle(toggleLitPreview() ? 'Lit preview on' : 'Lit preview off', { icon: 'eye' });
+      notify.subtle(previewLabel(togglePreview()), { icon: 'eye' });
     } },
   // The level's traces (background image layers): hide them all, or show them again.
   { id: 'view.traceToggle', combo: 'j', group: 'View', scope: 'canvas', label: 'Hide or show the trace',

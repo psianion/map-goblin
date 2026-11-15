@@ -24,6 +24,7 @@ import {
   SHORTCUTS,
 } from './defaultShortcuts';
 import { formatCombo } from './formatCombo';
+import { getPreview, resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
 import { TERRAIN_PANEL_ID } from '@/store/types';
 import { openNewMapRef } from '@/editor/toolConstants';
 import type { AssetChild, DungeonLayer, LightChild, ShapeChild } from '@/store/types';
@@ -657,5 +658,30 @@ describe('formatCombo', () => {
     expect(formatCombo('ctrl+e', true)).toBe('⌘E');
     expect(formatCombo('alt+drag', true)).toBe('⌥ Drag');
     expect(formatCombo('v', true)).toBe('V');
+  });
+});
+
+describe('I: preview lit or unlit', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetViewPrefsForTests();
+  });
+  afterEach(() => resetViewPrefsForTests());
+
+  it('goes from unlit to Day on first press and back to unlit on the next', () => {
+    const run = shortcutById('view.litPreview')!.run!;
+    run();
+    expect(getPreview()).toBe('day');
+    run();
+    expect(getPreview()).toBe('unlit');
+  });
+
+  it('comes back to the last picked time, not always Day', () => {
+    const run = shortcutById('view.litPreview')!.run!;
+    setPreview('dusk');
+    run();
+    expect(getPreview()).toBe('unlit');
+    run();
+    expect(getPreview()).toBe('dusk');
   });
 });

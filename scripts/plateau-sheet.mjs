@@ -112,7 +112,8 @@ async function open(page, map, environment) {
     window.__store.setState((s) => {
       s.mapSettings.environment = environment;
       s.mapSettings.naturalLight = true;
-      s.ui.previewClock = hour * 60;
+      const m = hour * 60;
+      s.ui.previewTime = m < 300 || m >= 1140 ? 'night' : m >= 1020 ? 'dusk' : m >= 420 ? 'day' : 'dawn';
     });
   }, { data: map, hour: HOUR, environment });
   await page.waitForTimeout(4000);

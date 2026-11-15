@@ -1,6 +1,6 @@
-// The Sky and mood sheet, rebuilt around what renders (plan 6.4): Environment, Natural
-// shadows and Orientation outdoors, the Mood tint, and Preview with Lit preview. Climate,
-// Weather, Night sky and Time are gone; maps that carry them load without them.
+// The Sky sheet: the map's Place, its sun and moon (Cast shadows and the orientation), and
+// its Tint. Climate, Weather, Night sky and Time are gone; maps that carry them load without
+// them. How the map is previewed lives on the status bar (Preview as), not here.
 //
 // Every change goes through the environment or ambient command; a drag on Orientation or
 // in the tint picker folds into one undo step.
@@ -8,16 +8,10 @@
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { SetAmbientLightCommand, SetEnvironmentSettingsCommand } from '@/store/commands';
-import { environmentOf, type Environment, type MapEnvironment } from '@dnd/core/src/shared/world';
-import { Caption, ColourRow, Seg, SliderRow, SwitchRow } from '@dnd/ui';
+import { environmentOf, type MapEnvironment } from '@dnd/core/src/shared/world';
+import { Caption, ColourRow, PlaceTiles, SliderRow, SwitchRow } from '@dnd/ui';
 import { runEdit } from '@/editor/families/design/cardWrites';
-import { setLitPreview, useLitPreview } from '@/editor/viewPrefs';
-
-const ENVIRONMENTS: { value: Environment; label: string }[] = [
-  { value: 'outdoor', label: 'Outdoor' },
-  { value: 'indoor', label: 'Indoor' },
-  { value: 'underground', label: 'Underground' },
-];
+import { usePreview } from '@/editor/viewPrefs';
 
 type EnvPatch = Pick<MapEnvironment, 'environment' | 'naturalLight' | 'orientation'>;
 
@@ -32,7 +26,7 @@ function setEnv(after: EnvPatch, coalesce?: string): void {
 
 function setTint(c: string): void {
   const before = useStore.getState().mapSettings.ambientLight;
-  if (before !== c) runEdit('Mood tint', [new SetAmbientLightCommand(before, c)], 'sky.tint');
+  if (before !== c) runEdit('Tint', [new SetAmbientLightCommand(before, c)], 'sky.tint');
 }
 
 export function SkyMoodSheet() {
@@ -44,37 +38,31 @@ export function SkyMoodSheet() {
       tint: s.mapSettings.ambientLight,
     })),
   );
-  const lit = useLitPreview();
-  const outdoor = map.environment === 'outdoor';
+  const unlit = usePreview() === 'unlit';
   return (
     <div className="flex flex-col gap-2.5 px-3 pt-2.5 pb-3" data-testid="sky-mood">
-      {!lit && <p className="text-[11px] text-text-3">Shown unlit. Turn on Lit preview below to see these changes.</p>}
-      <section className="flex flex-col gap-px" data-section="Environment">
-        <Caption className="mb-1.5">Environment</Caption>
-        <Seg aria-label="Environment" className="mb-1.5 self-start" value={map.environment} options={ENVIRONMENTS} onValueChange={(v) => setEnv({ environment: v as Environment })} />
-        {/* The sun only reaches an outdoor map. */}
-        {outdoor && (
-          <>
-            <SwitchRow label="Natural shadows" checked={map.naturalLight} onCheckedChange={(v) => setEnv({ naturalLight: v })} />
-            <SliderRow
-              label="Orientation"
-              value={map.orientation}
-              min={0}
-              max={359}
-              step={1}
-              format={(v) => `${Math.round(v)}°`}
-              onValueChange={(v) => setEnv({ orientation: v }, 'sky.orientation')}
-            />
-          </>
-        )}
+      {unlit && <p className="text-[11px] text-text-3">Shown unlit. Pick a time under Preview as, on the status bar, to see these changes.</p>}
+      <section className="flex flex-col gap-px" data-section="Place">
+        <Caption className="mb-1.5">Place</Caption>
+        <PlaceTiles wide value={map.environment} onPick={(v) => v && setEnv({ environment: v })} />
+        <p className="mt-1.5 text-[11px] text-text-3">A level or a room can differ on its card.</p>
       </section>
-      <section className="flex flex-col gap-px" data-section="Mood tint">
-        <Caption className="mb-1.5">Mood tint</Caption>
-        <ColourRow label="Tint" value={map.tint} onValueChange={setTint} />
+      <section className="flex flex-col gap-px" data-section="Sun and moon">
+        <Caption className="mb-1.5">Sun and moon</Caption>
+        <SwitchRow label="Cast shadows" checked={map.naturalLight} onCheckedChange={(v) => setEnv({ naturalLight: v })} />
+        <SliderRow
+          label="Orientation"
+          value={map.orientation}
+          min={0}
+          max={359}
+          step={1}
+          format={(v) => `${Math.round(v)}°`}
+          onValueChange={(v) => setEnv({ orientation: v }, 'sky.orientation')}
+        />
       </section>
-      <section className="flex flex-col gap-px" data-section="Preview">
-        <Caption className="mb-1.5">Preview</Caption>
-        <SwitchRow label="Lit preview" checked={lit} onCheckedChange={setLitPreview} />
+      <section className="flex flex-col gap-px" data-section="Tint">
+        <Caption className="mb-1.5">Tint</Caption>
+        <ColourRow label="Colour" value={map.tint} onValueChange={setTint} />
       </section>
     </div>
   );

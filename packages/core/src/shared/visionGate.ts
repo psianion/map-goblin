@@ -4,9 +4,10 @@
 // occluders. Geometry only; nothing here reads state.
 
 import type { DungeonLayer, Layer, MapSettings } from '../store/types';
-import type { Level, Mood } from './types';
+import type { Level } from './types';
 import type { SkyFrame } from './sky';
-import { isDarkRegion, levelMood, roomMood } from './regionGrade';
+import type { Environment } from './world';
+import { isDarkRegion, levelPlace, roomPlace } from './regionGrade';
 import { buildRoomIndex } from './roomIndex';
 import { roomFace } from './roomUtils';
 
@@ -42,7 +43,7 @@ export function onLevel(map: { levels?: readonly Pick<Level, 'id'>[] }, item: { 
 /**
  * The darkness test for one level under one sky: true where the ground is dark enough that a
  * normal eye needs light (`isDarkRegion` of the room the point is in, else of the level). The
- * table's live room moods (`triggers.roomEdits`) lie over the authored chain. Rooms are
+ * table's live room places (`triggers.roomEdits`) lie over the authored chain. Rooms are
  * resolved once, here; the returned test is a room lookup and a set read.
  */
 export function darkTest(
@@ -50,19 +51,18 @@ export function darkTest(
   layers: readonly DungeonLayer[],
   levelId: string,
   sky: SkyFrame,
-  roomMoods: Readonly<Record<string, { mood?: Mood }>> = {},
+  roomPlaces: Readonly<Record<string, { place?: Environment }>> = {},
 ): DarkTest {
   const level = map.levels?.find((l) => l.id === levelId);
-  const levelDark = isDarkRegion(levelMood(map.mapSettings, level), sky);
+  const levelDark = isDarkRegion(levelPlace(map.mapSettings, level), sky);
   const darkRooms = new Set<string>();
   const darkFaces: [number, number][][] = [];
   const litFaces: [number, number][][] = [];
   const rooms = layers.flatMap((layer) =>
     (layer.rooms ?? []).map((room) => {
-      const mood = roomMood(map, layer, room);
-      const live = roomMoods[room.id]?.mood;
+      const place = roomPlaces[room.id]?.place ?? roomPlace(map, layer, room);
       const face = roomFace(room);
-      if (isDarkRegion(live ? { ...mood, mood: live } : mood, sky)) {
+      if (isDarkRegion(place, sky)) {
         darkRooms.add(room.id);
         if (face.length >= 3) darkFaces.push(face);
       } else if (face.length >= 3) {

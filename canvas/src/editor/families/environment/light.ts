@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { LightDefaults } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import type { CoreStore, DockColumnDef, EditorState } from '@/editor/registry/types';
-import { DockColourSwatch, FeetStepper, PercentSlider, PresetsColumn, SkyButton } from './LightControls';
+import { DockColourSwatch, FeetStepper, PercentSlider, PresetsColumn } from './LightControls';
 import {
   CONE_RANGE,
   DIRECTION_RANGE,
@@ -194,7 +194,6 @@ export const lightTool = defineTool({
   engine: ['light'],
   settings: [lightBright, lightDim, lightIntensity, lightColour, lightCone, lightDirection, lightEffect, lightSpeed, lightThroughWalls],
   dock: [presetsColumn],
-  panelExtra: SkyButton,
   hint: () => ({
     label: 'Light',
     segments: [
