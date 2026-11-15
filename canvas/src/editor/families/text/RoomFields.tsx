@@ -18,6 +18,7 @@ import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthIgnored } from 
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
 import { openRoomKey } from '@/editor/models/roomActions';
+import { usePreview } from '@/editor/viewPrefs';
 import type { RoomKey } from '@/store/types';
 
 /** A text typed in place: landed on Enter or blur, Escape puts the stored value back. */
@@ -196,11 +197,13 @@ export function PlaceSection({ value: target }: SettingProps<LookTarget>) {
   const { own, follows } = useStore(
     useShallow((s: MapBuilderStore) => ({ own: ownLook(s, target)?.place ?? null, follows: inheritedPlace(s, target) })),
   );
+  const unlit = usePreview() === 'unlit';
   if (!follows) return null;
   return (
     <div className="flex flex-col gap-px" data-testid="look-place">
       <SectionHead title="Place" target={target} keys={PLACE_KEYS} />
       <PlaceTiles value={own} inherit={{ label: 'Follows', resolves: follows }} onPick={(place) => setLook(target, { place: place ?? undefined })} />
+      {unlit && <p className="mt-1.5 text-[11px] text-text-3">Shown unlit. Pick a time under Preview as, on the status bar, to see these changes.</p>}
     </div>
   );
 }

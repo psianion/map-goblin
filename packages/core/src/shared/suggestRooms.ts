@@ -34,7 +34,7 @@ function ringArea(ring: readonly [number, number][]): number {
  * (a cave painted inside a floor), so the room round a cave never lands on the cave. The
  * widest run of an even-odd scan over the face and the faces inside it.
  */
-function anchorOutside(face: [number, number][], faces: readonly [number, number][][]): [number, number] {
+export function anchorOutside(face: [number, number][], faces: readonly [number, number][][]): [number, number] {
   const p = interiorPoint(face);
   const area = ringArea(face);
   const inner = faces.filter((f) => f !== face && ringArea(f) < area && pointInRing(...interiorPoint(f), face));

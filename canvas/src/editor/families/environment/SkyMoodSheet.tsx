@@ -47,7 +47,7 @@ export function SkyMoodSheet() {
       <section className="flex flex-col gap-px" data-section="Place">
         <Caption className="mb-1.5">Place</Caption>
         <PlaceTiles wide value={map.environment} onPick={(v) => v && setEnv({ environment: v })} />
-        <p className="mt-1.5 text-[11px] text-text-3">A level or a room can differ on its card.</p>
+        <p className="mt-1.5 text-[11px] text-text-3">A level or a room can differ: close Sky, take Select, click it and use Place on its card.</p>
       </section>
       <section className="flex flex-col gap-px" data-section="Sun and moon">
         <Caption className="mb-1.5">Sun and moon</Caption>

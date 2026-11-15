@@ -4,7 +4,9 @@ import type { DungeonLayer, Room, ShapeChild } from '../../store/types';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createDrawRoomCommand } from '../../store/roomCommands';
-import { interiorPoint, nextRoomNumber } from '../../shared/roomUtils';
+import { interiorPoint, nextRoomNumber, pointInRing, signedArea } from '../../shared/roomUtils';
+import { anchorOutside } from '../../shared/suggestRooms';
+import { layerFaces } from '../../store/roomSync';
 import { RectangleTool } from './RectangleTool';
 import { PolygonTool } from './PolygonTool';
 
@@ -15,7 +17,25 @@ import { PolygonTool } from './PolygonTool';
  * `ui.roomWalls` decides whether the floor gets stones round it.
  */
 
-/** The room a freshly drawn floor gets: next number on the layer, anchored inside the ring. */
+/**
+ * Where a freshly drawn floor's room is anchored: in the largest face that lies within the
+ * drawn ring, outside any chamber sealed inside it (an island of wall in a cave), so the room
+ * is the floor drawn and not the chamber its middle happens to fall in. The ring's own inner
+ * point when no face lies within it (the floor joined a larger one).
+ */
+function anchorForFloor(layer: DungeonLayer, shape: ShapeChild, ring: [number, number][]): [number, number] {
+  const faces = layerFaces({ ...layer, children: [...layer.children, shape], mergedFloor: null });
+  const limit = Math.abs(signedArea(ring)) * (1 + 1e-6);
+  let own: [number, number][] | null = null;
+  for (const f of faces) {
+    const area = Math.abs(signedArea(f));
+    if (area > limit || !pointInRing(...interiorPoint(f), ring)) continue;
+    if (!own || area > Math.abs(signedArea(own))) own = f;
+  }
+  return own ? anchorOutside(own, faces) : interiorPoint(ring);
+}
+
+/** The room a freshly drawn floor gets: next number on the layer, anchored inside the floor. */
 export function roomForFloor(layer: DungeonLayer, shape: ShapeChild): Room {
   const number = nextRoomNumber(layer.rooms);
   const ring = shape.contours[0] ?? [];
@@ -23,7 +43,7 @@ export function roomForFloor(layer: DungeonLayer, shape: ShapeChild): Room {
     id: crypto.randomUUID(),
     name: `Room ${number}`,
     number,
-    anchor: interiorPoint(ring),
+    anchor: anchorForFloor(layer, shape, ring),
   };
 }
 

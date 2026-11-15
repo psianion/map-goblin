@@ -8,6 +8,7 @@ import type { LookTarget } from '@/editor/models/roomLook';
 import { ownLook } from '@/editor/models/roomLook';
 import '@/editor/registry';
 import { cards } from '@/editor/families';
+import { resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
 import { PlaceSection } from './RoomFields';
 
 
@@ -73,6 +74,25 @@ describe('the Place section', () => {
     expect(ownLook(st(), levelT())?.place).toBe('indoor');
     undoManager.undo();
     expect(ownLook(st(), levelT())?.place).toBeUndefined();
+  });
+
+  it('says the map is shown unlit on the room and level cards, and not once a time is picked', () => {
+    localStorage.clear();
+    resetViewPrefsForTests();
+    seed('outdoor');
+    for (const target of [roomT, levelT()]) {
+      render(<PlaceSection {...with_(target)} />);
+      expect(screen.getByText(/Shown unlit/)).toBeTruthy();
+      cleanup();
+    }
+    setPreview('day');
+    for (const target of [roomT, levelT()]) {
+      render(<PlaceSection {...with_(target)} />);
+      expect(screen.queryByText(/Shown unlit/)).toBeNull();
+      cleanup();
+    }
+    localStorage.clear();
+    resetViewPrefsForTests();
   });
 
   it('is on the room card and the level card, and on no mood field', () => {
