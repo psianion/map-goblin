@@ -14,9 +14,8 @@ import { showToast, type ToastSpec } from './toasts';
 import { useModuleState, useSessionStore } from './store';
 
 /** World narration kinds that toast the moment they land — the same bar as `show-text`:
- *  marked `toPlayers`, seen by players and the DM alike. `environment` is a weather/time
- *  change (M4); `light` is M5's relight narration. */
-const WORLD_KINDS = new Set(['show-text', 'environment', 'light']);
+ *  marked `toPlayers`, seen by players and the DM alike. `light` is M5's relight narration. */
+const WORLD_KINDS = new Set(['show-text', 'light']);
 
 /**
  * Log entries worth interrupting for, out of ones not already seen: world narration

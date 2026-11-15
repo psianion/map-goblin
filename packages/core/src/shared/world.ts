@@ -12,25 +12,19 @@
 // Nothing here reads state. The map's authored half arrives as `MapEnvironment`, the
 // campaign's live half as clock/sky/override arguments, and the answer is a value.
 
-import type { AmbientLevel, TimeOfDay, Weather } from './prep';
+import type { AmbientLevel, TimeOfDay } from './prep';
 
 // ─── Vocabulary ───────────────────────────────────────────
 
 /** How a map relates to the sky (authored). Absent ⇒ `'indoor'` — see `environmentOf`. */
 export const ENVIRONMENTS = ['outdoor', 'indoor', 'underground'] as const;
-/** The sky over the campaign at night — the DM's, shared by every scene. */
+/** The sky at night. Pinned to a full moon for now; the moon's light maths stays for its return. */
 export const NIGHT_SKIES = ['full-moon', 'crescent', 'moonless'] as const;
-/** How fast the world clock advances on its own — real time, or the fast dial (P4). */
-export const TIME_SPEEDS = ['paused', 'real', 'fast'] as const;
-/** Whether a map follows the world clock or pins its own time (decision #9). */
-export const TIME_MODES = ['clock', 'fixed'] as const;
-/** The five colours a time palette authors, in day order from midnight's neighbour out. */
+/** The five colours of the day's ramp, in day order from midnight's neighbour out. */
 export const TIME_KEYS = ['dawn', 'morning', 'noon', 'evening', 'night'] as const;
 
 export type Environment = (typeof ENVIRONMENTS)[number];
 export type NightSky = (typeof NIGHT_SKIES)[number];
-export type TimeSpeed = (typeof TIME_SPEEDS)[number];
-export type TimeMode = (typeof TIME_MODES)[number];
 export type TimeKey = (typeof TIME_KEYS)[number];
 
 /**
@@ -44,135 +38,61 @@ export type BiteLevel = AmbientLevel | 'darkness-soft';
 /** Minutes in a day — the clock's modulus, and the one place the number is written. */
 export const DAY_MINUTES = 1440;
 
-/** `real` tracks the table one-for-one; `fast` runs a whole day in about an hour. Named so
- *  the server's ticker (P4) and its tests never hardcode the multiplier twice. */
-export const REAL_TIME_RATE = 1;
-export const FAST_TIME_RATE = 24;
-/** Game-minutes per real minute, by dial. `paused` is 0 — the ticker's short-circuit. */
-export const TIME_SPEED_RATES: Record<TimeSpeed, number> = {
-  paused: 0,
-  real: REAL_TIME_RATE,
-  fast: FAST_TIME_RATE,
-};
-
-// ─── Time palette ─────────────────────────────────────────
+// ─── The day's colour ─────────────────────────────────────
 
 /**
- * A map's colour of the day: a curated biome preset, plus whatever keyframes the DM recoloured.
- * `preset` is a key of `TIME_PALETTES`; an unknown one falls back to the default rather than
- * throwing, because a palette from a newer build is not a reason to refuse to draw a map.
- */
-export interface TimePalette {
-  preset: string;
-  keyframes?: Partial<Record<TimeKey, string>>;
-}
-
-/**
- * The curated biomes. Every value is a *modulation* colour around mid-grey (`NEUTRAL`), not a
- * literal sky: `composeGrade` multiplies it into the map's mood tint at double strength, so
+ * The day's colour ramp. Every value is a *modulation* colour around mid-grey (`NEUTRAL`), not
+ * a literal sky: the region grade multiplies it into the map's tint at double strength, so
  * `#808080` is "change nothing", darker dims, and the hue is the tint the hour carries.
  *
- * Noon sits at (or beside) neutral on purpose — the mood tint *is* "this world in neutral
- * daylight" (the plan's own words), so a map at midday composes to the colour its DM authored
- * and every other hour is a departure from it. Nothing here brightens a mood past what was
- * authored; a map that wants a brighter midday is a map with a brighter mood.
+ * Noon sits at neutral on purpose: the tint *is* "this world in neutral daylight", so a map at
+ * midday draws in the colour its DM authored and every other hour is a departure from it.
  *
- * Painterly starting values — tuned at the gate walk, per the plan.
- *
- * The `night` keys carry a hard constraint the daylight keys do not, and it is arithmetic
- * rather than taste. The lighting pass fills its FBO with the composed grade and *adds* each
- * light on top (`LightingRenderer`), so the grade is what decides how much headroom a torch
- * has left to burn into. A light contributes at most `255*(1-W_LIGHT_GRADE) + W_LIGHT_GRADE*g`
- * per channel, so a grade channel above ~66 makes a full-strength pool clamp at 255 — and a
- * clamped pool multiplies by white, which is no pool at all: the ground under it renders at
- * its authored daylight brightness with the warmth and the world's mood both gone.
- *
- * These keys used to be read against near-black moods, where any night key looked like night
- * and nothing could clamp. Against a neutral-daylight mood (which is what a mood now *is*)
- * a key near #3d4664 composes midnight to roughly half of noon — not a night, and no headroom.
- * Scaled to keep each biome's hue exactly and land the composed grade inside that budget.
+ * The `night` key carries a hard constraint the daylight keys do not, and it is arithmetic
+ * rather than taste. The lighting pass fills its FBO with the grade and *adds* each light on
+ * top (`LightingRenderer`), so the grade is what decides how much headroom a torch has left to
+ * burn into. A light contributes at most `255*(1-W_LIGHT_GRADE) + W_LIGHT_GRADE*g` per channel,
+ * so a grade channel above ~66 makes a full-strength pool clamp at 255, and a clamped pool
+ * multiplies by white, which is no pool at all.
  */
-export const TIME_PALETTES: Record<string, Record<TimeKey, string>> = {
-  temperate: {
-    dawn: '#8a7266',
-    morning: '#85817a',
-    noon: '#808080',
-    evening: '#8a6a5c',
-    night: '#181c28',
-  },
-  desert: {
-    dawn: '#a37c5e',
-    morning: '#93856c',
-    noon: '#8a8074',
-    evening: '#a05f45',
-    night: '#1c1e2b',
-  },
-  snow: {
-    dawn: '#7f8698',
-    morning: '#7e848e',
-    noon: '#7e8490',
-    evening: '#7d8496',
-    night: '#171c29',
-  },
-  swamp: {
-    dawn: '#77806e',
-    morning: '#7b8172',
-    noon: '#7c8274',
-    evening: '#6e6b52',
-    night: '#14181a',
-  },
+export const TIME_RAMP: Record<TimeKey, string> = {
+  dawn: '#8a7266',
+  morning: '#85817a',
+  noon: '#808080',
+  evening: '#8a6a5c',
+  night: '#181c28',
 };
 
-/** The preset a map that never picked one is painted with. */
-export const DEFAULT_PALETTE = 'temperate';
-
-/** Multiplying by this changes nothing (see `TIME_PALETTES`). */
+/** Multiplying by this changes nothing (see `TIME_RAMP`). */
 export const NEUTRAL = '#808080';
-
-/** The palette's five colours, preset plus recolours, with an unknown preset falling back. */
-export function paletteOf(palette?: TimePalette): Record<TimeKey, string> {
-  const base = TIME_PALETTES[palette?.preset ?? DEFAULT_PALETTE] ?? TIME_PALETTES[DEFAULT_PALETTE]!;
-  return { ...base, ...palette?.keyframes };
-}
 
 // ─── The map's authored half ──────────────────────────────
 
 /**
  * Everything about the world a map authors for itself (zero-setup: every field optional, and
- * a map saved before any of this existed reads as an indoor map on the default palette).
+ * a map saved before any of this existed reads as an indoor map).
  */
 export interface MapEnvironment {
   /** Absent ⇒ `'indoor'`: a map that never said reads as one the sky cannot surprise. */
   environment?: Environment;
-  timePalette?: TimePalette;
   /** Sun/moon direction pass (P3). Off unless the DM asked for it. */
   naturalLight?: boolean;
   /** Degrees; 0 = east at screen-right. Which way the sun comes up on this map. */
   orientation?: number;
-  /** Absent ⇒ `'clock'`: the map follows the world clock. */
-  timeMode?: TimeMode;
-  /** Minutes 0-1439, used only in `'fixed'` mode — the DM placed the sun once. Absent ⇒ NOON. */
-  fixedTime?: number;
-  /** The table's starting weather. A default: the campaign's live `world.weather` wins. Absent ⇒ 'clear'. */
-  weather?: Weather;
-  /** The table's starting night sky. A default: the campaign's live `world.nightSky` wins. Absent ⇒ 'full-moon'. */
-  nightSky?: NightSky;
 }
 
 /** The one reading of the optional field — see `MapEnvironment.environment`. */
 export const environmentOf = (map: MapEnvironment): Environment => map.environment ?? 'indoor';
 
-/** Midday: what a surface with no clock of its own shows, and where a new clock starts. */
+/** Midday: where an old clock with no reading starts. */
 export const NOON = 720;
 
 /**
- * What time a map is drawn at where there is no campaign clock — the Editor.
- *
- * The scrub head wins when the DM is holding it; otherwise a fixed map shows the time it was
- * pinned at and every other map shows midday, which is the hour that changes a mood least.
+ * The minute each time of day is drawn at. 06:35 and 17:25 put the sun just above the horizon,
+ * so Dawn and Dusk read part dark with long shadows; exactly 06:00 would be as dark as night
+ * with no sun at all.
  */
-export const mapClock = (map: MapEnvironment, preview: number | null): number =>
-  preview ?? (map.timeMode === 'fixed' ? (map.fixedTime ?? NOON) : NOON);
+export const TIME_MINUTES: Record<TimeOfDay, number> = { dawn: 395, day: 720, dusk: 1045, night: 0 };
 
 // ─── Bands ────────────────────────────────────────────────
 
@@ -193,31 +113,8 @@ export function timeOfDayAt(minutes: number): TimeOfDay {
   return 'dusk';
 }
 
-/** What a tick advances the clock to, and what it cost — see {@link advanceClock}. */
-export interface ClockAdvance {
-  /** The new clock reading, wrapped 0-1439. */
-  clock: number;
-  /** Wall-clock ms this advance actually spent. Consume exactly this from the ticker's base
-   *  rather than jumping it to "now" — a leftover fraction of a game-minute is never lost
-   *  (drift-free accumulation, P4). */
-  consumedMs: number;
-}
-
 /**
- * How far `clock` moves for `elapsedMs` of wall time at `speed`, in whole game-minutes only
- * — there is no fractional minute to broadcast. `null` when nothing is due yet: paused, or
- * not even one game-minute has elapsed.
- */
-export function advanceClock(clock: number, speed: TimeSpeed, elapsedMs: number): ClockAdvance | null {
-  const rate = TIME_SPEED_RATES[speed];
-  if (rate <= 0 || elapsedMs <= 0) return null;
-  const minutes = Math.floor((elapsedMs * rate) / 60_000);
-  if (minutes < 1) return null;
-  return { clock: wrap(clock + minutes), consumedMs: (minutes * 60_000) / rate };
-}
-
-/**
- * Where each palette keyframe sits on the clock — the centre of the band it paints, so the
+ * Where each ramp keyframe sits on the clock — the centre of the band it paints, so the
  * interpolation between two keys spends itself across the band boundary instead of on it.
  */
 export const KEY_MINUTES: Record<TimeKey, number> = {
@@ -245,26 +142,19 @@ function segmentAt(minutes: number): { key: TimeKey; next: TimeKey; frac: number
   return { key: 'night', next: 'night', frac: 0 };
 }
 
-/** The keyframe a clock reading is leaving, and how far it has left (0..1). Continuous. */
-export function timeKeyAt(minutes: number): { key: TimeKey; frac: number } {
-  const { key, frac } = segmentAt(minutes);
-  return { key, frac };
-}
-
 // ─── Colour ───────────────────────────────────────────────
 
 /**
- * The palette's colour at a clock reading, interpolated in OKLCH between the two keyframes
- * either side of it.
+ * The ramp's colour at a clock reading, interpolated in OKLCH between the two keyframes either
+ * side of it.
  *
  * OKLCH rather than sRGB because the keys are hues as much as brightnesses: a straight channel
  * lerp from a warm evening to a cool night passes through a dead grey, where a hue arc walks
  * the colour round. Shortest arc, so a red-to-blue pair never takes the long way through green.
  */
-export function timeColorAt(palette: TimePalette | undefined, minutes: number): string {
-  const keys = paletteOf(palette);
+export function timeColorAt(minutes: number): string {
   const { key, next, frac } = segmentAt(minutes);
-  return mixOklch(keys[key], keys[next], frac);
+  return mixOklch(TIME_RAMP[key], TIME_RAMP[next], frac);
 }
 
 /**
@@ -276,35 +166,7 @@ export function timeColorAt(palette: TimePalette | undefined, minutes: number): 
 export const BUCKET_MINUTES = 5;
 export const timeBucket = (minutes: number): number => Math.floor(wrap(minutes) / BUCKET_MINUTES);
 
-/**
- * The one colour the lighting pass is handed: the map's mood tint, carrying the hour, damped
- * by how much sky the map has.
- *
- * A double multiply against the palette's neutral (`TIME_PALETTES`) — so the anchor is exact:
- * an underground map (damping 0) composes to its mood byte for byte, and a neutral hour leaves
- * a mood alone at any damping.
- */
-export function composeGrade(map: MapEnvironment & { ambientLight: string }, minutes: number): string {
-  const damping = DAMPING[environmentOf(map)];
-  const time = mixSrgb(NEUTRAL, timeColorAt(map.timePalette, minutes), damping);
-  const [mr, mg, mb] = rgb(map.ambientLight);
-  const [tr, tg, tb] = rgb(time);
-  // Over 128 rather than 255/2 so the neutral anchor is *exact*: a mid-grey hour returns the
-  // mood byte for byte, at any channel value, with no rounding drift to explain away.
-  const ch = (m: number, t: number): number => clamp255((m * t) / 128);
-  return hex([ch(mr, tr), ch(mg, tg), ch(mb, tb)]);
-}
-
-/** How much of the hour's colour a map takes — the plan's grade column, as a number. */
-export const DAMPING: Record<Environment, number> = {
-  outdoor: 1,
-  /** The night outside makes the tavern moodier; the hearth still rules. */
-  indoor: 0.4,
-  /** A torchlit crypt at noon — the clock is not in the room at all. */
-  underground: 0,
-};
-
-// ─── The resolver ─────────────────────────────────────────
+// ─── The sun ──────────────────────────────────────────────
 
 /** Where the light in the sky is standing, painterly rather than astronomical. */
 export interface SunVector {
@@ -314,45 +176,12 @@ export interface SunVector {
   altitude: number;
   /** 0..1 — how hard it casts. 0 at the horizon, and 0 whenever `kind` is null. */
   intensity: number;
-  /** null ⇒ nothing is casting: an indoor map, a map with natural light off, a moonless night. */
+  /** null ⇒ nothing is casting: a map with natural light off, a moonless night. */
   kind: 'sun' | 'moon' | null;
 }
 
-export interface WorldLightInput extends MapEnvironment {
-  /** The campaign clock, minutes 0-1439. Ignored by a `'fixed'` map. */
-  clockMinutes: number;
-  nightSky: NightSky;
-  /** The DM's per-scene gate override (today's `env.ambient`). Always beats the clock. */
-  override?: AmbientLevel | null;
-}
-
-export interface WorldLight {
-  /** The clock this answer was resolved at — the campaign's, or a fixed map's own time. */
-  minutes: number;
-  /** The narration word for that reading (`env.time`'s vocabulary, off the one clock). */
-  timeOfDay: TimeOfDay;
-  /** The palette keyframe it is leaving, and how far (0..1) — the ribbon's playhead. */
-  timeKey: TimeKey;
-  timeFrac: number;
-  /** How much of the hour's colour this map takes, 0..1 (`DAMPING`). */
-  gradeDamping: number;
-  /** The vision gate, post-override: the level `needsLight` reasoning runs on. */
-  effectiveLevel: AmbientLevel;
-  /**
-   * How hard the composite bites, as a level — null being "nobody has stated one", which is an
-   * indoor or underground map the DM has not touched. Null and `daylight` are not the same
-   * scene (D2), so the migration keeps them apart here too.
-   */
-  biteLevel: BiteLevel | null;
-  sun: SunVector;
-  /** What decided `effectiveLevel` — the badge's provenance. */
-  source: 'clock' | 'override' | 'fixed' | 'manual';
-  /** What the clock would have said, when an override is what is being shown instead. */
-  wouldBe: AmbientLevel | null;
-}
-
 /** Painterly sun arc: rise and set, and the moon taking the other half of the ring. */
-const SUN_RISE = 360;
+export const SUN_RISE = 360;
 const SUN_SET = 1080;
 const ARC_MINUTES = SUN_SET - SUN_RISE;
 /**
@@ -364,83 +193,27 @@ const MAX_ALTITUDE = 75;
 export const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, crescent: 0.15, moonless: 0 };
 
 /**
- * The whole coupling table, as one function (plan § "Coupling table").
- *
- * Read it as three questions in order: *when* is it (a fixed map answers with its own time),
- * *what does that mean here* (outdoor follows the clock and the sky, indoor and underground
- * never auto-flip), and *did the DM say otherwise* (an override always wins, and the badge is
- * told it was an override so it can show what the clock would have said).
- */
-export function resolveWorldLight(input: WorldLightInput): WorldLight {
-  const fixed = input.timeMode === 'fixed';
-  // One fixed-time default everywhere: noon, as `mapClock` and `skyFrame` read it.
-  const minutes = wrap(fixed ? (input.fixedTime ?? NOON) : input.clockMinutes);
-  const environment = environmentOf(input);
-  const timeOfDay = timeOfDayAt(minutes);
-  const { key, frac } = timeKeyAt(minutes);
-  const outdoor = environment === 'outdoor';
-
-  // What the sky says, for an outdoor map — and what the badge reports as `wouldBe` even when
-  // an override is covering it.
-  const clockLevel: AmbientLevel | null = outdoor ? levelAt(timeOfDay, input.nightSky) : null;
-  const clockBite: BiteLevel | null = outdoor
-    ? timeOfDay === 'night' && input.nightSky === 'crescent'
-      ? 'darkness-soft'
-      : clockLevel
-    : null;
-
-  const override = input.override ?? null;
-  const effectiveLevel = override ?? clockLevel ?? 'daylight';
-  const source: WorldLight['source'] = override
-    ? 'override'
-    : outdoor
-      ? fixed
-        ? 'fixed'
-        : 'clock'
-      : 'manual';
-
-  return {
-    minutes,
-    timeOfDay,
-    timeKey: key,
-    timeFrac: frac,
-    gradeDamping: DAMPING[environment],
-    effectiveLevel,
-    biteLevel: override ?? clockBite,
-    sun: sunAt(minutes, input, environment, input.nightSky),
-    source,
-    wouldBe: override ? clockLevel : null,
-  };
-}
-
-/** The outdoor rows of the table: day is daylight, the shoulders are dusk, night is the sky's. */
-function levelAt(timeOfDay: TimeOfDay, sky: NightSky): AmbientLevel {
-  if (timeOfDay === 'day') return 'daylight';
-  if (timeOfDay !== 'night') return 'dusk';
-  return sky === 'full-moon' ? 'dusk' : 'darkness';
-}
-
-/**
  * Where the sun (or the moon, on the other half of the ring) is standing.
+ *
+ * The light travels straight across the map along one line: it stands on the rising side
+ * (`orientation`) until it is overhead, and on the setting side, opposite, after. So every
+ * shadow lies along that line, away from the rise until the half-way point and toward it after.
  *
  * Continuous through both horizons: `kind` only ever flips where the altitude and the
  * intensity are already 0, so nothing on screen can pop at a band edge.
  */
-export function sunAt(
-  minutes: number,
-  map: MapEnvironment,
-  environment: Environment,
-  sky: NightSky,
-): SunVector {
+export function sunAt(minutes: number, map: MapEnvironment, sky: NightSky): SunVector {
   const day = minutes >= SUN_RISE && minutes < SUN_SET;
   const progress = day
     ? (minutes - SUN_RISE) / ARC_MINUTES
     : wrap(minutes - SUN_SET) / ARC_MINUTES;
   const arc = Math.sin(Math.PI * progress);
-  const casts = environment === 'outdoor' && map.naturalLight === true;
+  // Whatever the map's place: which ground the light reaches is the shadow pass's question,
+  // asked region by region.
+  const casts = map.naturalLight === true;
   const strength = day ? 1 : MOON_INTENSITY[sky];
   return {
-    azimuth: wrapDegrees((map.orientation ?? 0) + progress * 180),
+    azimuth: wrapDegrees((map.orientation ?? 0) + (progress <= 0.5 ? 0 : 180)),
     altitude: arc * MAX_ALTITUDE,
     intensity: casts ? arc * strength : 0,
     kind: casts && strength > 0 ? (day ? 'sun' : 'moon') : null,
@@ -463,13 +236,6 @@ export function rgb(color: string): [number, number, number] {
 
 export const hex = (c: [number, number, number]): string =>
   '#' + c.map((v) => clamp255(v).toString(16).padStart(2, '0')).join('');
-
-/** Plain channel blend — used only where the endpoints are the same hue family (damping). */
-export function mixSrgb(a: string, b: string, t: number): string {
-  const [ar, ag, ab] = rgb(a);
-  const [br, bg, bb] = rgb(b);
-  return hex([ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]);
-}
 
 const srgbToLinear = (c: number): number => {
   const v = c / 255;

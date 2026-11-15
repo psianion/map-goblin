@@ -149,7 +149,7 @@ export function sheetGroups(layer: DungeonLayer, keep: (room: Room) => boolean =
 
 export const FLOOR_KEYS = ['floorTextureId', 'floorTint'] as const satisfies readonly LookKey[];
 export const WALL_KEYS = ['wallTextureSetId', 'wallTextureTint', 'wallWidth'] as const satisfies readonly LookKey[];
-export const MOOD_KEYS = ['mood', 'moodTint', 'moodVision'] as const satisfies readonly LookKey[];
+export const PLACE_KEYS = ['place'] as const satisfies readonly LookKey[];
 
 /** The scope whose card is showing: its own pins read "Pinned", anything nearer the map "Inherits …". */
 export type LookScope = 'room' | 'area' | 'level';

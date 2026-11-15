@@ -71,19 +71,13 @@ import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import {
   roomEditsOf,
   sceneTriggersOf,
-  worldLightOf,
   worldSkyOf,
   type LightEdit,
   type TriggersState,
 } from '@dnd/mechanics/triggers';
-import {
-  NOON,
-  timeBucket,
-  type BiteLevel,
-  type WorldLight,
-} from '@dnd/core/src/shared/world';
+import { timeBucket, type BiteLevel } from '@dnd/core/src/shared/world';
 import { litFrame, skyFrame } from '@dnd/core/src/shared/sky';
-import { levelGrade, levelMood, regionGrade } from '@dnd/core/src/shared/regionGrade';
+import { levelGrade, regionGrade } from '@dnd/core/src/shared/regionGrade';
 import { tableAllLit } from '@dnd/core/src/engine/worldOverride';
 import { darkTest, layersOnLevel, onLevel } from '@dnd/core/src/shared/visionGate';
 import { hiddenTops } from '@dnd/core/src/shared/plateaus';
@@ -394,12 +388,6 @@ export interface FogScene {
   cloudTint: string;
   /** …and the coarsened clock it was composed at, which is what the pass memoizes on. */
   timeBucket: number;
-  /**
-   * P2 — the whole resolved world for this scene: effective gate, provenance, sun vector.
-   * Absent only before the join snapshot lands. The badge reads `effectiveLevel`/`source`/
-   * `wouldBe` off it; nothing this file draws needs the rest.
-   */
-  light?: WorldLight;
   /**
    * D7/WP2 — the cloud's effective look: the map's authored `fogLook` (absent ⇒
    * `DEFAULT_FOG_LOOK`), overridden field by field by the DM's live pick (`fog.look`). Every
@@ -765,18 +753,13 @@ export function fogScene(): FogScene {
   // redaction cannot disagree about what is burning.
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   const scene = sceneId && triggers ? sceneTriggersOf(triggers, sceneId) : undefined;
-  // P2 — and the world the scene is played in: the map's authored environment against the
-  // campaign's clock and sky, with the DM's dial as the override that beats them. The referee
-  // resolves the same thing from the same two slices (`vision.ts`), which is the whole point
-  // of the rule being one function.
+  // The Lighting pass: one sky (the campaign's time of day and this scene's darkness slider)
+  // for the referee, the picture and this mask. The referee resolves the same thing from the
+  // same slices (`vision.ts`), which is the whole point of the rule being one function. Day
+  // until the join snapshot lands: an unknown time must not paint the first frame at night.
   const core = useStore.getState();
   const mapSettings = core.mapSettings;
-  const light =
-    sceneId && triggers ? worldLightOf(mapSettings, triggers, sceneId) : undefined;
-  // The Lighting pass: one sky (clock, weather, night sky, the DM's slider) for the referee,
-  // the picture and this mask. Midday until the join snapshot lands: an unknown clock must not
-  // paint the first frame of a map at midnight.
-  const sky = triggers ? worldSkyOf(mapSettings, triggers) : skyFrame({ ...mapSettings, minutes: NOON });
+  const sky = triggers ? worldSkyOf(triggers, mapSettings, sceneId) : skyFrame({ ...mapSettings, time: 'day' });
   // The shown level (this seat's viewed level, which worldSync installs as `ui.activeLevelId`):
   // its walls, lights, rooms and the eyes standing on it.
   const level = shownLevelId(core);
@@ -788,13 +771,11 @@ export function fogScene(): FogScene {
   // `currentGrade`: a rebuild runs as a darkness change starts, and nothing rebuilds when the
   // 2 s ease ends, so a read of the eased grade kept the colour from before the change.
   const levelObj = core.levels?.find((l) => l.id === level);
-  const levelLook = levelMood(mapSettings, levelObj);
-  const grade = tableAllLit()
-    ? regionGrade({ ...levelLook, mood: 'lit' }, litFrame(sky))
-    : levelGrade(mapSettings, levelObj, sky);
-  // The cloud's hue: the level's tint carrying the hour, darkness left out — `fogPalette` takes
+  const outdoorLook = { place: 'outdoor' as const, tint: mapSettings.ambientLight };
+  const grade = tableAllLit() ? regionGrade(outdoorLook, litFrame(sky)) : levelGrade(mapSettings, levelObj, sky);
+  // The cloud's hue: the map's tint carrying the hour, darkness left out — `fogPalette` takes
   // only the hue and dims by the wash itself, and a grade near black reads as no hue at all.
-  const cloudTint = regionGrade({ ...levelLook, mood: 'lit' }, tableAllLit() ? litFrame(sky) : { ...sky, darkness: 0 });
+  const cloudTint = regionGrade(outdoorLook, tableAllLit() ? litFrame(sky) : { ...sky, darkness: 0 });
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
@@ -864,7 +845,7 @@ export function fogScene(): FogScene {
   // would. Both go to the cloud as pools too, for the rim fade (`NightSight.pools`).
   const pad = fogPad(serverLayers(mapData));
   // The Lighting pass's per-region gate: which ground on this level is dark enough to need
-  // light — the same `isDarkRegion` rule the referee runs, under the same sky and room moods.
+  // light — the same `isDarkRegion` rule the referee runs, under the same sky and room places.
   const gate = sight && scene ? darkTest(core, levelLayers, level, sky, roomEditsOf(scene)) : null;
   const nightSight = (): NightSight => {
     const dark: LightSource[] = eyes
@@ -967,7 +948,6 @@ export function fogScene(): FogScene {
     grade,
     cloudTint,
     timeBucket: timeBucket(sky.minutes),
-    light,
     // Off the *unadjusted* fog record, not the preview's region-stripped copy above: the
     // weather is table state, not something a sight preview changes.
     look: effectiveFogLook(mapSettings, fog),

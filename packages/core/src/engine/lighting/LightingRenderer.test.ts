@@ -177,8 +177,8 @@ const prop = (over: Partial<AssetChild> = {}): AssetChild => ({
   ...over,
 });
 
-const NIGHT = skyFrame({ environment: 'outdoor', minutes: 0, nightSky: 'moonless' });
-const NOON = skyFrame({ environment: 'outdoor', minutes: 720 });
+const NIGHT = skyFrame({ environment: 'outdoor', time: 'night' });
+const NOON = skyFrame({ environment: 'outdoor', time: 'day' });
 
 const clean = () => 0;
 const sig = (
@@ -535,8 +535,8 @@ describe('the grade mask', () => {
     const t = table([]);
     t.renderer.setSky(NOON);
     t.lights.setRegions({
-      level: { mood: 'lit', moodTint: '#ffffff' },
-      rooms: [{ id: 'r', face: [[0, 0], [4, 0], [4, 4], [0, 4]], mood: { mood: 'dark', moodTint: '#ffffff' } }],
+      level: { place: 'outdoor', tint: '#ffffff' },
+      rooms: [{ id: 'r', face: [[0, 0], [4, 0], [4, 4], [0, 4]], light: { place: 'underground', tint: '#ffffff' } }],
       key: 'k1',
     });
     t.frame();
@@ -644,7 +644,7 @@ describe('the export: renderInto takes a frame', () => {
 
   it('grades by the frame it is handed, not the last live one', () => {
     const t = table([]);
-    t.lights.setRegions({ level: { mood: 'lit', moodTint: '#ffffff' }, rooms: [], key: 'k' });
+    t.lights.setRegions({ level: { place: 'outdoor', tint: '#ffffff' }, rooms: [], key: 'k' });
     t.renderer.setSky(NIGHT);
     t.frame();
     const nightGrade = t.renderer.currentGrade();

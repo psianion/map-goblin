@@ -20,8 +20,7 @@ import {
 import { computeContentBounds, computeMapFrame } from '../../shared/mapBounds';
 import { holdAuthoredLook } from '../editorDesk';
 import { isBandSet } from '../../assets/packCatalog';
-import type { NightSky } from '../../shared/world';
-import type { Weather } from '../../shared/prep';
+import type { TimeOfDay } from '../../shared/prep';
 import { skyFrame } from '../../shared/sky';
 
 export interface ExportOptions {
@@ -30,11 +29,11 @@ export interface ExportOptions {
   includeGrid: boolean;
   mapName: string;
   /**
-   * Apply the map's lighting (its moods and its lights) to the file, at the hour, night sky
-   * and weather given — or, with `true`, under the sky the live preview stands at. `false`
-   * is the map as the unlit editing view shows it. Defaults to on (`true`).
+   * Apply the map's lighting (its places and its lights) to the file, at the time of day
+   * given — or, with `true`, under the sky the live preview stands at. `false` is the map as
+   * the unlit editing view shows it. Defaults to on (`true`).
    */
-  lighting?: boolean | { minutes: number; nightSky: NightSky; weather: Weather };
+  lighting?: boolean | { time: TimeOfDay };
   /**
    * Which labels the file carries: none, only those marked visible to players, or all of
    * them (the default).
@@ -285,14 +284,7 @@ export async function runExportPipeline(
       if (lighting) {
         const sky =
           typeof opts.lighting === 'object'
-            ? skyFrame({
-                ...useStore.getState().mapSettings,
-                // The dialog's hour is the hour: a fixed map's own is only the seed.
-                timeMode: 'clock',
-                minutes: opts.lighting.minutes,
-                nightSky: opts.lighting.nightSky,
-                weather: opts.lighting.weather,
-              })
+            ? skyFrame({ ...useStore.getState().mapSettings, time: opts.lighting.time })
             : undefined;
         const manager = opts.only ? lightsOf(state, drawnDungeons, opts.only.levelId) : undefined;
         sceneGraph.lightingRenderer.renderInto(exportRT, zoom, widthPx, heightPx, sky, manager);

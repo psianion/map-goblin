@@ -8,7 +8,7 @@ import { editHint } from '@/editor/statusHints';
 import { currentZoom, DEFAULT_ZOOM, fitToContent, zoomPercent } from '@/editor/zoomControl';
 import { useDropTarget } from '@/editor/dropToLayer';
 import { toggleSolo } from '@/editor/models/layerActions';
-import { setLitPreview, useLitPreview } from '@/editor/viewPrefs';
+import { previewLabel, usePreview } from '@/editor/viewPrefs';
 import type { HintLine } from '@/editor/registry';
 import { useShell } from '@/editor/shell/shellStore';
 import { selectChildById } from '@/store/selectors';
@@ -16,6 +16,7 @@ import type { AnyChild } from '@/store/types';
 import { unionChildBounds } from '@dnd/core/src/engine/hitTest';
 import { labelMiss, subscribeLabelMiss } from '@dnd/core/src/engine/tools/TextTool';
 import { GridPopover } from './GridPopover';
+import { PreviewPopover } from './PreviewPopover';
 import { useActiveTool } from './hooks';
 
 const SNAP_FRACTION: Record<number, string> = { 1: '1', 2: '½', 3: '⅓', 4: '¼', 6: '⅙', 8: '⅛' };
@@ -52,14 +53,14 @@ function useLiveView(): { zoom: number; ruler: string } {
 }
 
 /**
- * The bottom bar, 28 tall in mono 11: grid (its popover), snap and lit, then one hint slot
+ * The bottom bar, 28 tall in mono 11: grid (its popover), snap and Preview as (its popover), then one hint slot
  * (a drop target, a live ruler, the node editor's keys, else the tool in hand's own line),
  * the selection's size, the solo chip, zoom with Fit, and help last.
  */
 export function StatusBar() {
   const grid = useStore(useShallow((s) => ({ visible: s.grid.visible, snap: s.grid.snapEnabled, division: s.grid.snapDivision })));
   const cellScale = useStore((s) => s.mapSettings.cellScale);
-  const lit = useLitPreview();
+  const preview = usePreview();
   const solo = useStore(
     useShallow((s) => {
       const id = s.ui.solo?.layerId;
@@ -116,9 +117,13 @@ export function StatusBar() {
       <Button variant="ghost" className={chipButton} aria-pressed={grid.snap} data-tip="Snap to grid" onClick={() => useStore.getState().setSnapEnabled(!grid.snap)}>
         Snap {grid.snap ? SNAP_FRACTION[grid.division] : 'off'}
       </Button>
-      <Button variant="ghost" className={chipButton} aria-pressed={lit} data-tip="Lit preview" data-tip-key="I" onClick={() => setLitPreview(!lit)}>
-        Lit · {lit ? 'on' : 'off'}
-      </Button>
+      <PreviewPopover
+        trigger={
+          <Button variant="ghost" className={chipButton} data-testid="shell-preview-chip" data-tip="Preview as" data-tip-key="I">
+            {previewLabel(preview)}
+          </Button>
+        }
+      />
       {hint && <Hint line={hint} />}
       <span className="flex-1" />
       {selection && (

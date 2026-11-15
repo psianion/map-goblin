@@ -18,6 +18,8 @@ import { Container, Graphics } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
+import { shownLevelId } from '@dnd/core/src/store/selectors';
+import { darkTest, layersOnLevel } from '@dnd/core/src/shared/visionGate';
 import {
   fogModeOf,
   regionOf,
@@ -26,7 +28,7 @@ import {
   type FogState,
   type Frame,
 } from '@dnd/mechanics/fog';
-import { sceneTriggersOf, worldLightOf, type TriggersState } from '@dnd/mechanics/triggers';
+import { roomEditsOf, sceneTriggersOf, worldSkyOf, type TriggersState } from '@dnd/mechanics/triggers';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import {
   addScreenOverlay,
@@ -170,16 +172,19 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     const sceneId = session?.activeSceneId ?? null;
     const triggers = session?.modules?.triggers as TriggersState | undefined;
     if (!sceneId || !triggers) return [];
-    const light = worldLightOf(useStore.getState().mapSettings, triggers, sceneId);
-    // Daylight (or dusk) has no gate to glow through — the same condition `fogScene` gates
-    // `nightSight` on. Empty pools here is what leaves an unlit room's haze plain.
-    if (light?.effectiveLevel !== 'darkness') return [];
-    const layers = useStore.getState().layers;
+    const core = useStore.getState();
+    const scene = sceneTriggersOf(triggers, sceneId);
+    const sky = worldSkyOf(triggers, core.mapSettings, sceneId);
+    const level = shownLevelId(core);
+    // Nothing dark on the shown level has no gate to glow through — the per-region test
+    // `fogScene` gates `nightSight` on. Empty pools here is what leaves an unlit room's haze plain.
+    if (!darkTest(core, layersOnLevel(core, core.layers, level), level, sky, roomEditsOf(scene)).any) return [];
+    const layers = core.layers;
     const tokens = tokensOf(session?.modules?.tokens as TokensState | undefined, sceneId);
     // The DM's own screen has no share to narrow through (`visionShareOf`, player-only), so the
     // whole party's eyes go in, unseeded — the darkvision half of parity, not just the party's.
     const eyes = sighted(tokens);
-    return nightPools(layers, tokens, sceneTriggersOf(triggers, sceneId).lightEdits, eyes);
+    return nightPools(layers, tokens, scene.lightEdits, eyes);
   };
 
   /**

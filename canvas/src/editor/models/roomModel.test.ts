@@ -22,7 +22,7 @@ import {
   sheetGroups,
   WALL_KEYS,
   FLOOR_KEYS,
-  MOOD_KEYS,
+  PLACE_KEYS,
 } from './roomModel';
 
 const room = (id: string, over: Partial<Room> = {}): Room => ({ id, name: id, anchor: [0, 0], ...over });
@@ -133,12 +133,12 @@ describe('look labels', () => {
     expect(sectionLook(rm, 'room', WALL_KEYS)).toEqual({ pinned: true, from: 'room' });
   });
 
-  it('names the parent Mood really inherits: the map, or the level that pins it, never the layer', () => {
+  it('names the parent Place really inherits: the map, or the level that pins it, never the layer', () => {
     const ly = chain({ layerStyle: { wallWidth: 0.5 } });
-    expect(sectionLabel(sectionLook(ly, 'room', MOOD_KEYS), ly)).toBe('Inherits Map');
+    expect(sectionLabel(sectionLook(ly, 'room', PLACE_KEYS), ly)).toBe('Inherits Map');
     expect(sectionLabel(sectionLook(ly, 'room', WALL_KEYS), ly)).toBe('Inherits Dungeon');
-    const lv = chain({ levelLook: { mood: 'dim' } });
-    expect(sectionLabel(sectionLook(lv, 'room', MOOD_KEYS), lv)).toBe('Inherits Upper warren');
+    const lv = chain({ levelLook: { place: 'indoor' } });
+    expect(sectionLabel(sectionLook(lv, 'room', PLACE_KEYS), lv)).toBe('Inherits Upper warren');
   });
 
   it("names what an area header's group pins", () => {

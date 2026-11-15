@@ -170,7 +170,7 @@ function wired(
 const DARKVISION = (range: number) => ({ range, angle: 360, visionMode: 'darkvision' as const })
 
 function inTheDark(table: ReturnType<typeof wired>) {
-  table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })
+  table.run(DM, 'triggers', 'set-darkness', { value: 1 })
 }
 
 function scouted(
@@ -966,7 +966,7 @@ function nightWatch(
   sight = { range: 8, angle: 360, visionMode: 'normal' },
 ): string {
   table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
-  table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })
+  table.run(DM, 'triggers', 'set-darkness', { value: 1 })
   table.run(DM, 'tokens', 'place', { name: 'Scout', ...at, sight })
   const id = Object.keys(table.tokensOf()).find((t) => table.tokensOf()[t].name === 'Scout')!
   expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
@@ -982,7 +982,7 @@ describe('the light gate (S3 P3 §3)', () => {
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
 
     // The dial back to daylight, with nothing else touched: the P2 answer, exactly.
-    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    table.run(DM, 'triggers', 'set-darkness', { value: 0 })
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
     expect(table.vision.visionOf(SCENE)!.canSee!(12.5, 5.5)).toBe(false) // the wall, still
     expect(table.tokensOf()[id].x).toBe(5.5) // and nothing moved to earn it
@@ -991,7 +991,7 @@ describe('the light gate (S3 P3 §3)', () => {
   it('reads dusk as daylight — the difference between the two is presentation', () => {
     const table = wired()
     nightWatch(table)
-    table.run(DM, 'triggers', 'set-environment', { ambient: 'dusk' })
+    table.run(DM, 'triggers', 'set-darkness', { value: 0.5 })
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
   })
 
@@ -1066,7 +1066,7 @@ describe('the light gate (S3 P3 §3)', () => {
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
 
     // In daylight the darkvision eye is an ordinary one: its range still binds.
-    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    table.run(DM, 'triggers', 'set-darkness', { value: 0 })
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
   })
 
@@ -1160,7 +1160,7 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
 
     // Daylight over the same sweep, nothing else touched: the cell they could not see is
     // theirs now, which is the whole difference the gate makes.
-    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    table.run(DM, 'triggers', 'set-darkness', { value: 0 })
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
     expect(getCell(table.fogOf().region, 11, 27)).toBe(true)
   })
@@ -1222,12 +1222,12 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
     table.run(DM, 'fog', 'reveal', { roomId: 'west' })
     expect(table.tokensFor(P1)).toEqual([scout])
 
-    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })).toBeNull()
+    expect(table.run(DM, 'triggers', 'set-darkness', { value: 0 })).toBeNull()
     expect(table.tokensFor(P1)).toEqual([ambusher, scout].sort())
     expect(table.tokensOf()[ambusher]).toMatchObject({ x: 8.5, y: 5.5 })
 
     // …and back into the dark, which takes it away again (D4c).
-    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })).toBeNull()
+    expect(table.run(DM, 'triggers', 'set-darkness', { value: 1 })).toBeNull()
     expect(table.tokensFor(P1)).toEqual([scout])
   })
 
@@ -1653,7 +1653,7 @@ describe('contained sight (the fence live sight plays inside)', () => {
     // Held, four cells out, inside the eye's range — and beyond the lamp, so unlit and unseen.
     // The gate runs after the composition, not instead of it.
     expect(see(9.5, 5.5)).toBe(false)
-    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })).toBeNull()
+    expect(table.run(DM, 'triggers', 'set-darkness', { value: 0 })).toBeNull()
     expect(see(9.5, 5.5)).toBe(true)
     expect(table.tokensOf()[id]).toMatchObject({ x: 5.5, y: 5.5 })
   })

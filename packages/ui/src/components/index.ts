@@ -21,6 +21,7 @@ export { SecondaryButton } from './SecondaryButton';
 export { Seg, type SegOption } from './Seg';
 export { SelectRow, type SelectRowOption } from './SelectRow';
 export { SettingRow } from './SettingRow';
+export { PlaceTiles, TimeTiles, type SkyPlace, type SkyTime } from './SkyTiles';
 export { SliderRow } from './SliderRow';
 export { StatusChip } from './StatusChip';
 export { Stepper } from './Stepper';

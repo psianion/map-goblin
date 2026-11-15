@@ -82,6 +82,20 @@ describe('RoomRectTool', () => {
     expect(shapes(active())[0].styleOverrides?.wallTextureSetId).toBe('');
   });
 
+  it('anchors the room on the floor drawn, not inside an island of wall sealed at its middle', () => {
+    const island: [number, number][] = [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]];
+    useStore.getState().addWall(active().id, { id: 'island', points: island, wallType: 'normal', direction: 'both', color: '#000000', width: 0.5, roughness: 0 });
+    const tool = new RoomRectTool();
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerUp({ x: 10, y: 10 });
+    refreshRooms();
+    const room = active().rooms![0];
+    const [x, y] = room.anchor;
+    expect(x > 3.5 && x < 6.5 && y > 3.5 && y < 6.5).toBe(false);
+    // The room holds the floor round the island, not the chamber inside it.
+    expect(room.area).toBeGreaterThan(50);
+  });
+
   it('draws even with the erase toggle on', () => {
     useStore.getState().setEraseMode(true);
     const tool = new RoomRectTool();

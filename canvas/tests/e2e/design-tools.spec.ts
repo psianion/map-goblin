@@ -795,15 +795,15 @@ async function shownLum(page: Page, p: Pt): Promise<number> {
   return sum / (data.length / info.channels)
 }
 
-/** The sun at a fixed hour of the editor's preview clock. */
-async function sunAt(page: Page, hour: number): Promise<void> {
-  await page.evaluate((h) => {
+/** The sun at one of the editor's preview times. */
+async function sunAt(page: Page, time: 'dawn' | 'day' | 'dusk' | 'night'): Promise<void> {
+  await page.evaluate((t) => {
     ;(window as Any).__store.setState((s: Any) => {
       s.mapSettings.environment = 'outdoor'
       s.mapSettings.naturalLight = true
-      s.ui.previewClock = h * 60
+      s.ui.previewTime = t
     })
-  }, hour)
+  }, time)
   await waitFrame(page, 8)
 }
 
@@ -829,15 +829,15 @@ test.describe('plateau-test in the editor', () => {
     await expect
       .poll(async () => (await bandLabels(page, 2)).find((l) => l.label === 'plateau-cliff')?.children ?? 0)
       .toBeGreaterThan(4)
-    // Morning: the shadow falls west, off the outcrop's west cliff; late afternoon, east.
+    // Dawn: the shadow falls west, off the outcrop's west cliff; dusk, east.
     const west = { x: 3.5, y: 10 }
     const east = { x: 12.5, y: 9.75 }
-    await sunAt(page, 9)
-    const [w9, e9] = [await lum(page, west), await lum(page, east)]
-    await sunAt(page, 17)
-    const [w17, e17] = [await lum(page, west), await lum(page, east)]
-    expect(w9, 'west of the cliff is darker in the morning').toBeLessThan(w17 - 2)
-    expect(e17, 'east of the cliff is darker in the afternoon').toBeLessThan(e9 - 2)
+    await sunAt(page, 'dawn')
+    const [wDawn, eDawn] = [await lum(page, west), await lum(page, east)]
+    await sunAt(page, 'dusk')
+    const [wDusk, eDusk] = [await lum(page, west), await lum(page, east)]
+    expect(wDawn, 'west of the cliff is darker at dawn').toBeLessThan(wDusk - 2)
+    expect(eDusk, 'east of the cliff is darker at dusk').toBeLessThan(eDawn - 2)
   })
 
   test('scenario 3: the hill reads 1 and the summit 3, with contours on the slope and a 2-cell drop', { tag: '@design' }, async ({ page }) => {

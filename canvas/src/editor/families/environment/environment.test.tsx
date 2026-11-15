@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, cleanup } from '@testing-library/react';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createDefaultState, createDungeonLayer } from '@/store/factories';
@@ -11,7 +11,17 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
-import { ENVIRONMENT_CARDS, SkyMoodSheet, environment } from './index';
+import { pickTool, toolInHand } from '@/editor/surfaces/hooks';
+import { Dock } from '@/editor/surfaces/Dock';
+import { Rail } from '@/editor/surfaces/Rail';
+import { Slot } from '@/editor/surfaces/Slot';
+import { RegistryProvider } from '@/editor/shell/RegistryProvider';
+import { useSheetHold } from '@/editor/shell/sheetHold';
+import { shellKeyActions } from '@/editor/shell/shellKeys';
+import { registryShortcuts } from '@/shortcuts/registryShortcuts';
+import { resetShell, useShell } from '@/editor/shell/shellStore';
+import { getPreview, resetViewPrefsForTests, setPreview } from '@/editor/viewPrefs';
+import { ENVIRONMENT_CARDS, SkyMoodSheet, environment, skyEntry } from './index';
 
 const input = () => ({ rail: RAIL_TOOLS, families: [...families], shared: SHARED_SETTINGS, cards: [...cards] });
 const reg = createRegistry(input());
@@ -57,7 +67,7 @@ describe('the Environment family', () => {
   });
 
   it('holds the Light tool under E, key L, its dock and panel as plan 6.4 has them', () => {
-    expect([environment.key, environment.tools.map((t) => [t.label, t.key])]).toEqual(['E', [['Light', 'L']]]);
+    expect([environment.key, environment.tools.map((t) => [t.label, t.key])]).toEqual(['E', [['Light', 'L'], ['Sky', 'K']]]);
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('light', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['light.bright', 'light.dim', 'light.intensity', 'light.colour']);
     expect(ids('panel')).toEqual(['light.cone', 'light.direction', 'light.effect', 'light.speed', 'light.throughWalls']);
@@ -147,22 +157,168 @@ describe('the light card', () => {
   });
 });
 
-describe('the Sky and mood sheet', () => {
-  it('has Environment, Mood tint and Lit preview, and no Climate, Weather, Night sky or Time', () => {
+describe('the Sky sheet', () => {
+  it('has Place, Cast shadows and Tint, and no Lit preview, Climate, Weather, Night sky or Time', () => {
     render(<SkyMoodSheet />);
-    expect(screen.getByRole('group', { name: 'Environment' })).toBeTruthy();
-    expect(screen.getByText('Mood tint')).toBeTruthy();
-    expect(screen.getByText('Lit preview')).toBeTruthy();
-    for (const gone of [/climate/i, /weather/i, /night sky/i, /^time$/i, /fixed hour/i]) expect(screen.queryByText(gone)).toBeNull();
+    expect(screen.getByRole('group', { name: 'Place' })).toBeTruthy();
+    expect(screen.getByText('Cast shadows')).toBeTruthy();
+    expect(screen.getByText('Tint')).toBeTruthy();
+    for (const gone of [/lit preview/i, /climate/i, /weather/i, /night sky/i, /^time$/i, /fixed hour/i]) expect(screen.queryByText(gone)).toBeNull();
   });
 
-  it('changes the environment as one undo step, and shows the sun controls outdoors only', () => {
+  it('changes the place as one undo step', () => {
     render(<SkyMoodSheet />);
-    expect(screen.queryByText('Natural shadows')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Outdoor' }));
     expect(st().mapSettings.environment).toBe('outdoor');
-    expect(screen.getByText('Natural shadows')).toBeTruthy();
     undoManager.undo();
     expect(st().mapSettings.environment ?? 'indoor').toBe('indoor');
+  });
+});
+
+describe('the Sky sheet controls', () => {
+  it('reads out where the sun rises whatever the map place', () => {
+    for (const place of ['outdoor', 'indoor', 'underground'] as const) {
+      cleanup();
+      useStore.setState((s) => {
+        s.mapSettings.environment = place;
+      });
+      render(<SkyMoodSheet />);
+      expect(screen.getByRole('slider', { name: 'Where the sun rises' }), place).toBeTruthy();
+    }
+  });
+
+  it('switches Cast shadows on and off through the environment command', () => {
+    useStore.setState((s) => {
+      s.mapSettings.naturalLight = true;
+    });
+    render(<SkyMoodSheet />);
+    fireEvent.click(screen.getByRole('switch', { name: 'Cast shadows' }));
+    expect(st().mapSettings.naturalLight).toBe(false);
+    undoManager.undo();
+    expect(st().mapSettings.naturalLight).toBe(true);
+  });
+
+  it('says so while the map is shown unlit, and not once a time is picked', () => {
+    render(<SkyMoodSheet />);
+    expect(screen.getByText(/Shown unlit/)).toBeTruthy();
+    cleanup();
+    setPreview('dusk');
+    render(<SkyMoodSheet />);
+    expect(screen.queryByText(/Shown unlit/)).toBeNull();
+  });
+});
+
+describe('the Sky entry', () => {
+  beforeEach(() => {
+    resetShell();
+    resetViewPrefsForTests();
+  });
+
+  it('is a sheet entry on K with no engine tool of its own', () => {
+    expect(skyEntry).toMatchObject({ id: 'sky', label: 'Sky', key: 'K', sheet: 'sky', engine: [] });
+  });
+
+  it('stands in hand while its sheet is open: the tool before it is held and the canvas only pans', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('light'));
+    act(() => pickTool(skyEntry));
+    expect(useShell.getState().sheet).toBe('sky');
+    expect(useShell.getState().held).toBe('light');
+    expect(st().tools.activeTool).toBe('pan');
+    expect(toolInHand(reg)?.id).toBe('sky');
+    expect(reg.familyOfTool(toolInHand(reg)!.id)?.id).toBe('environment');
+  });
+
+  it('hands the held tool back however the sheet closes', () => {
+    const hook = renderHook(() => useSheetHold(reg));
+    for (const close of [() => useShell.getState().closeSheet(), () => useShell.getState().openSheet('layers'), () => hook.unmount()]) {
+      act(() => st().setActiveTool('wall'));
+      act(() => pickTool(skyEntry));
+      expect(st().tools.activeTool).toBe('pan');
+      act(close);
+      expect(st().tools.activeTool).toBe('wall');
+      expect(useShell.getState().held).toBeNull();
+    }
+  });
+
+  it('a pick while the sheet is open closes it and leaves the picked tool in hand', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('wall'));
+    act(() => pickTool(skyEntry));
+    act(() => pickTool(environment.tools.find((t) => t.id === 'light')!));
+    expect(useShell.getState().sheet).toBeNull();
+    expect(st().tools.activeTool).toBe('light');
+    // Pan from the rail is a pick too, though Pan stood in while the sheet was up.
+    act(() => pickTool(skyEntry));
+    act(() => pickTool(reg.toolById('pan')!));
+    expect(useShell.getState().sheet).toBeNull();
+    expect(st().tools.activeTool).toBe('pan');
+    expect(useShell.getState().held).toBeNull();
+  });
+
+  it('a tool put in hand some other way while the sheet is open keeps its place, and the sheet goes', () => {
+    renderHook(() => useSheetHold(reg));
+    act(() => st().setActiveTool('wall'));
+    act(() => pickTool(skyEntry));
+    act(() => st().setActiveTool('select'));
+    expect(useShell.getState().sheet).toBeNull();
+    expect(st().tools.activeTool).toBe('select');
+  });
+
+  it('shows no tool panel and no tool dock sections while open, Environment on the rail; all back on close', () => {
+    renderHook(() => useSheetHold(reg));
+    const { getByTestId, queryByTestId } = render(
+      <RegistryProvider registry={reg}>
+        <Rail />
+        <Slot />
+        <Dock />
+      </RegistryProvider>,
+    );
+    const columns = () => [...getByTestId('shell-dock').querySelectorAll<HTMLElement>('[data-composite="dock-column"]')].map((el) => el.dataset.column);
+    const pressed = (name: string) => getByTestId('shell-rail').querySelector(`[aria-label="${name}"]`)?.getAttribute('aria-pressed');
+    act(() => pickTool(reg.toolById('floor')!));
+    const floorColumns = columns();
+    expect(queryByTestId('shell-tool-panel')).toBeTruthy();
+    expect(pressed('Design')).toBe('true');
+
+    act(() => pickTool(skyEntry));
+    expect(queryByTestId('shell-slot')).toBeNull();
+    expect(columns()).toEqual(['level', 'layers', 'family']);
+    expect(getByTestId('shell-dock').querySelector('[data-column="family"] [aria-label="Sky"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(pressed('Environment')).toBe('true');
+    expect(pressed('Design')).toBe('false');
+    expect(pressed('Pan')).toBe('false');
+
+    act(() => useShell.getState().closeSheet());
+    expect(queryByTestId('shell-tool-panel')).toBeTruthy();
+    expect(columns()).toEqual(floorColumns);
+    expect(pressed('Design')).toBe('true');
+  });
+
+  it('K is a family key: from the Environment flyout or with an Environment tool in hand, Sky included', () => {
+    renderHook(() => useSheetHold(reg));
+    const k = registryShortcuts(reg, settings, shellKeyActions(reg)).find((s) => s.id === 'tool.sky')!;
+    expect(k.combo).toBe('k');
+    act(() => st().setActiveTool('select'));
+    expect(k.when!()).toBe(false);
+    act(() => useShell.getState().setFlyout('environment'));
+    expect(k.when!()).toBe(true);
+    act(() => useShell.getState().setFlyout(null));
+    act(() => st().setActiveTool('light'));
+    expect(k.when!()).toBe(true);
+    act(() => pickTool(skyEntry));
+    expect(k.when!()).toBe(true);
+  });
+
+  it('leaves the preview where it was', () => {
+    pickTool(skyEntry);
+    expect(getPreview()).toBe('unlit');
+  });
+
+  it('picking the Light tool still activates it and opens no sheet', () => {
+    const light = environment.tools.find((t) => t.id === 'light')!;
+    pickTool(light);
+    expect(st().tools.activeTool).toBe(light.engine[0]);
+    expect(useShell.getState().sheet).toBeNull();
   });
 });

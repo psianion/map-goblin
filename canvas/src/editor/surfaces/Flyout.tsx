@@ -10,6 +10,7 @@ import { pickTool, useActiveTool } from './hooks';
  */
 export function Flyout({ family }: { family: FamilyDef }) {
   const active = useActiveTool();
+  const sheet = useShell((s) => s.sheet);
   const close = () => useShell.getState().setFlyout(null);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function Flyout({ family }: { family: FamilyDef }) {
             shortcut={t.key}
             name={t.label}
             description={t.description}
-            active={active?.id === t.id}
+            active={t.sheet ? sheet === t.sheet : active?.id === t.id}
             onClick={() => {
               pickTool(t);
               close();

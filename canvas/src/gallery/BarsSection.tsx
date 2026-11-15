@@ -41,7 +41,7 @@ function BarsSection({ theme }: { theme: GalleryTheme }) {
       <div className="mt-5 flex h-7 w-full items-center gap-4 rounded-t-none rounded-b-float border border-line bg-panel pr-2 pl-3 shadow-e">
         <StatusChip>Grid 5 ft</StatusChip>
         <StatusChip>Snap ½</StatusChip>
-        <StatusChip>Lit · off</StatusChip>
+        <StatusChip>Unlit</StatusChip>
         <StatusChip className="gap-1.5 text-text-2">
           Click points · <KeyHint keys="Enter">close</KeyHint> · <KeyHint keys="Backspace">last point</KeyHint>
         </StatusChip>

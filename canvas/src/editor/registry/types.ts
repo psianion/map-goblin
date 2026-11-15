@@ -10,6 +10,7 @@ import type { z } from 'zod';
 import type { useStore } from '@/store/store';
 import type { HintSegment } from '@/editor/statusHints';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
+import type { ShellSheet } from '@/editor/shell/shellStore';
 import type { AnyChild, ChildType, Level, Room, RoomArea, ToolType, WallSegment } from '@/store/types';
 import type { createDefaultState } from '@/store/factories';
 
@@ -150,9 +151,14 @@ export interface ToolDef {
   /**
    * The core tools this tool drives. Picking it puts the first in hand unless one of them
    * already is; it is the tool in hand while any of them is (Floor: rectangle, polygon,
-   * regular polygon, its shape row choosing among them).
+   * regular polygon, its shape row choosing among them). Empty for an entry that opens a sheet.
    */
   engine: ReadonlyArray<ToolType>;
+  /**
+   * An entry that is not a tool (Sky): picking it opens this sheet and leaves the tool in hand
+   * where it was, so closing the sheet goes back to it.
+   */
+  sheet?: Exclude<ShellSheet, null>;
   /** Several tools on one core tool (Stamp and Scatter on the props brush): whether this one is in hand. */
   inHand?: (state: EditorState) => boolean;
   /** Runs after the tool's core tool is in hand, to set what tells it apart (Stamp's stamp mode). */

@@ -1238,6 +1238,40 @@ test('rooms: the room key writes field by field, each field undoes, and it reloa
   )
 })
 
+test('rooms and levels: the Place section pins through the card, reads Follows and Inherits Map, and Reset hands it back', { tag: '@text' }, async ({ page }) => {
+  await openWarren(page)
+  const hall = (await rooms(page)).find((r) => r.name === 'Warren Hall')!
+  const placeOf = (id: string) =>
+    inPage<string | undefined>(page, `(s, layer, w2s, id) => layer().rooms.find((r) => r.id === id).look?.place`, id)
+
+  // A room: Follows is the choice, the source line reads Inherits, a tile pins, Reset clears.
+  await selectIds(page, [hall.id])
+  const place = card(page).getByTestId('look-place')
+  await expect(place.getByRole('button', { name: 'Follows' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(place.getByTestId('look-place-source')).toHaveText(/^Inherits /)
+  await place.getByRole('button', { name: 'Underground' }).click()
+  await expect(place.getByRole('button', { name: 'Underground' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(place.getByTestId('look-place-source')).toHaveText('Pinned')
+  expect(await placeOf(hall.id)).toBe('underground')
+  await place.getByRole('button', { name: 'Reset' }).click()
+  await expect(place.getByRole('button', { name: 'Follows' })).toHaveAttribute('aria-pressed', 'true')
+  expect(await placeOf(hall.id)).toBeUndefined()
+
+  // The level card: the same section, inheriting the map, and a room beneath it follows the level.
+  await page.getByTestId('shell-title-level').click()
+  await page.getByTestId('shell-level-menu').getByRole('menuitem', { name: 'Level settings' }).click()
+  await expect(card(page)).toHaveAttribute('data-kind', 'level')
+  const levelPlace = card(page).getByTestId('look-place')
+  await expect(levelPlace.getByTestId('look-place-source')).toHaveText('Inherits Map')
+  await levelPlace.getByRole('button', { name: 'Indoor' }).click()
+  await expect(levelPlace.getByTestId('look-place-source')).toHaveText('Pinned')
+  await selectIds(page, [hall.id])
+  await expect(card(page).getByTestId('look-place-source')).toHaveText(/^Inherits (?!Map)/)
+  await undo(page)
+  await selectIds(page, [hall.id])
+  await expect(card(page).getByTestId('look-place-source')).toHaveText('Inherits Map')
+})
+
 /**
  * Pixels the area's ring must change by more than 60 (of 255) over the gallery, lighting
  * on. Measured: the ring as it was (1.5 px ink dashes in the world, under the lighting)
@@ -1249,7 +1283,7 @@ test('rooms: the room overlay draws above the lighting and the light icons; a se
   // No light fade-in under the pixels being compared: the lights come up at once.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   // The lit preview on, as a DM checking the mood has it: the case the ring was lost in.
-  await page.addInitScript(() => localStorage.setItem('mapbuilder-lit-preview', '1'))
+  await page.addInitScript(() => localStorage.setItem('mapbuilder-preview', 'day'))
   await openWarren(page)
   // The overlay is the last thing the screen overlay draws: over the lighting composite
   // (a multiply over the whole map) and over every light icon, so no bulb hides a badge.

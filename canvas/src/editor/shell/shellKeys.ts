@@ -8,11 +8,12 @@ import type { ObjectKind, Registry } from '@/editor/registry';
 import { createSettings } from '@/editor/registry/settings';
 import { setRegistryShortcuts } from '@/shortcuts/defaultShortcuts';
 import { registryShortcuts, type RegistryShortcut, type ShellKeyActions } from '@/shortcuts/registryShortcuts';
-import { pickTool, toolForEngine } from '@/editor/surfaces/hooks';
+import { pickTool, toolInHand } from '@/editor/surfaces/hooks';
 import { useShell } from './shellStore';
 
 export function shellKeyActions(registry: Registry): ShellKeyActions {
-  const active = () => toolForEngine(registry, useStore.getState().tools.activeTool);
+  // An open Sky sheet is the tool in hand, so the Environment keys answer under it.
+  const active = () => toolInHand(registry);
   return {
     flyout: () => useShell.getState().flyout,
     setFlyout: (f) => useShell.getState().setFlyout(f),

@@ -1,14 +1,13 @@
 // The Light tool's own controls: bright and dim in feet, a compact intensity slider, the
-// colour swatch, the six presets, and the panel's way into the Sky and mood sheet.
+// colour swatch and the six presets.
 
 import { useState } from 'react';
-import { Eclipse, Flame, FlameKindling, Lamp, LampWallUp, Sparkles, SunMoon, type LucideIcon } from 'lucide-react';
+import { Eclipse, Flame, FlameKindling, Lamp, LampWallUp, Sparkles, type LucideIcon } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 import { useStore } from '@/store/store';
 import { LIGHT_PRESETS, presetDefaults, type LightPresetId } from '@dnd/core/src/store/lightPresets';
 import {
   DockColumn,
-  SecondaryButton,
   SettingRow,
   Stepper,
   Swatch,
@@ -20,7 +19,6 @@ import {
   Slider,
 } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
-import { useShell } from '@/editor/shell/shellStore';
 import { LIGHT_RADIUS_FT, toFt } from './lightModel';
 
 /** A distance in feet, 5 ft a step. */
@@ -119,17 +117,6 @@ export function PresetsColumn() {
         );
       })}
     </DockColumn>
-  );
-}
-
-/** The panel's foot: the map's sky and mood, which every light is seen against. */
-export function SkyButton() {
-  return (
-    <div className="px-3 pb-2.5">
-      <SecondaryButton icon={SunMoon} onClick={() => useShell.getState().openSheet('sky')}>
-        Sky and mood…
-      </SecondaryButton>
-    </div>
   );
 }
 

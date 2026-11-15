@@ -21,7 +21,7 @@ import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import type { EditorChromeActions } from '@/editor/EditorHost';
-import { FOCUS_MODES, setLitPreview, useLitPreview, type FocusMode } from '@/editor/viewPrefs';
+import { FOCUS_MODES, togglePreview, usePreview, type FocusMode } from '@/editor/viewPrefs';
 import { useShell } from '@/editor/shell/shellStore';
 import { AssetDownloadPill } from '@/canvas/AssetDownloadPill';
 
@@ -45,7 +45,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
   const labelsHidden = useStore((s) => s.ui.labelsHidden);
   const outlines = useStore((s) => s.ui.roomOverlayVisible);
   const roomLabels = useStore((s) => s.ui.roomLabels);
-  const lit = useLitPreview();
+  const lit = usePreview() !== 'unlit';
   const [theme, toggleTheme] = useTheme();
   const openSheet = useShell((s) => s.openSheet);
   return (
@@ -95,7 +95,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuLabel>View</DropdownMenuLabel>
-            <DropdownMenuCheckboxItem checked={lit} onCheckedChange={(v) => setLitPreview(v)}>
+            <DropdownMenuCheckboxItem checked={lit} onCheckedChange={() => togglePreview()}>
               Lit preview<DropdownMenuShortcut>{keyCaption('view.litPreview')}</DropdownMenuShortcut>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={gridShown} onCheckedChange={(v) => useStore.getState().setGridVisible(v)}>

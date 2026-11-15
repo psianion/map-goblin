@@ -12,8 +12,8 @@ type Any = any
  * square, Apply lighting, Grid lines and Labels are there; Cancel, the X and Escape close it;
  * the size line follows the pixels per square; a preview is drawn; PNG and JPEG download
  * files that are what they say; Map file drops the picture's options and downloads the
- * same container Ctrl+S writes; the lit picture follows the hour, and the weather picked
- * in the dialog is the one the exported file is lit with. Export stays on a short laptop
+ * same container Ctrl+S writes; the lit picture follows the time picked (Night is darker than Day), and the
+ * time starts at the editor's preview. Export stays on a short laptop
  * screen with lighting on, an unticked layer leaves the file, and every level of a
  * two-level map comes down as one zip.
  */
@@ -178,45 +178,46 @@ test('Map file drops the picture\'s options and downloads the container Ctrl+S w
   expect([bytes[6], bytes[7]]).toEqual([0x1f, 0x8b])
 })
 
-test('export at 02:00 is darker than at 12:00', { tag: '@export' }, async ({ page }) => {
+test('export at Night is darker than at Day', { tag: '@export' }, async ({ page }) => {
   await openOutdoorExport(page)
-  const hour = modal(page).getByRole('slider', { name: 'Hour' })
-  await hour.fill(String(12 * 60))
-  const noon = await previewMean(page)
-  await hour.fill(String(2 * 60))
-  await expect(modal(page).getByTestId('v2-export-lighting')).toContainText('02:00')
+  const times = modal(page).getByTestId('v2-export-lighting')
+  await times.getByRole('button', { name: 'Day' }).click()
+  await expect(times.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
+  const day = await previewMean(page)
+  await times.getByRole('button', { name: 'Night' }).click()
+  await expect(times.getByRole('button', { name: 'Night' })).toHaveAttribute('aria-pressed', 'true')
   const night = await previewMean(page)
-  expect(night).toBeLessThan(noon - 10)
+  expect(night).toBeLessThan(day - 10)
 })
 
-test('the weather picked in the dialog is the weather the exported file is lit with', { tag: '@export' }, async ({ page }) => {
+test('the dialog offers four times and no weather, moon or hour controls', { tag: '@export' }, async ({ page }) => {
   await openOutdoorExport(page)
   const lighting = modal(page).getByTestId('v2-export-lighting')
-  await modal(page).getByRole('slider', { name: 'Hour' }).fill(String(12 * 60))
-  const weather = lighting.getByRole('combobox', { name: 'Weather' })
-  await expect(weather).toContainText('Clear')
+  const group = lighting.getByRole('group', { name: 'Time of day' })
+  await expect(group.getByRole('button')).toHaveText(['Dawn', 'Day', 'Dusk', 'Night'])
+  await expect(lighting.getByRole('slider')).toHaveCount(0)
+  await expect(lighting.getByRole('combobox')).toHaveCount(0)
+  await expect(lighting.getByText(/weather|moon|hour/i)).toHaveCount(0)
+})
 
-  const download = async () => {
-    const [file] = await Promise.all([page.waitForEvent('download'), modal(page).getByTestId('v2-export-go').click()])
-    await expect(modal(page)).toHaveCount(0)
-    return readFileSync(await file.path())
-  }
-  // The preview settles before the file is cut, so both are drawn from the same pick.
-  await previewMean(page)
-  const clear = await meanOfBytes(page, await download())
+test('the time starts at the editor preview, and at Day when the preview is unlit', { tag: '@export' }, async ({ page }) => {
+  await gotoApp(page)
+  await page.getByTestId('shell-preview-chip').click()
+  await page.getByTestId('shell-preview-popover').getByRole('button', { name: 'Dusk' }).click()
+  await expect(page.getByTestId('shell-preview-chip')).toHaveText('Preview · Dusk')
+  await page.keyboard.press('Escape')
+  await openExport(page)
+  await expect(modal(page).getByTestId('v2-export-lighting').getByRole('button', { name: 'Dusk' })).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await expect(modal(page)).toHaveCount(0)
 
+  await page.getByTestId('shell-preview-chip').click()
+  await page.getByTestId('shell-preview-popover').getByRole('button', { name: 'Unlit' }).click()
+  await expect(page.getByTestId('shell-preview-chip')).toHaveText('Unlit')
+  await page.keyboard.press('Escape')
   await openExport(page)
   await lightingOn(page)
-  const again = modal(page).getByTestId('v2-export-lighting')
-  await modal(page).getByRole('slider', { name: 'Hour' }).fill(String(12 * 60))
-  await again.getByRole('combobox', { name: 'Weather' }).click()
-  await page.getByRole('option', { name: 'Storm' }).click()
-  await expect(again.getByRole('combobox', { name: 'Weather' })).toContainText('Storm')
-  await previewMean(page)
-  const storm = await meanOfBytes(page, await download())
-
-  // A storm takes close to half the daylight away; a few luma of slack covers the encoder.
-  expect(storm).toBeLessThan(clear - 8)
+  await expect(modal(page).getByTestId('v2-export-lighting').getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('on a 1366×600 window with lighting on, Export is on screen', { tag: '@export' }, async ({ page }) => {

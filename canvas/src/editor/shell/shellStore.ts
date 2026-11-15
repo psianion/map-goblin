@@ -4,6 +4,7 @@
 // Never part of the map; nothing here is saved.
 
 import { create } from 'zustand';
+import type { ToolType } from '@/store/types';
 import type { FamilyDef } from '@/editor/registry';
 import type { AssetChip } from '@/editor/surfaces/assetModel';
 
@@ -26,6 +27,8 @@ interface ShellState {
   assets: AssetChip | null;
   /** The core tool a Space-pan just handed back, so its return is not taken for a new pick. */
   spaceReturn: string | null;
+  /** The core tool an entry's open sheet (Sky) holds while it stands in hand (sheetHold.ts). */
+  held: ToolType | null;
   /** The dock's Set up tab in front, by id; null is the tool's own. Back to null on every tool change. */
   dockTab: string | null;
   setFlyout: (family: FamilyDef['id'] | null) => void;
@@ -43,6 +46,7 @@ export const useShell = create<ShellState>()((set) => ({
   sheet: null,
   assets: null,
   spaceReturn: null,
+  held: null,
   dockTab: null,
   setFlyout: (flyout) => set({ flyout }),
   setDockTab: (dockTab) => set({ dockTab }),
@@ -55,5 +59,5 @@ export const useShell = create<ShellState>()((set) => ({
 
 /** Back to a closed shell: no flyout, no sheet, no remembered tool. For tests and a new mount. */
 export function resetShell(): void {
-  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null, spaceReturn: null, dockTab: null });
+  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null, spaceReturn: null, held: null, dockTab: null });
 }

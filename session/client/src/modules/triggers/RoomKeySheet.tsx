@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 import { roomLabel } from '@dnd/core/src/shared/prep';
-import type { Mood } from '@dnd/core/src/shared/types';
+import { roomPlace } from '@dnd/core/src/shared/regionGrade';
+import { useStore } from '@dnd/core/src/store/store';
+import type { Environment } from '@dnd/core/src/shared/world';
 import { roomEditsOf, roomShareKey, roomSpawnKey, shareReceiptsOf, type TriggersState } from '@dnd/mechanics/triggers';
-import { Button, Caption, Seg } from '@dnd/ui';
+import { Button, Caption, PlaceTiles } from '@dnd/ui';
 import { frameWorldPoint } from '../../renderer/camera';
 import { closeSheet } from '../../shell/sheets/registry';
 import { SheetFrame } from '../../shell/sheets/SheetFrame';
@@ -13,12 +15,19 @@ const send = (action: string, payload: unknown): void => useSessionStore.getStat
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-const MOODS: { value: '' | Mood; label: string }[] = [
-  { value: '', label: 'Inherit' },
-  { value: 'lit', label: 'Lit' },
-  { value: 'dim', label: 'Dim' },
-  { value: 'dark', label: 'Dark' },
-];
+const PLACE_LABEL: Record<Environment, string> = { outdoor: 'Outdoor', indoor: 'Indoor', underground: 'Underground' };
+
+/** The place a room was built as in the editor: its look chain, before any table edit. */
+function useBuiltPlace(roomId: string): Environment | null {
+  return useStore((s) => {
+    for (const layer of s.layers) {
+      if (layer.type !== 'dungeon') continue;
+      const room = layer.rooms?.find((r) => r.id === roomId);
+      if (room) return roomPlace(s, layer, room);
+    }
+    return null;
+  });
+}
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -31,7 +40,7 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 
 /**
  * Board 11's Room key sheet (DM): the read-aloud with Share, the encounter with Spawn, the
- * DM's notes, treasure, traps and checks, and the room's live mood.
+ * DM's notes, treasure, traps and checks, and the room's place for this scene.
  */
 export function RoomKeySheet({ roomId }: { roomId: string }) {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -44,7 +53,8 @@ export function RoomKeySheet({ roomId }: { roomId: string }) {
   const receipt = triggers ? shareReceiptsOf(triggers)[roomShareKey(roomId)] : undefined;
   const spawnedAt = sceneId ? triggers?.byScene[sceneId]?.fired[roomSpawnKey(roomId)] : undefined;
   const scene = sceneId ? triggers?.byScene[sceneId] : undefined;
-  const mood = scene ? roomEditsOf(scene)[roomId]?.mood : undefined;
+  const place = scene ? roomEditsOf(scene)[roomId]?.place : undefined;
+  const built = useBuiltPlace(roomId);
   const readAloud = key?.readAloud.trim() ?? '';
   const encounter = key?.encounter;
 
@@ -136,14 +146,17 @@ export function RoomKeySheet({ roomId }: { roomId: string }) {
             </ul>
           </Block>
         )}
-        {room && sceneId && (
-          <Block title="Mood">
-            <Seg
-              aria-label="Room mood"
-              options={MOODS}
-              value={mood ?? ''}
-              onValueChange={(v) => send('set-room', { sceneId, roomId, patch: { mood: v || null } })}
+        {room && sceneId && built && (
+          <Block title="Place">
+            <PlaceTiles
+              aria-label="Room place"
+              value={place ?? null}
+              inherit={{ label: 'As built', resolves: built }}
+              onPick={(v) => send('set-room', { sceneId, roomId, patch: { place: v } })}
             />
+            <p className="text-text-3" data-testid="room-built-place">
+              Built as {PLACE_LABEL[built]}. A change lasts for this scene.
+            </p>
           </Block>
         )}
       </div>

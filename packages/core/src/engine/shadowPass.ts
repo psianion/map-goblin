@@ -41,12 +41,15 @@ import {
   sunShadowLength,
 } from '../shared/plateauShade';
 import { shadeCliffs } from './plateauRenderer';
-import { worldFrame, type WorldFrame } from './worldOverride';
+import { tableRoomPlaces, tableRoomPlacesVersion, worldFrame, type WorldFrame } from './worldOverride';
+import { levelPlace, roomPlace } from '../shared/regionGrade';
+import { layersOnLevel, levelIdOf } from '../shared/visionGate';
+import { pointInRing, roomFace } from '../shared/roomUtils';
 
 /** The look under whichever sun this surface is standing — the Table's, or the Editor's own. */
 function shadowLookNow(): ShadowLook | null {
   const state = useStore.getState();
-  const frame = worldFrame(state.mapSettings, state.ui.previewClock, state.ui.previewSky, state.ui.previewWeather);
+  const frame = worldFrame(state.mapSettings, state.ui.previewTime);
   return shadowLook(frame.sun, frame.penumbraScale);
 }
 
@@ -65,6 +68,63 @@ interface LayerShadows {
   reliefRef: readonly unknown[] | null;
   /** Prop silhouettes, by asset child id. Synced by `syncPropShadows`, aimed by the sun here. */
   props: Map<string, { sprite: Sprite; obj: AssetChild }>;
+  /** Where the sun reached when the shadows were last drawn; null before the first draw. */
+  reach: SunReach | null;
+}
+
+/**
+ * Where the sun and moon reach on one layer, region by region: on an Outdoor level, everywhere
+ * but the faces of rooms that are not Outdoor; on any other level, only the faces of Outdoor
+ * rooms. `faces` are the exceptions to the level.
+ */
+interface SunReach {
+  outdoorLevel: boolean;
+  faces: Polygon[];
+}
+
+/** Each layer's reach, recomputed only when the layers, levels, map or the table's live places move. */
+let reachMemo: { refs: unknown[]; byLayer: Map<string, SunReach> } = { refs: [], byLayer: new Map() };
+
+function reachOf(layer: DungeonLayer): SunReach {
+  const state = useStore.getState();
+  const refs = [state.layers, state.levels, state.mapSettings, tableRoomPlacesVersion()];
+  if (refs.length !== reachMemo.refs.length || refs.some((v, i) => v !== reachMemo.refs[i])) {
+    reachMemo = { refs, byLayer: new Map() };
+  }
+  const hit = reachMemo.byLayer.get(layer.id);
+  if (hit) return hit;
+  const levelId = levelIdOf(state, layer);
+  const outdoorLevel = levelPlace(state.mapSettings, state.levels?.find((l) => l.id === levelId)) === 'outdoor';
+  const live = tableRoomPlaces();
+  const faces: Polygon[] = [];
+  for (const l of layersOnLevel(state, state.layers, levelId)) {
+    for (const room of l.rooms ?? []) {
+      const face = roomFace(room);
+      if (face.length < 3) continue;
+      const outdoor = (live?.[room.id] ?? roomPlace(state, l, room)) === 'outdoor';
+      if (outdoor !== outdoorLevel) faces.push(face);
+    }
+  }
+  const reach = { outdoorLevel, faces };
+  reachMemo.byLayer.set(layer.id, reach);
+  return reach;
+}
+
+function sameReach(a: SunReach, b: SunReach | null): boolean {
+  return b !== null && a.outdoorLevel === b.outdoorLevel && a.faces.length === b.faces.length && a.faces.every((f, i) => f === b.faces[i]);
+}
+
+/** The part of `ground` the sun reaches. */
+function sunlitGround(ground: Polygon[], reach: SunReach): Polygon[] {
+  if (!reach.outdoorLevel) return reach.faces;
+  return reach.faces.length === 0 ? ground : clipper2Engine.difference(ground, reach.faces);
+}
+
+/** Whether the sun reaches the point; with no reach known yet, everywhere. */
+function inSun(reach: SunReach | null, x: number, y: number): boolean {
+  if (!reach) return true;
+  const inside = reach.faces.some((f) => pointInRing(x, y, f));
+  return reach.outdoorLevel ? !inside : inside;
 }
 
 const byLayer = new Map<string, LayerShadows>();
@@ -99,6 +159,7 @@ function shadowsOf(layerId: string): LayerShadows | null {
     terrainRef: undefined,
     reliefRef: null,
     props: new Map(),
+    reach: null,
   };
   byLayer.set(layerId, state);
   return state;
@@ -187,11 +248,14 @@ export function updateShadows(
     const raised = hasGroundHeight(layer);
     const grounded = layer.children.some((c) => isGroundPiece(c));
     const relief = raised || grounded ? [layer.children, useStore.getState().mapSettings.fixedSize ?? null] : null;
+    // The sun falls region by region: a room's place moving redraws the layer too.
+    const reach = reachOf(layer);
     if (
       signature === state.signature &&
       layer.mergedFloor === state.groundRef &&
       terrain === state.terrainRef &&
-      sameRelief(relief, state.reliefRef)
+      sameRelief(relief, state.reliefRef) &&
+      sameReach(reach, state.reach)
     ) {
       continue;
     }
@@ -199,9 +263,10 @@ export function updateShadows(
     state.groundRef = layer.mergedFloor;
     state.terrainRef = terrain;
     state.reliefRef = relief;
+    state.reach = reach;
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
-    drawWallShadows(state.graphics, layer, look);
+    drawWallShadows(state.graphics, layer, look, reach);
     drawCliffShadows(state.cliff, state.blur, layer, cliffLook, cliffStrength);
     shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
@@ -229,13 +294,14 @@ export function updateShadows(
  * clock bucket or an orientation nudge — never a frame). If a scrub over a big map ever feels
  * it, cut `SHADOW_STEPS` before anything cleverer.
  */
-function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null): void {
+function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null, reach: SunReach): void {
   g.clear();
   if (look === null || look.length <= 0 || look.alpha <= 0) return;
   // Per layer, off the same extractor the lights sweep — a layer's walls cast a layer's
   // shadows, and an open door drops its segment here exactly as it drops it there.
   const segments = extractWallSegments([layer], 'light', { props: false, cliffs: false });
-  const ground = groundOf(layer);
+  // Only onto ground the sun reaches: not inside an Underground room on an Outdoor map.
+  const ground = sunlitGround(groundOf(layer), reach);
   if (segments.length === 0 || ground.length === 0) return;
   const color = parseInt(look.color.replace('#', ''), 16);
   const alpha = bandAlpha(look);
@@ -463,21 +529,23 @@ function drawPropShadows(layerId: string, look: ShadowLook | null): void {
     }
     held.obj = obj;
     held.sprite.texture = sprite.texture;
-    aimPropShadow(held.sprite, obj, look);
+    aimPropShadow(held.sprite, obj, look, state.reach);
   }
 }
 
 /** Lay one prop's silhouette down along the light — see `propShadow` for the transform. */
-function aimPropShadow(shadow: Sprite, obj: AssetChild, look: ShadowLook | null): void {
-  if (look === null || !obj.visible) {
+function aimPropShadow(shadow: Sprite, obj: AssetChild, look: ShadowLook | null, reach: SunReach | null): void {
+  // The foot of the prop, not its centre — asset sprites are anchored through the middle.
+  const footY = obj.position.y + (obj.height * obj.scale) / 2;
+  // A prop standing where the sun does not reach casts nothing.
+  if (look === null || !obj.visible || !inSun(reach, obj.position.x, footY)) {
     shadow.visible = false;
     return;
   }
   const height = shadow.texture.height;
   const cast = propShadow(look, height, obj.standHeight);
   shadow.visible = true;
-  // The foot of the prop, not its centre — asset sprites are anchored through the middle.
-  shadow.position.set(obj.position.x, obj.position.y + (obj.height * obj.scale) / 2);
+  shadow.position.set(obj.position.x, footY);
   shadow.scale.set((obj.width * obj.scale) / (shadow.texture.width || 1), cast.scaleY);
   shadow.skew.x = cast.skewX;
   shadow.alpha = cast.alpha;

@@ -1,10 +1,10 @@
-// The Table's sky, levels and room moods, handed to the engine (`worldSync.ts`).
+// The Table's sky, levels and room places, handed to the engine (`worldSync.ts`).
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import { useStore } from '@dnd/core/src/store/store';
-import { tableAllLit, tableRoomMoods, tableWorld, tableWorldSnaps } from '@dnd/core/src/engine/worldOverride';
-import type { TriggersState } from '@dnd/mechanics/triggers';
+import { tableAllLit, tableRoomPlaces, tableWorld, tableWorldSnaps } from '@dnd/core/src/engine/worldOverride';
+import type { RoomEdit, TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
 import { syncWorldToScene } from './worldSync';
 import { dmLit, setDarknessPreview, setDmLit } from './worldPrefs';
@@ -12,7 +12,11 @@ import { dmLit, setDarknessPreview, setDmLit } from './worldPrefs';
 const dm: PlayerInfo = { identityId: 'dm1', name: 'Ann', role: 'dm', connected: true };
 const player: PlayerInfo = { identityId: 'p1', name: 'Bo', role: 'player', connected: true };
 
-const triggers = (world: TriggersState['world'], roomEdits: Record<string, { mood?: 'lit' | 'dim' | 'dark' }> = {}): TriggersState => ({
+const triggers = (
+  world: TriggersState['world'],
+  roomEdits: Record<string, RoomEdit> = {},
+  darkness?: number,
+): TriggersState => ({
   byScene: {
     'scene-1': {
       fired: {},
@@ -21,7 +25,7 @@ const triggers = (world: TriggersState['world'], roomEdits: Record<string, { moo
       lightOverrides: {},
       lightEdits: {},
       roomEdits,
-      env: {},
+      ...(darkness !== undefined ? { darkness } : {}),
       prompts: [],
       log: [],
     },
@@ -49,7 +53,6 @@ beforeEach(() => {
   useStore.getState().resetToDefault();
   useStore.setState((s) => {
     s.mapSettings.environment = 'outdoor';
-    s.mapSettings.weather = 'rain';
   });
 });
 afterEach(() => {
@@ -60,17 +63,14 @@ afterEach(() => {
 });
 
 describe('syncWorldToScene', () => {
-  it('installs the whole sky: the campaign clock, the map default weather, the DM slider', () => {
-    seat(dm, triggers({ clock: 0, nightSky: 'moonless', timeSpeed: 'paused', darkness: 0.4 }));
+  it('installs the whole sky: the campaign time and the scene slider', () => {
+    seat(dm, triggers({ time: 'night' }, {}, 0.4));
     stop = syncWorldToScene();
-    expect(tableWorld()).toMatchObject({ minutes: 0, nightSky: 'moonless', weather: 'rain', darkness: 0.4 });
-    // The live weather beats the map default.
-    seat(dm, triggers({ clock: 0, nightSky: 'moonless', timeSpeed: 'paused', weather: 'storm' }));
-    expect(tableWorld()).toMatchObject({ weather: 'storm' });
+    expect(tableWorld()).toMatchObject({ minutes: 0, darkness: 0.4 });
   });
 
-  it('a slider drag previews locally and lands at once; releasing hands back to the campaign', () => {
-    seat(dm, triggers({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', darkness: null, weather: 'clear' }));
+  it('a slider drag previews locally and lands at once; releasing hands back to the scene', () => {
+    seat(dm, triggers({ time: 'day' }));
     stop = syncWorldToScene();
     expect(tableWorld()?.darkness).toBe(0);
     setDarknessPreview(0.9);
@@ -81,15 +81,15 @@ describe('syncWorldToScene', () => {
     expect(tableWorldSnaps()).toBe(false);
   });
 
-  it('shows the DM everything lit on the DM seat only, and hands the room moods over', () => {
-    seat(player, triggers({ clock: 0, nightSky: 'moonless', timeSpeed: 'paused' }, { cellar: { mood: 'dark' } }));
+  it('shows the DM everything lit on the DM seat only, and hands the room places over', () => {
+    seat(player, triggers({ time: 'night' }, { cellar: { place: 'underground' } }));
     setDmLit(true);
     stop = syncWorldToScene();
     expect(dmLit()).toBe(true);
     expect(tableAllLit()).toBe(false);
-    expect(tableRoomMoods()).toEqual({ cellar: 'dark' });
+    expect(tableRoomPlaces()).toEqual({ cellar: 'underground' });
     stop();
-    seat(dm, triggers({ clock: 0, nightSky: 'moonless', timeSpeed: 'paused' }));
+    seat(dm, triggers({ time: 'night' }));
     stop = syncWorldToScene();
     expect(tableAllLit()).toBe(true);
   });
@@ -97,23 +97,23 @@ describe('syncWorldToScene', () => {
   it('shows a player the level their token stands on, and a pin beats the token', () => {
     useStore.getState().addLevel({ id: 'L2', name: 'Two' });
     const first = useStore.getState().levels[0]!.id;
-    seat(player, triggers({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' }), {
+    seat(player, triggers({ time: 'day' }), {
       t1: { id: 't1', ownerId: 'p1', levelId: 'L2', x: 0, y: 0 },
     });
     stop = syncWorldToScene();
     expect(useStore.getState().ui.activeLevelId).toBe('L2');
-    const pinned = triggers({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' });
+    const pinned = triggers({ time: 'day' });
     pinned.byScene['scene-1']!.seatLevel = { p1: first };
     seat(player, pinned, { t1: { id: 't1', ownerId: 'p1', levelId: 'L2', x: 0, y: 0 } });
     expect(useStore.getState().ui.activeLevelId).toBe(first);
   });
 
   it('hands the sky back on cleanup', () => {
-    seat(dm, triggers({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' }));
+    seat(dm, triggers({ time: 'day' }));
     stop = syncWorldToScene();
     stop();
     stop = null;
     expect(tableWorld()).toBeNull();
-    expect(tableRoomMoods()).toBeNull();
+    expect(tableRoomPlaces()).toBeNull();
   });
 });

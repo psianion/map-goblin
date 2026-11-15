@@ -1,7 +1,7 @@
 // The room, area and level cards. A room: Number, Name, Size, Area, then its Floor and
-// Walls looks and its Key. An area: Name, Rooms and the two looks. A level: Name, Layers,
-// Rooms and the two looks. No Mood on any of them: it barely changed the made map, and maps
-// that carry it open without it.
+// Walls looks, its Place and its Key. An area: Name, Rooms and the two looks. A level: Name,
+// Layers, Rooms, the two looks and its Place. No Mood on any of them: Place took its job, and
+// maps that carry it open without it.
 
 import { z } from 'zod';
 import { useStore } from '@/store/store';
@@ -21,7 +21,7 @@ import { SELECTION_VERBS } from '@/editor/families/select';
 import type { LookTarget } from '@/editor/models/roomLook';
 import { nextAreaName } from '@/editor/models/roomActions';
 import { layerOnLevel, levelDungeons, roomCountLabel } from '@/editor/models/roomModel';
-import { AreaPick, CountField, FloorSection, KeyField, NEW_AREA, NO_AREA, ReadoutField, TypedField, WallsSection } from './RoomFields';
+import { AreaPick, CountField, FloorSection, KeyField, NEW_AREA, NO_AREA, PlaceSection, ReadoutField, TypedField, WallsSection } from './RoomFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
 
@@ -46,6 +46,21 @@ function looks<K extends ObjectKind>(kind: string, target: (o: never) => LookTar
     defineCardField<K, LookTarget>({ ...base, id: `card.${kind}.floor`, label: 'Floor', render: FloorSection, read: target as never }),
     defineCardField<K, LookTarget>({ ...base, id: `card.${kind}.walls`, label: 'Walls', render: WallsSection, read: target as never }),
   ];
+}
+
+/** Place for a room or a level. The area keeps its place in the chain but has no control yet. */
+function place<K extends ObjectKind>(kind: string, target: (o: never) => LookTarget): CardFieldDef<K> {
+  return defineCardField<K, LookTarget>({
+    schema: lookSchema,
+    default: { kind: 'level', levelId: '' },
+    home: 'card',
+    control: 'custom',
+    write: () => {},
+    id: `card.${kind}.place`,
+    label: 'Place',
+    render: PlaceSection,
+    read: target as never,
+  });
 }
 
 /* ── Room ──────────────────────────────────────────────── */
@@ -143,6 +158,7 @@ export const roomCard = defineCard<'room'>({
     roomSize,
     roomArea,
     ...looks<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),
+    place<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),
     roomKey,
   ],
 });
@@ -240,5 +256,6 @@ export const levelCard = defineCard<'level'>({
       write: () => {},
     }),
     ...looks<'level'>('level', ((l: Level) => ({ kind: 'level', levelId: l.id })) as never),
+    place<'level'>('level', ((l: Level) => ({ kind: 'level', levelId: l.id })) as never),
   ],
 });

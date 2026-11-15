@@ -1650,15 +1650,18 @@ describe('fogScene', () => {
       position: { x, y },
     }) as unknown as DoorChild;
 
+  /** The old dial's three levels, as the scene's darkness slider they stand for. */
+  const DIAL: Record<string, number> = { daylight: 0, dusk: 0.5, darkness: 1 };
+
   /**
-   * A vision scene with a lamp on the map, three tokens, the DM's dial at `ambient` — and,
-   * since P2, the campaign's own clock and sky over it (`world`) and whatever environment the
-   * map authored.
+   * A vision scene with a lamp on the map, three tokens, the scene's darkness slider at the
+   * old dial's `ambient` level — and the campaign's own time of day over it (`world`) and
+   * whatever environment the map authored.
    */
   const nightTable = (
     ambient?: string,
     switches: Record<string, boolean> = {},
-    world?: { clock: number; nightSky: 'full-moon' | 'crescent' | 'moonless'; timeSpeed: 'paused' },
+    world?: { time: 'dawn' | 'day' | 'dusk' | 'night' },
   ) => {
     useStore.setState({
       layers: [{ ...(dungeon(ROOMS) as object), children: [lamp('lamp-a', 3, 3)] } as Layer],
@@ -1694,7 +1697,7 @@ describe('fogScene', () => {
               lightEdits: Object.fromEntries(
                 Object.entries(switches).map(([id, visible]) => [id, { visible }]),
               ),
-              env: ambient ? { ambient } : {},
+              ...(ambient ? { darkness: DIAL[ambient] } : {}),
               prompts: [],
               log: [],
             },
@@ -1769,8 +1772,8 @@ describe('fogScene', () => {
     expect(washDarkness(0.5)).toBeLessThan(SCENE_DARKNESS.darkness);
   });
 
-  // P2 — the same rule the referee runs (`worldLightOf`), read through this seat's mask.
-  describe('the world clock', () => {
+  // The same rule the referee runs (`worldSkyOf`), read through this seat's mask.
+  describe('the time of day', () => {
     // The map document is store state like any other — put it back, or the map every test
     // below reads is whichever one this block authored last.
     const authored = { ...useStore.getState().mapSettings };
@@ -1780,58 +1783,40 @@ describe('fogScene', () => {
       useStore.setState({
         mapSettings: { ...useStore.getState().mapSettings, environment: 'outdoor', ...over },
       });
-    const night = { clock: 0, timeSpeed: 'paused' } as const;
+    const night = { time: 'night' } as const;
+    const day = { time: 'day' } as const;
 
-    it('gates an outdoor map on the clock and the sky, with nobody touching a dial', () => {
+    it('gates an outdoor map on the time of day, with nobody touching the slider', () => {
       outdoor();
-      expect(nightTable(undefined, {}, { ...night, nightSky: 'moonless' }).night).toBeDefined();
-      // The Lighting pass's region rule (`isDarkRegion`): a night grade under a full moon is
-      // still below DARK_LUMA, so the moonlit midnight needs light too.
-      expect(nightTable(undefined, {}, { ...night, nightSky: 'full-moon' }).night).toBeDefined();
-      // …and midday is midday.
-      expect(nightTable(undefined, {}, { clock: 720, nightSky: 'moonless', timeSpeed: 'paused' }).night).toBeUndefined();
+      // The region rule (`isDarkRegion`): a night grade under the full moon is still below
+      // DARK_LUMA, so night needs light.
+      expect(nightTable(undefined, {}, night).night).toBeDefined();
+      // …and day is day.
+      expect(nightTable(undefined, {}, day).night).toBeUndefined();
     });
 
-    it('reads a crescent night one shade softer than a moonless one, mechanics unchanged', () => {
+    it('lets the scene slider beat the time of day', () => {
       outdoor();
-      const crescent = nightTable(undefined, {}, { ...night, nightSky: 'crescent' });
-      const moonless = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
-      expect(crescent.light?.biteLevel).toBe('darkness-soft');
-      expect(crescent.darkness).toBeGreaterThan(SCENE_DARKNESS.dusk);
-      expect(crescent.darkness).toBeLessThan(moonless.darkness);
-      // Both still clip vision to the torches — the softening is presentation only.
-      expect(crescent.night).toBeDefined();
+      expect(nightTable('daylight', {}, night).night).toBeUndefined();
     });
 
-    it('lets the DM dial beat the clock, and says what the clock would have said', () => {
-      outdoor();
-      const scene = nightTable('daylight', {}, { ...night, nightSky: 'moonless' });
-      expect(scene.night).toBeUndefined();
-      expect(scene.light).toMatchObject({ source: 'override', wouldBe: 'darkness' });
-    });
-
-    it('lets 40 % of the night into an indoor map: dark at a moonless midnight, lit at noon', () => {
+    it('lets 40 % of the night into an indoor map: dark at night, lit at day', () => {
       useStore.setState({
         mapSettings: { ...useStore.getState().mapSettings, environment: undefined },
       });
-      const scene = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
+      const scene = nightTable(undefined, {}, night);
       expect(scene.night).toBeDefined();
-      // The badge's manual gate is unchanged (`worldLightOf`); the sweep reads the region rule.
-      expect(scene.light?.biteLevel).toBeNull();
-      expect(scene.darkness).toBe(1);
-      expect(nightTable(undefined, {}, { clock: 720, nightSky: 'moonless', timeSpeed: 'paused' }).night).toBeUndefined();
+      expect(scene.darkness).toBeCloseTo(washDarkness(skyFrame({ time: 'night' }).darkness));
+      expect(nightTable(undefined, {}, day).night).toBeUndefined();
     });
 
-    it('composes a grade that follows the clock, and buckets it for the pass', () => {
+    it('composes a grade that follows the time, and buckets it for the pass', () => {
       outdoor();
-      const noon = nightTable(undefined, {}, { clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' });
-      const midnight = nightTable(undefined, {}, { ...night, nightSky: 'full-moon' });
+      const noon = nightTable(undefined, {}, day);
+      const midnight = nightTable(undefined, {}, night);
       expect(noon.grade).not.toBe(midnight.grade);
       expect(midnight.timeBucket).toBe(0);
       expect(noon.timeBucket).toBe(144);
-      // A fixed map ignores the clock entirely (decision #9).
-      outdoor({ timeMode: 'fixed', fixedTime: 720 });
-      expect(nightTable(undefined, {}, { ...night, nightSky: 'moonless' }).grade).toBe(noon.grade);
     });
   });
 
@@ -1861,7 +1846,7 @@ describe('fogScene', () => {
       const dark = nightTable('darkness');
       expect(dark.grade).not.toBe('#123456');
       expect(dark.void).toEqual(voidStyle(true, dark.grade));
-      setTableWorld(skyFrame({ minutes: 0, environment: 'underground', override: 1 }), { allLit: true });
+      setTableWorld(skyFrame({ time: 'night', environment: 'underground', override: 1 }), { allLit: true });
       const lit = nightTable('darkness');
       expect(parseInt(lit.grade.slice(1, 3), 16)).toBeGreaterThan(parseInt(dark.grade.slice(1, 3), 16));
     } finally {

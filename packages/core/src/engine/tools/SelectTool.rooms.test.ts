@@ -132,7 +132,7 @@ describe('SelectTool — rooms', () => {
     expect(layer().rooms![0].anchor).toEqual([5, 5]);
   });
 
-  it('hovering a room sets the hovered id (the overlay draws its outline)', () => {
+  it('hovering a room sets the hovered id (the overlay thickens its outline while shown)', () => {
     tool.onPointerMove({ x: 3, y: 3 }, at(3, 3));
     expect(useStore.getState().selection.hoveredId).toBe('hall');
   });

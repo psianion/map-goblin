@@ -10,7 +10,7 @@ import { prefersReducedMotion } from '../motion'
 import { LIGHT_FADE_MS, advancePresence, easePresence } from './presence'
 import { NEUTRAL, NOON } from '../../shared/world'
 import { litFrame, skyKey, type SkyFrame } from '../../shared/sky'
-import { regionGrade, type RegionMood } from '../../shared/regionGrade'
+import { regionGrade, type RegionLight } from '../../shared/regionGrade'
 import { animationTime, isFrozen } from '../../shared/freeze'
 import type { LightAnimation } from '../../shared/types'
 
@@ -195,6 +195,14 @@ export const PENUMBRA_CELLS = 0.25
 const PENUMBRA_MAX_PX = 12
 /** The grade mask's own soft edge, buffer pixels: a mood threshold is a fade, not a line. */
 const GRADE_BLUR_PX = 3
+/**
+ * Daylight spilling into a dark room (`daylightSpill`): each nested band's alpha, nearest the
+ * open edge first. Drawn deepest first, they stack to about 100 / 70 / 40 / 15 % of the
+ * brighter side's grade over the room's own, and the blur below melts the steps into one fade.
+ */
+export const SPILL_ALPHAS = [1, 0.5, 0.29, 0.15] as const
+/** The spill's blur, in cells: half a cell, so the four steps read as one soft falloff. */
+export const SPILL_BLUR_CELLS = 0.5
 
 /**
  * Lightmaps are smooth gradients, so they survive upscaling: every buffer renders at half
@@ -334,6 +342,10 @@ export class LightingRenderer {
   private gradeBg = new Graphics()
   private gradeFaces = new Graphics()
   private gradeFacesKey = ''
+  /** The daylight spills: one part per dark room, its blurred bands held to the room's face. */
+  private gradeSpill = new Container()
+  private spillBlur = new BlurFilter({ strength: 0, quality: 4 })
+  private spillFilters = [this.spillBlur]
   private lightRoot = new Container()
   private lightLayer = new Container()
   private glowLayer = new Container()
@@ -416,8 +428,10 @@ export class LightingRenderer {
     this.gradeBg.label = 'gradeBg'
     this.gradeFaces.label = 'gradeFaces'
     this.gradeFaces.filters = [this.gradeBlur]
+    this.gradeSpill.label = 'gradeSpill'
     this.gradeRoot.addChild(this.gradeBg)
     this.gradeRoot.addChild(this.gradeFaces)
+    this.gradeRoot.addChild(this.gradeSpill)
 
     this.lightRoot.label = 'lightRoot'
     this.lightLayer.label = 'lightLayer'
@@ -803,14 +817,14 @@ export class LightingRenderer {
     const set = lightManager.getRegions()
     const regions: Regions = set.key
       ? set
-      : { level: { mood: 'lit', moodTint: ambientColor }, rooms: [], key: `ambient:${ambientColor}` }
+      : { level: { place: 'outdoor', tint: ambientColor }, rooms: [], key: `ambient:${ambientColor}` }
     return { sky, allLit, t: animationTime(performance.now()), regions }
   }
 
-  /** The sky and mood a region is graded with — everything lit, darkness 0, in the DM-lit view. */
-  private gradeOf(mood: RegionMood, inputs: FrameInputs): string {
-    if (inputs.allLit) return regionGrade({ ...mood, mood: 'lit' }, litFrame(inputs.sky))
-    return regionGrade(mood, inputs.sky)
+  /** The sky and place a region is graded with — everything Outdoor, darkness 0, in the DM-lit view. */
+  private gradeOf(region: RegionLight, inputs: FrameInputs): string {
+    if (inputs.allLit) return regionGrade({ ...region, place: 'outdoor' }, litFrame(inputs.sky))
+    return regionGrade(region, inputs.sky)
   }
 
   private levelGradeOf(inputs: FrameInputs): string {
@@ -824,9 +838,51 @@ export class LightingRenderer {
   /** The grade at a world point: the room face it is in, else the level's. */
   private gradeAt(x: number, y: number, inputs: FrameInputs): string {
     for (const room of inputs.regions.rooms) {
-      if (pointInPoly(x, y, room.face)) return this.gradeOf(room.mood, inputs)
+      if (pointInPoly(x, y, room.face)) return this.gradeOf(room.light, inputs)
     }
     return this.levelGradeOf(inputs)
+  }
+
+  /**
+   * The daylight spills, in world space: per dark room, its bands in the brighter side's grade,
+   * deepest first at the lowest alpha, blurred together, then held to the room's face by a mask
+   * so the blur never carries light past a wall. Masks are new Graphics on every redraw, never
+   * one redrawn in place (see `drawWallShadows` in shadowPass).
+   */
+  private drawSpills(inputs: FrameInputs): void {
+    for (const part of [...this.gradeSpill.children]) {
+      this.gradeSpill.removeChild(part)
+      part.destroy({ children: true })
+    }
+    const spills = inputs.regions.spills ?? []
+    if (spills.length === 0) return
+    const faces = new Map(inputs.regions.rooms.map((r) => [r.id, r]))
+    for (const spill of spills) {
+      const room = faces.get(spill.roomId)
+      if (!room || room.face.length < 3) continue
+      const color = hexNum(this.gradeOf({ ...room.light, place: spill.from }, inputs))
+      const g = new Graphics()
+      g.label = 'spillBands'
+      for (let k = spill.bands.length - 1; k >= 0; k--) {
+        const rings = spill.bands[k]!
+        if (rings.length === 0) continue
+        for (const ring of rings) g.poly(ring.flat())
+        g.fill({ color, alpha: SPILL_ALPHAS[k] ?? SPILL_ALPHAS[SPILL_ALPHAS.length - 1] })
+      }
+      const soft = new Container()
+      soft.filters = this.spillFilters
+      soft.addChild(g)
+      const mask = new Graphics()
+      mask.label = 'spillMask'
+      mask.poly(room.face.flat())
+      mask.fill({ color: 0xffffff })
+      const part = new Container()
+      part.label = 'spillPart'
+      part.addChild(soft)
+      part.addChild(mask)
+      part.mask = mask
+      this.gradeSpill.addChild(part)
+    }
   }
 
   /** Puts a world-space container under the current camera, scaled into buffer pixels. */
@@ -947,10 +1003,13 @@ export class LightingRenderer {
         for (const room of inputs.regions.rooms) {
           if (room.face.length < 3) continue
           this.gradeFaces.poly(room.face.flat())
-          this.gradeFaces.fill({ color: hexNum(this.gradeOf(room.mood, inputs)), alpha: 1 })
+          this.gradeFaces.fill({ color: hexNum(this.gradeOf(room.light, inputs)), alpha: 1 })
         }
+        this.drawSpills(inputs)
       }
       this.poseWorld(this.gradeFaces, zoom)
+      this.poseWorld(this.gradeSpill, zoom)
+      this.spillBlur.strength = SPILL_BLUR_CELLS * zoom * S
       this.engine.renderToTexture(this.gradeRoot, target.gradeRT, true)
       this.stats.gradePasses++
     }
@@ -1130,6 +1189,7 @@ export class LightingRenderer {
     this.penumbra.destroy()
     this.darkBlur.destroy()
     this.gradeBlur.destroy()
+    this.spillBlur.destroy()
     this.glowWhite.destroy()
     this.lightFBO.destroy(true)
     this.gradeRT.destroy(true)

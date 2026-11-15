@@ -7,7 +7,6 @@ import type { RollResult } from '../dice/roll'
 import {
   effectiveLight,
   journalOf,
-  legacyDarkness,
   roomEditsOf,
   roomShareKey,
   roomSpawnKey,
@@ -15,9 +14,7 @@ import {
   shareReceiptsOf,
   triggersModule,
   viewedLevel,
-  worldLightOf,
   worldOf,
-  worldSkyOf,
   type EncounterEffects,
   type ResolvedRoomKey,
   type ResolvedTrigger,
@@ -106,7 +103,7 @@ const sceneOf = (state: TriggersState) => state.byScene[SCENE]
 describe('authz matrix', () => {
   const mod = triggersModule(makeDeps())
   const dmOnly = [
-    ['set-environment', { weather: 'rain' }],
+    ['set-darkness', { value: 0.5 }],
     ['fire', { triggerId: 'x' }],
     ['rearm', { triggerId: 'x' }],
     ['set-enabled', { triggerId: 'x', enabled: false }],
@@ -444,20 +441,6 @@ describe('light fire-action (M5)', () => {
   })
 })
 
-describe('environment fire-action (F3)', () => {
-  it('narrates only its own delta, not the merged environment', () => {
-    const t = trigger(
-      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'environment', weather: 'fog' }] },
-      { roomId: 'r1' },
-    )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
-    let state = run(mod, empty, DM, 'set-environment', { time: 'dawn' }).next
-    const { next } = run(mod, state, DM, 'fire', { triggerId: 'x' })
-    expect(sceneOf(next).env).toEqual({ time: 'dawn', weather: 'fog' })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Fog creeps in.', toPlayers: true })
-  })
-})
-
 describe('inert and disabled triggers never fire', () => {
   const shape = { kind: 'circle' as const, x: 0, y: 0, radius: 5 }
   const tokens = () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: null } })
@@ -499,13 +482,13 @@ describe('redact', () => {
         disabled: { t2: true },
         lightOverrides: { l1: true },
         lightEdits: { l1: { visible: true } },
-        env: { weather: 'rain' },
+        darkness: 0.4,
         prompts: [
           { id: 'pr1', triggerId: 't1', kind: 'trap', targetIdentityId: 'p-1', text: 'a', at: 1 },
           { id: 'pr2', triggerId: 't1', kind: 'trap', targetIdentityId: 'p-2', text: 'b', at: 1 },
         ],
         log: [
-          { id: 'l1', at: 1, kind: 'environment', text: 'Weather: rain', toPlayers: true },
+          { id: 'l1', at: 1, kind: 'environment', text: 'Dusk settles.', toPlayers: true },
           { id: 'l2', at: 2, kind: 'trap', text: 'p1 outcome', toPlayers: false, forIdentityId: 'p-1' },
           { id: 'l3', at: 3, kind: 'trap', text: 'dm only', toPlayers: false },
         ],
@@ -528,7 +511,7 @@ describe('redact', () => {
     expect(seen.disabled).toEqual({})
     expect(seen.lightOverrides).toEqual({ l1: true })
     expect(seen.lightEdits).toEqual({ l1: { visible: true } })
-    expect(seen.env).toEqual({ weather: 'rain' })
+    expect(seen.darkness).toBe(0.4)
   })
 
   it('is idempotent', () => {
@@ -537,70 +520,134 @@ describe('redact', () => {
   })
 
   // The function rebuilds its answer key by key, so a field that is not copied is a field
-  // players never receive — and the clock and the sky are what the whole table is looking at.
-  it('passes the world through to players — the clock and the sky are not the DM’s secret', () => {
-    const world = { clock: 60, nightSky: 'crescent' as const, timeSpeed: 'paused' as const }
+  // players never receive — and the time of day is what the whole table is looking at.
+  it('passes the world through to players — the time of day is not the DM’s secret', () => {
+    const world = { time: 'dusk' as const }
     expect(redact({ ...state, world }, P1).world).toEqual(world)
   })
 })
 
 describe('set-world', () => {
-  it('is dm-only, and needs at least one dial', () => {
+  it('is dm-only, and needs a time', () => {
     const mod = triggersModule(makeDeps())
-    expect(run(mod, empty, P1, 'set-world', { clock: 60 }).error?.code).toBe('unauthorized')
+    expect(run(mod, empty, P1, 'set-world', { time: 'dusk' }).error?.code).toBe('unauthorized')
     expect(run(mod, empty, DM, 'set-world', {}).error?.code).toBe('invalid-command')
   })
 
-  it('reads midday under a full moon, paused, until a DM says otherwise', () => {
-    expect(worldOf(empty)).toEqual({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', darkness: null })
+  it('reads day until a DM says otherwise', () => {
+    expect(worldOf(empty)).toEqual({ time: 'day' })
   })
 
-  it('merges one dial at a time and leaves the others standing', () => {
+  it('refuses a time outside the vocabulary', () => {
     const mod = triggersModule(makeDeps())
-    let state = run(mod, empty, DM, 'set-world', { nightSky: 'moonless' }).next
-    expect(worldOf(state)).toMatchObject({ clock: 720, nightSky: 'moonless' })
-    state = run(mod, state, DM, 'set-world', { timeSpeed: 'fast' }).next
-    expect(worldOf(state)).toEqual({ clock: 720, nightSky: 'moonless', timeSpeed: 'fast', darkness: null })
+    expect(run(mod, empty, DM, 'set-world', { time: 'noon' }).error?.code).toBe('invalid-command')
   })
 
-  it('refuses a clock outside the day and a value outside the vocabulary', () => {
+  it('narrates the time only when it changes', () => {
     const mod = triggersModule(makeDeps())
-    for (const payload of [{ clock: 1440 }, { clock: -1 }, { nightSky: 'eclipse' }, { timeSpeed: 'warp' }]) {
-      expect(run(mod, empty, DM, 'set-world', payload).error?.code).toBe('invalid-command')
-    }
-  })
-
-  it('narrates the hour only where the band turns over — the clock is `env.time`’s source', () => {
-    const mod = triggersModule(makeDeps())
-    // Midday to late afternoon: still day, nothing to announce.
-    let state = run(mod, empty, DM, 'set-world', { clock: 900 }).next
+    let state = run(mod, empty, DM, 'set-world', { time: 'day' }).next
     expect(sceneOf(state)).toBeUndefined()
-    state = run(mod, state, DM, 'set-world', { clock: 1200 }).next
+    state = run(mod, state, DM, 'set-world', { time: 'night' }).next
     expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'Night falls.', toPlayers: true })
-    expect(worldOf(state).clock).toBe(1200)
+    expect(worldOf(state).time).toBe('night')
+  })
+})
+
+describe('set-darkness', () => {
+  it('is dm-only, and needs a value', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, P1, 'set-darkness', { value: 0.5 }).error?.code).toBe('unauthorized')
+    expect(run(mod, empty, DM, 'set-darkness', {}).error?.code).toBe('invalid-command')
   })
 
-  it('takes the scene’s stored dial as the override, so an upgraded campaign plays unchanged', () => {
+  it('refuses a value outside 0..1 or not a number', () => {
     const mod = triggersModule(makeDeps())
-    const outdoor = { environment: 'outdoor' as const }
-    let state = run(mod, empty, DM, 'set-world', { clock: 0, nightSky: 'moonless' }).next
-    // Nothing set: the clock rules an outdoor map.
-    expect(worldLightOf(outdoor, state, SCENE)).toMatchObject({
-      effectiveLevel: 'darkness',
-      source: 'clock',
-    })
-    // The dial a DM set before any of this existed still wins, and says what it overrode.
-    state = run(mod, state, DM, 'set-environment', { ambient: 'daylight' }).next
-    expect(worldLightOf(outdoor, state, SCENE)).toMatchObject({
-      effectiveLevel: 'daylight',
-      source: 'override',
-      wouldBe: 'darkness',
-    })
-    // …and an indoor map is the manual gate it has always been.
-    expect(worldLightOf({}, empty, SCENE)).toMatchObject({
-      effectiveLevel: 'daylight',
-      biteLevel: null,
-      source: 'manual',
+    expect(run(mod, empty, DM, 'set-darkness', { value: 1.5 }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'set-darkness', { value: -0.1 }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'set-darkness', { value: 'dark' }).error?.code).toBe('invalid-command')
+  })
+
+  it('sets the slider on the named scene and leaves the campaign time alone', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-darkness', { sceneId: 'scene-2', value: 0.8 })
+    expect(next.byScene['scene-2'].darkness).toBe(0.8)
+    expect(next.byScene[SCENE]).toBeUndefined()
+    expect(next.world).toBeUndefined()
+  })
+
+  it('writes to the active scene when no scene is named', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-darkness', { value: 0.3 })
+    expect(sceneOf(next).darkness).toBe(0.3)
+  })
+
+  it('hands the scene back to Auto on null', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-darkness', { value: 0.9 }).next
+    state = run(mod, state, DM, 'set-darkness', { value: null }).next
+    expect(sceneOf(state).darkness).toBeUndefined()
+    expect('darkness' in sceneOf(state)).toBe(false)
+  })
+
+  it('narrates a change to players, and only when it changes', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-darkness', { value: 0.9 }).next
+    expect(sceneOf(state).log).toHaveLength(1)
+    expect(sceneOf(state).log[0]).toMatchObject({ kind: 'environment', toPlayers: true })
+    state = run(mod, state, DM, 'set-darkness', { value: 0.9 }).next
+    expect(sceneOf(state).log).toHaveLength(1)
+  })
+
+  it('ships the scene darkness to players', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-darkness', { value: 0.6 })
+    expect(mod.redact!(next, P1).byScene[SCENE].darkness).toBe(0.6)
+  })
+})
+
+describe('set-environment is gone', () => {
+  it('is not a command for any role', () => {
+    const mod = triggersModule(makeDeps())
+    expect(mod.commands['set-environment']).toBeUndefined()
+    expect(run(mod, empty, DM, 'set-environment', { weather: 'storm' }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, P1, 'set-environment', { weather: 'storm' }).error?.code).toBe('invalid-command')
+  })
+})
+
+describe('old saved state is read as the new model', () => {
+  it('reads a saved clock as the time of day it falls in', () => {
+    const at = (clock: number) => worldOf({ byScene: {}, world: { clock } } as unknown as TriggersState).time
+    expect(at(1050)).toBe('dusk')
+    expect(at(920)).toBe('day')
+    expect(at(720)).toBe('day')
+    expect(at(60)).toBe('night')
+  })
+
+  it('prefers a stored time over a stored clock', () => {
+    const state = { byScene: {}, world: { time: 'dawn', clock: 720 } } as unknown as TriggersState
+    expect(worldOf(state)).toEqual({ time: 'dawn' })
+  })
+
+  it('ignores a saved night sky, clock speed, weather and campaign-wide darkness', () => {
+    const state = {
+      byScene: { [SCENE]: sceneTriggersOf(empty, SCENE) },
+      world: { clock: 1050, nightSky: 'new-moon', timeSpeed: 'fast', weather: 'storm', darkness: 0.9 },
+    } as unknown as TriggersState
+    const world = worldOf(state)
+    expect(world).toEqual({ time: 'dusk' })
+    expect(sceneTriggersOf(state, SCENE).darkness).toBeUndefined()
+  })
+
+  it('reads a saved room mood as a place: lit outdoor, dim indoor, dark underground', () => {
+    const scene = {
+      ...sceneTriggersOf(empty, SCENE),
+      roomEdits: { a: { mood: 'lit' }, b: { mood: 'dim' }, c: { mood: 'dark' }, d: { mood: 'dim', place: 'outdoor' } },
+    } as unknown as ReturnType<typeof sceneTriggersOf>
+    expect(roomEditsOf(scene)).toEqual({
+      a: { place: 'outdoor' },
+      b: { place: 'indoor' },
+      c: { place: 'underground' },
+      d: { place: 'outdoor' },
     })
   })
 })
@@ -628,102 +675,6 @@ describe('caps', () => {
       state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
     }
     expect(sceneOf(state).prompts).toHaveLength(20)
-  })
-})
-
-describe('set-environment', () => {
-  it('merges time/weather and logs quiet diegetic narration, toPlayers', () => {
-    const mod = triggersModule(makeDeps())
-    const { next, error } = run(mod, empty, DM, 'set-environment', { weather: 'rain' })
-    expect(error).toBeNull()
-    expect(sceneOf(next).env).toEqual({ weather: 'rain' })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Rain begins to fall.', toPlayers: true })
-  })
-
-  it('rejects a payload with neither field', () => {
-    const mod = triggersModule(makeDeps())
-    expect(run(mod, empty, DM, 'set-environment', {}).error?.code).toBe('invalid-command')
-  })
-
-  it('narrates only the field this change touches (F3) — an unchanged field is not restated', () => {
-    const mod = triggersModule(makeDeps())
-    let state = run(mod, empty, DM, 'set-environment', { time: 'dusk' }).next
-    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'Dusk settles.' })
-    state = run(mod, state, DM, 'set-environment', { weather: 'storm' }).next
-    expect(sceneOf(state).env).toEqual({ time: 'dusk', weather: 'storm' })
-    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'A storm rolls in.' })
-  })
-
-  it('joins both fields as separate sentences when both change at once', () => {
-    const mod = triggersModule(makeDeps())
-    const { next } = run(mod, empty, DM, 'set-environment', { time: 'night', weather: 'snow' })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Night falls. Snow begins to fall.' })
-  })
-
-  // The Lighting pass: the old 3-state dial is a compatibility path onto the darkness slider —
-  // it narrates as it always did and lands on `world.darkness`, never on `env.ambient`.
-  it('merges the ambient level onto the darkness slider and narrates it in the same voice', () => {
-    const mod = triggersModule(makeDeps())
-    let state = run(mod, empty, DM, 'set-environment', { time: 'night' }).next
-    const { next, error } = run(mod, state, DM, 'set-environment', { ambient: 'darkness' })
-    expect(error).toBeNull()
-    expect(sceneOf(next).env).toEqual({ time: 'night' })
-    expect(worldOf(next).darkness).toBe(1)
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Darkness closes in.', toPlayers: true })
-
-    // …and back again, without disturbing the time it was set alongside.
-    state = run(mod, next, DM, 'set-environment', { ambient: 'daylight' }).next
-    expect(sceneOf(state).env).toEqual({ time: 'night' })
-    expect(worldOf(state).darkness).toBe(0)
-    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'The dark lifts.' })
-  })
-
-  it('reads follow-the-sky until a DM says otherwise, and maps the three levels onto the slider', () => {
-    const mod = triggersModule(makeDeps())
-    expect(worldOf(empty).darkness).toBeNull()
-    for (const [ambient, darkness] of [
-      ['daylight', 0],
-      ['dusk', 0.5],
-      ['darkness', 1],
-    ] as const) {
-      const { next } = run(mod, empty, DM, 'set-environment', { ambient })
-      expect(worldOf(next).darkness).toBe(darkness)
-    }
-  })
-
-  // D2 — the one field a command may clear. An untouched scene lights as its map was
-  // authored; an explicit `daylight` bites the composite. A DM who picks one needs the way
-  // back, and the delta-merge's "a field is never cleared" rule still holds for `undefined`.
-  it('takes the light dial back off on an explicit null, and narrates that too', () => {
-    const mod = triggersModule(makeDeps())
-    let state = run(mod, empty, DM, 'set-environment', { time: 'night', ambient: 'darkness' }).next
-    const { next, error } = run(mod, state, DM, 'set-environment', { ambient: null })
-    expect(error).toBeNull()
-    // Gone, not `daylight` and not present-but-undefined — the field itself is off the scene,
-    // and the slider follows the sky again.
-    expect(sceneOf(next).env).toEqual({ time: 'night' })
-    expect('ambient' in sceneOf(next).env).toBe(false)
-    expect(worldOf(next).darkness).toBeNull()
-    expect(sceneOf(next).log.at(-1)).toMatchObject({
-      text: 'The light settles as it was.',
-      toPlayers: true,
-    })
-  })
-
-  it('still leaves an untouched field alone — undefined is not a clear', () => {
-    const mod = triggersModule(makeDeps())
-    const state = run(mod, empty, DM, 'set-environment', { ambient: 'darkness' }).next
-    const { next } = run(mod, state, DM, 'set-environment', { weather: 'fog', ambient: undefined })
-    expect(sceneOf(next).env).toEqual({ weather: 'fog' })
-    expect(worldOf(next)).toMatchObject({ weather: 'fog', darkness: 1 })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Fog creeps in.' })
-  })
-
-  it('refuses a light level that is not in the vocabulary', () => {
-    const mod = triggersModule(makeDeps())
-    expect(run(mod, empty, DM, 'set-environment', { ambient: 'gloomy' }).error?.code).toBe(
-      'invalid-command',
-    )
   })
 })
 
@@ -886,7 +837,6 @@ describe('lightEdits / lightOverrides read-compat (M2)', () => {
         disabled: {},
         lightOverrides: {},
         lightEdits: {},
-        env: {},
         prompts: [],
         log: [],
         ...over,
@@ -1422,95 +1372,6 @@ describe('room keys (prep v3)', () => {
 
 // ── The Lighting pass ────────────────────────────────────────────────────────
 
-/** A scene row as a pre-Lighting-pass `module_state` row stores it, with the old dial in `env`. */
-const legacyScene = (ambient?: string) =>
-  ({
-    fired: {},
-    armed: {},
-    disabled: {},
-    lightOverrides: {},
-    lightEdits: {},
-    env: ambient ? { ambient } : {},
-    prompts: [],
-    log: [],
-  }) as unknown as TriggersState['byScene'][string]
-
-describe('the darkness slider: env.ambient migration', () => {
-  it.each([
-    ['daylight', 0],
-    ['dusk', 0.5],
-    ['darkness', 1],
-  ] as const)('a saved %s dial reads as darkness %s', (ambient, darkness) => {
-    const saved: TriggersState = { byScene: { [SCENE]: legacyScene(ambient) } }
-    expect(legacyDarkness(saved)).toBe(darkness)
-    expect(worldOf(saved).darkness).toBe(darkness)
-  })
-
-  it('a scene with no dial follows the sky (null)', () => {
-    const saved: TriggersState = { byScene: { [SCENE]: legacyScene() } }
-    expect(worldOf(saved).darkness).toBeNull()
-  })
-
-  it('writes the migrated value down on the next set-world, and an explicit null then sticks', () => {
-    const mod = triggersModule(makeDeps())
-    const saved: TriggersState = { byScene: { [SCENE]: legacyScene('darkness') } }
-    let state = run(mod, saved, DM, 'set-world', { clock: 700 }).next
-    expect(state.world?.darkness).toBe(1)
-    state = run(mod, state, DM, 'set-world', { darkness: null }).next
-    expect(state.world?.darkness).toBeNull()
-    // The legacy dial is still in the row, and no longer read.
-    expect(worldOf(state).darkness).toBeNull()
-  })
-})
-
-describe('set-world: darkness and weather', () => {
-  it('takes darkness 0..1 or null, and refuses anything else', () => {
-    const mod = triggersModule(makeDeps())
-    expect(worldOf(run(mod, empty, DM, 'set-world', { darkness: 0.3 }).next).darkness).toBe(0.3)
-    for (const darkness of [-0.1, 1.5, 'dark']) {
-      expect(run(mod, empty, DM, 'set-world', { darkness }).error?.code).toBe('invalid-command')
-    }
-  })
-
-  it('takes the weather beside the clock and narrates it once', () => {
-    const mod = triggersModule(makeDeps())
-    const { next } = run(mod, empty, DM, 'set-world', { weather: 'storm' })
-    expect(worldOf(next).weather).toBe('storm')
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'A storm rolls in.' })
-    const again = run(mod, next, DM, 'set-world', { weather: 'storm' }).next
-    expect(sceneOf(again).log).toHaveLength(1)
-  })
-
-  it('feeds the table sky: the slider overrides, the weather darkens, the map default fills in', () => {
-    const map = { environment: 'outdoor' as const, weather: 'rain' as const, nightSky: 'moonless' as const }
-    expect(worldSkyOf(map, empty)).toMatchObject({ weather: 'rain', nightSky: 'moonless' })
-    expect(worldSkyOf(map, empty).darkness).toBeCloseTo(0.3, 5)
-    const mod = triggersModule(makeDeps())
-    const slid = run(mod, empty, DM, 'set-world', { darkness: 0.9, weather: 'clear' }).next
-    expect(worldSkyOf(map, slid)).toMatchObject({ weather: 'clear', darkness: 0.9 })
-  })
-
-  it('a weather authored on a trigger lands on the world too', () => {
-    const mod = triggersModule(
-      makeDeps({
-        prepOf: () => ({
-          triggers: [
-            trigger({
-              id: 'w',
-              when: { kind: 'room-revealed', roomId: 'r1' } as TriggerDef['when'],
-              actions: [{ kind: 'environment', weather: 'fog' }],
-            }),
-          ],
-          notes: [],
-        }),
-      }),
-    )
-    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'w' })
-    expect(error).toBeNull()
-    expect(worldOf(next).weather).toBe('fog')
-  })
-})
-
 describe('set-lights-all', () => {
   const deps = makeDeps({ lightIdsOf: () => ['a', 'b'] })
 
@@ -1535,25 +1396,25 @@ describe('set-lights-all', () => {
 })
 
 describe('set-room', () => {
-  it('pins a room’s live mood', () => {
+  it('pins a room’s place for the scene', () => {
     const mod = triggersModule(makeDeps())
-    const { next } = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'dark' } })
-    expect(roomEditsOf(sceneOf(next))).toEqual({ r1: { mood: 'dark' } })
+    const { next } = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { place: 'underground' } })
+    expect(roomEditsOf(sceneOf(next))).toEqual({ r1: { place: 'underground' } })
   })
 
   it('hands it back to the map on null, leaving no empty edit behind', () => {
     const mod = triggersModule(makeDeps())
-    let state = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'dim' } }).next
-    state = run(mod, state, DM, 'set-room', { roomId: 'r1', patch: { mood: null } }).next
+    let state = run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { place: 'indoor' } }).next
+    state = run(mod, state, DM, 'set-room', { roomId: 'r1', patch: { place: null } }).next
     expect(roomEditsOf(sceneOf(state))).toEqual({})
   })
 
-  it('refuses a mood outside the vocabulary, and players', () => {
+  it('refuses a place outside the vocabulary, and players', () => {
     const mod = triggersModule(makeDeps())
-    expect(run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { mood: 'gloomy' } }).error?.code).toBe(
+    expect(run(mod, empty, DM, 'set-room', { roomId: 'r1', patch: { place: 'gloomy' } }).error?.code).toBe(
       'invalid-command',
     )
-    expect(run(mod, empty, P1, 'set-room', { roomId: 'r1', patch: { mood: 'dark' } }).error?.code).toBe(
+    expect(run(mod, empty, P1, 'set-room', { roomId: 'r1', patch: { place: 'underground' } }).error?.code).toBe(
       'unauthorized',
     )
   })
@@ -1611,18 +1472,18 @@ describe('redact: light edits for unexplored lights stay home', () => {
   const state: TriggersState = {
     byScene: {
       [SCENE]: {
-        ...legacyScene(),
+        ...sceneTriggersOf(empty, SCENE),
         lightEdits: { seen: { visible: false }, unseen: { color: '#ff0000' } },
-        roomEdits: { r1: { mood: 'dark' } },
+        roomEdits: { r1: { place: 'underground' } },
       },
     },
   }
 
-  it('drops the edits of lights a player’s map does not hold, and ships room moods whole', () => {
+  it('drops the edits of lights a player’s map does not hold, and ships room places whole', () => {
     const mod = triggersModule(makeDeps({ keptLightsOf: () => new Set(['seen']) }))
     const wire = mod.redact!(state, P1).byScene[SCENE]
     expect(wire.lightEdits).toEqual({ seen: { visible: false } })
-    expect(wire.roomEdits).toEqual({ r1: { mood: 'dark' } })
+    expect(wire.roomEdits).toEqual({ r1: { place: 'underground' } })
   })
 
   it('ships every edit when the server keeps every light (null), and the DM always gets all', () => {

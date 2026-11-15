@@ -9,7 +9,7 @@ import { initTheme, useTheme } from '@dnd/ui';
 import { readDesk } from '@/theme/desk';
 import { refreshPublishTokens } from '@/io/publish';
 import { saveThenLeave } from '@/io/leaveMap';
-import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, useLitPreview } from '@/editor/viewPrefs';
+import { initLightBrush, initLitOnLight, initMarqueePrefs, initPropPrefs, initRoomPrefs, previewTime, usePreview } from '@/editor/viewPrefs';
 
 // The editor and its engine load as their own chunk, so the home page paints without them.
 const EditorHost = lazy(() => import('@/editor/EditorHost').then((m) => ({ default: m.EditorHost })));
@@ -27,7 +27,7 @@ initPropPrefs();
 initMarqueePrefs();
 // The light brush (the next light) as the DM last set it; the Torch preset at first.
 initLightBrush();
-// A light placed while the desk is unlit turns the lit preview on, so the light shows.
+// A light placed while the desk is unlit lights the preview, so the light shows.
 initLitOnLight();
 
 /** The theme's desk tokens, read off <html> so the canvas and the chrome agree. */
@@ -44,15 +44,25 @@ export default function App() {
   // The editor's New map dialog (Ctrl+Shift+N). The home page has its own on the "+" card.
   const [newOpen, setNewOpen] = useState(false);
   const [theme] = useTheme();
-  const lit = useLitPreview();
+  const preview = usePreview();
 
   // The map lies on the theme's desk: the canvas clears to the desk colour, the grid dots
   // take the theme's dot colour, and a stock-background map is drawn on the theme's paper,
-  // unlit while it is edited unless the DM turned the lit preview on. Follows the theme
-  // toggle and the lit preview live.
+  // unlit while it is edited unless the DM picked a time to preview it at. Follows the theme
+  // toggle and Preview as live. The store draws the sky at the picked time, and gets it back
+  // after a reset (a new map) puts its own default in.
   useEffect(() => {
-    setEditorDesk({ ...deskFromTokens(), lit });
-  }, [theme, lit]);
+    setEditorDesk({ ...deskFromTokens(), lit: preview !== 'unlit' });
+    const time = previewTime();
+    const push = () => {
+      if (useStore.getState().ui.previewTime !== time) useStore.getState().setPreviewTime(time);
+    };
+    push();
+    // A reset is told apart as viewPrefs does: it replaces the layers and tools together.
+    return useStore.subscribe((s, prev) => {
+      if (s.layers !== prev.layers && s.tools !== prev.tools) push();
+    });
+  }, [theme, preview]);
   useEffect(() => () => setEditorDesk(null), []);
 
   // DM tokens close to running out are swapped for fresh ones, so publishing keeps working

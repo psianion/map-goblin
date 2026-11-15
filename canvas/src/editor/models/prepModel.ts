@@ -161,8 +161,6 @@ export function actionSummary(a: TriggerAction): string {
       return `Check · DC ${a.dc} ${a.ability.toUpperCase()}`;
     case 'prompt':
       return `${a.prompt === 'initiative' ? 'Initiative' : 'Attack'} prompt`;
-    case 'environment':
-      return 'Environment';
     case 'encounter':
       return a.monsters.map((m) => `${m.count}× ${m.name}`).join(', ');
   }

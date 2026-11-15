@@ -65,12 +65,25 @@ export interface ScenePrepV1 {
 /** Any prep a file or a stored row may hold. */
 export type StoredScenePrep = ScenePrep | ScenePrepV2 | ScenePrepV1;
 
-/** v1 → v2 → v3: each step adds its own empty collection and nothing else moves. */
+/** Trigger action kinds that were removed; a saved action of one of these is dropped on read. */
+const REMOVED_ACTION_KINDS: readonly string[] = ['environment'];
+
+/** `triggers` without any removed action; the same array when none carried one. */
+function withoutRemovedActions(triggers: TriggerDef[]): TriggerDef[] {
+  const stale = (a: { kind: string }): boolean => REMOVED_ACTION_KINDS.includes(a.kind);
+  if (!triggers.some((t) => t.actions.some(stale))) return triggers;
+  return triggers.map((t) => (t.actions.some(stale) ? { ...t, actions: t.actions.filter((a) => !stale(a)) } : t));
+}
+
+/**
+ * v1 → v2 → v3: each step adds its own empty collection and nothing else moves. A trigger
+ * action of a removed kind (the zone's Environment action) is dropped at the same time.
+ */
 export function normalizePrep(prep: StoredScenePrep): ScenePrep {
-  if (prep.version === 3) return prep;
-  const v2: ScenePrepV2 =
-    prep.version === 2 ? prep : { version: 2, triggers: prep.triggers, notes: [] };
-  return { version: 3, triggers: v2.triggers, notes: v2.notes, rooms: [] };
+  const triggers = withoutRemovedActions(prep.triggers);
+  if (prep.version === 3) return triggers === prep.triggers ? prep : { ...prep, triggers };
+  const notes = prep.version === 2 ? prep.notes : [];
+  return { version: 3, triggers, notes, rooms: [] };
 }
 
 /**
@@ -214,7 +227,6 @@ export type TriggerAction =
   | { kind: 'ability-check'; ability: Ability; dc: number; text: string }
   /** Saved and fired to the DM-only trigger log in v1; table UX is deferred. */
   | { kind: 'prompt'; prompt: 'initiative' | 'attack'; text?: string }
-  | { kind: 'environment'; time?: TimeOfDay; weather?: Weather }
   /**
    * v2 — a prepped token setup. On fire: DM log narration; `spawn` places the
    * roster's tokens inside the anchor zone; `seedInitiative` adds them to the

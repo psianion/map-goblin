@@ -2,15 +2,15 @@
 // paints, how dark it is and how soft shadows fall. One pure function the editor, the table,
 // the export and the server all call, so the four can never disagree about the hour.
 //
-// `world.ts` keeps the palette and the sun maths; this file only combines them with the two
-// inputs the Lighting pass added: weather (light only, no particles) and the DM's darkness
-// override.
+// `world.ts` keeps the colour ramp and the sun maths; this file only combines them with the
+// DM's darkness override. Weather and the moon's phases keep their light maths here, pinned to
+// a clear sky and a full moon until they return as controls.
 
-import type { Weather } from './prep';
+import type { TimeOfDay, Weather } from './prep';
 import {
   MOON_INTENSITY,
   NEUTRAL,
-  NOON,
+  TIME_MINUTES,
   environmentOf,
   mixOklch,
   sunAt,
@@ -51,18 +51,14 @@ export function weatherLight(weather: Weather | undefined): WeatherLight {
 const COOL_GREY = '#76808c';
 
 export interface SkyInput extends MapEnvironment {
-  /** The clock, minutes 0-1439. A `'fixed'` map ignores it and reads `fixedTime ?? NOON`. */
-  minutes: number;
-  /** Absent ⇒ 'full-moon'. Callers pass the live sky, else the map's default. */
-  nightSky?: NightSky;
-  /** Absent ⇒ 'clear'. Callers pass the live weather, else the map's default. */
-  weather?: Weather;
+  /** The time of day the frame is drawn at. */
+  time: TimeOfDay;
   /** The DM's darkness override, 0..1. `null`/absent ⇒ follow the sky. */
   override?: number | null;
 }
 
 export interface SkyFrame {
-  /** The minutes the frame is drawn at (a fixed map's own hour, else the clock). */
+  /** The minutes the frame is drawn at (`TIME_MINUTES` of its time of day). */
   minutes: number;
   /** Where the sun or moon stands and how hard it casts, weather included. */
   sun: SunVector;
@@ -96,18 +92,13 @@ export function daylightAt(minutes: number, nightSky: NightSky): number {
   return Math.max(smoothstep(TWILIGHT_START, TWILIGHT_FULL, elevation), MOON_INTENSITY[nightSky]);
 }
 
-/** The minutes a map is drawn at: a fixed map's own hour (noon when unset), else the clock. */
-export function skyMinutes(map: MapEnvironment, minutes: number): number {
-  return wrap(map.timeMode === 'fixed' ? (map.fixedTime ?? NOON) : minutes);
-}
-
-/** The whole sky for one moment. Pure. */
+/** The whole sky for one time of day. Pure. */
 export function skyFrame(input: SkyInput): SkyFrame {
-  const minutes = skyMinutes(input, input.minutes);
-  const nightSky = input.nightSky ?? 'full-moon';
-  const weather = input.weather ?? 'clear';
+  const minutes = TIME_MINUTES[input.time];
+  const nightSky: NightSky = 'full-moon';
+  const weather: Weather = 'clear';
   const w = weatherLight(weather);
-  const base = sunAt(minutes, input, environmentOf(input), nightSky);
+  const base = sunAt(minutes, input, nightSky);
   const intensity = base.intensity * w.sun;
   const sun: SunVector = { ...base, intensity };
   const derived = clamp01(1 - daylightAt(minutes, nightSky) * (1 - w.dark));
@@ -118,7 +109,7 @@ export function skyFrame(input: SkyInput): SkyFrame {
     sun,
     // The DM's slider replaces the clock's light outright: under it the hour keeps its sun but
     // not its colour, so the slider at 0 is daylight whatever the clock says.
-    skyColor: mixOklch(overridden ? NEUTRAL : timeColorAt(input.timePalette, minutes), COOL_GREY, w.cool),
+    skyColor: mixOklch(overridden ? NEUTRAL : timeColorAt(minutes), COOL_GREY, w.cool),
     darkness: overridden ? clamp01(override) : derived,
     penumbraScale: w.penumbra,
     nightSky,
@@ -129,12 +120,13 @@ export function skyFrame(input: SkyInput): SkyFrame {
 /**
  * The sun cliffs cast by. Under an outdoor sky a cliff throws its shadow by default: unless
  * natural shadows are switched off outright, it is the frame's sun with natural light forced
- * on (weather included). Indoors, or switched off, it is the frame's own sun, which casts
- * nothing.
+ * on (weather included). On a map that is not Outdoor it casts nothing, and with shadows
+ * switched off it is the frame's own sun, which casts nothing either.
  */
 export function cliffSunAt(frame: SkyFrame, map: MapEnvironment): SunVector {
-  if (frame.sun.kind !== null || environmentOf(map) !== 'outdoor' || map.naturalLight === false) return frame.sun;
-  const base = sunAt(frame.minutes, { ...map, naturalLight: true }, 'outdoor', frame.nightSky);
+  if (environmentOf(map) !== 'outdoor') return { ...frame.sun, intensity: 0, kind: null };
+  if (frame.sun.kind !== null || map.naturalLight === false) return frame.sun;
+  const base = sunAt(frame.minutes, { ...map, naturalLight: true }, frame.nightSky);
   return { ...base, intensity: base.intensity * weatherLight(frame.weather).sun };
 }
 

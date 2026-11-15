@@ -1,125 +1,112 @@
 import { describe, it, expect } from 'vitest';
 import {
   DARK_LUMA,
-  MOOD_SKY,
+  SKY_SHARE,
   SLIDER_WEIGHT,
   isDarkRegion,
   levelGrade,
-  levelMood,
+  levelPlace,
   regionDarkness,
   regionGrade,
   regionLight,
-  roomMood,
+  roomPlace,
 } from './regionGrade';
 import { skyFrame } from './sky';
+import { TIMES } from './prep';
 import { darkTest, layersOnLevel, levelIdOf, onLevel, polygonEdges } from './visionGate';
 import type { DungeonLayer, MapSettings } from '../store/types';
 import type { Level, Room } from './types';
 
-const NOON_SKY = skyFrame({ environment: 'outdoor', minutes: 720 });
-const NIGHT_SKY = skyFrame({ environment: 'outdoor', minutes: 0, nightSky: 'moonless' });
+const NOON_SKY = skyFrame({ environment: 'outdoor', time: 'day' });
+const NIGHT_SKY = skyFrame({ environment: 'outdoor', time: 'night' });
 const WHITE = '#ffffff';
 
-describe('regionGrade: three moods × two skies', () => {
-  it('a Lit region at noon is its tint, untouched', () => {
-    expect(regionGrade({ mood: 'lit', moodTint: '#aabbcc' }, NOON_SKY)).toBe('#aabbcc');
+describe('regionGrade: three places × two skies', () => {
+  it('an Outdoor region at noon is its tint, untouched', () => {
+    expect(regionGrade({ place: 'outdoor', tint: '#aabbcc' }, NOON_SKY)).toBe('#aabbcc');
   });
 
-  it('a Dim region at noon gets 40 % of the sky: darker than Lit, lighter than Dark', () => {
-    const lit = regionLight('lit', NOON_SKY);
-    const dim = regionLight('dim', NOON_SKY);
-    const dark = regionLight('dark', NOON_SKY);
-    expect(dim).toBeLessThan(lit);
-    expect(dark).toBeLessThan(dim);
+  it('an Indoor region at noon gets 40 % of the sky: darker than Outdoor, lighter than Underground', () => {
+    const outdoor = regionLight('outdoor', NOON_SKY);
+    const indoor = regionLight('indoor', NOON_SKY);
+    const underground = regionLight('underground', NOON_SKY);
+    expect(indoor).toBeLessThan(outdoor);
+    expect(underground).toBeLessThan(indoor);
   });
 
-  it('a Dark region is near-black at noon, the tint still there', () => {
-    const g = regionGrade({ mood: 'dark', moodTint: '#ff8040' }, NOON_SKY);
+  it('an Underground region is near-black at noon, the tint still there', () => {
+    const g = regionGrade({ place: 'underground', tint: '#ff8040' }, NOON_SKY);
     const [r, gg, b] = [1, 3, 5].map((i) => parseInt(g.slice(i, i + 2), 16));
     expect(r).toBeLessThan(60);
     expect(r).toBeGreaterThan(b!);
     expect(gg).toBeGreaterThan(b!);
   });
 
-  it('a Lit region at a moonless midnight is near-black', () => {
-    expect(regionLight('lit', NIGHT_SKY)).toBeLessThan(DARK_LUMA);
+  it('an Outdoor region at night is near-black', () => {
+    expect(regionLight('outdoor', NIGHT_SKY)).toBeLessThan(DARK_LUMA);
   });
 
-  it('every mood is darker at night than at noon', () => {
-    for (const mood of ['lit', 'dim'] as const) expect(regionLight(mood, NIGHT_SKY)).toBeLessThan(regionLight(mood, NOON_SKY));
-    expect(regionLight('dark', NIGHT_SKY)).toBeLessThanOrEqual(regionLight('dark', NOON_SKY));
+  it('every place is darker at night than at noon', () => {
+    for (const place of ['outdoor', 'indoor'] as const) expect(regionLight(place, NIGHT_SKY)).toBeLessThan(regionLight(place, NOON_SKY));
+    expect(regionLight('underground', NIGHT_SKY)).toBeLessThanOrEqual(regionLight('underground', NOON_SKY));
   });
 
-  it('at 02:00 under a full moon Dim is darker than Lit and lighter than Dark', () => {
-    const sky = skyFrame({ environment: 'outdoor', minutes: 120, nightSky: 'full-moon' });
-    expect(regionLight('dim', sky)).toBeLessThan(regionLight('lit', sky));
-    expect(regionLight('dark', sky)).toBeLessThan(regionLight('dim', sky));
-  });
-
-  it('Dim lies between Lit and Dark, channel by channel, at every hour under every night sky', () => {
+  it('Indoor lies between Outdoor and Underground, channel by channel, at every time of day', () => {
     const channels = (g: string) => [1, 3, 5].map((i) => parseInt(g.slice(i, i + 2), 16));
-    for (const nightSky of ['full-moon', 'crescent', 'moonless'] as const) {
-      for (let minutes = 0; minutes < 1440; minutes += 30) {
-        const sky = skyFrame({ environment: 'outdoor', minutes, nightSky });
-        const [lit, dim, dark] = (['lit', 'dim', 'dark'] as const).map((mood) => channels(regionGrade({ mood, moodTint: WHITE }, sky)));
-        for (let i = 0; i < 3; i++) {
-          expect(dim![i]).toBeGreaterThanOrEqual(Math.min(lit![i]!, dark![i]!));
-          expect(dim![i]).toBeLessThanOrEqual(Math.max(lit![i]!, dark![i]!));
-        }
+    for (const time of TIMES) {
+      const sky = skyFrame({ environment: 'outdoor', time });
+      const [outdoor, indoor, underground] = (['outdoor', 'indoor', 'underground'] as const).map((place) =>
+        channels(regionGrade({ place, tint: WHITE }, sky)),
+      );
+      for (let i = 0; i < 3; i++) {
+        expect(indoor![i]).toBeGreaterThanOrEqual(Math.min(outdoor![i]!, underground![i]!));
+        expect(indoor![i]).toBeLessThanOrEqual(Math.max(outdoor![i]!, underground![i]!));
       }
     }
   });
 
   it('the slider at 1 goes near-black without erasing the tint (SLIDER_WEIGHT)', () => {
-    const black = skyFrame({ environment: 'outdoor', minutes: 720, override: 1 });
-    expect(regionLight('lit', black)).toBeCloseTo(1 - SLIDER_WEIGHT, 2);
-    expect(regionGrade({ mood: 'lit', moodTint: WHITE }, black)).not.toBe('#000000');
+    const black = skyFrame({ environment: 'outdoor', time: 'day', override: 1 });
+    expect(regionLight('outdoor', black)).toBeCloseTo(1 - SLIDER_WEIGHT, 2);
+    expect(regionGrade({ place: 'outdoor', tint: WHITE }, black)).not.toBe('#000000');
   });
 });
 
 describe('isDarkRegion', () => {
   it('turns on below DARK_LUMA and only then', () => {
-    expect(isDarkRegion({ mood: 'lit', moodTint: WHITE }, NOON_SKY)).toBe(false);
-    expect(isDarkRegion({ mood: 'dark', moodTint: WHITE }, NOON_SKY)).toBe(true);
-    expect(isDarkRegion({ mood: 'lit', moodTint: WHITE }, NIGHT_SKY)).toBe(true);
-    expect(regionLight('dim', NOON_SKY)).toBeGreaterThan(DARK_LUMA);
+    expect(isDarkRegion('outdoor', NOON_SKY)).toBe(false);
+    expect(isDarkRegion('underground', NOON_SKY)).toBe(true);
+    expect(isDarkRegion('outdoor', NIGHT_SKY)).toBe(true);
+    expect(regionLight('indoor', NOON_SKY)).toBeGreaterThan(DARK_LUMA);
   });
 
-  it('ignores the tint: a dungeon-coloured map is a colour choice, not darkness', () => {
-    expect(isDarkRegion({ mood: 'lit', moodTint: '#2d2d44' }, NOON_SKY)).toBe(false);
-  });
-
-  it('is off when the scope says dark is visible (moodVision)', () => {
-    expect(isDarkRegion({ mood: 'dark', moodTint: WHITE, moodVision: 'visible' }, NOON_SKY)).toBe(false);
-  });
-
-  it('the slider at 1 makes every region dark, at 0.5 a Lit one stays visible', () => {
-    expect(isDarkRegion({ mood: 'lit', moodTint: WHITE }, skyFrame({ minutes: 720, override: 1 }))).toBe(true);
-    expect(isDarkRegion({ mood: 'lit', moodTint: WHITE }, skyFrame({ minutes: 720, override: 0.5 }))).toBe(false);
+  it('the slider at 1 makes every region dark, at 0.5 an Outdoor one stays visible', () => {
+    expect(isDarkRegion('outdoor', skyFrame({ time: 'day', override: 1 }))).toBe(true);
+    expect(isDarkRegion('outdoor', skyFrame({ time: 'day', override: 0.5 }))).toBe(false);
   });
 });
 
 describe('levels and the chain', () => {
   const map = { ambientLight: '#808080', environment: 'underground' } as MapSettings;
 
-  it('a level with no look falls back to the map: its environment is its mood', () => {
-    expect(levelMood(map, undefined)).toEqual({ mood: 'dark', moodTint: '#808080', moodVision: 'darkness' });
-    expect(levelMood(map, { look: { mood: 'lit', moodTint: '#112233' } })).toMatchObject({ mood: 'lit', moodTint: '#112233' });
-    expect(levelGrade(map, undefined, NOON_SKY)).toBe(regionGrade(levelMood(map, undefined), NOON_SKY));
+  it('a level with no look falls back to the map: its environment is its place', () => {
+    expect(levelPlace(map, undefined)).toBe('underground');
+    expect(levelPlace(map, { look: { place: 'outdoor' } })).toBe('outdoor');
+    expect(levelGrade(map, undefined, NOON_SKY)).toBe(regionGrade({ place: 'underground', tint: '#808080' }, NOON_SKY));
   });
 
   it('a room resolves room ?? area ?? level ?? map', () => {
-    const layer = { id: 'l', type: 'dungeon', style: {}, areas: [{ id: 'a', name: 'A', look: { mood: 'lit' } }] } as unknown as DungeonLayer;
+    const layer = { id: 'l', type: 'dungeon', style: {}, areas: [{ id: 'a', name: 'A', look: { place: 'outdoor' } }] } as unknown as DungeonLayer;
     const room = { id: 'r', name: 'R', anchor: [0, 0], areaId: 'a' } as Room;
-    expect(roomMood({ mapSettings: map, levels: [] }, layer, room).mood).toBe('lit');
-    expect(roomMood({ mapSettings: map, levels: [] }, layer, { ...room, look: { mood: 'dim' } }).mood).toBe('dim');
+    expect(roomPlace({ mapSettings: map, levels: [] }, layer, room)).toBe('outdoor');
+    expect(roomPlace({ mapSettings: map, levels: [] }, layer, { ...room, look: { place: 'indoor' } })).toBe('indoor');
   });
 
-  it('memoizes: the same scope and sky answer the same string', () => {
-    const a = regionGrade({ mood: 'dim', moodTint: '#445566' }, NOON_SKY);
-    expect(regionGrade({ mood: 'dim', moodTint: '#445566' }, { ...NOON_SKY })).toBe(a);
-    expect(MOOD_SKY).toEqual({ lit: 1, dim: 0.4, dark: 0 });
-    expect(regionDarkness('dark', NOON_SKY)).toBe(1);
+  it('memoizes: the same region and sky answer the same string', () => {
+    const a = regionGrade({ place: 'indoor', tint: '#445566' }, NOON_SKY);
+    expect(regionGrade({ place: 'indoor', tint: '#445566' }, { ...NOON_SKY })).toBe(a);
+    expect(SKY_SHARE).toEqual({ outdoor: 1, indoor: 0.4, underground: 0 });
+    expect(regionDarkness('underground', NOON_SKY)).toBe(1);
   });
 });
 
@@ -146,10 +133,10 @@ describe('visionGate', () => {
     expect(onLevel({ levels: [levels[0]!] }, { levelId: 'L2' }, 'L1')).toBe(true);
   });
 
-  it('answers dark per room under the sky, live room moods on top', () => {
+  it('answers dark per room under the sky, live room places on top', () => {
     const map = { mapSettings: { ambientLight: WHITE, environment: 'outdoor' } as MapSettings, levels };
     const rooms = [
-      { id: 'cellar', name: 'Cellar', anchor: [2, 2], face: face(0), look: { mood: 'dark' } },
+      { id: 'cellar', name: 'Cellar', anchor: [2, 2], face: face(0), look: { place: 'underground' } },
       { id: 'hall', name: 'Hall', anchor: [12, 2], face: face(10) },
     ] as Room[];
     const test = darkTest(map, [layer('a', 'L1', rooms)], 'L1', NOON_SKY);
@@ -157,7 +144,7 @@ describe('visionGate', () => {
     expect(test.dark(12, 2)).toBe(false);
     expect(test.dark(50, 50)).toBe(false);
     expect(test.darkFaces).toHaveLength(1);
-    const live = darkTest(map, [layer('a', 'L1', rooms)], 'L1', NOON_SKY, { hall: { mood: 'dark' } });
+    const live = darkTest(map, [layer('a', 'L1', rooms)], 'L1', NOON_SKY, { hall: { place: 'underground' } });
     expect(live.dark(12, 2)).toBe(true);
     expect(darkTest(map, [layer('a', 'L1')], 'L1', NOON_SKY).any).toBe(false);
   });
