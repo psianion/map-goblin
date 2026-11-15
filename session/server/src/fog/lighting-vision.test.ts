@@ -3,13 +3,14 @@
 // torches, one-way walls, and levels. Synthetic scenes, swept by the real `createSweeps` and
 // judged by the real `seen`, so each row is the rule and nothing else.
 
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { Token } from '@dnd/mechanics/tokens'
 import { skyFrame, type SkyFrame } from '@dnd/mechanics/triggers'
-import type { LightChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { DoorChild, LightChild, Room, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, MapSettings, SerializedMapData } from '@dnd/core/src/store/types'
 import { createSweeps, seen, type LightGate } from './sweep'
 import type { SceneMap } from './sceneMap'
+import { ensureClipperReady } from './clipperBoot'
 
 const NOON: SkyFrame = skyFrame({ environment: 'outdoor', time: 'day' })
 const MIDNIGHT: SkyFrame = skyFrame({ environment: 'outdoor', time: 'night' })
@@ -45,6 +46,7 @@ interface SceneSpec {
   rooms?: Room[]
   walls?: WallSegment[]
   lights?: LightChild[]
+  doors?: DoorChild[]
   environment?: MapSettings['environment']
   /** Extra layers on other levels. */
   levels?: { id: string; walls?: WallSegment[]; lights?: LightChild[] }[]
@@ -52,14 +54,14 @@ interface SceneSpec {
 
 /** A scene map shaped exactly as `sceneMap.ts` hands one over, built by hand. */
 function scene(spec: SceneSpec): SceneMap {
-  const layer = (id: string, levelId: string, walls: WallSegment[], lights: LightChild[], rooms: Room[]): DungeonLayer =>
+  const layer = (id: string, levelId: string, walls: WallSegment[], lights: LightChild[], rooms: Room[], doors: DoorChild[] = []): DungeonLayer =>
     ({
       id,
       name: id,
       type: 'dungeon',
       levelId,
       visible: true,
-      children: lights,
+      children: [...lights, ...doors],
       standaloneWalls: walls,
       rooms,
       mergedFloor: null,
@@ -67,7 +69,7 @@ function scene(spec: SceneSpec): SceneMap {
     }) as unknown as DungeonLayer
   const levels = [{ id: 'L1', name: 'One' }, ...(spec.levels ?? []).map((l) => ({ id: l.id, name: l.id }))]
   const layers = [
-    layer('ground', 'L1', spec.walls ?? [], spec.lights ?? [], spec.rooms ?? []),
+    layer('ground', 'L1', spec.walls ?? [], spec.lights ?? [], spec.rooms ?? [], spec.doors ?? []),
     ...(spec.levels ?? []).map((l) => layer(`layer-${l.id}`, l.id, l.walls ?? [], l.lights ?? [], [])),
   ]
   const data = {
@@ -84,9 +86,9 @@ function scene(spec: SceneSpec): SceneMap {
     data,
     frame: { minX: -20, minY: -20, maxX: 40, maxY: 40 },
     rooms,
-    doors: [],
+    doors: spec.doors ?? [],
     zones: [],
-    lights: layers.flatMap((l) => l.children as LightChild[]),
+    lights: layers.flatMap((l) => (l.children as LightChild[]).filter((c) => c.childType === 'light')),
     lightNames: new Map(),
     roomAt: () => null,
     roomsAlong: () => [],
@@ -178,6 +180,51 @@ describe('the per-region darkness gate', () => {
   it('an underground map is dark at noon (its place is Underground)', () => {
     const v = visionOf(scene({ environment: 'underground' }), [eye('a', 0, 0)], gate(NOON))
     expect(seen(v, 5, 0)).toBe(false)
+  })
+})
+
+describe('daylight through a cave door at the table', () => {
+  beforeAll(async () => {
+    expect(await ensureClipperReady()).toBe(true)
+  })
+
+  // An Underground cave east of x = 10 on an Outdoor map, its mouth a wall with a door 2 wide.
+  const cave = room('cave', square(10, 0, 6, 6), { place: 'underground' })
+  const mouth = wall('mouth', [
+    [10, 0],
+    [10, 6],
+  ])
+  const caveDoor = {
+    id: 'cave-door',
+    name: 'cave-door',
+    childType: 'door',
+    visible: true,
+    wallId: 'mouth',
+    position: [10, 3],
+    angle: Math.PI / 2,
+    width: 2,
+    style: 'single',
+    state: 'closed',
+    isSecret: false,
+  } as DoorChild
+  const live = (open: boolean) => ({ 'cave-door': { open, locked: false, revealed: true } })
+
+  it('opening the door lights the cave’s first cell for sight; closing it darkens it again', () => {
+    const map = scene({ rooms: [cave], walls: [mouth], doors: [caveDoor] })
+    const sweeps = createSweeps()
+    const tokens = { a: eye('a', 5, 3) }
+    const look = (open: boolean) => sweeps.partyVision(map, tokens, live(open), gate(NOON), undefined, false, null)
+
+    const opened = look(true)
+    expect(opened.darkAt!(10.5, 3)).toBe(false)
+    expect(seen(opened, 10.5, 3)).toBe(true)
+    expect(seen(opened, 13, 3)).toBe(false)
+
+    const shut = look(false)
+    expect(shut.darkAt!(10.5, 3)).toBe(true)
+    expect(seen(shut, 10.5, 3)).toBe(false)
+
+    expect(look(true).darkAt!(10.5, 3)).toBe(false)
   })
 })
 

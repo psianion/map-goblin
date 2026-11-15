@@ -111,6 +111,25 @@ For each segment of each threshold on the level, find what lies on either side b
 
 **Sundial** (new `canvas/src/editor/families/environment/Sundial.tsx`, a React overlay over the canvas like `GridCalibrationOverlay`). It belongs to the interface and the Sky tool, not to the map: it never reads the map's bounds or the camera. Shown while the Sky sheet is open and "Cast shadows" is on. One SVG ring centred on the canvas area left clear by the rail and the open sheet, its diameter the smaller of that area's width and height minus 48 px, recomputed on resize only. One sun handle at the direction the dawn light comes from, labelled "Rises here". The overlay passes pointer events through everywhere except the ring's stroke and the handle, so the map still pans, zooms and selects inside the ring. Pressing the ring jumps the handle there; dragging turns `orientation` live through the same coalesced `SetEnvironmentSettingsCommand` the slider uses (`'sky.orientation'`, one undo step), snapping to the eight compass points within 6 degrees. The sheet's slider is replaced by a readout row, "Rise at the left", which takes focus and turns the sun 45 degrees on Left and Right. The handle's angle and the readout come from the same conversion `sunAt` uses, so at Dawn shadows fall straight away from the handle.
 
+### 4.4 Changes after seeing waves 1 and 2
+
+These replace the matching lines in 4.2 and 4.3.
+
+- **Sundial size.** The ring is centred on the map's bounds with a radius of half the diagonal plus 2 squares, and follows pan and zoom. It is clamped to the canvas area clear of all chrome: when the map circle is larger than that area the ring rests at the interface borders and carries a soft shadow on its outside. The change between the two states is continuous.
+- **Sundial handle.** A larger disc with a line icon: a sun, or a moon while the preview is Night.
+- **Sundial undo.** A drag changes the orientation live without recording, and records one step on release, the way the light handle does.
+- **Sky is exclusive.** While the Sky sheet is open no other tool's panel or dock sections show and the canvas only pans and zooms; closing the sheet restores the tool that was in hand. `K` stays a family key.
+- **Room anchor.** A room drawn with the Rooms tool is anchored in the largest floor area inside its outline, outside any sealed loop of wall within it.
+
+### 4.5 Open doors let daylight in
+
+An open door between two regions of different place is an open edge, exactly like a threshold. A closed door is a wall.
+
+- **Geometry** (`daylightSpill.ts`). Besides threshold segments, take each door's doorway span on its wall. Sample the place either side of its midpoint as for a threshold; when the places differ, the darker side is a room and the door is open, sweep the span towards the dark side with the same `SPILL_CELLS`, `SPILL_STEPS` and intersect with that room's face.
+- **Open or closed.** Use the one test sight already uses to decide whether that door blocks vision, so light and sight can never disagree. In the editor that is the door's authored open state; at the table it is the door's live state. Any state sight treats as passable counts as open; no scaling by how far the door stands open in this pass.
+- **Drawing and sight.** No new drawing path: door spills join the threshold spills in `gradeSpill` and in `darkTest`. At the table, opening or closing a door re-derives the spills for the drawing and for the sight test on server and client alike.
+- **Tests.** `daylightSpill.test.ts`: an open door at a cave mouth gives bands on the cave side; the same door closed gives none; a door between equal places gives none. `visionGate`: one cell inside an open door is lit, and dark again when the door is closed. One table-side test that a door toggle changes the result.
+
 ## 5. Build order
 
 1. Builder A. `pnpm -r check` clean before handing over.
@@ -130,7 +149,7 @@ Each builder does each step once; a failure stops and is reported before any ret
 ## 7. Not in this plan
 
 - Weather and moon controls, and any change to their maths.
-- Open doors, unwalled floor edges and openings other than thresholds as sources of spill.
+- Unwalled floor edges, windows and openings other than thresholds and open doors as sources of spill.
 - Spill out of a lit room onto darker level ground.
 - A Place control on the area card.
 - The sundial at the table.

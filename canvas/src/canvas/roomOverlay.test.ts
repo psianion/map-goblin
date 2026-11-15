@@ -33,8 +33,10 @@ import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer, Room } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import { interiorPoint } from '@dnd/core/src/shared/roomUtils';
-import { roomBadgeAt } from '@dnd/core/src/engine/hitTest';
+import { roomBadgeAt, setRoomPicking } from '@dnd/core/src/engine/hitTest';
+import { SelectTool } from '@dnd/core/src/engine/tools/SelectTool';
 import {
+  OUTLINE_FADE_MS,
   acceptSuggestion,
   mountRoomOverlay,
   rejectSuggestion,
@@ -101,6 +103,43 @@ describe('roomOverlayModel', () => {
     expect(model().rooms.map((r) => r.room.id)).toEqual(['west']);
     useStore.getState().setActiveTool('roomRect');
     expect(model().rooms).toHaveLength(2);
+  });
+
+  it('by default a room shows its badge and chip only: no outline, and no fill', () => {
+    const m = model();
+    expect(m.rooms.every((r) => r.badge && r.chip && !r.outline)).toBe(true);
+    // Hovering inside a room (the Select tool's hover) does not show it either.
+    useStore.getState().setHoveredId('west');
+    expect(byId(model().rooms).get('west')!.outline).toBe(false);
+  });
+
+  it('shows one room’s outline while its badge is under the pointer', () => {
+    const m = byId(roomOverlayModel(useStore.getState(), 20, '', 'east').rooms);
+    expect(m.get('east')!.outline).toBe(true);
+    expect(m.get('east')!.hovered).toBe(true);
+    expect(m.get('west')!.outline).toBe(false);
+  });
+
+  it('shows one room’s outline while its row in the Rooms sheet is under the pointer', () => {
+    useStore.getState().setHighlightedRoomId('west');
+    const m = byId(model().rooms);
+    expect(m.get('west')!.outline).toBe(true);
+    expect(m.get('east')!.outline).toBe(false);
+  });
+
+  it('shows a selected room’s outline (and its fill)', () => {
+    useStore.getState().setSelectedIds(['east']);
+    const m = byId(model().rooms);
+    expect(m.get('east')!.outline).toBe(true);
+    expect(m.get('east')!.selected).toBe(true);
+    expect(m.get('west')!.outline).toBe(false);
+  });
+
+  it('shows every room’s outline while a Rooms tool is in hand', () => {
+    for (const tool of ['roomRect', 'roomPolygon', 'divide'] as const) {
+      useStore.getState().setActiveTool(tool);
+      expect(model().rooms.every((r) => r.outline), tool).toBe(true);
+    }
   });
 
   it('a hover change moves only the hovered rooms’ outline keys', () => {
@@ -282,12 +321,19 @@ describe('mounted overlay', () => {
       face: square(i * 10, 0, i * 10 + 10, 10),
     }));
 
+  /** The overlay's clock, moved by hand so a fade can be stepped. */
+  let clock = 1000;
+  let canvasEl: HTMLCanvasElement;
+
   beforeEach(() => {
     vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
       frame = cb;
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', () => {});
+    clock = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    canvasEl = document.createElement('canvas');
     world = new Container();
     world.scale.set(20);
     world.position.set(100, 50);
@@ -305,6 +351,7 @@ describe('mounted overlay', () => {
         },
       }),
       worldToScreen: (x: number, y: number) => ({ x: x * 20 + 100, y: y * 20 + 50 }),
+      canvas: () => canvasEl,
     } as unknown as RenderEngine;
     overlay = mountRoomOverlay(engine);
   });
@@ -312,10 +359,69 @@ describe('mounted overlay', () => {
   afterEach(() => {
     overlay.destroy();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   const root = () => screen.children.find((c) => c.label === 'roomOverlay') as Container;
   const areaGraphics = () => root().children.find((c) => c.label === 'roomOverlay-area') as Graphics;
+  /** The room outlines, in the model's order (west, east). */
+  const outlines = () => root().children[1].children as Graphics[];
+  const pointer = (type: string, clientX: number, clientY: number, buttons = 0) =>
+    canvasEl.dispatchEvent(new MouseEvent(type, { clientX, clientY, buttons }));
+
+  it('draws no outline by default, fades one in over its badge, and out once the pointer leaves', () => {
+    tick();
+    const [westLine, eastLine] = outlines();
+    expect(westLine.visible).toBe(false);
+    expect(eastLine.visible).toBe(false);
+    // West's badge sits in the middle of its face: world (5, 5), screen (200, 150).
+    pointer('pointermove', 200, 150);
+    clock += OUTLINE_FADE_MS / 2;
+    tick();
+    expect(westLine.visible).toBe(true);
+    expect(westLine.alpha).toBeCloseTo(0.5, 5);
+    expect(eastLine.visible).toBe(false);
+    clock += OUTLINE_FADE_MS / 2;
+    tick();
+    expect(westLine.alpha).toBe(1);
+    // The fade is an opacity step, not a redraw.
+    const redraws = overlay.stats().redraws;
+    clock += 16;
+    tick();
+    expect(overlay.stats().redraws).toBe(redraws);
+    pointer('pointerleave', 0, 0);
+    clock += OUTLINE_FADE_MS;
+    tick();
+    expect(westLine.alpha).toBe(0);
+    expect(westLine.visible).toBe(false);
+  });
+
+  it('a press passing over a badge (drawing, dragging) shows nothing', () => {
+    tick();
+    pointer('pointermove', 200, 150, 1);
+    clock += OUTLINE_FADE_MS;
+    tick();
+    expect(outlines()[0].visible).toBe(false);
+  });
+
+  it('shows the row hovered in the Rooms sheet, the selected room, and every room with a Rooms tool', () => {
+    tick();
+    const [westLine, eastLine] = outlines();
+    useStore.getState().setHighlightedRoomId('east');
+    clock += OUTLINE_FADE_MS;
+    tick();
+    expect([westLine.visible, eastLine.visible]).toEqual([false, true]);
+    useStore.getState().setHighlightedRoomId(null);
+    useStore.getState().setSelectedIds(['west']);
+    clock += OUTLINE_FADE_MS;
+    tick();
+    expect([westLine.visible, eastLine.visible]).toEqual([true, false]);
+    useStore.getState().setSelectedIds([]);
+    useStore.getState().setActiveTool('roomPolygon');
+    clock += OUTLINE_FADE_MS;
+    tick();
+    expect([westLine.alpha, eastLine.alpha]).toEqual([1, 1]);
+  });
 
   it('lives in the screen overlay, follows the camera, and stays above icons added after it', () => {
     tick();
@@ -425,5 +531,31 @@ describe('mounted overlay', () => {
     expect(n).toBe(20);
     expect((s1.shapes - s0.shapes) / n).toBe(7);
     console.log(`[roomOverlay] ${((s1.ms - s0.ms) / n).toFixed(3)} ms per full redraw of 7 rooms (jsdom)`);
+  });
+});
+
+// ─── Picking does not follow the drawing ───────────────────────────────────
+
+describe('picking with the outline hidden', () => {
+  afterEach(() => setRoomPicking(false));
+
+  it('a click inside a room with Select still selects it while its outline is hidden', () => {
+    // As the canvas host wires it: rooms pick while the Room outlines switch is on.
+    setRoomPicking(() => useStore.getState().ui.roomOverlayVisible);
+    expect(byId(model().rooms).get('west')!.outline).toBe(false);
+    const engine = {
+      overlay: () => new Container(),
+      canvas: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0 }) }) as unknown as HTMLCanvasElement,
+      stage: () => ({ scale: { x: 20, y: 20 } }) as unknown as Container,
+      worldToScreen: (x: number, y: number) => ({ x: x * 20, y: y * 20 }),
+      screenToWorld: (x: number, y: number) => ({ x: x / 20, y: y / 20 }),
+    } as unknown as RenderEngine;
+    const tool = new SelectTool(engine);
+    const at = { clientX: 40, clientY: 40, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false } as PointerEvent;
+    tool.onPointerDown({ x: 2, y: 2 }, at);
+    tool.onPointerUp({ x: 2, y: 2 }, at);
+    expect(useStore.getState().selection.selectedIds).toEqual(['west']);
+    // Selected, it now shows.
+    expect(byId(model().rooms).get('west')!.outline).toBe(true);
   });
 });

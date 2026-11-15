@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, MapSettings } from '../store/types';
-import type { Room, ThresholdSegment } from './types';
+import type { DoorChild, DoorState, Room, ThresholdSegment, WallSegment } from './types';
 import type { Environment } from './world';
 import { skyFrame } from './sky';
 import { roomPlace } from './regionGrade';
@@ -184,5 +184,95 @@ describe('sight at a mouth (darkTest)', () => {
     const [spill] = daylightSpill(map, layers, '', { cave: 'underground' });
     const lit = bounds(spillLitArea(spill!));
     expect(lit.maxX - lit.minX).toBeCloseTo(SPILL_CELLS / 2, 1);
+  });
+});
+
+// A cave whose mouth is closed by a door: a wall along x = 10 (0.2 wide, so the cave's face
+// stops at 9.9) with a door 4 wide in it at y 3..7, outdoor ground beyond.
+const MOUTH_WALL: WallSegment = {
+  id: 'w-mouth',
+  points: [
+    [10, 0],
+    [10, 10],
+  ],
+  wallType: 'normal',
+  direction: 'both',
+  color: '#000',
+  width: 0.2,
+  roughness: 0,
+};
+const DOOR_CAVE = room('cave', rect(0, 0, 9.9, 10), 'underground');
+const door = (state: DoorState, over: Partial<DoorChild> = {}): DoorChild =>
+  ({
+    id: 'door1',
+    name: 'door1',
+    childType: 'door',
+    visible: true,
+    wallId: 'w-mouth',
+    position: [10, 5],
+    angle: Math.PI / 2,
+    width: 4,
+    style: 'single',
+    state,
+    isSecret: false,
+    ...over,
+  }) as DoorChild;
+const doorLayer = (rooms: Room[], doors: DoorChild[]): DungeonLayer =>
+  ({
+    id: 'door-layer',
+    type: 'dungeon',
+    children: doors,
+    rooms,
+    thresholds: [],
+    standaloneWalls: [MOUTH_WALL],
+    mergedFloor: null,
+    style: { wallWidth: 0.5 },
+  }) as unknown as DungeonLayer;
+
+describe('daylightSpill through a door', () => {
+  it('an open door at a cave mouth gives bands on the cave side, across the doorway only', () => {
+    const spills = daylightSpill(mapOf('outdoor'), [doorLayer([DOOR_CAVE], [door('open')])], '', { cave: 'underground' });
+    expect(spills).toHaveLength(1);
+    expect(spills[0]).toMatchObject({ roomId: 'cave', from: 'outdoor' });
+    expect(spills[0]!.bands).toHaveLength(SPILL_STEPS);
+    for (const band of spills[0]!.bands) {
+      const b = bounds(band);
+      expect(b.maxX).toBeLessThanOrEqual(9.9 + 0.01);
+      expect(b.minX).toBeGreaterThanOrEqual(10 - SPILL_CELLS - 0.01);
+      expect(b.minY).toBeGreaterThanOrEqual(3 - 0.01);
+      expect(b.maxY).toBeLessThanOrEqual(7 + 0.01);
+    }
+    expect(bounds(spills[0]!.bands[SPILL_STEPS - 1]!).minX).toBeCloseTo(10 - SPILL_CELLS, 1);
+  });
+
+  it('the same door closed, or locked, gives none', () => {
+    expect(daylightSpill(mapOf('outdoor'), [doorLayer([DOOR_CAVE], [door('closed')])], '', { cave: 'underground' })).toEqual([]);
+    expect(daylightSpill(mapOf('outdoor'), [doorLayer([DOOR_CAVE], [door('locked')])], '', { cave: 'underground' })).toEqual([]);
+  });
+
+  it('an archway is open whatever its state, as it is for sight', () => {
+    const arch = door('closed', { style: 'archway' });
+    expect(daylightSpill(mapOf('outdoor'), [doorLayer([DOOR_CAVE], [arch])], '', { cave: 'underground' })).toHaveLength(1);
+  });
+
+  it('an open door between equal places gives none', () => {
+    const lit = room('cave', rect(0, 0, 9.9, 10), 'outdoor');
+    expect(daylightSpill(mapOf('outdoor'), [doorLayer([lit], [door('open')])], '', { cave: 'outdoor' })).toEqual([]);
+    expect(daylightSpill(mapOf('underground'), [doorLayer([DOOR_CAVE], [door('open')])], '', { cave: 'underground' })).toEqual([]);
+  });
+});
+
+describe('sight at a doorway (darkTest)', () => {
+  const DAY = skyFrame({ environment: 'outdoor', naturalLight: true, time: 'day' });
+  const map = mapOf('outdoor') as { mapSettings: MapSettings };
+
+  it('one cell inside an open door is lit, and dark again when the door is closed', () => {
+    const open = darkTest(map, [doorLayer([DOOR_CAVE], [door('open')])], '', DAY);
+    expect(open.dark(9.5, 5)).toBe(false);
+    expect(open.dark(7, 5)).toBe(true);
+    expect(open.dark(9.5, 1)).toBe(true);
+    const closed = darkTest(map, [doorLayer([DOOR_CAVE], [door('closed')])], '', DAY);
+    expect(closed.dark(9.5, 5)).toBe(true);
+    expect(closed.litFaces).toEqual([]);
   });
 });

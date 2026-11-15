@@ -4,7 +4,7 @@
 // natural-light gate is the resolver's answer rather than a second opinion.
 
 import { describe, it, expect } from 'vitest';
-import { sunAt as worldSunAt, type MapEnvironment, type NightSky } from './world';
+import { TIME_MINUTES, sunAt as worldSunAt, type MapEnvironment, type NightSky } from './world';
 import { extractWallSegments } from '../engine/lighting/raycaster';
 import { LightManager } from '../engine/lighting/LightManager';
 import type { DungeonLayer } from '../store/types';
@@ -71,6 +71,40 @@ describe('shadowLook — the natural-light gate', () => {
     expect(dawn.dx).toBeLessThan(0);
   });
 
+  it('lies along the rise-set line at all four times: away from the rise, toward it at dusk', () => {
+    // The sundial's handle at the right (orientation 0). Screen space, y down: left is -x.
+    const along = (time: keyof typeof TIME_MINUTES, orientation: number) => lookAt(TIME_MINUTES[time], { orientation })!;
+    const left = { dx: expect.closeTo(-1, 9), dy: expect.closeTo(0, 9) };
+    const right = { dx: expect.closeTo(1, 9), dy: expect.closeTo(0, 9) };
+    expect(along('dawn', 0)).toMatchObject(left);
+    expect(along('day', 0)).toMatchObject(left);
+    expect(along('dusk', 0)).toMatchObject(right);
+    expect(along('night', 0)).toMatchObject(left);
+    // A prop's silhouette lands the same way (PixiJS's matrix, as in `tipOf` below).
+    const propTipX = (time: keyof typeof TIME_MINUTES) => {
+      const cast = propShadow(along(time, 0), 64);
+      return -64 * Math.sin(cast.skewX) * cast.scaleY;
+    };
+    expect(propTipX('dawn')).toBeLessThan(0);
+    expect(propTipX('day')).toBeLessThan(0);
+    expect(propTipX('dusk')).toBeGreaterThan(0);
+    expect(propTipX('night')).toBeLessThan(0);
+    // Every orientation: away from the rise at dawn, day and night, toward it at dusk.
+    for (const orientation of [0, 45, 90, 200, 315]) {
+      const rx = Math.cos((orientation * Math.PI) / 180);
+      const ry = Math.sin((orientation * Math.PI) / 180);
+      for (const [time, sign] of [['dawn', -1], ['day', -1], ['dusk', 1], ['night', -1]] as const) {
+        const look = along(time, orientation);
+        expect(look.dx, `${time} at ${orientation}`).toBeCloseTo(sign * rx, 9);
+        expect(look.dy, `${time} at ${orientation}`).toBeCloseTo(sign * ry, 9);
+      }
+    }
+    // Turning the handle clockwise on screen (y down) turns the shadows clockwise with it.
+    const turned = along('dawn', 90);
+    expect(turned.dx).toBeCloseTo(0, 9);
+    expect(turned.dy).toBeCloseTo(-1, 9);
+  });
+
   it('the map orientation turns the whole day with it', () => {
     const north = lookAt(720)!;
     const turned = lookAt(720, { orientation: 90 })!;
@@ -129,15 +163,17 @@ describe('shadowLook — continuity across the day', () => {
     }
   });
 
-  it('the direction only ever swings where nothing is drawn', () => {
-    // The moon sets in the west a minute before the sun rises in the east, so the vector does
-    // turn right round — at an opacity of zero, which is the resolver's own guarantee.
+  it('the direction only ever turns overhead, or where nothing is drawn', () => {
+    // The light crosses the map along one line, so the shadow turns right round as it passes
+    // overhead (noon for the sun, midnight for the moon); at the horizons it turns at an
+    // opacity of zero, which is the resolver's own guarantee.
     for (const m of DAY) {
       const a = lookAt(m);
       const b = lookAt((m + 1) % 1440);
       if (!a || !b) continue;
       const swing = Math.hypot(a.dx - b.dx, a.dy - b.dy);
-      expect(Math.min(a.alpha, b.alpha) * swing).toBeLessThan(0.01);
+      if (m === 720 || m === 0) expect(swing).toBeCloseTo(2, 9);
+      else expect(Math.min(a.alpha, b.alpha) * swing).toBeLessThan(0.01);
     }
   });
 });
@@ -283,9 +319,9 @@ describe('a standalone wall casts like any other', () => {
   });
 
   it('…and the freestanding stub too, whichever way it happens to run', () => {
-    // Vertical, mid-courtyard, nothing behind it. Under the moon the light crosses it.
+    // Vertical, mid-courtyard, nothing behind it. Under a moon rising at the right the light crosses it.
     const [seg] = extractWallSegments([standalone([[18, 49], [18, 53]])]);
-    const look = lookAt(0, { orientation: 90 })!;
+    const look = lookAt(0, { orientation: 0 })!;
     expect(area(shadowBand(seg!.x1, seg!.y1, seg!.x2, seg!.y2, look, SHADOW_STEPS))).toBeGreaterThan(0);
   });
 

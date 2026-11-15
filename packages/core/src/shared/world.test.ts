@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BANDS,
   DAY_MINUTES,
+  TIME_MINUTES,
   TIME_RAMP,
   environmentOf,
   mixOklch,
@@ -77,6 +78,16 @@ describe('sun and moon', () => {
 
   it('turns the whole arc with the map orientation', () => {
     expect(at(360, { ...outdoor, orientation: 90 }).azimuth).toBe(90);
+  });
+
+  it('stands on the rising side until overhead and on the setting side after, at all four times', () => {
+    for (const orientation of [0, 90, 300]) {
+      const map = { ...outdoor, orientation };
+      expect(at(TIME_MINUTES.dawn, map).azimuth).toBe(orientation);
+      expect(at(TIME_MINUTES.day, map).azimuth).toBe(orientation);
+      expect(at(TIME_MINUTES.dusk, map).azimuth).toBe((orientation + 180) % 360);
+      expect(at(TIME_MINUTES.night, map)).toMatchObject({ azimuth: orientation, kind: 'moon' });
+    }
   });
 
   it('hands the night to the moon, weaker, and to nothing at all when there is none', () => {

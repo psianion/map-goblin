@@ -197,18 +197,15 @@ describe('cliffSunAt: cliffs cast outdoors by default', () => {
     expect(casterLook(look, 2).length).toBeGreaterThan(look.length);
   });
 
-  it('swings with the hour: west in the morning, east late in the day, turning all the while', () => {
-    const angle = (hour: number) => {
-      const l = shadowLook(at(OPEN, hour))!;
-      return Math.atan2(l.dy, l.dx);
-    };
-    const dx = (hour: number) => shadowLook(at(OPEN, hour))!.dx;
-    expect(dx(9)).toBeLessThan(-0.5);
-    expect(dx(17)).toBeGreaterThan(0.5);
-    const unwrap = (a: number) => (a < 0 ? a + 2 * Math.PI : a);
-    const hours = [8, 10, 12, 14, 16];
-    const turns = hours.map((h) => unwrap(angle(h)));
-    for (let i = 1; i < turns.length; i++) expect(turns[i]).toBeGreaterThan(turns[i - 1]);
+  it('lies along the rise-set line: west until noon, east after it', () => {
+    for (const hour of [8, 10, 12]) {
+      expect(shadowLook(at(OPEN, hour))!.dx, `${hour}:00`).toBeCloseTo(-1, 9);
+      expect(shadowLook(at(OPEN, hour))!.dy, `${hour}:00`).toBeCloseTo(0, 9);
+    }
+    for (const hour of [14, 16]) {
+      expect(shadowLook(at(OPEN, hour))!.dx, `${hour}:00`).toBeCloseTo(1, 9);
+      expect(shadowLook(at(OPEN, hour))!.dy, `${hour}:00`).toBeCloseTo(0, 9);
+    }
     // Longer at the ends of the day than at noon.
     expect(shadowLook(at(OPEN, 8))!.length).toBeGreaterThan(shadowLook(at(OPEN, 12))!.length);
   });

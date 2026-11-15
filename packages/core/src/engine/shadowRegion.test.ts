@@ -128,12 +128,13 @@ describe('shadows by region', () => {
 
   /** Put the map, its layer and the sky in place, then run the pass once. */
   const draw = (place: Environment, layer: DungeonLayer): Recorder => {
-    const map: MapEnvironment = { environment: place, naturalLight: true, orientation: 0 };
+    // Rising at the bottom, so the noon light crosses the walls, which run left to right.
+    const map: MapEnvironment = { environment: place, naturalLight: true, orientation: 90 };
     useStore.setState((s) => {
       s.mapSettings.environment = place;
       s.mapSettings.naturalLight = true;
       s.mapSettings.terrain = TERRAIN;
-      s.mapSettings.orientation = 0;
+      s.mapSettings.orientation = 90;
       s.layers = [layer];
     });
     updateShadows([layer], 1, skyFrame({ ...map, time: 'day' }));
@@ -206,7 +207,7 @@ describe('shadows by region', () => {
     expect(draw('outdoor', layer).polys).toEqual([]);
     // The DM flips the room to Outdoor for this scene: its shadows come back.
     setTableRoomPlaces({ room: 'outdoor' });
-    updateShadows([layer], 1, skyFrame({ environment: 'outdoor', naturalLight: true, orientation: 0, time: 'day' }));
+    updateShadows([layer], 1, skyFrame({ environment: 'outdoor', naturalLight: true, orientation: 90, time: 'day' }));
     const drawn = shadows.children.filter((c) => c.label === 'wallShadows').at(-1) as unknown as Recorder;
     expect(insideRoom(drawn)).toBe(true);
     // And an Outdoor room flipped Underground loses them.

@@ -10,6 +10,7 @@ import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine';
 import { dashSpine } from '@dnd/core/src/engine/wallNodeRenderer';
 import { onAnchorPreview, type AnchorPreview } from '@dnd/core/src/engine/roomAnchorDrag';
+import { ROOM_BADGE_RADIUS_PX } from '@dnd/core/src/engine/hitTest';
 
 /*
  * The editor's room overlay: what makes the rooms visible while authoring. Rooms
@@ -30,11 +31,17 @@ import { onAnchorPreview, type AnchorPreview } from '@dnd/core/src/engine/roomAn
  * moves — its face, the selection, the hover, the label mode, the zoom once it
  * settles — so a hover change redraws two rooms and a prop drag redraws none: the
  * store subscription below reads the rooms, areas and thresholds by identity only.
- * Nothing here runs per pointermove; a badge being dragged is moved, not redrawn.
+ * Per pointermove only a distance check against the drawn badges runs (the badge hover);
+ * a badge being dragged is moved, not redrawn.
+ *
+ * A room shows only its badge until it is asked for: its outline (and a selected room's
+ * fill) shows while its badge or its row in the Rooms sheet is under the pointer, while it
+ * is selected, and for every room while a Rooms tool is in hand. It fades in and out over
+ * OUTLINE_FADE_MS, an opacity step per frame, never a redraw.
  *
  * Driven entirely by the store, so the editor UI toggles it through state alone:
- *  - `ui.roomOverlayVisible`  the Outlines switch (selected rooms still show when off;
- *                             the Rooms tab tools force everything on);
+ *  - `ui.roomOverlayVisible`  the Room outlines switch: off hides every room but the selected
+ *                             ones, badges included (the Rooms tab tools force everything on);
  *  - `ui.roomLabels`          'off' | 'numbers' | 'both' (a selected room keeps its badge,
  *                             the handle its anchor is dragged by);
  *  - `selection.selectedIds`  room ids select rooms, an area id draws the area's extent;
@@ -66,6 +73,8 @@ const CHIP_GAP = 4;
 const GLYPH = 18;
 /** Zoom must hold this long before the outlines are retessellated at it. */
 const ZOOM_SETTLE_MS = 140;
+/** How long a room's outline takes to appear or go: the editor's hover transition. */
+export const OUTLINE_FADE_MS = 120;
 
 const ROOM_TOOLS = new Set<string>(['roomRect', 'roomPolygon', 'divide']);
 
@@ -81,6 +90,8 @@ export interface RoomItem {
   at: [number, number];
   selected: boolean;
   hovered: boolean;
+  /** Outline (and a selected room's fill) shown: badge or sheet row hovered, selected, or a Rooms tool in hand. */
+  outline: boolean;
   /** Anchor on no face, or two rooms claiming one face: the warning glyph. */
   warn: boolean;
   /** Badge drawn (labels on, or the room selected). */
@@ -124,9 +135,10 @@ export function overlayLayers(state: MapBuilderStore): DungeonLayer[] {
 
 /**
  * What the overlay draws for `state`, at `zoomKey` (the settled zoom; anything that
- * changes per frame stays out of the keys). Pure: no Pixi, no engine.
+ * changes per frame stays out of the keys), with `badgeHover` the room whose badge is under
+ * the pointer. Pure: no Pixi, no engine.
  */
-export function roomOverlayModel(state: MapBuilderStore, zoomKey: number, ink = ''): RoomOverlayModel {
+export function roomOverlayModel(state: MapBuilderStore, zoomKey: number, ink = '', badgeHover: string | null = null): RoomOverlayModel {
   const tool = state.tools.activeTool;
   const roomTool = ROOM_TOOLS.has(tool);
   const showAll = state.ui.roomOverlayVisible || roomTool;
@@ -152,7 +164,8 @@ export function roomOverlayModel(state: MapBuilderStore, zoomKey: number, ink = 
       if (areaIds.size > 0 && room.areaId && areaIds.has(room.areaId) && face.length >= 3) areaFaces.push(face);
       const isSel = selected.has(room.id);
       if (!showAll && !isSel) continue;
-      const isHov = hovered.has(room.id);
+      const isHov = hovered.has(room.id) || room.id === badgeHover;
+      const outline = roomTool || isSel || room.id === state.ui.highlightedRoomId || room.id === badgeHover;
       const warn = !!room.orphaned || (shared.get(faceSignature(face)) ?? 0) > 1;
       const at = badgeAt.get(room.id) ?? room.anchor;
       const badge = labels !== 'off' || isSel;
@@ -164,6 +177,7 @@ export function roomOverlayModel(state: MapBuilderStore, zoomKey: number, ink = 
         at,
         selected: isSel,
         hovered: isHov,
+        outline,
         warn,
         badge,
         chip,
@@ -261,6 +275,8 @@ interface RoomView {
   glyph: Graphics;
   shapeKey: string;
   labelKey: string;
+  /** The outline's opacity it is fading to: 1 shown, 0 gone. */
+  target: number;
 }
 
 interface GhostView {
@@ -378,6 +394,47 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
   let dirty = true;
   let pal = palette();
 
+  // The badge under the pointer, tested against where the last redraw put the badges.
+  let badgeHover: string | null = null;
+  let badgeSpots: { id: string; at: [number, number] }[] = [];
+  const badgeUnder = (e: PointerEvent): string | null => {
+    // A press in progress (drawing, dragging) passing over a badge reveals nothing.
+    if (e.buttons !== 0 || !canvasEl) return null;
+    const rect = canvasEl.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    for (const spot of badgeSpots) {
+      const p = engine.worldToScreen(spot.at[0], spot.at[1]);
+      if (Math.hypot(p.x - sx, p.y - sy) <= ROOM_BADGE_RADIUS_PX) return spot.id;
+    }
+    return null;
+  };
+  const setBadgeHover = (id: string | null): void => {
+    if (id === badgeHover) return;
+    badgeHover = id;
+    dirty = true;
+  };
+  const onPointerMove = (e: PointerEvent): void => setBadgeHover(badgeUnder(e));
+  const onPointerLeave = (): void => setBadgeHover(null);
+  const canvasEl = engine.canvas?.() ?? null;
+  canvasEl?.addEventListener('pointermove', onPointerMove);
+  canvasEl?.addEventListener('pointerleave', onPointerLeave);
+
+  /** Reduced motion: outlines appear and go at once. */
+  const reducedMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let lastFrame = performance.now();
+  /** Steps every outline's opacity toward its target: an opacity change, never a redraw. */
+  const fadeOutlines = (dt: number): void => {
+    const step = reducedMotion ? 1 : dt / OUTLINE_FADE_MS;
+    for (const v of views.values()) {
+      const a = v.shape.alpha;
+      if (a === v.target) continue;
+      const next = a < v.target ? Math.min(v.target, a + step) : Math.max(v.target, a - step);
+      v.shape.alpha = next;
+      v.shape.visible = next > 0;
+    }
+  };
+
   const viewFor = (id: string): RoomView => {
     let v = views.get(id);
     if (v) return v;
@@ -391,9 +448,12 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     name.anchor.set(0.5, 0);
     const glyph = new Graphics();
     label.addChild(chipBg, name, badgeBg, num, glyph);
+    // Hidden until asked for; it then fades in (see fadeOutlines).
+    shape.alpha = 0;
+    shape.visible = false;
     shapes.addChild(shape);
     labels.addChild(label);
-    v = { shape, label, badgeBg, num, chipBg, name, glyph, shapeKey: '', labelKey: '' };
+    v = { shape, label, badgeBg, num, chipBg, name, glyph, shapeKey: '', labelKey: '', target: 0 };
     views.set(id, v);
     return v;
   };
@@ -534,13 +594,15 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     const state = useStore.getState();
     const zoom = settledZoom;
     pal = palette();
-    const model = roomOverlayModel(state, zoom, pal.key);
+    const model = roomOverlayModel(state, zoom, pal.key, badgeHover);
+    badgeSpots = model.rooms.filter((i) => i.badge).map((i) => ({ id: i.room.id, at: i.at }));
 
     // Rooms: pooled by id, each redrawn only when its own key moved.
     const live = new Set<string>();
     for (const item of model.rooms) {
       live.add(item.room.id);
       const v = viewFor(item.room.id);
+      v.target = item.outline ? 1 : 0;
       if (v.shapeKey !== item.shapeKey) {
         drawShape(v, item, zoom);
         v.shapeKey = item.shapeKey;
@@ -693,6 +755,8 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
       dirty = false;
       redraw();
     }
+    fadeOutlines(now - lastFrame);
+    lastFrame = now;
   };
   tick();
 
@@ -726,6 +790,8 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     destroy() {
       ticker?.remove(follow);
       cancelAnimationFrame(rafId);
+      canvasEl?.removeEventListener('pointermove', onPointerMove);
+      canvasEl?.removeEventListener('pointerleave', onPointerLeave);
       unsubscribe();
       unsubPreview();
       views.clear();

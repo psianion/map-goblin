@@ -195,6 +195,10 @@ export const MOON_INTENSITY: Record<NightSky, number> = { 'full-moon': 0.35, cre
 /**
  * Where the sun (or the moon, on the other half of the ring) is standing.
  *
+ * The light travels straight across the map along one line: it stands on the rising side
+ * (`orientation`) until it is overhead, and on the setting side, opposite, after. So every
+ * shadow lies along that line, away from the rise until the half-way point and toward it after.
+ *
  * Continuous through both horizons: `kind` only ever flips where the altitude and the
  * intensity are already 0, so nothing on screen can pop at a band edge.
  */
@@ -209,7 +213,7 @@ export function sunAt(minutes: number, map: MapEnvironment, sky: NightSky): SunV
   const casts = map.naturalLight === true;
   const strength = day ? 1 : MOON_INTENSITY[sky];
   return {
-    azimuth: wrapDegrees((map.orientation ?? 0) + progress * 180),
+    azimuth: wrapDegrees((map.orientation ?? 0) + (progress <= 0.5 ? 0 : 180)),
     altitude: arc * MAX_ALTITUDE,
     intensity: casts ? arc * strength : 0,
     kind: casts && strength > 0 ? (day ? 'sun' : 'moon') : null,
