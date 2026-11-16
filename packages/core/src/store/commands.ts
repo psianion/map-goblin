@@ -1,4 +1,4 @@
-import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, FogLook, Layer } from './types';
+import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, FogLook, Layer, TimeOfDay } from './types';
 import { useStore } from './store';
 import type { MapStylePreset } from './presetRegistry';
 import { styleValueOrDefault } from '../shared/wallLook';
@@ -730,6 +730,31 @@ export class SetAmbientLightCommand implements Command {
 
   undo(): void {
     useStore.getState().setAmbientLight(this.before);
+  }
+}
+
+/**
+ * Command for one time of day's own tint (`MapSettings.timeTints`): set it, or with null
+ * clear it so the time uses the map's ambient light again. Undo puts back what it was.
+ */
+export class SetTimeTintCommand implements Command {
+  readonly label = 'Time tint';
+  private readonly time: TimeOfDay;
+  private readonly before: string | null;
+  private readonly after: string | null;
+
+  constructor(time: TimeOfDay, before: string | null, after: string | null) {
+    this.time = time;
+    this.before = before;
+    this.after = after;
+  }
+
+  execute(): void {
+    useStore.getState().setTimeTint(this.time, this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setTimeTint(this.time, this.before);
   }
 }
 

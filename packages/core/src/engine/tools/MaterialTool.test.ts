@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import type { DungeonLayer, MaterialToolSettings, ShapeChild } from '../../store/types';
+import type { DungeonLayer, MaterialToolSettings, PlateauChild, ShapeChild } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { patchArea } from '../../shared/materialPatch';
 import { pieceCovers } from '../../shared/pieces';
@@ -112,6 +112,38 @@ describe('where a stroke lands in the stack', () => {
   it('merges into the top one of two pieces of the same look', () => {
     const l = setPieces(ground('low', rect(0, 0, 10, 10), GRASS), ground('high', rect(4, 4, 14, 14), GRASS));
     expect(mergeTarget(l, [rect(5, 5, 7, 7)], look(GRASS))?.id).toBe('high');
+  });
+
+  it('lands on top when a slope face texture above the piece is under the stroke, so the paint shows on the face', () => {
+    const hill = (extra: Partial<PlateauChild> = {}): ShapeChild =>
+      ({
+        id: 'hill', name: 'hill', childType: 'plateau', visible: true, contours: [rect(2, 2, 6, 6)], height: 1, edge: 'slope',
+        faceDir: 90, faceArt: 'pack:face_stone_4x4_floor_A', ...extra,
+      }) as unknown as ShapeChild;
+    const grass = () => ground('grass', rect(0, 0, 10, 10), GRASS);
+    // Across the face under the hill's bottom edge (6 to 6.3).
+    const onFace = [rect(3, 6.05, 5, 6.25)];
+    expect(mergeTarget(setPieces(grass(), hill()), onFace, look(GRASS))).toBeNull();
+    // Clear of the face, it merges as ever.
+    expect(mergeTarget(setPieces(grass(), hill()), [rect(7, 7, 9, 9)], look(GRASS))?.id).toBe('grass');
+    // A face with no texture of its own (Ground) is in nobody's way, nor one under the piece.
+    expect(mergeTarget(setPieces(grass(), hill({ faceArt: undefined })), onFace, look(GRASS))?.id).toBe('grass');
+    expect(mergeTarget(setPieces(hill(), grass()), onFace, look(GRASS))?.id).toBe('grass');
+  });
+
+  it('lands on top when a textured plateau top above the piece is under the stroke, so the paint shows on the top', () => {
+    const mesa = (extra: Partial<PlateauChild> = {}): ShapeChild =>
+      ({
+        id: 'mesa', name: 'mesa', childType: 'plateau', visible: true, contours: [rect(2, 2, 6, 6)], height: 1, edge: 'cliff',
+        topArt: 'pack:stone_floor_A', ...extra,
+      }) as unknown as ShapeChild;
+    const grass = () => ground('grass', rect(0, 0, 10, 10), GRASS);
+    const onTop = [rect(3, 3, 5, 5)];
+    expect(mergeTarget(setPieces(grass(), mesa()), onTop, look(GRASS))).toBeNull();
+    expect(mergeTarget(setPieces(grass(), mesa()), [rect(7, 7, 9, 9)], look(GRASS))?.id).toBe('grass');
+    // A Ground top is in nobody's way, nor a textured one under the piece.
+    expect(mergeTarget(setPieces(grass(), mesa({ topArt: undefined })), onTop, look(GRASS))?.id).toBe('grass');
+    expect(mergeTarget(setPieces(mesa(), grass()), onTop, look(GRASS))?.id).toBe('grass');
   });
 
   it('does not merge into a locked piece or one of another look', () => {

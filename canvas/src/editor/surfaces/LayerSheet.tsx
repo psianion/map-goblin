@@ -23,6 +23,7 @@ import { LayerStyleChangeCommand, PropertyCommand, TerrainAppearanceCommand } fr
 import { undoManager } from '@/store/undoManager';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { getEntriesByType } from '@dnd/core/src/assets/packCatalog';
+import { isFaceTile } from '@dnd/core/src/assets/materialKit';
 import { layerDeleteBlock } from '@dnd/core/src/store/layerCommands';
 import { checkRename, rowShown, sheetSections, showRows } from '@/editor/models/layerSheetModel';
 import { deleteLayer, duplicateLayer, moveLayerToLevel, toggleLayerLocked, toggleLayerVisible, toggleSolo } from '@/editor/models/layerActions';
@@ -206,7 +207,8 @@ function setBackground(layer: BackgroundLayer, label: string, before: Partial<Ba
 function BackgroundSection({ layer }: { layer: BackgroundLayer }) {
   // Pack thumbnails arrive after boot; re-read the catalogue when the pack list moves.
   useStore((s) => s.packs.installedPacks);
-  const textures = getEntriesByType('floor');
+  // A slope's face tiles are offered by its Face picker alone.
+  const textures = getEntriesByType('floor').filter((e) => !isFaceTile(e));
   const live = (patch: Partial<BackgroundLayer>) => useStore.getState().updateLayer(layer.id, patch as Partial<Layer>);
   const read = <K extends keyof BackgroundLayer>(key: K) => () => (liveLayer<BackgroundLayer>(layer.id) ?? layer)[key];
   const colour = useLiveEdit(read('backgroundColor'), (c: string) => live({ backgroundColor: c }), (start, end) =>

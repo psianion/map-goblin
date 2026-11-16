@@ -16,6 +16,7 @@ import {
   hasLiveTexture,
   isBandSet,
 } from '@dnd/core/src/assets/packCatalog';
+import { isFaceTile } from '@dnd/core/src/assets/materialKit';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { pickAsset } from '@dnd/core/src/store/pickAsset';
 import { notify } from '@dnd/ui/toast';
@@ -149,7 +150,7 @@ export function pickedFloorTexture(t: FloorTargets): string | undefined {
  */
 export function floorCandidates(recent: readonly string[], picked: string | undefined, layerDefault: string | undefined): string[] {
   const isFloor = ofType('floor');
-  const catalogue = preferredFirst(getEntriesByType('floor'));
+  const catalogue = preferredFirst(getEntriesByType('floor').filter((e) => !isFaceTile(e)));
   return orderStripCandidates(recent.filter(isFloor), [picked, layerDefault, ...catalogue].filter(isFloor));
 }
 

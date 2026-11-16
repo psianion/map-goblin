@@ -1,28 +1,28 @@
-// The plateau card's custom rows: Height with where it stands, Cliff art, a painted border's
-// texture, Slope width, Crossing.
+// The plateau card's custom rows, shared with the Elevation dock: Height with its drop,
+// Cliff art, a painted border's texture, a slope's face, the Top, the Direction dial, Crossing.
+// Each shows the value it is handed and writes through onChange: the card writes every picked
+// plateau, the dock's settings write the picked plateaus and the tool (elevation.ts). In the dock
+// a picture row is its picked tile, which opens the row, so the columns fit beside each other.
 
-import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
-import { selectChildById, selectLayerForChild } from '@/store/selectors';
-import type { PlateauChild } from '@/store/types';
-import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
-import { absoluteHeight, defaultCrossingId, edgeOf, shapeDrop } from '@dnd/core/src/shared/plateaus';
-import { borderTextureChoices, cliffArt, cliffArtChoices, defaultBorderTexture, PAINTED_BORDER, paintedBorderArt, paintedBorderTexture } from '@dnd/core/src/engine/plateauKit';
-import { materialLabel } from '@dnd/core/src/assets/materialKit';
+import { selectLayerForChild } from '@/store/selectors';
+import { defaultCrossingId, edgeOf, shapeDrop } from '@dnd/core/src/shared/plateaus';
+import { borderTextureChoices, cliffArt, cliffArtChoices, defaultBorderTexture, PAINTED_BORDER } from '@dnd/core/src/engine/plateauKit';
+import { faceTiles, materialLabel } from '@dnd/core/src/assets/materialKit';
 import { SelectRow, SettingRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { swatchLabel } from '@/editor/swatchLabel';
-import { runEdit } from './cardWrites';
-import { cliffArtValue, edgeArtFor, signed, stepHeight } from './plateauModel';
+import { GROUND_FACE, GROUND_TOP, signed, stepHeight } from './plateauModel';
 import { DEFAULT_ART, EDGE_CROSSING } from './plateauModel';
+import { FaceDial } from './FaceDial';
 
-/** Its own height on the stepper, and beside it where it stands in the stack and how far its edge falls. */
+/** Its level on the stepper, and beside it how far its edge falls. */
 export function HeightField({ def, value, onChange }: SettingProps<number>) {
   const where = useStore((s) => {
     const id = s.selection.selectedIds[0];
     const layer = id ? selectLayerForChild(s, id) : undefined;
-    return layer && id ? `${signed(absoluteHeight(layer, id))} · drop ${Math.abs(shapeDrop(layer, id))}` : '';
+    return layer && id ? `drop ${Math.abs(shapeDrop(layer, id))}` : '';
   });
   return (
     <SettingRow label={def.label}>
@@ -36,79 +36,66 @@ export function HeightField({ def, value, onChange }: SettingProps<number>) {
   );
 }
 
-/**
- * The plateaus a dock column writes: the picked ones, when any are picked. With none the
- * column sets what the tool draws next, as the Look columns do. A card's own rows never
- * ask: they are handed the picked plateaus' value and write through the card.
- */
-function useDockPlateaus(def: { home: string }): PlateauChild[] {
-  const picked = useStore(
-    useShallow((s) =>
-      s.selection.selectedIds.flatMap((id) => {
-        const c = selectChildById(s, id);
-        return c?.childType === 'plateau' ? [c] : [];
-      }),
-    ),
-  );
-  return def.home === 'dock' ? picked : [];
-}
-
-/** One undo step over the plateaus a dock column writes. */
-function writePlateaus(label: string, plateaus: readonly PlateauChild[], patch: (p: PlateauChild) => PlateauPatch): void {
-  runEdit(label, plateaus.flatMap((p) => setPlateauFields(p.id, patch(p), label) ?? []));
-}
-
 /** The cliff sets the packs ship, each pictured by a piece of its ledge; they arrive after boot, so they are read live. */
 export function CliffArtField({ def, value, onChange }: SettingProps<string>) {
   useStore((s) => s.packs.installedPacks);
-  const picked = useDockPlateaus(def);
   const swatches = cliffArtChoices().map((c) => ({
     value: c.value ?? DEFAULT_ART,
     label: c.label,
     // A painted border is pictured by the texture it takes until one is picked.
     art: c.value === PAINTED_BORDER ? defaultBorderTexture() : cliffArt(c.value).values().next().value?.id,
   }));
-  return (
-    <SwatchPicker
-      label={swatchLabel(def)}
-      name={def.label}
-      swatches={swatches}
-      value={picked.length > 0 ? cliffArtValue(picked[0].edgeArt) : value}
-      onPick={(v) => (picked.length > 0 ? writePlateaus('Cliff art', picked, (p) => ({ edgeArt: edgeArtFor(v, p.edgeArt) })) : onChange(v))}
-    />
-  );
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} compact={def.home === 'dock'} />;
+}
+
+/** The outdoor floors the Material brush lists, read live; a floor stored that is no longer offered still shows as what it is. */
+function floorSwatches(shown: string) {
+  const options = borderTextureChoices();
+  if (shown && !options.some((o) => o.value === shown)) options.push({ value: shown, label: materialLabel(shown) });
+  return options.map((o) => ({ ...o, art: o.value }));
 }
 
 /** A painted border's texture: the outdoor floors the Material brush lists, read live as the cliff sets are. */
 export function BorderTextureField({ def, value, onChange }: SettingProps<string>) {
   useStore((s) => s.packs.installedPacks);
-  const picked = useDockPlateaus(def);
-  const shown = picked.length > 0 ? (paintedBorderTexture(picked[0].edgeArt) ?? '') : value;
-  const options = borderTextureChoices();
-  // A border saved in a floor that is no longer offered still shows as what it is.
-  if (shown && !options.some((o) => o.value === shown)) options.push({ value: shown, label: materialLabel(shown) });
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={floorSwatches(value)} value={value} onPick={onChange} compact={def.home === 'dock'} />;
+}
+
+/**
+ * A slope's face texture: Ground (pictured by the map's base ground, when it has one), then
+ * every installed face tile; read live, as the cliff sets are.
+ */
+export function FaceArtField({ def, value, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const groundArt = useStore((s) => s.mapSettings.ground?.textureId);
+  const swatches = [{ value: GROUND_FACE, label: 'Ground', art: groundArt }, ...faceTiles().map((t) => ({ value: t.id, label: t.label, art: t.id }))];
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} compact={def.home === 'dock'} />;
+}
+
+/**
+ * A plateau's top texture: Ground (the top shows what is under it, pictured by the map's base
+ * ground), then the outdoor floors the Material brush lists; read live.
+ */
+export function TopArtField({ def, value, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const groundArt = useStore((s) => s.mapSettings.ground?.textureId);
+  const swatches = [{ value: GROUND_TOP, label: 'Ground', art: groundArt }, ...floorSwatches(value === GROUND_TOP ? '' : value)];
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} compact={def.home === 'dock'} />;
+}
+
+/** A slope's Direction on the card: the dial alone, showing the plateau's own direction (or, saved without one, the map's). */
+export function DirectionField({ def, value, onChange }: SettingProps<number>) {
   return (
-    <SwatchPicker
-      label={swatchLabel(def)}
-      name={def.label}
-      swatches={options.map((o) => ({ ...o, art: o.value }))}
-      value={shown}
-      onPick={(id) => (picked.length > 0 ? writePlateaus('Border texture', picked, () => ({ edgeArt: paintedBorderArt(id) })) : onChange(id))}
-    />
+    <div data-composite="direction-field" className="flex w-[248px] flex-col gap-1 py-1">
+      <span className="text-[12px] text-text-2">{def.label}</span>
+      <FaceDial label={def.label} value={value} onChange={onChange} />
+    </div>
   );
 }
 
-/** Slope cells for each cell of drop, in half cells; the hint says what the number means. */
-export function SlopeField({ def, value, onChange }: SettingProps<number>) {
-  const r = def.range;
-  return (
-    <SettingRow label={def.label}>
-      <span className="flex items-center gap-2">
-        <span className="text-[11px] text-text-3">cells per cell of drop</span>
-        <Stepper label={def.label} value={value} min={r?.min} max={r?.max} step={r?.step} onValueChange={onChange} />
-      </span>
-    </SettingRow>
-  );
+/** The Slope direction on the Elevation dock: the next plateau's, and the picked plateaus'. */
+export function SlopeDirectionField({ def, value, onChange }: SettingProps<number>) {
+  return <FaceDial label={def.label} value={value} onChange={onChange} />;
 }
 
 /** The map's crossing kinds, Default (the edge's own) first. */

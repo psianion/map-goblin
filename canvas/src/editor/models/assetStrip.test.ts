@@ -46,7 +46,7 @@ const CATALOGUE = [
   // A cave kit: rock the walk lays along the floor edge, shipped as objects.
   { id: 'p:cave_bend', type: 'object', set: 'GG_Cave', material: 'inside_bend' },
   { id: 'p:cave_short', type: 'object', set: 'GG_Cave', material: 'wall_short' },
-].map((e) => ({ ...e, packId: e.id.split(':')[0], label: e.id.split(':')[1].replace(/_/g, ' ') }));
+].map((e) => ({ ...e, packId: e.id.split(':')[0], label: e.id.split(':')[1].replace(/_/g, ' '), tags: [] as string[] }));
 /** Entries a test adds for itself; emptied after each. */
 const EXTRA: typeof CATALOGUE = [];
 const all = () => [...CATALOGUE, ...EXTRA];
@@ -154,6 +154,12 @@ describe('strip candidates per tab', () => {
     ]);
   });
 
+  it('floors: never offers a slope’s face tile, which only its Face picker lists', () => {
+    EXTRA.push({ id: 'gg-forge:face_stone_4x4_floor_A', type: 'floor', packId: 'gg-forge', label: 'face stone', tags: ['face', 'stone'] });
+    expect(floorCandidates([], undefined, undefined)).not.toContain('gg-forge:face_stone_4x4_floor_A');
+    expect(floorCandidates([], undefined, undefined)).toContain('gg-forge:flagstone');
+  });
+
   it('walls: sets of the recent pieces first, then the layer set, then every set', () => {
     expect(wallSetCandidates(['p:wood_straight', 'p:crate', 'p:stone_corner'], 'GG_Brick')).toEqual([
       'GG_Wood',
@@ -193,7 +199,7 @@ describe('strip candidates per tab', () => {
 
   it('props: eight tiles, starred first, then recents, then the catalogue, each once', () => {
     EXTRA.push(
-      ...['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((n) => ({ id: `p:obj_${n}`, type: 'object', packId: 'p', label: `obj ${n}` })),
+      ...['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((n) => ({ id: `p:obj_${n}`, type: 'object', packId: 'p', label: `obj ${n}`, tags: [] })),
     );
     const out = propCandidates(['p:obj_b', 'p:crate'], [], ['p:crate', 'p:obj_a']);
     expect(PROP_STRIP_CAP).toBe(8);

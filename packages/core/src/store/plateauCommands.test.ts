@@ -69,6 +69,29 @@ describe('setPlateauFields', () => {
     expect(setPlateauFields('outcrop', { borderWidth: 0 })).toBeNull();
     expect(setPlateauFields('outcrop', { borderWidth: Number.NaN })).toBeNull();
   });
+
+  it('sets a slope’s face texture and its own direction, kept to 0..360, undoably', () => {
+    exec(setPlateauFields('outcrop', { edge: 'slope', faceArt: 'gg-forge:face_stone_4x4_floor_A', faceDir: -45 }));
+    expect(find<PlateauChild>('outcrop')).toMatchObject({ faceArt: 'gg-forge:face_stone_4x4_floor_A', faceDir: 315 });
+    // Ground stores nothing, and a direction taken off falls back to the map's.
+    exec(setPlateauFields('outcrop', { faceArt: undefined, faceDir: undefined }));
+    expect(find<PlateauChild>('outcrop')!.faceArt).toBeUndefined();
+    expect(find<PlateauChild>('outcrop')!.faceDir).toBeUndefined();
+    undoManager.undo();
+    expect(find<PlateauChild>('outcrop')!.faceDir).toBe(315);
+    expect(setPlateauFields('outcrop', { faceDir: Number.NaN })).toBeNull();
+    expect(setPlateauFields('outcrop', { faceArt: '' })).toBeNull();
+  });
+
+  it('sets a plateau’s top texture undoably, Ground storing nothing, and refuses an empty one', () => {
+    exec(setPlateauFields('outcrop', { topArt: 'gg-forge:wild_grass_8x8_floor_A' }));
+    expect(find<PlateauChild>('outcrop')!.topArt).toBe('gg-forge:wild_grass_8x8_floor_A');
+    exec(setPlateauFields('outcrop', { topArt: undefined }));
+    expect(find<PlateauChild>('outcrop')!.topArt).toBeUndefined();
+    undoManager.undo();
+    expect(find<PlateauChild>('outcrop')!.topArt).toBe('gg-forge:wild_grass_8x8_floor_A');
+    expect(setPlateauFields('outcrop', { topArt: '' })).toBeNull();
+  });
 });
 
 describe('map rules', () => {

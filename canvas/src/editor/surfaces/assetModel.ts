@@ -11,6 +11,7 @@ import {
   propEntries,
   type CatalogEntry,
 } from '@dnd/core/src/assets/packCatalog';
+import { isFaceTile } from '@dnd/core/src/assets/materialKit';
 import { pathPieceLabel, pathPieces } from '@dnd/core/src/assets/pathKit';
 import type { Layer } from '@/store/types';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
@@ -59,7 +60,7 @@ function setTile(setId: string, pieces: readonly CatalogEntry[]): AssetTile | nu
 export function assetTiles(chip: AssetChip, query: string): AssetTile[] {
   switch (chip) {
     case 'textures':
-      return searchProps(getEntriesByType('floor'), query).map((e) => ({ key: e.id, id: e.id, name: e.label, packId: e.packId }));
+      return searchProps(getEntriesByType('floor').filter((e) => !isFaceTile(e)), query).map((e) => ({ key: e.id, id: e.id, name: e.label, packId: e.packId }));
     case 'paths':
       return searchProps(pathPieces(), query).map((e) => ({ key: e.id, id: e.id, name: pathPieceLabel(e), packId: e.packId }));
     case 'props':

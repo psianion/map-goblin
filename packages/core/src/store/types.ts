@@ -59,6 +59,11 @@ export interface MapSettings extends MapEnvironment {
   cellScale: { value: number; unit: string };
   /** The map's mood tint — the base of the grade, "this world in neutral daylight". */
   ambientLight: string;
+  /**
+   * A tint of its own per time of day, '#rrggbb', in place of `ambientLight` at that time. A
+   * time with none, and every map made before these, uses `ambientLight`.
+   */
+  timeTints?: Partial<Record<TimeOfDay, string>>;
   /** Authored default for the living-fog cloud (D7). Absent ⇒ the shader's own
    * `DEFAULT_FOG_LOOK` (session/client/src/modules/fog/livingFog.ts) — matches every other
    * optional field here, a pre-fog save just reads as never having set one. */
@@ -93,6 +98,12 @@ export interface MapSettings extends MapEnvironment {
   sightDropCells: number;
   /** The DM's crossing rules, picked by cliff edges and bridges. */
   crossingKinds: CrossingKind[];
+  /**
+   * The way slope faces point for a plateau saved without its own, degrees on screen (0 right,
+   * 90 down). Absent = 60, lower right (`DEFAULT_FACE_DIRECTION`). It never follows the sun.
+   * Read only: every new slope plateau stores its own direction.
+   */
+  faceDirection?: number;
 }
 
 /** The map's sight threshold and crossing kinds, as one patch (`setMapRules`). */
@@ -394,6 +405,16 @@ export interface PlateauToolSettings {
   edgeArt?: string;
   /** A painted border's width, cells (`PlateauChild.borderWidth`). Absent = its default. */
   borderWidth?: number;
+  /** A slope's face texture, as the plateau stores it (`PlateauChild.faceArt`). Absent = Ground. */
+  faceArt?: string;
+  /** A slope's face direction, degrees (`PlateauChild.faceDir`). Absent = the map's stored one, else 60. */
+  faceDir?: number;
+  /** The top's texture, as the plateau stores it (`PlateauChild.topArt`). Absent = Ground. */
+  topArt?: string;
+  /** Click points (pen) or paint the area with a round brush. Absent = pen. */
+  input?: 'pen' | 'brush';
+  /** The brush's radius, cells. Absent = 1. */
+  brushRadius?: number;
 }
 
 export interface ZoneToolSettings {
@@ -865,6 +886,8 @@ export interface MapBuilderStore {
   setMapGround: (ground: MapSettings['ground']) => void;
   setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
+  /** One time of day's own tint; null takes it away, so the time uses `ambientLight` again. */
+  setTimeTint: (time: TimeOfDay, color: string | null) => void;
   setFogLook: (look: FogLook | undefined) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setMapRules: (patch: MapRules) => void;

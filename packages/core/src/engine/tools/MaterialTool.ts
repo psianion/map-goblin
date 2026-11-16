@@ -20,6 +20,7 @@ import { carveFloors, pieceRegion, shownRegion, type SoftErase } from './eraseSh
 import { cutToFrame } from '../mapFrame';
 import { bakedFades, clearFades, featherOf } from '../../shared/pieceFades';
 import { tidyRings } from '../../shared/tidyRings';
+import { plateauTopTiles, slopeFaceTiles } from '../plateauRenderer';
 
 /** The stroke drawn while painting: the brush's sweep, before it closes into a piece. */
 const SWEEP_PAINT = 0x8f877b;
@@ -138,11 +139,21 @@ export function hasPieceLook(shape: ShapeChild, look: PieceLook): boolean {
  * The piece a stroke over `area` merges into: the topmost visible, unlocked ground piece of
  * the same look that it touches, and only when no piece above that one overlaps the stroke.
  * Merging into a buried piece would put the new paint under what covers it, so such a
- * stroke lands as a new piece on top instead. Null for none.
+ * stroke lands as a new piece on top instead. A slope's face texture or a plateau's top texture
+ * above that piece which the stroke touches is in the way the same: the paint must show on
+ * the face or the top. Null for none.
  */
 export function mergeTarget(layer: DungeonLayer, area: Polygon[], look: PieceLook): ShapeChild | null {
+  const faces = slopeFaceTiles(layer);
+  const tops = plateauTopTiles(layer);
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const c = layer.children[i];
+    if (c.childType === 'plateau') {
+      for (const rings of [faces.get(c), tops.get(c)]) {
+        if (rings && patchArea(clipper2Engine.intersection(rings, area)) > TOUCH) return null;
+      }
+      continue;
+    }
     if (c.childType !== 'shape' || c.visible === false) continue;
     if (patchArea(clipper2Engine.intersection(shownRegion(layer, c), area)) <= TOUCH) continue;
     // The topmost piece under the stroke: the one to merge into, or the one in the way.

@@ -21,6 +21,25 @@ const NOON_SKY = skyFrame({ environment: 'outdoor', time: 'day' });
 const NIGHT_SKY = skyFrame({ environment: 'outdoor', time: 'night' });
 const WHITE = '#ffffff';
 
+describe('regionGrade with a time of day tinted on its own', () => {
+  const tints = { night: '#ff0000' };
+
+  it('a red Night draws in red, not in the map tint', () => {
+    const red = regionGrade({ place: 'outdoor', tint: WHITE }, skyFrame({ environment: 'outdoor', time: 'night', timeTints: tints }));
+    const plain = regionGrade({ place: 'outdoor', tint: WHITE }, NIGHT_SKY);
+    expect(red).not.toBe(plain);
+    // Red only: the green and blue channels go to nothing.
+    expect(red.slice(3)).toBe('0000');
+    expect(plain.slice(3)).not.toBe('0000');
+  });
+
+  it('Day is untouched by Night’s tint', () => {
+    const day = skyFrame({ environment: 'outdoor', time: 'day', timeTints: tints });
+    expect(regionGrade({ place: 'outdoor', tint: '#aabbcc' }, day)).toBe(regionGrade({ place: 'outdoor', tint: '#aabbcc' }, NOON_SKY));
+    expect(regionGrade({ place: 'outdoor', tint: '#aabbcc' }, day)).toBe('#aabbcc');
+  });
+});
+
 describe('regionGrade: three places × two skies', () => {
   it('an Outdoor region at noon is its tint, untouched', () => {
     expect(regionGrade({ place: 'outdoor', tint: '#aabbcc' }, NOON_SKY)).toBe('#aabbcc');

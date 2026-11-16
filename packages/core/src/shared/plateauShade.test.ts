@@ -7,22 +7,38 @@ import {
   DROP_SHADE_ALPHA,
   SUN_SHADOW_ALPHA,
   SUN_SHADOW_BACK,
-  SLOPE_MAX_WIDTH,
-  contourOffsets,
-  offsetPath,
-  slopeRamp,
-  slopeWidthOf,
+  DEFAULT_FACE_DIRECTION,
+  FACE_DEPTH_MAX,
+  FACE_DEPTH_WANDER,
+  FACE_LEDGE,
+  FACE_LEDGE_JITTER,
+  FACE_LEDGE_STEP,
+  FACE_LIFT_ALPHA,
+  FACE_LIFT_COLOR,
+  FACE_TILE_KEEP,
   dropShadeWidth,
+  faceBandCount,
+  faceBandShades,
+  faceDepth,
+  faceDirectionOf,
+  faceReach,
+  faceVector,
+  highlightWeight,
+  ledgeSteps,
   leeSweeps,
+  linesOff,
   nestedAlphas,
-  slopeBandAlpha,
-  slopeSunFactor,
+  offsetPath,
+  rimWeight,
+  slopeFace,
   stackedAlpha,
   sunShadowLength,
+  wobbleSeed,
+  wrapDirection,
 } from './plateauShade';
 import { CLIFF_SHADOW_FADE, cliffShadowParts, reliefShadowParts } from '../engine/shadowPass';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { pointInPoly } from './plateaus';
+import { layerPlateaus, pointInPoly } from './plateaus';
 import type { DungeonLayer, PlateauChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 
@@ -133,11 +149,60 @@ describe('the sun shadow off an edge', () => {
     }
   });
 
+  it('sweeps each stretch of an edge by its own drop: shorter onto a +1 beside a +3 than onto the ground', () => {
+    const look = { dx: 1, dy: 0, length: 1, alpha: 0.4, color: '#000000' };
+    const mesa = plat('mesa', 10, 10, 16, 16, { height: 3 });
+    // Against the lower half of the mesa's right edge, standing on the ground beside it.
+    const shelf = plat('shelf', 15, 13, 22, 19, { height: 1 });
+    const parts = cliffShadowParts(layerOf([mesa, shelf]), look, GROUND);
+    const fill = parts.flatMap((p) => p.fill);
+    const reach = (y: number) => {
+      let x = 16;
+      while (inAny([x + 0.02, y], fill)) x += 0.02;
+      return x - 16;
+    };
+    expect(reach(11.5)).toBeCloseTo(sunShadowLength(3), 1);
+    expect(reach(14.5)).toBeCloseTo(sunShadowLength(2), 1);
+    // Per segment, the sweep itself.
+    const run: Polygon = [[16, 10], [16, 13], [16, 16]];
+    const [a, b] = leeSweeps(run, false, true, look, [2.6, 2]);
+    expect(Math.max(...a.map((p) => p[0]))).toBeCloseTo(18.6);
+    expect(Math.max(...b.map((p) => p[0]))).toBeCloseTo(18);
+  });
+
+  it('never lands on a curved caster’s own top', () => {
+    const ring: Polygon = [[20, 6], [27, 5], [29.5, 9.5], [25, 13], [19.5, 11.5]];
+    const tangents = ring.map((p, i) => {
+      const a = ring[(i - 1 + ring.length) % ring.length];
+      const b = ring[(i + 1) % ring.length];
+      const t = [(b[0] - a[0]) / 6, (b[1] - a[1]) / 6];
+      return { tin: [p[0] - t[0], p[1] - t[1]] as [number, number], tout: [p[0] + t[0], p[1] + t[1]] as [number, number] };
+    });
+    const curve = { ...plat('curve', 0, 0, 0, 0, { height: 2, edge: 'slope', faceDir: 60 }), contours: [ring], tangents: [tangents] };
+    for (const look of [{ dx: -0.8, dy: 0.6 }, { dx: -1, dy: 0 }, { dx: 0.6, dy: 0.8 }]) {
+      const shown = cliffShadowParts(layerOf([curve]), { ...look, length: 1, alpha: 0.4, color: '#000000' }, GROUND).flatMap(({ fill, clip }) => clipper2Engine.intersection(fill, clip));
+      const top = layerPlateaus(layerOf([curve])).bands[0].rings;
+      const onTop = clipper2Engine.intersection(shown, clipper2Engine.inflate(top, -0.05));
+      expect(onTop.flat()).toEqual([]);
+    }
+  });
+
   it('never lands on the caster’s own top', () => {
     const look = { dx: 1, dy: 0, length: 1, alpha: 0.4, color: '#000000' };
     const [{ clip }] = cliffShadowParts(layerOf([plat('top', 10, 10, 16, 16, { height: 2 })]), look, GROUND);
     expect(inAny([15.9, 13], clip)).toBe(false);
     expect(inAny([16.1, 13], clip)).toBe(true);
+  });
+
+  it('casts off a slope too, from the foot of its own face', () => {
+    const look = { dx: 0, dy: 1, length: 1, alpha: 0.4, color: '#000000' };
+    const parts = cliffShadowParts(layerOf([plat('hill', 10, 10, 16, 16, { height: 1, edge: 'slope', faceDir: 90 })]), look, GROUND);
+    expect(parts).toHaveLength(1);
+    const [{ fill, clip }] = parts;
+    expect(inAny([13, 16.5], fill)).toBe(true);
+    // Not on the face under the bottom edge, from its foot on, however far the foot wanders.
+    expect(inAny([13, 16 + faceDepth(1) / 2], clip)).toBe(false);
+    expect(inAny([13, 16 + faceReach(1) + 0.02], clip)).toBe(true);
   });
 });
 
@@ -186,70 +251,238 @@ describe('the shadow of a floor or patch with a height', () => {
   });
 });
 
-describe('the slope', () => {
-  it('shades from none at the top to 40 % at the foot, in steps under 12/255 on white', () => {
-    const steps = Array.from({ length: 16 }, (_, k) => slopeBandAlpha(k));
-    expect(steps[0]).toBeLessThan(0.02);
-    expect(steps[15]).toBeGreaterThan(0.38);
-    expect(steps[15]).toBeLessThanOrEqual(0.4);
-    for (let k = 1; k < 16; k++) expect((steps[k] - steps[k - 1]) * 255).toBeLessThan(12);
+describe('the slope face', () => {
+  // A 4 x 4 plateau's ring, outside on the left of travel (as the bands wind theirs).
+  const ring: Polygon = [[2, 2], [6, 2], [6, 6], [2, 6]];
+  const box = (rings: Polygon[]) => {
+    const pts = rings.flat();
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  };
+  const area = (rings: Polygon[]) =>
+    rings.reduce((sum, r) => sum + r.reduce((a, p, i) => a + p[0] * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * p[1], 0) / 2, 0);
+
+  it('lays one ledge more than the drop, each 0.18 thick: 2 at 1 up to 5 from 4', () => {
+    expect(FACE_LEDGE).toBeCloseTo(0.18);
+    expect([1, 2, 3, 4, 7].map(faceBandCount)).toEqual([2, 3, 4, 5, 5]);
+    expect(faceBandCount(-2)).toBe(3);
+    expect(faceDepth(1)).toBeCloseTo(0.36);
+    expect(faceDepth(2)).toBeCloseTo(0.54);
+    expect(faceDepth(-3)).toBeCloseTo(0.72);
+    expect(faceDepth(4)).toBeCloseTo(0.9);
+    expect(faceDepth(9)).toBeCloseTo(FACE_DEPTH_MAX);
+    expect(FACE_DEPTH_MAX).toBeCloseTo(0.9);
+    expect(faceReach(2)).toBeCloseTo(faceDepth(2) * (1 + FACE_DEPTH_WANDER));
   });
 
-  it('keeps 60 % of its shade on the face square to the sun, all of it turned away or indoors', () => {
-    const look = { dx: 1, dy: 0 };
-    expect(slopeSunFactor([-1, 0], look)).toBeCloseTo(0.6);
-    expect(slopeSunFactor([1, 0], look)).toBe(1);
-    expect(slopeSunFactor([0, 1], look)).toBe(1);
-    expect(slopeSunFactor([-1, 0], null)).toBe(1);
-  });
-
-  it('rings one contour a cell of drop, evenly spaced inside the band', () => {
-    expect(contourOffsets(1, 1)).toEqual([0.5]);
-    expect(contourOffsets(2, 1.5)).toEqual([0.5, 1]);
-    expect(contourOffsets(-3, 1)).toEqual([0.25, 0.5, 0.75]);
-  });
-
-  it('is the card’s slope width wide whatever the drop, 1 when unset, at most 3', () => {
-    expect(slopeWidthOf(undefined)).toBe(1);
-    expect(slopeWidthOf(2.5)).toBe(2.5);
-    expect(slopeWidthOf(9)).toBe(SLOPE_MAX_WIDTH);
-    expect(SLOPE_MAX_WIDTH).toBe(3);
-  });
-
-  it('lays its band outside the outline only, out to its width, rounded at convex corners', () => {
-    // A 4 x 3.5 plateau's ring, outside on the left of travel.
-    const ring: Polygon = [[2, 2], [6, 2], [6, 5.5], [2, 5.5]];
-    const faces = slopeRamp(ring, true, true, 1);
-    const pts = faces.flatMap((f) => f.bands.flat());
-    for (const [x, y] of pts) {
-      // Never inside the top…
-      expect(x > 2 + 1e-9 && x < 6 - 1e-9 && y > 2 + 1e-9 && y < 5.5 - 1e-9).toBe(false);
-      // …and never further from it than the band is wide.
-      const dx = Math.max(2 - x, 0, x - 6);
-      const dy = Math.max(2 - y, 0, y - 5.5);
-      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(1 + 1e-9);
+  it('over plain ground darkens only, 0.80 at the rim down to 0.54 at the foot in even steps (0.56 with two)', () => {
+    for (const n of [2, 3, 4, 5]) {
+      const shades = faceBandShades(n, false);
+      expect(shades).toHaveLength(n);
+      expect(shades.every((s) => s && !s.add)).toBe(true);
+      expect(shades[0]!.alpha).toBeCloseTo(0.2);
+      expect(shades[n - 1]!.alpha).toBeCloseTo(n === 2 ? 0.44 : 0.46);
+      const steps = shades.slice(1).map((s, k) => s!.alpha - shades[k]!.alpha);
+      for (const d of steps) expect(d).toBeCloseTo(steps[0], 9);
     }
-    // Four sides and a fan at each corner.
-    expect(faces.filter((f) => Math.abs(f.normal[0]) === 1 || Math.abs(f.normal[1]) === 1).length).toBe(4);
-    expect(faces.length).toBeGreaterThan(8);
-    for (const f of faces) expect(f.bands).toHaveLength(16);
-    // The contour at 0.5 rounds each corner at 0.5 from it.
-    const line = offsetPath(ring, true, true, 0.5);
+    expect(faceBandShades(3, false).map((s) => 1 - s!.alpha)).toEqual([expect.closeTo(0.8), expect.closeTo(0.67), expect.closeTo(0.54)]);
+  });
+
+  it('over a face tile lifts the top ledge, darkens the last, the one above it half as far at 4 and 5, and leaves the rest', () => {
+    const lift = { add: true, color: FACE_LIFT_COLOR, alpha: FACE_LIFT_ALPHA };
+    const dark = { add: false, alpha: 1 - FACE_TILE_KEEP };
+    const half = { add: false, alpha: (1 - FACE_TILE_KEEP) / 2 };
+    expect(FACE_TILE_KEEP).toBeCloseTo(0.74);
+    expect(faceBandShades(2, true)).toEqual([expect.objectContaining(lift), expect.objectContaining(dark)]);
+    expect(faceBandShades(3, true)).toEqual([expect.objectContaining(lift), null, expect.objectContaining(dark)]);
+    const four = faceBandShades(4, true);
+    expect(four[0]).toMatchObject(lift);
+    expect(four[1]).toBeNull();
+    expect(four[2]!.alpha).toBeCloseTo(half.alpha);
+    expect(four[3]).toMatchObject(dark);
+    const five = faceBandShades(5, true);
+    expect(five.map((s) => (s ? (s.add ? 'lift' : s.alpha > 0.2 ? 'dark' : 'half') : null))).toEqual(['lift', null, null, 'half', 'dark']);
+  });
+
+  it('points 0 right and 90 down, 60 by default, the plateau’s own over the map’s', () => {
+    expect(faceVector(0)[0]).toBeCloseTo(1);
+    expect(faceVector(90)[1]).toBeCloseTo(1);
+    expect(faceDirectionOf(null, undefined)).toBe(DEFAULT_FACE_DIRECTION);
+    expect(DEFAULT_FACE_DIRECTION).toBe(60);
+    expect(faceDirectionOf({}, 135)).toBe(135);
+    expect(faceDirectionOf({ faceDir: 30 }, 135)).toBe(30);
+    expect(wrapDirection(-15)).toBe(345);
+    expect(wrapDirection(375)).toBe(15);
+  });
+
+  /** How far below y = `rim` the rings reach at `x`: the face's width there. */
+  const footAt = (rings: Polygon[], x: number, rim: number) => {
+    let best = -Infinity;
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i++) {
+        const [ax, ay] = r[i];
+        const [bx, by] = r[(i + 1) % r.length];
+        if ((ax - x) * (bx - x) > 0 || ax === bx) continue;
+        best = Math.max(best, ay + ((by - ay) * (x - ax)) / (bx - ax));
+      }
+    }
+    return Math.max(0, best - rim);
+  };
+
+  it('hangs off the bottom edge only of a raised square at 90, F deep, in ledges counted from the rim', () => {
+    const face = slopeFace(ring, true, true, [ring], 90, 1);
+    const b = box(face.region);
+    expect(b.minX).toBeGreaterThan(2 - 1e-6);
+    expect(b.maxX).toBeLessThan(6 + 1e-6);
+    expect(b.minY).toBeCloseTo(6);
+    expect(b.maxY).toBeCloseTo(6 + faceDepth(1));
+    // Two ledges, each FACE_LEDGE thick, rim first.
+    expect(face.bands).toHaveLength(2);
+    expect(footAt(face.steps[0], 4, 6)).toBeCloseTo(FACE_LEDGE);
+    expect(footAt(face.region, 4, 6)).toBeCloseTo(2 * FACE_LEDGE);
+  });
+
+  it('eases into the rim at both ends of a facing stretch: no straight end cut', () => {
+    for (const drop of [1, 3]) {
+      const F = faceDepth(drop);
+      const face = slopeFace(ring, true, true, [ring], 90, drop);
+      // Full in the middle, under a quarter of the depth a tenth of a cell from either end.
+      expect(footAt(face.region, 4, 6)).toBeCloseTo(F);
+      expect(footAt(face.region, 2.1, 6)).toBeLessThan(F / 4);
+      expect(footAt(face.region, 5.9, 6)).toBeLessThan(F / 4);
+      // And it rises without a step along the way.
+      let last = 0;
+      for (let x = 2.02; x <= 4; x += 0.04) {
+        const at = footAt(face.region, x, 6);
+        expect(at + 1e-3).toBeGreaterThanOrEqual(last);
+        last = at;
+      }
+    }
+  });
+
+  it('runs on to the end of an open run whose end goes on under a higher plateau', () => {
+    // The bottom edge alone, travelling right to left so its low side is below.
+    const run: Polygon = [[6, 6], [2, 6]];
+    const F = faceDepth(2);
+    const runsOn = slopeFace(run, false, true, [ring], 90, 2, undefined, { start: false, end: false });
+    expect(footAt(runsOn.region, 2.1, 6)).toBeCloseTo(F);
+    expect(footAt(runsOn.region, 5.9, 6)).toBeCloseTo(F);
+    const eases = slopeFace(run, false, true, [ring], 90, 2, undefined, { start: true, end: false });
+    expect(footAt(eases.region, 5.9, 6)).toBeLessThan(F / 4);
+    expect(footAt(eases.region, 2.1, 6)).toBeCloseTo(F);
+  });
+
+  it('does not end the face at a short turned-away notch in a jagged edge', () => {
+    // A bottom edge with a 0.2 cell notch turned away (its low side faces up) in the middle.
+    const jag: Polygon = [[2, 2], [6, 2], [6, 6], [4.1, 6], [4.1, 5.8], [3.9, 5.8], [3.9, 6], [2, 6]];
+    const face = slopeFace(jag, true, true, [jag], 90, 1);
+    expect(footAt(face.region, 3.7, 6)).toBeCloseTo(faceDepth(1));
+    expect(footAt(face.region, 4.3, 6)).toBeCloseTo(faceDepth(1));
+  });
+
+  it('lays four ledges where the drop is 3 and three where it is 2, the top three unbroken across the join', () => {
+    const run: Polygon = [[12, 4], [6, 4], [0, 4]];
+    const top: Polygon = [[0, 0], [12, 0], [12, 4], [0, 4]];
+    const face = slopeFace(run, false, true, [top], 90, [3, 2], undefined, { start: false, end: false });
+    expect(face.bands).toHaveLength(4);
+    // The foot: 4 ledges on the drop of 3, 3 on the drop of 2, eased over FACE_JOIN round x = 6.
+    expect(footAt(face.region, 9, 4)).toBeCloseTo(4 * FACE_LEDGE);
+    expect(footAt(face.region, 3, 4)).toBeCloseTo(3 * FACE_LEDGE);
+    const mid = footAt(face.region, 6, 4);
+    expect(mid).toBeGreaterThan(3 * FACE_LEDGE);
+    expect(mid).toBeLessThan(4 * FACE_LEDGE);
+    // The lowest ledge only where the drop is 3; the upper three run the whole edge at full depth.
+    expect(footAt(face.bands[3], 3, 4)).toBe(0);
+    expect(footAt(face.bands[3], 9, 4)).toBeCloseTo(4 * FACE_LEDGE);
+    for (let k = 0; k < 3; k++) {
+      for (const x of [1, 3, 5.5, 6, 6.5, 9, 11]) expect(footAt(face.steps[k], x, 4), `ledge ${k} at ${x}`).toBeCloseTo((k + 1) * FACE_LEDGE);
+    }
+  });
+
+  it('moves round the outline as the direction turns', () => {
+    const right = box(slopeFace(ring, true, true, [ring], 0, 2).region);
+    expect(right.minX).toBeCloseTo(6);
+    expect(right.maxX).toBeCloseTo(6 + faceDepth(2));
+    expect(right.minY).toBeGreaterThan(2 - 1e-6);
+    expect(right.maxY).toBeLessThan(6 + 1e-6);
+    // Lower right: the bottom and right edges both, never the top or left.
+    const lowerRight = slopeFace(ring, true, true, [ring], 45, 2).region;
+    for (const [x, y] of lowerRight.flat()) expect(x >= 6 - 1e-6 || y >= 6 - 1e-6).toBe(true);
+  });
+
+  it('shows a pit’s far wall inside its top rim', () => {
+    const face = slopeFace(ring, true, false, [ring], 90, -2);
+    const b = box(face.region);
+    expect(b.minY).toBeCloseTo(2);
+    expect(b.maxY).toBeCloseTo(2 + faceDepth(2));
+    expect(b.minX).toBeGreaterThan(2 - 1e-6);
+    expect(b.maxX).toBeLessThan(6 + 1e-6);
+    expect(face.bands).toHaveLength(3);
+  });
+
+  it('lines the foot of a face, never the rim it hangs from, the foot meeting the rim at the ends', () => {
+    const face = slopeFace(ring, true, true, [ring], 90, 1);
+    const lines = linesOff(face.region, [ring]);
+    const pts = lines.flat();
+    expect(pts.length).toBeGreaterThan(0);
+    // Every stretch has a point below the rim: none runs along it.
+    for (const l of lines) expect(Math.max(...l.map((p) => p[1]))).toBeGreaterThan(6 + 0.1);
+    // The foot runs the bottom, coming in to the rim near either corner.
+    expect(Math.min(...pts.map((p) => p[0]))).toBeLessThan(2.25);
+    expect(Math.max(...pts.map((p) => p[0]))).toBeGreaterThan(5.75);
+  });
+
+  it('with a seed, wanders its depth and steps its ledges along the edge, the same every time', () => {
+    const wide: Polygon = [[0, 0], [12, 0], [12, 4], [0, 4]];
+    const seed = wobbleSeed('mesa');
+    const face = slopeFace(wide, true, true, [wide], 90, 2, seed);
+    // The foot along the bottom edge away from its eased ends: deeper and shallower than F, within the wander.
+    const F = faceDepth(2);
+    const xs = Array.from({ length: 19 }, (_, i) => 1.5 + i * 0.5);
+    const feet = xs.map((x) => footAt(face.region, x, 4));
+    expect(Math.max(...feet)).toBeGreaterThan(F * 1.05);
+    expect(Math.min(...feet)).toBeLessThan(F * 0.95);
+    for (const d of feet) {
+      expect(d).toBeLessThanOrEqual(faceReach(2) + 1e-6);
+      expect(d).toBeGreaterThanOrEqual(F * (1 - FACE_DEPTH_WANDER) - 1e-6);
+    }
+    // The first ledge's boundary is no ruled line: its share of the depth varies along the edge, in steps.
+    const ledge = xs.map((x, i) => footAt(face.steps[0], x, 4) / feet[i]);
+    expect(Math.max(...ledge) - Math.min(...ledge)).toBeGreaterThan(0.05);
+    for (const s of ledge) expect(s).toBeGreaterThan(0.15);
+    // Three bands still make the face, nested rim to foot.
+    expect(face.bands).toHaveLength(3);
+    expect(area(face.bands.flat())).toBeCloseTo(area(face.region), 3);
+    // The same seed draws the same rock.
+    expect(slopeFace(wide, true, true, [wide], 90, 2, seed).region).toEqual(face.region);
+  });
+
+  it('keeps its ledge boundaries within half a ledge of their places, so they stay in order', () => {
+    for (const seed of [1, 99, wobbleSeed('a'), wobbleSeed('summit')]) {
+      for (const n of [2, 3, 5]) {
+        const steps = ledgeSteps(seed, n);
+        expect(steps).toHaveLength(n - 1);
+        for (let u = 0; u < 20; u += 0.07) for (const s of steps) expect(Math.abs(s(u))).toBeLessThanOrEqual(FACE_LEDGE_STEP + FACE_LEDGE_JITTER + 1e-9);
+      }
+    }
+    expect(FACE_LEDGE_STEP + FACE_LEDGE_JITTER).toBeLessThan(0.5);
+  });
+
+  it('weighs the rim by how squarely the edge faces the direction, and the highlight the other way', () => {
+    expect(rimWeight(1)).toBe(1);
+    expect(rimWeight(-1)).toBe(0);
+    expect(highlightWeight(-1)).toBe(1);
+    expect(highlightWeight(1)).toBe(0);
+  });
+
+  it('pushes a line onto the top, rounded at each corner', () => {
+    // The highlight is laid along the rim pushed to its high side.
+    const line = offsetPath(ring, true, false, 0.5);
     for (const [x, y] of line) {
-      const dx = Math.max(2 - x, 0, x - 6);
-      const dy = Math.max(2 - y, 0, y - 5.5);
-      expect(Math.hypot(dx, dy)).toBeCloseTo(0.5, 6);
-    }
-  });
-
-  it('mitres a pit’s band inside its rim without crossing itself', () => {
-    const ring: Polygon = [[2, 2], [6, 2], [6, 6], [2, 6]];
-    const faces = slopeRamp(ring, true, false, 1);
-    expect(faces).toHaveLength(4);
-    for (const [x, y] of faces.flatMap((f) => f.bands.flat())) {
-      expect(x).toBeGreaterThanOrEqual(2 - 1e-9);
-      expect(x).toBeLessThanOrEqual(6 + 1e-9);
-      expect(Math.min(x - 2, 6 - x, y - 2, 6 - y)).toBeLessThanOrEqual(1 + 1e-9);
+      const inX = Math.min(x - 2, 6 - x);
+      const inY = Math.min(y - 2, 6 - y);
+      expect(Math.min(inX, inY)).toBeCloseTo(0.5, 6);
     }
   });
 });

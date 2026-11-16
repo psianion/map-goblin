@@ -27,7 +27,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RectangleTool());
   manager.registerTool(new PolygonTool());
   manager.registerTool(new RegularPolygonTool());
-  manager.registerTool(new PlateauTool());
+  manager.registerTool(new PlateauTool(engine, previewContainer));
   manager.registerTool(new WallTool(engine));
   manager.registerTool(new RulerTool());
   manager.registerTool(new TextTool(previewContainer));

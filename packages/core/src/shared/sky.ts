@@ -55,6 +55,8 @@ export interface SkyInput extends MapEnvironment {
   time: TimeOfDay;
   /** The DM's darkness override, 0..1. `null`/absent ⇒ follow the sky. */
   override?: number | null;
+  /** The map's own tint per time of day (`MapSettings.timeTints`). A time with none uses the map's tint. */
+  timeTints?: Partial<Record<TimeOfDay, string>>;
 }
 
 export interface SkyFrame {
@@ -70,6 +72,8 @@ export interface SkyFrame {
   penumbraScale: number;
   nightSky: NightSky;
   weather: Weather;
+  /** The tint this time of day is drawn in, over the region's own (`regionGrade`). Absent = the region's, the map's tint. */
+  tint?: string;
 }
 
 /** Where daylight ramps between: the sun's elevation (−1..1) at which it starts and is full. */
@@ -104,7 +108,9 @@ export function skyFrame(input: SkyInput): SkyFrame {
   const derived = clamp01(1 - daylightAt(minutes, nightSky) * (1 - w.dark));
   const override = input.override;
   const overridden = override !== null && override !== undefined;
+  const tint = input.timeTints?.[input.time];
   return {
+    ...(tint ? { tint } : {}),
     minutes,
     sun,
     // The DM's slider replaces the clock's light outright: under it the hour keeps its sun but
@@ -131,11 +137,11 @@ export function cliffSunAt(frame: SkyFrame, map: MapEnvironment): SunVector {
 }
 
 /**
- * What a memoized frame keys on: the colour and darkness coarsened, plus the casting sun. A
- * continuous darkness in a cache key would be no cache, so it rounds to 1/50.
+ * What a memoized frame keys on: the colour and darkness coarsened, plus the casting sun and the
+ * time's own tint. A continuous darkness in a cache key would be no cache, so it rounds to 1/50.
  */
 export function skyKey(frame: SkyFrame): string {
-  return `${frame.skyColor}|${Math.round(frame.darkness * 50)}|${frame.penumbraScale}`;
+  return `${frame.skyColor}|${Math.round(frame.darkness * 50)}|${frame.penumbraScale}|${frame.tint ?? ''}`;
 }
 
 /**

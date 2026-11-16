@@ -3,11 +3,15 @@
 // all read the same answers from here. Plateaus never touch the floor union, walls or rooms.
 //
 // The rules:
+// - A plateau's height is its own level above the ground, wherever it is drawn: a +1 inside a
+//   +1 stands at 1, a +1 inside a +3 is a dip down to 1, a -1 is below the ground.
 // - A plateau's parent is the innermost plateau on the same layer whose outline holds its
-//   centroid (ties: the smallest area). Heights add up along that chain: the absolute height.
-// - Plateaus merge only with plateaus of the same absolute height: one band per height.
-// - The drop at a point of a band's edge is the band's height minus the height of the
-//   surface just outside: positive faces outward (a plateau), negative inward (a pit).
+//   centroid (ties: the smallest area). Where plateaus overlap, the most deeply nested wins,
+//   the higher on a tie (`surfaceOwnerAt`).
+// - Plateaus merge only with plateaus of the same level: one band per level, nested or not.
+// - The drop at a point of a band's edge is the band's level minus the level of the surface
+//   just outside: positive faces outward (a plateau), negative inward (a pit, or a dip below
+//   the plateau it is drawn in).
 // - A floor or Material brush patch may carry a height of its own: a point stands at the
 //   plateau surface under it plus the height of the topmost floor or patch covering it
 //   (`elevationAt`). That height draws a shadow and nothing else: no wall, no room.
@@ -136,16 +140,30 @@ export interface PlateauInfo {
   parent: PlateauChild | null;
   /** The raised plateaus from the outermost down to this one (itself included when it has a height). */
   chain: PlateauChild[];
-  /** Absolute height in cells: the sum of `height` along the chain. */
+  /** Its level in cells: its own `height`; one with none stands at its parent's level. */
   height: number;
   /** The plateau's outline, flattened and transformed. */
   outline: Polygon;
+  /** Its outline and holes, flattened and transformed: what it holds, by even-odd. */
+  rings: Polygon[];
   area: number;
 }
 
+/** Where two plateaus or bands hold the same point: the more deeply nested, then the higher. */
+export interface Precedence {
+  depth: number;
+  height: number;
+}
+
+/** A plateau's precedence: the length of its chain, then its level. */
+export const precedenceOf = (info: Pick<PlateauInfo, 'chain' | 'height'>): Precedence => ({ depth: info.chain.length, height: info.height });
+
+/** Positive when `a` wins over `b` where both hold a point, negative when `b` does, 0 on a tie. */
+export const byPrecedence = (a: Precedence, b: Precedence): number => a.depth - b.depth || a.height - b.height;
+
 /**
- * Each visible plateau's place in the stack: parent, chain and absolute height. A plateau only
- * ever stands on a larger one (or an equal one drawn before it), so a chain always ends.
+ * Each visible plateau's place in the stack: parent, chain and level. A plateau only ever
+ * stands in a larger one (or an equal one drawn before it), so a chain always ends.
  */
 export function plateauChains(shapes: readonly PlateauChild[]): Map<string, PlateauInfo> {
   const live = shapes.filter((s) => s.visible !== false && (s.contours[0]?.length ?? 0) >= 3);
@@ -179,8 +197,9 @@ export function plateauChains(shapes: readonly PlateauChild[]): Map<string, Plat
       shape: g.s,
       parent,
       chain,
-      height: chain.reduce((sum, s) => sum + ownHeight(s), 0),
+      height: ownHeight(g.s) !== 0 ? ownHeight(g.s) : (up?.height ?? 0),
       outline: g.outline,
+      rings: [g.outline, ...g.s.contours.slice(1).map((_, k) => shapeRing(g.s, k + 1))],
       area: g.area,
     };
     out.set(g.s.id, info);
@@ -190,23 +209,24 @@ export function plateauChains(shapes: readonly PlateauChild[]): Map<string, Plat
   return out;
 }
 
-/** The absolute height of plateau `id` on its layer (0 for an unknown id). */
-export function absoluteHeight(layer: Pick<DungeonLayer, 'children'>, id: string): number {
-  return layerPlateaus(layer).infos.get(id)?.height ?? 0;
-}
-
 // ─── Bands ─────────────────────────────────────────────────
 
 export interface BandEdge {
   /** The band's plateau this edge belongs to. */
   owner: PlateauChild | null;
   edge: EdgeKind;
-  /** Band height minus the surface just outside, in cells. */
+  /** Band level minus the surface just outside, in cells. */
   drop: number;
+  /**
+   * A negative drop up to the ground or to a plateau of the owner's own chain: the rim of a
+   * pit or a dip, which shades and walls its own band. False otherwise (a pit against another
+   * plateau it merely meets: that one's edge is drawn).
+   */
+  dug: boolean;
 }
 
 export interface PlateauBand {
-  /** Absolute height, cells. */
+  /** Level, cells. */
   height: number;
   /** Longest raised chain among its plateaus: bands draw in this order, then by height. */
   depth: number;
@@ -216,6 +236,11 @@ export interface PlateauBand {
    * LEFT of travel (outer rings positive, holes negative): the cave kit's void side.
    */
   rings: Polygon[];
+  /**
+   * Where the surface is at the band's level (`surfaceHeightAt`): its plateaus less whatever
+   * wins over them, wound as `rings`. What stands at this level, not what lies under it.
+   */
+  surface: Polygon[];
   /** Per ring, per edge (vertex i to i + 1, wrapping). */
   edges: BandEdge[][];
 }
@@ -255,17 +280,124 @@ export function orient(rings: Polygon[]): Polygon[] {
 }
 
 /**
- * The surface height at a point: the deepest raised plateau holding it (the higher on a tie,
- * which is the band drawn over the other), else the ground, 0.
+ * The plateau whose surface a point stands on: the deepest raised plateau holding it (the
+ * higher on a tie, which is the band drawn over the other), else null, the ground.
  */
-export function surfaceHeightAt(infos: Map<string, PlateauInfo>, x: number, y: number): number {
+export function surfaceOwnerAt(infos: Map<string, PlateauInfo>, x: number, y: number): PlateauInfo | null {
   let best: PlateauInfo | null = null;
   for (const info of infos.values()) {
     if (info.chain.length === 0) continue;
-    if (!pointInPoly(x, y, info.outline)) continue;
-    if (!best || info.chain.length > best.chain.length || (info.chain.length === best.chain.length && info.height > best.height)) best = info;
+    if (!inRings(x, y, info.rings)) continue;
+    if (!best || byPrecedence(precedenceOf(info), precedenceOf(best)) > 0) best = info;
   }
-  return best ? best.height : 0;
+  return best;
+}
+
+/** The surface's level at a point: its owner's (`surfaceOwnerAt`), else the ground, 0. */
+export function surfaceHeightAt(infos: Map<string, PlateauInfo>, x: number, y: number): number {
+  return surfaceOwnerAt(infos, x, y)?.height ?? 0;
+}
+
+type Box = { x0: number; y0: number; x1: number; y1: number };
+
+function boxOf(rings: readonly Polygon[]): Box {
+  const b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (const r of rings) {
+    for (const [x, y] of r) {
+      b.x0 = Math.min(b.x0, x);
+      b.y0 = Math.min(b.y0, y);
+      b.x1 = Math.max(b.x1, x);
+      b.y1 = Math.max(b.y1, y);
+    }
+  }
+  return b;
+}
+
+const boxesMeet = (a: Box, b: Box) => a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0;
+
+/**
+ * Each level's surface (`PlateauBand.surface`): the raised plateaus painted in precedence
+ * order, lowest first, each one's outline added to its own level and taken from every other,
+ * so a point ends on the level `surfaceHeightAt` gives it.
+ */
+function levelSurfaces(infos: Map<string, PlateauInfo>): Map<number, Polygon[]> {
+  const ranked = [...infos.values()].filter((i) => i.chain.length > 0).sort((a, b) => byPrecedence(precedenceOf(a), precedenceOf(b)));
+  const levels = new Map<number, { rings: Polygon[]; box: Box }>();
+  for (const info of ranked) {
+    const own = unionShapes([info.shape]).filter((r) => r.length >= 3);
+    if (own.length === 0) continue;
+    const box = boxOf(own);
+    for (const [level, s] of levels) {
+      if (level === info.height || s.rings.length === 0 || !boxesMeet(s.box, box)) continue;
+      s.rings = clipper2Engine.difference(s.rings, own);
+    }
+    const mine = levels.get(info.height);
+    if (!mine) levels.set(info.height, { rings: own, box });
+    else {
+      mine.rings = clipper2Engine.union([...mine.rings, ...own], []);
+      mine.box = boxOf([...mine.rings, ...own]);
+    }
+  }
+  return new Map([...levels].map(([level, s]) => [level, orient(s.rings.filter((r) => r.length >= 3))]));
+}
+
+/** A crossing this near either end of an edge, cells, is the end itself: no split. */
+const SPLIT_END = 1e-6;
+
+/**
+ * `ring` with a point added wherever one of `others` (closed rings) properly crosses one of its
+ * edges, in order along the edge. Only collinear points are added, so the outline is the same;
+ * a ring nothing crosses comes back as it is.
+ */
+export function splitAtCrossings(ring: Polygon, others: readonly Polygon[]): Polygon {
+  const box = (r: Polygon) => {
+    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of r) {
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+    return { x0, y0, x1, y1 };
+  };
+  const mine = box(ring);
+  const near = others.filter((o) => {
+    if (o.length < 3) return false;
+    const b = box(o);
+    return b.x0 <= mine.x1 && b.x1 >= mine.x0 && b.y0 <= mine.y1 && b.y1 >= mine.y0;
+  });
+  if (near.length === 0) return ring;
+  const out: Polygon = [];
+  let split = false;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    out.push(a);
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-12) continue;
+    const ts: number[] = [];
+    for (const o of near) {
+      for (let j = 0; j < o.length; j++) {
+        const hit = segHit(a, b, o[j], o[(j + 1) % o.length]);
+        if (!hit) continue;
+        const oLen = Math.hypot(o[(j + 1) % o.length][0] - o[j][0], o[(j + 1) % o.length][1] - o[j][1]);
+        // A proper crossing: inside both edges, not at an end of either.
+        if (hit.t * len <= SPLIT_END || (1 - hit.t) * len <= SPLIT_END) continue;
+        if (hit.u * oLen <= SPLIT_END || (1 - hit.u) * oLen <= SPLIT_END) continue;
+        ts.push(hit.t);
+      }
+    }
+    if (ts.length === 0) continue;
+    ts.sort((p, q) => p - q);
+    let last = 0;
+    for (const t of ts) {
+      if ((t - last) * len <= SPLIT_END) continue;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      last = t;
+      split = true;
+    }
+  }
+  return split ? out : ring;
 }
 
 const memo = new WeakMap<readonly unknown[], LayerPlateaus>();
@@ -285,29 +417,46 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
     else byHeight.set(info.height, [s]);
   }
 
+  // Every band's rings first, then each ring's edges split where another band's ring crosses
+  // them, so a stretch half under a higher band is probed as two pieces, each at its own middle.
+  const built = [...byHeight].map(([height, members]) => ({ height, members, rings: orient(unionShapes(members).filter((r) => r.length >= 3)) }));
+  const surfaces = built.length > 0 ? levelSurfaces(infos) : new Map<number, Polygon[]>();
+  /** The raised plateau a surface owner stands for: itself, or for one with no height its parent. */
+  const raisedOf = (info: PlateauInfo | null) => info?.chain[info.chain.length - 1] ?? null;
   const bands: PlateauBand[] = [];
-  for (const [height, members] of byHeight) {
-    const rings = orient(unionShapes(members).filter((r) => r.length >= 3));
+  for (const { height, members, rings: own } of built) {
+    const others = built.filter((b) => b.height !== height).flatMap((b) => b.rings);
+    const rings = others.length === 0 ? own : own.map((r) => splitAtCrossings(r, others));
     const depth = Math.max(...members.map((s) => infos.get(s.id)?.chain.length ?? 1));
+    // Each member by its outline as drawn (curves flattened, transform applied), so a curved
+    // or moved plateau owns its own edges.
+    const drawn = members.map((s) => ({ s, contours: [infos.get(s.id)?.outline ?? shapeRing(s, 0)] }));
     const edges = rings.map((r) =>
       r.map((a, i) => {
         const b = r[(i + 1) % r.length];
         const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        const owner = members.length === 1 ? members[0] : ringOwner([a, mid, b], members, UNION_SNAP);
+        const owner = members.length === 1 ? members[0] : (ringOwner([a, mid, b], drawn, UNION_SNAP)?.s ?? null);
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
         // Outside is on the left of travel: (dy, -dx) in screen space, y down.
         const nx = ((b[1] - a[1]) / len) * PROBE;
         const ny = (-(b[0] - a[0]) / len) * PROBE;
-        // The surface just inside less the surface just outside. Where a higher plateau lies
+        // The surface just inside less the surface just outside. Where another plateau wins
         // over the band its edge is covered: no drop there, so nothing is drawn or crossed.
         const covered = surfaceHeightAt(infos, mid[0] - nx, mid[1] - ny) !== height;
-        let drop = covered ? 0 : height - surfaceHeightAt(infos, mid[0] + nx, mid[1] + ny);
-        // A raised plateau has no edge facing up: against higher ground the edge is the other's.
-        if (drop < 0 && owner && ownHeight(owner) > 0) drop = 0;
-        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop } as BandEdge;
+        const outside = covered ? null : surfaceOwnerAt(infos, mid[0] + nx, mid[1] + ny);
+        let drop = covered ? 0 : height - (outside?.height ?? 0);
+        // Rising to the ground, or to a plateau the owner is drawn in: a pit's or a dip's rim.
+        const up = raisedOf(outside);
+        const dug =
+          drop < 0 &&
+          (!up || (owner ? (infos.get(owner.id)?.chain ?? []) : members.flatMap((m) => infos.get(m.id)?.chain ?? [])).includes(up));
+        // A raised plateau has no edge facing up unless it is dug into the higher ground (a dip):
+        // against a plateau it merely meets the edge is the other's.
+        if (drop < 0 && owner && ownHeight(owner) > 0 && !dug) drop = 0;
+        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop, dug: drop < 0 && dug } as BandEdge;
       }),
     );
-    bands.push({ height, depth, shapes: members, rings, edges });
+    bands.push({ height, depth, shapes: members, rings, surface: surfaces.get(height) ?? [], edges });
   }
   bands.sort((a, b) => a.depth - b.depth || a.height - b.height);
 
@@ -331,10 +480,16 @@ export interface EdgeRun {
   edge: EdgeKind;
   /** Largest |drop| along the run, signed by the run's side (all its edges share a sign). */
   drop: number;
+  /** Each segment's own drop, in order along `points` (one per segment: points.length - 1 open, points.length closed). */
+  drops: number[];
   /** The run's points, in the ring's own (outside-left) order. Closed runs repeat no point. */
   points: Polygon;
   /** The whole ring is this one run. */
   closed: boolean;
+  /** The ring's index of the run's first edge: the edges either side of it are the ring's next ones. */
+  start: number;
+  /** The rim of a pit or a dip (`BandEdge.dug`): it shades its own band. */
+  dug: boolean;
 }
 
 /**
@@ -346,11 +501,11 @@ export function edgeRuns(band: PlateauBand): EdgeRun[] {
   band.rings.forEach((ring, ri) => {
     const edges = band.edges[ri];
     const n = ring.length;
-    const keyOf = (e: BandEdge) => (e.drop === 0 ? null : `${e.owner?.id}|${e.edge}|${Math.sign(e.drop)}`);
+    const keyOf = (e: BandEdge) => (e.drop === 0 ? null : `${e.owner?.id}|${e.edge}|${Math.sign(e.drop)}|${e.dug}`);
     const keys = edges.map(keyOf);
     if (keys.every((k) => k !== null && k === keys[0])) {
       const drop = edges.reduce((m, e) => (Math.abs(e.drop) > Math.abs(m) ? e.drop : m), 0);
-      runs.push({ band, ring: ri, owner: edges[0].owner, edge: edges[0].edge, drop, points: ring, closed: true });
+      runs.push({ band, ring: ri, owner: edges[0].owner, edge: edges[0].edge, drop, drops: edges.map((e) => e.drop), points: ring, closed: true, start: 0, dug: edges[0].dug });
       return;
     }
     // Start where the key changes so no run straddles the seam.
@@ -360,8 +515,10 @@ export function edgeRuns(band: PlateauBand): EdgeRun[] {
     const flush = (to: number) => {
       if (!cur) return;
       const pts: Polygon = [];
+      const drops: number[] = [];
       for (let k = cur.from; k <= to + 1; k++) pts.push(ring[k % n]);
-      runs.push({ band, ring: ri, owner: cur.e.owner, edge: cur.e.edge, drop: cur.drop, points: pts, closed: false });
+      for (let k = cur.from; k <= to; k++) drops.push(edges[k % n].drop);
+      runs.push({ band, ring: ri, owner: cur.e.owner, edge: cur.e.edge, drop: cur.drop, drops, points: pts, closed: false, start: cur.from % n, dug: cur.e.dug });
       cur = null;
     };
     for (let k = start; k < start + n; k++) {

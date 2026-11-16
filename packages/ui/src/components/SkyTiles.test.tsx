@@ -32,6 +32,15 @@ describe('TimeTiles', () => {
     fireEvent.click(unlit);
     expect(onPick).toHaveBeenCalledWith('unlit');
   });
+
+  it('multiplies a time’s tint over its whole picture, and only that time’s', () => {
+    render(<TimeTiles value="day" unlit tints={{ night: '#ff0000' }} onPick={() => {}} />);
+    const tintOf = (name: RegExp) => screen.getByRole('button', { name }).querySelector<HTMLElement>('[data-slot="sky-tint"]');
+    expect(tintOf(/Night/)?.style.backgroundColor).toBe('rgb(255, 0, 0)');
+    expect(tintOf(/Night/)?.className).toContain('mix-blend-multiply');
+    expect(tintOf(/Day/)).toBeNull();
+    expect(tintOf(/Unlit/)).toBeNull();
+  });
 });
 
 describe('PlaceTiles', () => {

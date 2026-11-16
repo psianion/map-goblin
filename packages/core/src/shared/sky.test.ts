@@ -106,6 +106,21 @@ describe('skyFrame: darkness', () => {
   });
 });
 
+describe('a tint of its own per time of day', () => {
+  const tints = { night: '#ff0000' };
+
+  it('rides on the frame of its time only', () => {
+    expect(skyFrame({ ...OUTDOOR, time: 'night', timeTints: tints }).tint).toBe('#ff0000');
+    expect(skyFrame({ ...OUTDOOR, time: 'day', timeTints: tints }).tint).toBeUndefined();
+    expect(skyFrame({ ...OUTDOOR, time: 'night' })).not.toHaveProperty('tint');
+  });
+
+  it('moves the key at its time, and leaves the other times keyed as before', () => {
+    expect(skyKey(skyFrame({ ...OUTDOOR, time: 'night', timeTints: tints }))).not.toBe(skyKey(skyFrame({ ...OUTDOOR, time: 'night' })));
+    expect(skyKey(skyFrame({ ...OUTDOOR, time: 'day', timeTints: tints }))).toBe(skyKey(skyFrame({ ...OUTDOOR, time: 'day' })));
+  });
+});
+
 describe('skyKey, litFrame and the ease', () => {
   it('keys coarsely: a hair of darkness does not move it, a real change does', () => {
     const f = skyFrame({ ...OUTDOOR, time: 'day' });

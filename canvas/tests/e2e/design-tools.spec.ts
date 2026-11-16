@@ -696,8 +696,11 @@ const bandLabels = (page: Page, height: number) =>
     return out
   }, height)
 
-/** The fields of a plateau the tool's dock does not set: the card's, written after. */
-const CARD_FIELDS = ['name', 'edgeArt', 'slopeWidth', 'contourLines', 'sightOverride', 'crossingId'] as const
+/**
+ * The fields of a plateau written after it is drawn, as the file has them: the card's, and the
+ * direction a new slope stores from the tool (a file's plateau without one follows the map's).
+ */
+const CARD_FIELDS = ['name', 'edgeArt', 'faceArt', 'faceDir', 'topArt', 'contourLines', 'sightOverride', 'crossingId'] as const
 
 /**
  * Draws `plateau` with the Elevation tool on its own layer, as a hand would: its level and
@@ -727,7 +730,7 @@ async function drawWithTool(page: Page, plateau: Any, layer: { id: string; level
     const st = (window as Any).__store.getState()
     const made = st.selection.selectedIds[0]
     const patch: Any = {}
-    for (const k of fields) if (plateau[k] !== undefined) patch[k] = plateau[k]
+    for (const k of fields) if (plateau[k] !== undefined || k === 'faceDir') patch[k] = plateau[k]
     st.updateChild(layerId, made, patch)
     return made
   }, { layerId: layer.id, plateau, fields: CARD_FIELDS })
@@ -825,7 +828,7 @@ test.describe('plateau-test in the editor', () => {
 
   test('scenario 2: the outcrop is laid with rock and throws a shadow the clock swings', { tag: '@design' }, async ({ page }) => {
     await openMap(page, PLATEAU)
-    // The outcrop is the only +2 band: rock along its edge, and a top line.
+    // The outcrop shares the +2 band with the hill's summit: rock along its edge, and a top line.
     await expect
       .poll(async () => (await bandLabels(page, 2)).find((l) => l.label === 'plateau-cliff')?.children ?? 0)
       .toBeGreaterThan(4)
@@ -840,22 +843,22 @@ test.describe('plateau-test in the editor', () => {
     expect(eDusk, 'east of the cliff is darker at dusk').toBeLessThan(eDawn - 2)
   })
 
-  test('scenario 3: the hill reads 1 and the summit 3, with contours on the slope and a 2-cell drop', { tag: '@design' }, async ({ page }) => {
+  test('scenario 3: the hill stands at 1 and the summit at 2, with a face and its ledge lines on the slope and a 1-cell drop', { tag: '@design' }, async ({ page }) => {
     const { ids } = await openMap(page, PLATEAU)
     const hill = await bandLabels(page, 1)
-    expect(hill.some((l) => l.label === 'plateau-slope')).toBe(true)
-    expect(hill.some((l) => l.label === 'plateau-contours')).toBe(true)
-    expect((await bandLabels(page, 3)).some((l) => l.label === 'plateau-cliff')).toBe(true)
+    expect(hill.some((l) => l.label === 'plateau-slope-face')).toBe(true)
+    expect(hill.some((l) => l.label === 'plateau-slope-lines')).toBe(true)
+    expect((await bandLabels(page, 2)).some((l) => l.label === 'plateau-cliff')).toBe(true)
 
     const card = page.getByTestId('shell-card')
     await select(page, ids['hill-plateau'])
     await expect(card.locator('[data-setting="card.plateau.height"]')).toContainText('+1')
-    await expect(card.getByTestId('design-plateau-standing')).toHaveText('+1 · drop 1')
+    await expect(card.getByTestId('design-plateau-standing')).toHaveText('drop 1')
     await select(page, ids['summit-plateau'])
     await expect(card.locator('[data-setting="card.plateau.height"]')).toContainText('+2')
-    await expect(card.getByTestId('design-plateau-standing')).toHaveText('+3 · drop 2')
-    // Blocks sight is what Auto decides: a 2-cell cliff hides the top.
-    await expect(card.getByRole('switch', { name: 'Blocks sight' })).toHaveAttribute('aria-checked', 'true')
+    await expect(card.getByTestId('design-plateau-standing')).toHaveText('drop 1')
+    // Blocks sight is what Auto decides: a 1-cell cliff hides nothing.
+    await expect(card.getByRole('switch', { name: 'Blocks sight' })).toHaveAttribute('aria-checked', 'false')
   })
 })
 
@@ -958,11 +961,46 @@ test.describe('the Elevation tool', () => {
     await dock.locator('[data-setting="elevation.edge"]').getByRole('button', { name: 'Slope' }).click()
     await dragThrough(page, rectAround(4, 4, 10, 9))
     await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
-    expect((await plateausOf(page))[0]).toMatchObject({ height: 2, edge: 'slope' })
+    // A new slope stores its own direction, the dock's.
+    expect((await plateausOf(page))[0]).toMatchObject({ height: 2, edge: 'slope', faceDir: 60 })
     // Two steps down from +2 go through +1 and over flat to -1: a plateau is never level with the ground.
+    // The new plateau is picked, so the dock writes it too.
     await dock.getByRole('button', { name: 'Decrease Height' }).click()
     await dock.getByRole('button', { name: 'Decrease Height' }).click()
     expect(await inPage(page, `(s) => s().tools.settings.plateau.height`)).toBe(-1)
+    await expect.poll(async () => (await plateausOf(page))[0].height).toBe(-1)
+  })
+
+  test('the dock fits a 1280 px window with Top, Slope face, Draw, Size, Curve and Slope direction', { tag: '@design' }, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openField(page)
+    await pickTool(page, 'elevation')
+    const dock = page.getByTestId('shell-dock')
+    await dock.locator('[data-setting="elevation.edge"]').getByRole('button', { name: 'Slope' }).click()
+    await dock.locator('[data-setting="elevation.input"]').getByRole('button', { name: 'Brush' }).click()
+    for (const id of ['elevation.topArt', 'elevation.faceArt', 'elevation.input', 'elevation.brushSize', 'edit.curve', 'elevation.slopeDirection']) {
+      await expect(dock.locator(`[data-setting="${id}"]`), id).toBeVisible()
+    }
+    const box = (await dock.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(1280)
+    expect(await dock.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    // A picture column is its picked tile, which opens the row of pictures.
+    await dock.locator('[data-setting="elevation.faceArt"] [data-swatch-picked]').click()
+    await page.getByRole('group', { name: 'Slope face' }).getByRole('button', { name: 'Stone' }).click()
+    expect(await inPage(page, `(s) => s().tools.settings.plateau.faceArt`)).toMatch(/face_stone/)
+  })
+
+  test('the brush paints a plateau and grows it with a second stroke', { tag: '@design' }, async ({ page }) => {
+    await openField(page)
+    await pickTool(page, 'elevation')
+    const dock = page.getByTestId('shell-dock')
+    await dock.locator('[data-setting="elevation.input"]').getByRole('button', { name: 'Brush' }).click()
+    await dragThrough(page, [{ x: 4, y: 6 }, { x: 7, y: 6 }, { x: 10, y: 6 }])
+    await expect.poll(async () => (await plateausOf(page)).length).toBe(1)
+    await dragThrough(page, [{ x: 9, y: 6 }, { x: 11, y: 6 }, { x: 12, y: 6 }])
+    await page.waitForTimeout(200)
+    expect(await plateausOf(page)).toHaveLength(1)
   })
 
   test('clicks place the points and a click on the first closes the ring', { tag: '@design' }, async ({ page }) => {
@@ -1011,7 +1049,7 @@ test.describe('the Elevation tool', () => {
       .toBe(true)
   })
 
-  test('the card changes height, edge and contours; the floor card has no Height or Edge row; the layers sheet lists it', { tag: '@design' }, async ({ page }) => {
+  test('the card changes height, edge, a slope’s face, direction and ledge lines; the floor card has no Height or Edge row; the layers sheet lists it', { tag: '@design' }, async ({ page }) => {
     await openField(page)
     await pickTool(page, 'elevation')
     await dragThrough(page, rectAround(4, 4, 10, 9))
@@ -1025,10 +1063,41 @@ test.describe('the Elevation tool', () => {
     await expect.poll(async () => (await child(page, id)).height).toBe(2)
     await card.locator('[data-setting="card.plateau.edge"]').getByRole('button', { name: 'Slope' }).click()
     await expect.poll(async () => (await child(page, id)).edge).toBe('slope')
-    await expect.poll(async () => (await bandLabels(page, 2)).some((l) => l.label === 'plateau-contours')).toBe(true)
-    await card.getByRole('switch', { name: 'Contour lines' }).click()
+    await expect.poll(async () => (await bandLabels(page, 2)).some((l) => l.label === 'plateau-slope-face')).toBe(true)
+    // A slope has no width and no Contour lines row: its Ledge lines stand in for them.
+    await expect(card.locator('[data-setting="card.plateau.slopeWidth"]')).toHaveCount(0)
+    await expect(card.getByRole('switch', { name: 'Contour lines' })).toHaveCount(0)
+    await card.getByRole('switch', { name: 'Ledge lines' }).click()
     await expect.poll(async () => (await child(page, id)).contourLines).toBe(false)
-    await expect.poll(async () => (await bandLabels(page, 2)).some((l) => l.label === 'plateau-contours')).toBe(false)
+
+    // Slope face: pictures, Ground first; Stone is stored, Ground stores nothing.
+    const face = card.locator('[data-setting="card.plateau.faceArt"]')
+    await expect(face.locator('[data-swatch]').first()).toHaveAttribute('data-swatch', 'ground')
+    await face.getByRole('button', { name: 'Stone' }).click()
+    await expect.poll(async () => (await child(page, id)).faceArt).toMatch(/face_stone/)
+    await face.getByRole('button', { name: 'Ground' }).click()
+    await expect.poll(async () => (await child(page, id)).faceArt).toBeUndefined()
+
+    // Direction: the dial alone. Drawn as a cliff, the plateau has none of its own and shows the
+    // map's; a turn writes its own.
+    const direction = card.locator('[data-setting="card.plateau.faceDir"]')
+    const dial = direction.getByRole('slider', { name: 'Direction' })
+    await expect(dial).toHaveAttribute('aria-valuenow', '60')
+    await expect(direction.getByTestId('design-plateau-follow-map')).toHaveCount(0)
+    await dial.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(async () => (await child(page, id)).faceDir).toBe(75)
+
+    // Top: pictures on every edge, Ground first and stored as nothing.
+    const top = card.locator('[data-setting="card.plateau.topArt"]')
+    await expect(top.locator('[data-swatch]').first()).toHaveAttribute('data-swatch', 'ground')
+    await expect.poll(async () => (await child(page, id)).topArt).toBeUndefined()
+
+    // Smooth corners: every node smooth as one step, and back.
+    await card.getByRole('switch', { name: 'Smooth corners' }).click()
+    await expect.poll(async () => ((await child(page, id)).tangents?.[0] ?? []).every(Boolean)).toBe(true)
+    await card.getByRole('switch', { name: 'Smooth corners' }).click()
+    await expect.poll(async () => (await child(page, id)).tangents).toBeUndefined()
 
     await select(page, 'field')
     await expect(card).toHaveAttribute('data-kind', 'shape')
