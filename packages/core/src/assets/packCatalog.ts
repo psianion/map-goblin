@@ -371,3 +371,19 @@ export const WALL_SET_DEFAULTS: WallSetDefaults = {
 export function getWallSetDefaults(_setId: string): WallSetDefaults {
   return WALL_SET_DEFAULTS;
 }
+
+/**
+ * How thick a band set's rock is as drawn, in cells: the opaque rock across the Cave Ink
+ * straights averages 1.14 to 1.3 cells, and the door kit's jamb closes a wall 1.2 deep.
+ */
+export const BAND_DRAWN_WIDTH = 1.2;
+
+/**
+ * The size a band set's rock is laid at so it covers `width` cells across, as a stone
+ * wall of that width does. The rock is scaled whole (a piece half as thick is half as
+ * long), so the smallest widths stop at `minWidth`: below it the rock is grit and a
+ * ring takes many times the pieces.
+ */
+export function bandScale(width: number): number {
+  return Math.max(width, WALL_SET_DEFAULTS.minWidth) / BAND_DRAWN_WIDTH;
+}

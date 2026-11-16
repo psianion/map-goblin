@@ -1,7 +1,8 @@
 // What colour the ground of one region is drawn under, and whether it is dark enough to hide
 // from sight. A region is a room, an area or a level, read through the look chain
 // (`lookScope.ts`): its `place` says how much sky light reaches it (Outdoor 100 %, Indoor
-// 40 %, Underground 0 %), and its tint is always the map's ambient light.
+// 40 %, Underground 0 %), and its tint is the map's ambient light, or the time of day's own
+// tint where the map sets one (`SkyFrame.tint`).
 //
 // One number feeds the vision gate: the light reaching the region (`regionLight`). Place,
 // night and the DM's slider all move it, so there is one rule, not three.
@@ -55,15 +56,17 @@ const memo = new Map<string, string>();
 
 /**
  * The colour the composite multiplies a region by: the region's tint carrying the hour,
- * dimmed by the darkness, by the share of sky its place lets in (`modulation`).
+ * dimmed by the darkness, by the share of sky its place lets in (`modulation`). A time of day
+ * with a tint of its own draws in that one instead of the region's.
  * Memoized per (place, tint, sky key).
  */
 export function regionGrade(region: RegionLight, sky: SkyFrame): string {
-  const key = `${region.place}|${region.tint}|${skyKey(sky)}`;
+  const tint = sky.tint ?? region.tint;
+  const key = `${region.place}|${tint}|${skyKey(sky)}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const mod = modulation(region.place, sky);
-  const [mr, mg, mb] = rgb(region.tint);
+  const [mr, mg, mb] = rgb(tint);
   const ch = (m: number, t: number): number => (m * t) / 128;
   const out = hex([ch(mr, mod[0]), ch(mg, mod[1]), ch(mb, mod[2])]);
   if (memo.size > 512) memo.clear();

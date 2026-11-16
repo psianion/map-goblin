@@ -1,4 +1,4 @@
-// The floor card (frame D): Size, Layer and Height, then Look (Colour with Reset, Texture with
+// The floor card (frame D): Size, Layer, Walls with their width and Height, then Look (Colour with Reset, Texture with
 // Change, Tint, Opacity, the Fill fold), then Edge (Edge band, and a painted border's texture
 // and width). Colour shows for floors
 // without a texture, Tint and Fill for textured ones: each row only where it changes something.
@@ -8,6 +8,9 @@ import { selectLayerForChild } from '@/store/selectors';
 import { createMoveToLayerCommand } from '@dnd/core/src/store/propEdits';
 import { getChildBounds } from '@dnd/core/src/engine/hitTest';
 import { hasLiveTexture } from '@dnd/core/src/assets/packCatalog';
+import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
+import { wallWidthPin } from '@dnd/core/src/shared/caveFloor';
+import { WALL_WIDTH_RANGE, cardWallWidth } from './wallLook';
 import { undoManager } from '@/store/undoManager';
 import type { DungeonLayer, DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
@@ -99,6 +102,43 @@ const walls = defineCardField<'shape', string | null>({
       if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
       return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v } };
     }),
+});
+
+const dungeonLayerOf = (o: ShapeChild): DungeonLayer | null => {
+  const l = selectLayerForChild(state(), o.id);
+  return l?.type === 'dungeon' ? (l as DungeonLayer) : null;
+};
+
+/** The set a floor's walls or rock are laid with: a painted cave's, its edge band, its own pin, else its layer's. */
+function wallSetOf(o: ShapeChild): string | undefined {
+  const pin = o.styleOverrides?.wallTextureSetId;
+  return o.edgeMaterial || edgeBandOf(o) || (typeof pin === 'string' && pin) || styleOf(o)?.wallTextureSetId || undefined;
+}
+
+/**
+ * How thick this floor's walls are, cells: its own pin, else its layer's. A cave's rock is
+ * laid larger or smaller by it. Ground has no wall, so only its rock rim takes one.
+ */
+const wallWidth = defineCardField<'shape', number>({
+  id: 'card.floor.wallWidth',
+  label: 'Wall width',
+  schema: z.number().min(WALL_WIDTH_RANGE.min).max(WALL_WIDTH_RANGE.max),
+  default: 0.5,
+  home: 'card',
+  control: 'stepper',
+  range: WALL_WIDTH_RANGE,
+  visibleWhen: (o) => !o.ground || !!o.edgeMaterial,
+  read: (o) => {
+    const layer = dungeonLayerOf(o);
+    return wallWidthPin(o) ?? (layer ? layerDrawStyle(layer).wallWidth : 0.5);
+  },
+  write: (_store, ids, w) =>
+    editChildren(
+      'Wall width',
+      ids,
+      (c) => (c.childType === 'shape' ? { styleOverrides: { ...(c.styleOverrides ?? {}), wallWidth: cardWallWidth(w, wallSetOf(c)) } } : null),
+      editKey('floor.wallWidth', ids),
+    ),
 });
 
 /** How far the piece's edge blends into what is under it, cells; 0 is a crisp edge. */
@@ -352,5 +392,5 @@ export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: FLOOR_VERBS,
-  fields: [size, layer, walls, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
+  fields: [size, layer, walls, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
 });

@@ -15,7 +15,8 @@ import type { DungeonLayer } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { getLayerEntry } from '../sceneGraph';
 import { bandFillColor, drawOutlineBand } from '../caveBandRenderer';
-import { bandSetArt } from '../../assets/packCatalog';
+import { bandScale, bandSetArt } from '../../assets/packCatalog';
+import { layerDrawStyle } from '../levelLook';
 import { isDeepWater, isWaterMaterial, materialFillId, shoreTextureOf } from '../../assets/materialKit';
 import { load, resolveTexture } from '../../assets/textureLoader';
 import { fillPolygonsWithHoles } from '../floorWallRenderer';
@@ -239,7 +240,9 @@ function drawCave(host: Container, layer: DungeonLayer, cave: CaveEdge, doors: r
   piece.label = `cave-${cave.material}`;
   // The rock stops at the doors on it, and wherever it was erased open.
   const gaps = [...caveDoorGaps(cave, doors), ...caveOpeningGaps(cave, layer.caveOpenings)];
-  drawOutlineBand(piece, cave.rings, cave.material, bandFillColor({ floorColor: layer.style.floorColor, textureId: materialFillId(cave.material) }), gaps);
+  // Laid for the cave's own width, else the layer's, as a banded floor ring's rock is.
+  const size = bandScale(cave.width ?? layerDrawStyle(layer).wallWidth);
+  drawOutlineBand(piece, cave.rings, cave.material, bandFillColor({ floorColor: layer.style.floorColor, textureId: materialFillId(cave.material) }), gaps, size);
   host.addChild(piece);
 }
 
@@ -249,7 +252,7 @@ function drawCave(host: Container, layer: DungeonLayer, cave: CaveEdge, doors: r
  */
 export function caveDoorGaps(cave: CaveEdge, doors: readonly ResolvedDoor[]): DoorGap[] {
   return doors
-    .filter((d) => d.wall?.kind === 'cave' && d.wall.textureSetId === cave.material)
+    .filter((d) => d.wall?.kind === 'cave' && d.wall.textureSetId === cave.material && d.wall.bandWidth === cave.width)
     .map((d) => ({ wallId: d.wall!.id, position: d.position, width: d.door.width }));
 }
 

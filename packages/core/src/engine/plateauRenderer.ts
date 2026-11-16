@@ -1,14 +1,21 @@
 // Plateaus, drawn (plan §4.3), band by band, lowest first, in two of the layer's sublayers.
 // The tops (`plateauTops`, over the floor, under the paths) are a translucent lift over
 // whatever lies beneath (7 % a cell), so floor texture, terrain paint and floor borders show
-// through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes as a
-// band outside the outline, a smooth ramp of shade dark at its outer edge with a thin ink
-// contour per cell of drop inside it, its
-// cliffs laid by the cave walk with the ledge kit, one ledge ring at any drop (void side = low
-// side, so a pit's rock faces in).
+// through. The edges (`plateauEdges`, over the paths, under the shadows) are its slopes' side
+// faces and its cliffs, laid by the cave walk with the ledge kit, one ledge ring at any drop
+// (void side = low side, so a pit's rock faces in).
+//
+// A slope shows a side face on one side only, the side pointing the way the DM set (the
+// plateau's own direction, else the map's; never the sun's), as deep as its drop says
+// (`slopeFace`). Its texture, when it has one, is a floor of its own drawn among the ground
+// pieces at the plateau's place in their order (floorWallRenderer.ts), so ground painted later
+// covers it; here, above every ground piece, the face is darkened in ledge bands, lined at its
+// foot and between the bands, and the rim lined heavier on the face side with a pale highlight
+// just inside it on the far side (`drawSlopeFaces`).
 //
 // Under all of it, every edge lays a drop shade on its low side (`drawShade`): a soft dark band
 // hugging the edge, wider for a taller drop, so a raised edge reads raised whatever its kind.
+// A slope's is kept off its own face.
 //
 // A cliff whose art is a painted border lays no ledge: a band of its texture on the high side
 // of the edge, its inner edge ragged, into the tops under the band's lift (`drawPaintedBorder`),
@@ -27,47 +34,69 @@ import {
   BORDER_WOBBLE,
   DROP_SHADE_ALPHA,
   DROP_SHADE_STEPS,
+  FACE_DEPTH_MAX,
+  FACE_DEPTH_WANDER,
+  FACE_FOOT_ALPHA,
+  FACE_FOOT_WIDTH,
+  FACE_HIGHLIGHT_ALPHA,
+  FACE_HIGHLIGHT_COLOR,
+  FACE_HIGHLIGHT_INSET,
+  FACE_HIGHLIGHT_WIDTH,
+  FACE_INK,
+  FACE_LEDGE_ALPHA,
+  FACE_LEDGE_WIDTH,
+  FACE_RIM_ALPHA,
+  FACE_RIM_FAR_ALPHA,
+  FACE_RIM_FAR_WIDTH,
+  FACE_RIM_STEPS,
+  FACE_RIM_WIDTH,
   borderWidthOf,
-  SLOPE_CONTOUR_ALPHA,
-  SLOPE_CONTOUR_WIDTH,
   blurStrengthFor,
-  contourOffsets,
   dropShadeWidth,
+  faceBandShades,
+  faceDirectionOf,
+  faceVector,
+  highlightWeight,
+  linesOff,
+  lowSegments,
   nestedAlphas,
   offsetPath,
-  slopeBandAlpha,
-  slopeRamp,
-  slopeSunFactor,
-  slopeWidthOf,
+  rimWeight,
+  slopeFace,
+  TOP_SEAM,
   wobbleNoise,
   wobbleRings,
   wobbleSeed,
+  type FaceEnds,
+  type SlopeFace,
 } from '../shared/plateauShade';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import {
+  byPrecedence,
   edgeRuns,
   hasPlateaus,
   layerPlateaus,
+  precedenceOf,
+  plateausOf,
+  pointInPoly,
+  splitAtCrossings,
   tierLift,
+  unionShapes,
   type EdgeRun,
   type PlateauBand,
 } from '../shared/plateaus';
+import type { PlateauChild } from '../shared/types';
+import { isGroundPiece, pieceRings } from '../shared/pieces';
+import type { WorldBounds } from '../shared/mapBounds';
+import { baseGroundFrame } from './mapFrame';
 import type { CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import {
-  cliffArt,
-  cliffPieces,
-  contourArt,
-  contourPieces,
-  isPaintedBorder,
-  ledgeEndPieces,
-  paintedBorderTexture,
-} from './plateauKit';
-import { paintSoftTiled, softEdgeLayers, type SoftLayer } from './softEdge';
+import { cliffArt, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
+import { paintSoftTiled, SOFT_EDGE_STEPS, softEdgeLayers, type SoftLayer } from './softEdge';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
@@ -95,10 +124,8 @@ export const SHADE_SIDE = 0.72;
 // ─── Lighting the rock ─────────────────────────────────────
 
 interface CliffSprite {
-  /** A piece of the ledge, tinted by how its face turns to the light… */
-  sprite?: Sprite;
-  /** …or one face of a slope, shaded as it turns from the light. */
-  shade?: Graphics;
+  /** A piece of the ledge, tinted by how its face turns to the light. */
+  sprite: Sprite;
   /** Unit normal pointing to the low side. */
   normal: Vec;
 }
@@ -115,12 +142,11 @@ export function faceShade(normal: Vec, look: ShadowLook | null): number {
 }
 
 
-/** Re-light one layer's cliff rock and slopes for the sky's current look. Called by the shadow pass. */
+/** Re-light one layer's cliff rock for the sky's current look. Called by the shadow pass. A slope's face is never re-lit. */
 export function shadeCliffs(layerId: string, look: ShadowLook | null): void {
   lastLook.set(layerId, look);
-  for (const { sprite, shade, normal } of cliffSprites.get(layerId) ?? []) {
-    if (sprite && !sprite.destroyed) sprite.tint = mulColour(0xffffff, faceShade(normal, look));
-    if (shade && !shade.destroyed) shade.alpha = slopeSunFactor(normal, look);
+  for (const { sprite, normal } of cliffSprites.get(layerId) ?? []) {
+    if (!sprite.destroyed) sprite.tint = mulColour(0xffffff, faceShade(normal, look));
   }
 }
 
@@ -182,8 +208,8 @@ export function renderPlateaus(
   if (!hasPlateaus(layer)) return;
 
   const plateaus = layerPlateaus(layer);
+  const slopes = layerSlopes(layer);
   const sprites: CliffSprite[] = [];
-  const ground = groundOf(layer);
   for (const band of plateaus.bands) {
     const runs = edgeRuns(band);
     const painted = (run: EdgeRun) => run.edge === 'cliff' && isPaintedBorder(run.owner?.edgeArt);
@@ -191,8 +217,11 @@ export function renderPlateaus(
     drawBandTop(tops, band);
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
-    const soft = drawShade(holder, band, runs, plateaus.bands, ground);
-    for (const run of runs) if (run.edge === 'slope') sprites.push(...drawSlope(soft.get(run.drop > 0) ?? holder, holder, run, options));
+    const faces = slopes.faces.filter((f) => f.run.band === band);
+    // The faces of bands drawn over this one show over its edges: its shade stays off them.
+    const over = slopes.faces.filter((f) => byPrecedence(f.run.band, band) > 0).flatMap((f) => f.region);
+    drawShade(holder, band, runs, faces, slopes.land, over);
+    drawSlopeFaces(holder, band, faces, slopes.land);
     for (const run of runs) if (run.edge === 'cliff' && !painted(run)) sprites.push(...drawCliff(holder, run, options));
     // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
     for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
@@ -202,20 +231,23 @@ export function renderPlateaus(
   shadeCliffs(layer.id, lastLook.get(layer.id) ?? null);
 }
 
-/** The band's top: a translucent lift tint over whatever is beneath it, nothing else. */
+/**
+ * The band's top: a translucent lift tint over whatever is beneath it, nothing else. Only where
+ * the surface stands at its level, so each level shows its own tint, never two stacked.
+ */
 function drawBandTop(parent: Container, band: PlateauBand): void {
   const lift = tierLift(band.height);
-  if (lift === 0) return;
+  if (lift === 0 || band.surface.length === 0) return;
   const tier = new Graphics();
   tier.label = `plateau-top-${band.height}`;
-  fillRings(tier, band.rings, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
+  fillRings(tier, band.surface, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
   parent.addChild(tier);
 }
 
 /**
  * The steps of a painted border along `run`: the region within `width` of the edge on its high
- * side (inside a raised band, outside a pit), solid on the edge and fading over its inner
- * BORDER_FADE of the width (softEdge.ts).
+ * side (on a raised band's surface, outside a pit or a dip), solid on the edge and fading over
+ * its inner BORDER_FADE of the width (softEdge.ts).
  */
 export function paintedBorderLayers(run: EdgeRun, width: number): SoftLayer[] {
   const line = run.closed ? [...run.points, run.points[0]] : run.points;
@@ -225,7 +257,7 @@ export function paintedBorderLayers(run: EdgeRun, width: number): SoftLayer[] {
   return softEdgeLayers((d) => {
     const reach = width - fade + d;
     const strip = wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, width * BORDER_WOBBLE, noise);
-    return run.drop > 0 ? clipper2Engine.intersection(strip, run.band.rings) : clipper2Engine.difference(strip, run.band.rings);
+    return run.drop > 0 ? clipper2Engine.intersection(strip, run.band.surface) : clipper2Engine.difference(strip, run.band.rings);
   }, fade);
 }
 
@@ -257,80 +289,525 @@ function drawPaintedBorder(parent: Container, run: EdgeRun, options: PlateauRend
   parent.addChild(border);
 }
 
-/**
- * A slope: a band `slopeWidthOf` the card's slope width wide on its low side, outside the
- * outline only. Its shade runs from none at the outline to SLOPE_FOOT_SHADE black at the band's
- * outer edge in SLOPE_STEPS steps, laid into `shade` (the band's blurred, masked holder), each
- * face lighter as it turns to the sun (`shadeCliffs`); over it in `parent`, one ink contour a
- * cell of drop, evenly spaced inside the band, rounded where the outline turns out. Each contour
- * is the set's contour pieces walked round its ring like the ledge (low side on the left, where
- * the pieces carry their ticks), or a thin stroke while there is no contour art.
- */
-function drawSlope(shade: Container, parent: Container, run: EdgeRun, options: PlateauRenderOptions): CliffSprite[] {
-  const width = slopeWidthOf(run.owner?.slopeWidth);
-  const lowLeft = run.drop > 0;
-  const ramp = new Container();
-  ramp.label = 'plateau-slope';
-  const faces: CliffSprite[] = [];
-  for (const face of slopeRamp(run.points, run.closed, lowLeft, width)) {
-    const g = new Graphics();
-    face.bands.forEach((band, k) => g.poly(band.flat()).fill({ color: 0x000000, alpha: slopeBandAlpha(k) }));
-    ramp.addChild(g);
-    faces.push({ shade: g, normal: face.normal });
-  }
-  shade.addChild(ramp);
-  if (run.owner?.contourLines === false) return faces;
-  const art = contourArt(run.owner?.edgeArt);
-  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
-  const pieces = contourPieces(art);
-  const rings = new Container();
-  rings.label = 'plateau-contours';
-  for (const d of contourOffsets(run.drop, width)) {
-    const line = offsetPath(run.points, run.closed, lowLeft, d);
-    if (run.closed && line.length > 1 && vdist(line[0] as Vec, line[line.length - 1] as Vec) < 1e-6) line.pop();
-    // The walk lays the low side on its left; a pit's low side is inside, so walk it backwards.
-    const pts = lowLeft ? line : [...line].reverse();
-    const placed = pieces.length === 0 ? [] : run.closed ? layBandRing(pts, [], pieces) : layBandChain(pts, [], pieces);
-    const drawn = drawnPlacements(placed, art);
-    if (drawn.length === 0) {
-      rings.addChild(new Graphics().poly(line.flat(), false).stroke({ color: INK, width: SLOPE_CONTOUR_WIDTH, alpha: SLOPE_CONTOUR_ALPHA }));
-      continue;
-    }
-    const ring = new Container();
-    ring.label = 'plateau-contour';
-    placeBand(ring, drawn, art, 0xffffff, 0);
-    rings.addChild(ring);
-  }
-  parent.addChild(rings);
-  return faces;
-}
+const boxRing = (b: { minX: number; minY: number; maxX: number; maxY: number }): Polygon => [
+  [b.minX, b.minY],
+  [b.maxX, b.minY],
+  [b.maxX, b.maxY],
+  [b.minX, b.maxY],
+];
 
-/** The ground a layer's shade may land on: its floor union and any painted terrain. Empty = not known yet. */
-function groundOf(layer: DungeonLayer): Polygon[] {
+/**
+ * The ground a layer's shade and slope faces may land on, as plateauGround.ts reasons about
+ * what a plateau may stand on: its walled floors' union, its ground pieces, the base ground
+ * over the map's frame, and any painted terrain. Empty = nothing known: everywhere.
+ */
+function groundOf(layer: DungeonLayer, base: WorldBounds | null): Polygon[] {
   const ground: Polygon[] = [];
   for (const ring of layer.mergedFloor ?? []) if (ring.length >= 3) ground.push(ring);
+  for (const c of layer.children) {
+    // A patch kept to the floors shows only on them, which are ground already.
+    if (!isGroundPiece(c) || c.keptToFloors || c.visible === false) continue;
+    const [outer, ...holes] = pieceRings(c);
+    if (!outer || outer.length < 3) continue;
+    // Outer wound positive and holes negative, so a hole stays out under the non-zero rule.
+    ground.push(signedArea(outer) >= 0 ? outer : [...outer].reverse());
+    for (const h of holes) if (h.length >= 3) ground.push(signedArea(h) < 0 ? h : [...h].reverse());
+  }
+  if (base) ground.push(boxRing(base));
   const t = useStore.getState().mapSettings.terrain?.bounds;
-  if (t) ground.push([[t.minX, t.minY], [t.maxX, t.minY], [t.maxX, t.maxY], [t.minX, t.maxY]]);
+  if (t) ground.push(boxRing(t));
   return ground;
+}
+
+// ─── Slope faces ───────────────────────────────────────────
+
+/** One slope run's face, as it lands. */
+export interface SlopeFaceRun {
+  run: EdgeRun;
+  /** The unit vector its face points along. */
+  v: Vec;
+  /** Its face before it is cut to where it may land: the lines are drawn off this. */
+  face: SlopeFace;
+  /**
+   * The face and its ledge bands, rim to foot, cut to where they may land (`land`) and off the
+   * faces of higher bands (`over`).
+   */
+  region: Polygon[];
+  bands: Polygon[][];
+  /** The faces of the bands drawn over this one's: what shows over it, so nothing of it is drawn there. */
+  over: Polygon[];
+}
+
+/** Where what an edge throws may land, per band and the side it drops to: outside it (`outward`) or inside a pit. */
+export type LandOf = (band: PlateauBand, outward: boolean) => Polygon[];
+
+/** A layer's slope faces, and where an edge's shade and face may land. */
+export interface LayerSlopes {
+  faces: SlopeFaceRun[];
+  land: LandOf;
+}
+
+const slopeMemo = new WeakMap<readonly unknown[], { floor: unknown; terrain: unknown; base: string; dir: unknown; value: LayerSlopes }>();
+
+/**
+ * Every slope run's face on the layer, with its direction (its plateau's, else the map's), cut
+ * to where the drop shade may land: the run's low side, on ground, never on a band as high or
+ * higher. Kept while the layer's children, its ground and the map's direction stay the same:
+ * the floors, the edges, the shadows and the brush all ask.
+ */
+export function layerSlopes(layer: DungeonLayer): LayerSlopes {
+  const map = useStore.getState().mapSettings;
+  const terrain = map.terrain?.bounds ?? null;
+  const base = hasPlateaus(layer) ? baseGroundFrame(layer) : null;
+  const baseKey = base ? `${base.minX},${base.minY},${base.maxX},${base.maxY}` : '';
+  const hit = slopeMemo.get(layer.children);
+  if (hit && hit.floor === layer.mergedFloor && hit.terrain === terrain && hit.base === baseKey && hit.dir === map.faceDirection) return hit.value;
+
+  const { bands } = layerPlateaus(layer);
+  const ground = groundOf(layer, base);
+  let groundUnion: Polygon[] | null = null;
+  const lands = new Map<PlateauBand, Map<boolean, Polygon[]>>();
+  const land: LandOf = (band, outward) => {
+    let sides = lands.get(band);
+    if (!sides) lands.set(band, (sides = new Map()));
+    const known = sides.get(outward);
+    if (known) return known;
+    const low = lowRegion(band, bands, outward, SHADE_REACH + FACE_DEPTH_MAX * (1 + FACE_DEPTH_WANDER));
+    groundUnion ??= ground.length > 0 ? clipper2Engine.union(ground, []) : null;
+    const region = groundUnion ? clipper2Engine.intersection(low, groundUnion) : low;
+    sides.set(outward, region);
+    return region;
+  };
+
+  const faces: SlopeFaceRun[] = [];
+  for (const band of bands) {
+    for (const run of edgeRuns(band)) {
+      if (run.edge !== 'slope' || run.drop === 0) continue;
+      const deg = faceDirectionOf(run.owner, map.faceDirection);
+      // Wandering and stepped by its plateau's id, so it is the same rock on every redraw; each
+      // stretch as deep as its own drop, eased into the rim at the ends where the face stops.
+      const ends = run.closed ? undefined : faceEnds(band, run, map.faceDirection);
+      const face = slopeFace(run.points, run.closed, run.drop > 0, band.rings, deg, run.drops, wobbleSeed(run.owner?.id), ends);
+      if (face.region.length === 0) continue;
+      const where = land(band, run.drop > 0);
+      const cut = (rings: Polygon[]) => (rings.length === 0 ? [] : clipper2Engine.intersection(rings, where));
+      faces.push({ run, v: faceVector(deg), face, region: cut(face.region), bands: face.bands.map(cut), over: [] });
+    }
+  }
+  // One order for every face, the bands' own: where a later band's face lies over an earlier
+  // one's, the later shows whole, tile, bands and lines, and nothing of the earlier shows through it.
+  const landed = faces.map((f) => f.region);
+  for (const f of faces) {
+    const over = faces.flatMap((g, i) => (byPrecedence(g.run.band, f.run.band) > 0 ? landed[i] : []));
+    if (over.length === 0) continue;
+    const off = (rings: Polygon[]) => (rings.length === 0 ? [] : clipper2Engine.difference(rings, over));
+    f.over = over;
+    f.region = off(f.region);
+    f.bands = f.bands.map(off);
+  }
+  const value: LayerSlopes = { faces, land };
+  slopeMemo.set(layer.children, { floor: layer.mergedFloor, terrain, base: baseKey, dir: map.faceDirection, value });
+  return value;
+}
+
+/**
+ * Which ends of an open slope run its face eases into the rim at. Not where the ring goes on
+ * under or against a higher plateau (the next edge has no drop: the face runs on under it), nor
+ * where it goes on as another slope whose edge there faces its own direction too (two plateaus
+ * of one height with different settings: no notch between them).
+ */
+function faceEnds(band: PlateauBand, run: EdgeRun, mapDirection: number | undefined): FaceEnds {
+  const ring = band.rings[run.ring];
+  const edges = band.edges[run.ring];
+  const n = ring.length;
+  const goesOn = (index: number): boolean => {
+    const i = ((index % n) + n) % n;
+    const e = edges[i];
+    if (e.drop === 0) return true;
+    if (e.edge !== 'slope' || !e.owner) return false;
+    const seg = lowSegments([ring[i], ring[(i + 1) % n]], false, e.drop > 0)[0];
+    if (!seg) return false;
+    const v = faceVector(faceDirectionOf(e.owner, mapDirection));
+    return seg.n[0] * v[0] + seg.n[1] * v[1] > 1e-6;
+  };
+  return { start: !goesOn(run.start - 1), end: !goesOn(run.start + run.points.length - 1) };
+}
+
+interface TopMemo {
+  slopes: LayerSlopes;
+  value: Map<PlateauChild, Polygon[]>;
+  /** Per plateau, what of higher bands shows over its top. */
+  above: Map<PlateauChild, Polygon[]>;
+  /** Worked out on the first ask (`plateauTopFills`). */
+  fills?: Map<PlateauChild, TopFill>;
+}
+
+const topMemo = new WeakMap<readonly unknown[], TopMemo>();
+
+/**
+ * The order the tops and faces of a layer's plateaus are drawn in, by plateau: precedence
+ * (`byPrecedence`: the more deeply nested, then the higher), then the layer's own order. The
+ * later of two overlapping tops wins.
+ */
+export function plateauDrawOrder(layer: DungeonLayer): Map<PlateauChild, number> {
+  const { infos } = layerPlateaus(layer);
+  const rank = (p: PlateauChild) => precedenceOf(infos.get(p.id) ?? { chain: [], height: 0 });
+  const listed = plateausOf(layer);
+  const sorted = listed.map((p, i) => ({ p, i })).sort((a, b) => byPrecedence(rank(a.p), rank(b.p)) || a.i - b.i);
+  return new Map(sorted.map(({ p }, k) => [p, k]));
+}
+
+/**
+ * The tops of every plateau with a top texture, by plateau, in draw order: its own outline
+ * (holes kept) less the outlines of textured plateaus of another level that win over it
+ * (`byPrecedence`) and the faces of plateaus that win over it, which show over it. What the
+ * grid and the Material brush take as its top; the floors draw its texture over
+ * `plateauTopFills`, which grows and fades it at seams with tops of its own level. A plateau
+ * with a Ground top draws none, so a textured top under it shows through.
+ */
+export function plateauTopTiles(layer: DungeonLayer): Map<PlateauChild, Polygon[]> {
+  const out = new Map<PlateauChild, Polygon[]>();
+  if (!hasPlateaus(layer)) return out;
+  const { infos } = layerPlateaus(layer);
+  const order = plateauDrawOrder(layer);
+  const textured = plateausOf(layer)
+    .filter((p) => p.topArt && (infos.get(p.id)?.chain.length ?? 0) > 0)
+    .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  if (textured.length === 0) return out;
+  const slopes = layerSlopes(layer);
+  const hit = topMemo.get(layer.children);
+  if (hit && hit.slopes === slopes) return hit.value;
+  const rankOf = (p: PlateauChild) => precedenceOf(infos.get(p.id)!);
+  const aboveOf = new Map<PlateauChild, Polygon[]>();
+  for (const p of textured) {
+    const mine = rankOf(p);
+    // Tops of its own level are its band's: they meet in a seam (`plateauTopFills`), not a cut.
+    const above = [
+      ...textured.filter((q) => rankOf(q).height !== mine.height && byPrecedence(rankOf(q), mine) > 0).flatMap((q) => unionShapes([q])),
+      ...slopes.faces
+        .filter((f) => byPrecedence(f.run.owner && infos.has(f.run.owner.id) ? rankOf(f.run.owner) : f.run.band, mine) > 0)
+        .flatMap((f) => f.region),
+    ];
+    const own = unionShapes([p]);
+    const rings = above.length > 0 && own.length > 0 ? clipper2Engine.difference(own, above) : own;
+    if (rings.length > 0) out.set(p, rings);
+    aboveOf.set(p, above);
+  }
+  topMemo.set(layer.children, { slopes, value: out, above: aboveOf });
+  return out;
+}
+
+// ─── Seams between tops of one height ──────────────────────
+
+/** A textured top as the floors draw it. */
+export interface TopFill {
+  /** Its top (`plateauTopTiles`), grown TOP_SEAM under each later textured top of its band across a seam. */
+  rings: Polygon[];
+  /** The steps it is painted in when it fades in from a seam; null paints `rings` crisp. */
+  soft: SoftLayer[] | null;
+  /** The stretches of its outline it fades in from: open lines, in its own outline's order. */
+  fades: Polygon[];
+  /** The stretches of its outline it grows across, under a later textured top. */
+  grows: Polygon[];
+}
+
+/** A point this near a line lies on it, cells: Clipper keeps two decimals. */
+const SEAM_ON = 0.02;
+/** How far across a seam is looked at to tell what lies there, cells. */
+const SEAM_PROBE = 0.05;
+
+/** Inside a set of rings by even-odd: holes count as outside. */
+function inRegion(rings: readonly Polygon[], p: Vec): boolean {
+  let n = 0;
+  for (const r of rings) if (r.length >= 3 && pointInPoly(p[0], p[1], r)) n++;
+  return n % 2 === 1;
+}
+
+/** How near `p` comes to the closed `rings`. */
+function ringsDistance(rings: readonly Polygon[], p: Vec): number {
+  let best = Infinity;
+  for (const r of rings) for (let i = 0; i < r.length; i++) best = Math.min(best, segDist(p, r[i] as Vec, r[(i + 1) % r.length] as Vec));
+  return best;
+}
+
+/** `ring` with every one of `points` that lies inside one of its edges added there, in order along it. */
+function splitAtPoints(ring: Polygon, points: readonly [number, number][]): Polygon {
+  const out: Polygon = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i] as Vec;
+    const b = ring[(i + 1) % ring.length] as Vec;
+    out.push(a);
+    const ab = vsub(b, a);
+    const l2 = ab[0] * ab[0] + ab[1] * ab[1];
+    if (l2 < 1e-12) continue;
+    const len = Math.sqrt(l2);
+    const ts: number[] = [];
+    for (const p of points) {
+      const t = ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / l2;
+      if (t * len <= SEAM_ON || (1 - t) * len <= SEAM_ON) continue;
+      if (segDist(p as Vec, a, b) <= SEAM_ON / 4) ts.push(t);
+    }
+    ts.sort((p, q) => p - q);
+    for (const t of ts) out.push(vadd(a, vmul(ab, t)));
+  }
+  return out;
+}
+
+/**
+ * The seams of plateau `p`'s top: the parts of its own outline inside its band's union, off the
+ * band's rings, where another plateau of its level meets it. Each stretch is told by what lies
+ * just across it: a plateau later in the draw order (`plateauDrawOrder`) with a top texture of
+ * its own (`grows`: `p` runs on under it), else anything (`fades`: `p` fades in from it).
+ */
+function topSeams(p: PlateauChild, band: PlateauBand, placeOf: Map<unknown, number>): { fades: Polygon[]; grows: Polygon[] } {
+  const fades: Polygon[] = [];
+  const grows: Polygon[] = [];
+  const own = unionShapes([p]);
+  const others = band.shapes.filter((q) => q !== p).map((q) => ({ q, rings: unionShapes([q]) }));
+  const otherRings = others.flatMap((o) => o.rings);
+  const corners = otherRings.flat() as [number, number][];
+  const at = placeOf.get(p) ?? -1;
+  for (const outline of own) {
+    if (outline.length < 3) continue;
+    const ring = splitAtPoints(splitAtCrossings(outline, otherRings), corners);
+    const n = ring.length;
+    const kinds = ring.map((pt, i): 'rim' | 'fade' | 'grow' => {
+      const a = pt as Vec;
+      const b = ring[(i + 1) % n] as Vec;
+      const len = vdist(a, b);
+      if (len < 1e-9) return 'rim';
+      const mid = vmul(vadd(a, b), 0.5);
+      if (ringsDistance(band.rings, mid) <= SEAM_ON) return 'rim';
+      const nrm: Vec = [(-(b[1] - a[1]) / len) * SEAM_PROBE, ((b[0] - a[0]) / len) * SEAM_PROBE];
+      const left = vadd(mid, nrm);
+      const right = vsub(mid, nrm);
+      const inLeft = inRegion(own, left);
+      if (inLeft === inRegion(own, right)) return 'rim';
+      const across = inLeft ? right : left;
+      const later = others.some((o) => (placeOf.get(o.q) ?? -1) > at && !!o.q.topArt && inRegion(o.rings, across));
+      return later ? 'grow' : 'fade';
+    });
+    // Consecutive edges of one kind as one open line, so a wobble runs on along the stretch.
+    let start = kinds.findIndex((k, i) => k !== kinds[(i - 1 + n) % n]);
+    const closed = start < 0;
+    if (closed) start = 0;
+    let line: Polygon | null = null;
+    let kind: 'rim' | 'fade' | 'grow' = 'rim';
+    const flush = () => {
+      if (line && kind !== 'rim') (kind === 'grow' ? grows : fades).push(line);
+      line = null;
+    };
+    for (let k = start; k < start + n; k++) {
+      const i = k % n;
+      if (line && kinds[i] !== kind) flush();
+      if (!line) {
+        line = [ring[i]];
+        kind = kinds[i];
+      }
+      line.push(ring[(i + 1) % n]);
+    }
+    flush();
+  }
+  return { fades, grows };
+}
+
+/**
+ * The steps a top fades in from its seams in: nothing on the seam, full TOP_SEAM inside it, the
+ * full edge wandering as a painted border's inner edge does, the same way every time for `seed`.
+ * The rest of the top's outline stays crisp.
+ */
+function seamFadeLayers(region: Polygon[], seams: Polygon[], seed: number): SoftLayer[] {
+  const noise = wobbleNoise(seed);
+  return softEdgeLayers((d) => {
+    // The k-th step stops (steps - k - 1)/steps of the seam's width short of it: the last starts one step in.
+    const reach = TOP_SEAM - d + TOP_SEAM / SOFT_EDGE_STEPS;
+    const strips = seams.flatMap((line) => wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, reach * BORDER_WOBBLE, noise));
+    return strips.length > 0 ? clipper2Engine.difference(region, strips) : region;
+  }, TOP_SEAM);
+}
+
+/**
+ * Every textured top as the floors draw it, by plateau: where it meets another plateau of its
+ * height the two feather into each other instead of meeting in a hard edge (`topSeams`): the
+ * later one in the order fades in over TOP_SEAM, the earlier runs on TOP_SEAM under it so it has
+ * that texture to fade onto, and a top against a Ground top fades in from nothing. The band's
+ * outer rim and the cut by higher bands stay crisp. A top that meets none is its tile as is.
+ * Kept with the tops.
+ */
+export function plateauTopFills(layer: DungeonLayer): Map<PlateauChild, TopFill> {
+  const tops = plateauTopTiles(layer);
+  const memo = topMemo.get(layer.children);
+  if (tops.size === 0 || !memo || memo.value !== tops) return new Map([...tops].map(([p, rings]) => [p, { rings, soft: null, fades: [], grows: [] }]));
+  if (memo.fills) return memo.fills;
+  const { bands } = layerPlateaus(layer);
+  const placeOf: Map<unknown, number> = plateauDrawOrder(layer);
+  const fills = new Map<PlateauChild, TopFill>();
+  for (const [p, rings] of tops) {
+    const band = bands.find((b) => b.shapes.includes(p));
+    const seams = band && band.shapes.length > 1 ? topSeams(p, band, placeOf) : { fades: [], grows: [] };
+    let drawn = rings;
+    if (band && seams.grows.length > 0) {
+      const under = clipper2Engine.intersection(clipper2Engine.inflateOpen(seams.grows, TOP_SEAM), band.rings);
+      const above = memo.above.get(p) ?? [];
+      const grown = clipper2Engine.union(rings, under);
+      drawn = above.length > 0 ? clipper2Engine.difference(grown, above) : grown;
+    }
+    const soft = seams.fades.length > 0 ? seamFadeLayers(drawn, seams.fades, wobbleSeed(p.id)) : null;
+    fills.set(p, { rings: drawn, soft, ...seams });
+  }
+  memo.fills = fills;
+  return fills;
+}
+
+/**
+ * The faces of every slope plateau with a face texture, by plateau, as they land, in the bands'
+ * draw order: what the floors draw its tile over.
+ */
+export function slopeFaceTiles(layer: DungeonLayer): Map<PlateauChild, Polygon[]> {
+  const out = new Map<PlateauChild, Polygon[]>();
+  if (!hasPlateaus(layer)) return out;
+  const faces = [...layerSlopes(layer).faces].sort((a, b) => byPrecedence(a.run.band, b.run.band));
+  for (const { run, region } of faces) {
+    const owner = run.owner;
+    if (!owner?.faceArt || region.length === 0) continue;
+    out.set(owner, [...(out.get(owner) ?? []), ...region]);
+  }
+  return out;
+}
+
+/**
+ * The faces of one band, above every ground piece: each ledge band shaded by its step
+ * (`faceBandShades`: over a face tile its upper band lifted and its lowest darkened, over
+ * plain ground darkening only), the foot lined and, with the plateau's Ledge lines on, a finer
+ * line between the bands, both kept to where the face may land; then the rim along the outline,
+ * heavier where the edge faces the face direction, and a pale highlight just inside it on the
+ * far side.
+ */
+function drawSlopeFaces(parent: Container, band: PlateauBand, faces: SlopeFaceRun[], land: LandOf): void {
+  if (faces.length === 0) return;
+  const shade = new Graphics();
+  shade.label = 'plateau-slope-face';
+  // The lift is added over what is there, so the tile's own streaks stay as they are, lighter.
+  const lift = new Graphics();
+  lift.label = 'plateau-slope-lift';
+  lift.blendMode = 'add';
+  for (const { run, bands } of faces) {
+    const shades = faceBandShades(bands.length, !!run.owner?.faceArt);
+    bands.forEach((rings, k) => {
+      const s = shades[k];
+      if (s) fillRings(s.add ? lift : shade, rings, { color: s.color, alpha: s.alpha });
+    });
+  }
+  parent.addChild(shade);
+  if (lift.context.instructions.length > 0) parent.addChild(lift);
+  else lift.destroy();
+
+  for (const outward of [true, false]) {
+    const mine = faces.filter((f) => f.run.drop > 0 === outward);
+    if (mine.length === 0) continue;
+    const lines = new Graphics();
+    lines.label = 'plateau-slope-lines';
+    for (const { run, face } of mine) {
+      for (const foot of linesOff(face.region, band.rings)) lines.poly(foot.flat(), false).stroke({ color: FACE_INK, width: FACE_FOOT_WIDTH, alpha: FACE_FOOT_ALPHA, join: 'round', cap: 'round' });
+      if (run.owner?.contourLines === false) continue;
+      for (const step of face.steps.slice(0, -1)) {
+        for (const ledge of linesOff(step, [...band.rings, ...face.region])) {
+          lines.poly(ledge.flat(), false).stroke({ color: FACE_INK, width: FACE_LEDGE_WIDTH, alpha: FACE_LEDGE_ALPHA, join: 'round', cap: 'round' });
+        }
+      }
+    }
+    // Kept to where the face may land, and off the faces of higher bands.
+    const over = faces[0].over;
+    const mask = new Graphics();
+    mask.label = 'plateau-slope-mask';
+    fillRings(mask, over.length > 0 ? clipper2Engine.difference(land(band, outward), over) : land(band, outward), { color: 0xffffff });
+    const clip = new Container();
+    clip.label = 'plateau-slope-foot';
+    clip.addChild(lines, mask);
+    clip.mask = mask;
+    parent.addChild(clip);
+  }
+
+  const rim = new Graphics();
+  rim.label = 'plateau-slope-rim';
+  for (const { run, v } of faces) drawRim(rim, run, v);
+  const over = faces[0].over;
+  if (over.length === 0) {
+    parent.addChild(rim);
+    return;
+  }
+  // The rim stays off a higher band's face too.
+  const mask = new Graphics();
+  mask.label = 'plateau-slope-rim-mask';
+  fillRings(mask, clipper2Engine.difference(lowRegion(band, [], true, 1), over), { color: 0xffffff });
+  const clip = new Container();
+  clip.label = 'plateau-slope-rim-clip';
+  clip.addChild(rim, mask);
+  clip.mask = mask;
+  parent.addChild(clip);
+}
+
+/** A run's segments in stretches of one level (0 to FACE_RIM_STEPS - 1), as open polylines; a closed run's first and last stretch join. */
+function stretchesByLevel(run: EdgeRun, lowLeft: boolean, levelOf: (n: Vec) => number): { level: number; line: Polygon }[] {
+  const segs = lowSegments(run.points, run.closed, lowLeft);
+  const out: { level: number; line: Polygon }[] = [];
+  for (const { a, b, n } of segs) {
+    const level = levelOf(n);
+    const last = out[out.length - 1];
+    if (last && last.level === level && last.line[last.line.length - 1] === a) last.line.push(b);
+    else out.push({ level, line: [a, b] });
+  }
+  if (run.closed && out.length > 1 && out[0].level === out[out.length - 1].level) {
+    const tail = out.pop()!;
+    out[0].line = [...tail.line, ...out[0].line.slice(1)];
+  }
+  return out;
+}
+
+/** The rim line and the far side's highlight along one slope run. */
+function drawRim(g: Graphics, run: EdgeRun, v: Vec): void {
+  const lowLeft = run.drop > 0;
+  const top = FACE_RIM_STEPS - 1;
+  const facing = (n: Vec) => n[0] * v[0] + n[1] * v[1];
+  for (const { level, line } of stretchesByLevel(run, lowLeft, (n) => Math.round(rimWeight(facing(n)) * top))) {
+    const w = level / top;
+    g.poly(line.flat(), false).stroke({
+      color: FACE_INK,
+      width: FACE_RIM_FAR_WIDTH + (FACE_RIM_WIDTH - FACE_RIM_FAR_WIDTH) * w,
+      alpha: FACE_RIM_FAR_ALPHA + (FACE_RIM_ALPHA - FACE_RIM_FAR_ALPHA) * w,
+      join: 'round',
+      cap: 'round',
+    });
+  }
+  for (const { level, line } of stretchesByLevel(run, lowLeft, (n) => Math.round(highlightWeight(facing(n)) * top))) {
+    if (level === 0) continue;
+    // Pushed up onto the top, its own width clear of the rim line.
+    const lifted = offsetPath(line, false, !lowLeft, FACE_HIGHLIGHT_INSET + FACE_HIGHLIGHT_WIDTH / 2);
+    g.poly(lifted.flat(), false).stroke({ color: FACE_HIGHLIGHT_COLOR, width: FACE_HIGHLIGHT_WIDTH, alpha: (FACE_HIGHLIGHT_ALPHA * level) / top, cap: 'round', join: 'round' });
+  }
 }
 
 // ─── The shade below an edge ───────────────────────────────
 
 /** How far the shade's blur fades an edge, cells: from 90 % to 10 % of its darkness. */
 export const SHADE_FADE = 0.2;
-/** How far past a band's outline the outside it shades on is looked for, cells. */
+/** How far past a band's outline the outside it shades on is looked for, beyond the deepest face, cells. */
 const SHADE_REACH = 2;
 
-/** The rings of the side of `band` its edges drop to: outside it (`outward`) or, for a pit's rim, inside it. */
+/**
+ * The rings of the side of `band` its edges drop to: outside it (`outward`) or, for the rim of a
+ * pit or a dip, inside it; either way only where the surface stands lower than the band (each
+ * band's `surface`), so a pit or a dip dug into a higher plateau keeps its own floor.
+ */
 function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: boolean, reach: number): Polygon[] {
   if (!outward) {
-    const above = bands.filter((b) => b.height > band.height).flatMap((b) => b.rings);
+    const above = bands.filter((b) => b.height > band.height).flatMap((b) => b.surface);
     return above.length > 0 ? clipper2Engine.difference(band.rings, above) : band.rings;
   }
   const xs = band.rings.flatMap((r) => r.map((p) => p[0]));
   const ys = band.rings.flatMap((r) => r.map((p) => p[1]));
   const [x0, y0, x1, y1] = [Math.min(...xs) - reach, Math.min(...ys) - reach, Math.max(...xs) + reach, Math.max(...ys) + reach];
-  const high = bands.filter((b) => b.height >= band.height).flatMap((b) => b.rings);
+  const high = bands.filter((b) => b.height >= band.height).flatMap((b) => b.surface);
   return clipper2Engine.difference([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], high);
 }
 
@@ -348,31 +825,24 @@ function dropShade(g: Graphics, run: EdgeRun): void {
 }
 
 /**
- * The shade a band lays under its rock, per side it drops to: the drop shade along each edge
- * but a slope (whose band is its own shade), blurred, then cut by a mask of that side and of
- * the ground there is, so it is as dark at the edge as the shade says, never spills up onto
- * the band and never lands on void. Returns the blurred holder of each side.
+ * The shade a band lays under its edges, per side it drops to: the drop shade along each
+ * edge, blurred, then cut by a mask of that side and of the ground there is (`land`), less the
+ * band's slope faces there and the faces of higher bands (`over`), so it is as dark at the edge
+ * as the shade says, never spills up onto the band, never lands on void and stays off a face.
  */
-function drawShade(
-  parent: Container,
-  band: PlateauBand,
-  runs: EdgeRun[],
-  bands: readonly PlateauBand[],
-  ground: Polygon[],
-): Map<boolean, Container> {
-  const soft = new Map<boolean, Container>();
+function drawShade(parent: Container, band: PlateauBand, runs: EdgeRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[]): void {
   for (const outward of [true, false]) {
-    // A run dropping to a band below shades it from above; one rising to a band above is that
-    // band's to shade, so only a run rising to the ground (a pit's rim) shades its own band.
-    const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || Math.abs(band.height - r.drop) < 1e-9));
+    // A run dropping to a band below shades it from above; one rising to a band it merely meets
+    // is that band's to shade, so only the rim of a pit or a dip (rising to the ground or to the
+    // plateau it is dug into, `dug`) shades its own band.
+    const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || r.dug));
     if (mine.length === 0) continue;
-    const reach = SHADE_REACH + Math.max(...mine.map((r) => (r.edge === 'slope' ? slopeWidthOf(r.owner?.slopeWidth) : dropShadeWidth(r.drop))));
-    const low = lowRegion(band, bands, outward, reach);
-    const region = ground.length > 0 ? clipper2Engine.intersection(low, clipper2Engine.union(ground, [])) : low;
+    const onFaces = [...faces.filter((f) => f.run.drop > 0 === outward).flatMap((f) => f.region), ...over];
+    const region = onFaces.length > 0 ? clipper2Engine.difference(land(band, outward), onFaces) : land(band, outward);
     if (region.length === 0) continue;
     const g = new Graphics();
     g.label = 'plateau-drop-shade';
-    for (const run of mine) if (run.edge !== 'slope') dropShade(g, run);
+    for (const run of mine) dropShade(g, run);
     const blur = new BlurFilter({ strength: 1, quality: 3, kernelSize: 5 });
     blur.resolution = 1;
     const held = new Container();
@@ -392,9 +862,7 @@ function drawShade(
       blur.strength = blurStrengthFor(SHADE_FADE, Math.hypot(m.a, m.b) || 1);
     };
     parent.addChild(clip);
-    soft.set(outward, held);
   }
-  return soft;
 }
 
 /** Which placements `placeBand` will turn into sprites, in the order it adds them. */

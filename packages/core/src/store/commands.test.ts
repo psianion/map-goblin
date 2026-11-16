@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, ChildOrderCommand, LayerWallLookCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, SetGroupMergedCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { AddChildCommand, ChildOrderCommand, LayerWallLookCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, SetGroupMergedCommand, SetTimeTintCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
 import { createDungeonLayer } from './factories';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
@@ -217,6 +217,33 @@ describe('SetAmbientLightCommand', () => {
     cmd.execute();
     cmd.undo();
     expect(useStore.getState().mapSettings.ambientLight).toBe(before);
+  });
+});
+
+describe('SetTimeTintCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('sets one time’s tint and leaves the map tint and the other times alone', () => {
+    const ambient = useStore.getState().mapSettings.ambientLight;
+    new SetTimeTintCommand('night', null, '#ff0000').execute();
+    expect(useStore.getState().mapSettings.timeTints).toEqual({ night: '#ff0000' });
+    expect(useStore.getState().mapSettings.ambientLight).toBe(ambient);
+  });
+
+  it('undo takes it back off the map; a clear and its undo put it back', () => {
+    const set = new SetTimeTintCommand('dusk', null, '#884422');
+    set.execute();
+    set.undo();
+    expect(useStore.getState().mapSettings).not.toHaveProperty('timeTints');
+    set.execute();
+    new SetTimeTintCommand('dawn', null, '#ffeedd').execute();
+    const clear = new SetTimeTintCommand('dusk', '#884422', null);
+    clear.execute();
+    expect(useStore.getState().mapSettings.timeTints).toEqual({ dawn: '#ffeedd' });
+    clear.undo();
+    expect(useStore.getState().mapSettings.timeTints).toEqual({ dawn: '#ffeedd', dusk: '#884422' });
   });
 });
 

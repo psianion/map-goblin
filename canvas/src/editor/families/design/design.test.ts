@@ -11,6 +11,7 @@ import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { design, DESIGN_CARDS } from './index';
 import { doorKitSwatches, installedDoorKits, pickDoorKit } from './doorModel';
+import { directionAt, directionWords, snapDirection } from './plateauModel';
 
 vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd/core/src/assets/packCatalog')>();
@@ -225,6 +226,129 @@ describe('the Elevation dock', () => {
     settings.setSetting('elevation.edge', 'cliff');
     settings.setSetting('elevation.cliffArt', 'default');
     expect(st().tools.settings.plateau?.edgeArt).toBeUndefined();
+  });
+
+  it('offers a slope its Slope face and Slope direction, and neither to a cliff', () => {
+    settings.setSetting('elevation.edge', 'cliff');
+    expect(shown('elevation.faceArt')).toBe(false);
+    expect(shown('elevation.slopeDirection')).toBe(false);
+    settings.setSetting('elevation.edge', 'slope');
+    expect(shown('elevation.faceArt')).toBe(true);
+    expect(shown('elevation.slopeDirection')).toBe(true);
+    expect(get('elevation.faceArt')).toBe('ground');
+    expect(settings.setSetting('elevation.faceArt', 'gg-forge:face_stone_4x4_floor_A')).toBe(true);
+    expect(st().tools.settings.plateau?.faceArt).toBe('gg-forge:face_stone_4x4_floor_A');
+    settings.setSetting('elevation.faceArt', 'ground');
+    expect(st().tools.settings.plateau?.faceArt).toBeUndefined();
+  });
+
+  it('sets the next plateau’s slope direction, never the map’s, from the map’s stored one', () => {
+    expect(get('elevation.slopeDirection')).toBe(60);
+    useStore.setState((s) => {
+      s.mapSettings.faceDirection = 30;
+    });
+    expect(get('elevation.slopeDirection')).toBe(30);
+    expect(settings.setSetting('elevation.slopeDirection', 135)).toBe(true);
+    expect(st().tools.settings.plateau?.faceDir).toBe(135);
+    expect(st().mapSettings.faceDirection).toBe(30);
+    expect(get('elevation.slopeDirection')).toBe(135);
+    expect(settings.setSetting('elevation.slopeDirection', 400)).toBe(false);
+  });
+
+  it('offers the Top on every edge, Ground first, and Brush with its Size', () => {
+    for (const edge of ['none', 'slope', 'cliff']) {
+      settings.setSetting('elevation.edge', edge);
+      expect(reg.settingById('elevation.topArt')!.visibleWhen).toBeUndefined();
+    }
+    expect(get('elevation.topArt')).toBe('ground');
+    settings.setSetting('elevation.topArt', 'p:moss');
+    expect(st().tools.settings.plateau?.topArt).toBe('p:moss');
+    settings.setSetting('elevation.topArt', 'ground');
+    expect(st().tools.settings.plateau?.topArt).toBeUndefined();
+    expect(get('elevation.input')).toBe('pen');
+    expect(shown('elevation.brushSize')).toBe(false);
+    settings.setSetting('elevation.input', 'brush');
+    expect(shown('elevation.brushSize')).toBe(true);
+    expect(get('elevation.brushSize')).toBe(1);
+    expect(settings.setSetting('elevation.brushSize', 2.5)).toBe(true);
+    expect(st().tools.settings.plateau).toMatchObject({ input: 'brush', brushRadius: 2.5 });
+    expect(settings.setSetting('elevation.brushSize', 40)).toBe(false);
+    expect(reg.toolById('elevation')!.settings.some((s) => s.id === 'edit.curve')).toBe(true);
+    // The hint says the brush's keys.
+    expect(JSON.stringify(reg.toolById('elevation')!.hint(st()))).toContain('size');
+  });
+
+  describe('with plateaus picked', () => {
+    beforeEach(() => {
+      seed([plateau({ edge: 'slope', height: 2, faceDir: 90 }), plateau({ id: 'p2', name: 'p2', edge: 'slope' })], ['p1', 'p2']);
+      st().setActiveTool('plateau');
+      undoManager.clear();
+    });
+    const p = (id: string) => child<PlateauChild>(id);
+
+    it('shows the first picked plateau’s values, its direction the map’s when it has none', () => {
+      expect(get('elevation.height')).toBe(2);
+      expect(get('elevation.edge')).toBe('slope');
+      expect(get('elevation.slopeDirection')).toBe(90);
+      useStore.setState((s) => {
+        s.selection.selectedIds = ['p2'];
+      });
+      expect(get('elevation.height')).toBe(1);
+      expect(get('elevation.slopeDirection')).toBe(60);
+    });
+
+    it('writes every control to every picked plateau as one undo step, and to the tool', () => {
+      const writes: [string, unknown, Partial<PlateauChild>][] = [
+        ['elevation.height', -3, { height: -3 }],
+        ['elevation.faceArt', 'p:face', { faceArt: 'p:face' }],
+        ['elevation.slopeDirection', 45, { faceDir: 45 }],
+        ['elevation.topArt', 'p:moss', { topArt: 'p:moss' }],
+        ['elevation.edge', 'cliff', { edge: 'cliff' }],
+        ['elevation.cliffArt', 'paint', { edgeArt: 'paint' }],
+        ['elevation.paintTexture', 'p:dirt', { edgeArt: 'paint:p:dirt' }],
+        ['elevation.paintWidth', 1.5, { borderWidth: 1.5 }],
+      ];
+      for (const [id, value, stored] of writes) {
+        const before = [structuredClone(p('p1')), structuredClone(p('p2'))];
+        expect(settings.setSetting(id, value), id).toBe(true);
+        expect(p('p1'), id).toMatchObject(stored);
+        expect(p('p2'), id).toMatchObject(stored);
+        expect(st().tools.settings.plateau, id).toMatchObject(id === 'elevation.slopeDirection' ? { faceDir: 45 } : stored);
+        undoManager.undo();
+        expect([p('p1'), p('p2')], id).toEqual(before);
+        undoManager.redo();
+      }
+    });
+
+    it('sets only the tool with nothing picked, or with another tool in hand', () => {
+      st().setActiveTool('select');
+      settings.setSetting('elevation.height', 4);
+      expect(p('p1').height).toBe(2);
+      expect(st().tools.settings.plateau?.height).toBe(4);
+      st().setActiveTool('plateau');
+      useStore.setState((s) => {
+        s.selection.selectedIds = [];
+      });
+      settings.setSetting('elevation.height', 5);
+      expect(p('p1').height).toBe(2);
+      expect(st().tools.settings.plateau?.height).toBe(5);
+    });
+  });
+});
+
+describe('the direction dial', () => {
+  it('snaps to 15 degrees, 0 right and 90 down, and says the way in words', () => {
+    expect(directionAt(1, 0)).toBe(0);
+    expect(directionAt(0, 1)).toBe(90);
+    expect(directionAt(-1, -0.01)).toBe(180);
+    expect(directionAt(0, -1)).toBe(270);
+    expect(directionAt(Math.cos(1.1), Math.sin(1.1))).toBe(60);
+    expect(snapDirection(-7)).toBe(0);
+    expect(snapDirection(-8)).toBe(345);
+    expect(snapDirection(352)).toBe(345);
+    expect(directionWords(60)).toBe('lower right');
+    expect(directionWords(90)).toBe('down');
+    expect(directionWords(350)).toBe('right');
   });
 });
 
@@ -690,8 +814,10 @@ describe('the plateau card', () => {
     write('plateau', 'card.plateau.height', ['p1'], -1);
     write('plateau', 'card.plateau.edge', ['p1'], 'slope');
     expect(p1()).toMatchObject({ height: -1, edge: 'slope' });
-    expect(field('plateau', 'card.plateau.slopeWidth').visibleWhen!(p1())).toBe(true);
+    for (const id of ['card.plateau.faceArt', 'card.plateau.faceDir', 'card.plateau.ledgeLines']) expect(field('plateau', id).visibleWhen!(p1()), id).toBe(true);
     expect(field('plateau', 'card.plateau.cliffArt').visibleWhen!(p1())).toBe(false);
+    // A slope's Ledge lines stand in for Contour lines, which a slope no longer shows.
+    expect(field('plateau', 'card.plateau.contourLines').visibleWhen!(p1())).toBe(false);
     undoManager.undo();
     undoManager.undo();
     expect(p1()).toMatchObject({ height: 1, edge: 'cliff' });
@@ -708,14 +834,73 @@ describe('the plateau card', () => {
     expect(p1().sightOverride).toBe(auto ? 'show' : 'hide');
   });
 
-  it('sets slope width, contour lines and crossing, undoably', () => {
-    write('plateau', 'card.plateau.slopeWidth', ['p1'], 1.5);
+  it('sets contour lines and crossing, undoably', () => {
     write('plateau', 'card.plateau.contourLines', ['p1'], false);
-    expect(p1()).toMatchObject({ slopeWidth: 1.5, contourLines: false });
+    expect(p1()).toMatchObject({ contourLines: false });
     expect(read('plateau', 'card.plateau.crossing', p1())).toBe('edge');
     undoManager.undo();
+    expect(p1().contourLines).toBeUndefined();
+  });
+
+  it('sets a slope’s Face, Ground storing nothing, on every picked plateau as one step', () => {
+    seed([plateau({ edge: 'slope' }), plateau({ id: 'p2', name: 'p2', edge: 'slope' })], ['p1', 'p2']);
+    const stone = 'gg-forge:face_stone_4x4_floor_A';
+    expect(read('plateau', 'card.plateau.faceArt', p1())).toBe('ground');
+    write('plateau', 'card.plateau.faceArt', ['p1', 'p2'], stone);
+    expect(p1().faceArt).toBe(stone);
+    expect(child<PlateauChild>('p2').faceArt).toBe(stone);
+    expect(read('plateau', 'card.plateau.faceArt', p1())).toBe(stone);
+    write('plateau', 'card.plateau.faceArt', ['p1'], 'ground');
+    expect(p1().faceArt).toBeUndefined();
     undoManager.undo();
-    expect(p1().slopeWidth).toBeUndefined();
+    undoManager.undo();
+    expect(p1().faceArt).toBeUndefined();
+    expect(child<PlateauChild>('p2').faceArt).toBeUndefined();
+  });
+
+  it('shows the plateau’s own direction, the map’s stored one for a plateau saved without, and writes a number', () => {
+    seed([plateau({ edge: 'slope' })], ['p1']);
+    expect(read('plateau', 'card.plateau.faceDir', p1())).toBe(60);
+    useStore.setState((s) => {
+      s.mapSettings.faceDirection = 30;
+    });
+    expect(read('plateau', 'card.plateau.faceDir', p1())).toBe(30);
+    write('plateau', 'card.plateau.faceDir', ['p1'], 135);
+    expect(p1().faceDir).toBe(135);
+    expect(read('plateau', 'card.plateau.faceDir', p1())).toBe(135);
+    undoManager.undo();
+    expect(p1().faceDir).toBeUndefined();
+    expect(field('plateau', 'card.plateau.faceDir').schema.safeParse(null).success).toBe(false);
+  });
+
+  it('sets the Top on any edge, Ground storing nothing, on every picked plateau as one step', () => {
+    seed([plateau(), plateau({ id: 'p2', name: 'p2', edge: 'slope' })], ['p1', 'p2']);
+    expect(field('plateau', 'card.plateau.topArt').visibleWhen).toBeUndefined();
+    expect(read('plateau', 'card.plateau.topArt', p1())).toBe('ground');
+    write('plateau', 'card.plateau.topArt', ['p1', 'p2'], 'p:moss');
+    expect(p1().topArt).toBe('p:moss');
+    expect(child<PlateauChild>('p2').topArt).toBe('p:moss');
+    undoManager.undo();
+    expect(p1().topArt).toBeUndefined();
+    expect(child<PlateauChild>('p2').topArt).toBeUndefined();
+  });
+
+  it('reads Smooth corners on only when every node of the picked plateaus is smooth', () => {
+    const smooth = [[{ tin: [0, 1], tout: [2, 1] }, { tin: [4, 0], tout: [4, 2] }, { tin: [5, 4], tout: [3, 4] }, { tin: [1, 5], tout: [1, 3] }]] as PlateauChild['tangents'];
+    seed([plateau({ tangents: smooth }), plateau({ id: 'p2', name: 'p2' })], ['p1', 'p2']);
+    expect(read('plateau', 'card.plateau.smoothCorners', p1())).toBe(false);
+    useStore.setState((s) => {
+      s.selection.selectedIds = ['p1'];
+    });
+    expect(read('plateau', 'card.plateau.smoothCorners', p1())).toBe(true);
+  });
+
+  it('writes Ledge lines to the stored contour switch, on by default', () => {
+    seed([plateau({ edge: 'slope' })], ['p1']);
+    expect(read('plateau', 'card.plateau.ledgeLines', p1())).toBe(true);
+    write('plateau', 'card.plateau.ledgeLines', ['p1'], false);
+    expect(p1().contourLines).toBe(false);
+    undoManager.undo();
     expect(p1().contourLines).toBeUndefined();
   });
 

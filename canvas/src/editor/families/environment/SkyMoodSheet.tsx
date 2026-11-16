@@ -1,5 +1,5 @@
 // The Sky sheet: the map's Place, its sun and moon (Cast shadows and where the sun rises), and
-// its Tint. Climate, Weather, Night sky and Time are gone; maps that carry them load without
+// its Tint: one Colour for every time, and a colour of its own for any of the four. Climate, Weather, Night sky and Time are gone; maps that carry them load without
 // them. How the map is previewed lives on the status bar (Preview as), not here.
 //
 // Every change goes through the environment or ambient command; a drag on the sundial or in
@@ -14,6 +14,8 @@ import { Caption, ColourRow, PlaceTiles, SwitchRow } from '@dnd/ui';
 import { runEdit } from '@/editor/families/design/cardWrites';
 import { usePreview } from '@/editor/viewPrefs';
 import { riseLabel, turnSun } from './sundialModel';
+import { timeTints } from './timeTintModel';
+import { SLOTTED, SlotRow, TimeTintRow } from './TimeTintRow';
 
 type EnvPatch = Pick<MapEnvironment, 'environment' | 'naturalLight'>;
 
@@ -38,8 +40,10 @@ export function SkyMoodSheet() {
       naturalLight: s.mapSettings.naturalLight === true,
       orientation: s.mapSettings.orientation ?? 0,
       tint: s.mapSettings.ambientLight,
+      timeTints: s.mapSettings.timeTints,
     })),
   );
+  const tints = timeTints({ ambientLight: map.tint, timeTints: map.timeTints });
   const unlit = usePreview() === 'unlit';
   return (
     <div className="flex flex-col gap-2.5 px-3 pt-2.5 pb-3" data-testid="sky-mood">
@@ -75,7 +79,14 @@ export function SkyMoodSheet() {
       </section>
       <section className="flex flex-col gap-px" data-section="Tint">
         <Caption className="mb-1.5">Tint</Caption>
-        <ColourRow label="Colour" value={map.tint} onValueChange={setTint} />
+        <SlotRow>
+          <ColourRow label="Colour" value={map.tint} onValueChange={setTint} className={SLOTTED} />
+          <span aria-hidden className="size-[26px] shrink-0" />
+        </SlotRow>
+        {tints.map((t) => (
+          <TimeTintRow key={t.time} tint={t} />
+        ))}
+        <p className="mt-1.5 text-[11px] text-text-3">A time without its own colour uses Colour.</p>
       </section>
     </div>
   );

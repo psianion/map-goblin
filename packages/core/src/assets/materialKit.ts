@@ -9,7 +9,7 @@
 // A plain floor texture is a material too, named by its pack-scoped id: it fills the patch
 // itself, has no border units, and its edge is drawn soft (materialRenderer.ts).
 
-import { getBandSet, getBandSetIds, getCatalogEntry, getEntriesByType, qualifyTextureId } from './packCatalog';
+import { getBandSet, getBandSetIds, getCatalogEntry, getEntriesByType, qualifyTextureId, type CatalogEntry } from './packCatalog';
 
 /** The material a new patch takes when none is picked. */
 export const DEFAULT_MATERIAL = 'GG_Cave_Ink';
@@ -22,6 +22,38 @@ export function isTextureMaterial(id: string): boolean {
 /** The installed floor textures tagged `outdoor`: the ground the brushes paint plain. */
 export function outdoorFloorIds(): string[] {
   return getEntriesByType('floor').filter((e) => e.tags.includes('outdoor')).map((e) => e.id);
+}
+
+/** True for a slope face tile: a floor tagged `face`, offered by the slope's Face picker and nowhere else. */
+export function isFaceTile(entry: Pick<CatalogEntry, 'tags'>): boolean {
+  return entry.tags.includes('face');
+}
+
+/** The installed floor textures less the slope face tiles: what every list of floors offers. */
+export function floorTextureEntries(): CatalogEntry[] {
+  return getEntriesByType('floor').filter((e) => !isFaceTile(e));
+}
+
+/** The Face picker's order of the face tiles, by material; any other comes after these. */
+const FACE_ORDER = ['face_grass', 'face_grass_dark', 'face_earth', 'face_dirt', 'face_stone', 'face_sandstone', 'face_cave'];
+/** What the Face picker calls each face tile; any other is named by its material. */
+const FACE_LABELS: Record<string, string> = {
+  face_grass: 'Grass',
+  face_grass_dark: 'Dark grass',
+  face_earth: 'Earth',
+  face_dirt: 'Dirt',
+  face_stone: 'Stone',
+  face_sandstone: 'Sandstone',
+  face_cave: 'Cave',
+};
+
+/** The installed slope face tiles, in the Face picker's order, each with the name it shows. */
+export function faceTiles(): { id: string; label: string }[] {
+  const rank = (m: string) => (FACE_ORDER.includes(m) ? FACE_ORDER.indexOf(m) : FACE_ORDER.length);
+  return getEntriesByType('floor')
+    .filter(isFaceTile)
+    .sort((a, b) => rank(a.material) - rank(b.material) || a.material.localeCompare(b.material))
+    .map((e) => ({ id: e.id, label: FACE_LABELS[e.material] ?? materialLabel(e.id) }));
 }
 
 /**

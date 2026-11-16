@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { FogLook } from '../../shared/fogLook';
-import type { MapBuilderStore, MapEnvironment, MapRules, MapSettings, TerrainData } from '../types';
+import type { MapBuilderStore, MapEnvironment, MapRules, MapSettings, TerrainData, TimeOfDay } from '../types';
 
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
@@ -9,6 +9,7 @@ export interface MapSettingsActions {
   setMapGround: (ground: MapSettings['ground']) => void;
   setCellScale: (scale: MapSettings['cellScale']) => void;
   setAmbientLight: (color: string) => void;
+  setTimeTint: (time: TimeOfDay, color: string | null) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setMapRules: (patch: MapRules) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
@@ -90,6 +91,15 @@ export const createMapSettingsSlice: StateCreator<
   setAmbientLight: (color) =>
     set((state) => {
       state.mapSettings.ambientLight = color;
+    }),
+  // The last time's tint taken away takes the field off the map, as a map that never set one.
+  setTimeTint: (time, color) =>
+    set((state) => {
+      const tints = { ...state.mapSettings.timeTints };
+      if (color) tints[time] = color;
+      else delete tints[time];
+      if (Object.keys(tints).length > 0) state.mapSettings.timeTints = tints;
+      else delete state.mapSettings.timeTints;
     }),
   setFogLook: (look) =>
     set((state) => {

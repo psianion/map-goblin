@@ -19,7 +19,7 @@ import {
 } from './exportMath';
 import { computeContentBounds, computeMapFrame } from '../../shared/mapBounds';
 import { holdAuthoredLook } from '../editorDesk';
-import { isBandSet } from '../../assets/packCatalog';
+import { bandScale, isBandSet } from '../../assets/packCatalog';
 import type { TimeOfDay } from '../../shared/prep';
 import { skyFrame } from '../../shared/sky';
 
@@ -81,7 +81,7 @@ export function computeMapWorldBounds(
 }
 
 /**
- * How far cave band rock reaches past a floor edge, in cells. The content bounds pad a
+ * How far cave band rock reaches past a floor edge at the size it was drawn, in cells. The content bounds pad a
  * wall by half its stroke width, but a band layer's rock is laid by the cave walk at
  * render time, pushed out past the ring and a good deal thicker than any stroke: about
  * 1.3 cells past the floor edge measured on a Cave Ink room. Without this the file cut
@@ -94,8 +94,11 @@ function bandPad(layers: readonly Layer[]): number {
   let pad = 0;
   for (const layer of layers) {
     if (layer.type !== 'dungeon' || !isBandSet(layer.style?.wallTextureSetId)) continue;
+    const width = layer.style?.wallWidth;
+    // The rock is laid at the size the wall width asks for, and reaches in proportion.
+    const reach = BAND_REACH * (width === undefined ? 1 : bandScale(width));
     // computeContentBounds already padded half the wall width plus 0.05 of slack.
-    pad = Math.max(pad, BAND_REACH - ((layer.style?.wallWidth ?? 0) / 2 + 0.05));
+    pad = Math.max(pad, reach - ((width ?? 0) / 2 + 0.05));
   }
   return pad;
 }

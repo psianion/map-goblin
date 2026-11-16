@@ -72,6 +72,16 @@ describe('caveEdges', () => {
     expect(xs.some((x) => x > 1 && x < 7.5 && edge.rings[0].some((q) => Math.abs(q[0] - x) < 1e-9 && q[1] > 0.5 && q[1] < 3.5))).toBe(false);
   });
 
+  it('keeps the caves that pin a rock width apart from those that follow the layer', () => {
+    const pinned = (id: string, ring: Ring, wallWidth: number): ShapeChild => ({ ...cave(id, ring), styleOverrides: { wallTextureSetId: '', wallWidth } });
+    const edges = caveEdges(layerOf([cave('a', square(0, 0, 4)), pinned('b', square(10, 0, 4), 0.25), pinned('c', square(12, 0, 4), 0.25)]));
+    expect(edges).toHaveLength(2);
+    expect(edges[0]).toEqual({ material: 'GG_Cave_Ink', rings: [square(0, 0, 4)] });
+    // The two that pin the same width are one cave still.
+    expect(edges[1]).toMatchObject({ material: 'GG_Cave_Ink', width: 0.25 });
+    expect(edges[1].rings).toHaveLength(1);
+  });
+
   it('knows a point on the outline from one off it, and cuts the faces along each ring', () => {
     const l = layerOf([cave('a', square(0, 0, 4))]);
     expect(onCaveEdge([2, 0], caveEdges(l))).toBe(true);
@@ -90,6 +100,13 @@ describe('resolveWalls with a painted cave', () => {
     expect(caves).toHaveLength(1);
     expect(caves[0]).toMatchObject({ id: 'cave:GG_Cave_Ink:0', wallType: 'normal', direction: 'both', textureSetId: 'GG_Cave_Ink' });
     expect(caves[0].points[0]).toEqual(caves[0].points.at(-1));
+  });
+
+  it('hands a cave’s pinned rock width to its wall, under an id of its own', () => {
+    const thin: ShapeChild = { ...cave('b', square(10, 0, 4)), styleOverrides: { wallTextureSetId: '', wallWidth: 0.25 } };
+    const caves = resolveWalls(layerOf([cave('a', square(0, 0, 4)), thin])).filter((w) => w.kind === 'cave');
+    expect(caves.map((w) => w.id)).toEqual(['cave:GG_Cave_Ink:0', 'cave:GG_Cave_Ink@0.25:0']);
+    expect(caves.map((w) => w.bandWidth)).toEqual([undefined, 0.25]);
   });
 
   it('inside a rectangle floor: the rectangle’s four edges and the cave’s closed wall', () => {

@@ -31,6 +31,9 @@ import { getPreview } from '@/editor/viewPrefs';
 import { layerOnLevel } from '@/editor/models/roomModel';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
+import { useShallow } from 'zustand/react/shallow';
+import { timeTintOf, useTileTints } from '@/editor/families/environment/timeTintModel';
+import { TimeTintRow } from '@/editor/families/environment/TimeTintRow';
 
 const FORMATS = [
   { value: 'png', label: 'PNG' },
@@ -119,11 +122,17 @@ function seedLighting(): LightingPick {
   return { time: preview === 'unlit' ? 'day' : preview };
 }
 
-/** The time tiles under "Apply lighting". */
+/**
+ * The time tiles under "Apply lighting", each in the colour its time is drawn in, and the picked
+ * time's own Colour: the map's tint for that time, the same one the Sky sheet sets.
+ */
 function LightingRows({ value, onChange }: { value: LightingPick; onChange: (v: LightingPick) => void }) {
+  const tints = useTileTints();
+  const map = useStore(useShallow((s) => ({ ambientLight: s.mapSettings.ambientLight, timeTints: s.mapSettings.timeTints })));
   return (
     <div className="flex flex-col gap-1.5 rounded-control bg-panel-2 px-3 py-2" data-testid="v2-export-lighting">
-      <TimeTiles value={value.time} onPick={(time) => time !== 'unlit' && onChange({ time })} />
+      <TimeTiles value={value.time} tints={tints} onPick={(time) => time !== 'unlit' && onChange({ time })} />
+      <TimeTintRow tint={timeTintOf(map, value.time)} label="Colour" className="w-full" />
     </div>
   );
 }
@@ -232,9 +241,10 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ? levelsZipName(mapName)
       : buildExportFilename(mapName, dims.widthPx, dims.heightPx, Math.round(dims.pxPerCell), format);
 
-  // One value per pick, so the preview re-renders when the time changes.
+  // One value per pick, so the preview re-renders when the time changes, or the colour it is drawn in.
   const time = pick.time;
   const lit = useMemo(() => (lighting ? { time } : false), [lighting, time]);
+  const litTint = useStore((s) => s.mapSettings.timeTints?.[time] ?? s.mapSettings.ambientLight);
 
   // The picture the file will be, drawn small: the export pipeline itself at a thumbnail's scale
   // (the pipeline renders at DPR 1), again whenever an option changes. A blob url until replaced.
@@ -269,7 +279,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setPreview(null);
       if (url) URL.revokeObjectURL(url);
     };
-  }, [open, image, format, pxPerCell, includeGrid, lit, labels, shown, previewCells, mapName]);
+  }, [open, image, format, pxPerCell, includeGrid, lit, litTint, labels, shown, previewCells, mapName]);
 
   const submit = useCallback(async () => {
     if (busy) return;
@@ -347,6 +357,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
           e.stopPropagation();
           if (e.key !== 'Enter' || e.target instanceof HTMLButtonElement) return;
           if (e.target instanceof Element && e.target.closest('[role="listbox"]')) return;
+          // Nor the Enter that ends a hex typed into the Colour picker.
+          if (e.target instanceof Element && e.target.closest('[data-slot="popover-content"]')) return;
           e.preventDefault();
           void submit();
         }}

@@ -1,5 +1,5 @@
 import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
-import type { DungeonLayer, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
@@ -16,7 +16,10 @@ import type { DungeonStyle } from '../store/types';
 import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
-import { renderPlateaus } from './plateauRenderer';
+import { layerSlopes, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
+import { hasPlateaus } from '../shared/plateaus';
+import { DEFAULT_TEXTURE_SCALE } from '../shared/types';
+import { FACE_TILE_CELLS, faceDirectionOf } from '../shared/plateauShade';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
@@ -26,6 +29,7 @@ import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
 import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
 import { pruneSoftMasks } from './softPiece';
+import { paintSoftTiled } from './softEdge';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
 function parseColor(hex: string | undefined): number {
@@ -229,6 +233,12 @@ export interface TiledLook {
   holes?: boolean;
   /** The box the texture is laid over and anchored to; the rings' own when absent (softEdge.ts passes one for all its steps). */
   bounds?: { minX: number; minY: number; maxX: number; maxY: number };
+  /**
+   * Lay the pattern from the map's origin whatever the box, so it stays put on the map as the
+   * rings move, and over a square box, so a turned pattern is not sheared (Pixi's batched
+   * tiling turns it in the box's unit square). A slope's face tile asks for this.
+   */
+  mapAnchored?: boolean;
 }
 
 /**
@@ -238,8 +248,9 @@ export interface TiledLook {
  */
 export function paintTiled(parent: Container, rings: Polygon[], texture: Texture, look: TiledLook): void {
   const { minX, minY, maxX, maxY } = look.bounds ?? polygonBounds(rings.flat());
-  const width = maxX - minX;
-  const height = maxY - minY;
+  const side = Math.max(maxX - minX, maxY - minY);
+  const width = look.mapAnchored ? side : maxX - minX;
+  const height = look.mapAnchored ? side : maxY - minY;
   if (width <= 0 || height <= 0) return;
 
   const tileScale = look.scale / PX_PER_GRID_CELL;
@@ -253,11 +264,14 @@ export function paintTiled(parent: Container, rings: Polygon[], texture: Texture
   });
   ts.position.set(minX, minY);
 
-  // Anchor tile pattern to world origin so adjacent shapes tile seamlessly
-  ts.tilePosition.set(
-    (-minX + (look.offsetX ?? 0)) / tileScale,
-    (-minY + (look.offsetY ?? 0)) / tileScale,
-  );
+  // Anchor tile pattern to world origin so adjacent shapes tile seamlessly. Pixi reads the tile
+  // position in the sprite's own units, so the map-anchored pattern takes the box corner as is.
+  if (look.mapAnchored) ts.tilePosition.set(-minX + (look.offsetX ?? 0), -minY + (look.offsetY ?? 0));
+  else
+    ts.tilePosition.set(
+      (-minX + (look.offsetX ?? 0)) / tileScale,
+      (-minY + (look.offsetY ?? 0)) / tileScale,
+    );
 
   if (look.tint !== undefined) ts.tint = look.tint;
   if (look.alpha !== undefined) ts.alpha = look.alpha;
@@ -406,23 +420,47 @@ function walledBoxOf(floor: Container): Container {
 /** A layer with no union, by one identity, so what is kept per union stays kept. */
 const NO_FLOOR: Polygon[] = [];
 
-const groundGridMemo = new Map<string, { pieces: ShapeChild[]; floor: Polygon[]; rings: Polygon[] }>();
+const groundGridMemo = new Map<string, { pieces: ShapeChild[]; plateaus: Polygon[][]; floor: Polygon[]; rings: Polygon[] }>();
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
 
 /**
- * Where a layer's ground pieces carry grid lines: all of them as one region, less the walled
- * floors (which line themselves), so no line is drawn twice where pieces overlap. Kept per
- * layer while neither the pieces nor the union change: this runs on every step of a drag.
+ * The plateau textures a layer draws, each as the region it is drawn over (`plateauTopTiles`,
+ * `slopeFaceTiles`): they cover the grid under them, so they carry the layer's own. A Ground top
+ * draws nothing and an id no installed pack lists draws nothing, so neither adds any.
  */
-function groundGridRings(layerId: string, pieces: ShapeChild[], floor: Polygon[]): Polygon[] {
-  if (pieces.length === 0) {
+export function plateauGridRegions(layer: DungeonLayer): Polygon[][] {
+  if (!hasPlateaus(layer)) return [];
+  const regions: Polygon[][] = [];
+  for (const [plateau, rings] of plateauTopTiles(layer)) if (hasLiveTexture(plateau.topArt ?? '')) regions.push(rings);
+  // Each face as it landed, by its own identity: kept while the layer's slopes are.
+  for (const f of layerSlopes(layer).faces) if (f.region.length > 0 && f.run.owner?.faceArt && hasLiveTexture(f.run.owner.faceArt)) regions.push(f.region);
+  return regions;
+}
+
+/**
+ * Where a layer's ground pieces and plateau textures carry grid lines: all of them as one
+ * region, less the walled floors (which line themselves), so no line is drawn twice where they
+ * overlap. Kept per layer while neither the pieces, the plateau regions nor the union change:
+ * this runs on every step of a drag.
+ */
+function groundGridRings(layerId: string, pieces: ShapeChild[], plateaus: Polygon[][], floor: Polygon[]): Polygon[] {
+  if (pieces.length === 0 && plateaus.length === 0) {
     groundGridMemo.delete(layerId);
     return [];
   }
   const hit = groundGridMemo.get(layerId);
-  if (hit && hit.floor === floor && hit.pieces.length === pieces.length && hit.pieces.every((p, i) => p === pieces[i])) return hit.rings;
+  if (hit && hit.floor === floor && sameItems(hit.pieces, pieces) && sameItems(hit.plateaus, plateaus)) return hit.rings;
   const all = pieces.flatMap((p) => pieceOutline(p));
-  const rings = pieces.length === 1 && floor.length === 0 ? all : clipper2Engine.difference(clipper2Engine.union(all, []), floor);
-  groundGridMemo.set(layerId, { pieces, floor, rings });
+  let rings: Polygon[];
+  if (pieces.length === 1 && plateaus.length === 0 && floor.length === 0) rings = all;
+  else {
+    const united = plateaus.length > 0 ? clipper2Engine.union(all, plateaus.flat()) : clipper2Engine.union(all, []);
+    rings = floor.length > 0 ? clipper2Engine.difference(united, floor) : united;
+  }
+  groundGridMemo.set(layerId, { pieces, plateaus, floor, rings });
   return rings;
 }
 
@@ -438,9 +476,10 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   for (const child of gridSub.removeChildren()) child.destroy();
 
   const polygons = layer.mergedFloor ?? NO_FLOOR;
-  // Ground pieces carry the grid too: lines mean "the built map", and ground is built.
+  // Ground pieces carry the grid too: lines mean "the built map", and ground is built. So do a
+  // plateau's top and face textures, which cover the grid of whatever is under them.
   const ground = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.ground === true && c.visible !== false);
-  const groundRings = groundGridRings(layer.id, ground, polygons);
+  const groundRings = groundGridRings(layer.id, ground, plateauGridRegions(layer), polygons);
   if (polygons.length === 0 && groundRings.length === 0) return;
 
   // Compute bounding box of all floor polygons
@@ -472,7 +511,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   // Whole cells, and in the editor the snap step between them (the table's desk turns it off).
   const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
-  // Ground takes the layer's own line colour, over what the floors do not already line.
+  // Ground and plateau textures take the layer's own line colour, over what the floors do not already line.
   const groups: [string, Polygon[]][] = [...byColor];
   if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings]);
 
@@ -520,6 +559,55 @@ function drawWalledExtras(floor: Container, walled: Container, layer: DungeonLay
   if (terrainMesh) walled.addChild(terrainMesh);
 
   floor.addChild(walled);
+}
+
+/**
+ * A plateau's own texture (its face's or its top's), loaded: null for none, for an id no
+ * installed pack lists (it draws nothing) and for one not loaded yet (it bakes again when it lands).
+ */
+function plateauTexture(layerId: string, id: string | undefined): Texture | null {
+  if (!id || !hasLiveTexture(id)) {
+    if (id) watchCatalog();
+    return null;
+  }
+  const texture = unitTexture(id).texture;
+  if (texture.width <= 1) {
+    armLateTextureRebuild(layerId, id);
+    return null;
+  }
+  return texture;
+}
+
+/**
+ * A plateau's top texture over its top (`fill`): tiled as a ground piece of that texture with
+ * its default settings is, so the top matches the same floor painted beside it; in steps laid
+ * the same way where it fades in from a seam with another top of its height.
+ */
+function drawTopTile(floor: Container, layerId: string, plateau: PlateauChild, fill: TopFill): void {
+  const texture = plateauTexture(layerId, plateau.topArt);
+  if (!texture) return;
+  const look: TiledLook = { scale: DEFAULT_TEXTURE_SCALE, rotation: 0, offsetX: 0, offsetY: 0 };
+  if (fill.soft) paintSoftTiled(floor, fill.soft, texture, look);
+  else paintTiled(floor, fill.rings, texture, { ...look, holes: true });
+}
+
+/**
+ * A slope's face texture over its face (`rings`): tiled from the map's origin, FACE_TILE_CELLS
+ * a tile, turned so the tile's fall line (+y) runs along the face direction. A texture no
+ * installed pack lists draws nothing (the face reads as Ground); one not loaded yet bakes again
+ * when it lands.
+ */
+function drawFaceTile(floor: Container, layerId: string, plateau: PlateauChild, rings: Polygon[]): void {
+  const texture = plateauTexture(layerId, plateau.faceArt);
+  if (!texture) return;
+  const deg = faceDirectionOf(plateau, useStore.getState().mapSettings.faceDirection);
+  // paintTiled lays `scale` cells per 200 px: the whole tile over FACE_TILE_CELLS.
+  paintTiled(floor, rings, texture, {
+    scale: (FACE_TILE_CELLS * PX_PER_GRID_CELL) / texture.width,
+    rotation: ((deg - 90) * Math.PI) / 180,
+    holes: true,
+    mapAnchored: true,
+  });
 }
 
 /**
@@ -628,7 +716,39 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const pieces = layer.children.filter(
     (c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && (c.contours[0]?.length ?? 0) >= 3,
   );
+  // A plateau's top texture and a slope's face texture are floors of their own, at the plateau's
+  // place among the pieces: drawn after the piece before it (`after`, -1 before them all), so
+  // ground painted later covers them. Those that share a place go in the plateaus' draw order
+  // (`plateauDrawOrder`), each top under its face.
+  const placeOf = new Map<unknown, number>(layer.children.map((c, i) => [c, i]));
+  const afterOf = (plateau: PlateauChild): number => {
+    const at = placeOf.get(plateau) ?? -1;
+    let after = -1;
+    while (after + 1 < pieces.length && (placeOf.get(pieces[after + 1]) ?? 0) < at) after++;
+    return after;
+  };
+  const tops = plateauTopFills(layer);
+  const faces = slopeFaceTiles(layer);
+  const order = tops.size + faces.size > 0 ? plateauDrawOrder(layer) : new Map<PlateauChild, number>();
+  const owners = [...new Set([...tops.keys(), ...faces.keys()])].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  const faceTiles = owners.flatMap((plateau) => {
+    const after = afterOf(plateau);
+    const top = tops.get(plateau);
+    const face = faces.get(plateau);
+    return [
+      ...(top ? [{ plateau, rings: top.rings, top, after }] : []),
+      ...(face ? [{ plateau, rings: face, top: null, after }] : []),
+    ];
+  });
+  const drawFaces = (after: number): void => {
+    for (const f of faceTiles) {
+      if (f.after !== after) continue;
+      if (f.top) drawTopTile(floor, layer.id, f.plateau, f.top);
+      else drawFaceTile(floor, layer.id, f.plateau, f.rings);
+    }
+  };
   if (polygons.length === 0 && pieces.length === 0) {
+    drawFaces(-1);
     pruneSoftMasks(layer.id, new Set());
     redrawGrid(layer, entry);
     return;
@@ -661,12 +781,15 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     : Math.max(0, s.floorBleed ?? 0);
 
   // Plain floors (no texture, no override, full opacity) are filled as one union in one
-  // colour, which is faster. Only while no ground piece lies between them in the order:
-  // one fill cannot go both under and over it.
+  // colour, which is faster. Only while no ground piece or face texture lies between them in
+  // the order: one fill cannot go both under and over it.
   const firstWalled = pieces.findIndex((c) => !c.ground);
   const lastWalled = pieces.reduce((at, c, i) => (c.ground ? at : i), -1);
   const unionFilled =
-    !perShape && polygons.length > 0 && !pieces.some((c, i) => c.ground === true && i > firstWalled && i < lastWalled);
+    !perShape &&
+    polygons.length > 0 &&
+    !pieces.some((c, i) => c.ground === true && i > firstWalled && i < lastWalled) &&
+    !faceTiles.some((f) => f.after >= firstWalled && f.after < lastWalled);
 
   // Every water piece's outline, as one: a shore stops where water meets water.
   const waters = pieces.filter((c) => isWaterPiece(c));
@@ -682,6 +805,13 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     const own = clipper2Engine.difference(pieceOutline(g), later);
     covered = covered.length > 0 ? clipper2Engine.union(covered, own) : own;
   });
+  // So do a plateau's top and face textures there.
+  for (const f of faceTiles) {
+    if (f.after < firstWalled || f.after >= lastWalled) continue;
+    const later = pieces.slice(f.after + 1).filter((c) => !c.ground).flatMap((c) => pieceOutline(c));
+    const own = clipper2Engine.difference(f.rings, later);
+    covered = covered.length > 0 ? clipper2Engine.union(covered, own) : own;
+  }
   const walledExtras = (): void => {
     drawWalledExtras(floor, walled, layer, polygons, bleed, covered);
     // The walled floors' painted borders go over the room looks and the older paint, as they
@@ -689,6 +819,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh);
   };
 
+  drawFaces(-1);
   pieces.forEach((shape, i) => {
     if (unionFilled && i === firstWalled) {
       const floorG = new Graphics();
@@ -697,6 +828,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     }
     drawPiece(floor, shape, ctx);
     if (i === lastWalled && polygons.length > 0) walledExtras();
+    drawFaces(i);
   });
   // A union with no drawable floor behind it (rings too short to draw) still carries its extras.
   if (lastWalled < 0 && polygons.length > 0) walledExtras();

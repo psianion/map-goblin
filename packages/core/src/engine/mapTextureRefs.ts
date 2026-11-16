@@ -8,7 +8,7 @@ import { bandSetArt, getBandSet, getWallPieces, getWallSet } from '../assets/pac
 import { doorKitById, doorKitFor, doorKitKey, isKitStyle, kitWallSet } from '../assets/doorKits';
 import { pathPieceOf } from '../assets/pathKit';
 import { isWaterMaterial, materialFillId, shoreTextureOf } from '../assets/materialKit';
-import { cliffArt, contourArt, isPaintedBorder, paintedBorderTexture } from './plateauKit';
+import { cliffArt, isPaintedBorder, paintedBorderTexture } from './plateauKit';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
 import type { DungeonLayer, Level, RoomLook, SerializedMapData } from '../store/types';
 import type { DoorChild } from '../shared/types';
@@ -123,11 +123,14 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
             add(pathPieceOf(child.pieceId)?.id);
             break;
           case 'plateau':
-            if (child.edge !== 'none') {
+            if (child.edge === 'cliff') {
               if (isPaintedBorder(child.edgeArt)) add(paintedBorderTexture(child.edgeArt));
               else for (const e of cliffArt(child.edgeArt).values()) add(e.id);
-              for (const e of contourArt(child.edgeArt).values()) add(e.id);
             }
+            // A slope lays no ledge art: only its face texture.
+            if (child.edge === 'slope') add(child.faceArt);
+            // Any edge may have a textured top.
+            add(child.topArt);
             break;
           default:
             break;

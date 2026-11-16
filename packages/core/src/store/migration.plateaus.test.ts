@@ -27,9 +27,14 @@ beforeAll(async () => {
 const load = (file: string) => JSON.parse(readFileSync(`${root}/${file}.mapbuilder`, 'utf8'));
 const dungeon = (data: SerializedMapData) => (data.layers as unknown as DungeonLayer[]).filter((l) => l.type === 'dungeon');
 
-/** Per fixture layer, as the 3.2 model counted it: bands, their heights, edge runs. */
+/**
+ * Per fixture layer, as the 3.2 model counted it: bands, their heights, edge runs. Except where
+ * a height is now its own level and no longer adds: plateau-test's summit (+2 on the +1 hill)
+ * stands at 2, in the outcrop's band, which draws after the others as its deepest member is
+ * nested.
+ */
 const BEFORE: Record<string, { bands: number; heights: number[]; runs: number }> = {
-  'plateau-test/layer-outdoors': { bands: 4, heights: [-2, 1, 2, 3], runs: 5 },
+  'plateau-test/layer-outdoors': { bands: 4, heights: [-2, 1, 3, 2], runs: 5 },
   'plateau-table/layer-1': { bands: 1, heights: [3], runs: 1 },
   'tower-test/layer-cellar': { bands: 1, heights: [1], runs: 1 },
   'tower-test/layer-ground': { bands: 1, heights: [1], runs: 1 },

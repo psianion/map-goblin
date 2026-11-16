@@ -125,6 +125,18 @@ describe('drawBandFill', () => {
     }
   });
 
+  it('reaches in proportion to the size the rock is laid at', () => {
+    const [ring] = orientRings([rect(12, 9)]);
+    const { g, polys } = recorder();
+    drawBandFill(g, { edge: ring, closed: true, gaps: [], color: 1, size: 0.5 });
+    expect(polys.length).toBe(8);
+    let far = 0;
+    for (const pts of polys) {
+      for (let i = 0; i < pts.length; i += 2) far = Math.max(far, outside([pts[i], pts[i + 1]], 12, 9));
+    }
+    expect(far).toBeCloseTo(BAND_FILL_REACH / 2, 6);
+  });
+
   it('stays inside a hole and leaves its middle bare', () => {
     // A 3x3 hole in a 12x9 room: the hole winds opposite, void on its inside.
     const hole: Polygon = [

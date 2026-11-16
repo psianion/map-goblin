@@ -16,8 +16,11 @@ import {
   elevationAt,
   elevationAtLayers,
   hiddenTops,
+  pointInPoly,
 } from './plateaus';
+import type { Polygon } from '../types/geometry';
 import { defaultCrossingKinds } from './crossingKinds';
+import { smoothRing } from './bezier';
 import { computeMergedFloor } from '../engine/mergedFloor';
 
 beforeAll(async () => {
@@ -73,12 +76,13 @@ describe('plateau chains', () => {
     expect(infos.get('summit')!.chain.map((s) => s.id)).toEqual(['big', 'hill', 'summit']);
   });
 
-  it('adds heights along the chain: +2 on +1 reads 3', () => {
+  it('stands each plateau at its own height, wherever it is drawn: +2 in +1 reads 2', () => {
     const hill = plat('hill', 0, 0, 20, 20, { height: 1, edge: 'slope' });
     const summit = plat('summit', 5, 5, 10, 10, { height: 2, edge: 'cliff' });
     const infos = plateauChains([hill, summit]);
     expect(infos.get('hill')!.height).toBe(1);
-    expect(infos.get('summit')!.height).toBe(3);
+    expect(infos.get('summit')!.height).toBe(2);
+    expect(infos.get('summit')!.chain.map((s) => s.id)).toEqual(['hill', 'summit']);
   });
 
   it('carries a plateau with no height of its own up to its parent', () => {
@@ -105,14 +109,14 @@ describe('plateau chains', () => {
     const infos = plateauChains([a, b]);
     expect(infos.get('a')!.parent).toBeNull();
     expect(infos.get('b')!.parent?.id).toBe('a');
-    expect(infos.get('b')!.height).toBe(2);
+    expect(infos.get('b')!.height).toBe(1);
   });
 });
 
 describe('bands and drops', () => {
   const ground = rect('ground', 0, 0, 30, 30);
 
-  it('merges plateaus of equal absolute height into one band and leaves floors out', () => {
+  it('merges plateaus of equal level into one band and leaves floors out', () => {
     const a = plat('a', 2, 2, 8, 8, { height: 2, edge: 'cliff' });
     const b = plat('b', 6, 2, 12, 8, { height: 2, edge: 'cliff' });
     const c = plat('c', 20, 20, 24, 24, { height: 1, edge: 'cliff' });
@@ -136,16 +140,19 @@ describe('bands and drops', () => {
     const hill = plat('hill', 2, 2, 20, 20, { height: 1, edge: 'slope' });
     const summit = plat('summit', 6, 6, 12, 12, { height: 2, edge: 'cliff' });
     const layer = layerOf([ground, hill, summit]);
-    expect(shapeDrop(layer, 'summit')).toBe(2);
+    expect(shapeDrop(layer, 'summit')).toBe(1);
     expect(shapeDrop(layer, 'hill')).toBe(1);
   });
 
-  it('measures a pillar in a pit as rising out of the pit', () => {
+  it('measures a pillar in a pit as rising out of the pit, from the pit floor to its own level', () => {
     const pit = plat('pit', 2, 2, 20, 20, { height: -3, edge: 'cliff' });
-    const pillar = plat('pillar', 8, 8, 12, 12, { height: 2, edge: 'cliff' });
+    const pillar = plat('pillar', 8, 8, 12, 12, { height: -1, edge: 'cliff' });
     const layer = layerOf([ground, pit, pillar]);
     expect(layerPlateaus(layer).infos.get('pillar')!.height).toBe(-1);
     expect(shapeDrop(layer, 'pillar')).toBe(2);
+    // A pillar at +2 stands above the ground round the pit: 5 out of the pit floor.
+    const tall = plat('pillar', 8, 8, 12, 12, { height: 2, edge: 'cliff' });
+    expect(shapeDrop(layerOf([ground, pit, tall]), 'pillar')).toBe(5);
   });
 
   it('winds every band ring with the low side on the left of travel', () => {
@@ -366,6 +373,205 @@ describe('the table: elevation and crossings', () => {
     const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
     expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
     expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);
+  });
+});
+
+describe('edges where another band crosses', () => {
+  const near = (p: readonly number[], q: readonly number[]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6;
+  /** The drop of the segment of a run whose middle is `mid`. */
+  const dropAt = (run: ReturnType<typeof edgeRuns>[number], mid: [number, number]) => {
+    const n = run.points.length;
+    for (let i = 0; i < run.drops.length; i++) {
+      const a = run.points[i];
+      const b = run.points[(i + 1) % n];
+      if (near([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], mid)) return run.drops[i];
+    }
+    return undefined;
+  };
+
+  it('stops a +1 run where a +2 that is not nested crosses it, not at the corner', () => {
+    const low = plat('low', 0, 0, 10, 10, { height: 1, edge: 'slope' });
+    // Its centroid lies outside the +1, so it stands on the ground beside it.
+    const high = plat('high', 6, 4, 16, 8, { height: 2, edge: 'slope' });
+    const { bands } = layerPlateaus(layerOf([low, high]));
+    const runs = edgeRuns(bands.find((b) => b.height === 1)!);
+    expect(runs).toHaveLength(1);
+    const [run] = runs;
+    expect(run.closed).toBe(false);
+    const ends = [run.points[0], run.points[run.points.length - 1]];
+    expect(ends.some((p) => near(p, [10, 4]))).toBe(true);
+    expect(ends.some((p) => near(p, [10, 8]))).toBe(true);
+    expect(run.drops).toHaveLength(run.points.length - 1);
+    // The +2's top edge drops 1 onto the +1 and 2 onto the ground past it.
+    const [top] = edgeRuns(bands.find((b) => b.height === 2)!);
+    expect(dropAt(top, [8, 4])).toBe(1);
+    expect(dropAt(top, [13, 4])).toBe(2);
+  });
+
+  it('reports drops 3 and 2 along one edge of a +3 with a +1 against half of it', () => {
+    const mesa = plat('mesa', 0, 0, 10, 10, { height: 3, edge: 'slope' });
+    const shelf = plat('shelf', 8, 5, 14, 15, { height: 1, edge: 'slope' });
+    const [run] = edgeRuns(layerPlateaus(layerOf([mesa, shelf])).bands.find((b) => b.height === 3)!);
+    expect(run.closed).toBe(true);
+    expect(run.drop).toBe(3);
+    expect(run.drops).toHaveLength(run.points.length);
+    expect(dropAt(run, [10, 2.5])).toBe(3);
+    expect(dropAt(run, [10, 7.5])).toBe(2);
+    expect(dropAt(run, [9, 10])).toBe(2);
+    expect(dropAt(run, [4, 10])).toBe(3);
+  });
+
+  it('gives a curved or moved plateau its own edges in a band it shares', () => {
+    const ring: [number, number][] = [[0, 0], [8, 0], [8, 6], [0, 6]];
+    const curved = plat('curved', 0, 0, 0, 0, { height: 1, edge: 'slope', contours: [ring], tangents: [smoothRing(ring)] });
+    const moved = plat('moved', 0, 0, 4, 4, { height: 1, edge: 'none', transform: { translate: [30, 0], rotate: 0.3, scale: [1, 1] } });
+    const band = layerPlateaus(layerOf([curved, moved, plat('other', 50, 0, 54, 4, { height: 1 })])).bands[0];
+    const runs = edgeRuns(band);
+    expect(runs.every((r) => r.owner !== null)).toBe(true);
+    expect(runs.filter((r) => r.owner?.id === 'curved').map((r) => r.edge)).toEqual(['slope']);
+    expect(runs.filter((r) => r.owner?.id === 'moved').map((r) => r.edge)).toEqual(['none']);
+  });
+
+  it('leaves a plateau nothing crosses as it was: its ring, edges and run', () => {
+    const lone = plat('lone', 0, 0, 10, 10, { height: 2, edge: 'cliff' });
+    const far = plat('far', 20, 0, 30, 10, { height: 1, edge: 'cliff' });
+    for (const children of [[lone], [lone, far]]) {
+      const band = layerPlateaus(layerOf(children)).bands.find((b) => b.height === 2)!;
+      expect(band.rings).toHaveLength(1);
+      expect(band.rings[0]).toHaveLength(4);
+      expect(band.edges[0].map((e) => e.drop)).toEqual([2, 2, 2, 2]);
+      const runs = edgeRuns(band);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({ closed: true, drop: 2, drops: [2, 2, 2, 2], start: 0 });
+      expect(runs[0].points).toBe(band.rings[0]);
+    }
+  });
+});
+
+describe('a height is its own level', () => {
+  const ground = rect('ground', 0, 0, 40, 40);
+  const kinds = defaultCrossingKinds();
+  const inR = (rings: readonly Polygon[], x: number, y: number) => rings.filter((r) => pointInPoly(x, y, r)).length % 2 === 1;
+
+  it('makes a +1 drawn wholly inside a +1 one band with one outline and no edge between them', () => {
+    const grass = plat('grass', 2, 2, 30, 30, { height: 1, edge: 'cliff' });
+    const sand = plat('sand', 10, 10, 20, 20, { height: 1, edge: 'cliff' });
+    const layer = layerOf([ground, grass, sand]);
+    const { bands, infos } = layerPlateaus(layer);
+    expect(infos.get('sand')!.parent?.id).toBe('grass');
+    expect(infos.get('sand')!.height).toBe(1);
+    expect(bands).toHaveLength(1);
+    expect(bands[0].rings).toHaveLength(1);
+    expect(bands[0].shapes.map((s) => s.id)).toEqual(['grass', 'sand']);
+    const runs = edgeRuns(bands[0]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ owner: grass, closed: true, drop: 1 });
+    expect(shapeDrop(layer, 'sand')).toBe(0);
+    expect(inR(bands[0].surface, 15, 15)).toBe(true);
+    expect(inR(bands[0].surface, 5, 5)).toBe(true);
+    expect(elevationAt(layer, 15, 15)).toBe(1);
+    expect(elevationAtLayers([layerOf([ground]), layer], 15, 15)).toBe(1);
+    // Sight and moves see the outer outline only.
+    expect(cliffOccluders(layer, 1)).toHaveLength(4);
+    expect(crossingsAlong(layer, [5, 15], [15, 15], kinds)).toEqual([]);
+    expect(crossingsAlong(layer, [1, 15], [15, 15], kinds).map((c) => c.targetId)).toEqual(['grass']);
+  });
+
+  it('stands nested terraces 1, 2 and 3 at 1, 2 and 3, each step a drop of 1', () => {
+    const t1 = plat('t1', 2, 2, 30, 30, { height: 1, edge: 'slope' });
+    const t2 = plat('t2', 6, 6, 26, 26, { height: 2, edge: 'slope' });
+    const t3 = plat('t3', 10, 10, 22, 22, { height: 3, edge: 'cliff' });
+    const layer = layerOf([ground, t1, t2, t3]);
+    const { bands, infos } = layerPlateaus(layer);
+    expect(['t1', 't2', 't3'].map((id) => infos.get(id)!.height)).toEqual([1, 2, 3]);
+    expect(bands.map((b) => b.height)).toEqual([1, 2, 3]);
+    for (const b of bands) expect(new Set(b.edges.flat().map((e) => e.drop))).toEqual(new Set([1]));
+    expect(['t1', 't2', 't3'].map((id) => shapeDrop(layer, id))).toEqual([1, 1, 1]);
+    // Each level's surface is its own step only.
+    expect(inR(bands[0].surface, 4, 16)).toBe(true);
+    expect(inR(bands[0].surface, 8, 16)).toBe(false);
+    expect(inR(bands[1].surface, 8, 16)).toBe(true);
+    expect(inR(bands[1].surface, 16, 16)).toBe(false);
+    expect(inR(bands[2].surface, 16, 16)).toBe(true);
+    expect([4, 8, 16].map((x) => elevationAtLayers([layerOf([ground]), layer], x, 16))).toEqual([1, 2, 3]);
+    const up = crossingsAlong(layer, [1, 16], [16, 16], kinds);
+    expect(up.map((c) => c.targetId)).toEqual(['t1', 't2', 't3']);
+    expect(up.every((c) => !c.down)).toBe(true);
+    // A 1-cell cliff hides nothing at a sight drop of 2.
+    expect(cliffOccluders(layer, 2)).toEqual([]);
+    expect(hiddenTops(layer, 2)).toEqual([]);
+  });
+
+  it('digs a +1 drawn inside a +3 mesa down to 1: a dip, its rim drawn inward with its own settings', () => {
+    const mesa = plat('mesa', 2, 2, 30, 30, { height: 3, edge: 'cliff' });
+    const dip = plat('dip', 10, 10, 20, 20, { height: 1, edge: 'slope', crossingId: 'difficult' });
+    const layer = layerOf([ground, mesa, dip]);
+    const { bands } = layerPlateaus(layer);
+    const one = bands.find((b) => b.height === 1)!;
+    const three = bands.find((b) => b.height === 3)!;
+    expect(elevationAt(layer, 15, 15)).toBe(1);
+    expect(elevationAt(layer, 5, 5)).toBe(3);
+    expect(elevationAtLayers([layerOf([ground]), layer], 15, 15)).toBe(1);
+    expect(inR(three.surface, 15, 15)).toBe(false);
+    expect(inR(three.surface, 5, 5)).toBe(true);
+    expect(inR(one.surface, 15, 15)).toBe(true);
+    // The dip's rim: inward, with its own edge kind, a drop of 2.
+    expect(edgeRuns(one)).toHaveLength(1);
+    expect(edgeRuns(one)[0]).toMatchObject({ owner: dip, edge: 'slope', drop: -2, dug: true, closed: true });
+    expect(shapeDrop(layer, 'dip')).toBe(-2);
+    // The mesa's outer edge is unchanged.
+    expect(edgeRuns(three)).toHaveLength(1);
+    expect(edgeRuns(three)[0]).toMatchObject({ owner: mesa, edge: 'cliff', drop: 3, closed: true });
+    // Into the dip from the mesa's top is down, out of it up, by the dip's own crossing.
+    const into = crossingsAlong(layer, [5, 15], [15, 15], kinds);
+    expect(into).toHaveLength(1);
+    expect(into[0]).toMatchObject({ targetId: 'dip', via: 'slope', kindId: 'difficult', down: true });
+    expect(crossingsAlong(layer, [15, 15], [5, 15], kinds)[0].down).toBe(false);
+    // As a cliff its rim hides the dip's floor from the top round it, from inside, as a pit's does.
+    const cliffDip = { ...dip, edge: 'cliff' as const, crossingId: undefined };
+    const walled = layerOf([ground, mesa, cliffDip]);
+    expect(edgeHides(cliffDip, 'cliff', -2, 2)).toBe(true);
+    const occ = cliffOccluders(walled, 2);
+    expect(occ.filter((o) => o.direction === 'right')).toHaveLength(4);
+    expect(occ.filter((o) => o.direction === 'left')).toHaveLength(4);
+    expect(crossingsAlong(walled, [5, 15], [15, 15], kinds)[0]).toMatchObject({ targetId: 'dip', via: 'cliff', kindId: 'climb', down: true });
+    // Only the mesa's top hides from the ground; the dip lies inside it.
+    expect(hiddenTops(walled, 2).map((t) => t.height)).toEqual([3]);
+  });
+
+  it('sinks a -1 pit drawn in a +2 mesa below the ground: an inner wall of 3', () => {
+    const mesa = plat('mesa', 2, 2, 30, 30, { height: 2, edge: 'cliff' });
+    const pit = plat('pit', 10, 10, 20, 20, { height: -1, edge: 'cliff' });
+    const layer = layerOf([ground, mesa, pit]);
+    const { bands } = layerPlateaus(layer);
+    const low = bands.find((b) => b.height === -1)!;
+    expect(elevationAt(layer, 15, 15)).toBe(-1);
+    expect(elevationAtLayers([layerOf([ground]), layer], 15, 15)).toBe(-1);
+    expect(inR(low.surface, 15, 15)).toBe(true);
+    expect(inR(bands.find((b) => b.height === 2)!.surface, 15, 15)).toBe(false);
+    expect(edgeRuns(low)).toHaveLength(1);
+    expect(edgeRuns(low)[0]).toMatchObject({ owner: pit, drop: -3, dug: true, closed: true });
+    expect(edgeHides(pit, 'cliff', -3, 2)).toBe(true);
+    expect(cliffOccluders(layer, 2).filter((o) => o.direction === 'right')).toHaveLength(4);
+    expect(crossingsAlong(layer, [5, 15], [15, 15], kinds)[0]).toMatchObject({ targetId: 'pit', via: 'cliff', down: true });
+  });
+
+  it('lets a +2 that only overlaps a +1 win the overlap, as before', () => {
+    const low = plat('low', 2, 2, 12, 12, { height: 1 });
+    // Its centroid lies outside the +1: it stands on the ground beside it.
+    const high = plat('high', 8, 4, 20, 10, { height: 2 });
+    const layer = layerOf([ground, low, high]);
+    const { bands, infos } = layerPlateaus(layer);
+    expect(infos.get('high')!.parent).toBeNull();
+    expect(elevationAt(layer, 10, 7)).toBe(2);
+    expect(elevationAtLayers([layerOf([ground]), layer], 10, 7)).toBe(2);
+    const one = bands.find((b) => b.height === 1)!;
+    expect(inR(one.surface, 10, 7)).toBe(false);
+    expect(inR(one.surface, 5, 7)).toBe(true);
+    // The +1's edge under the +2 is covered; the +2's drops 1 onto the +1 and 2 onto the ground.
+    expect(one.edges.flat().filter((e) => e.drop < 0)).toEqual([]);
+    expect(new Set(bands.find((b) => b.height === 2)!.edges.flat().map((e) => e.drop))).toEqual(new Set([1, 2]));
+    expect(crossingsAlong(layer, [5, 7], [15, 7], kinds).map((c) => [c.targetId, c.down])).toEqual([['high', false]]);
   });
 });
 

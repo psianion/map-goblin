@@ -5,7 +5,7 @@ import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
-import { isBandSet } from '../assets/packCatalog';
+import { bandScale, isBandSet } from '../assets/packCatalog';
 import { useStore } from '../store/store';
 import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
@@ -256,8 +256,8 @@ export function hitTestAllLayers(
  */
 
 /**
- * How far a drawn cave wall reaches from its line: the rock rides a little more than half
- * a cell either side of it. Narrower than the double-click pick (a whole cell), which only
+ * How far a drawn cave wall reaches from its line at the size it was drawn: the rock rides a
+ * little more than half a cell either side of it. Narrower than the double-click pick (a whole cell), which only
  * has to land somewhere on the rock, where a plain click also has the floor to answer for.
  */
 export const BAND_WALL_REACH = 0.75;
@@ -274,7 +274,7 @@ const WALL_HIT_SLOP_PX = 4;
  */
 export function wallReach(wall: WallSegment, layer: Pick<DungeonLayer, 'style'>): number {
   const look = standaloneWallLook(wall, layer.style);
-  if (isBandSet(look.setId)) return BAND_WALL_REACH;
+  if (isBandSet(look.setId)) return Math.max(BAND_WALL_REACH * bandScale(look.width), WALL_MIN_HIT_RADIUS);
   return Math.max(look.width / 2, WALL_MIN_HIT_RADIUS);
 }
 

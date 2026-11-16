@@ -1,6 +1,6 @@
 // Plateau rendering: what lands in the plateaus sublayer for a cliff, a slope and a pit, the
 // cliff kit the ledge art makes, the lit and shaded faces, and the cliff shadows.
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { BufferImageSource, Container, Graphics, MeshSimple, Sprite, Texture, TilingSprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 
@@ -37,6 +37,10 @@ const manager = {
           contour_1x2_A: object('contour', '1x2', 'GG_Cave_Ink'),
           contour_1x4_A: object('contour', '1x4', 'GG_Cave_Ink'),
           contour_bend_90_2x2_A: object('contour_bend_90', '2x2', 'GG_Cave_Ink'),
+          // Face tiles, listed ahead of the ground: a painted border never takes one.
+          face_stone_4x4_floor_A: { type: 'floor', material: 'face_stone', gridSize: '4x4', set: 'GG_Wild_Faces', tags: ['face', 'stone'] },
+          face_dirt_4x4_floor_A: { type: 'floor', material: 'face_dirt', gridSize: '4x4', set: 'GG_Wild_Faces', tags: ['face', 'dirt'] },
+          face_grass_4x4_floor_A: { type: 'floor', material: 'face_grass', gridSize: '4x4', set: 'GG_Wild_Faces', tags: ['face', 'grass'] },
           wild_dirt_8x8_floor_A: { type: 'floor', material: 'wild_dirt', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'dirt'] },
           wild_grass_dark_8x8_floor_A: { type: 'floor', material: 'wild_grass_dark', gridSize: '8x8', set: 'GG_Wild_Ground', tags: ['outdoor', 'grass'] },
         },
@@ -50,7 +54,9 @@ const manager = {
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { borderWidthOf, SLOPE_CONTOUR_ALPHA, SLOPE_CONTOUR_WIDTH } from '../shared/plateauShade';
+import { borderWidthOf, FACE_DEPTH_WANDER, faceDepth, faceReach, TOP_SEAM } from '../shared/plateauShade';
+import { useStore } from '../store/store';
+import { faceTiles, floorTextureEntries } from '../assets/materialKit';
 import { SOFT_EDGE_STEPS } from './softEdge';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
@@ -68,12 +74,19 @@ import {
 } from './plateauKit';
 import {
   faceShade,
+  layerSlopes,
   paintedBorderLayers,
+  plateauTopFills,
+  plateauTopTiles,
   renderPlateaus,
   shadeCliffs,
+  slopeFaceTiles,
   SHADE_FLOOR,
   SHADE_SIDE,
+  type TopFill,
 } from './plateauRenderer';
+import { plateauGridRegions, redrawGrid } from './floorWallRenderer';
+import type { LayerEntry } from './sceneGraph';
 import {
   BLUR_WEIGHTS_5,
   CLIFF_BLUR_PASSES,
@@ -247,87 +260,246 @@ describe('renderPlateaus', () => {
     expect(rock.children.every((s) => s instanceof Sprite)).toBe(true);
   });
 
-  /** How far outside the 6-cell square top at (5, 5) a point lies: rounded at its corners. */
-  const outside = (p: { x: number; y: number }) =>
-    Math.hypot(Math.max(5 - p.x, 0, p.x - 11), Math.max(5 - p.y, 0, p.y - 11));
-  /** The mean distance out of a contour ring's straights, mid side, where each centre is on its ring. */
-  const ringOut = (ring: Container) => {
-    const mid = ring.children.filter((c) => Math.abs(c.position.x - 8) <= 1.5 || Math.abs(c.position.y - 8) <= 1.5);
-    expect(mid.length).toBeGreaterThan(1);
-    return mid.reduce((sum, c) => sum + outside(c.position), 0) / mid.length;
+  const findLabel = (c: Container, label: string): Container | undefined =>
+    c.label === label ? c : c.children.map((k) => findLabel(k as Container, label)).find(Boolean);
+  const slopeOf = (extra: Partial<PlateauChild>) => {
+    const parent = new Container();
+    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope', ...extra })]), new Container(), parent);
+    return parent;
+  };
+  /** That `at` is as far as a face of a drop of `drop` reaches, give or take its wander. */
+  const asDeep = (at: number, drop: number) => {
+    expect(at).toBeGreaterThan(faceDepth(drop) * (1 - FACE_DEPTH_WANDER) - 1e-3);
+    expect(at).toBeLessThan(faceReach(drop) + 1e-3);
   };
 
-  it('draws a slope as a band outside the outline under one walked ink contour a cell of drop; none when switched off', () => {
-    const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope' })]), new Container(), parent);
-    const band = parent.children[0] as Container;
-    const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
-    expect(contours.children).toHaveLength(3);
-    // Each ring is the contour pieces, walked: sprites, not a stroke.
-    for (const ring of contours.children as Container[]) {
-      expect(ring.label).toBe('plateau-contour');
-      expect(ring.children.length).toBeGreaterThan(4);
-      expect(ring.children.every((s) => s instanceof Sprite)).toBe(true);
-    }
-    // Evenly spaced inside the one-cell band, whatever the drop: 0.25, 0.5 and 0.75 cell out round the 6-cell top.
-    (contours.children as Container[]).forEach((ring, k) => expect(Math.abs(ringOut(ring) - 0.25 * (k + 1))).toBeLessThan(0.12));
-    // The ramp reaches the card's slope width out and no further.
-    const rampOf = (extra: Partial<PlateauChild>) => {
-      const p = new Container();
-      renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', ...extra })]), new Container(), p);
-      const find = (c: Container): Container | undefined => (c.label === 'plateau-slope' ? c : c.children.map((k) => find(k as Container)).find(Boolean));
-      return find(p)!.getLocalBounds();
-    };
-    expect(rampOf({}).maxX).toBeCloseTo(12, 2);
-    expect(rampOf({}).minX).toBeCloseTo(4, 2);
-    expect(rampOf({ slopeWidth: 2.5 }).maxX).toBeCloseTo(13.5, 2);
-    expect(rampOf({ slopeWidth: 6 }).maxX).toBeCloseTo(14, 2);
-    // The stroke a contour falls back to without art: 1.5 px wide at 1x (20 px a cell), at 60 %.
-    expect(SLOPE_CONTOUR_WIDTH * 20).toBeCloseTo(1.5);
-    expect(SLOPE_CONTOUR_ALPHA).toBeCloseTo(0.6);
-    // The ramp lies in the band's blurred shade, under the contours.
-    const shade = band.children.find((c) => c.label === 'plateau-shade') as Container;
-    expect(labels(shade)).toContain('plateau-slope');
-    expect(band.children.indexOf(shade)).toBeLessThan(band.children.indexOf(contours));
-    const meshes: Container[] = [];
+  it('draws a slope as a side face on one side: ledge bands, its foot and ledge lines, and the rim', () => {
+    const parent = slopeOf({ faceDir: 90 });
+    const names = labels(parent);
+    for (const label of ['plateau-slope-face', 'plateau-slope-lines', 'plateau-slope-rim']) expect(names).toContain(label);
+    // The bands hang off the bottom edge only, as deep as a drop of 2 says, give or take.
+    const face = findLabel(parent, 'plateau-slope-face')!.getLocalBounds();
+    expect(face.minY).toBeCloseTo(11, 2);
+    asDeep(face.maxY - 11, 2);
+    expect(face.minX).toBeCloseTo(5, 2);
+    expect(face.maxX).toBeCloseTo(11, 2);
+    // No contour art and no slope sprites: it is drawn, not laid.
+    const sprites: Container[] = [];
     const walk = (c: Container) => {
-      if (c instanceof MeshSimple) meshes.push(c);
+      if (c instanceof Sprite || c instanceof MeshSimple) sprites.push(c);
       for (const k of c.children) walk(k as Container);
     };
-    walk(band);
-    expect(meshes).toEqual([]);
-
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 3, edge: 'slope', contourLines: false })]), new Container(), parent);
-    expect(labels(parent)).not.toContain('plateau-contours');
+    walk(parent);
+    expect(sprites).toEqual([]);
   });
 
-  it('rings a one-cell slope once inside its band', () => {
-    const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope' })]), new Container(), parent);
-    const band = parent.children[0] as Container;
-    const contours = band.children.find((c) => c.label === 'plateau-contours') as Container;
-    expect(contours.children).toHaveLength(1);
-    expect(Math.abs(ringOut(contours.children[0] as Container) - 0.5)).toBeLessThan(0.12);
+  it('turns its face the plateau’s own way, else the map’s, never the sun’s', () => {
+    useStore.setState((s) => {
+      s.mapSettings.faceDirection = 0;
+    });
+    try {
+      const right = findLabel(slopeOf({}), 'plateau-slope-face')!.getLocalBounds();
+      expect(right.minX).toBeCloseTo(11, 2);
+      asDeep(right.maxX - 11, 2);
+      const own = findLabel(slopeOf({ faceDir: 270 }), 'plateau-slope-face')!.getLocalBounds();
+      expect(own.maxY).toBeCloseTo(5, 2);
+      asDeep(5 - own.minY, 2);
+      // The sun moving re-lights nothing on it.
+      const parent = slopeOf({});
+      const shade = findLabel(parent, 'plateau-slope-face')!;
+      shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
+      expect(shade.alpha).toBe(1);
+      expect(shade.tint).toBe(0xffffff);
+    } finally {
+      useStore.setState((s) => {
+        delete s.mapSettings.faceDirection;
+      });
+    }
   });
 
-  it('keeps the slope face turned to the sun 40 % lighter than the one turned away, and all alike indoors', () => {
+  it('draws the lines between ledge bands unless Ledge lines is off; the foot line stays', () => {
+    const strokes = (extra: Partial<PlateauChild>) =>
+      (findLabel(slopeOf({ faceDir: 90, ...extra }), 'plateau-slope-lines') as Graphics).context.instructions.length;
+    expect(strokes({})).toBeGreaterThan(strokes({ contourLines: false }));
+    expect(strokes({ contourLines: false })).toBeGreaterThan(0);
+  });
+
+  it('keeps the drop shade off its own face', () => {
+    const layer = layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope', faceDir: 90 })]);
+    const { faces } = layerSlopes(layer);
+    expect(faces).toHaveLength(1);
     const parent = new Container();
-    renderPlateaus(layerOf([ground, plat('hill', 5, 5, 11, 11, { height: 2, edge: 'slope' })]), new Container(), parent);
-    const find = (c: Container): Container | undefined =>
-      c.label === 'plateau-slope' ? c : c.children.map((k) => find(k as Container)).find(Boolean);
-    const ramp = find(parent)!;
-    // The shadow runs +x: the light is in the west, so the west face is turned to it.
-    shadeCliffs('l1', { dx: 1, dy: 0, length: 2, alpha: 0.4, color: '#000000' });
-    const faces = ramp.children.map((g) => ({ b: g.getLocalBounds(), alpha: g.alpha }));
-    // The straight sides, not the rounded corners between them.
-    const east = faces.filter(({ b }) => b.minX >= 11 - 1e-6 && b.height > 3);
-    const west = faces.filter(({ b }) => b.maxX <= 5 + 1e-6 && b.height > 3);
-    expect(east.length).toBeGreaterThan(0);
-    expect(west.length).toBeGreaterThan(0);
-    for (const f of east) expect(f.alpha).toBeCloseTo(1);
-    for (const f of west) expect(f.alpha).toBeCloseTo(0.6);
-    shadeCliffs('l1', null);
-    expect(ramp.children.every((g) => g.alpha === 1)).toBe(true);
+    renderPlateaus(layer, new Container(), parent);
+    const mask = findLabel(parent, 'plateau-shade-mask') as Graphics;
+    // The mask's region is the land less the face: a point on the face is outside it.
+    expect(mask.containsPoint({ x: 8, y: 11 + faceDepth(2) / 2 })).toBe(false);
+    expect(mask.containsPoint({ x: 4.9, y: 8 })).toBe(true);
+  });
+
+  it('offers the face tiles in the Face picker’s order, and keeps them out of every other list of floors', () => {
+    expect(faceTiles()).toEqual([
+      { id: 'gg-forge:face_grass_4x4_floor_A', label: 'Grass' },
+      { id: 'gg-forge:face_dirt_4x4_floor_A', label: 'Dirt' },
+      { id: 'gg-forge:face_stone_4x4_floor_A', label: 'Stone' },
+    ]);
+    expect(floorTextureEntries().some((e) => e.tags.includes('face'))).toBe(false);
+    expect(floorTextureEntries().length).toBeGreaterThan(0);
+    // A painted border's default dirt is the ground's, not the dirt face tile.
+    expect(paintedBorderTexture('paint')).toBe('gg-forge:wild_dirt_8x8_floor_A');
+  });
+
+  it('lists a face for its texture only when the plateau has one', () => {
+    const plain = plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope', faceDir: 90 });
+    expect(slopeFaceTiles(layerOf([ground, plain])).size).toBe(0);
+    const stone = { ...plain, faceArt: 'gg-forge:face_stone_4x4_floor_A' };
+    const tiles = slopeFaceTiles(layerOf([ground, stone]));
+    expect([...tiles.keys()]).toEqual([stone]);
+    const pts = [...tiles.values()][0].flat();
+    expect(Math.min(...pts.map((p) => p[1]))).toBeCloseTo(11, 2);
+    asDeep(Math.max(...pts.map((p) => p[1])) - 11, 1);
+    // A cliff has no face.
+    expect(slopeFaceTiles(layerOf([ground, { ...stone, edge: 'cliff' }])).size).toBe(0);
+  });
+
+  it('shades a face tile by its own light: the upper band lifted by an added wash, the lowest darkened', () => {
+    const tiled = slopeOf({ faceDir: 90, faceArt: 'gg-forge:face_stone_4x4_floor_A' });
+    const lift = findLabel(tiled, 'plateau-slope-lift') as Graphics;
+    expect(lift.blendMode).toBe('add');
+    // The lift lies on the upper band only, at the rim.
+    const up = lift.getLocalBounds();
+    expect(up.minY).toBeCloseTo(11, 2);
+    expect(up.maxY).toBeLessThan(11 + faceDepth(2) * 0.6);
+    // Over plain ground there is no lift: the bands only darken.
+    expect(findLabel(slopeOf({ faceDir: 90 }), 'plateau-slope-lift')).toBeUndefined();
+  });
+
+  describe('on a layer with a walled floor', () => {
+    // A walled floor in one corner: the layer's merged floor is all it covers.
+    const room: Polygon = [[0, 0], [4, 0], [4, 4], [0, 4]];
+    const withRoom = (children: DungeonLayer['children']) => ({ ...layerOf(children), mergedFloor: [room] }) as DungeonLayer;
+    const hill = plat('hill', 10, 10, 16, 16, { height: 2, edge: 'slope', faceDir: 90, faceArt: 'gg-forge:face_stone_4x4_floor_A' });
+    const drawn = (layer: DungeonLayer) => {
+      const parent = new Container();
+      renderPlateaus(layer, new Container(), parent);
+      return parent;
+    };
+    const faceDrawn = (layer: DungeonLayer) => {
+      const tiles = slopeFaceTiles(layer).get(hill) ?? [];
+      const parent = drawn(layer);
+      const lines = findLabel(parent, 'plateau-slope-lines') as Graphics | undefined;
+      const mask = findLabel(parent, 'plateau-slope-mask') as Graphics | undefined;
+      return {
+        tile: tiles.flat().length > 0,
+        bands: !!findLabel(parent, 'plateau-slope-face') && (findLabel(parent, 'plateau-slope-face') as Graphics).context.instructions.length > 0,
+        // The lines are kept to the land under their mask: the face's middle must be on it.
+        lines: !!lines && lines.context.instructions.length > 0 && !!mask && mask.containsPoint({ x: 13, y: 16 + faceDepth(2) / 2 }),
+      };
+    };
+    /** A sized 30 x 30 map with a base ground, or neither. */
+    const setGround = (textureId: string | undefined) =>
+      useStore.setState((s) => {
+        s.mapSettings.ground = textureId ? { textureId } : undefined;
+        s.mapSettings.fixedSize = textureId ? { width: 30, height: 30, locked: true } : null;
+      });
+
+    it('draws a slope’s face on the base ground beside it: tile, bands and lines', () => {
+      setGround('gg-forge:wild_dirt_8x8_floor_A');
+      try {
+        expect(faceDrawn(withRoom([rect('room', 0, 0, 4, 4), hill]))).toEqual({ tile: true, bands: true, lines: true });
+      } finally {
+        setGround(undefined);
+      }
+    });
+
+    it('draws it on a ground piece beside it too', () => {
+      const piece = rect('grass', 8, 8, 20, 20, { ground: true });
+      expect(faceDrawn(withRoom([rect('room', 0, 0, 4, 4), piece, hill]))).toEqual({ tile: true, bands: true, lines: true });
+    });
+
+    it('keeps a face half over the void off the void', () => {
+      // The hill's left half stands on a ground piece; its right half's face would hang over nothing.
+      const piece = rect('grass', 8, 8, 13, 20, { ground: true });
+      const layer = withRoom([rect('room', 0, 0, 4, 4), piece, hill]);
+      const pts = (slopeFaceTiles(layer).get(hill) ?? []).flat();
+      expect(pts.length).toBeGreaterThan(0);
+      for (const [x] of pts) expect(x).toBeLessThanOrEqual(13 + 1e-6);
+      expect(Math.min(...pts.map((p) => p[0]))).toBeCloseTo(10, 2);
+    });
+
+    it('lets a cliff’s contact shade land on the base ground beside it', () => {
+      setGround('gg-forge:wild_dirt_8x8_floor_A');
+      try {
+        const parent = drawn(withRoom([rect('room', 0, 0, 4, 4), plat('rock', 10, 10, 16, 16, { height: 2, edge: 'cliff' })]));
+        const mask = findLabel(parent, 'plateau-shade-mask') as Graphics;
+        expect(mask.containsPoint({ x: 16.1, y: 13 })).toBe(true);
+      } finally {
+        setGround(undefined);
+      }
+    });
+  });
+
+  it('shows a higher band’s face whole over a lower one: nothing of the lower face under it', () => {
+    const stone = 'gg-forge:face_stone_4x4_floor_A';
+    const hill = plat('hill', 10, 10, 20, 20, { height: 1, edge: 'slope', faceDir: 90, faceArt: stone });
+    // A summit at 2 near the hill's bottom rim: its face hangs over the hill's.
+    const summit = plat('summit', 12, 15, 18, 19.9, { height: 2, edge: 'slope', faceDir: 90, faceArt: stone });
+    const layer = layerOf([ground, hill, summit]);
+    const { faces } = layerSlopes(layer);
+    const low = faces.find((f) => f.run.owner === hill)!;
+    const high = faces.find((f) => f.run.owner === summit)!;
+    const inside = (rings: Polygon[], p: [number, number]) => rings.filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
+    // Under the summit's face, on the hill's: only the summit's shows, tile and bands.
+    expect(inside(low.face.region, [15, 20.15])).toBe(true);
+    expect(inside(high.region, [15, 20.15])).toBe(true);
+    expect(inside(low.region, [15, 20.15])).toBe(false);
+    expect(low.bands.some((b) => inside(b, [15, 20.15]))).toBe(false);
+    expect(inside(slopeFaceTiles(layer).get(hill)!, [15, 20.15])).toBe(false);
+    expect(low.over.length).toBeGreaterThan(0);
+    expect(high.over).toEqual([]);
+    // Clear of it, the hill's face is whole.
+    expect(inside(low.region, [11, 20.15])).toBe(true);
+    // Its lines are masked off the summit's face too.
+    const parent = new Container();
+    renderPlateaus(layer, new Container(), parent);
+    const band1 = parent.children.find((c) => c.label === 'plateau-band-1') as Container;
+    const mask = findLabel(band1, 'plateau-slope-mask') as Graphics;
+    expect(mask.containsPoint({ x: 15, y: 20.15 })).toBe(false);
+    expect(mask.containsPoint({ x: 11, y: 20.15 })).toBe(true);
+  });
+
+  describe('a textured top', () => {
+    const stone = 'gg-forge:stone_floor_A';
+    const inside = (rings: Polygon[] | undefined, p: [number, number]) => (rings ?? []).filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
+
+    it('covers its own outline, holes kept; a Ground top has none', () => {
+      const ring = plat('ring', 4, 4, 14, 14, { height: 1, topArt: stone });
+      ring.contours.push([[7, 7], [11, 7], [11, 11], [7, 11]]);
+      const tops = plateauTopTiles(layerOf([ground, ring]));
+      expect(inside(tops.get(ring), [5, 5])).toBe(true);
+      expect(inside(tops.get(ring), [9, 9])).toBe(false);
+      expect(plateauTopTiles(layerOf([ground, plat('bare', 4, 4, 14, 14, { height: 1 })])).size).toBe(0);
+    });
+
+    it('is cut by a plateau of another level that wins over it with a top of its own, and shows through under a Ground one', () => {
+      const mesa = plat('mesa', 4, 4, 20, 20, { height: 1, topArt: stone });
+      const tiled = plat('tiled', 6, 6, 10, 10, { height: 2, topArt: 'gg-forge:wild_grass_8x8_floor_A' });
+      const bare = plat('bare', 12, 12, 16, 16, { height: 2 });
+      const tops = plateauTopTiles(layerOf([ground, mesa, tiled, bare]));
+      expect(inside(tops.get(mesa), [8, 8])).toBe(false);
+      expect(inside(tops.get(tiled), [8, 8])).toBe(true);
+      expect(inside(tops.get(mesa), [14, 14])).toBe(true);
+      expect(tops.has(bare)).toBe(false);
+      // In draw order: the one it stands in first.
+      expect([...tops.keys()]).toEqual([mesa, tiled]);
+    });
+
+    it('is cut by the face of a higher band lying on it', () => {
+      const mesa = plat('mesa', 4, 4, 20, 20, { height: 1, topArt: stone });
+      const summit = plat('summit', 8, 8, 12, 12, { height: 2, edge: 'slope', faceDir: 90 });
+      const tops = plateauTopTiles(layerOf([ground, mesa, summit]));
+      expect(inside(tops.get(mesa), [10, 12.3])).toBe(false);
+      expect(inside(tops.get(mesa), [10, 14])).toBe(true);
+    });
   });
 
   it('orders bands low to high, a pit before the plateau', () => {
@@ -356,7 +528,7 @@ describe('a painted border', () => {
     expect(paintedBorderTexture('paint')).toBe(DIRT);
     expect(paintedBorderTexture(paintedBorderArt(DARK))).toBe(DARK);
     expect(paintedBorderTexture('GG_Cave_Ink:ledge')).toBeUndefined();
-    // Should the edge turn to a slope, its contours are the default set's.
+    // It names no ledge: should the edge turn back to plain cliff art, that is Cave rock.
     expect(cliffChoice(paintedBorderArt(DARK))).toEqual({ setId: 'GG_Cave_Ink', family: 'rockledge' });
     expect(borderTextureChoices()).toEqual([
       { value: DIRT, label: 'Dirt' },
@@ -711,9 +883,19 @@ describe('cliff shadows', () => {
     expect(reach(2)).toBeCloseTo(2.0, 1);
   });
 
-  it('slopes cast none: they shade instead', () => {
-    const layer = layerOf([ground, plat('hill', 10, 10, 14, 14, { height: 2, edge: 'slope' })]);
-    expect(points(cliffShadowGeometry(layer, look, groundRing))).toHaveLength(0);
+  it('a slope casts as a cliff does, from the foot of its face where the face lies on the lee side', () => {
+    // The face points along the shadow (+x): the shadow starts where the face ends.
+    const layer = layerOf([ground, plat('hill', 10, 10, 14, 14, { height: 2, edge: 'slope', faceDir: 0 })]);
+    const pts = points(cliffShadowGeometry(layer, look, groundRing));
+    expect(pts.length).toBeGreaterThan(0);
+    // Away from the corners, where the face eases into the rim and the shadow meets the edge.
+    const middle = pts.filter(([, y]) => y > 11 && y < 13);
+    expect(middle.length).toBeGreaterThan(0);
+    for (const [x] of middle) expect(x).toBeGreaterThanOrEqual(14 + faceDepth(2) * (1 - FACE_DEPTH_WANDER) - 0.01);
+    expect(Math.min(...pts.map((p) => p[0]))).toBeGreaterThanOrEqual(14 - 1e-6);
+    // Pointing away from it, the shadow starts on the edge itself.
+    const away = points(cliffShadowGeometry(layerOf([ground, plat('hill', 10, 10, 14, 14, { height: 2, edge: 'slope', faceDir: 180 })]), look, groundRing));
+    expect(Math.min(...away.map((p) => p[0]))).toBeCloseTo(14, 2);
   });
 });
 
@@ -818,5 +1000,248 @@ describe('the drop shade', () => {
     const mask = shadeOf(parent.children[0] as Container)[0].mask as Graphics;
     const b = mask.getLocalBounds();
     expect([b.minX, b.minY, b.maxX, b.maxY].map((v) => Math.round(v * 100) / 100)).toEqual([10, 10, 16, 16]);
+  });
+});
+
+describe('grid lines over plateau textures', () => {
+  const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
+  const STONE = 'gg-forge:face_stone_4x4_floor_A';
+  const gridOf = (layer: DungeonLayer) => {
+    const entry = { sublayers: { grid: new Container() } } as unknown as LayerEntry;
+    redrawGrid(layer, entry);
+    return entry.sublayers!.grid;
+  };
+
+  beforeEach(() => {
+    useStore.getState().setMapGround({ textureId: 'gg-forge:wild_grass_dark_8x8_floor_A' });
+    useStore.getState().setFixedSize({ width: 30, height: 30, locked: true });
+  });
+  afterEach(() => {
+    useStore.getState().setMapGround(null);
+    useStore.getState().setFixedSize(null);
+  });
+
+  it('a layer with only a textured plateau on the base ground is lined over its top and its face', () => {
+    const hill = plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope', faceDir: 90, topArt: DIRT, faceArt: STONE });
+    const layer = layerOf([hill]);
+    expect(plateauGridRegions(layer)).toHaveLength(2);
+    const grid = gridOf(layer);
+    expect(grid.children).toHaveLength(1);
+    const mask = (grid.children[0] as Container).mask as Graphics;
+    expect(mask.containsPoint({ x: 8, y: 8 })).toBe(true);
+    expect(mask.containsPoint({ x: 8, y: 11.15 })).toBe(true);
+    expect(mask.containsPoint({ x: 3, y: 3 })).toBe(false);
+    // Kept while the layer is the same.
+    expect(plateauGridRegions(layer)[0]).toBe(plateauGridRegions(layer)[0]);
+  });
+
+  it('a Ground top adds none, nor a face with no texture', () => {
+    const layer = layerOf([plat('hill', 5, 5, 11, 11, { height: 1, edge: 'slope', faceDir: 90 })]);
+    expect(plateauGridRegions(layer)).toEqual([]);
+    expect(gridOf(layer).children).toHaveLength(0);
+  });
+});
+
+describe('a soft seam between tops of one height', () => {
+  const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
+  const GRASS = 'gg-forge:wild_grass_dark_8x8_floor_A';
+  const inR = (rings: readonly Polygon[], p: [number, number]) => rings.filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
+  /** How opaque the texture is at `p`: the stacked steps where it fades, else 1 inside and 0 out. */
+  const opacity = (fill: TopFill, p: [number, number]) =>
+    fill.soft ? 1 - fill.soft.reduce((t, l) => (inR(l.rings, p) ? t * (1 - l.alpha) : t), 1) : inR(fill.rings, p) ? 1 : 0;
+
+  it('side by side: the later fades in along the seam and not on the rim, the earlier runs on under it', () => {
+    const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
+    const b = plat('b', 10, 3, 18, 9, { topArt: GRASS });
+    const layer = layerOf([ground, a, b]);
+    const fills = plateauTopFills(layer);
+    const fa = fills.get(a)!;
+    const fb = fills.get(b)!;
+    expect([fb.fades.length, fb.grows.length, fa.fades.length, fa.grows.length]).toEqual([1, 0, 0, 1]);
+    // b: nothing on the seam, part way across it, full past it and all along its rim.
+    expect(opacity(fb, [10.03, 6])).toBe(0);
+    const mid = opacity(fb, [10 + TOP_SEAM / 2, 6]);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+    expect(opacity(fb, [10 + TOP_SEAM + 0.3, 6])).toBeCloseTo(1, 6);
+    expect(opacity(fb, [17.97, 6])).toBeCloseTo(1, 6);
+    expect(opacity(fb, [14, 3.03])).toBeCloseTo(1, 6);
+    expect(opacity(fb, [14, 8.97])).toBeCloseTo(1, 6);
+    // a: crisp, grown TOP_SEAM under b and no further, never out of the band.
+    expect(fa.soft).toBeNull();
+    expect(inR(fa.rings, [10.5, 6])).toBe(true);
+    expect(inR(fa.rings, [10 + TOP_SEAM + 0.1, 6])).toBe(false);
+    expect(inR(fa.rings, [10.3, 2.7])).toBe(false);
+    // The grid and the Material brush keep a's own top.
+    expect(inR(plateauTopTiles(layer).get(a)!, [10.5, 6])).toBe(false);
+  });
+
+  it('overlapping: the later fades in along its outline inside the earlier, the earlier has no fade', () => {
+    const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
+    const b = plat('b', 8, 4, 16, 8, { topArt: GRASS });
+    const fills = plateauTopFills(layerOf([ground, a, b]));
+    const fa = fills.get(a)!;
+    const fb = fills.get(b)!;
+    expect([fb.fades.length, fb.grows.length, fa.fades.length, fa.grows.length]).toEqual([1, 0, 0, 1]);
+    expect(opacity(fb, [8.03, 6])).toBe(0);
+    expect(opacity(fb, [9.5, 6])).toBeCloseTo(1, 6);
+    expect(opacity(fb, [12, 4.03])).toBeCloseTo(1, 6);
+    expect(opacity(fb, [15.97, 6])).toBeCloseTo(1, 6);
+    expect(fa.soft).toBeNull();
+  });
+
+  it('a textured top against a Ground top fades, whichever comes first', () => {
+    const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
+    const b = plat('b', 10, 3, 18, 9);
+    const fa = plateauTopFills(layerOf([ground, a, b])).get(a)!;
+    expect([fa.fades.length, fa.grows.length]).toEqual([1, 0]);
+    expect(opacity(fa, [9.97, 6])).toBe(0);
+    expect(opacity(fa, [6, 9.97])).toBeCloseTo(1, 6);
+    const later = { ...a, id: 'a2' };
+    const fl = plateauTopFills(layerOf([ground, b, later])).get(later)!;
+    expect([fl.fades.length, fl.grows.length]).toEqual([1, 0]);
+  });
+
+  it('a lone plateau has no seam and draws exactly as before', () => {
+    const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
+    const layer = layerOf([ground, a]);
+    const fill = plateauTopFills(layer).get(a)!;
+    expect(fill).toEqual({ rings: plateauTopTiles(layer).get(a), soft: null, fades: [], grows: [] });
+    expect(fill.rings).toBe(plateauTopTiles(layer).get(a));
+    // Worked out once.
+    expect(plateauTopFills(layer)).toBe(plateauTopFills(layer));
+  });
+
+  it('keeps the cut by a higher band hard, on the faded top and on the grown one', () => {
+    const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
+    const b = plat('b', 10, 3, 18, 9, { topArt: GRASS });
+    const c = plat('c', 10.2, 4, 14, 8, { height: 2, topArt: DIRT });
+    const fills = plateauTopFills(layerOf([ground, a, b, c]));
+    const fa = fills.get(a)!;
+    const fb = fills.get(b)!;
+    // c stands at 2 on b, a band higher: nothing of either lower top is drawn under it.
+    expect(opacity(fb, [12, 6])).toBe(0);
+    expect(opacity(fb, [14.1, 6])).toBeCloseTo(1, 6);
+    expect(inR(fa.rings, [10.5, 6])).toBe(false);
+    expect(inR(fa.rings, [10.1, 6])).toBe(true);
+    expect(inR(fa.rings, [10.5, 3.5])).toBe(true);
+  });
+});
+
+describe('a height is its own level, drawn', () => {
+  const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
+  const GRASS = 'gg-forge:wild_grass_dark_8x8_floor_A';
+  const look: ShadowLook = { dx: 1, dy: 0, length: 1.2, alpha: 0.4, color: '#000000' };
+  const groundRing: Polygon[] = [ground.contours[0] as Polygon];
+  const inR = (rings: readonly Polygon[], p: [number, number]) => rings.filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
+  const opacity = (fill: TopFill, p: [number, number]) =>
+    fill.soft ? 1 - fill.soft.reduce((t, l) => (inR(l.rings, p) ? t * (1 - l.alpha) : t), 1) : inR(fill.rings, p) ? 1 : 0;
+  const findLabel = (c: Container, label: string): Container | undefined =>
+    c.label === label ? c : c.children.map((k) => findLabel(k as Container, label)).find(Boolean);
+  const draw = (layer: DungeonLayer) => {
+    const tops = new Container();
+    const edges = new Container();
+    renderPlateaus(layer, tops, edges);
+    return { tops, edges };
+  };
+  const within = (rings: Polygon[], x0: number, y0: number, x1: number, y1: number) =>
+    rings.flat().every(([x, y]) => x >= x0 - 1e-6 && x <= x1 + 1e-6 && y >= y0 - 1e-6 && y <= y1 + 1e-6);
+
+  it('a +1 inside a +1 is one band: one lift tint, no edge, face or shadow between them, and a different top fades in all round', () => {
+    const grass = plat('grass', 2, 2, 28, 28, { edge: 'slope', faceDir: 90, topArt: GRASS });
+    const sand = plat('sand', 10, 10, 20, 20, { edge: 'slope', faceDir: 90, topArt: DIRT });
+    const layer = layerOf([ground, grass, sand]);
+    const { tops, edges } = draw(layer);
+    expect(labels(tops).filter((l) => l.startsWith('plateau-top-'))).toEqual(['plateau-top-1']);
+    expect((findLabel(tops, 'plateau-top-1') as Graphics).containsPoint({ x: 15, y: 15 })).toBe(true);
+    expect(edges.children.map((c) => c.label)).toEqual(['plateau-band-1']);
+    // Only the outer outline has an edge, so only it has a face, a rim and a shade.
+    expect(layerSlopes(layer).faces.map((f) => f.run.owner)).toEqual([grass]);
+    expect(edgeRuns(layerPlateaus(layer).bands[0]).map((r) => r.owner)).toEqual([grass]);
+    const shadow = cliffShadowGeometry(layer, look, groundRing);
+    expect(shadow.length).toBeGreaterThan(0);
+    expect(inR(shadow, [20.3, 15])).toBe(false);
+    // The sand fades in from its whole outline onto the grass, which runs on crisp under it.
+    const fills = plateauTopFills(layer);
+    const fs = fills.get(sand)!;
+    const fg = fills.get(grass)!;
+    expect(fs.grows).toEqual([]);
+    expect(fs.fades.length).toBeGreaterThan(0);
+    for (const p of [[10.03, 15], [19.97, 15], [15, 10.03], [15, 19.97]] as [number, number][]) expect(opacity(fs, p)).toBe(0);
+    expect(opacity(fs, [15, 15])).toBeCloseTo(1, 6);
+    expect(fg.soft).toBeNull();
+    expect(inR(fg.rings, [15, 15])).toBe(true);
+  });
+
+  it('nested terraces 1, 2 and 3: each step’s face is the face of a drop of 1', () => {
+    const slope = { edge: 'slope' as const, faceDir: 90 };
+    const lone = layerSlopes(layerOf([ground, plat('lone', 2, 2, 28, 28, { height: 1, ...slope })])).faces[0];
+    const layer = layerOf([ground, plat('t1', 2, 2, 28, 28, { height: 1, ...slope }), plat('t2', 6, 6, 24, 24, { height: 2, ...slope }), plat('t3', 10, 10, 20, 20, { height: 3, ...slope })]);
+    const { faces } = layerSlopes(layer);
+    expect(faces.map((f) => f.run.owner?.id)).toEqual(['t1', 't2', 't3']);
+    for (const f of faces) {
+      expect(f.run.drops.every((d) => d === 1)).toBe(true);
+      expect(f.face.bands.length).toBe(lone.face.bands.length);
+      expect(f.face.steps.length).toBe(lone.face.steps.length);
+      expect(f.region.length).toBeGreaterThan(0);
+    }
+    // Each level its own tint, never two stacked.
+    const { tops } = draw(layer);
+    const tint = (h: number) => findLabel(tops, `plateau-top-${h}`) as Graphics;
+    expect([tint(1), tint(2), tint(3)].map((g) => g.containsPoint({ x: 15, y: 15 }))).toEqual([false, false, true]);
+    expect([tint(1), tint(2), tint(3)].map((g) => g.containsPoint({ x: 4, y: 15 }))).toEqual([true, false, false]);
+  });
+
+  it('a +1 inside a +3 mesa is a dip: its own tint only, its rim and face inward, its shade and shadow on its floor', () => {
+    const mesa = plat('mesa', 2, 2, 28, 28, { height: 3, edge: 'cliff' });
+    const dip = plat('dip', 10, 10, 20, 20, { height: 1, edge: 'slope', faceDir: 90 });
+    const layer = layerOf([ground, mesa, dip]);
+    const { tops, edges } = draw(layer);
+    const t3 = findLabel(tops, 'plateau-top-3') as Graphics;
+    const t1 = findLabel(tops, 'plateau-top-1') as Graphics;
+    expect(t3.containsPoint({ x: 5, y: 5 })).toBe(true);
+    expect(t3.containsPoint({ x: 15, y: 15 })).toBe(false);
+    expect(t1.containsPoint({ x: 15, y: 15 })).toBe(true);
+    // Its face hangs inside its rim, as deep as a drop of 2.
+    const face = layerSlopes(layer).faces.find((f) => f.run.owner === dip)!;
+    expect(face.run.drops.every((d) => d === -2)).toBe(true);
+    expect(face.region.length).toBeGreaterThan(0);
+    expect(within(face.region, 10, 10, 20, 20)).toBe(true);
+    // Its rim line, and its shade inside it, never up on the mesa.
+    const band = edges.children.find((c) => c.label === 'plateau-band-1') as Container;
+    expect(findLabel(band, 'plateau-slope-rim')).toBeDefined();
+    const mask = findLabel(band, 'plateau-shade-mask') as Graphics;
+    expect(mask.containsPoint({ x: 19.9, y: 15 })).toBe(true);
+    expect(mask.containsPoint({ x: 25, y: 15 })).toBe(false);
+    // As a cliff it throws its shadow onto its own floor.
+    const walled = layerOf([ground, mesa, { ...dip, edge: 'cliff' }]);
+    const shadow = cliffShadowGeometry(walled, look, groundRing);
+    expect(inR(shadow, [10.3, 15])).toBe(true);
+    expect(inR(shadow, [19.7, 15])).toBe(false);
+  });
+
+  it('a -1 pit inside a +2 mesa gets its inner wall: a face, a shade and a shadow inside it', () => {
+    const mesa = plat('mesa', 2, 2, 28, 28, { height: 2, edge: 'cliff' });
+    const pit = plat('pit', 10, 10, 20, 20, { height: -1, edge: 'slope', faceDir: 90 });
+    const layer = layerOf([ground, mesa, pit]);
+    const face = layerSlopes(layer).faces.find((f) => f.run.owner === pit)!;
+    expect(face.run.drops.every((d) => d === -3)).toBe(true);
+    expect(face.region.length).toBeGreaterThan(0);
+    expect(within(face.region, 10, 10, 20, 20)).toBe(true);
+    const { edges } = draw(layer);
+    const band = edges.children.find((c) => c.label === 'plateau-band--1') as Container;
+    const mask = findLabel(band, 'plateau-shade-mask') as Graphics;
+    expect(mask.containsPoint({ x: 19.9, y: 15 })).toBe(true);
+    const shadow = cliffShadowGeometry(layerOf([ground, mesa, { ...pit, edge: 'cliff' }]), look, groundRing);
+    expect(inR(shadow, [10.3, 15])).toBe(true);
+  });
+
+  it('a textured top under a textured dip is cut there; under a Ground one it shows through', () => {
+    const mesa = plat('mesa', 2, 2, 28, 28, { height: 3, topArt: GRASS });
+    const tops = plateauTopTiles(layerOf([ground, mesa, plat('dip', 10, 10, 20, 20, { height: 1, topArt: DIRT })]));
+    expect(inR(tops.get(mesa)!, [15, 15])).toBe(false);
+    expect(inR(tops.get(mesa)!, [5, 5])).toBe(true);
+    const bare = plateauTopTiles(layerOf([ground, mesa, plat('dip', 10, 10, 20, 20, { height: 1 })]));
+    expect(inR(bare.get(mesa)!, [15, 15])).toBe(true);
   });
 });

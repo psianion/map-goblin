@@ -36,7 +36,7 @@ import { isFrozen } from '../shared/freeze';
 import { getEditorDesk, setAuthoredLookHold, sheetColor } from './editorDesk';
 import { computeMapFrame, type WorldBounds } from '../shared/mapBounds';
 import { lockedFrame } from '../shared/pieces';
-import { syncMapGround } from './mapGroundRenderer';
+import { mapGroundContent, mapGroundRevision, syncMapGround } from './mapGroundRenderer';
 
 /** The canvas clear colour without a desk; matches `PixiRenderEngine`'s init. */
 const VOID_COLOR = 0x0f100e;
@@ -139,22 +139,26 @@ export function setupRenderLoop(
   sceneGraph.backgroundLayer.addChild(bgFill);
 
   // What the lighting falls on: everything drawn, never the solid fill under it. A background
-  // texture and painted terrain are drawn ground and take the light; the fill, the grid and
-  // the editing overlays do not. `contentRev` bumps on the store changes that change what is
-  // drawn; the deferred layer flush, a background texture landing and the painted ground
-  // changing (a stroke, or a map's splats decoding after the load) count as well.
+  // texture, a textured base ground and painted terrain are drawn ground and take the light; the
+  // fill, a plain base ground, the grid and the editing overlays do not. `contentRev` bumps on
+  // the store changes that change what is drawn; the deferred layer flush, a background texture
+  // landing, the base ground drawn again and the painted ground changing (a stroke, or a map's
+  // splats decoding after the load) count as well. The export reads the same list.
   let contentRev = 0;
   sceneGraph.lightingRenderer.setContent({
     root: engine.stage(),
-    content: [
-      sceneGraph.backgroundLayer,
-      sceneGraph.terrainRenderer.container,
-      sceneGraph.layerContainer,
-      sceneGraph.overheadContainer,
-    ],
+    get content() {
+      return [
+        sceneGraph.backgroundLayer,
+        ...mapGroundContent(sceneGraph.mapGround),
+        sceneGraph.terrainRenderer.container,
+        sceneGraph.layerContainer,
+        sceneGraph.overheadContainer,
+      ];
+    },
     exclude: [bgFill],
     revision: () =>
-      `${contentRev}|${layerDrawEpoch()}|${sceneGraph.backgroundLayer.children.length}|${sceneGraph.terrainRenderer.revision()}`,
+      `${contentRev}|${layerDrawEpoch()}|${sceneGraph.backgroundLayer.children.length}|${sceneGraph.terrainRenderer.revision()}|${mapGroundRevision()}`,
   });
 
   // Expose a way to mark background dirty (called by store subscription)

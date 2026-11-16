@@ -310,9 +310,11 @@ describe('computeMapFrame', () => {
     // Edge None reaches its drop shade: 0.21 cell at +1, 0.33 at +3.
     expect(frame('none', 1).maxX - stroke).toBeCloseTo(14.21, 6);
     expect(frame('none', 3).maxX - stroke).toBeCloseTo(14.33, 6);
-    // A slope reaches its band, the card's width, whatever the drop; a pit's falls inward.
-    expect(frame('slope', 3).maxX - stroke).toBeCloseTo(16, 6);
-    expect(frame('slope', 1).maxX - stroke).toBeCloseTo(16, 6);
+    // A slope reaches its face, as deep as the drop says and as far as it wanders (its retired
+    // width counts for nothing); a pit's falls inward.
+    // Ledges 0.18 thick, one more than the drop: 4 at +3, 2 at +1.
+    expect(frame('slope', 3).maxX - stroke).toBeCloseTo(14 + 0.72 * 1.3, 6);
+    expect(frame('slope', 1).maxX - stroke).toBeCloseTo(14 + 0.36 * 1.3, 6);
     expect(frame('slope', -3).maxX).toBeLessThan(frame('slope', 3).maxX);
     // A cliff reaches past its shade to what hangs off its ledge.
     expect(frame('cliff', 1).maxX - stroke).toBeCloseTo(15.2, 6);

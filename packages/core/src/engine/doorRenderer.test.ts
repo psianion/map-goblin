@@ -87,7 +87,7 @@ vi.mock('./assetPackInstance', () => ({
   }),
 }));
 
-const { renderDoors, doorSpriteFit } = await import('./doorRenderer');
+const { renderDoors, doorSpriteFit, doorWallLook } = await import('./doorRenderer');
 
 const STYLE = { wallColor: '#333333', wallWidth: 0.4 } as DungeonStyle;
 
@@ -111,6 +111,16 @@ const STYLES: DoorStyle[] = ['single', 'double', 'portcullis', 'archway'];
 
 /** The badge colour, mirrored from the table's DM seat. */
 const SECRET_AMBER = 0xe0b252;
+
+describe('doorWallLook on a painted cave', () => {
+  const onCave = (bandWidth?: number) =>
+    ({ ...resolved('single'), wall: { id: 'w1', kind: 'cave', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink', bandWidth } }) as unknown as ResolvedDoor;
+
+  it('takes the cave’s own rock width when its floors pin one, else the layer’s', () => {
+    expect(doorWallLook(onCave(), STYLE)).toMatchObject({ setId: 'GG_Cave_Ink', width: 0.4 });
+    expect(doorWallLook(onCave(0.25), STYLE)).toMatchObject({ setId: 'GG_Cave_Ink', width: 0.25 });
+  });
+});
 
 describe('renderDoors sprite dispatch', () => {
   beforeEach(() => {

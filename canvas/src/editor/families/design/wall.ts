@@ -7,7 +7,7 @@ import { defineSetting, defineTool } from '@/editor/registry/define';
 import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
 import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
 import { WallWidthControl } from './controls';
-import { CORNER_STYLE_CHOICES, cornerStyleValue, setCornerStyle, wallLookValue, setWallLook } from './wallLook';
+import { CORNER_STYLE_CHOICES, WALL_WIDTH_RANGE, cornerStyleValue, setCornerStyle, wallLookValue, setWallLook } from './wallLook';
 import type { CornerStyle } from '@/store/types';
 import { WallLook } from './LookColumn';
 import type { DockColumnDef } from '@/editor/registry/types';
@@ -50,11 +50,9 @@ export const wallType = defineSetting<WallTypeGroup>({
   },
 });
 
-export const WALL_WIDTH_RANGE = { min: 0.05, max: 1, step: 0.05 } as const;
-
 /**
  * Thickness of the walls, in cells: the picked room's when one is picked, else the layer's
- * (the walls already on it follow). Hidden for a cave kit, whose rock has no width to set.
+ * (the walls already on it follow). A cave kit's rock is laid larger or smaller by it.
  * One label, Width, everywhere; the floor tools no longer carry it.
  */
 export const wallWidth = defineSetting<number>({

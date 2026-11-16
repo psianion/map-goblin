@@ -25,6 +25,8 @@ export interface ResolvedWall extends WallSegment {
   ring?: number;
   /** Index of this edge within its ring. Floor kind only. */
   edge?: number;
+  /** The rock width its cave's floors pin, cells. Cave kind only; absent = the layer's wall width. */
+  bandWidth?: number;
 }
 
 /**
@@ -140,12 +142,12 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
     // runs, so a cave inside another floor still blocks and takes doors. Where the rock was
     // erased open (`caveOpenings`) the ring stands as the runs between the openings, and the
     // open edges are no wall at all: the floor edge along them was passed over above.
-    for (const { material, rings: caveRings } of caves) {
-      caveRings.forEach((ring, i) => {
+    for (const cave of caves) {
+      cave.rings.forEach((ring, i) => {
         const runs = caveWallRuns(ring, layer.caveOpenings);
         runs.forEach((points, k) => {
           walls.push({
-            id: runs.length === 1 ? caveWallId(material, i) : `${caveWallId(material, i)}:${k}`,
+            id: runs.length === 1 ? caveWallId(cave, i) : `${caveWallId(cave, i)}:${k}`,
             points,
             wallType: 'normal',
             direction: 'both',
@@ -153,8 +155,9 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
             width: 1,
             roughness: 0,
             // The door kit follows the cave's band, as a door on a banded floor ring's does.
-            textureSetId: material,
+            textureSetId: cave.material,
             kind: 'cave',
+            ...(cave.width === undefined ? {} : { bandWidth: cave.width }),
           });
         });
       });

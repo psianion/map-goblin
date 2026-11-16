@@ -7,7 +7,7 @@ import { shapeRing } from './plateaus';
 import { waterBounds } from './waterMask';
 import { keptToFloors, patchesBounds } from './materialPatch';
 import { pathwayBounds } from './pathway';
-import { dropShadeWidth, slopeWidthOf } from './plateauShade';
+import { dropShadeWidth, faceReach } from './plateauShade';
 
 /** How far past its ring a raised cliff's ledge and what hangs under it reach, cells. */
 const CLIFF_REACH = 1.2;
@@ -165,8 +165,8 @@ function drawnBounds(
       maxX = Math.max(maxX, b.maxX);
       maxY = Math.max(maxY, b.maxY);
     }
-    // A plateau is map too, out to where its edge falls: a slope's band (its card width), any
-    // other edge's drop shade, and past that a cliff's ledge. A pit's edge falls inward and
+    // A plateau is map too, out to where its edge falls: its drop shade, past that a slope's
+    // face (as deep as the drop says, as far as it wanders) or a cliff's ledge. A pit's edge falls inward and
     // reaches no further than its ring.
     for (const child of dl.children ?? []) {
       if (child.childType !== 'plateau' || !child.visible || (child.contours?.[0]?.length ?? 0) < 3) continue;
@@ -174,9 +174,7 @@ function drawnBounds(
       const pad =
         rise === 0
           ? 0
-          : child.edge === 'slope'
-            ? slopeWidthOf(child.slopeWidth)
-            : Math.max(dropShadeWidth(rise), child.edge === 'cliff' ? CLIFF_REACH : 0);
+          : Math.max(dropShadeWidth(rise), child.edge === 'cliff' ? CLIFF_REACH : child.edge === 'slope' ? faceReach(rise) : 0);
       for (const [x, y] of shapeRing(child, 0)) {
         minX = Math.min(minX, x - pad);
         minY = Math.min(minY, y - pad);

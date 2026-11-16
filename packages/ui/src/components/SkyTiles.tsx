@@ -9,13 +9,16 @@ export type SkyPlace = 'outdoor' | 'indoor' | 'underground';
 /** The small landscape every tile picture is cut from. */
 const LANDSCAPE = 'linear-gradient(115deg, #b7c38c 0 48%, #8fb9cf 48% 62%, #cfc6b2 62%)';
 
-/** The landscape strip, multiplied by one colour (none for the plain strip), with a mark on top. */
-function Strip({ multiply, faded, children }: { multiply?: string; faded?: boolean; children?: React.ReactNode }) {
+/**
+ * The landscape strip, multiplied by one colour (none for the plain strip), with a mark on top,
+ * and the whole picture, mark and all, multiplied by `tint` when the time has one.
+ */
+function Strip({ multiply, tint, faded, children }: { multiply?: string; tint?: string; faded?: boolean; children?: React.ReactNode }) {
   return (
     <span
       aria-hidden
       data-slot="sky-picture"
-      className={cn('absolute inset-x-0 top-0 block h-10 overflow-hidden', faded && 'opacity-45')}
+      className={cn('absolute inset-x-0 top-0 isolate block h-10 overflow-hidden', faded && 'opacity-45')}
       style={{
         backgroundImage: LANDSCAPE,
         backgroundColor: multiply,
@@ -23,6 +26,7 @@ function Strip({ multiply, faded, children }: { multiply?: string; faded?: boole
       }}
     >
       {children}
+      {tint ? <span data-slot="sky-tint" className="absolute inset-0 block mix-blend-multiply" style={{ backgroundColor: tint }} /> : null}
     </span>
   );
 }
@@ -106,12 +110,14 @@ type TimeTilesProps = {
   onPick: (value: SkyTime | 'unlit') => void;
   /** Lead with an Unlit entry (the plain strip, no mark). */
   unlit?: boolean;
+  /** The colour each time is drawn in, multiplied into its picture (the map's tint, or the time's own). */
+  tints?: Partial<Record<SkyTime, string>>;
   className?: string;
   'aria-label'?: string;
 };
 
 /** A row of picture tiles that picks a time of day, optionally led by Unlit. */
-function TimeTiles({ value, onPick, unlit, className, 'aria-label': label = 'Time of day' }: TimeTilesProps) {
+function TimeTiles({ value, onPick, unlit, tints, className, 'aria-label': label = 'Time of day' }: TimeTilesProps) {
   return (
     <div role="group" aria-label={label} data-composite="time-tiles" className={cn('flex flex-wrap gap-1.5', className)}>
       {unlit ? (
@@ -121,7 +127,9 @@ function TimeTiles({ value, onPick, unlit, className, 'aria-label': label = 'Tim
       ) : null}
       {TIMES.map((t) => (
         <Tile key={t.value} name={t.name} active={value === t.value} data-value={t.value} onClick={() => onPick(t.value)}>
-          <Strip multiply={TIME_PICTURE[t.value].multiply}>{TIME_PICTURE[t.value].mark}</Strip>
+          <Strip multiply={TIME_PICTURE[t.value].multiply} tint={tints?.[t.value]}>
+            {TIME_PICTURE[t.value].mark}
+          </Strip>
         </Tile>
       ))}
     </div>

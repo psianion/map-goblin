@@ -271,11 +271,11 @@ export interface BaseGround {
 /**
  * Relief drawn over floors or painted terrain: a ring raised (or sunk) by whole cells. Never
  * part of the floor union, walls, rooms or doors; walls come only from floors. Its parent is
- * the innermost plateau of the layer holding its centroid, and heights add along that chain.
+ * the innermost plateau of the layer holding its centroid; its height is its own level.
  */
 export interface PlateauChild extends LayerChild, RingGeometry {
   childType: 'plateau';
-  /** Cells, relative to the enclosing plateau. Negative = a pit. */
+  /** Cells above the ground, wherever it is drawn. Negative = below the ground (a pit). */
   height: number;
   /** How the ring meets lower ground. */
   edge: 'none' | 'slope' | 'cliff';
@@ -284,11 +284,32 @@ export interface PlateauChild extends LayerChild, RingGeometry {
    * for a painted border (plateauKit.ts). Absent = the cave ink set's rock row.
    */
   edgeArt?: string;
-  /** Slope cells per cell of drop. Absent = 1. */
+  /**
+   * Retired: a slope's width from before slopes drew a side face. Kept so older maps load;
+   * nothing draws from it (a face is as deep as its drop says, `faceDepth`).
+   */
   slopeWidth?: number;
+  /**
+   * A slope's face texture: the pack-scoped id of a floor tagged `face`. Absent = Ground: the
+   * ledge shading only, over whatever is painted there.
+   */
+  faceArt?: string;
+  /**
+   * The way this plateau's slope faces point, degrees on screen (0 right, 90 down). Absent =
+   * the map's `faceDirection`.
+   */
+  faceDir?: number;
+  /**
+   * The top's texture: the pack-scoped id of a floor, laid over the plateau's own outline as a
+   * ground piece of it is. Absent = Ground: the top shows what is under it.
+   */
+  topArt?: string;
   /** A painted border's width, cells. Absent = 0.75. */
   borderWidth?: number;
-  /** Contour lines drawn on the slope or cliff top. Absent = on. (Not `contours`: those are the rings.) */
+  /**
+   * Lines drawn on the cliff top, between a slope's ledge bands, or along a painted border.
+   * Absent = on. (Not `contours`: those are the rings.)
+   */
   contourLines?: boolean;
   /** Whether the top hides from below. Absent = the map's `sightDropCells` decides. */
   sightOverride?: 'hide' | 'show';

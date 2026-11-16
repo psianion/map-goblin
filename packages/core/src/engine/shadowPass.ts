@@ -40,7 +40,7 @@ import {
   leeSweeps,
   sunShadowLength,
 } from '../shared/plateauShade';
-import { shadeCliffs } from './plateauRenderer';
+import { layerSlopes, shadeCliffs } from './plateauRenderer';
 import { tableRoomPlaces, tableRoomPlacesVersion, worldFrame, type WorldFrame } from './worldOverride';
 import { levelPlace, roomPlace } from '../shared/regionGrade';
 import { layersOnLevel, levelIdOf } from '../shared/visionGate';
@@ -319,8 +319,8 @@ function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | nu
 }
 
 /**
- * The cliffs' shadows (plan §4.3): every raised edge but a slope casts, `sunShadowLength` of
- * its drop long. A plateau's falls outward onto whatever ground is lower than it; a pit's falls
+ * The cliffs' shadows (plan §4.3): every raised edge casts, `sunShadowLength` of its drop
+ * long, a slope's from the foot of its face. A plateau's falls outward onto whatever ground is lower than it; a pit's falls
  * inward from its rim onto the pit's own floor. Each band and side is its own part: the fill
  * (reaching back behind the edge) blurred, then cut by a mask of where it lands, so the shadow
  * starts on the edge itself at full strength and only its far end and sides fade, over
@@ -332,6 +332,11 @@ function drawCliffShadows(holder: Container, blur: BlurFilter, layer: DungeonLay
   const ground = groundOf(layer);
   for (const { fill, clip } of [...cliffShadowParts(layer, look, ground), ...reliefShadowParts(layer, look, ground)]) {
     if (fill.length === 0 || clip.length === 0) continue;
+    // The mask only as far as the blurred shadow reaches: the caster's top then cuts into it from
+    // its edge instead of lying in it as a hole, which a mask with a long curved hole fills
+    // unreliably (wedges of shadow across a curved plateau's top).
+    const near = clipper2Engine.intersection(clip, clipper2Engine.inflate(fill, 2 * CLIFF_SHADOW_FADE));
+    if (near.length === 0) continue;
     const g = new Graphics();
     g.label = 'cliffShadows';
     fillRings(g, fill, { color: 0x000000, alpha: CLIFF_SHADOW_ALPHA * strength });
@@ -340,7 +345,7 @@ function drawCliffShadows(holder: Container, blur: BlurFilter, layer: DungeonLay
     soft.addChild(g);
     const mask = new Graphics();
     mask.label = 'cliffShadowMask';
-    fillRings(mask, clip, { color: 0xffffff });
+    fillRings(mask, near, { color: 0xffffff });
     const part = new Container();
     part.label = 'cliffShadowPart';
     part.addChild(soft, mask);
@@ -420,26 +425,33 @@ export function cliffBlurStrength(pxPerCell: number): number {
 
 /**
  * The cliffs' shadows, per band and side: `fill`, each turned-away stretch of edge swept
- * `sunShadowLength` of its drop along the light and reaching SUN_SHADOW_BACK behind the
+ * `sunShadowLength` of its own drop along the light and reaching SUN_SHADOW_BACK behind the
  * edge, and `clip`, where it may land: for a plateau the `ground` and the lower bands
- * outside it, for a pit its own floor, never a band as high as the caster or higher. Pure
- * geometry, for the pass and its tests.
+ * outside it, for a pit or a dip its own floor, never a surface as high as the caster or higher, never the
+ * caster's own slope faces. Pure geometry, for the pass and its tests.
  */
 export function cliffShadowParts(layer: DungeonLayer, look: ShadowLook, ground: Polygon[]): { fill: Polygon[]; clip: Polygon[] }[] {
   const out: { fill: Polygon[]; clip: Polygon[] }[] = [];
   const { bands } = layerPlateaus(layer);
   const everywhere = [...ground, ...bands.flatMap((b) => b.rings)];
+  const slopes = bands.some((b) => b.shapes.some((s) => s.edge === 'slope')) ? layerSlopes(layer).faces : [];
   for (const band of bands) {
-    const runs = edgeRuns(band).filter((r) => r.edge !== 'slope' && r.drop !== 0);
+    const runs = edgeRuns(band).filter((r) => r.drop !== 0);
     for (const pit of [false, true]) {
       const casting = runs.filter((r) => (r.drop < 0) === pit);
       if (casting.length === 0) continue;
-      const sweeps = casting.flatMap((r) => leeSweeps(r.points, r.closed, !pit, look, sunShadowLength(r.drop)));
+      // Each stretch by its own drop: a +3 edge throws a shorter shadow onto a +1 beside it than onto the ground.
+      const sweeps = casting.flatMap((r) => leeSweeps(r.points, r.closed, !pit, look, r.drops.map(sunShadowLength)));
       if (sweeps.length === 0) continue;
       const onto = pit ? band.rings : everywhere;
-      const above = bands
-        .filter((b) => (pit ? b.height > band.height : b.height >= band.height))
-        .flatMap((b) => b.rings);
+      // A slope's own face is off its shadow, so the shadow starts at the face's foot.
+      const faces = slopes.filter((f) => f.run.band === band && f.run.drop < 0 === pit).flatMap((f) => f.face.region);
+      // What stands as high as the caster or higher, by each band's surface: a pit or a dip
+      // dug into a higher plateau is not under that plateau's top.
+      const above = [
+        ...bands.filter((b) => (pit ? b.height > band.height : b.height >= band.height)).flatMap((b) => b.surface),
+        ...faces,
+      ];
       const clip = clipper2Engine.difference(clipper2Engine.union(onto, []), above);
       out.push({ fill: clipper2Engine.union(sweeps, []), clip });
     }

@@ -13,7 +13,7 @@
 
 import { timeOfDayAt, type Environment, type MapEnvironment } from '../shared/world';
 import type { TimeOfDay } from '../shared/prep';
-import { skyFrame, type SkyFrame } from '../shared/sky';
+import { skyFrame, type SkyFrame, type SkyInput } from '../shared/sky';
 import { freezeOf } from '../shared/freeze';
 
 /** What time it is here, and the whole sky that puts over the map. */
@@ -79,9 +79,9 @@ export const tableRoomPlacesVersion = (): number => roomPlacesVersion;
 /**
  * The sky this frame is drawn under: the campaign's if one was installed, else the map's own
  * at the preview time (Day when none). Under a freeze (`?freeze=`) the Editor stands at the
- * time of day the frozen minute falls in.
+ * time of day the frozen minute falls in. The map's own tint for that time rides on the frame.
  */
-export function worldFrame(map: MapEnvironment, previewTime: TimeOfDay | null = null): SkyFrame {
+export function worldFrame(map: MapEnvironment & Pick<SkyInput, 'timeTints'>, previewTime: TimeOfDay | null = null): SkyFrame {
   if (installed) return installed;
   const frozen = freezeOf();
   return skyFrame({ ...map, time: frozen ? timeOfDayAt(frozen.minutes) : (previewTime ?? 'day') });

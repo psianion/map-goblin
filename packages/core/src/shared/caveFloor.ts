@@ -112,9 +112,11 @@ export function hasCaveLook(shape: ShapeChild, look: CaveLook): boolean {
 
 /* ── A cave's own edge ────────────────────────────────────── */
 
-/** A layer's caves of one material: the outline rings of the union of its marked floors. */
+/** A layer's caves of one material and rock width: the outline rings of the union of its marked floors. */
 export interface CaveEdge {
   material: string;
+  /** How wide its rock is laid, cells: the floors' own pin (`styleOverrides.wallWidth`). Absent = the layer's wall width. */
+  width?: number;
   /** Outer rings and holes, as the union leaves them. */
   rings: Polygon[];
 }
@@ -132,27 +134,37 @@ export function drawnShapeRings(shape: ShapeChild): Polygon[] {
   });
 }
 
+/** A floor's own wall width (`styleOverrides.wallWidth`), cells; undefined while it follows its layer. */
+export function wallWidthPin(shape: Pick<ShapeChild, 'styleOverrides'>): number | undefined {
+  const pin = shape.styleOverrides?.wallWidth;
+  return typeof pin === 'number' ? pin : undefined;
+}
+
 const edgeMemo = new Map<string, { children: unknown; out: CaveEdge[] }>();
 
 /**
- * The caves on a layer whose rock and wall follow their own outline: per material, the
- * union of the visible floors marked with it (`edgeMaterial`). A lone floor's rings are
- * taken as they are; several are unioned (Clipper; without it they stay side by side).
- * Memoised on the layer's children.
+ * The caves on a layer whose rock and wall follow their own outline: per material and
+ * rock width, the union of the visible floors marked with it (`edgeMaterial`). A lone
+ * floor's rings are taken as they are; several are unioned (Clipper; without it they stay
+ * side by side). Memoised on the layer's children.
  */
 export function caveEdges(layer: { id: string; children: readonly AnyChild[] }): CaveEdge[] {
   const hit = edgeMemo.get(layer.id);
   if (hit && hit.children === layer.children) return hit.out;
-  const byMaterial = new Map<string, ShapeChild[]>();
+  const groups = new Map<string, { material: string; width: number | undefined; shapes: ShapeChild[] }>();
   for (const c of layer.children) {
     if (c.childType !== 'shape' || c.visible === false) continue;
     const shape = c as ShapeChild;
     // A ground piece's rock rim is paint: no wall runs along it and no room is cut by it.
     if (!shape.edgeMaterial || shape.ground) continue;
-    byMaterial.set(shape.edgeMaterial, [...(byMaterial.get(shape.edgeMaterial) ?? []), shape]);
+    const width = wallWidthPin(shape);
+    const key = `${shape.edgeMaterial}@${width ?? ''}`;
+    const group = groups.get(key);
+    if (group) group.shapes.push(shape);
+    else groups.set(key, { material: shape.edgeMaterial, width, shapes: [shape] });
   }
   const out: CaveEdge[] = [];
-  for (const [material, shapes] of byMaterial) {
+  for (const { material, width, shapes } of groups.values()) {
     // Each floor's region is normalised (its holes cut, wound the one way) before the union:
     // a floor wound the other way round from its neighbour cancelled it where they overlapped
     // under the non-zero rule, leaving rock rings and stems through the middle of the cave.
@@ -166,15 +178,18 @@ export function caveEdges(layer: { id: string; children: readonly AnyChild[] }):
             }),
             [],
           );
-    if (rings.length > 0) out.push({ material, rings });
+    if (rings.length > 0) out.push(width === undefined ? { material, rings } : { material, width, rings });
   }
   edgeMemo.set(layer.id, { children: layer.children, out });
   return out;
 }
 
-/** The id of a cave's wall: `cave:{material}:{ring}`, rebuilt on every resolve. */
-export function caveWallId(material: string, ring: number): string {
-  return `cave:${material}:${ring}`;
+/**
+ * The id of a cave's wall: `cave:{material}:{ring}`, rebuilt on every resolve. Caves that
+ * pin a rock width are a group of their own, so theirs reads `cave:{material}@{width}:{ring}`.
+ */
+export function caveWallId(cave: Pick<CaveEdge, 'material' | 'width'>, ring: number): string {
+  return `cave:${cave.material}${cave.width === undefined ? '' : `@${cave.width}`}:${ring}`;
 }
 
 function nearSegment([px, py]: [number, number], [ax, ay]: [number, number], [bx, by]: [number, number]): number {
@@ -276,7 +291,7 @@ export function caveOpeningGaps(cave: CaveEdge, openings: readonly Polygon[] | u
       const n = Math.max(1, Math.ceil(len / OPEN_GAP));
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n;
-        gaps.push({ wallId: caveWallId(cave.material, r), position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: len / n });
+        gaps.push({ wallId: caveWallId(cave, r), position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: len / n });
       }
     });
   });
@@ -319,8 +334,8 @@ export function closeCaveOpenings(openings: Polygon[] | undefined, area: Polygon
 
 /** Each cave ring as a thin cutter (a threshold's width), so the room faces split along a cave's edge. */
 export function caveCutters(layer: { id: string; children: readonly AnyChild[] }): ThresholdSegment[] {
-  return caveEdges(layer).flatMap(({ material, rings }) =>
-    rings.map((ring, i) => ({ id: `${CAVE_CUT_ID}:${caveWallId(material, i)}`, points: [...ring, ring[0]] })),
+  return caveEdges(layer).flatMap((cave) =>
+    cave.rings.map((ring, i) => ({ id: `${CAVE_CUT_ID}:${caveWallId(cave, i)}`, points: [...ring, ring[0]] })),
   );
 }
 

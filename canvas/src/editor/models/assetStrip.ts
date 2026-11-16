@@ -15,7 +15,9 @@ import {
   getWallSetIds,
   hasLiveTexture,
   isBandSet,
+  WALL_SET_DEFAULTS,
 } from '@dnd/core/src/assets/packCatalog';
+import { isFaceTile } from '@dnd/core/src/assets/materialKit';
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { pickAsset } from '@dnd/core/src/store/pickAsset';
 import { notify } from '@dnd/ui/toast';
@@ -145,11 +147,11 @@ export function pickedFloorTexture(t: FloorTargets): string | undefined {
 
 /**
  * Recent floor textures, then the one in use, the layer's default, and the catalogue
- * (the preferred pack's floors before the rest).
+ * (the preferred pack's floors before the rest; never a slope's face tile).
  */
 export function floorCandidates(recent: readonly string[], picked: string | undefined, layerDefault: string | undefined): string[] {
   const isFloor = ofType('floor');
-  const catalogue = preferredFirst(getEntriesByType('floor'));
+  const catalogue = preferredFirst(getEntriesByType('floor').filter((e) => !isFaceTile(e)));
   return orderStripCandidates(recent.filter(isFloor), [picked, layerDefault, ...catalogue].filter(isFloor));
 }
 
@@ -408,11 +410,11 @@ export function installedWallSets(): string[] {
 }
 
 /**
- * Whether walls of this set ignore the width setting. A cave kit's rock is laid at the
- * size it was drawn, matched to the curve rather than stretched, so only its tint applies.
+ * The smallest width walls of this set take. A cave kit's rock is scaled whole by its
+ * width and stops shrinking at the set's minimum (bandScale); stone goes down to a line.
  */
-export function wallWidthIgnored(setId: string | undefined): boolean {
-  return isBandSet(setId);
+export function wallWidthMin(setId: string | undefined): number {
+  return isBandSet(setId) ? WALL_SET_DEFAULTS.minWidth : 0.05;
 }
 
 /** Sets picked lately, then the layer's own, then every installed set. */

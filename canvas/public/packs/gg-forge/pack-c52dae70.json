@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.17.3",
+  "version": "1.17.4",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -2155,6 +2155,132 @@
       "set": "GG_Door_Kits",
       "tags": [
         "door"
+      ]
+    },
+    "face_cave_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_cave",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "cave"
+      ]
+    },
+    "face_dirt_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_dirt",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "dirt"
+      ]
+    },
+    "face_earth_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_earth",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "earth"
+      ]
+    },
+    "face_grass_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_grass",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "grass"
+      ]
+    },
+    "face_grass_dark_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_grass_dark",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "grass"
+      ]
+    },
+    "face_sandstone_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_sandstone",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "sandstone"
+      ]
+    },
+    "face_stone_4x4_floor_A": {
+      "type": "floor",
+      "material": "face_stone",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 800
+      },
+      "set": "GG_Wild_Faces",
+      "tags": [
+        "face",
+        "stone"
       ]
     },
     "foam_1_1x1_object_A": {
@@ -4400,6 +4526,34 @@
       "checksum": "sha256:b91770f780e26765fd8e15657bfa25517e2c566e734d650806f31d834593bf7f",
       "size": 902
     },
+    "face_cave_4x4_A-8fc805f9.webp": {
+      "checksum": "sha256:8fc805f9f6d2d4767cbe0faf87cfc6e2e2077e732cd79a4da81d1741ce842d99",
+      "size": 12024
+    },
+    "face_dirt_4x4_A-03a8a20d.webp": {
+      "checksum": "sha256:03a8a20d825c34f51e20f209233641a7760e768c9ebd0c5d488dde9ef5b6bd6f",
+      "size": 13248
+    },
+    "face_earth_4x4_A-ca0f60f5.webp": {
+      "checksum": "sha256:ca0f60f5cca8fb6d428cb548a6570a2b33352cabfb6742d8a7f602a589b3152c",
+      "size": 12626
+    },
+    "face_grass_4x4_A-951eb092.webp": {
+      "checksum": "sha256:951eb092c63f607c9b1568f2a1579e9d9ea68e105d0999816101917ca1a5eb88",
+      "size": 39776
+    },
+    "face_grass_dark_4x4_A-34157a39.webp": {
+      "checksum": "sha256:34157a39c0c814cbc00b814751b56550a5c95c90558301234cbded344c15de70",
+      "size": 36244
+    },
+    "face_sandstone_4x4_A-1b6bdcc7.webp": {
+      "checksum": "sha256:1b6bdcc7ced64abb86839ef3b1d6e2e467e055929d05e82c8d4fa19a746413c4",
+      "size": 14848
+    },
+    "face_stone_4x4_A-4ddff122.webp": {
+      "checksum": "sha256:4ddff122cdece9b4c783eda84a9b5c6ce26f6e800a98a2b28ec37cfcc9999807",
+      "size": 12042
+    },
     "foam_1_1x1_A-718634d2.webp": {
       "checksum": "sha256:718634d2784a81b9102954ce4e7d283d1079066e6827088ec6dc3f74e213ef79",
       "size": 4208
@@ -4801,5 +4955,5 @@
       "size": 106222
     }
   },
-  "bundleSize": 3137886
+  "bundleSize": 3278694
 }

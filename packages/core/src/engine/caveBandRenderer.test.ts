@@ -7,7 +7,7 @@ import { caveBandPieces, jointsOf, ledgePieces, type CaveKitPiece } from '../ass
 import { migrateToLatest } from '../store/migration';
 import { computeMergedFloor } from './mergedFloor';
 import type { DungeonLayer } from '../store/types';
-import { bandRide, layBandChain, layBandRing, orientRings, sharpCorners } from './caveBandRenderer';
+import { bandRide, layBandChain, layBandRing, layOutlineBand, orientRings, sharpCorners } from './caveBandRenderer';
 import { bandHoles, resampleClosed, walkClosed } from './caveWalk';
 import type { WalkPlacement, Vec } from './caveWalk';
 import type { Polygon } from '../types/geometry';
@@ -77,6 +77,67 @@ describe('layBandRing', () => {
     const ring = circle(7);
     const elsewhere: DoorGap = { wallId: 'w9', position: [30, 30], width: 1 };
     expect(layBandRing(ring, [elsewhere]).length).toBe(layBandRing(ring).length);
+  });
+});
+
+describe('a band laid at a wall width', () => {
+  it('lays a ring with smaller rock, and more of it, at half size', () => {
+    const full = layBandRing(circle(7));
+    const half = layBandRing(circle(7), [], undefined, 0.5);
+    // More pieces, though not twice: a gentler curve at the rock's scale takes its longer ones.
+    expect(half.length).toBeGreaterThan(full.length);
+    for (const pl of half) {
+      expect(pl.at.scale).toBeGreaterThan(0.4);
+      expect(pl.at.scale).toBeLessThan(0.6);
+    }
+    // Still one closed band on the same ring: seams scale with the rock, joints stay by the edge.
+    expect(worstSeam(half, true)).toBeLessThanOrEqual(0.45);
+    for (const pl of half) {
+      for (const j of jointsOf(pl.piece, pl.at)) expect(Math.abs(dist(j, [0, 0]) - 7)).toBeLessThan(0.5);
+    }
+  });
+
+  it('is the same walk as the full-size band on a ring twice as large', () => {
+    const big = layBandRing(circle(14));
+    const half = layBandRing(circle(7), [], undefined, 0.5);
+    expect(half.map((pl) => pl.piece.key)).toEqual(big.map((pl) => pl.piece.key));
+    half.forEach((pl, k) => {
+      expect(pl.at.position.x).toBeCloseTo(big[k].at.position.x / 2, 9);
+      expect(pl.at.position.y).toBeCloseTo(big[k].at.position.y / 2, 9);
+      expect(pl.at.rotation).toBeCloseTo(big[k].at.rotation, 9);
+      expect(pl.at.scale).toBeCloseTo(big[k].at.scale / 2, 9);
+    });
+  });
+
+  it('still stops at a door, measured at the door’s own width', () => {
+    const gap: DoorGap = { wallId: 'floor:0:0', position: [7, 0], width: 1.5, ring: 0 };
+    const placed = layBandRing(circle(7), [gap], undefined, 0.5);
+    expect(placed.length).toBeGreaterThan(8);
+    for (const pl of placed) {
+      for (const j of jointsOf(pl.piece, pl.at)) expect(dist(j, gap.position)).toBeGreaterThan(0.75);
+    }
+  });
+
+  it('lays an open run thinner and larger alike', () => {
+    const run: Polygon = [[0, 0], [6, 0], [12, 3], [18, 3]];
+    const full = layBandChain(run);
+    for (const size of [0.5, 2]) {
+      const placed = layBandChain(run, [], undefined, size);
+      expect(placed.length).toBeGreaterThan(0);
+      expect(Math.sign(placed.length - full.length)).toBe(size < 1 ? 1 : -1);
+      const first = jointsOf(placed[0].piece, placed[0].at)[0];
+      const last = jointsOf(placed[placed.length - 1].piece, placed[placed.length - 1].at)[1];
+      expect(dist(first, [0, 0])).toBeLessThan(size);
+      expect(dist(last, [18, 3])).toBeLessThan(size);
+    }
+  });
+
+  it('lays a painted cave’s outline at the size asked, however the ring was listed', () => {
+    const [full] = layOutlineBand([circle(7).reverse()]);
+    const [half] = layOutlineBand([circle(7).reverse()], undefined, [], 0.5);
+    expect(half.length).toBeGreaterThan(full.length);
+    for (const pl of half) expect(pl.at.scale).toBeLessThan(0.6);
+    expect(half.map((pl) => pl.piece.key)).toEqual(layBandRing(circle(7), [], undefined, 0.5).map((pl) => pl.piece.key));
   });
 });
 

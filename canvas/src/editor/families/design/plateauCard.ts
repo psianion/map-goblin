@@ -1,5 +1,6 @@
-// The plateau card (Elevation): Height with where it stands, Edge, then what the edge draws
-// with (Cliff art, a painted border's Texture, Border width and Edge line, Slope width, Contour lines),
+// The plateau card (Elevation): Height with where it stands, Edge, Top, Smooth corners, then
+// what the edge draws with (Cliff art, a painted border's Texture, Border width and Edge line, a
+// slope's Slope face, Direction and Ledge lines, a cliff's Contour lines),
 // Blocks sight and Crossing. Every row writes
 // every picked plateau as one undo step and shows the first.
 
@@ -10,13 +11,14 @@ import type { Command, MapBuilderStore, PlateauChild } from '@/store/types';
 import { setPlateauFields, type PlateauPatch } from '@dnd/core/src/store/plateauCommands';
 import { edgeHides, edgeOf, ownHeight, shapeDrop } from '@dnd/core/src/shared/plateaus';
 import { isPaintedBorder, paintedBorderArt, paintedBorderTexture } from '@dnd/core/src/engine/plateauKit';
-import { BORDER_DEFAULT_WIDTH, BORDER_MAX_WIDTH, BORDER_MIN_WIDTH, borderWidthOf } from '@dnd/core/src/shared/plateauShade';
+import { BORDER_DEFAULT_WIDTH, BORDER_MAX_WIDTH, BORDER_MIN_WIDTH, borderWidthOf, DEFAULT_FACE_DIRECTION, faceDirectionOf } from '@dnd/core/src/shared/plateauShade';
+import { plateauSmooth, setPlateausSmooth } from '@dnd/core/src/engine/ringNodeEdit';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { runEdit } from './cardWrites';
-import { blocksSight, BORDER_STEP, cliffArtValue, edgeArtFor, EDGE_OPTIONS, sightOverrideFor, SLOPE_STEP } from './plateauModel';
+import { blocksSight, BORDER_STEP, cliffArtValue, edgeArtFor, EDGE_OPTIONS, faceArtFor, faceArtValue, GROUND_FACE, GROUND_TOP, sightOverrideFor, topArtFor, topArtValue } from './plateauModel';
 import { EDITABLE_VERBS } from './verbs';
 import { DEFAULT_ART, EDGE_CROSSING } from './plateauModel';
-import { BorderTextureField, CliffArtField, CrossingField, HeightField, SlopeField } from './PlateauFields';
+import { BorderTextureField, CliffArtField, CrossingField, DirectionField, FaceArtField, HeightField, TopArtField } from './PlateauFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
 
@@ -40,7 +42,6 @@ function autoBlocks(p: PlateauChild): boolean {
 }
 
 const isSloped = (p: PlateauChild) => edgeOf(p) === 'slope';
-const hasEdge = (p: PlateauChild) => edgeOf(p) !== 'none';
 
 /* ── Height ────────────────────────────────────────────── */
 
@@ -118,19 +119,85 @@ const borderWidth = defineCardField<'plateau', number>({
   write: (_store, ids, w) => apply('Border width', ids, () => ({ borderWidth: w })),
 });
 
-const slopeWidth = defineCardField<'plateau', number>({
-  id: 'card.plateau.slopeWidth',
-  label: 'Slope width',
-  schema: z.number().positive(),
-  default: 1,
+/** A slope's face texture: Ground (nothing stored) or a face tile. */
+const faceArt = defineCardField<'plateau', string>({
+  id: 'card.plateau.faceArt',
+  label: 'Slope face',
+  schema: z.string().min(1),
+  default: GROUND_FACE,
   home: 'card',
   control: 'custom',
   section: 'Edge',
-  range: { min: SLOPE_STEP, max: 10, step: SLOPE_STEP },
-  render: SlopeField,
+  render: FaceArtField,
   visibleWhen: isSloped,
-  read: (p) => p.slopeWidth ?? 1,
-  write: (_store, ids, w) => apply('Slope width', ids, () => ({ slopeWidth: w })),
+  read: (p) => faceArtValue(p.faceArt),
+  write: (_store, ids, v) => apply('Slope face', ids, () => ({ faceArt: faceArtFor(v) })),
+});
+
+/** The way a slope's faces point, degrees: its own, or for a plateau saved without one the map's. */
+const faceDir = defineCardField<'plateau', number>({
+  id: 'card.plateau.faceDir',
+  label: 'Direction',
+  schema: z.number().int().min(0).max(359),
+  default: DEFAULT_FACE_DIRECTION,
+  home: 'card',
+  control: 'custom',
+  section: 'Edge',
+  render: DirectionField,
+  visibleWhen: isSloped,
+  read: (p) => faceDirectionOf(p, state().mapSettings.faceDirection),
+  write: (_store, ids, d) => apply('Slope direction', ids, () => ({ faceDir: d })),
+});
+
+/** The top's texture: Ground (nothing stored, the top shows what is under it) or a floor. */
+const topArt = defineCardField<'plateau', string>({
+  id: 'card.plateau.topArt',
+  label: 'Top',
+  schema: z.string().min(1),
+  default: GROUND_TOP,
+  home: 'card',
+  control: 'custom',
+  render: TopArtField,
+  read: (p) => topArtValue(p.topArt),
+  write: (_store, ids, v) => apply('Plateau top', ids, () => ({ topArt: topArtFor(v) })),
+});
+
+/** The picked plateaus' rings: on when every node of them all is smooth. */
+function pickedRings(p: PlateauChild): PlateauChild[] {
+  const ids = state().selection.selectedIds;
+  const picked = ids.flatMap((id) => {
+    const c = selectLayerForChild(state(), id)?.children.find((x): x is PlateauChild => x.id === id && x.childType === 'plateau');
+    return c ? [c] : [];
+  });
+  return picked.length > 0 ? picked : [p];
+}
+
+/** Every node smooth, holes too, or every handle off: one undo step, put back if it would leave the ground. */
+const smoothCorners = defineCardField<'plateau', boolean>({
+  id: 'card.plateau.smoothCorners',
+  label: 'Smooth corners',
+  schema: z.boolean(),
+  default: false,
+  home: 'card',
+  control: 'switch',
+  read: (p) => pickedRings(p).every(plateauSmooth),
+  write: (_store, ids, on) => {
+    void setPlateausSmooth(ids, on);
+  },
+});
+
+/** The thin lines between a slope's ledge bands: the same stored switch as Contour lines, which it stands in for. */
+const ledgeLines = defineCardField<'plateau', boolean>({
+  id: 'card.plateau.ledgeLines',
+  label: 'Ledge lines',
+  schema: z.boolean(),
+  default: true,
+  home: 'card',
+  control: 'switch',
+  section: 'Edge',
+  visibleWhen: isSloped,
+  read: (p) => p.contourLines ?? true,
+  write: (_store, ids, on) => apply('Ledge lines', ids, () => ({ contourLines: on ? undefined : false })),
 });
 
 const contourLines = defineCardField<'plateau', boolean>({
@@ -141,8 +208,8 @@ const contourLines = defineCardField<'plateau', boolean>({
   home: 'card',
   control: 'switch',
   section: 'Edge',
-  // A painted border has no contours: its Edge line takes this place.
-  visibleWhen: (p) => hasEdge(p) && !isPainted(p),
+  // A painted border has no contours: its Edge line takes this place; a slope's Ledge lines.
+  visibleWhen: (p) => edgeOf(p) === 'cliff' && !isPainted(p),
   read: (p) => p.contourLines ?? true,
   write: (_store, ids, on) => apply('Contour lines', ids, () => ({ contourLines: on ? undefined : false })),
 });
@@ -201,5 +268,5 @@ export const plateauCard = defineCard<'plateau'>({
   kind: 'plateau',
   title: () => 'Elevation',
   verbs: EDITABLE_VERBS,
-  fields: [height, edge, cliffArt, borderTexture, borderWidth, slopeWidth, contourLines, edgeLine, blocks, crossing],
+  fields: [height, edge, topArt, smoothCorners, cliffArt, borderTexture, borderWidth, faceArt, faceDir, ledgeLines, contourLines, edgeLine, blocks, crossing],
 });

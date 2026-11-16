@@ -634,7 +634,9 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       { height: 2 },
       { edge: 'slope' },
       { edgeArt: 'gg-forge:GG_Cave_Ink' },
-      { slopeWidth: 2 },
+      { faceArt: 'gg-forge:face_stone_4x4_floor_A' },
+      { faceDir: 90 },
+      { topArt: 'gg-forge:grass_A' },
       { contourLines: false },
       { sightOverride: 'hide' },
       { crossingId: 'impassable' },
@@ -656,6 +658,25 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       expect(clipper2Engine.union, JSON.stringify(patch)).not.toHaveBeenCalled();
       invalidateAll.mockRestore();
     }
+  });
+
+  it('redraws the plateaus when the map’s stored face direction changes or a piece moves in front of one', () => {
+    const plateau: PlateauChild = {
+      id: 'p1', name: 'Mesa', childType: 'plateau', visible: true,
+      contours: [[[2, 2], [10, 2], [10, 10], [2, 10]]], height: 1, edge: 'slope',
+    };
+    seed({ children: [shape('s1', 0, 0), plateau] });
+    unsub = start();
+    vi.clearAllMocks();
+    // Nothing in the editor writes it any more; a loaded map brings its own.
+    useStore.setState((s) => {
+      s.mapSettings.faceDirection = 90;
+    });
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+    // The face texture is drawn at the plateau's place among the pieces.
+    const before = plateauLookKey([shape('s1', 0, 0), plateau]);
+    expect(plateauLookKey([plateau, shape('s1', 0, 0)])).not.toBe(before);
   });
 
   // ── W4 smoothness pass ────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import type { DoorChild } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
-import { getCatalogEntry, getWallPieces } from '../assets/packCatalog';
+import { bandScale, getCatalogEntry, getWallPieces } from '../assets/packCatalog';
 import {
   DOOR_SLICE_CELLS,
   doorKitFor,
@@ -369,7 +369,9 @@ function renderKitDoor(
   // the layer's wall tint belongs to its stone walls.
   const wallTint = wallKit?.id === 'cave' ? 0xffffff : hexColor(look.tint ?? '#ffffff');
 
-  renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint);
+  // A kit's own jamb closes cave rock, so in a cave wall it is the size the rock is laid at.
+  const jambScale = wallKit?.id === 'cave' ? bandScale(wallWidth) : 1;
+  renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint, jambScale);
   const leafTint = hexColor(kit.tint);
   for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
     container.addChild(buildLeaf(pose, kit, slices, 0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET));
@@ -396,7 +398,8 @@ export function doorWallLook(
     return styleWallLook(edge ?? ringStyles?.[wall.ring] ?? style);
   }
   const look = styleWallLook(style);
-  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint };
+  // A painted cave's wall: its rock's own width when its floors pin one.
+  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint, width: wall?.bandWidth ?? look.width };
 }
 
 function hexColor(hex: string): number {
@@ -446,6 +449,7 @@ function renderKitJambs(
   width: number,
   wallWidth: number,
   tint: number,
+  jambScale: number,
 ): void {
   const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
   const half = width / 2;
@@ -491,8 +495,8 @@ function renderKitJambs(
     sprite.anchor.set(j.originX / j.w, j.originY / j.h);
     sprite.position.set(at[0], at[1]);
     sprite.rotation = angle;
-    sprite.width = j.w;
-    sprite.height = j.h;
+    sprite.width = j.w * jambScale;
+    sprite.height = j.h * jambScale;
     if (into < 0) sprite.scale.x = -sprite.scale.x;
     sprite.tint = tint;
     container.addChild(sprite);

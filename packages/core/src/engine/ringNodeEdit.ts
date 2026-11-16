@@ -10,10 +10,11 @@
 import type { Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import { undoManager } from '../store/undoManager';
-import { UpdateChildCommand } from '../store/commands';
+import { CompositeCommand, UpdateChildCommand } from '../store/commands';
 import type { DungeonLayer, PlateauChild } from '../store/types';
 import type { Point } from '../types/geometry';
-import { flattenCubic, type RingTangents } from '../shared/bezier';
+import { flattenCubic, smoothRing, type RingTangents } from '../shared/bezier';
+import { shapeRing } from '../shared/plateaus';
 import { notify } from '../shared/notify';
 import { GROUND_MESSAGE, SMALL_MESSAGE } from '../shared/plateauGround';
 import { effectiveContours, effectiveTangents } from './tools/childTransform';
@@ -227,20 +228,68 @@ export async function commitPlateauRing(
   before: Pick<PlateauChild, 'contours' | 'tangents' | 'transform'>,
   after: Pick<PlateauChild, 'contours' | 'tangents' | 'transform'>,
 ): Promise<boolean> {
-  const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layerId && l.type === 'dungeon');
-  if (!layer) return false;
-  const ring = effectiveContours(after)[0] ?? [];
-  const verdict = await plateauGround(layer, ring);
-  if (verdict !== 'ok') {
-    if (livePlateau(layerId, id)) useStore.getState().updateChild(layerId, id, before);
-    notify.warning(verdict === 'small' ? SMALL_MESSAGE : GROUND_MESSAGE);
-    return false;
+  return commitPlateauRings(label, [{ layerId, id, before, after }]);
+}
+
+/** One plateau's ring, before and after an edit. */
+export interface PlateauRingEdit {
+  layerId: string;
+  id: string;
+  before: Pick<PlateauChild, 'contours' | 'tangents' | 'transform'>;
+  after: Pick<PlateauChild, 'contours' | 'tangents' | 'transform'>;
+}
+
+/**
+ * Ring edits on several plateaus as one undo entry, when every ring still stands on ground
+ * (as drawn: curves flattened); else every plateau is put back as it was, with a toast.
+ * Resolves to whether they landed.
+ */
+export async function commitPlateauRings(label: string, edits: readonly PlateauRingEdit[]): Promise<boolean> {
+  const layers = useStore.getState().layers;
+  const putBack = () => {
+    for (const e of edits) if (livePlateau(e.layerId, e.id)) useStore.getState().updateChild(e.layerId, e.id, e.before);
+  };
+  for (const e of edits) {
+    const layer = layers.find((l): l is DungeonLayer => l.id === e.layerId && l.type === 'dungeon');
+    if (!layer) return false;
+    const ring = shapeRing(e.after, 0);
+    const verdict = await plateauGround(layer, ring);
+    if (verdict !== 'ok') {
+      putBack();
+      notify.warning(verdict === 'small' ? SMALL_MESSAGE : GROUND_MESSAGE);
+      return false;
+    }
   }
-  if (!livePlateau(layerId, id)) return false;
+  const live = edits.filter((e) => livePlateau(e.layerId, e.id));
+  if (live.length === 0) return false;
   // The live preview is put back first, so the command's own execute is the one write.
-  useStore.getState().updateChild(layerId, id, before);
-  undoManager.execute(new UpdateChildCommand(label, layerId, id, before, after));
+  for (const e of live) useStore.getState().updateChild(e.layerId, e.id, e.before);
+  const commands = live.map((e) => new UpdateChildCommand(label, e.layerId, e.id, e.before, e.after));
+  undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
   return true;
+}
+
+/** Whether every node of a plateau's rings, holes too, is smooth (has curve handles). */
+export function plateauSmooth(p: Pick<PlateauChild, 'contours' | 'tangents'>): boolean {
+  return p.contours.every((ring, i) => ring.every((_, k) => !!p.tangents?.[i]?.[k]));
+}
+
+/**
+ * Every node of plateaus `ids` smooth (handles along its neighbours, `smoothRing`), holes too,
+ * or every handle taken off: one undo entry, put back if a ring would leave the ground.
+ */
+export function setPlateausSmooth(ids: readonly string[], smooth: boolean): Promise<boolean> {
+  const edits: PlateauRingEdit[] = [];
+  for (const l of useStore.getState().layers) {
+    if (l.type !== 'dungeon') continue;
+    for (const c of (l as DungeonLayer).children) {
+      if (c.childType !== 'plateau' || !ids.includes(c.id)) continue;
+      const after = { contours: c.contours, tangents: smooth ? c.contours.map((ring) => smoothRing(ring)) : undefined, transform: c.transform };
+      edits.push({ layerId: l.id, id: c.id, before: ringFields(c), after });
+    }
+  }
+  if (edits.length === 0) return Promise.resolve(false);
+  return commitPlateauRings(smooth ? 'Smooth corners' : 'Sharp corners', edits);
 }
 
 /**

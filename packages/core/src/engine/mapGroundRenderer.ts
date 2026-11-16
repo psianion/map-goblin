@@ -2,7 +2,8 @@
 // drawn on it. A floor texture tiled to the world like a floor's fill, or a plain colour,
 // with the map's line grid over it (the frame is built map, and lines mean built map). Not a
 // child of any layer, so nothing selects or erases it; the shown level's own ground wins
-// over the map's. Redrawn only when what it is drawn from changes.
+// over the map's. Redrawn only when what it is drawn from changes. A textured ground takes the
+// light at every hour and place as a ground piece does; a plain colour stays as authored.
 
 import { Container, Graphics, TilingSprite } from 'pixi.js';
 import { useStore } from '../store/store';
@@ -19,6 +20,24 @@ const PX_PER_GRID_CELL = 200;
 const GRID_INK = 0x000000;
 
 let lastKey = '';
+/** Whether the ground drawn now is a texture. */
+let lit = false;
+/** Moves on every redraw and on every clear. */
+let revision = 0;
+
+/**
+ * What of the base ground the lighting falls on: all of it while a texture is drawn (drawn
+ * ground, graded as a ground piece beside it is, its lines with it), none of it while it is a
+ * plain colour (the map's empty ground keeps its colour at every hour, as the sheet does).
+ */
+export function mapGroundContent(host: Container | null | undefined): Container[] {
+  return host && lit ? [host] : [];
+}
+
+/** Changes whenever the base ground is drawn again or taken away: a lighting content revision. */
+export function mapGroundRevision(): number {
+  return revision;
+}
 
 function parseColor(hex: string | undefined): number {
   const n = typeof hex === 'string' ? parseInt(hex.replace('#', ''), 16) : NaN;
@@ -37,6 +56,8 @@ export function syncMapGround(host: Container, frame: WorldBounds | null): void 
     if (lastKey !== '') {
       for (const child of host.removeChildren()) child.destroy({ children: true });
       lastKey = '';
+      lit = false;
+      revision++;
     }
     return;
   }
@@ -47,6 +68,8 @@ export function syncMapGround(host: Container, frame: WorldBounds | null): void 
   const key = `${ground.textureId ?? ''}|${ground.color ?? ''}|${textured}|${frame.minX},${frame.minY},${frame.maxX},${frame.maxY}|${division}`;
   if (key === lastKey && host.children.length > 0) return;
   lastKey = key;
+  lit = textured;
+  revision++;
   for (const child of host.removeChildren()) child.destroy({ children: true });
 
   const width = frame.maxX - frame.minX;

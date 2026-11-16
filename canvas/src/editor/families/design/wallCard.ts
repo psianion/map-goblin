@@ -1,18 +1,19 @@
 // The drawn wall's card: Length, Type, Set (now editable: swap one wall from stone to
-// timber without redrawing it), Corner style and Stones. Shadow waits for the renderer.
+// timber without redrawing it), Width, Corner style and Stones. Shadow waits for the renderer.
 
 import { z } from 'zod';
 import { useStore } from '@/store/store';
 import { selectWallById } from '@/store/selectors';
 import type { CornerStyle, MapBuilderStore, WallSegment } from '@/store/types';
 import { polylineLength } from '@dnd/core/src/shared/wallResolve';
-import { wallTypeGroup, GROUP_WALL_TYPE, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
+import { standaloneWallLook, wallTypeGroup, GROUP_WALL_TYPE, type WallTypeGroup } from '@dnd/core/src/shared/wallLook';
 import { wallStoneCount } from '@dnd/core/src/engine/wallNodeOverlay';
+import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { WALL_TYPE_CHOICES } from '@/editor/models/selectionModel';
-import { editWalls } from './cardWrites';
+import { editKey, editWalls } from './cardWrites';
 import { EDITABLE_VERBS } from './verbs';
-import { CORNER_STYLE_CHOICES, LAYER_SET, NO_SET, wallCornerStyleOf } from './wallLook';
+import { CORNER_STYLE_CHOICES, LAYER_SET, NO_SET, WALL_WIDTH_RANGE, cardWallWidth, wallCornerStyleOf } from './wallLook';
 import { SetField } from './WallFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
@@ -63,6 +64,25 @@ const set = defineCardField<'wall', string>({
     })),
 });
 
+const lookOf = (w: WallSegment) => {
+  const found = selectWallById(state(), w.id);
+  return found ? standaloneWallLook(w, layerDrawStyle(found.layer)) : null;
+};
+
+/** How thick this wall is, cells: its own pin, else its layer's. A cave kit's rock is laid larger or smaller by it. */
+const width = defineCardField<'wall', number>({
+  id: 'card.wall.width',
+  label: 'Width',
+  schema: z.number().min(WALL_WIDTH_RANGE.min).max(WALL_WIDTH_RANGE.max),
+  default: 0.5,
+  home: 'card',
+  control: 'stepper',
+  range: WALL_WIDTH_RANGE,
+  read: (w) => lookOf(w)?.width ?? 0.5,
+  write: (_store, ids, v) =>
+    editWalls('Wall width', ids, (w) => ({ width: cardWallWidth(v, lookOf(w)?.setId) }), editKey('wall.width', ids)),
+});
+
 const cornerStyle = defineCardField<'wall', CornerStyle>({
   id: 'card.wall.cornerStyle',
   label: 'Corner style',
@@ -94,5 +114,5 @@ export const wallCard = defineCard<'wall'>({
   kind: 'wall',
   title: () => 'Wall',
   verbs: EDITABLE_VERBS,
-  fields: [length, type, set, cornerStyle, stones],
+  fields: [length, type, set, width, cornerStyle, stones],
 });

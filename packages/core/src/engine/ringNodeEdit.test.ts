@@ -20,6 +20,8 @@ import {
   pressPlateau,
   removeHoveredPlateauPoint,
   togglePlateauPointAt,
+  plateauSmooth,
+  setPlateausSmooth,
 } from './ringNodeEdit';
 
 const warning = vi.fn();
@@ -141,5 +143,28 @@ describe("a plateau's ring under the Select tool", () => {
     removeHoveredPlateauPoint();
     await settle();
     expect(mesa().contours[0]).toHaveLength(3);
+  });
+
+  it('turns every corner smooth, holes too, and back sharp, each as one undo step over every plateau', async () => {
+    const id = layer().id;
+    useStore.getState().addChild(id, {
+      id: 'ring', name: 'Ring', childType: 'plateau', visible: true,
+      contours: [[[10, 10], [18, 10], [18, 18], [10, 18]], [[12, 12], [16, 12], [16, 16], [12, 16]]], height: 1, edge: 'slope',
+    } as PlateauChild);
+    const ring = () => layer().children.find((c): c is PlateauChild => c.id === 'ring')!;
+    expect(plateauSmooth(mesa())).toBe(false);
+    expect(await setPlateausSmooth(['mesa', 'ring'], true)).toBe(true);
+    expect(plateauSmooth(mesa())).toBe(true);
+    expect(plateauSmooth(ring())).toBe(true);
+    expect(ring().tangents).toHaveLength(2);
+    // The nodes stay where they were.
+    expect(ring().contours[1]).toEqual([[12, 12], [16, 12], [16, 16], [12, 16]]);
+    undoManager.undo();
+    expect(mesa().tangents).toBeUndefined();
+    expect(ring().tangents).toBeUndefined();
+    undoManager.redo();
+    expect(await setPlateausSmooth(['mesa', 'ring'], false)).toBe(true);
+    expect(mesa().tangents).toBeUndefined();
+    expect(plateauSmooth(ring())).toBe(false);
   });
 });

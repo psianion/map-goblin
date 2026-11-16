@@ -7,7 +7,7 @@ import { gotoApp, waitFrame } from './helpers'
 /**
  * How a plateau darkens the ground below it, read off the screen: the drop shade every edge
  * kind lays on its low side, the sun shadow that starts on the edge itself, and the slope's
- * band outside its outline, graded, with one contour a cell of drop. Indoors, so the shadows come from the fixed
+ * side face on the side its direction points, in ledge bands. Indoors, so the shadows come from the fixed
  * top-left sun; on a flat floor colour with the grid off, so the pixels are the shade alone.
  */
 
@@ -198,64 +198,63 @@ test.describe('the plateau look', () => {
     expect(errors).toEqual([])
   })
 
-  /** The luminance across a slope's east band at `height`, from its outline out, a sample a pixel, over `reach` cells. */
-  const across = async (page: Page, height: number, reach: number) => {
-    await open(page, mapWith([box('slope', 10, 10, 16, 16, height, 'slope')]))
-    await look(page, { x: 17, y: 13 })
+  /**
+   * A slope at `height` whose face points up (270), onto the side the indoor sun lights, so no
+   * shadow falls on it: the luminance up from the middle of its top edge and left from the
+   * middle of its west edge, a sample a pixel, over `reach` cells.
+   */
+  const slopeRows = async (page: Page, height: number, reach: number) => {
+    const errors = await open(page, mapWith([{ ...box('slope', 10, 10, 16, 16, height, 'slope'), faceDir: 270 }]))
+    await look(page, { x: 11, y: 10 })
     const step = 1 / ZOOM
-    return { step, row: await lums(page, ray({ x: 16, y: 13 }, { x: 1, y: 0 }, step, Math.round(reach / step))) }
+    const n = Math.round(reach / step)
+    const north = await lums(page, ray({ x: 13, y: 10 }, { x: 0, y: -1 }, step, n))
+    const west = await lums(page, ray({ x: 10, y: 13 }, { x: -1, y: 0 }, step, n))
+    expect(errors).toEqual([])
+    return { step, north, west }
   }
-  /** The contours across a row: samples darker by 10 than the ramp 3 px either side, as sample indices. */
-  const dipsOf = (row: number[]) => {
-    const dips: number[] = []
-    for (let i = 3; i < row.length - 3; i++) {
-      if (row[i] < Math.max(row[i - 3], row[i + 3]) - 10 && row[i] <= Math.min(...row.slice(i - 2, i + 3))) {
-        if (dips.length === 0 || i - dips[dips.length - 1] > 3) dips.push(i)
-      }
-    }
-    return dips
+  /** The mean of a row between `a` and `b` cells out. */
+  const meanOf = (row: number[], step: number, a: number, b: number) => {
+    const part = row.slice(Math.round(a / step), Math.round(b / step))
+    return part.reduce((s, v) => s + v, 0) / part.length
   }
 
-  test('a slope is a smooth ramp in a band outside its outline, with one contour a cell of drop', { tag: '@render' }, async ({ page }) => {
-    const { step, row } = await across(page, 2, 1)
-    const dips = dipsOf(row)
-    console.log(`ramp: ${row.filter((_, i) => i % 6 === 0).map((v) => v.toFixed(0)).join(' ')}; contours ${dips.length}`)
-    expect(dips.length).toBe(2)
-    // Off the contours, the ramp only darkens toward its outer edge, never by 12 or more a pixel.
-    const near = (i: number) => dips.some((d) => Math.abs(d - i) <= 4) || i >= row.length - 8
-    let worst = 0
-    for (let i = 0; i + 1 < row.length; i++) {
-      if (near(i) || near(i + 1)) continue
-      expect(row[i + 1], `at ${(i * step).toFixed(2)} cell`).toBeLessThanOrEqual(row[i] + 1.5)
-      worst = Math.max(worst, Math.abs(row[i + 1] - row[i]))
-    }
-    console.log(`largest step between neighbours ${worst.toFixed(1)}`)
-    expect(worst).toBeLessThan(12)
-    expect(row[0] - row[row.length - 10]).toBeGreaterThan(20)
+  test('a slope shows its face on the side its direction points, darker toward the foot, and none elsewhere', { tag: '@render' }, async ({ page }) => {
+    // +3: a face of four 0.18-cell ledges, about 0.72 cell deep (its depth wanders along the
+    // edge, at most 0.94), whose boundaries step: read the rim and foot as shares of the depth found.
+    const { step, north, west } = await slopeRows(page, 3, 2.2)
+    const bare = north[north.length - 1]
+    let last = 0
+    for (let i = 0; i < north.length; i++) if (bare - north[i] >= 8) last = i
+    const depth = (last + 1) * step
+    const rim = meanOf(north, step, 0.02 * depth, 0.08 * depth)
+    const foot = meanOf(north, step, 0.92 * depth, 0.97 * depth)
+    console.log(`face: ${depth.toFixed(2)} deep, rim ${rim.toFixed(1)}, foot ${foot.toFixed(1)}, bare ${bare.toFixed(1)}; west 0.6 out ${meanOf(west, step, 0.6, 0.8).toFixed(1)} against ${west[west.length - 1].toFixed(1)}`)
+    expect(bare - rim, 'the face darkens what is under it').toBeGreaterThanOrEqual(15)
+    expect(rim - foot, 'the bands darken toward the foot').toBeGreaterThanOrEqual(8)
+    // Past the foot, however far it wanders, the bare floor.
+    expect(Math.abs(meanOf(north, step, 1.6, 2.0) - bare)).toBeLessThanOrEqual(3)
+    // The west side faces across the direction: no face there, only the faint drop shade near the edge.
+    expect(Math.abs(meanOf(west, step, 0.6, 0.8) - west[west.length - 1])).toBeLessThanOrEqual(3)
   })
 
-  test('a slope is its card width wide at +1 and +3, one contour a cell of drop inside it', { tag: '@render' }, async ({ page }) => {
-    for (const height of [1, 3]) {
-      const { step, row } = await across(page, height, 2)
-      const bare = row[row.length - 1]
-      const dips = dipsOf(row)
-      const off = row.filter((_, i) => !dips.some((d) => Math.abs(d - i) <= 4))
-      // The band ends where its darkening falls to half of its darkest, off the contours.
-      const peak = bare - Math.min(...off)
-      let edge = 0
-      for (let i = 0; i < row.length; i++) if (!dips.some((d) => Math.abs(d - i) <= 4) && bare - row[i] >= peak / 2) edge = i
-      const width = (edge + 1) * step
-      console.log(`+${height}: band width ${width.toFixed(2)}, contours ${dips.length}, 0.5 past it ${row[Math.round((1.5) / step)].toFixed(1)} against bare ${bare.toFixed(1)}`)
-      expect(Math.abs(width - 1)).toBeLessThanOrEqual(0.1)
-      expect(dips.length).toBe(height)
-      // Nothing past the band: 0.5 cell beyond its outer edge is the bare floor.
-      expect(Math.abs(row[Math.round(1.5 / step)] - bare)).toBeLessThanOrEqual(3)
+  test('a slope’s face is as deep as its ledges, one more than its drop, give or take its wander: 0.36 cell at +1, 0.72 at +3', { tag: '@render' }, async ({ page }) => {
+    for (const [height, depth] of [[1, 0.36], [3, 0.72]] as const) {
+      const { step, north } = await slopeRows(page, height, 2.2)
+      const bare = north[north.length - 1]
+      // Where the face ends: the last sample darker than the bare floor by 8 or more.
+      let last = 0
+      for (let i = 0; i < north.length; i++) if (bare - north[i] >= 8) last = i
+      const seen = (last + 1) * step
+      console.log(`+${height}: face reaches ${seen.toFixed(2)} cell`)
+      // The depth wanders up to 30 % either way along the edge, so one ray reads within that.
+      expect(Math.abs(seen - depth)).toBeLessThanOrEqual(depth * 0.3 + 0.05)
     }
   })
 
-  test('a 4 x 3.5 slope at +3 on a 9 x 9 floor leaves its top as Edge None does and the floor round it bare', { tag: '@render' }, async ({ page }) => {
+  test('a 4 x 3.5 slope at +3 on a 9 x 9 floor leaves its top as Edge None does and its shadow as a cliff casts it', { tag: '@render' }, async ({ page }) => {
     const plateau = (edge: string) => [box('small', 2.5, 2.75, 6.5, 6.25, 3, edge)]
-    // The floor's outer frame, 1.25 cells deep (the band ends 1.5 cells in), and the top's centre.
+    // The floor's outer frame, 1.25 cells deep (the face ends at most 0.94 cell out), and the top's centre.
     const frame: Pt[] = []
     for (let k = 0.5; k < 9; k += 1) frame.push({ x: k, y: 0.6 }, { x: k, y: 8.4 }, { x: 0.6, y: k }, { x: 8.4, y: k })
     const centre = { x: 4.5, y: 4.5 }
@@ -266,13 +265,13 @@ test.describe('the plateau look', () => {
       expect(errors).toEqual([])
       return out
     }
-    const bare = await read([])
     const slope = await read(plateau('slope'))
     const none = await read(plateau('none'))
-    console.log(`top centre: slope ${slope[0].toFixed(1)}, Edge None ${none[0].toFixed(1)}, bare floor ${bare[0].toFixed(1)}`)
+    console.log(`top centre: slope ${slope[0].toFixed(1)}, Edge None ${none[0].toFixed(1)}`)
     expect(Math.abs(slope[0] - none[0])).toBeLessThanOrEqual(3)
-    const worst = Math.max(...frame.map((_, i) => Math.abs(slope[i + 1] - bare[i + 1])))
-    console.log(`outer frame: largest difference from the bare floor ${worst.toFixed(1)}`)
+    // Out on the frame, past the face, the slope's shadow is Edge None's.
+    const worst = Math.max(...frame.map((_, i) => Math.abs(slope[i + 1] - none[i + 1])))
+    console.log(`outer frame: largest difference from Edge None ${worst.toFixed(1)}`)
     expect(worst).toBeLessThanOrEqual(3)
   })
 })
@@ -360,7 +359,7 @@ const ring = (id: string, pts: [number, number][], height: number, edge: string)
   edge,
 })
 
-/** A row's contour crossings: samples darker by 10 than the ramp 3 px either side, as sample indices. */
+/** A row's line crossings: samples darker by 10 than the ground 3 px either side, as sample indices. */
 const contourDips = (row: number[]) => {
   const dips: number[] = []
   for (let i = 3; i < row.length - 3; i++) {
@@ -567,22 +566,25 @@ test.describe('the ink set', () => {
     expect(errors).toEqual([])
   })
 
-  test('a +2 slope shows exactly 2 walked contour rings across its band', { tag: '@render' }, async ({ page }) => {
-    const errors = await open(page, mapWith([box('slope', 10, 10, 16, 16, 2, 'slope')]))
-    await lookAt(page, { x: 17, y: 13 }, ZOOM)
-    const at = await grab(page, { x: 15.5, y: 10.5 }, { x: 17.5, y: 15.5 })
-    const counts: number[] = []
-    for (let y = 11; y <= 15; y += 0.2) {
-      const row = ray({ x: 16, y }, { x: 1, y: 0 }, 1 / ZOOM, ZOOM).map((p) => lumOf(at(p)))
-      counts.push(contourDips(row).length)
+  test('a +2 slope’s face is lined at its foot and between its three ledge bands, the latter only with Ledge lines on', { tag: '@render' }, async ({ page }) => {
+    /** The lines crossed going up from the top edge, by the commonest count over the edge's middle. */
+    const linesCrossed = async (contourLines?: boolean) => {
+      const errors = await open(page, mapWith([{ ...box('slope', 10, 10, 16, 16, 2, 'slope'), faceDir: 270, contourLines }]))
+      await lookAt(page, { x: 13, y: 9.5 }, ZOOM)
+      const at = await grab(page, { x: 10.5, y: 8.5 }, { x: 15.5, y: 10.5 })
+      const counts: number[] = []
+      for (let x = 11; x <= 15; x += 0.2) {
+        const row = ray({ x, y: 10 }, { x: 0, y: -1 }, 1 / ZOOM, ZOOM).map((p) => lumOf(at(p)))
+        // The rim line itself sits on the outline: start a few pixels up.
+        counts.push(contourDips(row.slice(4)).length)
+      }
+      const tally = new Map<number, number>()
+      for (const n of counts) tally.set(n, (tally.get(n) ?? 0) + 1)
+      expect(errors).toEqual([])
+      console.log(`lines crossed (Ledge lines ${contourLines ?? true}): ${[...tally.entries()].map(([n, k]) => `${n} x${k}`).join(', ')}`)
+      return [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
     }
-    const tally = new Map<number, number>()
-    for (const n of counts) tally.set(n, (tally.get(n) ?? 0) + 1)
-    const mode = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    console.log(`contours crossed on ${counts.length} rows: ${[...tally.entries()].map(([n, k]) => `${n} rings x${k}`).join(', ')}`)
-    expect(mode).toBe(2)
-    expect((tally.get(2) ?? 0) / counts.length).toBeGreaterThanOrEqual(0.5)
-    expect(Math.max(...counts)).toBeLessThanOrEqual(2)
-    expect(errors).toEqual([])
+    expect(await linesCrossed()).toBe(3)
+    expect(await linesCrossed(false)).toBe(1)
   })
 })

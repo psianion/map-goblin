@@ -122,13 +122,16 @@ export function styleOverridesDigest(overrides: object | undefined): string {
  */
 /**
  * Everything about plateaus the scene draws or sweeps: each plateau's rings, height, edge,
- * cliff art, slope width, border width, contour lines, sight override and crossing.
+ * cliff art, slope face texture and direction, border width, contour lines, sight override and
+ * crossing, and how many floor pieces come before it (its face texture is drawn there).
  */
 export function plateauLookKey(children: readonly AnyChild[]): string {
   let key = '';
+  let pieces = 0;
   for (const c of children) {
+    if (c.childType === 'shape') pieces++;
     if (c.childType === 'plateau') {
-      key += `${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.slopeWidth ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+      key += `${pieces}:${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.faceArt ?? ''}:${c.faceDir ?? ''}:${c.topArt ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
     }
   }
   return key;
@@ -453,10 +456,11 @@ export function subscribeToStore(
 
   // ─── Painted caves' rock ──────────────────────────────
   // The rock round a layer's painted caves (the walled floors marked with an edge material)
-  // redraws when one of them is a new object or comes or goes, or a door moves on the layer
-  // (the rock is cut at its doors). After the layer list's subscription, so a new layer's
-  // entry already exists. Every other piece's dressing is drawn with the piece itself.
-  const drawnCaves = new Map<string, { caves: ShapeChild[]; doors: string; openings: DungeonLayer['caveOpenings'] }>();
+  // redraws when one of them is a new object or comes or goes, a door moves on the layer
+  // (the rock is cut at its doors), or the layer's wall width changes (the rock is laid for
+  // it). After the layer list's subscription, so a new layer's entry already exists. Every
+  // other piece's dressing is drawn with the piece itself.
+  const drawnCaves = new Map<string, { caves: ShapeChild[]; doors: string; openings: DungeonLayer['caveOpenings']; width: number }>();
   const unsubCaves = useStore.subscribe(
     (state) => state.layers,
     (layers) => {
@@ -469,15 +473,17 @@ export function subscribeToStore(
           .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
           .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
           .join(',');
+        const width = (layer as DungeonLayer).style.wallWidth;
         const prev = drawnCaves.get(layer.id);
         const same = prev
           ? // A cave's rock stops where it was erased open.
             prev.openings === layer.caveOpenings &&
             prev.doors === doors &&
+            prev.width === width &&
             prev.caves.length === caves.length &&
             prev.caves.every((c, i) => c === caves[i])
           : caves.length === 0;
-        drawnCaves.set(layer.id, { caves, doors, openings: layer.caveOpenings });
+        drawnCaves.set(layer.id, { caves, doors, openings: layer.caveOpenings, width });
         if (!same) drawLayerMaterials(layer);
       }
       for (const id of [...drawnCaves.keys()]) if (!live.has(id)) drawnCaves.delete(id);
@@ -690,10 +696,11 @@ export function subscribeToStore(
           areasRef: refId(l.areas),
           // Props with "Blocks light and sight": moving, turning or resizing one re-sweeps.
           propOccluders: propOccluderKey(l.children),
-          // How plateau edges are drawn and whether they hide (see plateauLookKey), and the
-          // map's sight threshold they are measured against. Render and lighting only: the
-          // union and the rooms read heights and edge kinds, which ride in the shape keys.
-          plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}`,
+          // How plateau edges are drawn and whether they hide (see plateauLookKey), the map's
+          // sight threshold they are measured against, and the way its slope faces point (a
+          // change of it redraws every layer). Render and lighting only: the union and the
+          // rooms read heights and edge kinds, which ride in the shape keys.
+          plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}|${state.mapSettings.faceDirection ?? ''}`,
           // Where a cave's rock was erased open its edge is no wall: light passes there.
           openingsRef: refId(l.caveOpenings),
         })),
@@ -881,6 +888,8 @@ export function subscribeToStore(
           markRenderCacheDirty(l.id);
           scheduleRebuild(l.id);
           const layer = l as DungeonLayer;
+          // A painted cave's rock is laid for the level's width where the level pins one.
+          if (before?.wallWidth !== look?.wallWidth && drawnCaves.get(l.id)?.caves.length) drawLayerMaterials(layer);
           const rebuildWhenLoaded = (loaded: boolean) => {
             if (!loaded) return;
             markRenderCacheDirty(l.id);

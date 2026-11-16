@@ -6,10 +6,14 @@ import type { CrossingKind, PlateauChild } from '../shared/types';
 import type { Command, Layer, MapRules } from './types';
 import { UpdateChildCommand } from './commands';
 import { useStore } from './store';
+import { wrapDirection } from '../shared/plateauShade';
 
 /** The fields of a plateau the card edits. */
 export type PlateauPatch = Partial<
-  Pick<PlateauChild, 'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'borderWidth' | 'contourLines' | 'sightOverride' | 'crossingId'>
+  Pick<
+    PlateauChild,
+    'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'faceArt' | 'faceDir' | 'topArt' | 'borderWidth' | 'contourLines' | 'sightOverride' | 'crossingId'
+  >
 >;
 
 function findPlateau(layers: readonly Layer[], id: string): { layerId: string; child: PlateauChild } | null {
@@ -24,7 +28,8 @@ function findPlateau(layers: readonly Layer[], id: string): { layerId: string; c
 
 /**
  * One entry for the fields of plateau `id`. Heights are whole cells (rounded);
- * a slope or border width must be positive. `undefined` on a key removes it, back to its default.
+ * a slope or border width must be positive, a face or top texture named, a face direction is
+ * kept to 0..360. `undefined` on a key removes it, back to its default.
  */
 export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit plateau'): Command | null {
   const found = findPlateau(useStore.getState().layers, id);
@@ -36,6 +41,12 @@ export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit 
   }
   if (after.slopeWidth !== undefined && !(Number.isFinite(after.slopeWidth) && after.slopeWidth > 0)) return null;
   if (after.borderWidth !== undefined && !(Number.isFinite(after.borderWidth) && after.borderWidth > 0)) return null;
+  if (after.faceArt !== undefined && !after.faceArt) return null;
+  if (after.topArt !== undefined && !after.topArt) return null;
+  if (after.faceDir !== undefined) {
+    if (!Number.isFinite(after.faceDir)) return null;
+    after.faceDir = wrapDirection(after.faceDir);
+  }
   const before: Record<string, unknown> = {};
   for (const key of Object.keys(after)) before[key] = (found.child as unknown as Record<string, unknown>)[key];
   return new UpdateChildCommand(label, found.layerId, id, before as PlateauPatch, after);
