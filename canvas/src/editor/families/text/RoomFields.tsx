@@ -14,7 +14,7 @@ import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { chainOf, inheritedPlace, lookGesture, ownLook, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
 import { FLOOR_KEYS, PLACE_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
-import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthIgnored } from '@/editor/models/assetStrip';
+import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthMin } from '@/editor/models/assetStrip';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
 import { openRoomKey } from '@/editor/models/roomActions';
@@ -172,20 +172,18 @@ export function WallsSection({ value: target }: SettingProps<LookTarget>) {
           }}
         />
       )}
-      {!wallWidthIgnored(setId || undefined) && (
-        <SliderRow
-          label="Width"
-          value={look.wallWidth}
-          min={0.05}
-          max={1}
-          step={0.05}
-          format={(v) => v.toFixed(2)}
-          onValueChange={(v) => {
-            width.preview({ wallWidth: v });
-            queueCommit(() => width.commit());
-          }}
-        />
-      )}
+      <SliderRow
+        label="Width"
+        value={look.wallWidth}
+        min={wallWidthMin(setId || undefined)}
+        max={1}
+        step={0.05}
+        format={(v) => v.toFixed(2)}
+        onValueChange={(v) => {
+          width.preview({ wallWidth: v });
+          queueCommit(() => width.commit());
+        }}
+      />
     </div>
   );
 }

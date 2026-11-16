@@ -243,13 +243,20 @@ describe("a door's own kit", () => {
   });
 
   it("takes the wall's depth from the wall's kit, not the door's", () => {
-    expect(wallHalfDepth(stone, 0.5, cave)).toBeCloseTo(0.6);
-    expect(wallHalfDepth(cave, 0.5, stone)).toBeCloseTo(0.25);
-    expect(wallHalfDepth(cave, 0.5, null)).toBeCloseTo(0.25);
+    // Under its smallest width a cave's rock stops shrinking; a stone wall keeps thinning.
+    expect(wallHalfDepth(stone, 0.05, cave)).toBeCloseTo(0.075);
+    expect(wallHalfDepth(cave, 0.05, stone)).toBeCloseTo(0.025);
+    expect(wallHalfDepth(cave, 0.05, null)).toBeCloseTo(0.025);
     // Defaults to the door's own kit, as before.
-    expect(wallHalfDepth(cave, 0.5)).toBeCloseTo(0.6);
+    expect(wallHalfDepth(cave, 0.05)).toBeCloseTo(0.075);
     // A stone leaf folded flat on a cave wall lies against the rock face.
-    const [flat] = leafPoses(door({ openAngle: 180 }), [0, 0], 0, stone, 0.5, cave);
-    expect(Math.abs(flat.origin[1])).toBeCloseTo(0.6 + stone.thickness / 2, 6);
+    const [flat] = leafPoses(door({ openAngle: 180 }), [0, 0], 0, stone, 1, cave);
+    expect(Math.abs(flat.origin[1])).toBeCloseTo(0.5 + stone.thickness / 2, 6);
+  });
+
+  it('makes a cave wall as deep as its width, like a stone one', () => {
+    expect(wallHalfDepth(cave, 0.25)).toBeCloseTo(0.125);
+    expect(wallHalfDepth(cave, 0.5)).toBeCloseTo(0.25);
+    expect(wallHalfDepth(cave, 1)).toBeCloseTo(0.5);
   });
 });

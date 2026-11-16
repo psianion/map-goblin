@@ -10,6 +10,7 @@ import {
   wallReach,
   wallTouchesRect,
 } from './hitTest';
+import { bandScale } from '../assets/packCatalog';
 import { createDungeonLayer } from '../store/factories';
 import { useStore } from '../store/store';
 import { resetAssetPackManager, seedCaveBandPack } from '../testing/seedCatalog';
@@ -141,17 +142,24 @@ describe('hitTestWalls on a cave kit', () => {
   });
   afterEach(() => resetAssetPackManager());
 
-  it('reaches as far as the rock rides, not the stone width', () => {
+  it('reaches as far as the rock rides at the wall’s width, not half the width', () => {
     const l = layerWith([wall('cave', [[0, 0], [10, 0]], { textureSetId: 'GG_Cave_Ink' })]);
-    expect(wallReach(l.standaloneWalls[0], l)).toBe(BAND_WALL_REACH);
-    expect(hitTestWalls(l, [5, 0.7])?.id).toBe('cave');
-    expect(hitTestWalls(l, [5, 0.9])).toBeNull();
+    l.style = { ...l.style, wallWidth: 1 };
+    expect(wallReach(l.standaloneWalls[0], l)).toBeCloseTo(BAND_WALL_REACH * bandScale(1));
+    expect(hitTestWalls(l, [5, 0.6])?.id).toBe('cave');
+    expect(hitTestWalls(l, [5, 0.7])).toBeNull();
   });
 
   it('follows the layer’s set when the wall pins none', () => {
     const l = layerWith([wall('cave', [[0, 0], [10, 0]])]);
-    l.style = { ...l.style, wallTextureSetId: 'GG_Cave_Ink' };
-    expect(wallReach(l.standaloneWalls[0], l)).toBe(BAND_WALL_REACH);
+    l.style = { ...l.style, wallTextureSetId: 'GG_Cave_Ink', wallWidth: 1 };
+    expect(wallReach(l.standaloneWalls[0], l)).toBeCloseTo(BAND_WALL_REACH * bandScale(1));
+  });
+
+  it('never reaches less than a thin wall does', () => {
+    const l = layerWith([wall('cave', [[0, 0], [10, 0]], { textureSetId: 'GG_Cave_Ink' })]);
+    l.style = { ...l.style, wallWidth: 0.25 };
+    expect(wallReach(l.standaloneWalls[0], l)).toBe(WALL_MIN_HIT_RADIUS);
   });
 });
 

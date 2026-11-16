@@ -3,6 +3,7 @@ import { Container } from 'pixi.js';
 import { BAND_REACH, computeMapWorldBounds, runExportPipeline } from './exportPipeline';
 import type { RenderEngine } from '../RenderEngine';
 import { addLayerToScene, buildSceneGraph, getLayerEntries, removeLayerFromScene, type SceneGraph } from '../sceneGraph';
+import { bandScale } from '../../assets/packCatalog';
 import { createDungeonLayer, createImageLayer } from '../../store/factories';
 import { useStore } from '../../store/store';
 import { setAuthoredLookHold, setEditorDesk, type AuthoredLookOptions } from '../editorDesk';
@@ -434,13 +435,15 @@ describe('computeMapWorldBounds: cave band rock', () => {
     ) as DungeonLayer[];
   }
 
-  it('reaches BAND_REACH past the floor on a band layer, where rock is laid', () => {
+  it('reaches past the floor on a band layer as far as its rock is laid, BAND_REACH at the drawn size', () => {
     bandSets.add('GG_Cave_Ink');
     const b = computeMapWorldBounds(bandRoom('GG_Cave_Ink'), null, null);
-    expect(b.minX).toBeCloseTo(-BAND_REACH, 6);
-    expect(b.minY).toBeCloseTo(-BAND_REACH, 6);
-    expect(b.maxX).toBeCloseTo(10 + BAND_REACH, 6);
-    expect(b.maxY).toBeCloseTo(6 + BAND_REACH, 6);
+    const reach = BAND_REACH * bandScale(0.5);
+    expect(reach).toBeLessThan(BAND_REACH);
+    expect(b.minX).toBeCloseTo(-reach, 6);
+    expect(b.minY).toBeCloseTo(-reach, 6);
+    expect(b.maxX).toBeCloseTo(10 + reach, 6);
+    expect(b.maxY).toBeCloseTo(6 + reach, 6);
   });
 
   it('keeps the stroke pad alone for an ordinary wall set', () => {

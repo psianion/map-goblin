@@ -8,10 +8,19 @@ import { selectWallById } from '@/store/selectors';
 import type { CornerStyle, MapBuilderStore, RoomLook, WallSegment } from '@/store/types';
 import type { EditorState } from '@/editor/registry/types';
 import { resolvedLookOf, selectedLookTarget, setLook } from '@/editor/models/roomLook';
+import { wallWidthMin } from '@/editor/models/assetStrip';
 import { activeDungeonLayer, setActiveStyle } from './layerStyle';
 import { editWalls } from './cardWrites';
 
 type WallKey = 'wallWidth' | 'wallTextureTint' | 'wallTextureSetId';
+
+/** The widths a wall can be set to, cells: the dock's Width and the floor and wall cards'. */
+export const WALL_WIDTH_RANGE = { min: 0.05, max: 1, step: 0.05 } as const;
+
+/** The width a card writes: kept to the step (0.05 drifts in floating point), no thinner than the set's smallest. */
+export function cardWallWidth(width: number, setId: string | undefined): number {
+  return Math.round(Math.max(width, wallWidthMin(setId)) * 100) / 100;
+}
 
 /** What the dock shows for a wall key: the picked scope's resolved look, else the layer's style. */
 export function wallLookValue<K extends WallKey>(state: EditorState, key: K): RoomLook[K] | undefined {

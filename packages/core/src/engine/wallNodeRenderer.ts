@@ -10,7 +10,7 @@ import type { Polygon } from '../types/geometry';
 import { standaloneWallLook, styleWallLook, wallTypeGroup, type WallTypeGroup } from '../shared/wallLook';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
-import { bandSetArt, getBandSet, getWallPieces, isBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandScale, bandSetArt, getBandSet, getWallPieces, isBandSet, type CatalogEntry } from '../assets/packCatalog';
 import {
   bandFillColor,
   layBandChain,
@@ -619,8 +619,9 @@ export function renderNodeWalls(
   };
   const tintOf = (hex: string): number => parseInt(hex.replace('#', ''), 16) || 0xffffff;
   // A cave band kit is a wall family the walk lays rather than one the layout
-  // composes: its rock rides the ring as placed pieces, so stone edits and
-  // wall width mean nothing to it and it takes the ring, the gaps and the tint.
+  // composes: its rock rides the ring as placed pieces, so stone edits mean
+  // nothing to it and it takes the ring, the gaps, the tint and the width as
+  // the size its rock is laid at (bandScale).
   // Keyed on the set each run resolves to (a ring's pin, a wall's pin, else the
   // layer's), the same resolution the stones use.
   const bandCache = new Map<string, Map<string, CatalogEntry> | null>();
@@ -752,13 +753,15 @@ export function renderNodeWalls(
       if (band) {
         // The walk wants the floor on the ring's side: a reversed ring reverses its runs.
         const run = isOriented ? points : [...points].reverse();
+        const size = bandScale(look.width);
         pools.set(
           wallsContainer,
-          placeBand(wallsContainer, layBandChain(run, gaps), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, {
+          placeBand(wallsContainer, layBandChain(run, gaps, undefined, size), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, {
             edge: run,
             closed: false,
             gaps,
             color: bandFillColor(floorOf(i)),
+            size,
           }),
         );
         continue;
@@ -794,10 +797,11 @@ export function renderNodeWalls(
     if (band) {
       oriented ??= orientRings(polygons);
       const gaps = [...doorGaps, ...ringGaps].filter((g) => g.ring === i);
-      const fill = { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)) };
+      const size = bandScale(look.width);
+      const fill = { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, layBandRing(oriented[i], gaps), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, fill),
+        placeBand(wallsContainer, layBandRing(oriented[i], gaps, undefined, size), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, fill),
       );
       continue;
     }
@@ -841,10 +845,11 @@ export function renderNodeWalls(
       const gaps = doorGaps.filter((g) => g.wallId === wall.id);
       const target = parts && group !== 'solid' ? parts[group] : wallsContainer;
       const color = bandFillColor(floorOf(-1));
+      const size = bandScale(look.width);
       let at = pools.get(target) ?? 0;
       for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
-        const laid = run.closed ? layBandRing(run.points, gaps) : layBandChain(run.points, gaps);
-        at = placeBand(target, laid, band, tintOf(look.tint), at, { edge: run.points, closed: run.closed, gaps, color });
+        const laid = run.closed ? layBandRing(run.points, gaps, undefined, size) : layBandChain(run.points, gaps, undefined, size);
+        at = placeBand(target, laid, band, tintOf(look.tint), at, { edge: run.points, closed: run.closed, gaps, color, size });
       }
       pools.set(target, at);
       continue;

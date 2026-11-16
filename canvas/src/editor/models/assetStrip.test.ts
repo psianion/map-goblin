@@ -27,7 +27,7 @@ import {
   wallSetCandidates,
   wallSetForAsset,
   wallSetThumb,
-  wallWidthIgnored,
+  wallWidthMin,
 } from './assetStrip';
 
 // A small catalogue in place of the installed packs, so the order is known.
@@ -179,10 +179,10 @@ describe('strip candidates per tab', () => {
     expect(wallSetCandidates(['p:wood_straight'], 'GG_Cave')).toEqual(['GG_Wood', 'GG_Cave', 'GG_Brick', 'GG_Stone']);
   });
 
-  it('walls: only a cave kit leaves the width alone', () => {
-    expect(wallWidthIgnored('GG_Cave')).toBe(true);
-    expect(wallWidthIgnored('GG_Stone')).toBe(false);
-    expect(wallWidthIgnored(undefined)).toBe(false);
+  it('walls: a cave kit stops at its smallest rock, stone goes down to a line', () => {
+    expect(wallWidthMin('GG_Cave')).toBe(0.15);
+    expect(wallWidthMin('GG_Stone')).toBe(0.05);
+    expect(wallWidthMin(undefined)).toBe(0.05);
   });
 
   it('props: recent objects and scatter, then what the brush holds, then the catalogue objects', () => {

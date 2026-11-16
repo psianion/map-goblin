@@ -14,7 +14,8 @@ import { Container, Graphics, Texture } from 'pixi.js';
 import type { DungeonLayer, DungeonStyle, PieceFade, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { bandSetArt } from '../assets/packCatalog';
+import { bandScale, bandSetArt } from '../assets/packCatalog';
+import { wallWidthPin } from '../shared/caveFloor';
 import { isWaterMaterial } from '../assets/materialKit';
 import { resolveTexture } from '../assets/textureLoader';
 import { pieceRings } from '../shared/pieces';
@@ -188,7 +189,8 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
   if (shape.ground && shape.edgeMaterial) {
     // The rock rim of a ground piece: the band walk a cave gets, with no wall behind it.
     for (const e of bandSetArt(shape.edgeMaterial).values()) artOf(layer.id, e.id);
-    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }));
+    const size = bandScale(wallWidthPin(shape) ?? ctx.style.wallWidth);
+    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size);
   }
   host.addChild(piece);
 }

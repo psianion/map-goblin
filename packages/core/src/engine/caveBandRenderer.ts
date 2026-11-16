@@ -390,6 +390,32 @@ function laySpan(
 }
 
 /**
+ * A band laid at `size` times the scale its kit was drawn at (a wall's width, see
+ * `bandScale`). The walk and everything it measures in cells stay as they are: it
+ * lays the line shrunk by `size`, door openings with it, and its answer is grown
+ * back, so the rock is that much thinner, shorter and closer to the edge alike.
+ */
+function laidAtSize(
+  size: number,
+  line: Polygon,
+  gaps: DoorGap[],
+  lay: (line: Polygon, gaps: DoorGap[]) => WalkPlacement[],
+): WalkPlacement[] {
+  const inv = 1 / size;
+  const placed = lay(
+    line.map(([x, y]): [number, number] => [x * inv, y * inv]),
+    gaps.map((g) => ({ ...g, position: [g.position[0] * inv, g.position[1] * inv], width: g.width * inv })),
+  );
+  return placed.map((pl) => ({
+    ...pl,
+    P: mul(pl.P, size),
+    Q: mul(pl.Q, size),
+    nudge: pl.nudge * size,
+    at: { ...pl.at, position: { x: pl.at.position.x * size, y: pl.at.position.y * size }, scale: pl.at.scale * size },
+  }));
+}
+
+/**
  * Lay a kit around a closed ring, wound void-left (see {@link orientRings}).
  * Door openings on the ring split it into runs that each close on their own
  * end, so the rock stops at the doorway instead of crossing it.
@@ -403,7 +429,9 @@ export function layBandRing(
   poly: Polygon,
   gaps: DoorGap[] = [],
   set: CaveKitPiece[] = caveBandPieces(),
+  size = 1,
 ): WalkPlacement[] {
+  if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layBandRing(p, g, set));
   if (poly.length < 3) return [];
   const base = resampleClosed(poly as Curve, CURVE_STEP);
   if (base.length < 8) return [];
@@ -574,7 +602,9 @@ export function layBandChain(
   points: Polygon,
   gaps: DoorGap[] = [],
   set: CaveKitPiece[] = caveBandPieces(),
+  size = 1,
 ): WalkPlacement[] {
+  if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set));
   return layChain(points as Curve, gaps, set, { lap: true });
 }
 
@@ -758,6 +788,8 @@ export interface BandFillSpec {
   /** The door openings on it: the strip stops where the rock does. */
   gaps: DoorGap[];
   color: number;
+  /** The size the band's rock was laid at (see `laidAtSize`); 1 when absent. */
+  size?: number;
 }
 
 /**
@@ -765,10 +797,10 @@ export interface BandFillSpec {
  * takes, as `[s0, s1]` distances along it. A gap stops the strip where the
  * walk's span stops the rock (`openSpans`), plus a hair.
  */
-function uncutIntervals(a: Vec, t: Vec, L: number, gaps: DoorGap[]): [number, number][] {
+function uncutIntervals(a: Vec, t: Vec, L: number, gaps: DoorGap[], size: number): [number, number][] {
   let out: [number, number][] = [[0, L]];
   for (const g of gaps) {
-    const r = g.width / 2 + BAND_OUT + 2 * CURVE_STEP;
+    const r = g.width / 2 + (BAND_OUT + 2 * CURVE_STEP) * size;
     const c = sub(g.position, a);
     const along = c[0] * t[0] + c[1] * t[1];
     const off = Math.abs(c[0] * t[1] - c[1] * t[0]);
@@ -850,7 +882,9 @@ export function drawBandFill(g: Graphics, spec: BandFillSpec, span?: [number, nu
   if (spec.closed && pts.length > 2 && dist(pts[0], pts[pts.length - 1]) <= 1e-6) pts.pop();
   const n = pts.length;
   if (n < 2) return;
-  const reach = BAND_FILL_REACH;
+  const size = spec.size ?? 1;
+  const reach = BAND_FILL_REACH * size;
+  const tipTrim = TIP_FILL_TRIM * size;
   const segs = spec.closed ? n : n - 1;
   const tans: Vec[] = [];
   const lens: number[] = [];
@@ -860,7 +894,7 @@ export function drawBandFill(g: Graphics, spec: BandFillSpec, span?: [number, nu
     const a = pts[k];
     const L = dist(a, pts[(k + 1) % n]);
     const t = norm(sub(pts[(k + 1) % n], a));
-    let keep = uncutIntervals(a, t, L, spec.gaps);
+    let keep = uncutIntervals(a, t, L, spec.gaps, size);
     if (span) {
       const lo = span[0] - walked;
       const hi = span[1] - walked;
@@ -907,10 +941,10 @@ export function drawBandFill(g: Graphics, spec: BandFillSpec, span?: [number, nu
     if (!joints[k]?.tip) continue;
     const prev = (k - 1 + segs) % segs;
     keeps[prev] = keeps[prev]
-      .map(([s0, s1]): [number, number] => [s0, Math.min(s1, lens[prev] - TIP_FILL_TRIM)])
+      .map(([s0, s1]): [number, number] => [s0, Math.min(s1, lens[prev] - tipTrim)])
       .filter(([s0, s1]) => s1 - s0 > 1e-6);
     keeps[k] = keeps[k]
-      .map(([s0, s1]): [number, number] => [Math.max(s0, TIP_FILL_TRIM), s1])
+      .map(([s0, s1]): [number, number] => [Math.max(s0, tipTrim), s1])
       .filter(([s0, s1]) => s1 - s0 > 1e-6);
   }
   for (let k = 0; k < segs; k++) {
@@ -1021,23 +1055,24 @@ export function placeBand(
 /**
  * A band set's kit laid round each of `rings` (outer rings and holes), one list a ring.
  * `gaps` are door openings on the outline: a ring stops its rock at each, as a floor ring does.
+ * `size` is the size the rock is laid at (`bandScale` of the wall width).
  */
-export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandPieces(), gaps: DoorGap[] = []): WalkPlacement[][] {
-  return orientRings(rings).map((ring) => (ring.length < 3 ? [] : layBandRing(ring, gaps, set)));
+export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandPieces(), gaps: DoorGap[] = [], size = 1): WalkPlacement[][] {
+  return orientRings(rings).map((ring) => (ring.length < 3 ? [] : layBandRing(ring, gaps, set, size)));
 }
 
 /**
  * Draws `setId`'s border units round `rings` into `parent`, after what it holds, with the
  * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
- * the strip stop at `gaps` (a painted cave's doors).
+ * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`.
  */
-export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number, gaps: DoorGap[] = []): void {
+export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number, gaps: DoorGap[] = [], size = 1): void {
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
-  const laid = layOutlineBand(rings, caveBandPieces(), gaps);
+  const laid = layOutlineBand(rings, caveBandPieces(), gaps, size);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
-    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps, color: fillColor });
+    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps, color: fillColor, size });
   });
 }
 

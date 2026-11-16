@@ -14,6 +14,7 @@
 // without a GPU; doorRenderer.ts turns it into sprites.
 
 import type { DoorChild } from '../shared/types';
+import { BAND_DRAWN_WIDTH, bandScale } from './packCatalog';
 
 export type DoorKitId = NonNullable<DoorChild['kit']>;
 export type LeafPiece = 'hinge' | 'tile-a' | 'tile-b' | 'latch';
@@ -136,15 +137,16 @@ export function leafSlices(kit: DoorKit, length: number): LeafSlice[] {
 
 /**
  * How far the wall's face stands off its centre line beside the opening.
- * Composed walls are as deep as the layer says; the cave band is laid at the
- * kit's own scale, so its depth is the rock's and not the setting's.
+ * Composed walls are as deep as the layer says, and so is the cave band: its
+ * rock is laid at the size that covers the width (bandScale), down to the
+ * kit's smallest.
  *
  * `wallKit` is the kit of the wall itself, and that is what decides the depth:
  * a stone door picked for a cave wall still folds flat against the rock, and a
  * cave door in a stone wall against the stones. It defaults to the door's kit.
  */
 export function wallHalfDepth(kit: DoorKit, wallWidth: number, wallKit: DoorKit | null = kit): number {
-  return wallKit?.id === 'cave' ? 0.6 : wallWidth / 2;
+  return wallKit?.id === 'cave' ? (BAND_DRAWN_WIDTH / 2) * bandScale(wallWidth) : wallWidth / 2;
 }
 
 /**
@@ -159,7 +161,7 @@ export function wallHalfDepth(kit: DoorKit, wallWidth: number, wallKit: DoorKit 
  *
  * A pin fixed halfway between those two lines (the first cut) carried the hinge
  * end in an arc away from the jamb. On a thin composed wall that was a sliver,
- * but the cave's jamb rock is 0.6 deep, and its open leaf floated a quarter of
+ * but the cave's jamb rock was 0.6 deep, and its open leaf floated a quarter of
  * a cell clear of the rock and well out into the room.
  */
 export function hingeDepth(
