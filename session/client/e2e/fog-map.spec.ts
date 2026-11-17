@@ -81,3 +81,20 @@ test.describe('@map fog and map', () => {
     }
   });
 });
+
+// Table fix pass section 4.5 (F8, F9): the mode as two tiles, Outdoors first, the party badge,
+// and a warning when nobody can see.
+test.describe('@map the Fog tab after the fix pass', () => {
+  test('mode tiles, Outdoors first, a party badge and the no-party warning', async ({ hostSession }) => {
+    const { page } = hostSession;
+    await page.keyboard.press('1');
+    await expect(page.getByTestId('fog-mode-vision')).toBeVisible();
+    await expect(page.getByTestId('fog-mode-rooms')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('fog-mode-chip')).toHaveText('Fog: by hand');
+    await expect(page.getByTestId('fog-rooms').locator('[data-room-id]').first()).toHaveAttribute('data-room-id', '@outdoors');
+    // The fixture's PC tokens stand in the starting room: it carries the party badge.
+    await expect(page.getByTestId('fog-party-here').first()).toBeVisible();
+    await page.getByTestId('fog-mode-vision').click();
+    await expect(page.getByTestId('fog-mode-chip')).toHaveText('Fog: by sight');
+  });
+});

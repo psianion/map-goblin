@@ -189,3 +189,96 @@ export async function tokenPoint(page: Page, name: string): Promise<{ x: number;
   expect(point, `token ${name} on the live scene`).not.toBeNull();
   return point!;
 }
+
+// ── Table fix pass (section 6.2) ─────────────────────────────────────────────
+
+/** The 3.11 acceptance fixture: a hall with an outside door, a cave mouth, grass, a party start. */
+export const OUTDOOR_CAVE = join(import.meta.dirname, '../../testdata/outdoor-cave.ggvtt');
+export const OUTDOOR_CAVE_NAME = 'Outdoor Cave';
+/** Fixture landmarks, in world cells (see `outdoorCave.fixture.test.ts`). */
+export const CAVE = {
+  partyStart: { x: 15.5, y: 7.5 },
+  dirt: { x: 15.5, y: 9.5 },
+  rock: { x: 17.5, y: 5.5 },
+  besideDoor: { x: 13.5, y: 7.5 },
+  door: { x: 12, y: 7 },
+  inHall: { x: 10.5, y: 7.5 },
+} as const;
+
+/** A campaign holding the outdoor-cave map and a Bram PC type, with no session open. */
+export async function standUpOutdoorCave(name: string): Promise<{ campaignId: string; campaignName: string; sceneId: string; mapId: string; token: string }> {
+  const campaign = await api<{ campaignId: string; token: string }>('/api/campaigns', postJson({ name }), ADMIN_PASS());
+  const map = await api<{ sceneId: string; mapId: string }>(
+    `/api/campaigns/${campaign.campaignId}/maps`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(OUTDOOR_CAVE, 'utf8') },
+    campaign.token,
+  );
+  // The PC type has to exist before the session the wizard opens; a throwaway session adds it.
+  const first = await api<{ sessionId: string }>('/api/sessions', postJson({ campaignId: campaign.campaignId, sceneId: map.sceneId }), campaign.token);
+  await sendCommands(campaign.token, [
+    { module: 'tokens', action: 'library-upsert', payload: { name: 'Bram', kind: 'pc', size: 'medium', disposition: 'friendly', hp: { max: 24 } } },
+  ]);
+  await api(`/api/sessions/${first.sessionId}/end`, { method: 'POST' }, campaign.token);
+  return { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, mapId: map.mapId, token: campaign.token };
+}
+
+/** `POST /api/campaigns/:id/handoff`, naming a scene: the canvas's "Open the table". */
+export async function mintHandoff(table: { campaignId: string; token: string }, sceneId?: string): Promise<string> {
+  const minted = await api<{ code: string }>(`/api/campaigns/${table.campaignId}/handoff`, postJson(sceneId ? { sceneId } : {}), table.token);
+  return minted.code;
+}
+
+/** `PUT /api/scenes/:id/publish` with the fixture again: the canvas's republish. */
+export async function republish(table: { token: string }, sceneId: string, file = OUTDOOR_CAVE): Promise<void> {
+  await api(`/api/scenes/${sceneId}/publish`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') }, table.token);
+}
+
+/** Send module commands as the DM over a socket (the session must be open). */
+export const dmCommands = sendCommands;
+
+/** Where a world point sits on the map element, through the camera (`__testProbe.camera`). */
+export async function worldPoint(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
+  const camera = await page.evaluate(() => (window as unknown as { __testProbe?: { camera(): { x: number; y: number; scale: number } | null } }).__testProbe?.camera() ?? null);
+  expect(camera, 'camera probe').not.toBeNull();
+  return { x: camera!.x + x * camera!.scale, y: camera!.y + y * camera!.scale };
+}
+
+/** Drag a token by name to a world point, in steps, the way a hand does. */
+export async function dragToken(page: Page, name: string, to: { x: number; y: number }): Promise<void> {
+  const canvas = page.getByTestId('game-canvas');
+  const box = (await canvas.boundingBox())!;
+  const from = await tokenPoint(page, name);
+  const at = await worldPoint(page, to.x, to.y);
+  await page.mouse.move(box.x + from.x, box.y + from.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + at.x, box.y + at.y, { steps: 10 });
+  await page.mouse.up();
+}
+
+/** A token's world position on the live scene, by name. */
+export async function tokenAt(page: Page, name: string): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((wanted) => {
+    const w = window as unknown as { __sessionStore?: { getState(): { session: { activeSceneId: string | null; modules: Record<string, unknown> } | null } } };
+    const session = w.__sessionStore?.getState().session;
+    const tokens = (session?.modules.tokens as { byScene?: Record<string, Record<string, { name: string; x: number; y: number }>> } | undefined)?.byScene?.[session?.activeSceneId ?? ''];
+    const token = tokens ? Object.values(tokens).find((t) => t.name === wanted) : undefined;
+    return token ? { x: token.x, y: token.y } : null;
+  }, name);
+}
+
+/** A campaign holding one testdata map with its session open, the DM's pass held by `page`. */
+export async function hostMap(page: Page, file: string, mapName: string): Promise<HostedTable> {
+  const name = `${mapName} ${Date.now().toString(36)}`;
+  const campaign = await api<{ campaignId: string; token: string }>('/api/campaigns', postJson({ name }), ADMIN_PASS());
+  const map = await api<{ sceneId: string }>(
+    `/api/campaigns/${campaign.campaignId}/maps`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') },
+    campaign.token,
+  );
+  const session = await api<{ inviteCode: string }>('/api/sessions', postJson({ campaignId: campaign.campaignId, sceneId: map.sceneId }), campaign.token);
+  const table = { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, token: campaign.token, inviteCode: session.inviteCode };
+  await holdDmPass(page, table);
+  await enterAsDm(page, table);
+  await assertMapLoaded(page, mapName);
+  return { page, ...table };
+}
