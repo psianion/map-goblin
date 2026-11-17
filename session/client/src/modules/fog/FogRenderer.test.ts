@@ -1373,6 +1373,47 @@ describe('subscribeFogScene', () => {
     await frame();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('keeps listening when the first rebuild throws, and rebuilds on the next store write', async () => {
+    // The live bug: the first paint threw before the subscribes were taken, and that seat's
+    // fog never redrew again until a reload.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onChange = vi.fn().mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const stop = subscribeFogScene(onChange);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('[fog] rebuild failed', expect.any(Error));
+
+    // Even a write that changes no mask input: the failed rebuild left nothing to compare to.
+    useSessionStore.setState({ latencyMs: 42 });
+    await frame();
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    stop();
+    error.mockRestore();
+  });
+
+  it('rebuilds when the map arrives after the first paint', async () => {
+    // A seat mounting or reconnecting: tokens and fog state present, the document not yet.
+    useSessionStore.setState({
+      mapData: null,
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+      }),
+    });
+    const scenes: FogScene[] = [];
+    const stop = subscribeFogScene(() => scenes.push(fogScene()));
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]!.bounds).toBeNull();
+
+    useSessionStore.setState({ mapData: sent([dungeon(ROOMS)]) });
+    await frame();
+    expect(scenes).toHaveLength(2);
+    expect(scenes[1]!.bounds).not.toBeNull();
+    stop();
+  });
 });
 
 describe('fogScene', () => {
@@ -1502,6 +1543,23 @@ describe('fogScene', () => {
     // The stored record rides along whole — the memory tier reads its cells and its reveals,
     // not the reachability classification `views` carries.
     expect(scene.fog?.mode).toBe('vision');
+  });
+
+  it('reads a player’s contained sight with no document in hand', () => {
+    // Mounting or reconnecting: tokens and fog state land before the map. A claimed token
+    // sees without `sight` set, so contained sight (on by default) takes the near pass, and
+    // its locks used to read the missing document's `lockMask` and throw.
+    useSessionStore.setState({
+      mapData: null,
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+      }),
+    });
+    const scene = fogScene();
+    expect(scene.near).toBeDefined();
+    expect(scene.locks).toEqual([]);
+    expect(scene.bounds).toBeNull();
   });
 
   // ── the DM's sight preview ─────────────────────────────────────────────

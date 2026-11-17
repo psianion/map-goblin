@@ -68,11 +68,18 @@ export function subscribeLiveDoors(onChange: () => void): () => void {
     const next = [session?.modules?.doors, session?.activeSceneId, useStore.getState().layers];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return;
     last = next;
-    onChange();
+    // A failed pass is logged and forgotten, so the next store write tries again.
+    try {
+      onChange();
+    } catch (err) {
+      console.error('[doors] sync failed', err);
+      last = [];
+    }
   };
-  check();
+  // Subscribed before the first pass, so a first pass that throws still leaves this listening.
   const unsubSession = useSessionStore.subscribe(check);
   const unsubMap = useStore.subscribe(check);
+  check();
   return () => {
     unsubSession();
     unsubMap();

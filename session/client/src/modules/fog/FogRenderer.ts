@@ -978,7 +978,7 @@ export function fogScene(): FogScene {
     // `inAnyLock` tests, so the preview matches the server's answer rather than a cell-snapped
     // approximation of it. Both are off the referee's document, like the rooms and the pad.
     locks: near
-      ? [...exploreLocks(serverLayers(mapData)), ...regionRects((mapData as SerializedMapData).lockMask)]
+      ? [...exploreLocks(serverLayers(mapData)), ...regionRects((mapData as SerializedMapData | null)?.lockMask)]
       : undefined,
     // The painted ground the tiers may open onto, beside the rooms — read off the referee's
     // document like the rooms are, and only in vision mode, where the tiers are cut from a
@@ -1069,10 +1069,21 @@ export function subscribeFogScene(onChange: () => void): () => void {
   // Whichever of the two arrives first rebuilds; the other finds the flag down and does
   // nothing, which is also what unsubscribing does to a rebuild still in flight. Cheaper
   // than holding two cancellation handles for a callback whose whole body is one `if`.
+  //
+  // A rebuild that throws must not end the fog: it is logged, and the change detector forgets
+  // what it saw, so the next store write of any kind rebuilds again.
+  const rebuild = (): void => {
+    try {
+      onChange();
+    } catch (err) {
+      console.error('[fog] rebuild failed', err);
+      last = [];
+    }
+  };
   const flush = (): void => {
     if (!queued) return;
     queued = false;
-    onChange();
+    rebuild();
   };
   const check = (): void => {
     if (!changed() || queued) return;
@@ -1081,10 +1092,12 @@ export function subscribeFogScene(onChange: () => void): () => void {
     setTimeout(flush, REBUILD_FLOOR_MS);
   };
 
-  if (changed()) onChange();
+  // Subscribed before the first paint, so a first rebuild that fails still leaves the fog
+  // listening for the store write that fixes it.
   const unsubSession = useSessionStore.subscribe(check);
   const unsubMap = useStore.subscribe(check);
   const unsubInteraction = useTokenInteraction.subscribe(check);
+  if (changed()) rebuild();
   return () => {
     queued = false;
     unsubSession();
