@@ -318,3 +318,21 @@ describe('the document as written', () => {
     expect(keys(saveableMap(structuredClone(data)))).toEqual(keys(data));
   });
 });
+
+// Table fix pass decision f: the party start is an optional mapSettings field with no version
+// bump, so the canvas's own load and save have to carry it (plan section 7, "Not verified").
+describe('the party start marker', () => {
+  it('survives a save and a load, and an absent one stays absent', () => {
+    const start = { x: 15.5, y: 7.5, levelId: 'lvl-1' };
+    const withStart = { ...PLAIN_31, mapSettings: { ...PLAIN_31.mapSettings, partyStart: start } };
+    useStore.getState().loadFromFile(readMapDocument(decodeAnyMapFile(new TextEncoder().encode(JSON.stringify(withStart)))));
+    expect(useStore.getState().mapSettings.partyStart).toEqual(start);
+
+    const saved = encodeMapFile(saveableMap(useStore.getState().getSerializableState()));
+    useStore.getState().loadFromFile(readMapDocument(decodeAnyMapFile(new TextEncoder().encode(JSON.stringify(PLAIN_31)))));
+    expect(useStore.getState().mapSettings.partyStart).toBeUndefined();
+
+    useStore.getState().loadFromFile(readMapDocument(decodeAnyMapFile(saved)));
+    expect(useStore.getState().mapSettings.partyStart).toEqual(start);
+  });
+});

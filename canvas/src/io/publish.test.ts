@@ -18,6 +18,8 @@ import {
   setPublishToken,
   clearPublishToken,
   lastPublishedTo,
+  mintHandoff,
+  signedInCampaigns,
   refreshPublishTokens,
   tokenExp,
 } from './publish';
@@ -169,6 +171,37 @@ describe('publish token storage', () => {
     clearPublishToken('camp-1');
     expect(getPublishToken('camp-1')).toBeNull();
     expect(getPublishToken('camp-2')).toBe('tok-xyz');
+  });
+});
+
+// Table fix pass F5: a new map offers the campaigns this browser is signed in to first.
+describe('signed-in campaigns', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('lists every campaign holding a token, by the name kept with it, and forgets a cleared one', () => {
+    setPublishToken('camp-b', 'tok-b', 'Wyrmrest');
+    setPublishToken('camp-a', 'tok-a', 'Ashfall');
+    setPublishToken('camp-c1234567', 'tok-c');
+    localStorage.setItem('unrelated', 'x');
+    expect(signedInCampaigns()).toEqual([
+      { id: 'camp-a', name: 'Ashfall' },
+      { id: 'camp-c1234567', name: 'Campaign camp-c' },
+      { id: 'camp-b', name: 'Wyrmrest' },
+    ]);
+    clearPublishToken('camp-b');
+    expect(signedInCampaigns().map((c) => c.id)).toEqual(['camp-a', 'camp-c1234567']);
+  });
+});
+
+// Table fix pass F1: the handoff names the scene just published.
+describe('mintHandoff', () => {
+  it('sends the scene it was asked to carry on with', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: 'c', tableUrl: 'u' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await mintHandoff('tok', 'camp-1', 'scene-9');
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ sceneId: 'scene-9' });
+    vi.unstubAllGlobals();
   });
 });
 

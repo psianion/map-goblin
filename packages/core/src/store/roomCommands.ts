@@ -1,4 +1,4 @@
-import type { Command, DungeonLayer, Level, Room, RoomArea, RoomKey, RoomLook, ShapeChild, ThresholdSegment } from './types';
+import type { Command, DungeonLayer, Level, MapSettings, Room, RoomArea, RoomKey, RoomLook, ShapeChild, ThresholdSegment } from './types';
 import { ROOM_RUNTIME_KEYS } from '../shared/types';
 import { patchLook } from '../shared/lookScope';
 import { pointInRing, readingOrder, roomFace } from '../shared/roomUtils';
@@ -784,6 +784,38 @@ export class SetStartingRoomCommand implements Command {
 
   undo(): void {
     if (this.before !== null) setStartingRoom(this.before);
+  }
+}
+
+type PartyStart = NonNullable<MapSettings['partyStart']>;
+
+function setPartyStart(start: PartyStart | undefined): void {
+  useStore.setState((state) => {
+    if (start) state.mapSettings.partyStart = { ...start };
+    else delete state.mapSettings.partyStart;
+  });
+}
+
+/**
+ * Table fix pass decision f: where the party's tokens start at the table, a point rather than a
+ * room, so a map whose party begins outdoors can say so. Null clears it.
+ */
+export class SetPartyStartCommand implements Command {
+  readonly label = 'Party start';
+  private readonly start: PartyStart | null;
+  private before: PartyStart | undefined | null = null;
+
+  constructor(start: PartyStart | null) {
+    this.start = start && { ...start };
+  }
+
+  execute(): void {
+    if (this.before === null) this.before = useStore.getState().mapSettings.partyStart;
+    setPartyStart(this.start ?? undefined);
+  }
+
+  undo(): void {
+    if (this.before !== null) setPartyStart(this.before);
   }
 }
 
