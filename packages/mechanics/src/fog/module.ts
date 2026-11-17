@@ -6,7 +6,7 @@
 // Rooms live in the map file, not in module state, so the module is built with a lookup
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
-import { dropScene, type GameModule, type ModuleContext } from '../contract'
+import { dropScene, type GameModule, type ModuleContext, type Viewer } from '../contract'
 import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
@@ -23,6 +23,7 @@ import {
 } from './region'
 import {
   FOG_MODES,
+  PARTY_HERE,
   ROOM_FOG_STATUSES,
   VISION_SHARES,
   identityRegion,
@@ -62,6 +63,12 @@ export type SceneRoomAt = (
   y: number,
 ) => string | null
 
+/**
+ * Table fix pass §2.7 — the room and Outdoors ids a player seat may see right now, computed by
+ * the server, which sends them on the fog slice (`SceneFog.visible`). Null = nothing to say.
+ */
+export type SceneVisible = (sceneId: string, viewer: Viewer) => readonly string[] | null
+
 const REGION_OPS = ['reveal', 'hide'] as const
 
 type Ctx = ModuleContext<FogState>
@@ -71,6 +78,7 @@ export function fogModule(
   roomsOf: SceneRooms,
   frameOf: SceneFrame = () => null,
   roomAtOf: SceneRoomAt = () => null,
+  visibleOf: SceneVisible = () => null,
 ): GameModule<FogState> {
   return {
     name: 'fog',
@@ -129,10 +137,12 @@ export function fogModule(
         // Stripped in *both* shares: a table the DM flipped back to party still holds the
         // per-seat records (nothing is ever destroyed), and they are nobody's but the DM's.
         const { regions, ...rest } = scene
+        const seen = visibleOf(sceneId, viewer)
+        const kept: SceneFog = seen ? { ...rest, rooms, visible: [...seen] } : { ...rest, rooms }
         byScene[sceneId] =
           regions && visionShareOf(scene) === 'individual'
-            ? { ...rest, rooms, region: identityRegion(scene, viewer.identityId) }
-            : { ...rest, rooms }
+            ? { ...kept, region: identityRegion(scene, viewer.identityId) }
+            : kept
       }
       // Same rule as the rooms: a line about a room is readable exactly when the room is,
       // so a reveal in a wing the party has never entered is not on this wire at all. A
@@ -368,6 +378,20 @@ function run(
         ...(regions ? { regions } : {}),
         rooms,
       })
+    }
+    // Server-internal, like `auto-explore` (table fix pass §2.6): By hand mode reveals the room,
+    // or Outdoors, that a player's token or a PC is put in, and stores it. One write for every
+    // row named; a row already lit is left alone, so standing still writes nothing.
+    case PARTY_HERE: {
+      const rooms = { ...scene.rooms }
+      let changed = false
+      for (const id of parseRoomIds(p.rooms, ctx, sceneId, roomsOf)) {
+        if (rooms[id]?.status === 'revealed') continue
+        rooms[id] = { status: 'revealed', wasEverRevealed: true }
+        changed = true
+      }
+      if (changed) setScene(ctx, sceneId, { ...scene, rooms })
+      return
     }
     default:
       bad(`fog has no action '${action}'`)

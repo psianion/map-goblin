@@ -19,6 +19,7 @@ import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
+import { partyHere, reveal as revealPartyHere } from './fog/partyHere'
 import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
@@ -124,7 +125,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), effectsTick),
+    afterWrites(autoExplore(vision), partyHere(vision), effectsTick),
     (sessionId) => table.flagsOf(sessionId)?.paused === true,
   )
   modules.register(pingModule)
@@ -155,7 +156,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     }),
   )
   modules.register(crossingsModule)
-  modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
+  modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (sceneId) => vision.visibleOf(sceneId)))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
   // and the live cascade resolve the same scene's triggers off the same cache. The registry
@@ -173,6 +174,22 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     }),
   )
   for (const module of options.modules ?? []) modules.register(module)
+
+  // Table fix pass §2.6: a table already running when the server starts stores the room, or
+  // Outdoors, its party stands in, the way every place and move now does. Nobody is connected
+  // yet, so there is no one to broadcast to.
+  for (const session of stores.sessions.listActive()) {
+    const sceneId = session.active_scene_id
+    if (!sceneId) continue
+    revealPartyHere(vision, modules, sceneId, {
+      campaignId: session.campaign_id,
+      sessionId: session.id,
+      activeSceneId: sceneId,
+      sender: { role: 'dm', identityId: 'server' },
+      players: [],
+      broadcast: () => {},
+    })
+  }
 
   const sessions = new SessionManager(modules, {
     vision,

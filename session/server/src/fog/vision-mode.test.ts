@@ -661,10 +661,12 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
     })
   })
 
-  it('opens no ground in rooms mode, where D6 is the whole rule', () => {
+  it('opens no unrevealed ground in rooms mode', () => {
     const table = wired()
     const id = scouted(table, 'rooms')
-    expect(table.vision.visionOf(SCENE)!.openGround).toBeUndefined()
+    // Table fix pass §2.2: open ground is known ground in both modes now; by hand, the gap
+    // between the rooms is known only once its Outdoors row is revealed.
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
       message: expect.stringContaining('cannot be occupied'),
     })

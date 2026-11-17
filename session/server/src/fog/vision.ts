@@ -20,13 +20,11 @@ import {
   containedSightOn,
   effectiveFog,
   fogModeOf,
-  getCell,
   identityRegion,
+  isOutdoorsId,
   outdoorsId,
-  nearAuthoredFloor,
-  onAuthoredFloor,
+  tableRegion,
   regionFor,
-  revealPartyRooms,
   sceneFogOf,
   setCells,
   sightRangeLimitOn,
@@ -49,9 +47,15 @@ import {
   type TriggersState,
 } from '@dnd/mechanics/triggers'
 import {
+  NO_GROUND as NO_GROUND_CELL,
   SIZE_CELLS,
+  STANDABLE,
+  cellAt,
   cellCentre,
+  claimed,
+  eyes,
   sightParty,
+  walkAreas,
   walkRefusal,
   type SceneVision,
   type Token,
@@ -60,7 +64,7 @@ import {
 } from '@dnd/mechanics/tokens'
 import type { CrossingsState } from '@dnd/mechanics/crossings'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
-import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
+import { firstLevelId, layersOnLevel, onLevel } from '@dnd/core/src/shared/visionGate'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure
 import { hiddenTops } from '@dnd/core/src/shared/plateaus'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design
@@ -77,6 +81,8 @@ import {
   mapDeltaFor,
   redactMapForViewer,
   exploredRooms,
+  groundOf,
+  type Ground,
 } from './redactMap'
 import {
   CACHE_MAX,
@@ -125,6 +131,13 @@ export interface Vision {
   /** The scene's parsed map, raw — triggers' prep resolver (M4) reuses this cache rather
    *  than parsing the map doc a second time. */
   sceneMapOf: SceneMapOf
+  /** Table fix pass §2.7 — the fog rows a player seat may see right now (`SceneFog.visible`). */
+  visibleOf(sceneId: string): readonly string[] | null
+  /**
+   * Table fix pass §2.6 — By hand mode: the rooms, or Outdoors rows, a party token stands in
+   * that were never revealed, for `fog.party-here`. Null when there is nothing to write.
+   */
+  partyHerePatch(sceneId: string): { sceneId: string; rooms: string[] } | null
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
   /**
@@ -211,6 +224,12 @@ interface Computed {
   playerChildren: Set<string>
   /** The rooms newly explored at this mutation, sliced once and sent to every player. */
   delta: MapDelta | null
+  /** §2.7 — ground the table knows, as the redactor's lookup. */
+  ground: Ground
+  /** §2.7 — the ground outside the walled floors, once any outdoor cell is known. */
+  openGround: SerializedMapData['openGround']
+  /** §2.5 — whether a seen cell may go in the record: ground, or within one cell of it. */
+  nearGround(x: number, y: number): boolean
 }
 
 const NO_FOG: FogState = { byScene: {} }
@@ -268,9 +287,14 @@ export function createVision(stores: Stores): Vision {
     // P4 §4 — and "the party" is the sight-link closure of the claimed tokens, the same set
     // the sweep is taken through, so a linked familiar anchors the rooms-mode BFS too.
     const party: string[] = []
+    // …and the rows the party stands in, Outdoors included (table fix pass §2.6): concealment
+    // has someone to measure from wherever the party stands.
+    const partyRows: string[] = []
     for (const token of sightParty(Object.values(tokens))) {
       const room = map.roomAt(token.x, token.y)
       if (room !== null && !party.includes(room)) party.push(room)
+      const row = room ?? outdoorsRowOf(map.data, levelOfToken(map, token))
+      if (!partyRows.includes(row)) partyRows.push(row)
     }
     // Everything below reads the *effective* fog, never the stored one, and the player's
     // renderer applies the same helper to the same inputs so the two cannot drift.
@@ -286,7 +310,12 @@ export function createVision(stores: Stores): Vision {
     // What a fresh table does give a player is the room the party stands in: while the DM has
     // never revealed a room, in rooms mode, those rooms count as revealed (`revealPartyRooms`), so the first
     // move inside them is allowed and the ground under their feet is drawn.
-    const fog = revealPartyRooms(effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party), party)
+    //
+    // Table fix pass §2.6: that read-time reveal is gone (F8). The room or Outdoors a party
+    // token is put in is revealed and stored instead (`partyHerePatch`), so it survives the DM
+    // revealing another room.
+    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, partyRows)
+    const crossings = read(campaignId, 'crossings', NO_CROSSINGS)
     // S3 P1 — the sweep is taken once per mutation alongside the BFS, and cached with it:
     // token redaction, auto-explore and (P2) the mask all read the same polygons, so the
     // three cannot disagree about where the party's sight ends.
@@ -347,13 +376,7 @@ export function createVision(stores: Stores): Vision {
       return own
     }
     const sight = sightOn(firstLevel)
-    const eyeLevels = [
-      ...new Set(
-        Object.values(tokens)
-          .filter((t) => t.sight != null && t.ownerId !== null)
-          .map((t) => (map.data.levels?.some((l) => l.id === t.levelId) ? t.levelId! : firstLevel)),
-      ),
-    ]
+    const eyeLevels = [...new Set(eyes(Object.values(tokens)).map((t) => levelOfToken(map, t)))]
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -382,6 +405,17 @@ export function createVision(stores: Stores): Vision {
     }
 
     const explored = exploredRooms(fog)
+    // Table fix pass §2.7: ground the table knows, for what a seat is sent — the cell record,
+    // and every outdoor ground cell of a level whose Outdoors row was ever revealed.
+    const ground = knownGroundOf(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
+    const openGround = ground.outdoors ? openGroundRings(map) : undefined
+    // §2.5: what the record may hold — ground, or within one cell of it, on any level.
+    const levelIds = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevel]
+    const nearGround = (x: number, y: number): boolean =>
+      levelIds.some((level) => {
+        const grid = walks.gridFor(map, doors, crossings, sceneId, level)
+        return !!grid && groundNear(grid, x, y)
+      })
     // The doors a player may hold — the *same* predicate the map cut uses on the door
     // children themselves, so the live slice and the geometry name one set of doors and not
     // two (a secret door the DM has not revealed is in neither).
@@ -392,7 +426,7 @@ export function createVision(stores: Stores): Vision {
     // a black canvas, disclosing where the doors are. The geometry of an unzoned map is still
     // handed over whole (`redactMapForViewer`); only the doors on it are the DM's, because a
     // door nobody can earn is a door no player should be told about.
-    const held = map.doors.filter((door) => doorKept(door, explored, doors))
+    const held = map.doors.filter((door) => doorKept(door, explored, doors, ground.test))
     // Against nothing on a cold cache, so the first answer after a restart is everything
     // the party has explored rather than nothing at all. Correctness must not depend on
     // whether someone happened to fetch the map first, and a client already holding a
@@ -417,11 +451,23 @@ export function createVision(stores: Stores): Vision {
     // Diffed off the same predicate the document cut uses (`keptChildIds`), so what a reveal
     // *delivers* and what a fresh fetch *contains* cannot drift. Anything the room slice already
     // carried is dropped — it is the same child, sliced twice.
-    const playerChildren = keptChildIds(map, fog, doors)
+    const playerChildren = keptChildIds(map, fog, doors, ground.test)
     const carried = new Set(roomDelta?.layers.flatMap((l) => l.children.map((c) => c.id)) ?? [])
     const newChildren = new Set(
       [...playerChildren].filter((id) => !previous?.playerChildren.has(id) && !carried.has(id)),
     )
+    // §2.6: what the party sees behind doors is the walk areas its tokens stand in.
+    const reached = reachedRows(map, sightParty(Object.values(tokens)), (level) => {
+      const grid = walks.gridFor(map, doors, crossings, sceneId, level)
+      return grid ? { grid, areas: areasOf(map, grid, level) } : null
+    })
+    const revealedRows = new Set(Object.entries(fog.rooms).filter(([, r]) => r.status === 'revealed').map(([id]) => id))
+    const everRows = new Set(Object.entries(fog.rooms).filter(([, r]) => r.wasEverRevealed).map(([id]) => id))
+    const within = (rows: Set<string>) =>
+      fog.concealBehindDoors && reached ? new Set([...rows].filter((id) => reached.has(id))) : rows
+    // The open ground arrives once, with the mutation that first lets the seat know any of it.
+    const groundDelta: MapDelta | null =
+      openGround && !previous?.openGround ? { sceneId, layers: [], openGround } : null
     const next: Computed = {
       revision: stores.moduleState.revision,
       map,
@@ -436,18 +482,21 @@ export function createVision(stores: Stores): Vision {
       locks,
       owners: ownersOf(tokens),
       doors,
-      visible: visibleRooms(fog, doors, map.doors, party),
-      // D8 asks a different question of the same graph: a re-hidden room the party can
-      // still walk to is somewhere to stand, it is simply dark (D7). Asking `visibleRooms`
-      // for a scene where every room they have seen counts as lit answers it exactly.
-      occupiable: visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
+      // §2.6: revealed, and with concealment on, in a walk area a party token stands in.
+      visible: reached ? within(revealedRows) : visibleRooms(fog, doors, map.doors, party),
+      // D8 asks a different question of the same areas: a re-hidden room the party can still
+      // walk to is somewhere to stand, it is simply dark (D7).
+      occupiable: reached ? within(everRows) : visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
       party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
       playerChildren,
+      ground: ground.test,
+      openGround,
+      nearGround,
       delta: mergeDelta(
-        roomDelta,
-        newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored) : null,
+        mergeDelta(roomDelta, newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored) : null),
+        groundDelta,
       ),
     }
     // Held to the same ceiling as the parsed maps: every entry keeps a scene's geometry
@@ -461,7 +510,15 @@ export function createVision(stores: Stores): Vision {
 
   return {
     sceneMapOf,
-    roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
+    // Table fix pass §2.1: Outdoors is a fog row like a room, one per level.
+    roomsOf: (_campaignId, sceneId) => {
+      const map = sceneMapOf(sceneId)
+      if (!map) return []
+      const rooms = map.rooms.map((room) => room.id)
+      if (!map.frame) return rooms
+      const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
+      return [...rooms, ...new Set(levels.map((level) => outdoorsRowOf(map.data, level)))]
+    },
     frameOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.frame ?? null,
     roomAtOf: (_campaignId, sceneId, x, y) => sceneMapOf(sceneId)?.roomAt(x, y) ?? null,
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
@@ -506,7 +563,9 @@ export function createVision(stores: Stores): Vision {
         // torchlight onto a path you crossed a minute ago is movement, not clairvoyance, and
         // it is the record the DM's brush writes into. Same eyes as `sight` above: the party's
         // for every command path, the seat's own where the table shares individually.
-        openGround: openGroundOf(computed, viewer),
+        openGround: openGroundOf(computed, viewer, (level) =>
+          walks.gridFor(computed.map, computed.doors, read(computed.map.campaignId, 'crossings', NO_CROSSINGS), sceneId, level),
+        ),
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
@@ -541,10 +600,31 @@ export function createVision(stores: Stores): Vision {
 
     playerMap: (sceneId) => {
       const computed = compute(sceneId)
-      return computed ? redactMapForViewer(computed.map, computed.fog, computed.doors) : null
+      return computed
+        ? redactMapForViewer(computed.map, computed.fog, computed.doors, computed.ground, computed.openGround)
+        : null
     },
 
     revealDelta: (sceneId) => compute(sceneId)?.delta ?? null,
+
+    visibleOf: (sceneId) => {
+      const computed = compute(sceneId)
+      return computed ? [...computed.visible] : null
+    },
+
+    partyHerePatch: (sceneId) => {
+      const computed = compute(sceneId)
+      if (!computed || fogModeOf(computed.fog) !== 'rooms' || !computed.map.frame) return null
+      const { map, fog } = computed
+      if (map.rooms.length === 0) return null
+      const rows = new Set<string>()
+      for (const token of Object.values(computed.tokens)) {
+        if (token.hidden || !claimed(token)) continue
+        const row = map.roomAt(token.x, token.y) ?? outdoorsRowOf(map.data, levelOfToken(map, token))
+        if (!fog.rooms[row]?.wasEverRevealed) rows.add(row)
+      }
+      return rows.size ? { sceneId, rooms: [...rows] } : null
+    },
 
     autoExplorePatch: (sceneId) => {
       const computed = compute(sceneId)
@@ -564,7 +644,7 @@ export function createVision(stores: Stores): Vision {
       const rooms = new Set<string>()
       const counted = new Set<string>()
       for (const s of sights) {
-        const part = swept(s, map, frame, locks)
+        const part = swept(s, map, frame, locks, computed.nearGround)
         for (const cell of part.cells) {
           const key = `${cell[0]},${cell[1]}`
           if (counted.has(key)) continue
@@ -614,7 +694,7 @@ export function createVision(stores: Stores): Vision {
       for (const identityId of computed.owners) {
         const own = computed.sightFor(identityId)
         if (!own?.eyes.length) continue
-        const mine = swept(own, map, frame, locks).cells
+        const mine = swept(own, map, frame, locks, computed.nearGround).cells
         const base = region && regionFor(identityRegion(fog, identityId), frame)
         // The same cheap diff, per record: a seat standing still writes nothing.
         if (!base || setCells(base, mine).bits === base.bits) continue
@@ -664,6 +744,7 @@ function swept(
   map: SceneMap,
   frame: NonNullable<SceneMap['frame']>,
   locks: ReturnType<typeof exploreLocks>,
+  nearGround: (x: number, y: number) => boolean,
 ): { cells: Cell[]; rooms: Set<string> } {
   const cells: Cell[] = []
   const rooms = new Set<string>()
@@ -695,11 +776,11 @@ function swept(
       // One cell wider than the floor, though, and that width is the wall art: the band straddles
       // the room edge and its outer cells are in no room, so clamping the record to the floor
       // alone left the stones of an explored room under fog on the memory tier, which only ever
-      // paints recorded cells. `openGround` keeps the strict test below — recordable is not
-      // standable.
-      // `room` already answers the centre, so a cell well inside a room never pays the band scan.
-      if (room === null && !nearAuthoredFloor(map.rooms.length, (px, py) => map.roomAt(px, py), x, y))
-        continue
+      // paints recorded cells. Recordable is not standable: the walk grid decides that.
+      //
+      // Table fix pass §2.5: "floor" is ground now — base ground, ground pieces and walled
+      // floors, rooms or none — so a cell is recorded when it is ground or within one cell of it.
+      if (room === null && !nearGround(x, y)) continue
       cells.push([col, row])
       if (room !== null) rooms.add(room)
     }
@@ -733,6 +814,8 @@ function heldIn(
       .filter(([, room]) => room.status === 'revealed')
       .map(([id]) => id),
   )
+  // Table fix pass §2.5: a revealed Outdoors row holds the ground in no room.
+  const outdoorsLit = [...revealed].some(isOutdoorsId)
   return (x, y) => {
     if (region && bytes) {
       const col = Math.floor(x - region.minX)
@@ -744,7 +827,7 @@ function heldIn(
     }
     if (revealed.size === 0) return false
     const room = map.roomAt(x, y)
-    return room !== null && revealed.has(room)
+    return room !== null ? revealed.has(room) : outdoorsLit
   }
 }
 
@@ -768,36 +851,23 @@ function mergeDelta(rooms: MapDelta | null, doors: MapDelta | null): MapDelta | 
 }
 
 /**
- * `SceneVision.openGround` for a scene, or `undefined` when there is none to give: rooms
- * mode (no cell record exists), a scene past `REGION_CELL_MAX` (no record is kept), or a
- * record that predates the map's current frame (`regionFor` re-bases, and a stale one
- * re-bases to empty — memory of coordinates that moved is not ground).
- *
- * The mask is decoded per probe, which is one `getCell` per move command — the same budget
- * `roomAt`'s polygon walk already spends, and nothing here runs per frame.
+ * `SceneVision.openGround` for a scene: table fix pass §2.2's known ground on the level the
+ * viewer looks at — standable, and known by hand or by sight. Undefined with no walk grid.
  */
 function openGroundOf(
   computed: Computed,
   viewer: Viewer | undefined,
+  gridOn: (levelId: string) => WalkGrid | null,
 ): ((x: number, y: number) => boolean) | undefined {
-  if (fogModeOf(computed.fog) !== 'vision' || !computed.map.frame) return undefined
-  const stored =
-    viewer && viewer.role !== 'dm' && computed.share === 'individual'
-      ? identityRegion(computed.fog, viewer.identityId)
-      : computed.fog.region
-  const region = regionFor(stored, computed.map.frame)
-  if (!region) return undefined
-  // Two tests, cheap one first: the record has to hold the cell *and* the map has to author
-  // floor under it. A token may never stand off the authored floor — the record is memory of
-  // ground, and ground the map does not draw is not somewhere to be.
-  //
-  // This is also the migration: records written before the sweep and the brush were clamped
-  // still carry off-floor cells, and no pass rewrites them. Asking the floor at read time
-  // heals every one of those records the first time it is read, on the live table's own data,
-  // without a migration that would have to guess which cells were the bug.
-  return (x, y) =>
-    getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY)) &&
-    onAuthoredFloor(computed.map.rooms.length, computed.map.roomAt(x, y))
+  const first = firstLevelId(computed.map.data)
+  const level = viewer ? viewedLevel(computed.triggers, Object.values(computed.tokens), viewer, first) : first
+  const grid = gridOn(level)
+  if (!grid) return undefined
+  const known = knownCells(computed, viewer, grid, level)
+  return (x, y) => {
+    const i = cellAt(grid, x, y)
+    return i >= 0 && grid.cell[i] === STANDABLE && known(i)
+  }
 }
 
 /** The same rooms, with everything the party has ever seen counting as lit. */
@@ -863,4 +933,144 @@ function knownCells(
     memo[i] = ok ? 1 : 2
     return ok
   }
+}
+
+/** A level's walk areas and the fog rows (rooms, and the level's Outdoors) each one touches. */
+interface Areas {
+  labels: Int32Array
+  rows: Set<string>[]
+}
+
+const areaCache = new WeakMap<WalkGrid, Areas>()
+
+/** Labels a grid once and names the rows of every area, kept with the grid it was cut from. */
+function areasOf(map: SceneMap, grid: WalkGrid, levelId: string): Areas {
+  const hit = areaCache.get(grid)
+  if (hit) return hit
+  const labels = walkAreas(grid)
+  const rows: Set<string>[] = []
+  const outdoors = outdoorsRowOf(map.data, levelId)
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i]
+    if (label < 0) continue
+    const { x, y } = cellCentre(grid, i)
+    ;(rows[label] ??= new Set()).add(map.roomAt(x, y) ?? outdoors)
+  }
+  const areas = { labels, rows }
+  areaCache.set(grid, areas)
+  return areas
+}
+
+/**
+ * §2.6 — every row in a walk area some party token stands in; null when the scene has no walk
+ * grid to flood (nothing drawn), which leaves the room graph to answer. A token on a cell that
+ * is in no area (rock, or off the ground) still reaches its own row.
+ */
+function reachedRows(
+  map: SceneMap,
+  party: readonly Token[],
+  gridOn: (levelId: string) => { grid: WalkGrid; areas: Areas } | null,
+): Set<string> | null {
+  if (!map.frame) return null
+  const out = new Set<string>()
+  for (const token of party) {
+    const level = levelOfToken(map, token)
+    const on = gridOn(level)
+    if (!on) return null
+    const i = cellAt(on.grid, token.x, token.y)
+    const label = i >= 0 ? on.areas.labels[i] : -1
+    if (label >= 0) for (const row of on.areas.rows[label]) out.add(row)
+    else out.add(map.roomAt(token.x, token.y) ?? outdoorsRowOf(map.data, level))
+  }
+  return out
+}
+
+/**
+ * §2.7 — the ground the table knows, as the redactor's `Ground` lookup: the cell record (as
+ * before), and each outdoor ground cell (in no room) of a level whose Outdoors row was ever
+ * revealed. `outdoors` says whether any outdoor cell is known at all, which is when the seat is
+ * owed the open ground.
+ */
+function knownGroundOf(
+  map: SceneMap,
+  fog: SceneFog,
+  gridOn: (levelId: string) => WalkGrid | null,
+): { test: Ground; outdoors: boolean } {
+  const record = groundOf(fog, map.frame)
+  const levels = (map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]).filter(
+    (level) => fog.rooms[outdoorsRowOf(map.data, level)]?.wasEverRevealed,
+  )
+  const grids = levels.map(gridOn).filter((g): g is WalkGrid => g !== null)
+  const outdoorCell = (grid: WalkGrid, col: number, row: number): boolean => {
+    if (col < 0 || row < 0 || col >= grid.cols || row >= grid.rows) return false
+    if (grid.cell[row * grid.cols + col] === NO_GROUND_CELL) return false
+    return map.roomAt(grid.minX + col + 0.5, grid.minY + row + 0.5) === null
+  }
+  const outdoorsKnown: Ground = (x, y, pad) => {
+    const reach = Math.ceil(pad)
+    for (const grid of grids) {
+      const col0 = Math.floor(x - grid.minX)
+      const row0 = Math.floor(y - grid.minY)
+      for (let col = col0 - reach; col <= col0 + reach; col++) {
+        for (let row = row0 - reach; row <= row0 + reach; row++) {
+          const [cx, cy] = [grid.minX + col, grid.minY + row]
+          const dx = Math.max(cx - x, 0, x - (cx + 1))
+          const dy = Math.max(cy - y, 0, y - (cy + 1))
+          if (Math.hypot(dx, dy) <= pad && outdoorCell(grid, col, row)) return true
+        }
+      }
+    }
+    return false
+  }
+  const test: Ground = grids.length ? (x, y, pad) => record(x, y, pad) || outdoorsKnown(x, y, pad) : record
+  return { test, outdoors: grids.length > 0 || recordHasOutdoorCell(map, fog) }
+}
+
+/** Whether the table's cell record holds any cell in no room — outdoor ground known by sight. */
+function recordHasOutdoorCell(map: SceneMap, fog: SceneFog): boolean {
+  if (fogModeOf(fog) !== 'vision' || !map.frame) return false
+  const region = tableRegion(fog, map.frame)
+  if (!region) return false
+  const bytes = toBytes(region.bits)
+  for (let bit = 0; bit < region.cols * region.rows; bit++) {
+    if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+    const col = bit % region.cols
+    const row = (bit - col) / region.cols
+    if (map.roomAt(region.minX + col + 0.5, region.minY + row + 0.5) === null) return true
+  }
+  return false
+}
+
+/** §2.7 — per level, the frame with the level's walled floors as holes (read even-odd). */
+function openGroundRings(map: SceneMap): NonNullable<SerializedMapData['openGround']> {
+  const f = map.frame!
+  const frameRing: [number, number][] = [
+    [f.minX, f.minY],
+    [f.maxX, f.minY],
+    [f.maxX, f.maxY],
+    [f.minX, f.maxY],
+  ]
+  const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
+  return levels.map((levelId) => ({
+    levelId,
+    rings: [
+      frameRing,
+      ...layersOnLevel(map.data, map.data.layers, levelId).flatMap((layer) =>
+        layer.type === 'dungeon' ? (layer.mergedFloor ?? []) : [],
+      ),
+    ],
+  }))
+}
+
+/** Whether a point's cell, or one of the eight round it, is ground on this grid. */
+function groundNear(grid: WalkGrid, x: number, y: number): boolean {
+  const col = Math.floor(x - grid.minX)
+  const row = Math.floor(y - grid.minY)
+  for (let r = row - 1; r <= row + 1; r++) {
+    for (let c = col - 1; c <= col + 1; c++) {
+      if (c < 0 || r < 0 || c >= grid.cols || r >= grid.rows) continue
+      if (grid.cell[r * grid.cols + c] !== NO_GROUND_CELL) return true
+    }
+  }
+  return false
 }

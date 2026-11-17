@@ -1441,8 +1441,9 @@ describe('fogScene', () => {
 
     const scene = fogScene();
     expect(scene.mode).toBe('vision');
-    // The DM's scenery, a hidden token and one with no sight at all are not the party.
-    expect(scene.sight).toHaveLength(1);
+    // The DM's scenery and a hidden token are not the party; a claimed token with no sight
+    // set sees all the same (table fix pass §2.4).
+    expect(scene.sight).toHaveLength(2);
     // …and the room classification is not taken at all: the tiers come off the sweep and the
     // region record, and the fade that was its other reader is rooms-only.
     expect(scene.views.size).toBe(0);

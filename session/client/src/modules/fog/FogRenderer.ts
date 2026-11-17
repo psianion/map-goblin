@@ -53,7 +53,6 @@ import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipelin
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
   effectiveFog,
-  revealPartyRooms,
   containedSightOn,
   fogModeOf,
   identityRegion,
@@ -442,9 +441,10 @@ export function roomViews(
     graph.push(entry.door);
   }
 
-  // The party's own rooms on a fresh table, as the server reckons them (`revealPartyRooms`).
-  const fog = revealPartyRooms(effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms), partyRooms);
-  const visible = visibleRooms(fog, live, graph, partyRooms);
+  // Table fix pass §2.7: the server sends the rows this seat sees (`visible`), flooded over the
+  // walk grid; the room graph is the fallback for a slice that carries none.
+  const fog = effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms);
+  const visible = storedFog.visible ? new Set(storedFog.visible) : visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
   for (const room of rooms) {
     views.set(

@@ -191,10 +191,10 @@ const fog = (over: Partial<SceneFog> = {}): SceneFog => ({
   ...over,
 })
 
-function table(): { stores: Stores; campaignId: string; vision: ReturnType<typeof createVision> } {
+function table(map: SerializedMapData = mapFile()): { stores: Stores; campaignId: string; vision: ReturnType<typeof createVision> } {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Crypt')
-  stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile()))
+  stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(map))
   // #47 — a scene is its own row now; SCENE is both the map's id and the scene's, same as
   // the auto-published path http.ts's `uploadMap` takes.
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
@@ -202,6 +202,18 @@ function table(): { stores: Stores; campaignId: string; vision: ReturnType<typeo
 }
 
 const sceneMap = () => createSceneMaps(table().stores).sceneMapOf(SCENE)!
+
+/**
+ * The crypt with walls between its rooms, each door hung in its own: the table fix pass lets
+ * walls and doors decide what the party sees behind them (§2.6), and the plain crypt's one
+ * floor has nothing standing between hall, corr and inner.
+ */
+function walledMap(): SerializedMapData {
+  const map = mapFile()
+  const layer = map.layers[0] as DungeonLayer
+  layer.standaloneWalls = [...layer.standaloneWalls, wall('w-door-hall-corr', 10, 0, 10, 10), wall('w-door-corr-inner', 14, 0, 14, 10)]
+  return map
+}
 
 // ── redactMapForViewer ──────────────────────────────────────────────────────
 
@@ -588,12 +600,13 @@ describe('vision (D3/D8)', () => {
 
   it('backs the fog and doors modules with the map file', () => {
     const { vision, campaignId } = table()
-    expect(vision.roomsOf(campaignId, SCENE)).toEqual(['hall', 'corr', 'inner', 'vault'])
+    // …and the Outdoors row of its one level (table fix pass §2.1).
+    expect(vision.roomsOf(campaignId, SCENE)).toEqual(['hall', 'corr', 'inner', 'vault', '@outdoors'])
     expect(vision.doorsOf(campaignId, SCENE).map((d) => d.id)).toEqual(DOORS.map((d) => d.id))
   })
 
   it('sees a revealed room the party can walk to, and not one behind a shut door', () => {
-    const { vision, stores, campaignId } = table()
+    const { vision, stores, campaignId } = table(walledMap())
     set(stores, campaignId, 'tokens', party(5))
     set(stores, campaignId, 'fog', {
       byScene: { [SCENE]: fog({ rooms: { hall: { status: 'revealed', wasEverRevealed: true }, corr: { status: 'revealed', wasEverRevealed: true }, inner: { status: 'revealed', wasEverRevealed: true } } }) },
@@ -633,7 +646,7 @@ describe('vision (D3/D8)', () => {
    * and every move a door refused came back to the player as "You can't move there."
    */
   it('hands the refusal the door that shut the room off, so it can be named', () => {
-    const { vision, stores, campaignId } = table()
+    const { vision, stores, campaignId } = table(walledMap())
     // The party is standing in the corridor, one shut door short of `inner`.
     set(stores, campaignId, 'tokens', party(12))
     set(stores, campaignId, 'fog', {

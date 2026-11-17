@@ -25,7 +25,7 @@ import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
 import { polygonEdges } from '@dnd/core/src/shared/visionGate';
 import { useStore } from '@dnd/core/src/store/store';
 import { SIGHT_REACH, carriedCone, eyeReach, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
-import { sightParty, type Token } from '@dnd/mechanics/tokens';
+import { eyes, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
 /**
@@ -47,7 +47,7 @@ import { isTokenLight } from '../triggers/lightSync';
 export const sighted = (tokens: readonly Token[], isSeed?: (token: Token) => boolean): Token[] =>
   // A range of 0 is still an eye — plain sight, which sees whatever is lit — so the test is
   // on `sight` itself, exactly as the referee's `sweep.ts` filters.
-  sightParty(tokens, isSeed).filter((t) => t.sight != null);
+  eyes(tokens, isSeed);
 
 /**
  * ponytail: one entry per layers array, holding every sweep taken against that geometry, and

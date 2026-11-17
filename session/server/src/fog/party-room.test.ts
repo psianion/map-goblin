@@ -58,16 +58,22 @@ const party = (x: number, y: number, ownerId: string | null = 'p-1'): TokensStat
 })
 
 describe('the party’s room on a fresh table', () => {
-  it('is somewhere to stand and to see with no DM reveal, and no other room is', () => {
+  // Table fix pass §2.6: the party's room is revealed and *stored* (`fog.party-here`, written
+  // after the token write that put the party there), no longer counted as revealed at read
+  // time — which is what lost it the moment the DM revealed another room (F8).
+  it('is the one room the party-here write reveals, and no other room is', () => {
     const { stores, campaignId, vision } = table(withCellar())
     stores.moduleState.put(campaignId, 'tokens', party(34.5, 18.5))
+    expect(vision.partyHerePatch(SCENE)).toEqual({ sceneId: SCENE, rooms: ['room-field'] })
+    stores.moduleState.put(campaignId, 'fog', {
+      byScene: { [SCENE]: { rooms: { 'room-field': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
+    } satisfies FogState)
     const scene = vision.visionOf(SCENE)!
     expect(scene.roomAt(34.5, 18.5)).toBe('room-field')
     expect(scene.roomAt(36, 28)).toBe('room-cellar')
     expect([...scene.occupiable]).toEqual(['room-field'])
     expect([...scene.visible]).toEqual(['room-field'])
-    // Read-time only: the fog the DM's panel reads is untouched.
-    expect(stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
+    expect(vision.partyHerePatch(SCENE)).toBeNull()
   })
 
   it('gives nobody anything while no party token stands in a room', () => {
@@ -146,11 +152,15 @@ describe('a player’s first move on a fresh table', () => {
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
       const borin = tokensIn(placed, sceneId)[0]
       dm.command('tokens', 'assign', { id: borin.id, identityId: joined.body.identityId })
-      // The claim is what puts the party in the field, so the field's geometry rides with it.
-      const claimed = await player.until(
+      // The claim is what puts the party in the field, so the field is revealed and stored right
+      // after it (`fog.party-here`, table fix pass §2.6), and its geometry rides with that write.
+      await player.until(
         (m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).some((t) => t.id === borin.id),
       )
-      expect(JSON.stringify(claimed.mapDelta ?? null)).toContain('room-field')
+      const revealed = await player.until(
+        (m) => m.type === 'state-update' && m.module === 'fog' && JSON.stringify(m.mapDelta ?? null).includes('room-field'),
+      )
+      expect(JSON.stringify(revealed.mapDelta)).toContain('room-field')
 
       player.frames.length = 0
       player.command('tokens', 'move', { id: borin.id, x: 36.5, y: 20.5 })

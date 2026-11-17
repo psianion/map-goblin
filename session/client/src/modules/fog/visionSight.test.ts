@@ -155,7 +155,8 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
     expect(sees(low, [12.5, 1])).toBe(false);
   });
 
-  it('draws through claimed, unhidden, sighted eyes and no others', () => {
+  // Table fix pass §2.4: a claimed token sees whether or not "Sees" is on (12 cells, normal).
+  it('draws through claimed, unhidden eyes and no others', () => {
     const tokens = [
       scout({ id: 't1' }),
       scout({ id: 't2', ownerId: null }), // the DM's scenery
@@ -164,7 +165,7 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
       // Plain sight, no darkvision: still an eye — it sees whatever is lit.
       scout({ id: 't5', sight: { range: 0, angle: 360, visionMode: 'normal' } }),
     ];
-    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1', 't5']);
+    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1', 't4', 't5']);
   });
 
   it('sweeps a plain-sighted torch-bearer to its torch under the range limit', () => {

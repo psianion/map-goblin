@@ -363,11 +363,13 @@ describe('the starting room the DM picks while setting up', () => {
         body: { code: started.body.inviteCode as string, name: 'Bob' },
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
       expect(state.state.modules.fog).toEqual({
         byScene: {
           [mapId]: {
             rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
             concealBehindDoors: true,
+            visible: ['r-hall'],
           },
         },
       })
@@ -450,11 +452,13 @@ describe('the starting room the DM picks while setting up', () => {
       // The one assertion that would have caught it: the scene the player is looking at is
       // the scene the reveal is stored under, so the fog they were handed is about their map.
       expect(state.state.activeSceneId).toBe(pickedId)
+      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
       expect(state.state.modules.fog).toEqual({
         byScene: {
           [pickedId]: {
             rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
             concealBehindDoors: true,
+            visible: ['r-hall'],
           },
         },
       })

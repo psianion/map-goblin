@@ -318,3 +318,45 @@ export function walkRefusal(
   }
   return say(MOVE_BLOCKED)
 }
+
+/**
+ * §2.6 — the walk grid cut into connected areas: every standable cell labelled with the area it
+ * belongs to (-1 for no ground or solid), joined along pass bits with shut doors closed and
+ * crossings open, and known ground ignored. What the party can see behind closed doors is the
+ * areas its tokens stand in, so a one-sided door, an archway and a cave mouth all count.
+ */
+export function walkAreas(grid: WalkGrid): Int32Array {
+  const { cols, rows, cell, edge } = grid
+  const n = cols * rows
+  const label = new Int32Array(n).fill(-1)
+  const queue = new Int32Array(n)
+  const blocking = BY_WALL | BY_DOOR
+  let next = 0
+  for (let s = 0; s < n; s++) {
+    if (label[s] !== -1 || cell[s] !== STANDABLE) continue
+    label[s] = next
+    let head = 0
+    let tail = 0
+    queue[tail++] = s
+    while (head < tail) {
+      const i = queue[head++]
+      const col = i % cols
+      const row = (i - col) / cols
+      for (let k = 0; k < 8; k++) {
+        const forward = k < 4
+        const [dx, dy] = forward ? FORWARD[k] : FORWARD[k - 4]
+        const nc = forward ? col + dx : col - dx
+        const nr = forward ? row + dy : row - dy
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue
+        const j = nr * cols + nc
+        if (label[j] !== -1 || cell[j] !== STANDABLE) continue
+        const e = forward ? i * 4 + k : j * 4 + (k - 4)
+        if ((edge[e] & blocking) !== 0) continue
+        label[j] = next
+        queue[tail++] = j
+      }
+    }
+    next++
+  }
+  return label
+}
