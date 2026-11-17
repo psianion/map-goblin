@@ -120,6 +120,8 @@ function RoomsStrip() {
 
 function DoorsStrip() {
   const doors = useLiveDoors();
+  const mapData = useSessionStore((s) => s.mapData);
+  const rooms = useMemo(() => serverRooms(mapData), [mapData]);
   if (doors.length === 0) return <p className="text-xs text-text-3">No doors on this scene.</p>;
   return (
     <ul className="flex gap-2" data-testid="map-doors">
@@ -133,7 +135,7 @@ function DoorsStrip() {
               frameWorldPoint(d.door.position[0], d.door.position[1]);
             }}
           >
-            {doorLabel(d.door, i)}
+            {doorLabel(d.door, i, rooms)}
           </button>
           <Caption>{doorStatusLabel(d.door, d.live)}</Caption>
           <DoorActions entry={d} frame={false} />

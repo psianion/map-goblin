@@ -153,3 +153,31 @@ describe('initiative prompt card', () => {
     expect(screen.queryByTestId('initiative-prompt')).toBeNull();
   });
 });
+
+// F23: the initiative prompt sat on top of the check card. Prompts now share one stack,
+// bottom-right on a player's seat, newest on top (initiative first: it is the one that waits on
+// the whole table).
+describe('the prompt stack (F23)', () => {
+  it('stacks a check request and the initiative prompt in one column, without overlap', () => {
+    seat(
+      {
+        rolls: asked,
+        initiative: {
+          status: 'gathering',
+          sceneId: 'scene-1',
+          round: 0,
+          turn: 0,
+          entries: [{ key: 'e1', name: 'Bram', kind: 'pc', identityId: BRAM.identityId, initiative: null }],
+          log: [],
+        },
+      },
+      BRAM,
+    );
+    render(<PlayOverlays />);
+    const stack = screen.getByTestId('prompt-stack');
+    const cards = [...stack.querySelectorAll('[role="dialog"]')].map((c) => c.getAttribute('data-testid'));
+    expect(cards).toEqual(['initiative-prompt', 'roll-prompt']);
+    // Neither card places itself: the stack does, so they cannot land on each other.
+    for (const card of stack.querySelectorAll('[role="dialog"]')) expect(card.className).not.toMatch(/\babsolute\b/);
+  });
+});

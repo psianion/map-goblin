@@ -10,7 +10,7 @@ import type {
   ServerMessage,
   SessionState,
 } from '@dnd/core/src/shared/protocol';
-import { receiveMark } from '../shell/marks/marks';
+import { adoptOwnTemplate, receiveMark, useMarks } from '../shell/marks/marks';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
 import {
@@ -378,9 +378,18 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // This seat drew its own marks as it made them (`placeMark`); the echo is skipped.
           const { event } = msg;
           const me = get().you;
-          if (event.from === me?.identityId) break;
-          if (event.mark.kind === 'clear') break;
-          receiveMark(event.mark, event.from);
+          // Table fix pass, decision d: a clear takes a standing template off every seat,
+          // the DM's own included.
+          if (event.mark.kind === 'clear') {
+            useMarks.getState().drop(event.mark.id);
+            break;
+          }
+          if (event.from === me?.identityId) {
+            // …and this seat's own template is re-keyed to the id that clear will name.
+            if (event.mark.kind === 'template') adoptOwnTemplate(event.mark, event.from, event.id);
+            break;
+          }
+          receiveMark(event.mark, event.from, Date.now(), { id: event.id, ttlMs: event.ttlMs });
           // The DM's pull recentres every player camera on the ping (plan 4.3).
           if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
             const { x, y } = event.mark;

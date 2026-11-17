@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import { Button, FloatBox, IconKeyButton, cn } from '@dnd/ui';
 import { ChevronDown, ChevronUp } from '@dnd/ui/icons';
+import { useSessionStore } from '../../session/store';
 import { ZoomControls } from '../ZoomControls';
 import { useTableShell } from '../tableShell';
+import { useArmedLabel } from './armedTool';
 import { useDockTabs } from './useDockTabs';
 
 /**
@@ -13,8 +16,15 @@ export function Dock() {
   const tabs = useDockTabs();
   const open = useTableShell((s) => s.dockTab);
   const tab = tabs.find((t) => t.id === open);
-  const context = tab?.context?.() ?? null;
+  // F23: read through the session store so a module change (the order locking) re-renders the
+  // text; the selector returns a string, so nothing else re-renders the dock.
+  const context = useSessionStore(() => tab?.context?.() ?? null);
   const { pickDockTab, toggleDock } = useTableShell.getState();
+  const armed = useArmedLabel();
+  // F21: arming folds the dock to its tab row, so the map is there to click.
+  useEffect(() => {
+    if (armed) useTableShell.getState().foldDock();
+  }, [armed]);
   const Body = tab?.Body;
   const Strip = tab?.Strip;
   return (
@@ -27,13 +37,22 @@ export function Dock() {
       aria-label="Dock"
     >
       {tab && Body && (
-        <div className="flex h-56 min-h-0 border-b border-line" data-testid={`dock-body-${tab.id}`}>
+        <div
+          className={cn('flex min-h-0 border-b border-line', tab.height === 'sm' ? 'h-36' : 'h-56')}
+          data-testid={`dock-body-${tab.id}`}
+          data-height={tab.height ?? 'lg'}
+        >
           <div className="flex min-h-0 w-80 shrink-0 flex-col gap-1 overflow-y-auto border-r border-line px-3 py-2">
             <Body />
           </div>
           <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-3 py-2" data-testid="dock-strip">
             {Strip && <Strip />}
           </div>
+        </div>
+      )}
+      {armed && (
+        <div className="flex h-8 items-center border-b border-line px-3 text-xs text-text" role="status" data-testid="armed-chip">
+          {armed}
         </div>
       )}
       <div className="flex h-11 items-center gap-0.5 px-1.5" role="tablist" aria-label="Dock tabs">

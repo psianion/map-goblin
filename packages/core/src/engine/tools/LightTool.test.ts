@@ -68,6 +68,17 @@ describe('LightTool', () => {
     expect(names).toEqual(['Light 1', 'Light 2']);
   });
 
+  // Table fix pass F30: two lights were both "Light 4" once a light between them was deleted.
+  it('takes the next free number, never one already in use', () => {
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerDown({ x: 1, y: 1 });
+    tool.onPointerDown({ x: 2, y: 2 });
+    const first = lights().find((l) => l.name === 'Light 1')!;
+    useStore.getState().removeChild(layer().id, first.id);
+    tool.onPointerDown({ x: 3, y: 3 });
+    expect(lights().map((l) => l.name).sort()).toEqual(['Light 2', 'Light 3', 'Light 4']);
+  });
+
   it('places nothing when there is no active dungeon layer', () => {
     useStore.getState().setActiveLayerId('not-a-real-layer-id');
     tool.onPointerDown({ x: 5, y: 8 });

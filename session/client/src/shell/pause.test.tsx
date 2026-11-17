@@ -96,9 +96,10 @@ describe('the DM’s Paused chip', () => {
     expect(sent).toEqual([expect.objectContaining({ module: 'table', action: 'pause', payload: { on: false } })]);
   });
 
-  it('is not a player’s', () => {
+  // Table fix pass §4.3 (F13): a player is told too, but cannot resume.
+  it('shows a player the words, with nothing to press', () => {
     useSessionStore.setState({ session: session(true) });
     render(<TitleCard />);
-    expect(screen.queryByTestId('paused-chip')).toBeNull();
+    expect(screen.getByTestId('paused-chip').tagName).toBe('SPAN');
   });
 });

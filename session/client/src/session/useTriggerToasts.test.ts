@@ -22,6 +22,12 @@ describe('pickToastable', () => {
     expect(pickToastable([e], new Set(), undefined)).toEqual([e]);
   });
 
+  // F28: a trigger with no text said nothing on the DM's table either.
+  it("toasts the DM's Fired line for a trigger that said nothing", () => {
+    const e = entry({ kind: 'fired', text: 'Fired: Lever', toPlayers: false });
+    expect(pickToastable([e], new Set(), undefined)).toEqual([e]);
+  });
+
   it('drops a show-text entry the DM kept private', () => {
     const e = entry({ toPlayers: false });
     expect(pickToastable([e], new Set(), undefined)).toEqual([]);

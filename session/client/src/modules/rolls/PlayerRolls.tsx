@@ -82,7 +82,7 @@ export function RollPromptCard() {
   const answer = () => sendRolls('roll-result', { requestId: req.id, formula: withMod(20, Number.isInteger(m) ? m : 0) });
   return (
     <FloatBox
-      className="absolute bottom-20 left-1/2 z-30 flex w-72 -translate-x-1/2 flex-col gap-2 px-3 py-2.5"
+      className="flex w-72 flex-col gap-2 px-3 py-2.5"
       data-testid="roll-prompt"
       data-chrome
       role="dialog"
@@ -181,7 +181,7 @@ export function InitiativePromptCard() {
   const typed = Number(draft);
   return (
     <FloatBox
-      className="absolute bottom-36 left-1/2 z-30 flex w-80 -translate-x-1/2 items-center gap-2 px-3 py-2"
+      className="flex w-80 max-w-full items-center gap-2 px-3 py-2"
       data-testid="initiative-prompt"
       data-chrome
       role="dialog"

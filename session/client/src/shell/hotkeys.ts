@@ -20,6 +20,10 @@ import { useTableShell } from './tableShell';
 const isTyping = (t: EventTarget | null): boolean =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
+/** Focus inside an open sheet or dialog, on any control. */
+const inSheet = (t: EventTarget | null): boolean =>
+  t instanceof Element && t.closest('[data-sheet], [role="dialog"]') !== null;
+
 const roleNow = (): Role | undefined => useSessionStore.getState().you?.role;
 
 /** A fixed binding (board 9): not a rail tool or a dock tab, which come from their registries. */
@@ -112,6 +116,9 @@ export function onEscape(): void {
   // "fold the dock I am drawing from".
   const tools = useActiveTool.getState();
   if (tools.activeTool) return tools.setActiveTool(null);
+  // F21: an armed placement is a tool too, and its chip says Esc cancels it.
+  const placing = useTokenInteraction.getState();
+  if (placing.placingDefId) return placing.setPlacing(null);
   const shell = useTableShell.getState();
   if (shell.card) return shell.closeCard();
   if (openSheetNow()) return closeSheet();
@@ -162,7 +169,9 @@ function onKeyDown(e: KeyboardEvent): void {
     return;
   }
 
-  if (role === 'dm') {
+  // F26: a digit typed with focus anywhere in a sheet (the Token type form's selects and
+  // buttons, not only its text fields) belongs to that form, never to the dock.
+  if (role === 'dm' && !inSheet(e.target)) {
     const tab = dockTabs().find((t) => t.key === key);
     if (tab) {
       e.preventDefault();

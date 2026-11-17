@@ -2,7 +2,7 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool, type ToolId } from '../../session/tools';
-import { MARK_TTL_MS, placeMark, sendMark, useMarks, type MarkMsg, type Pt } from './marks';
+import { MARK_TTL_MS, clearTemplate, holdMark, placeMark, sendMark, templateAt, useMarks, type MarkMsg, type Pt } from './marks';
 import { useTableShell } from '../tableShell';
 import { addPin, pinAt, pinsNow } from './pins';
 
@@ -72,9 +72,19 @@ export function attachMarkInput(engine: RenderEngine): () => void {
       else addPin(at.x, at.y, role === 'dm');
       return;
     }
+    // Table fix pass, decision d: templates stand, and the DM clears one by clicking it with the
+    // template tool in hand. Only a relayed template (server id) can be cleared.
+    if (tool === 'template' && role === 'dm') {
+      const hit = templateAt(useMarks.getState().marks, at.x, at.y);
+      if (hit && !hit.id.startsWith('template:')) {
+        clearTemplate(hit.id);
+        return;
+      }
+    }
     const points: [number, number][] = [[at.x, at.y]];
     const msg = msgFor(tool, at, at, points)!;
-    drag = { tool, start: at, points, id: placeMark(msg, { hold: true }), sentAt: Date.now() };
+    const id = tool === 'template' ? holdMark(msg) : placeMark(msg, { hold: true });
+    drag = { tool, start: at, points, id, sentAt: Date.now() };
   };
 
   const onMove = (e: PointerEvent): void => {
@@ -87,8 +97,9 @@ export function attachMarkInput(engine: RenderEngine): () => void {
     const msg = msgFor(drag.tool, drag.start, at, drag.points)!;
     const mark = useMarks.getState().marks.find((m) => m.id === drag!.id);
     if (mark) useMarks.getState().put({ ...mark, msg });
-    // A drawing is sent once, whole, when the stroke ends; a ruler and a template follow the drag.
-    if (drag.tool !== 'draw' && Date.now() - drag.sentAt >= SEND_EVERY_MS) {
+    // A drawing is sent once, whole, when the stroke ends; a ruler follows the drag. A template
+    // is sent once on release too: it stands now, so every send would be another template.
+    if (drag.tool !== 'draw' && drag.tool !== 'template' && Date.now() - drag.sentAt >= SEND_EVERY_MS) {
       drag.sentAt = Date.now();
       sendMark(msg);
     }

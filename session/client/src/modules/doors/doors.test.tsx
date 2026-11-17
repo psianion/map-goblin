@@ -531,6 +531,22 @@ describe('how a door draws (D11 — the DM never loses visibility)', () => {
     expect(doorLabel(PLAIN, 0)).toBe('Gallery Door');
     expect(doorLabel(door({ name: '  ' }), 4)).toBe('Door 5');
   });
+
+  // F30: the table listed a door by its kit name, "Double 1".
+  it('names a door that kept its automatic kit name by the rooms it leads to', () => {
+    const rooms = [
+      { id: 'r-hall', name: 'Hall' },
+      { id: 'r-crypt', name: 'Crypt' },
+    ];
+    const kit = door({ name: 'Double 1', style: 'double', roomA: 'r-hall', roomB: null });
+    expect(doorLabel(kit, 0, rooms)).toBe('Door to Hall');
+    expect(doorLabel({ ...kit, roomB: 'r-crypt' }, 0, rooms)).toBe('Door between Hall and Crypt');
+    expect(doorLabel({ ...kit, name: 'Opening 3' }, 0, rooms)).toBe('Door to Hall');
+    // No rooms known: the kit name is still better than nothing.
+    expect(doorLabel(kit, 0)).toBe('Double 1');
+    // A name the author typed is theirs, even one that looks like a number.
+    expect(doorLabel(door({ name: 'Gate 2', style: 'double', roomA: 'r-hall' }), 0, rooms)).toBe('Gate 2');
+  });
 });
 
 describe('doorAt', () => {

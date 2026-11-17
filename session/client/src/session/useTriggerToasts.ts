@@ -37,6 +37,9 @@ export function pickToastable(
         // player's copy, so only the DM's tab ever holds one to toast.
         e.kind === 'note' ||
         e.kind === 'room-key' ||
+        // F28: a trigger that said nothing to the table leaves the DM "Fired: name" (DM-only,
+        // stripped from players' copies like a note).
+        e.kind === 'fired' ||
         (myIdentityId !== undefined && e.forIdentityId === myIdentityId)),
   );
 }

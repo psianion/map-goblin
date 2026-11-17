@@ -12,6 +12,11 @@ export interface DockTabDef {
   title: string;
   icon: LucideIcon;
   key: '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
+  /**
+   * F31: how tall the open body is. Short tabs (`sm`, h-36) leave more of the map in view;
+   * Map, Tokens and Encounter keep `lg` (h-56). Absent is `lg`.
+   */
+  height?: 'sm' | 'lg';
   /** Left part of the body: tools and settings. */
   Body: ComponentType;
   /** Right part of the body: pickable things (rooms, doors, tokens, scenes, handouts). */
