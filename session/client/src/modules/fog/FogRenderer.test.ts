@@ -702,6 +702,71 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(holes('visible')).toBe(holes('dark') + 1);
   });
 
+  // T13 — a fill of `color` covers a point when one of its rings does and none of its cut holes do.
+  type PathLike = { instructions?: { action: string; data: unknown[] }[] };
+  const ringsOf = (path?: PathLike): Polygon[] =>
+    (path?.instructions ?? [])
+      .filter((step) => step.action === 'poly' || step.action === 'rect')
+      .map((step) => {
+        if (step.action === 'rect') {
+          const [x, y, w, h] = step.data as number[];
+          return [
+            [x, y],
+            [x + w, y],
+            [x + w, y + h],
+            [x, y + h],
+          ] as Polygon;
+        }
+        const flat = step.data[0] as number[];
+        const poly: Polygon = [];
+        for (let k = 0; k + 1 < flat.length; k += 2) poly.push([flat[k], flat[k + 1]]);
+        return poly;
+      });
+  const paintedAt = (g: Graphics, point: [number, number], color: number): boolean =>
+    g.context.instructions
+      .filter((i) => i.action === 'fill' && (i.data as { style: { color: number } }).style.color === color)
+      .some((i) => {
+        const { path, hole } = i.data as { path?: PathLike; hole?: PathLike };
+        return ringsOf(path).some((r) => pointInPolygon(point, r)) && !ringsOf(hole).some((r) => pointInPolygon(point, r));
+      });
+  const shown = (g: Graphics, point: [number, number]): boolean => paintedAt(g, point, 0xffffff);
+
+  it('fogs a hidden room and its stand-in like unexplored ground, the open ground round them grown (T13)', () => {
+    // Outdoors revealed: the frame with three walled floors cut out — West (visible), East
+    // (dark) and Far, which the referee withheld and sent only as a stand-in.
+    const OPEN: Polygon = [
+      [0, -2],
+      [40, -2],
+      [40, 10],
+      [0, 10],
+    ];
+    const mask = new Graphics();
+    const views = { [WEST.id]: 'visible', [EAST.id]: 'dark', '@outdoors': 'visible' } as Record<string, RoomView>;
+    drawFog(
+      new Graphics(),
+      {
+        ...scene(views),
+        bounds: fogBounds([], [WEST, EAST, FAR]),
+        outdoors: '@outdoors',
+        openParts: { outers: [OPEN], holes: [WEST.boundary, EAST.boundary, FAR.boundary] },
+        standIns: [FAR.boundary],
+      },
+      mask,
+    );
+    // The stand-in reads as unexplored all the way to its floor's edge: grown with its holes in
+    // it, the open ground's pad and feather used to reach two cells into every one of them.
+    for (const p of [[33, 3], [30.3, 3], [35.7, 3], [33, 0.3], [33, 5.7], [30.3, 0.3]] as [number, number][]) {
+      expect(shown(mask, p), `stand-in at ${p}`).toBe(false);
+    }
+    // …and so does the dark room, whatever the open ground round it does.
+    for (const p of [[13, 3], [10.6, 3], [15.7, 5.7]] as [number, number][]) expect(shown(mask, p), `dark at ${p}`).toBe(false);
+    // The ground round them is shown up to their walls, as By sight draws it.
+    for (const p of [[20, 3], [29.5, 3], [33, -1], [33, 7], [2, 3]] as [number, number][]) {
+      expect(shown(mask, p), `outdoors at ${p}`).toBe(true);
+    }
+    expect(shown(mask, WEST.centroid)).toBe(true);
+  });
+
   it("always clears the seat's own token, even in a dark room (§2.8)", () => {
     const whites = (own: Polygon[]): number => {
       const mask = new Graphics();
@@ -715,6 +780,30 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
       [13, 3],
     ];
     expect(whites([inEast])).toBe(whites([]) + 1);
+  });
+
+  it("puts the own token in the mask as its footprint, ungrown, and opens the scrim round it (T13)", () => {
+    // After Hide all: nothing visible, the token standing in a hidden room.
+    const TOKEN: Polygon = [
+      [12, 2],
+      [13, 2],
+      [13, 3],
+      [12, 3],
+    ];
+    const scrim = new Graphics();
+    const mask = new Graphics();
+    drawFog(scrim, { ...scene({ [WEST.id]: 'dark', [EAST.id]: 'dark' }), own: [TOKEN] }, mask);
+    // The mask holds the footprint itself — the pad and feather used to grow it a box five cells
+    // wide — and the shader clears round it (`ownClearAt`).
+    expect(shown(mask, [12.5, 2.5])).toBe(true);
+    expect(shown(mask, [13.4, 2.5])).toBe(false);
+    expect(shown(mask, [12.5, 3.9])).toBe(false);
+    // The scrim's backstop is open under the clearing's whole disc, so its feather fades into
+    // the map and never into black, and closed past it.
+    for (const [dx, dy] of [[2.4, 0], [0, -2.3], [-1.7, 1.7], [0, 0]]) {
+      expect(paintedAt(scrim, [12.5 + dx, 2.5 + dy], 0x000000), `scrim at ${dx},${dy}`).toBe(false);
+    }
+    expect(paintedAt(scrim, [12.5 + 3.2, 2.5], 0x000000)).toBe(true);
   });
 
   it('cuts one merged hole and ramps the cloud mask back in over it', () => {

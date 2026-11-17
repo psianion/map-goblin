@@ -36,11 +36,14 @@ import type { Bounds } from './FogRenderer';
 import {
   EDGE_FEATHER_CELLS,
   EDGE_FEATHER_FROM,
-  EDGE_GUARD,
   FRAME_SHADOW_CELLS,
   FRAME_SHADOW_DEPTH,
+  GUARD_BLUR_CELLS,
+  GUARD_FROM,
+  GUARD_TO,
   blurPasses,
   outsideFrame,
+  type OwnClearing,
 } from './tierPlan';
 import { coverageFilter } from './tierCompositor';
 
@@ -68,6 +71,9 @@ export const MASK_MEMORY = 0x808080;
  * furthest from the mask are dropped, which errs towards the cloud closing at the geometry.
  */
 export const MAX_POOLS = 40;
+
+/** T13 — how many of the seat's own tokens the shader clears round at once (§2.8). */
+export const MAX_OWN = 8;
 
 /**
  * How far the coastline may wander, in world units (= grid cells).
@@ -136,6 +142,7 @@ const VERTEX = /* glsl */ `
 
 const FRAGMENT = /* glsl */ `
   #define MAX_POOLS ${MAX_POOLS}
+  #define MAX_OWN ${MAX_OWN}
   precision mediump float;
   in vec2 vWorld;
   uniform sampler2D uMask;
@@ -182,6 +189,9 @@ const FRAGMENT = /* glsl */ `
   // abs()/the sign of .z for it — see LivingFog.setPools in the TS half of this file.
   uniform vec4 uPools[MAX_POOLS];
   uniform int uPoolCount;
+  // T13 — the seat's own tokens (x, y, inner, outer): clear to inner, gone by outer (§2.8).
+  uniform vec4 uOwn[MAX_OWN];
+  uniform int uOwnCount;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -277,6 +287,22 @@ const FRAGMENT = /* glsl */ `
     float t = clamp((texture(uMaskEdge, uv).a - ${EDGE_FEATHER_FROM.toFixed(3)}) / ${(1 - EDGE_FEATHER_FROM).toFixed(3)}, 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
   }
+  // T13 — tierPlan's guardAt, off the soft copy (blurred by GUARD_BLUR_CELLS on the player's seat).
+  float guardAt(vec2 uv) {
+    float t = clamp((texture(uMaskSoft, uv).r - ${GUARD_FROM.toFixed(3)}) / ${(GUARD_TO - GUARD_FROM).toFixed(3)}, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+  }
+  // T13 — tierPlan's ownClearAt: a round, feathered clearing on each of the seat's own tokens.
+  float ownAt(vec2 world) {
+    float best = 0.0;
+    for (int i = 0; i < MAX_OWN; i++) {
+      if (i >= uOwnCount) break;
+      vec4 o = uOwn[i];
+      float t = clamp((distance(world, o.xy) - o.z) / max(o.w - o.z, 1e-3), 0.0, 1.0);
+      best = max(best, 1.0 - t * t * (3.0 - 2.0 * t));
+    }
+    return best;
+  }
   float maskAt(vec2 world) {
     world = onMapSample(world);
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
@@ -287,9 +313,9 @@ const FRAGMENT = /* glsl */ `
     // reads above what the hard mask says. This is what turns the cut into mist.
     float e = edgeAt(uv);
     // T8 — tierPlan's shownAt: revealed ground is one tier, so the feather alone is the fade,
-    // guarded by the hard mask so a hidden gap the blur lifts stays hidden. The bilinear tap
-    // reaches 1/EDGE_GUARD only where the feather is already ~0, so no cell step shows through.
-    if (uOneTier > 0.5) return e * clamp(${EDGE_GUARD.toFixed(1)} * s, 0.0, 1.0);
+    // guarded so a hidden gap the blur lifts stays hidden. T13: the guard reads the soft copy,
+    // so it eases over a few tenths of a cell where the hard texel stepped in one.
+    if (uOneTier > 0.5) return e * guardAt(uv);
     // Hidden and memory texels read themselves, flat. Everything above the memory grey — a
     // live texel, or the feather ramp drawn at a live edge — goes through the blur and the
     // pools below, capped by the hard value so nothing here ever lifts the tier above what
@@ -375,7 +401,8 @@ const FRAGMENT = /* glsl */ `
     // T6 — and the frame is the one coast it does not wander on: both reads are held on the
     // map, and the cover past the frame is cut in hard by inMap rather than blurred or warped.
     float here = maskAt(vWorld);
-    float m = min(here, maskAt(vWorld + w * uWarp)) * inMap;
+    // T13 — the own clearing after the warp, so it stays round and on the token.
+    float m = max(min(here, maskAt(vWorld + w * uWarp)), ownAt(vWorld)) * inMap;
 
     // mFog floors the live/memory step at the memory level (min(m,0.5)*2 is 1 for both m=0.5
     // and m=1) so the cut terms below — d, body, wisp, rim — cannot see which of the two this
@@ -607,6 +634,8 @@ export interface LivingFog {
    * Empty (the default, and daylight) leaves the geometry's edge as the only edge.
    */
   setPools(pools: readonly FogPool[]): void;
+  /** T13 — the seat's own tokens, each cleared round and feathered whatever the mask says (§2.8). */
+  setOwn(own: readonly OwnClearing[]): void;
   /** Stretch the cover quad over a world rect (the visible viewport, plus margin). */
   cover(bounds: Bounds): void;
   /** Advance the clock. The caller decides whether reduced motion freezes it. */
@@ -627,6 +656,11 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   const maskSoftRT = RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(maskRT);
+  // T13 — on the player's seat the soft copy is the guard's: the mask read as coverage, blurred
+  // by GUARD_BLUR_CELLS rather than by the look's fade (the one-tier shader reads it for nothing else).
+  const softCoverage = initialLook.oneTier ? coverageFilter() : null;
+  if (softCoverage) softSprite.filters = [softCoverage];
+  const softCells = (): number => (initialLook.oneTier ? GUARD_BLUR_CELLS : fadeCells);
   // T6 — the cover past the map's edge, read as shown by both blurs (in texels: these scenes
   // are unscaled), so neither fades a tier toward the frame. The shader cuts the edge itself.
   const softBeyond = new Graphics();
@@ -682,6 +716,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uWashAlpha: { value: 0, type: 'f32' },
         uPools: { value: new Float32Array(MAX_POOLS * 4), type: 'vec4<f32>', size: MAX_POOLS },
         uPoolCount: { value: 0, type: 'i32' },
+        uOwn: { value: new Float32Array(MAX_OWN * 4), type: 'vec4<f32>', size: MAX_OWN },
+        uOwnCount: { value: 0, type: 'i32' },
         uLayerA: { value: new Float32Array(3 * 4), type: 'vec4<f32>', size: 3 },
         uLayerB: { value: new Float32Array(3 * 4), type: 'vec4<f32>', size: 3 },
       },
@@ -699,6 +735,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uWash: Float32Array | number[];
     uPools: Float32Array;
     uPoolCount: number;
+    uOwn: Float32Array;
+    uOwnCount: number;
     uMaskRect: Float32Array | number[];
     uFrame: Float32Array | number[];
     uTexel: number;
@@ -803,7 +841,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         maskSoftRT.resize(tw, th);
         maskEdgeRT.resize(tw, th);
       }
-      soften.strength = fadeCells * s;
+      soften.strength = softCells() * s;
       soften.quality = blurPasses(soften.strength);
       edgeBlur.strength = EDGE_FEATHER_CELLS * s;
       edgeBlur.quality = blurPasses(edgeBlur.strength);
@@ -853,7 +891,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       if (rect) {
         // The mask geometry has not changed, only how much the soft copy blurs it — so only
         // the soft render needs to run again, not the full `renderMask`.
-        soften.strength = fadeCells * scale;
+        soften.strength = softCells() * scale;
         soften.quality = blurPasses(soften.strength);
         engine.renderToTexture(softScene, maskSoftRT, true);
       }
@@ -891,6 +929,16 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       });
       uniforms.uPoolCount = kept.length;
     },
+    setOwn(own) {
+      const kept = own.slice(0, MAX_OWN);
+      kept.forEach((o, i) => {
+        uniforms.uOwn[i * 4] = o.x;
+        uniforms.uOwn[i * 4 + 1] = o.y;
+        uniforms.uOwn[i * 4 + 2] = o.inner;
+        uniforms.uOwn[i * 4 + 3] = o.outer;
+      });
+      uniforms.uOwnCount = kept.length;
+    },
     cover(bounds) {
       const [w, h] = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY];
       mesh.position.set(bounds.minX, bounds.minY);
@@ -907,6 +955,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       maskScene.destroy({ children: true });
       softScene.destroy({ children: true });
       soften.destroy();
+      softCoverage?.destroy();
       edgeScene.destroy({ children: true });
       edgeCoverage.destroy();
       edgeBlur.destroy();

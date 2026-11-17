@@ -100,19 +100,76 @@ export function edgeFeather(coverage: number): number {
 }
 
 /**
- * T8 — how far the hard mask must read before the feather may show: 1 once the mask's own
- * (bilinear) value reaches 1/EDGE_GUARD. Keeps a hidden cell or a narrow hidden gap hidden where
- * the blur alone would lift it, and sits where the feather is already ~0 on any boundary, so it
- * cannot print the record's staircase back into the fade.
+ * T13 — the guard's own blur, a BlurFilter strength in cells (σ ≈ 0.26 cell). The player seat's
+ * soft copy of the mask (`maskSoft`, read as coverage) is blurred by this much, and the guard
+ * reads that copy. The feather alone would lift a hidden cell inside revealed ground; T8 held it
+ * with the hard texel (`4 × mask`), which stepped from dense cloud to the feather in one texel —
+ * the hard white sliver in a thin hidden gap. Read off this blur, the guard eases instead.
  */
-export const EDGE_GUARD = 4;
+export const GUARD_BLUR_CELLS = 0.2;
+
+/** T13 — the guard is 0 where the soft copy reads at or under this (a boundary reads half)… */
+export const GUARD_FROM = 0.5;
+/** …and 1 from here: a few tenths of a cell inside shown ground, where the feather is still ~0. */
+export const GUARD_TO = 0.8;
+
+/** T13 — the guard for a soft-copy value: the shader's `guardAt`. */
+export function guardAt(soft: number): number {
+  const t = Math.min(1, Math.max(0, (soft - GUARD_FROM) / (GUARD_TO - GUARD_FROM)));
+  return t * t * (3 - 2 * t);
+}
 
 /**
  * T8 — how shown a point reads on the player's seat, 0 hidden to 1 revealed: the shader's
- * one-tier `maskAt`. `hard` is the mask texel (bilinear), `coverage` its feathered blur.
+ * one-tier `maskAt`. `soft` is the guard's blurred copy (T13), `coverage` the feather's blur.
  */
-export function shownAt(hard: number, coverage: number): number {
-  return edgeFeather(coverage) * Math.min(1, Math.max(0, EDGE_GUARD * hard));
+export function shownAt(soft: number, coverage: number): number {
+  return edgeFeather(coverage) * guardAt(soft);
+}
+
+/** T13 — how far past the token's own edge its clearing fades out, in cells (5–95 % over ~1.5). */
+export const OWN_CLEAR_FEATHER = 2;
+
+/** T13 — one of the seat's own tokens as the shader clears it: clear to `inner`, gone by `outer`. */
+export interface OwnClearing {
+  x: number;
+  y: number;
+  inner: number;
+  outer: number;
+}
+
+/** T13 — a token footprint (§2.8) as its round clearing, centred on the footprint. */
+export function ownClearing(footprint: Polygon): OwnClearing {
+  const xs = footprint.map((p) => p[0]);
+  const ys = footprint.map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const inner = Math.max(maxX - minX, maxY - minY) / 2;
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, inner, outer: inner + OWN_CLEAR_FEATHER };
+}
+
+/**
+ * T13 — how clear the seat's own tokens leave a point: 1 over the token, easing to 0 at `outer`.
+ * The shader's `ownAt`, taken after the coastline warp, so the clearing stays on the token.
+ */
+export function ownClearAt(x: number, y: number, own: readonly OwnClearing[]): number {
+  let best = 0;
+  for (const o of own) {
+    const t = Math.min(1, Math.max(0, (Math.hypot(x - o.x, y - o.y) - o.inner) / Math.max(o.outer - o.inner, 1e-3)));
+    best = Math.max(best, 1 - t * t * (3 - 2 * t));
+  }
+  return best;
+}
+
+/**
+ * T13 — the ground a clearing may show, as a polygon round its outer circle (circumscribed, so
+ * it covers the whole disc): the scrim's hole under it.
+ */
+export function ownDisc(o: OwnClearing, sides = 32): Polygon {
+  const r = o.outer / Math.cos(Math.PI / sides);
+  return Array.from({ length: sides }, (_, i) => {
+    const a = (2 * Math.PI * i) / sides;
+    return [o.x + r * Math.cos(a), o.y + r * Math.sin(a)] as [number, number];
+  });
 }
 
 /**
@@ -740,19 +797,20 @@ export function tierPlan(scene: TierScene): DrawPlan {
   }
 
   // ── The feather (P8) ───────────────────────────────────────────────────────
-  // The finished mask's coverage, blurred, for the shader's inward edge ramp. The seat's own
-  // token goes back over it unblurred: a one-cell clearing is narrower than the feather, and
-  // §2.8 promises it clear whatever the edge does.
+  // The finished mask's coverage, blurred, for the shader's inward edge ramp. T13: the seat's
+  // own token is no longer painted back over it as a hard square; the shader clears a round,
+  // feathered patch on the token itself (`ownClearAt`).
   ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
-  if (own.length > 0) {
-    ops.push({ kind: 'polys', target: 'edge', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
-  }
 
   // ── The scrim ─────────────────────────────────────────────────────────────
   // Opaque black by initialisation with the finished mask's own alpha punched out of it. The
   // fail-dark argument, unchanged in shape: any pass that does not run leaves it opaque.
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
+  // T13 — and the own clearing's disc, so its feather fades into the map, not into the backstop.
+  if (own.length > 0) {
+    ops.push({ kind: 'polys', target: 'scrim', polys: own.map((f) => ownDisc(ownClearing(f))), grow: 0, color: MASK_LIVE, blend: 'erase' });
+  }
 
   // T8 — no greyscale tier: darkvision-only ground draws as the lighting leaves it, the same
   // as any revealed ground. The night gate above still decides what that sight reveals.

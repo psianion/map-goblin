@@ -108,11 +108,14 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   const sceneOf = (name: TierTarget): Container =>
     (targets.get(name) as { scene: Container }).scene;
 
-  // The soft copy, built exactly as `livingFog` builds it so the shader's remap keeps working
-  // now that P1b has swapped the paint source underneath it.
+  // The soft copy, built exactly as the player seat's `livingFog` builds it (T13: the mask read
+  // as coverage, blurred by `look.fade` — the caller passes the guard's blur), since the
+  // one-tier shader's guard reads it.
   const maskSoft = shared?.maskSoft ?? RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(rtOf('mask'));
+  const softCoverage = coverageFilter();
+  softSprite.filters = [softCoverage];
   // T6 — the cover past the map's edge, read as shown by the blur (the plan's `beyond`), so the
   // soft copy does not fade live sight toward the edge. In texels: this scene is unscaled.
   const softBeyond = new Graphics();
@@ -294,6 +297,7 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
       }
       softScene.destroy({ children: true });
       soften.destroy();
+      softCoverage.destroy();
       memoryBlur.destroy();
       edgeBlur.destroy();
       edgeCoverage.destroy();

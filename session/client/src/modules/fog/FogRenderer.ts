@@ -110,12 +110,21 @@ import {
   serverDoors,
   serverLayers,
   serverRooms,
+  standInFaces,
   type TableRoom,
 } from './fog';
 import { clipToFrame, placedLights, sightCache, sighted, type DarkArea } from './visionSight';
 import { DEFAULT_FOG_LOOK, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
 import { effectiveFogLook } from './effectiveFogLook';
-import { outsideFrame, tierPlan, type DrawPlan, type TierScene } from './tierPlan';
+import {
+  GUARD_BLUR_CELLS,
+  outsideFrame,
+  ownClearing,
+  ownDisc,
+  tierPlan,
+  type DrawPlan,
+  type TierScene,
+} from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
 /** What the player's canvas does with one room. T10: no explored view; hidden is dark. */
@@ -358,6 +367,8 @@ export interface FogScene {
   outdoors?: string;
   /** §2.8 — this seat's own tokens' footprints on the shown level, always drawn and cleared. */
   own?: Polygon[];
+  /** T13 — By hand: the faces of the stand-ins the server sent (rooms withheld from this seat). */
+  standIns?: Polygon[];
   /** T8 — where the party's eyes stand: a light carried there may warm the cloud (`glowPools`). */
   partyAt?: readonly (readonly [number, number])[];
 }
@@ -896,6 +907,7 @@ export function fogScene(): FogScene {
     openParts,
     outdoors,
     own,
+    standIns: masked && !isVision ? standInFaces(serverLayers(mapData)) : undefined,
     partyAt: eyes.map((t) => [t.x, t.y] as const),
     // No document, no statement: until the referee has sent one there is nothing to be
     // right or wrong about, and covering the canvas on the strength of an empty store would
@@ -1145,26 +1157,41 @@ function fillLand(
  * D3's three tiers, room by room — the mask this layer has always drawn, lifted out of
  * `drawFog` unchanged so vision mode can sit beside it rather than inside it.
  */
-function roomTiers(scene: FogScene): FogRing[] {
-  // Table fix pass §2.8: the Outdoors row is cut from the open ground the referee shipped, in
-  // whichever tier its view puts it — a hole like a room's, never the whole frame.
-  const outdoorsView = scene.outdoors ? scene.views.get(scene.outdoors) : undefined;
-  const floorsOf = (view: RoomView): Polygon[] => [
-    ...scene.rooms
+function roomTiers(scene: FogScene): Polygon[] {
+  const floorsOf = (view: RoomView): Polygon[] =>
+    scene.rooms
       .filter((room) => room.boundary.length >= 3 && scene.views.get(room.id) === view)
-      .map((room) => room.boundary),
-    ...(outdoorsView === view && view !== 'dark' ? (scene.open ?? []) : []),
-  ];
-
-  const dark = floorsOf('dark');
-  const visible = floorsOf('visible');
-  const own = scene.own ?? [];
+      .map((room) => room.boundary);
+  // T13 — a stand-in is a room withheld from this seat, as hidden as a dark one.
+  const blocked = [...floorsOf('dark'), ...(scene.standIns ?? [])];
 
   // T8 — one tier, no memory wash. T10: only what is visible now; a hidden room is dark.
-  const seen = fogRegion([...visible, ...own], dark, scene.pad, FOG_FEATHER);
-  // A dark room is withheld from the earned hole, but never the cell under the seat's own token.
-  const earned = own.length > 0 && isClipperReady() ? clipper2Engine.union([...seen.reach, ...own], []) : seen.reach;
-  return ringsWithHoles(earned);
+  const seen = fogRegion(floorsOf('visible'), blocked, scene.pad, FOG_FEATHER).reach;
+  // Table fix pass §2.8: the Outdoors row is cut from the open ground the referee shipped — a
+  // hole like a room's, never the whole frame.
+  const outdoorsView = scene.outdoors ? scene.views.get(scene.outdoors) : undefined;
+  const open = outdoorsView === 'visible' ? openReach(scene, blocked) : [];
+  // §2.8 — never the cell under the seat's own token, whatever is withheld. T13: the footprint
+  // ungrown (the pad and feather made it a box); the shader clears it round and soft.
+  const own = scene.own ?? [];
+  const parts = [...seen, ...open, ...own];
+  return (open.length > 0 || own.length > 0) && isClipperReady() ? clipper2Engine.union(parts, []) : parts;
+}
+
+/**
+ * T13 — the visible open ground, grown by the pad and feather from its outer rings, with its
+ * holes (walled floors and caves) and the withheld rooms taken back out ungrown, as By sight
+ * draws it (`tierPlan`). Grown with its holes in it, the pad and feather closed every hole by
+ * two cells a side: a hidden cave read as its rim shown with no floor art under it and a hard
+ * sliver of cloud left in the middle.
+ */
+function openReach(scene: FogScene, blocked: readonly Polygon[]): Polygon[] {
+  if (!isClipperReady()) return [];
+  const { outers, holes } = scene.openParts ?? { outers: scene.open ?? [], holes: [] };
+  if (outers.length === 0) return [];
+  const grown = clipper2Engine.inflate([...outers], scene.pad + FOG_FEATHER);
+  const cut = [...holes, ...blocked];
+  return cut.length > 0 ? clipper2Engine.difference(grown, cut) : grown;
 }
 
 /**
@@ -1277,7 +1304,13 @@ export function drawFog(
   let minY = scene.bounds.minY - grow;
   let maxX = scene.bounds.maxX + grow;
   let maxY = scene.bounds.maxY + grow;
-  const earned = roomTiers(scene);
+  const earnedPolys = roomTiers(scene);
+  const earned = ringsWithHoles(earnedPolys);
+  // T13 — the scrim opens under the own clearing's whole disc, so its feather fades into the
+  // map rather than into the black backstop.
+  const discs = (scene.own ?? []).map((footprint) => ownDisc(ownClearing(footprint)));
+  const opened =
+    discs.length > 0 && isClipperReady() ? ringsWithHoles(clipper2Engine.union([...earnedPolys, ...discs], [])) : earned;
 
   // …and further still for whatever is actually cut out of it: a hole that crosses the filled
   // rect's outer contour is dropped whole by the triangulator, and the mask came back as
@@ -1285,7 +1318,7 @@ export function drawFog(
   // the raw sweep — a sweep reaches the whole map by line of sight (`SIGHT_REACH`) and its
   // rays run a thousand cells out before the region clips them to what the player holds;
   // growing the cover to those put the map in a corner of a mask the size of a county.
-  for (const ring of earned) {
+  for (const ring of opened) {
     for (const [x, y] of ring.outline) {
       minX = Math.min(minX, x - grow);
       minY = Math.min(minY, y - grow);
@@ -1298,13 +1331,13 @@ export function drawFog(
   // is opaque over everything hidden, so the one job left down here is failing dark.
   scrim.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
 
-  cutLand(scrim, earned, { color: 0x000000, alpha: 1 });
+  cutLand(scrim, opened, { color: 0x000000, alpha: 1 });
   // A plateau top no party eye is high enough to see goes back under, inside a lit room too.
   lastHidden = scene.hide ?? [];
   for (const ring of lastHidden) scrim.poly(ring.flat()).fill({ color: 0x000000, alpha: 1 });
   // P7 — a room's padded reach stops at the map's edge: the void past the frame stays covered.
   const b = scene.bounds;
-  const spills = earned.some((ring) => ring.outline.some(([x, y]) => x < b.minX || y < b.minY || x > b.maxX || y > b.maxY));
+  const spills = opened.some((ring) => ring.outline.some(([x, y]) => x < b.minX || y < b.minY || x > b.maxX || y > b.maxY));
   const past = spills ? outsideFrame({ minX, minY, maxX, maxY }, b) : [];
   for (const r of past) scrim.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY).fill({ color: 0x000000, alpha: 1 });
 
@@ -1586,9 +1619,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     if (built.plan) {
       // Cleared even when nothing can be composited, so a target left holding the previous
       // rebuild cannot survive as a hole — or, on `live`, as a chip standing in the dark.
+      // T13 — the soft copy is the guard's on this seat, blurred by the guard's own width.
       tiers.run(raster ? built.plan : { cover: null, ops: [], cells: built.cells }, {
         scale: fit?.scale ?? 1,
-        fade: FOG_FADE / 2,
+        fade: GUARD_BLUR_CELLS,
       });
     }
     if (!raster) {
@@ -1658,6 +1692,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // …and in the dark, the lights that warm the cloud: only those this seat may know of (T8).
     // The pools no longer shape the cover — revealed ground shows whatever the light does.
     fog.setPools(glowPools(scene));
+    // T13 — the seat's own tokens, cleared round on the token itself (§2.8).
+    fog.setOwn((scene.own ?? []).map(ownClearing));
     // The vector path's own rasterisation. Skipped when the compositor painted the mask —
     // this would render `maskPaint` (empty in vision mode) straight over it — and *not*
     // skipped on a mode flip, which is what re-renders the mask through the now-active path

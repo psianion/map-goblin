@@ -113,6 +113,18 @@ export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
  * fog lane is keyed on (every memo here keys on `mapData`), it is already redacted to exactly
  * the rooms a player may know about, and its faces are the referee's own.
  */
+/**
+ * T13 — the faces of the stand-ins the server sent: rooms withheld from this seat whose floor
+ * art still travels. Never the player's to hold, so By hand fogs them like a hidden room.
+ */
+export function standInFaces(layers: readonly Layer[]): [number, number][][] {
+  return layers.flatMap((layer) =>
+    layer.type === 'dungeon'
+      ? (layer.rooms ?? []).filter((room) => room.standIn).map(roomRing).filter((ring) => ring.length >= 3)
+      : [],
+  );
+}
+
 export function serverLayers(mapData: unknown): Layer[] {
   return (mapData as { layers?: Layer[] } | null)?.layers ?? [];
 }
