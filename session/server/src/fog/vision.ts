@@ -1165,7 +1165,11 @@ function openGroundRings(
         runs.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
       }
     }
-    const grown = runs.length ? clipper2Engine.inflate(clipper2Engine.union(runs, []), pad) : []
+    // P7: grown, then held to the frame. The pad buys back a wall band at a cave's edge; at the
+    // map's edge it would hand the seat open ground out in the void.
+    const grown = runs.length
+      ? clipper2Engine.intersection(clipper2Engine.inflate(clipper2Engine.union(runs, []), pad), [frameRing])
+      : []
     const rings = grown.length ? (clipper2Engine.difference(grown, zonedEnclosureRings(map, levelId)) as Ring[]) : []
     openGroundCache.set(grid, { key, rings })
     return { levelId, rings }

@@ -143,6 +143,8 @@ const FRAGMENT = /* glsl */ `
   uniform float uVeil;
   uniform float uGlow;
   uniform vec4 uMaskRect;
+  // P7 — the map frame (minX, minY, maxX, maxY); maxX <= minX is "no frame".
+  uniform vec4 uFrame;
   uniform vec3 uDeep;
   // The base lifted toward white — the rim/underlay tint. Not read by this pass yet: the
   // blurred-floor underlay it feeds is WP3 (D3), not shipped here. Kept in sync now so that
@@ -230,6 +232,12 @@ const FRAGMENT = /* glsl */ `
     }
     return best;
   }
+  // P7 — 1 well inside the map frame, easing to 0 over the last cell at its edge.
+  float frameIn(vec2 p) {
+    if (uFrame.z <= uFrame.x) return 1.0;
+    float d = min(min(p.x - uFrame.x, uFrame.z - p.x), min(p.y - uFrame.y, uFrame.w - p.y));
+    return smoothstep(0.0, 1.0, d);
+  }
   float maskAt(vec2 world) {
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
@@ -309,6 +317,8 @@ const FRAGMENT = /* glsl */ `
       if (p.z >= 0.0) continue; // not warm — see uPools' comment above
       glow += 1.0 - smoothstep(0.0, p.w * 1.8, distance(vWorld, p.xy));
     }
+    // P7 — and only over the map: a torch by the edge does not warm the cover out in the void.
+    glow *= frameIn(vWorld);
     col = mix(col, vec3(1.0, 0.80, 0.50), clamp(glow, 0.0, 1.0) * uGlow * 0.7);
 
     // The coastline. min() is the security half — lobes eat inward, bays never open outward.
@@ -487,6 +497,8 @@ export interface LivingFog {
   fadePaint: Container;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
   setMaskBounds(bounds: Bounds | null): void;
+  /** P7 — the map frame the torch glow stays inside (null: no frame, glow anywhere). */
+  setFrame(frame: Bounds | null): void;
   /**
    * The two textures the cloud shader samples, for a caller that paints them itself instead
    * of through `maskPaint` — the raster tier compositor, which composites vision mode's whole
@@ -575,6 +587,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uVeil: { value: DEFAULT_FOG_LOOK.veil, type: 'f32' },
         uGlow: { value: DEFAULT_FOG_LOOK.glow, type: 'f32' },
         uMaskRect: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
+        uFrame: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uCoverRect: { value: [0, 0, 1, 1], type: 'vec4<f32>' },
         uDeep: { value: [0, 0, 0], type: 'vec3<f32>' },
         uMid: { value: [0, 0, 0], type: 'vec3<f32>' },
@@ -600,6 +613,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uPools: Float32Array;
     uPoolCount: number;
     uMaskRect: Float32Array | number[];
+    uFrame: Float32Array | number[];
     uCoverRect: Float32Array | number[];
     uDeep: Float32Array | number[];
     uMid: Float32Array | number[];
@@ -685,6 +699,9 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
+    },
+    setFrame(frame) {
+      setVec(uniforms.uFrame, frame ? [frame.minX, frame.minY, frame.maxX, frame.maxY] : [0, 0, 0, 0]);
     },
     maskTextures: { mask: maskRT, maskSoft: maskSoftRT },
     maskFit() {

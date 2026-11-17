@@ -18,6 +18,7 @@ import {
   MASK_MEMORY_GREY,
   MEMORY_BLUR_CELLS,
   cellTexture,
+  outsideFrame,
   tierPlan,
   type DrawOp,
   type DrawPlan,
@@ -447,7 +448,8 @@ describe('tierPlan — contained sight', () => {
       { kind: 'polys', polys: [NEAR], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
       { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
     ]);
-    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+    // (P7's frame strips follow; `the map edge` rows pin those.)
+    expect(opsOn(plan, 'inverseOpen').slice(0, 3)).toMatchObject([
       { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
       { kind: 'polys', polys: regionRects(OPENED), grow: GROW, blend: 'erase' },
       { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
@@ -678,7 +680,7 @@ describe('tierPlan — contained sight', () => {
     ]);
     // `inverseOpen` fails the same way and is built on the same terms: a white cover with the
     // held ground erased out, plus the near term whether or not there is one to erase.
-    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+    expect(opsOn(plan, 'inverseOpen').slice(0, 2)).toMatchObject([
       { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
       { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
     ]);
@@ -752,6 +754,10 @@ const legacyPlan = (s: TierScene): DrawPlan => {
   }
   if (painted.length > 0) {
     ops.push({ kind: 'polys', target: 'inverseHeld', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
+  }
+  // P7: the void past the frame goes back over the clip.
+  for (const rect of outsideFrame(cover, s.frame)) {
+    ops.push({ kind: 'rect', target: 'inverseHeld', rect, color: MASK_LIVE, blend: 'normal' });
   }
   if (s.night && sight.length > 0) {
     ops.push({ kind: 'rect', target: 'inverseSeeable', rect: cover, color: MASK_LIVE, blend: 'normal' });
@@ -995,5 +1001,97 @@ describe('tierPlan — table fix pass §2.8', () => {
   it('adds nothing for a seat with no token of its own', () => {
     const plan = tierPlan(fenced({ rooms: [WEST] }));
     expect(opsOn(plan, 'live')).toEqual([]);
+  });
+});
+
+/**
+ * A CPU reading of a plan: whether a target is covered at one world point once its ops have
+ * run. Binary (a grown poly covers a point within `grow` of it), which is all an edge row needs.
+ */
+function coveredAt(plan: DrawPlan, target: TierTarget, x: number, y: number): boolean {
+  const c = plan.cover;
+  if (!c || x < c.minX || y < c.minY || x > c.maxX || y > c.maxY) return false;
+  const inside = (p: Polygon): boolean => {
+    let hit = false;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+      const [xi, yi] = p[i];
+      const [xj, yj] = p[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  const near = (p: Polygon, r: number): boolean =>
+    p.some(([ax, ay], i) => {
+      const [bx, by] = p[(i + 1) % p.length];
+      const [dx, dy] = [bx - ax, by - ay];
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - ax - t * dx, y - ay - t * dy) <= r;
+    });
+  let on = false;
+  for (const op of plan.ops) {
+    if (op.target !== target) continue;
+    let hit: boolean;
+    if (op.kind === 'rect') hit = x >= op.rect.minX && x <= op.rect.maxX && y >= op.rect.minY && y <= op.rect.maxY;
+    else if (op.kind === 'polys') hit = op.polys.some((p) => inside(p) || (op.grow > 0 && near(p, op.grow)));
+    else if (op.kind === 'cells') {
+      const [col, row] = [Math.floor(x - op.cells.minX), Math.floor(y - op.cells.minY)];
+      hit = col >= 0 && row >= 0 && col < op.cells.cols && row < op.cells.rows && op.cells.data[(row * op.cells.cols + col) * 4 + 3] > 0;
+    } else hit = coveredAt(plan, op.source, x, y);
+    if (hit) on = op.blend === 'normal';
+  }
+  return on;
+}
+
+describe('tierPlan — the map edge (P7)', () => {
+  // A token one cell in from the frame's right edge, with a 12-cell range on open ground: its
+  // sweep runs well past the edge, and so would every grow the plan puts on it.
+  const TOKEN_AT: [number, number] = [22.5, 4.5];
+  const REACH: Polygon = [
+    [TOKEN_AT[0] - 12, TOKEN_AT[1] - 12],
+    [TOKEN_AT[0] + 12, TOKEN_AT[1] - 12],
+    [TOKEN_AT[0] + 12, TOKEN_AT[1] + 12],
+    [TOKEN_AT[0] - 12, TOKEN_AT[1] + 12],
+  ];
+  const SEEN = brushed(
+    Array.from({ length: 8 }, (_, row) => Array.from({ length: 13 }, (_, i) => [11 + i, row] as [number, number])).flat(),
+  );
+  const OPEN: Polygon = [
+    [0, 0],
+    [24, 0],
+    [24, 8],
+    [0, 8],
+  ];
+  const OUTSIDE: [number, number][] = [
+    [24.3, 4.5],
+    [25.2, 4.5],
+    [22.5, 8.4],
+    [22.5, -0.6],
+    [24.4, 8.4],
+  ];
+
+  const rows: [string, TierScene][] = [
+    ['uncontained, a roomless map', scene({ rooms: [], sight: [REACH], region: SEEN })],
+    ['contained, open ground', fenced({ rooms: [], open: [OPEN], sight: [REACH], near: [REACH], region: SEEN })],
+    ['contained, nothing shipped yet', fenced({ rooms: [], sight: [REACH], near: [REACH], region: SEEN })],
+  ];
+
+  it.each(rows)('%s: shows sight up to the edge and nothing past it', (_name, s) => {
+    const plan = tierPlan(s);
+    expect(coveredAt(plan, 'live', 23.5, 4.5)).toBe(true);
+    expect(coveredAt(plan, 'mask', 23.5, 4.5)).toBe(true);
+    for (const [x, y] of OUTSIDE) {
+      expect(coveredAt(plan, 'live', x, y)).toBe(false);
+      expect(coveredAt(plan, 'mask', x, y)).toBe(false);
+      // …and the scrim stays down out there.
+      expect(coveredAt(plan, 'scrim', x, y)).toBe(true);
+    }
+  });
+
+  it('cuts the strips off the cover, not the frame', () => {
+    const cover = { minX: -2, minY: -2, maxX: 26, maxY: 10 };
+    const strips = outsideFrame(cover, FRAME);
+    expect(strips).toHaveLength(4);
+    const area = strips.reduce((sum, r) => sum + (r.maxX - r.minX) * (r.maxY - r.minY), 0);
+    expect(area).toBe(28 * 12 - 24 * 8);
   });
 });

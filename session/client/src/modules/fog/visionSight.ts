@@ -261,3 +261,44 @@ export function createSightCache(): SightCache {
 
 /** The one the mask uses. A second instance would be a second cache over the same answers. */
 export const sightCache = createSightCache();
+
+/**
+ * P7 — a sweep held to the map's frame (Sutherland–Hodgman against the frame's four edges).
+ *
+ * A sweep's rays run `SIGHT_REACH` past every edge of the map, and a light's or a darkvision
+ * eye's pool runs past it too when it stands by the edge. What a seat sees, and what lights
+ * it, ends where the map does. Applied to copies after the memo (`partySight`, `litArea`), so
+ * the cached sweeps stay the raw ones every caller shares. Fewer than three points is nothing.
+ */
+export function clipToFrame(
+  polygon: Polygon,
+  frame: { minX: number; minY: number; maxX: number; maxY: number },
+): Polygon {
+  type Pt = [number, number];
+  const edges: [(p: Pt) => boolean, (a: Pt, b: Pt) => Pt][] = [
+    [(p) => p[0] >= frame.minX, (a, b) => at(a, b, (frame.minX - a[0]) / (b[0] - a[0]))],
+    [(p) => p[0] <= frame.maxX, (a, b) => at(a, b, (frame.maxX - a[0]) / (b[0] - a[0]))],
+    [(p) => p[1] >= frame.minY, (a, b) => at(a, b, (frame.minY - a[1]) / (b[1] - a[1]))],
+    [(p) => p[1] <= frame.maxY, (a, b) => at(a, b, (frame.maxY - a[1]) / (b[1] - a[1]))],
+  ];
+  function at(a: Pt, b: Pt, t: number): Pt {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+  let out: Pt[] = polygon as Pt[];
+  for (const [inside, cross] of edges) {
+    if (out.length === 0) break;
+    const next: Pt[] = [];
+    for (let i = 0; i < out.length; i++) {
+      const cur = out[i];
+      const prev = out[(i + out.length - 1) % out.length];
+      if (inside(cur)) {
+        if (!inside(prev)) next.push(cross(prev, cur));
+        next.push(cur);
+      } else if (inside(prev)) {
+        next.push(cross(prev, cur));
+      }
+    }
+    out = next;
+  }
+  return out.length >= 3 ? out : [];
+}

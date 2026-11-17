@@ -114,10 +114,10 @@ import {
   serverRooms,
   type TableRoom,
 } from './fog';
-import { placedLights, sightCache, sighted, type DarkArea } from './visionSight';
+import { clipToFrame, placedLights, sightCache, sighted, type DarkArea } from './visionSight';
 import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
 import { effectiveFogLook } from './effectiveFogLook';
-import { tierPlan, type DrawPlan, type TierScene } from './tierPlan';
+import { outsideFrame, tierPlan, type DrawPlan, type TierScene } from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
 /** What the player's canvas does with one room. */
@@ -831,6 +831,9 @@ export function fogScene(): FogScene {
         : []
   ).filter((t) => onLevel(core, t, level));
   const levelTokens = tokens.filter((t) => onLevel(core, t, level));
+  // P7 — sight and light end at the map's edge. The referee's frame, when it stamped one.
+  const edge = (mapData as SerializedMapData | null)?.frame ?? null;
+  const inFrame = (polys: Polygon[]): Polygon[] => (edge ? polys.map((p) => clipToFrame(p, edge)) : polys);
   // Table fix pass: the shown level's Outdoors row, as the referee names it (one level ⇒ the
   // bare id), and this seat's own tokens' footprints, which §2.8 always draws and clears.
   const outdoors = (core.levels?.length ?? 0) > 1 ? outdoorsId(level) : outdoorsId();
@@ -861,7 +864,7 @@ export function fogScene(): FogScene {
   // reason `serverRooms` gives — those are what core re-detects, and walls are not.
   const sight =
     isVision && masked
-      ? sightCache.partySight(levelLayers, eyes, sightRangeLimitOn(fog), darkAreas)
+      ? inFrame(sightCache.partySight(levelLayers, eyes, sightRangeLimitOn(fog), darkAreas))
       : undefined;
   // Contained sight's second pass: the same eyes, the same occluders, swept to each eye's own
   // `range` instead of to `SIGHT_REACH`. Taken *here* rather than inside `partySight`, which
@@ -871,7 +874,7 @@ export function fogScene(): FogScene {
   // them. With `sightRangeLimit` on, the full sweep *is* this sweep and the memo returns the
   // very same polygons: containment collapses to the range limit, no special case.
   const contained = isVision && containedSightOn(fog);
-  const near = sight && contained ? sightCache.partySight(levelLayers, eyes, true, darkAreas) : undefined;
+  const near = sight && contained ? inFrame(sightCache.partySight(levelLayers, eyes, true, darkAreas)) : undefined;
 
   // S3 P3 §2 — the light gate, when the scene is turned to `darkness`. Every light source's
   // own sweep (placed lights the table has left on, plus token-carried ones), and separately
@@ -890,15 +893,15 @@ export function fogScene(): FogScene {
     const anyDarkvision = dark.length > 0;
     return {
       // Lit by a light, or by the sky in a room that is not dark inside a dark level.
-      lit: [...sightCache.litArea(levelLayers, sources.filter((s) => !s.darkness)), ...(gate!.levelDark ? gate!.litFaces : [])],
-      darkvision: sightCache.litArea(levelLayers, dark),
+      lit: [...inFrame(sightCache.litArea(levelLayers, sources.filter((s) => !s.darkness))), ...(gate!.levelDark ? gate!.litFaces : [])],
+      darkvision: inFrame(sightCache.litArea(levelLayers, dark)),
       pools: nightPools(levelLayers, levelTokens, scene!.lightEdits, eyes),
       // Only these rooms are dark when the level's own ground is not.
       ...(gate!.levelDark ? {} : { dark: gate!.darkFaces }),
       // Darkness sources hide what is inside them from light; only darkvision a source lets
       // through sees in (approximated per party: with any darkvision eye, such a source is
       // left to the darkvision ring).
-      blind: darkAreas.filter((d) => !(anyDarkvision && d.darkvisionSees)).map((d) => d.polygon),
+      blind: inFrame(darkAreas.filter((d) => !(anyDarkvision && d.darkvisionSees)).map((d) => d.polygon)),
     };
   };
 
@@ -1318,6 +1321,11 @@ export function drawFog(
   // A plateau top no party eye is high enough to see goes back under, inside a lit room too.
   lastHidden = scene.hide ?? [];
   for (const ring of lastHidden) scrim.poly(ring.flat()).fill({ color: 0x000000, alpha: 1 });
+  // P7 — a room's padded reach stops at the map's edge: the void past the frame stays covered.
+  const b = scene.bounds;
+  const spills = earned.some((ring) => ring.outline.some(([x, y]) => x < b.minX || y < b.minY || x > b.maxX || y > b.maxY));
+  const past = spills ? outsideFrame({ minX, minY, maxX, maxY }, b) : [];
+  for (const r of past) scrim.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY).fill({ color: 0x000000, alpha: 1 });
 
   // The memory wash is the cloud's (`LivingFog.setWash`), read off the same mask as the
   // mist, so it ramps in along live sight's rim with the tiers instead of stepping on it. The
@@ -1335,6 +1343,7 @@ export function drawFog(
     fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
     for (const ring of lastHidden) maskPaint.poly(ring.flat()).fill({ color: 0x000000, alpha: 1 });
+    for (const r of past) maskPaint.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY).fill({ color: 0x000000, alpha: 1 });
   }
   // The stencil for the overlays that draw above the mask (`SIGHT_MASK`): the token chips
   // and the turn ring.
@@ -1694,6 +1703,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // lighting pass's own rim curve rather than on a cut at a radius. Outside darkness the
     // geometry is the whole statement.
     fog.setPools(scene.night?.pools ?? []);
+    // P7 — the torch glow stays over the map.
+    fog.setFrame(scene.bounds);
     // The vector path's own rasterisation. Skipped when the compositor painted the mask —
     // this would render `maskPaint` (empty in vision mode) straight over it — and *not*
     // skipped on a mode flip, which is what re-renders the mask through the now-active path

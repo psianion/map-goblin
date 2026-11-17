@@ -338,6 +338,20 @@ function coverOf(
 }
 
 /**
+ * P7 — the cover outside the frame, as up to four strips. Every clip target is painted white
+ * over these last, so no tier ever shows past the map's edge: a sweep's grow, a held room's
+ * pad and the open ground's band all stop at the frame, and the void stays under the cover.
+ */
+export function outsideFrame(cover: Bounds, frame: Bounds): Bounds[] {
+  return [
+    { minX: cover.minX, minY: cover.minY, maxX: cover.maxX, maxY: frame.minY },
+    { minX: cover.minX, minY: frame.maxY, maxX: cover.maxX, maxY: cover.maxY },
+    { minX: cover.minX, minY: frame.minY, maxX: frame.minX, maxY: frame.maxY },
+    { minX: frame.maxX, minY: frame.minY, maxX: cover.maxX, maxY: frame.maxY },
+  ].filter((r) => r.maxX > r.minX && r.maxY > r.minY);
+}
+
+/**
  * The record's bits, one RGBA texel per cell. Null when there is no record or nothing set in
  * it — an empty memory tier is no draw at all rather than a transparent one.
  */
@@ -387,6 +401,11 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const seeable = night ? usable([...night.lit, ...night.darkvision]) : [];
   const memory = cellTexture(scene.region);
   const ops: DrawOp[] = [];
+  // P7 — the void past the frame, put back over each clip once its erases are done.
+  const edge = scene.frame ? outsideFrame(cover, scene.frame) : [];
+  const closeEdge = (target: TierTarget): void => {
+    for (const rect of edge) ops.push({ kind: 'rect', target, rect, color: MASK_LIVE, blend: 'normal' });
+  };
 
   // ── The clip, as its erase-dual ────────────────────────────────────────────
   // White everywhere, then the held sources taken back out: what is left is exactly the
@@ -400,6 +419,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
   if (painted.length > 0) {
     ops.push({ kind: 'polys', target: 'inverseHeld', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
   }
+  closeEdge('inverseHeld');
 
   // ── The shipping clip, on the same trick ──────────────────────────────────
   // Contained scenes only, and built whether or not there is a near pass to fence, because it
@@ -419,6 +439,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
     if (painted.length > 0) {
       ops.push({ kind: 'polys', target: 'inverseShipped', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
     }
+    closeEdge('inverseShipped');
   }
 
   // ── The range-earned term, on its own target ──────────────────────────────
@@ -453,6 +474,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
       ops.push({ kind: 'polys', target: 'inverseOpen', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
     }
     ops.push({ kind: 'sprite', target: 'inverseOpen', source: 'nearTerm', blend: 'erase' });
+    closeEdge('inverseOpen');
   }
 
   // ── The night gate, on the same trick ──────────────────────────────────────
