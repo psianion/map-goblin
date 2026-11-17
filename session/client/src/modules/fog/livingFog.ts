@@ -651,7 +651,10 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     indexBuffer: [0, 1, 2, 0, 2, 3],
   });
 
-  const maskRT = RenderTexture.create({ width: 4, height: 4 });
+  // T14 — dynamic, so the sprites drawn from it hear `setMaskBounds`' resize. A static texture's
+  // sprite keeps the bounds of its first render, and the filters on it clip to those: a mask that
+  // grew afterwards was cut off at the old size (By hand, Reveal all: cloud past x≈27).
+  const maskRT = RenderTexture.create({ width: 4, height: 4, dynamic: true });
   // The softened copy: `maskRT` through one blur, re-rendered whenever the mask is.
   const maskSoftRT = RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });

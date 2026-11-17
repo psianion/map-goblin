@@ -1171,11 +1171,28 @@ function roomTiers(scene: FogScene): Polygon[] {
   // hole like a room's, never the whole frame.
   const outdoorsView = scene.outdoors ? scene.views.get(scene.outdoors) : undefined;
   const open = outdoorsView === 'visible' ? openReach(scene, blocked) : [];
+  const shown = closeThinGaps([...seen, ...open], blocked);
   // §2.8 — never the cell under the seat's own token, whatever is withheld. T13: the footprint
   // ungrown (the pad and feather made it a box); the shader clears it round and soft.
   const own = scene.own ?? [];
-  const parts = [...seen, ...open, ...own];
-  return (open.length > 0 || own.length > 0) && isClipperReady() ? clipper2Engine.union(parts, []) : parts;
+  const parts = [...shown, ...own];
+  return own.length > 0 && isClipperReady() ? clipper2Engine.union(parts, []) : parts;
+}
+
+/** T14 — half the width of the widest hidden gap between shown ground that is shown with it, in cells. */
+export const THIN_GAP_CELLS = 0.5;
+
+/**
+ * T14 — shown ground with every hidden gap narrower than a cell between its parts closed (grown,
+ * then shrunk back), and the withheld rooms cut back out. Left open, such a gap read as a thin,
+ * hard-edged sliver of cloud wedged between two revealed rooms' reaches. Display only: what lies
+ * in the strip is still the referee's to send.
+ */
+function closeThinGaps(parts: Polygon[], blocked: readonly Polygon[]): Polygon[] {
+  if (parts.length === 0 || !isClipperReady()) return parts;
+  const grown = clipper2Engine.inflate(clipper2Engine.union(parts, []), THIN_GAP_CELLS);
+  const closed = clipper2Engine.inflate(grown, -THIN_GAP_CELLS);
+  return blocked.length > 0 ? clipper2Engine.difference(closed, [...blocked]) : closed;
 }
 
 /**

@@ -97,7 +97,8 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
       return [
         name,
         {
-          rt: borrowed ?? RenderTexture.create({ width: 4, height: 4 }),
+          // T14 — dynamic, so a sprite drawn from a target follows its resize (`livingFog`'s maskRT).
+          rt: borrowed ?? RenderTexture.create({ width: 4, height: 4, dynamic: true }),
           scene: new Container(),
           owned: !borrowed,
         },
