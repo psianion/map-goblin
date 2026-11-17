@@ -45,4 +45,14 @@ describe('republish notice', () => {
     useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb' });
     expect(info).not.toHaveBeenCalled();
   });
+
+  // F19: a switch to a scene marked hidden still reaches the players; the DM is told so.
+  it('tells the DM, and only the DM, when the live scene was hidden', () => {
+    useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb', hidden: true });
+    expect(info).toHaveBeenCalledWith('This scene was hidden; players see it now');
+    info.mockClear();
+    useSessionStore.setState({ session: state('a', 'm1'), you: { ...dm, role: 'player' } });
+    useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb', hidden: true });
+    expect(info).not.toHaveBeenCalled();
+  });
 });
