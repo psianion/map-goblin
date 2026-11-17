@@ -49,10 +49,22 @@ export const PROP_LENGTH_SCALE = 0.55;
 /**
  * How many nested bands the soft edge is built from — the `featherEdge` technique
  * (FogRenderer), in the shape a shadow wants: each band reaches further and is narrower than
- * the last, at an even fraction of the peak alpha, so the overlap telescopes to a full-strength
- * pool at the wall and a faint tapering tip. Flat geometry, no filter, no per-frame cost.
+ * the last, so the overlap telescopes to a full-strength pool at the wall and a faint tapering
+ * tip.
+ *
+ * T9 — eight, under a blur of about half a band's spacing (`wallShadowSigma`): four flat bands
+ * read as four steps of shade, and the blur alone could not melt steps that wide without
+ * spilling the shadow back over the wall's sunny face.
  */
-export const SHADOW_STEPS = 4;
+export const SHADOW_STEPS = 8;
+/** What the stack used to be: four bands, each multiplied into the ground. Its depth is kept. */
+const LEGACY_STEPS = 4;
+/** The blur over the bands, as a share of their spacing along the shadow… */
+const BAND_SOFTNESS = 0.5;
+/** …never wider than this, so it barely spills behind the wall's own art, cells… */
+const SHADOW_SIGMA_MAX = 0.25;
+/** …nor narrower than this: even a noon shadow has a penumbra, cells. */
+const SHADOW_SIGMA_MIN = 0.1;
 /** How much of its length a band loses off each side per step — the tip's taper. */
 const TAPER = 0.22;
 
@@ -158,9 +170,29 @@ export function casterLook(look: ShadowLook, height: number): ShadowLook {
   return { ...look, length: (look.length * Math.max(0, height)) / CASTER_HEIGHT };
 }
 
-/** What each band is filled at — even fractions, so the overlap lands on {@link ShadowLook.alpha}. */
-export const bandAlpha = (look: ShadowLook, steps: number = SHADOW_STEPS): number =>
-  look.alpha / steps;
+/**
+ * What each band is filled at. T9: the bands stack source-over and the blurred stack is
+ * multiplied into the ground once, so each band's alpha is set for the full stack to darken the
+ * shadow colour's mean channel exactly as the four multiplied bands it replaces did — the
+ * canvas keeps its shadow depth, only the steps go.
+ */
+export function bandAlpha(look: ShadowLook, steps: number = SHADOW_STEPS): number {
+  const n = parseInt(look.color.replace('#', ''), 16);
+  const mean = (((n >> 16) & 0xff) + ((n >> 8) & 0xff) + (n & 0xff)) / (3 * 255);
+  const k = 1 - mean;
+  const darkening = 1 - (1 - (look.alpha / LEGACY_STEPS) * k) ** LEGACY_STEPS;
+  const stack = k > 0 ? Math.min(1, darkening / k) : look.alpha;
+  return 1 - (1 - stack) ** (1 / steps);
+}
+
+/**
+ * T9 — the blur over a wall's shadow bands, one standard deviation in cells: about half the
+ * bands' spacing along the shadow, so their steps melt into one ramp and the tip and sides end
+ * on a soft penumbra.
+ */
+export function wallShadowSigma(look: ShadowLook, steps: number = SHADOW_STEPS): number {
+  return Math.min(SHADOW_SIGMA_MAX, Math.max(SHADOW_SIGMA_MIN, (BAND_SOFTNESS * look.length) / steps));
+}
 
 // ─── Props ────────────────────────────────────────────────
 

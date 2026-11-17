@@ -828,3 +828,23 @@ const FADE_PER_SIGMA = 2.5631;
 export function blurStrengthFor(fade: number, pxPerCell: number): number {
   return (fade / FADE_PER_SIGMA / KERNEL_SIGMA) * pxPerCell;
 }
+
+/** The BlurFilter strength whose edge spreads `sigma` pixels (one standard deviation). */
+export function blurStrengthForSigma(sigma: number): number {
+  return sigma / KERNEL_SIGMA;
+}
+
+/**
+ * How many passes a BlurFilter of `strength` pixels needs to come out a gradient rather than a
+ * staircase. Pixi spaces its first pass's taps `strength / sqrt(Σ 4^-i)` apart and halves that
+ * each pass; a hard edge through it steps at the last pass's spacing, so passes are added until
+ * that spacing is a pixel or less. Fewer passes left a light's shadow edge in visible treads.
+ */
+export function blurPasses(strength: number): number {
+  let sum = 1;
+  for (let passes = 1; passes < 8; passes++) {
+    if (strength / Math.sqrt(sum) / 2 ** (passes - 1) <= 1) return passes;
+    sum += 4 ** -passes;
+  }
+  return 8;
+}

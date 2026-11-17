@@ -13,6 +13,7 @@ import { litFrame, skyKey, type SkyFrame } from '../../shared/sky'
 import { regionGrade, type RegionLight } from '../../shared/regionGrade'
 import { animationTime, isFrozen } from '../../shared/freeze'
 import type { LightAnimation } from '../../shared/types'
+import { blurPasses } from '../../shared/plateauShade'
 
 /**
  * What one light contributes to the picture, as one comparable string: everything the light
@@ -1010,6 +1011,7 @@ export class LightingRenderer {
       this.poseWorld(this.gradeFaces, zoom)
       this.poseWorld(this.gradeSpill, zoom)
       this.spillBlur.strength = SPILL_BLUR_CELLS * zoom * S
+      this.spillBlur.quality = blurPasses(this.spillBlur.strength)
       this.engine.renderToTexture(this.gradeRoot, target.gradeRT, true)
       this.stats.gradePasses++
     }
@@ -1040,6 +1042,8 @@ export class LightingRenderer {
     this.poseWorld(this.glowLayer, zoom)
     const softness = inputs.sky.penumbraScale
     this.penumbra.strength = Math.min(PENUMBRA_MAX_PX * softness, PENUMBRA_CELLS * softness * zoom * S)
+    // T9 — enough passes that the penumbra is a gradient: two left a wall's shadow edge in treads.
+    this.penumbra.quality = blurPasses(this.penumbra.strength)
     this.lightLayer.filters = this.penumbra.strength >= 0.5 ? this.penumbraFilters : NO_FILTERS
     this.engine.renderToTexture(this.lightRoot, target.lightRT, true)
     this.stats.lightPasses++
@@ -1067,6 +1071,7 @@ export class LightingRenderer {
         this.lastDarkKey = target.memo ? darkKey : ''
         this.poseWorld(this.darkLayer, zoom)
         this.darkBlur.strength = this.penumbra.strength
+        this.darkBlur.quality = this.penumbra.quality
         this.darkLayer.filters = this.darkBlur.strength >= 0.5 ? this.darkFilters : NO_FILTERS
         this.engine.renderToTexture(this.darkRoot, target.darkRT, true)
         this.stats.darkPasses++
