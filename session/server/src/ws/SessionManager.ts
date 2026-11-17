@@ -1,7 +1,7 @@
 // Sessions, presence, heartbeat — the behaviour contracts in spec §2.5.
 
 import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
-import type { Viewer } from '@dnd/mechanics/contract'
+import type { CommandError, Viewer } from '@dnd/mechanics/contract'
 import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
 import { PROTOCOL_VERSION } from '../config'
 import type { Vision } from '../fog/vision'
@@ -132,6 +132,26 @@ export class SessionManager {
     this.broadcaster.broadcast(sessionId, { type: 'session-ended' })
     this.sessions.delete(sessionId)
     for (const client of session.clients) client.close()
+  }
+
+  /** The seats of a live table, connected or not; empty when nobody has joined it yet. */
+  seatsOf(sessionId: string): PlayerInfo[] {
+    return [...(this.sessions.get(sessionId)?.players.values() ?? [])]
+  }
+
+  /**
+   * Table fix pass F1 — a table that carries on is switched to another scene through the dock's
+   * own `scenes.activate`, sent as the server, so every seat hears it the way it hears the DM.
+   */
+  activateScene(sessionId: string, campaignId: string, sceneId: string): CommandError | null {
+    return this.modules.dispatch('scenes', 'activate', { sceneId }, {
+      campaignId,
+      sessionId,
+      activeSceneId: sceneId,
+      sender: { role: 'dm', identityId: 'server' },
+      players: this.seatsOf(sessionId),
+      broadcast: (msg) => this.broadcaster.broadcast(sessionId, msg),
+    })
   }
 
   /**

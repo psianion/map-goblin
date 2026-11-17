@@ -23,6 +23,11 @@ export const SET_PLAYERS_OPEN = 'set-players-open'
 /** How near a player's token must stand to a door to open or close it, in cells. */
 export const PLAYER_DOOR_REACH = 1.5
 
+/** A player's toggle refused: none of their tokens stands within reach of the door. */
+export const DOOR_OUT_OF_REACH = 'door-out-of-reach'
+/** A player's toggle refused: the DM switched "Players open doors" off. */
+export const DOORS_DM_ONLY = 'doors-dm-only'
+
 /**
  * The authored fields the runner reads off a map's door. A structural subset of
  * `DoorChild` from @dnd/core, so a map's door child is assignable as-is (the test pins

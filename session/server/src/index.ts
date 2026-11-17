@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
-import { doorsModule } from '@dnd/mechanics/doors'
+import { PLAYER_DOOR_REACH, doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
 import { createInitiativeModule } from '@dnd/mechanics/initiative'
 import { pinsModule } from '@dnd/mechanics/pins'
@@ -129,7 +129,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     (sessionId) => table.flagsOf(sessionId)?.paused === true,
   )
   modules.register(pingModule)
-  modules.register(scenesModule(stores))
+  // Bound late: the session manager is built from the finished registry below.
+  let sessionsRef: SessionManager | null = null
+  modules.register(scenesModule(stores, (campaignId) => sessionsRef?.refreshScenes(campaignId)))
   modules.register(rollsModule)
   // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
   modules.register(
@@ -157,7 +159,22 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   )
   modules.register(crossingsModule)
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (sceneId) => vision.visibleOf(sceneId)))
-  modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
+  // Table fix pass, decision b: a player opens a door one of their own tokens stands beside.
+  modules.register(
+    doorsModule(vision.doorsOf, vision.playerDoors, (campaignId, sceneId, identityId, doorId) => {
+      const door = vision.sceneMapOf(sceneId)?.doors.find((d) => d.id === doorId)
+      const tokens = (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene[sceneId] ?? {}
+      return (
+        !!door &&
+        Object.values(tokens).some(
+          (t) =>
+            t.ownerId === identityId &&
+            !t.hidden &&
+            Math.hypot(t.x - door.position[0], t.y - door.position[1]) <= PLAYER_DOOR_REACH,
+        )
+      )
+    }),
+  )
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
   // and the live cascade resolve the same scene's triggers off the same cache. The registry
   // handle is what lets a fired encounter materialize (internal tokens.spawn /
@@ -191,7 +208,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     })
   }
 
-  const sessions = new SessionManager(modules, {
+  const sessions: SessionManager = new SessionManager(modules, {
     vision,
     // Scene metadata is whatever the campaign has published; the active one is session state.
     scenes: ({ id, campaignId }) => {
@@ -224,6 +241,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     tableFlags: table.flagsOf,
     ...options,
   })
+  sessionsRef = sessions
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
   // Trust is a property of the listener a socket arrived on, not of a port number: the
   // tests bind ephemeral ports, and a socket remembers nothing else about where it came in.

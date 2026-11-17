@@ -2,7 +2,7 @@
 // player who comes back under the same name gets their PC back, and token defs written
 // before table v2 read with its defaults.
 
-import { fanAround, normalizeTokenDef, type TokensState } from '@dnd/mechanics/tokens'
+import { OUTSIDE_MAP, SOLID_GROUND, fanAround, normalizeTokenDef, type TokensState } from '@dnd/mechanics/tokens'
 import type { Stores } from './db/stores'
 import { roomAnchor } from './fog/sceneMap'
 import type { Vision } from './fog/vision'
@@ -17,11 +17,23 @@ const SPARE_SPOTS = 24
  * token copies its def (art, owner, HP) and lands on the ground under it. A spot the tokens
  * module refuses (taken, a wall) moves on to the next. `levelId` is the starting room's level
  * on a map with several. Returns how many were placed.
+ *
+ * Table fix pass F18: the start may be a point instead of a room (the map's party start, or its
+ * centre), and only standable spots are taken — a fan that lands on rock or off the ground moves
+ * on, the way the walk grid would refuse a player there.
  */
 export function spawnParty(
   modules: ModuleRegistry,
-  vision: Pick<Vision, 'sceneMapOf'>,
-  at: { campaignId: string; sessionId: string; sceneId: string; roomId: string; dmId: string; levelId?: string },
+  vision: Pick<Vision, 'sceneMapOf' | 'visionOf'>,
+  at: {
+    campaignId: string
+    sessionId: string
+    sceneId: string
+    roomId?: string
+    point?: { x: number; y: number }
+    dmId: string
+    levelId?: string
+  },
 ): number {
   const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
   if (!state) return 0
@@ -30,10 +42,16 @@ export function spawnParty(
     .map((def) => normalizeTokenDef(def))
     .filter((def) => def.kind === 'pc' && !onScene.has(def.id))
   if (party.length === 0) return 0
-  const room = vision.sceneMapOf(at.sceneId)?.rooms.find((r) => r.id === at.roomId)
-  if (!room) return 0
+  const room = at.roomId ? vision.sceneMapOf(at.sceneId)?.rooms.find((r) => r.id === at.roomId) : undefined
+  const centre = at.point ?? (room ? roomAnchor(room) : null)
+  if (!centre) return 0
 
-  const spots = fanAround(roomAnchor(room), party.length + SPARE_SPOTS)
+  const scene = vision.visionOf(at.sceneId)
+  const standable = (x: number, y: number, def: (typeof party)[number]): boolean => {
+    const why = scene?.walkRefusal?.({ ...def, defId: def.id, x, y, elevation: 0, z: 0, hidden: false, ownerId: null, ...(at.levelId ? { levelId: at.levelId } : {}) }, { x, y }, null)
+    return !why || !(why.startsWith(OUTSIDE_MAP) || why.startsWith(SOLID_GROUND))
+  }
+  const spots = fanAround(centre, party.length + SPARE_SPOTS)
   const ctx = {
     campaignId: at.campaignId,
     sessionId: at.sessionId,
@@ -48,6 +66,7 @@ export function spawnParty(
   for (const def of party) {
     while (next < spots.length) {
       const spot = spots[next++]!
+      if (!standable(spot.x, spot.y, def)) continue
       const refused = modules.dispatch(
         'tokens',
         'place',
@@ -64,32 +83,53 @@ export function spawnParty(
 }
 
 /**
- * A player joining under a PC def's `ownerName` takes that PC back: the def and every token
- * placed from it point at their new seat. A name match is enough for a home table, where
- * the players know each other; a table with strangers would need accounts, which are out
- * of scope. Returns whether anything changed.
+ * A player joining under a name takes their PC back: a PC def whose `ownerName` matches, and
+ * every token placed from it or handed to that name (`ownerName`, stamped by `claim` and
+ * `assign`), point at their new seat. A name match is enough for a home table, where the
+ * players know each other; a table with strangers would need accounts, which are out of scope.
+ *
+ * Table fix pass F2: never from someone still at the table. Nothing attaches while another
+ * connected seat already goes by that name, and a token whose current owner is connected stays
+ * theirs: the DM hands it over instead. Returns whether anything changed.
  */
-export function reattachPc(stores: Pick<Stores, 'moduleState'>, campaignId: string, identityId: string, name: string): boolean {
+export function reattachPc(
+  stores: Pick<Stores, 'moduleState'>,
+  campaignId: string,
+  identityId: string,
+  name: string,
+  connected: readonly { identityId: string; name: string; connected: boolean }[] = [],
+): boolean {
   const state = stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined
   if (!state) return false
   const wanted = name.trim().toLowerCase()
+  const matches = (owner: string | undefined) => owner?.trim().toLowerCase() === wanted
+  const live = new Set(connected.filter((p) => p.connected && p.identityId !== identityId).map((p) => p.identityId))
+  if (connected.some((p) => live.has(p.identityId) && matches(p.name))) return false
+  const free = (owner: string | null | undefined) => !owner || !live.has(owner)
+
   const defIds = new Set(
     Object.values(state.library)
-      .filter((def) => normalizeTokenDef(def).kind === 'pc' && def.ownerName?.trim().toLowerCase() === wanted)
+      .filter((def) => normalizeTokenDef(def).kind === 'pc' && matches(def.ownerName) && free(def.ownerIdentityId))
       .map((def) => def.id),
   )
-  if (defIds.size === 0) return false
-
+  let changed = false
   const library = { ...state.library }
-  for (const id of defIds) library[id] = { ...library[id]!, ownerIdentityId: identityId }
+  for (const id of defIds) {
+    library[id] = { ...library[id]!, ownerIdentityId: identityId }
+    changed = true
+  }
   const byScene: TokensState['byScene'] = {}
   for (const [sceneId, tokens] of Object.entries(state.byScene)) {
     byScene[sceneId] = Object.fromEntries(
-      Object.entries(tokens).map(([id, token]) =>
-        token.defId !== null && defIds.has(token.defId) ? [id, { ...token, ownerIdentityId: identityId, ownerId: identityId }] : [id, token],
-      ),
+      Object.entries(tokens).map(([id, token]) => {
+        const ours = (token.defId !== null && defIds.has(token.defId)) || matches(token.ownerName)
+        if (!ours || token.ownerId === identityId || !free(token.ownerId)) return [id, token]
+        changed = true
+        return [id, { ...token, ownerId: identityId, ...(token.defId !== null && defIds.has(token.defId) ? { ownerIdentityId: identityId } : {}) }]
+      }),
     )
   }
+  if (!changed) return false
   stores.moduleState.put(campaignId, 'tokens', { ...state, library, byScene })
   return true
 }

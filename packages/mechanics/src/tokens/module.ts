@@ -848,7 +848,17 @@ function remove(p: Payload, ctx: Ctx): void {
 function claim(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   if (token.ownerId !== null) denied('that token is already claimed')
-  put(ctx, sceneId, { ...token, ownerId: ctx.sender.identityId })
+  put(ctx, sceneId, withOwner(token, ctx.sender.identityId, ctx))
+}
+
+/**
+ * The token handed to a seat, stamped with the seat's name so a player who comes back under
+ * the same name gets it back (F2: the Owner picker wrote the id alone, so a rejoin found
+ * nothing to match). `null` unhands it and keeps the last name.
+ */
+function withOwner(token: Token, identityId: string | null, ctx: Ctx): Token {
+  const name = identityId ? ctx.players.find((p) => p.identityId === identityId)?.name : undefined
+  return { ...token, ownerId: identityId, ...(name ? { ownerName: name.slice(0, NAME_MAX) } : {}) }
 }
 
 /**
@@ -872,7 +882,7 @@ function assign(p: Payload, ctx: Ctx): void {
   if (identityId !== null && !ctx.players.some((player) => player.identityId === identityId)) {
     bad('no such player at this table')
   }
-  put(ctx, sceneId, { ...token, ownerId: identityId })
+  put(ctx, sceneId, withOwner(token, identityId, ctx))
 }
 
 /**

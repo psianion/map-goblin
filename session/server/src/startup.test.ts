@@ -343,7 +343,7 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
         playerToken = joined.body.token as string
 
         // A table mid-session: one room lit, one explored and dark again, concealment off,
-        // a door opened then bolted behind them, and the secret door found. Every field of
+        // a door opened then bolted behind them (which shuts it, F14), and the secret door found. Every field of
         // both modules moved off its authored default, so a restart that silently re-seeded
         // from the map file would look nothing like this.
         const dm = await seat(first.base, dmToken)
@@ -373,7 +373,7 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
           wasEverRevealed: true,
         })
         expect(doorsBefore.byScene[sceneId][SWINGS.id]).toEqual({
-          open: true,
+          open: false,
           locked: true,
           revealed: true,
         })

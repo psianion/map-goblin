@@ -1578,10 +1578,12 @@ describe('a session that has ended stays ended', () => {
 
   it('does not let a token from the last session open the next one', async () => {
     await withServer(async ({ server, base, adminPass }) => {
-      const { campaignId, dmToken, inviteCode, playerToken } = await table(base, adminPass)
+      const { campaignId, dmToken, inviteCode, playerToken, sessionId } = await table(base, adminPass)
 
-      // Starting a session ends the one before it and mints a fresh invite code — the
-      // closest thing S1 has to rotating one.
+      // Ending a session and starting the next mints a fresh invite code — the closest thing
+      // S1 has to rotating one. (Table fix pass F1: opening alone carries a live table on, so
+      // the end is the DM's own act now.)
+      expect((await api(base, 'POST', `/api/sessions/${sessionId}/end`, { token: dmToken })).status).toBe(200)
       const next = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
       expect(next.status).toBe(201)
       expect(next.body.inviteCode).not.toBe(inviteCode)

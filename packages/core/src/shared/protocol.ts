@@ -135,8 +135,9 @@ export type ServerMessage =
   | { type: 'session-state'; state: SessionState; you: PlayerInfo }
   | { type: 'state-update'; module: string; state: unknown }
   // `mapId` lets a client key its map cache on (sceneId, mapId): a republish of the
-  // active scene re-broadcasts the same sceneId with a new mapId.
-  | { type: 'scene-changed'; sceneId: string; mapId: string }
+  // active scene re-broadcasts the same sceneId with a new mapId. `hidden`: the scene is marked
+  // hidden from players, and they see it now that it is live (the DM's table says so).
+  | { type: 'scene-changed'; sceneId: string; mapId: string; hidden?: true }
   // DM seats only: a scene's prep was rewritten (`PUT /scenes/:id/prep`, or a republish
   // whose file carries prep), so the Prep panel refetches. It drops no map. Additive, so no version
   // bump: a client that does not know it ignores it and keeps the prep it already had.

@@ -44,7 +44,8 @@ const AUTHORED: AuthoredDoor[] = [
   { id: 'arch', state: 'closed', isSecret: false, style: 'archway', roomA: 'hall', roomB: 'crypt' },
 ]
 
-const doors = doorsModule(() => AUTHORED)
+// Table fix pass, decision b: p-1 stands beside every door, nobody else beside any.
+const doors = doorsModule(() => AUTHORED, () => null, (_c, _s, identityId) => identityId === 'p-1')
 const empty: DoorsState = { byScene: {} }
 
 /** Mirrors ModuleRegistry.dispatch: `commands` gates the role before the handler runs. */
@@ -89,10 +90,10 @@ const scene = (state: DoorsState) => state.byScene[SCENE]
 
 describe('authz matrix', () => {
   const dmOnly = [
-    ['toggle', { id: 'oak' }],
     ['lock', { id: 'oak' }],
     ['unlock', { id: 'oak' }],
     ['reveal-secret', { id: 'bookcase' }],
+    ['set-players-open', { open: false }],
   ] as const
 
   it.each(dmOnly)('%s is dm-only', (action, payload) => {
@@ -100,9 +101,11 @@ describe('authz matrix', () => {
     expect(run(empty, DM, action, payload).error?.code).not.toBe('unauthorized')
   })
 
-  it('leaves a player no door command at all', () => {
-    expect(doors.commands.toggle).toEqual(['dm'])
-    expect(Object.values(doors.commands).every((roles) => !roles.includes('player'))).toBe(true)
+  // Table fix pass, decision b: a player may open a door they stand beside, nothing else.
+  it('leaves a player the toggle and no other door command', () => {
+    expect(doors.commands.toggle).toEqual(['dm', 'player'])
+    const others = Object.entries(doors.commands).filter(([action]) => action !== 'toggle')
+    expect(others.every(([, roles]) => !roles.includes('player'))).toBe(true)
   })
 
   it('rejects an unknown action and a non-object payload', () => {
@@ -415,5 +418,43 @@ describe('the table log (§2.4.3)', () => {
       const once = fogged('oak')(state, P1)
       expect(fogged('oak')(once, P1)).toEqual(once)
     })
+  })
+})
+
+// Table fix pass, decision b and F14 (tests 6.1 rows 14 and 15).
+describe('players at the door', () => {
+  const P2: Viewer = { role: 'player', identityId: 'p-2' }
+
+  it('14: a player opens a door in reach; out of reach, locked or switched off is refused', () => {
+    const opened = run(empty, P1, 'toggle', { id: 'oak' })
+    expect(opened.error).toBeNull()
+    expect(scene(opened.next).oak.open).toBe(true)
+    expect(run(empty, P2, 'toggle', { id: 'oak' }).error?.message).toMatch(/^door-out-of-reach oak:/)
+    expect(run(empty, P1, 'toggle', { id: 'iron' }).error?.message).toMatch(/^door-locked iron:/)
+    const off = run(empty, DM, 'set-players-open', { open: false }).next
+    expect(off.playersOpen).toBe(false)
+    expect(run(off, P1, 'toggle', { id: 'oak' }).error).toMatchObject({ code: 'unauthorized' })
+  })
+
+  it('refuses a door the seat does not hold as if it did not exist', () => {
+    const held = doorsModule(() => AUTHORED, () => new Set(['iron']), () => true)
+    const error = held.handler('toggle', { id: 'oak' }, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender: P1,
+      players: [],
+      state: empty,
+      setState: () => {},
+      broadcast: () => {},
+    })
+    expect(error?.message).toMatch(/^unknown-door/)
+  })
+
+  it('15: lock closes an open door', () => {
+    const opened = run(empty, DM, 'toggle', { id: 'oak' }).next
+    expect(scene(opened).oak.open).toBe(true)
+    const locked = run(opened, DM, 'lock', { id: 'oak' }).next
+    expect(scene(locked).oak).toMatchObject({ open: false, locked: true })
   })
 })

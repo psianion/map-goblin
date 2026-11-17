@@ -6,7 +6,12 @@
 import type { GameModule } from '@dnd/mechanics/contract'
 import type { Stores } from '../db/stores'
 
-export function scenesModule(stores: Stores): GameModule {
+/**
+ * `afterHiddenLive` — table fix pass F19: the live scene always reaches players, hidden flag or
+ * not. A player's scene list was cut before the switch, so every seat is re-sent its snapshot,
+ * which lists the live scene whatever its flag.
+ */
+export function scenesModule(stores: Stores, afterHiddenLive: (campaignId: string) => void = () => {}): GameModule {
   return {
     name: 'scenes',
     commands: { activate: ['dm'] },
@@ -24,7 +29,9 @@ export function scenesModule(stores: Stores): GameModule {
         return { code: 'invalid-command', message: `no scene '${sceneId}' in this campaign` }
       }
       stores.sessions.setActiveScene(ctx.sessionId, sceneId)
-      ctx.broadcast({ type: 'scene-changed', sceneId, mapId: scene.map_id })
+      const hidden = scene.visible_to_players !== 1
+      ctx.broadcast({ type: 'scene-changed', sceneId, mapId: scene.map_id, ...(hidden ? { hidden: true as const } : {}) })
+      if (hidden) afterHiddenLive(ctx.campaignId)
     },
   }
 }
