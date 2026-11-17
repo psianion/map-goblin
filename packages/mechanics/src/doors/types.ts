@@ -13,7 +13,15 @@ export interface DoorLiveState {
 
 export interface DoorsState extends Logged {
   byScene: Record<string, Record<string, DoorLiveState>>
+  /** The DM's "Players open doors" switch. Absent = on. */
+  playersOpen?: boolean
 }
+
+/** The DM command that flips {@link DoorsState.playersOpen}. */
+export const SET_PLAYERS_OPEN = 'set-players-open'
+
+/** How near a player's token must stand to a door to open or close it, in cells. */
+export const PLAYER_DOOR_REACH = 1.5
 
 /**
  * The authored fields the runner reads off a map's door. A structural subset of

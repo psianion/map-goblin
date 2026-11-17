@@ -202,6 +202,11 @@ export interface SceneVision {
 export const MOVE_BLOCKED = 'move-blocked'
 export const ROOM_UNEXPLORED = 'room-unexplored'
 export const OUTSIDE_MAP = 'outside-map'
+/** The spot is ground, but rock or a wall fills the cell. */
+export const SOLID_GROUND = 'solid-ground'
+
+/** Internal: the server clears every effect timer on a scene when its encounter ends. */
+export const CLEAR_EFFECTS = 'clear-effects'
 
 /**
  * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned

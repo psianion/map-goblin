@@ -92,7 +92,24 @@ export interface SceneFog {
    * another seat's memory.
    */
   regions?: Record<string, RegionMask>
+  /**
+   * Wire only, never stored: the room ids (and Outdoors rows, `outdoorsId`) a player seat may
+   * see right now, computed by the server so the client stops re-deriving them.
+   */
+  visible?: string[]
 }
+
+/** The fog row for ground in no room. One per level: `@outdoors`, or `@outdoors:<levelId>`. */
+export const OUTDOORS_ID = '@outdoors'
+
+/** The Outdoors row id for a level; absent level = the map's only (or first) one. */
+export const outdoorsId = (levelId?: string): string => (levelId ? `${OUTDOORS_ID}:${levelId}` : OUTDOORS_ID)
+
+/** Whether a fog row id is an Outdoors row rather than a room. */
+export const isOutdoorsId = (id: string): boolean => id === OUTDOORS_ID || id.startsWith(`${OUTDOORS_ID}:`)
+
+/** Internal: the server tells fog a party token was put on a cell's room or Outdoors (By hand mode). */
+export const PARTY_HERE = 'party-here'
 
 /** The mode the rules run in. One reading of the optional field, everywhere. */
 export const fogModeOf = (scene: SceneFog): FogMode => scene.mode ?? 'rooms'

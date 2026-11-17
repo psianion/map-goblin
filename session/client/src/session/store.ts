@@ -379,6 +379,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           const { event } = msg;
           const me = get().you;
           if (event.from === me?.identityId) break;
+          if (event.mark.kind === 'clear') break;
           receiveMark(event.mark, event.from);
           // The DM's pull recentres every player camera on the ping (plan 4.3).
           if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
