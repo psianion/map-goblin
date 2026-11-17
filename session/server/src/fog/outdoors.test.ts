@@ -206,3 +206,36 @@ describe('the open ground a seat is owed (S3)', () => {
     expect(inside(rings, 22, 9)).toBe(false)
   })
 })
+
+// T10 — Outdoors hidden again is fogged fully: shown, sent and walkable only while revealed, or
+// By sight where an eye sees it now.
+describe('the Outdoors row hidden again (T10)', () => {
+  const P1 = { role: 'player' as const, identityId: 'p-1' }
+  const hidden = { status: 're_hidden' as const, wasEverRevealed: true }
+  const OUT: [number, number] = [13.5, 9.5]
+
+  it('by hand: is shown, sent and walkable only while revealed', () => {
+    const { vision, setFog, setTokens } = table()
+    setTokens(pc())
+    const known = () => vision.visionOf(SCENE, P1)!.openGround!(...OUT)
+    setFog({ rooms: { '@outdoors': lit } })
+    expect([known(), vision.visibleOf(SCENE), vision.keptRoomsOf(SCENE)!.has('@outdoors')]).toEqual([true, ['@outdoors'], true])
+    expect(vision.playerMap(SCENE)!.openGround).toBeDefined()
+
+    setFog({ rooms: { '@outdoors': hidden } })
+    expect([known(), vision.visibleOf(SCENE), vision.keptRoomsOf(SCENE)!.has('@outdoors')]).toEqual([false, [], false])
+    expect(vision.playerMap(SCENE)!.openGround).toBeUndefined()
+  })
+
+  it('by sight: hidden ground is known only where an eye sees it now', () => {
+    const { vision, setFog, setTokens } = table()
+    const known = () => vision.visionOf(SCENE, P1)!.openGround!(...OUT)
+    setFog({ mode: 'vision', rooms: { '@outdoors': hidden } })
+    setTokens(pc())
+    expect(known()).toBe(true)
+    setTokens(pc({ hidden: true }))
+    expect(known()).toBe(false)
+    setFog({ mode: 'vision', rooms: { '@outdoors': lit } })
+    expect(known()).toBe(true)
+  })
+})

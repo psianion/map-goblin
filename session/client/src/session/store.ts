@@ -176,6 +176,21 @@ function fogModeFlips(prev: unknown, next: unknown): string[] {
   return Object.keys(scenes).filter((sceneId) => modeOf(prev, sceneId) !== modeOf(next, sceneId));
 }
 
+/**
+ * T10 — the scenes where a fog row this seat held is gone from the slice just sent: the DM hid a
+ * room or Outdoors again, or erased a room's last recorded cell. The referee withholds that
+ * room's geometry from then on, and a held copy only grows by delta, so the seat re-fetches.
+ */
+export function fogRowsDropped(prev: unknown, next: unknown): string[] {
+  const before = (prev as FogState | undefined)?.byScene;
+  const after = (next as FogState | undefined)?.byScene;
+  if (!before || !after) return [];
+  return Object.keys(after).filter((sceneId) => {
+    const rows = after[sceneId]?.rooms ?? {};
+    return Object.keys(before[sceneId]?.rooms ?? {}).some((id) => !(id in rows));
+  });
+}
+
 // ponytail: plain zustand — no immer/devtools/subscribeWithSelector like the
 // editor store. Session state arrives as whole snapshots (§2.5), so there is
 // nothing to draft-mutate and no deep selector traffic to memoize.
@@ -297,7 +312,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // broadcast (as a reveal already pushes its `mapDelta`), and this can go.
           if (msg.module === 'fog' && get().you?.role !== 'dm') {
             const { loadedScene, token } = get();
-            for (const sceneId of fogModeFlips(session.modules.fog, msg.state)) {
+            const recut = new Set([
+              ...fogModeFlips(session.modules.fog, msg.state),
+              ...fogRowsDropped(session.modules.fog, msg.state),
+            ]);
+            for (const sceneId of recut) {
               // Any cached copy of that scene was cut under the old mode, whether or not this
               // seat happens to be looking at it now.
               invalidateSceneDocs(sceneId);

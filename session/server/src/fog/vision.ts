@@ -35,7 +35,6 @@ import {
   type FogRoom,
   type FogState,
   type RegionMask,
-  type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
 import {
@@ -81,7 +80,7 @@ import {
   lockMaskFor,
   mapDeltaFor,
   redactMapForViewer,
-  exploredRooms,
+  heldRooms,
   bandPad,
   groundOf,
   standInDeltaFor,
@@ -367,7 +366,7 @@ export function createVision(stores: Stores): Vision {
     // flipped to vision leaves a connected seat holding a frameless document and drawing no fog
     // at all (the client's `fogModeFlips` re-fetch). Containment appears nowhere in that cut:
     // `set-containment` writes one boolean (mechanics' fog module) and the cut reads `fog.rooms`
-    // (`exploredRooms`, `keptChildIds`), `tableRegion` and the mode — none of which it touches,
+    // (`heldRooms`, `keptChildIds`), `tableRegion` and the mode — none of which it touches,
     // so the document is byte-identical either side of the flip. What the flip *does* move is
     // live sight, and that lands on its own: the fog broadcast retracts the tokens and doors
     // slices (registry's `RETRACTS`), which re-runs redaction through the composed `seen()` for
@@ -420,7 +419,8 @@ export function createVision(stores: Stores): Vision {
       return own
     }
 
-    const explored = exploredRooms(fog)
+    // T10: the rooms held now, so a hidden room leaves the seat's copy (the client re-fetches).
+    const explored = heldRooms(map, fog)
     // The DM's live room places: a stand-in carries its room's (it has lost the real id the
     // table's override is keyed by), and a moved place re-sends the stand-ins a seat holds.
     const places: Places = Object.fromEntries(
@@ -428,7 +428,7 @@ export function createVision(stores: Stores): Vision {
     )
     const placesKey = JSON.stringify(places)
     // Table fix pass §2.7: ground the table knows, for what a seat is sent — the cell record,
-    // and every outdoor ground cell of a level whose Outdoors row was ever revealed.
+    // and every outdoor ground cell of a level whose Outdoors row is revealed (T10: now, not ever).
     const ground = knownGroundOf(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
     const openGround = ground.outdoors
       ? openGroundRings(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
@@ -461,7 +461,7 @@ export function createVision(stores: Stores): Vision {
     // …and the room cut carries the re-cut lock mask with it. The mask is the seat's fence for
     // its own near pass and it is cut against the rooms that seat holds, so the message that
     // grows that set is the one that owes the new fence — the same D5 debt the geometry pays.
-    // Only on a room delta: `exploredRooms` never shrinks and nothing else moves the answer.
+    // Only on a room delta: a room that leaves `heldRooms` goes by the seat's re-fetch instead.
     const roomDelta = revealed.length
       ? { ...mapDeltaFor(map, sceneId, revealed, doors, explored, places), lockMask: lockMaskFor(map, fog, explored) }
       : null
@@ -486,7 +486,6 @@ export function createVision(stores: Stores): Vision {
       return grid ? { grid, areas: areasOf(map, grid, level) } : null
     })
     const revealedRows = new Set(Object.entries(fog.rooms).filter(([, r]) => r.status === 'revealed').map(([id]) => id))
-    const everRows = new Set(Object.entries(fog.rooms).filter(([, r]) => r.wasEverRevealed).map(([id]) => id))
     const within = (rows: Set<string>) =>
       fog.concealBehindDoors && reached ? new Set([...rows].filter((id) => reached.has(id))) : rows
     // The open ground arrives with the mutation that first lets the seat know any of it, and again
@@ -513,9 +512,8 @@ export function createVision(stores: Stores): Vision {
       doors,
       // §2.6: revealed, and with concealment on, in a walk area a party token stands in.
       visible: reached ? within(revealedRows) : visibleRooms(fog, doors, map.doors, party),
-      // D8 asks a different question of the same areas: a re-hidden room the party can still
-      // walk to is somewhere to stand, it is simply dark (D7).
-      occupiable: reached ? within(everRows) : visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
+      // T10: a room hidden again is nowhere to stand, the same rule as known ground (§2.2).
+      occupiable: reached ? within(revealedRows) : visibleRooms(fog, doors, map.doors, party),
       party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
@@ -922,15 +920,6 @@ function openGroundOf(
   }
 }
 
-/** The same rooms, with everything the party has ever seen counting as lit. */
-function asSeen(rooms: Record<string, RoomFog>): Record<string, RoomFog> {
-  const seen: Record<string, RoomFog> = {}
-  for (const [roomId, room] of Object.entries(rooms)) {
-    seen[roomId] = room.wasEverRevealed ? { ...room, status: 'revealed' } : room
-  }
-  return seen
-}
-
 /** The level a token stands on: its own when the map has it, else the map's first. */
 function levelOfToken(map: SceneMap, token: Pick<Token, 'levelId'>): string {
   return map.data.levels?.some((l) => l.id === token.levelId) ? token.levelId! : firstLevelId(map.data)
@@ -957,9 +946,10 @@ function recordTest(map: SceneMap, stored: RegionMask | undefined): (x: number, 
 
 /**
  * §2.2 — known ground, per cell of a walk grid, memoised. By hand: the cell's room, or
- * Outdoors, has ever been revealed. By sight, any of: the cell is in the record, in live sight,
- * its room was ever revealed, or it is outdoors and the DM revealed Outdoors. The party's in
- * party share, the viewer's own seat in individual share.
+ * Outdoors, is revealed. By sight, any of: the cell is in the record, in live sight, its room is
+ * revealed, or it is outdoors and Outdoors is revealed. T10: revealed now, not ever, so ground
+ * the DM hid again is no ground to walk on unless an eye sees it. The party's in party share,
+ * the viewer's own seat in individual share.
  */
 function knownCells(
   computed: Computed,
@@ -981,7 +971,7 @@ function knownCells(
     // R2: a cell in no room is Outdoors only outside every walled floor and cave outline.
     const row = map.roomAt(x, y) ?? (enclosed(x, y) ? null : outdoors)
     const ok =
-      (row !== null && fog.rooms[row]?.wasEverRevealed === true) ||
+      (row !== null && fog.rooms[row]?.status === 'revealed') ||
       (inRecord !== null && inRecord(x, y)) ||
       (sight !== null && seen(sight, x, y))
     memo[i] = ok ? 1 : 2
@@ -1045,8 +1035,7 @@ function reachedRows(
 
 /**
  * §2.7 — the ground the table knows, as the redactor's `Ground` lookup: the cell record (as
- * before), and each outdoor ground cell (in no room) of a level whose Outdoors row was ever
- * revealed. `outdoors` says whether any outdoor cell is known at all, which is when the seat is
+ * before), and each outdoor ground cell (in no room) of a level whose Outdoors row is revealed. `outdoors` says whether any outdoor cell is known at all, which is when the seat is
  * owed the open ground.
  */
 function knownGroundOf(
@@ -1056,7 +1045,7 @@ function knownGroundOf(
 ): { test: Ground; outdoors: boolean } {
   const record = groundOf(fog, map.frame)
   const levels = (map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]).filter(
-    (level) => fog.rooms[outdoorsRowOf(map.data, level)]?.wasEverRevealed,
+    (level) => fog.rooms[outdoorsRowOf(map.data, level)]?.status === 'revealed',
   )
   const grids = levels
     .map((level) => ({ grid: gridOn(level), enclosed: enclosedOn(map, level) }))
@@ -1147,7 +1136,7 @@ function openGroundRings(
     const level = map.data.levels?.find((l) => l.id === levelId) ?? null
     const grid = gridOn(levelId)
     if (baseGroundOf(map.data.mapSettings, level) || !grid) return whole
-    const outdoorsKnown = fog.rooms[outdoorsRowOf(map.data, levelId)]?.wasEverRevealed === true
+    const outdoorsKnown = fog.rooms[outdoorsRowOf(map.data, levelId)]?.status === 'revealed'
     const pad = bandPad(map)
     const key = `${outdoorsKnown}|${pad}|${region?.bits ?? ''}`
     const hit = openGroundCache.get(grid)

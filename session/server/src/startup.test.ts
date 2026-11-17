@@ -388,13 +388,12 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
         expect(after.modules.fog).toEqual(fogBefore)
         expect(after.modules.doors).toEqual(doorsBefore)
 
-        // And the player's redacted half is the same cut it was: the room that went dark is
-        // still theirs to draw (D4), the room nobody entered is still absent, and the door
-        // the DM found is still the DM's own business until a player is in the room with it.
+        // And the player's redacted half is the same cut it was: the lit room is theirs, and the
+        // room that went dark is as absent as the one nobody entered (T10: Hide fogs it fully;
+        // it once stayed theirs to draw), and the door the DM found is still the DM's own
+        // business until a player is in the room with it.
         const forPlayer = (await snapshot(second.base, playerToken)).modules.fog as FogSlice
-        expect(Object.keys(forPlayer.byScene[sceneId].rooms).sort()).toEqual(
-          [gateRooms[0].id, gateRooms[1].id].sort(),
-        )
+        expect(Object.keys(forPlayer.byScene[sceneId].rooms)).toEqual([gateRooms[0].id])
 
         console.log(
           `[metric] fog + doors persistence across process restart: ` +

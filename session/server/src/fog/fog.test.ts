@@ -228,11 +228,13 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     }
   })
 
-  it('keeps the geometry of a room that was seen and re-hidden (D4)', () => {
+  // T10 — this row once pinned the opposite (D4: a room seen once kept its geometry forever).
+  // Hide now fogs a room fully, so it is withheld like one nobody entered.
+  it('withholds a room that was seen and hidden again, contents and id (T10)', () => {
     const layer = layerOf(redacted())
-    expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual(['hall', 'inner'])
-    expect(layer.children.map((c) => c.id)).toContain('floor-inner')
-    expect(layer.children.map((c) => c.id)).toContain('prop-inner')
+    expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual(['hall'])
+    expect(layer.children.map((c) => c.id)).not.toContain('prop-inner')
+    expect(JSON.stringify(layer)).not.toContain('inner of secrets')
   })
 
   it("ships a door's look fields (kit, opening, hanging) untouched", () => {
@@ -272,7 +274,8 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
         Math.floor(x - frame.minX),
         Math.floor(y - frame.minY),
       ])
-      return { ...fog(), region: setCells(regionOf(frame)!, cells) }
+      // By sight: T10 counts the record only where it is shown.
+      return { ...fog(), mode: 'vision', region: setCells(regionOf(frame)!, cells) }
     }
     const withBrush = (...at: [number, number][]) =>
       (redactMapForViewer(sceneMap(), brushed(...at), {}).layers[0] as DungeonLayer).children.map(
@@ -375,18 +378,22 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(layerOf(redacted()).mergedFloor).toBeNull()
   })
 
-  it('names only the rooms the player has been in', () => {
+  it('names only the rooms the player holds', () => {
     // Names live on the rooms themselves now, so the room cut is the name cut.
     // A room under a floor the player holds may ride as a stand-in (R1), nameless.
+    // T10: the re-hidden inner room is no longer one of them.
     const all = layerOf(redacted()).rooms ?? []
     const rooms = all.filter((r) => !r.standIn)
-    expect(rooms.map((r) => r.id).sort()).toEqual(['hall', 'inner'])
-    expect(rooms.map((r) => r.name).sort()).toEqual(['hall of secrets', 'inner of secrets'])
+    expect(rooms.map((r) => r.id).sort()).toEqual(['hall'])
+    expect(rooms.map((r) => r.name).sort()).toEqual(['hall of secrets'])
     expect(all.filter((r) => r.standIn).every((r) => r.name === '' && r.number === undefined)).toBe(true)
   })
 
   it('keeps a door into the unknown but not the id of what is behind it', () => {
-    const doors = layerOf(redacted()).children.filter((c): c is DoorChild => c.childType === 'door')
+    // Both rooms lit (T10: a re-hidden inner room would hold no door at all).
+    const lit = { status: 'revealed' as const, wasEverRevealed: true }
+    const both = redactMapForViewer(sceneMap(), fog({ rooms: { hall: lit, inner: lit } }), {})
+    const doors = layerOf(both).children.filter((c): c is DoorChild => c.childType === 'door')
     expect(doors.map((d) => d.id)).toEqual(['door-hall-corr', 'door-corr-inner'])
     expect(doors[0]).toMatchObject({ roomA: 'hall', roomB: null })
     expect(doors[1]).toMatchObject({ roomA: null, roomB: 'inner' })
@@ -584,12 +591,13 @@ describe('vision (D3/D8)', () => {
     const { vision, stores, campaignId } = table()
     const frame = vision.frameOf(campaignId, SCENE)!
     const cell: [number, number] = [Math.floor(27 - frame.minX), Math.floor(5 - frame.minY)]
-    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    // By sight, where a stroke is shown (T10: By hand ships nothing for the record).
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog({ mode: 'vision' }) } } satisfies FogState)
     // Warm the cache on the pre-stroke state, so what follows is the stroke's own debt.
     vision.revealDelta(SCENE)
 
     set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: { ...fog(), region: setCells(regionOf(frame)!, [cell]) } },
+      byScene: { [SCENE]: { ...fog({ mode: 'vision' }), region: setCells(regionOf(frame)!, [cell]) } },
     } satisfies FogState)
     const delta = vision.revealDelta(SCENE)
     expect(delta?.layers.flatMap((l) => l.children.map((c) => c.id))).toEqual(['prop-on-the-brush'])
@@ -599,7 +607,7 @@ describe('vision (D3/D8)', () => {
     // …and a second stroke over the same cell owes nothing: the diff is against what the
     // player already holds, not against the stroke.
     set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: { ...fog(), region: setCells(regionOf(frame)!, [cell, [cell[0], cell[1] + 1]]) } },
+      byScene: { [SCENE]: { ...fog({ mode: 'vision' }), region: setCells(regionOf(frame)!, [cell, [cell[0], cell[1] + 1]]) } },
     } satisfies FogState)
     expect(vision.revealDelta(SCENE)).toBeNull()
   })
@@ -715,10 +723,10 @@ describe('vision (D3/D8)', () => {
   it('hands over everything explored on a cold cache, then only what a reveal adds', () => {
     const { vision, stores, campaignId } = table()
     set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
-    // Nothing computed yet, so the answer is the whole explored set — never nothing.
+    // Nothing computed yet, so the answer is the whole held set — never nothing (T10: the
+    // re-hidden inner room is not held).
     expect(vision.revealDelta(SCENE)?.layers[0].rooms.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual([
       'hall',
-      'inner',
     ])
 
     set(stores, campaignId, 'fog', {
@@ -728,7 +736,7 @@ describe('vision (D3/D8)', () => {
     // Same mutation, every viewer: the delta is the cache's, not the caller's.
     expect(vision.revealDelta(SCENE)?.layers[0].rooms.map((r) => r.id)).toEqual(['vault'])
 
-    // Re-hiding hands nothing over — the geometry is already theirs (D4).
+    // Re-hiding hands nothing over: the room leaves the seat's fog slice and it re-fetches (T10).
     set(stores, campaignId, 'fog', {
       byScene: { [SCENE]: fog({ rooms: { ...fog().rooms, vault: { status: 're_hidden', wasEverRevealed: true } } }) },
     } satisfies FogState)
@@ -773,7 +781,7 @@ describe('a scene the DM has revealed nothing in', () => {
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
   })
 
-  it('leaves a Hide All every room explored and none of them visible', () => {
+  it('leaves a Hide All nothing visible and nothing held (T10)', () => {
     const { vision, stores, campaignId } = table()
     // What `set-bulk` writes for D9's Hide All: everything seen, nothing lit.
     stores.moduleState.put(campaignId, 'fog', {
@@ -790,8 +798,9 @@ describe('a scene the DM has revealed nothing in', () => {
     // The regression behind the explored wash reading identical to a live room: the last
     // room going under used to bring `hall` straight back as visible.
     expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
-    // …and the rooms they explored keep their geometry either way (D4).
-    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall', 'inner'])
+    // …and the rooms are fogged fully, so their geometry goes too (T10; it once stayed, D4).
+    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual([])
+    expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('prop-inner')
   })
 
   /**
@@ -869,12 +878,15 @@ describe('vision.playerDoors (D4)', () => {
     // been stripped by the doors module anyway, but a set that names a door the player's map
     // does not have is a set the geometry delta cannot be derived from (D2).
     expect([...vision.playerDoors(SCENE)].sort()).toEqual(onTheMap.sort())
-    expect(onTheMap).toEqual(['door-corr-inner', 'door-hall-corr'])
+    // T10: the re-hidden inner room holds no door, so only the hall's is on either.
+    expect(onTheMap).toEqual(['door-hall-corr'])
   })
 
   it('admits a secret door once the DM reveals it, and hands over its geometry (D2)', () => {
     const { vision, stores, campaignId } = table()
-    stores.moduleState.put(campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    // The inner room lit, where the secret door is (T10: a re-hidden room holds none).
+    const lit = { status: 'revealed' as const, wasEverRevealed: true }
+    stores.moduleState.put(campaignId, 'fog', { byScene: { [SCENE]: fog({ rooms: { hall: lit, inner: lit } }) } } satisfies FogState)
     expect([...vision.playerDoors(SCENE)]).not.toContain('door-secret')
     // The map the player holds is the other half of the same answer.
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('door-secret')
@@ -1028,7 +1040,9 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
         deltas.map((d) => d.sceneId),
         `${viewer.identityId} was sent another scene's geometry`,
       ).toEqual([SCENE])
-      expect(deltas[0].layers.flatMap((l) => l.rooms.map((r) => r.id))).toEqual(['vault'])
+      // T10: inner was re-hidden, so it is not held until this lights it again (and the
+      // corridor under its floor rides as a stand-in).
+      expect(deltas[0].layers.flatMap((l) => l.rooms.filter((r) => !r.standIn).map((r) => r.id))).toEqual(['inner', 'vault'])
     }
 
     // …and again with both scenes in the cache, where a walk over the state would have

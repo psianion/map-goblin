@@ -58,9 +58,10 @@ export function FogBody() {
   const canBrush = useMemo(() => brushPossible(), [mapData]); // eslint-disable-line react-hooks/exhaustive-deps
   const lookPreset = fog.look?.preset ?? authoredLook?.preset ?? null;
 
-  const bulk = (next: Record<string, RoomFog>, message: string): void => {
+  // T10: Hide all also forgets the cell record of what it hides; Undo puts the rooms back only.
+  const bulk = (next: Record<string, RoomFog>, message: string, forget = false): void => {
     const before = fog.rooms;
-    send('set-bulk', { rooms: next });
+    send('set-bulk', forget ? { rooms: next, forget } : { rooms: next });
     showToast({ message, durationMs: UNDO_TOAST_MS, action: { label: 'Undo', onAction: () => send('set-bulk', { rooms: before }) } });
   };
 
@@ -118,7 +119,7 @@ export function FogBody() {
         <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-reveal-all" onClick={() => bulk(revealAllRooms(rooms), 'Revealed every room.')}>
           Reveal all
         </Button>
-        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-hide-all" onClick={() => bulk(hideAllRooms(fog.rooms), 'Hid every explored room.')}>
+        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-hide-all" onClick={() => bulk(hideAllRooms(fog.rooms), 'Hid every explored room.', true)}>
           Hide all
         </Button>
       </div>

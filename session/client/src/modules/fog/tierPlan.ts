@@ -343,6 +343,11 @@ export interface TierScene {
    * apart because a polygon here is filled solid: a hole ring in `open` would ship its inside.
    */
   openHoles?: readonly Polygon[];
+  /**
+   * T10 — the DM has the shown level's Outdoors row revealed: the open ground is revealed ground
+   * (its holes left dark), and held like a revealed room.
+   */
+  outdoorsRevealed?: boolean;
   /** §2.8 — this seat's own tokens' footprints: always drawn, the cell under them always clear. */
   own?: readonly Polygon[];
 }
@@ -367,12 +372,13 @@ const heldSources = (
   rooms: readonly Polygon[],
   revealed: readonly Polygon[],
   region: RegionMask | undefined,
+  open: readonly Polygon[] = [],
 ): Polygon[] =>
   contained
-    ? [...revealed, ...regionRects(region)]
+    ? [...revealed, ...regionRects(region), ...open]
     : rooms.length > 0
-      ? [...rooms]
-      : regionRects(region);
+      ? [...rooms, ...open]
+      : [...regionRects(region), ...open];
 
 const asPoly = (b: Bounds): Polygon => [
   [b.minX, b.minY],
@@ -499,8 +505,9 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const revealed = usable(scene.revealed);
   const contained = scene.contained;
   const own = usable(scene.own ?? []);
-  const held = heldSources(contained, rooms, revealed, scene.region);
   const openOuters = usable(scene.open ?? []);
+  const revealedOpen = scene.outdoorsRevealed ? openOuters : [];
+  const held = heldSources(contained, rooms, revealed, scene.region, revealedOpen);
   const openHoles = contained ? usable(scene.openHoles ?? []) : [];
   const shipped = contained ? shippedGround(rooms, openOuters, scene.frame) : [];
   const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, [...painted, ...own], grow);
@@ -684,6 +691,15 @@ export function tierPlan(scene: TierScene): DrawPlan {
   // ── The mask: revealed ground, live sight, the clip last ──────────────────
   // T8 — one tier. Ground the seat has revealed draws as the DM's lit view of it whether or not
   // an eye is on it now; the lights and the sky make its shadows, not a grey wash.
+  // T10 — a revealed Outdoors first, its holes (walled floors and caves) taken back out, so
+  // the rooms, the record and live sight drawn after it are the only things inside them.
+  if (revealedOpen.length > 0) {
+    ops.push({ kind: 'polys', target: 'mask', polys: revealedOpen, grow, color: MASK_LIVE, blend: 'normal' });
+    const holes = usable(scene.openHoles ?? []);
+    if (holes.length > 0) {
+      ops.push({ kind: 'polys', target: 'mask', polys: holes, grow: 0, color: MASK_LIVE, blend: 'erase' });
+    }
+  }
   if (memory) {
     ops.push({
       kind: 'cells',

@@ -1,9 +1,10 @@
 // §2.3.1 — the map a player is allowed to hold, and the slice of it a reveal hands over.
 //
-// The two-tier geometry policy of D4 in one sentence: a room the party has *ever* seen
-// keeps its geometry forever (without it, a reload renders explored rooms black), and a
-// room nobody has entered has none of it — no floor, no walls, no props, not even the id.
-// Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
+// The geometry policy of D4, narrowed by T10: a room the party holds *now* keeps its geometry
+// (`heldRooms`), and any other room has none of it — no floor, no walls, no props, not even the
+// id. A room the DM hid again is fogged fully, so it goes back to being withheld; where its floor
+// must still be drawn it travels as a stand-in. Unzoned map is the DM's alone (D6) and an
+// unrevealed secret door does not exist.
 
 import { createHmac, randomBytes } from 'node:crypto'
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
@@ -53,13 +54,42 @@ import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 
 type Doors = Record<string, DoorLiveState>
 
-/** Rooms the party has ever seen — the geometry a player keeps (D4). */
-export function exploredRooms(fog: SceneFog): Set<string> {
-  const explored = new Set<string>()
+/**
+ * T10 — the fog rows a player holds right now, which is the geometry they are sent (D4): every
+ * row the DM has revealed, and in By sight a room the party latched that still has a recorded
+ * cell inside it. Hide, Hide all and the eraser all take a row out of here.
+ */
+export function heldRooms(scene: SceneMap, fog: SceneFog): Set<string> {
+  const held = new Set<string>()
   for (const [roomId, room] of Object.entries(fog.rooms)) {
-    if (room.wasEverRevealed) explored.add(roomId)
+    if (room.status === 'revealed') held.add(roomId)
   }
-  return explored
+  if (fogModeOf(fog) !== 'vision') return held
+  for (const roomId of recordedRooms(scene, fog)) {
+    if (fog.rooms[roomId]?.wasEverRevealed) held.add(roomId)
+  }
+  return held
+}
+
+const recordedCache = new WeakMap<SceneMap, { bits: string; rooms: Set<string> }>()
+
+/** The rooms with a recorded cell centre inside them, in any seat's record. */
+function recordedRooms(scene: SceneMap, fog: SceneFog): Set<string> {
+  const region = tableRegion(fog, scene.frame ?? undefined)
+  if (!region) return new Set()
+  const hit = recordedCache.get(scene)
+  if (hit && hit.bits === region.bits) return hit.rooms
+  const bytes = toBytes(region.bits)
+  const rooms = new Set<string>()
+  for (let bit = 0; bit < region.cols * region.rows; bit++) {
+    if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+    const col = bit % region.cols
+    const row = (bit - col) / region.cols
+    const room = scene.roomAt(region.minX + col + 0.5, region.minY + row + 0.5)
+    if (room !== null) rooms.add(room)
+  }
+  recordedCache.set(scene, { bits: region.bits, rooms })
+  return rooms
 }
 
 /** The player's copy of a scene's map. The DM's copy is the file, untouched. */
@@ -71,7 +101,7 @@ export function redactMapForViewer(
   openGround?: SerializedMapData['openGround'],
   places: Places = NO_PLACES,
 ): SerializedMapData {
-  const kept = exploredRooms(fog)
+  const kept = heldRooms(scene, fog)
   // The confining rectangle of the *full* document, measured with the index and so before
   // any cut (`SceneMap.frame`): the player's
   // fog covers the whole frame, and their redacted layers can no longer measure it. A rect
@@ -423,7 +453,8 @@ export function groundOf(
   frame: SceneMap['frame'],
   keep: (x: number, y: number) => boolean = () => true,
 ): Ground {
-  const region = tableRegion(fog, frame ?? undefined)
+  // T10: By hand shows no record, so a record kept from By sight earns nothing there.
+  const region = fogModeOf(fog) === 'vision' ? tableRegion(fog, frame ?? undefined) : undefined
   if (!region) return NO_GROUND
   const bytes = toBytes(region.bits)
   const on = (col: number, row: number): boolean => {
@@ -540,7 +571,7 @@ export function keptChildIds(
   doors: Doors,
   ground: Ground = groundOf(fog, scene.frame),
 ): Set<string> {
-  const kept = exploredRooms(fog)
+  const kept = heldRooms(scene, fog)
   const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {

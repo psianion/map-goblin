@@ -11,8 +11,8 @@ import type { AfterWrite } from '../modules/registry'
 import type { Vision } from './vision'
 
 /**
- * The commands that can move what the party can see. Nothing here writes fog, and the hook
- * ignores its own `fog.auto-explore` write, so the loop closes on the first pass.
+ * The commands that can move what the party can see. The hook's own `fog.auto-explore` write
+ * is not among them, so the loop closes on the first pass.
  *
  * Everything that changes the *set* of tokens doing the sweeping is in it, not just the two
  * that move one: a claim (or the DM's `assign`, which is the same fact from the other side)
@@ -24,6 +24,9 @@ import type { Vision } from './vision'
 const TRIGGERS: Record<string, readonly string[]> = {
   tokens: ['move', 'place', 'claim', 'assign', 'update', 'hide', 'delete', 'set-sight-link'],
   doors: ['toggle', 'reveal-secret'],
+  // T10: a DM hide, Hide all or erase fogs ground fully unless an eye sees it now, so the
+  // party's current sight is written back at once rather than on its next step.
+  fog: ['hide', 'set-bulk', 'region-set'],
 }
 
 export function autoExplore(vision: Vision): AfterWrite {

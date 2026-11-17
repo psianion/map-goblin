@@ -38,7 +38,7 @@ import { createStores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { createTriggerDeps } from '../triggers/prepResolver'
 import { ensureClipperReady } from './clipperBoot'
-import { exploredRooms } from './redactMap'
+import { heldRooms } from './redactMap'
 import { centreOf, distanceToPoly, isDungeon, pointInPoly } from './sceneMap'
 import { createVision } from './vision'
 
@@ -144,6 +144,8 @@ interface State {
   sweep?: boolean
   /** The DM's live room places (the triggers module's room edits), by room id. */
   live?: Record<string, Environment>
+  /** T10 — a row the DM reveals and then hides again through the fog module, after any sweep. */
+  hide?: string
 }
 
 interface Fixture {
@@ -178,12 +180,25 @@ const statesOf = (f: Fixture): State[] => [
     token: f.outside,
     sweep: true,
   },
+  // T10 — revealed, then hidden again: the room is withheld as if nobody had entered it.
+  { name: 'by hand, the mouth room revealed then hidden', fog: { rooms: { '@outdoors': lit } }, token: f.outside, hide: f.mouthRoom },
+  {
+    name: 'by sight, the mouth room revealed then hidden',
+    fog: { mode: 'vision', containedSight: false, rooms: {} },
+    token: f.outside,
+    sweep: true,
+    hide: f.mouthRoom,
+  },
 ]
 
 const PLAYER: Viewer = { role: 'player', identityId: 'p-1' }
+const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 
 /** The DM's copy and the player's copy of a fixture at one fog state, and the player's join snapshot of every module. */
-function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog; snapshot: Record<string, unknown> } {
+function cut(
+  map: string,
+  state: State,
+): { dm: Doc; player: Doc; fog: SceneFog; kept: Set<string>; snapshot: Record<string, unknown> } {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Parity')
   stores.maps.insert(SCENE, campaign.id, 'Parity', map)
@@ -209,7 +224,6 @@ function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog; 
     const frame = vision.frameOf(campaign.id, SCENE)!
     setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, patch?.cells ?? []) })
   }
-  const fog = (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
   // P9 — every module the server runs, wired to the same vision, as a joining player's seat gets them.
   const registry = new ModuleRegistry(stores.moduleState)
   registry.register(tokensModule(vision.visionOf, vision.levelFilterOf))
@@ -217,7 +231,11 @@ function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog; 
   registry.register(pinsModule)
   registry.register(storyModule({ shareReadAloud: () => null }))
   registry.register(crossingsModule)
-  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (id) => vision.visibleOf(id), vision.groundAtOf))
+  registry.register(
+    fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (id) => vision.visibleOf(id), vision.groundAtOf, (id) =>
+      vision.keptRoomsOf(id),
+    ),
+  )
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   registry.register(
     triggersModule({
@@ -226,13 +244,20 @@ function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog; 
       keptRoomsOf: (id) => vision.keptRoomsOf(id),
     }),
   )
+  if (state.hide) {
+    const dm = { campaignId: campaign.id, sessionId: 's-1', activeSceneId: SCENE, sender: DM, players: [], broadcast: () => {} }
+    for (const action of ['reveal', 'hide']) {
+      expect(registry.dispatch('fog', action, { sceneId: SCENE, roomId: state.hide }, dm)).toBeNull()
+    }
+  }
+  const fog = (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
+  const kept = heldRooms(vision.sceneMapOf(SCENE)!, fog)
   const snapshot = registry.snapshotModules(campaign.id, PLAYER)
-  return { dm: vision.sceneMapOf(SCENE)!.data, player: vision.playerMap(SCENE)!, fog, snapshot }
+  return { dm: vision.sceneMapOf(SCENE)!.data, player: vision.playerMap(SCENE)!, fog, kept, snapshot }
 }
 
 /** P9 — withheld room ids anywhere in a player's join snapshot, module by module. */
-function snapshotLeaks(dmDoc: Doc, fog: SceneFog, snapshot: Record<string, unknown>): string[] {
-  const kept = exploredRooms(fog)
+function snapshotLeaks(dmDoc: Doc, kept: ReadonlySet<string>, snapshot: Record<string, unknown>): string[] {
   const withheld = dmDoc.layers.filter(isDungeon).flatMap((l) => l.rooms ?? []).filter((room) => !kept.has(room.id))
   return Object.entries(snapshot).flatMap(([name, slice]) => {
     const wire = JSON.stringify(slice ?? null)
@@ -397,8 +422,13 @@ function differences(
  * or a recorded cell whose centre is inside the outline. A door is interior when both its sides
  * are inside an outline; it travels only with a room the party holds.
  */
-function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number; minY: number; maxX: number; maxY: number }): string[] {
-  const kept = exploredRooms(fog)
+function leaks(
+  dmDoc: Doc,
+  playerDoc: Doc,
+  fog: SceneFog,
+  kept: ReadonlySet<string>,
+  frame: { minX: number; minY: number; maxX: number; maxY: number },
+): string[] {
   const dmLayers = dmDoc.layers.filter(isDungeon).map(asLoaded)
   const outlines = dmLayers.flatMap((l) => l.mergedFloor ?? [])
   const rooms = dmLayers.flatMap((l) => (l.rooms ?? []) as (Room & { boundary: Ring })[])
@@ -455,11 +485,13 @@ function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number;
 describe.each(FIXTURES)('player view parity: $name', (fixture) => {
   const map = fixture.map()
   it.each(statesOf(fixture))('$name', (state) => {
-    const { dm, player, fog, snapshot } = cut(map, state)
+    const { dm, player, fog, kept, snapshot } = cut(map, state)
     const frame = player.frame ?? { minX: 0, minY: 0, maxX: 30, maxY: 30 }
+    // T10 — a room hidden again is held by nobody, so the leak guard below withholds it whole.
+    if (state.hide) expect(kept.has(state.hide)).toBe(false)
     expect({
       draws: differences(dm, player, frame, state.live),
-      leaks: [...leaks(dm, player, fog, frame), ...snapshotLeaks(dm, fog, snapshot)],
+      leaks: [...leaks(dm, player, fog, kept, frame), ...snapshotLeaks(dm, kept, snapshot)],
     }).toEqual({ draws: [], leaks: [] })
   })
 })

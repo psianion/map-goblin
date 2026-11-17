@@ -8,7 +8,8 @@
 // draws, unearned map is still black. (It once imitated the background's own colour and dot
 // grid so fogged map could pass for empty void; an opaque cloud hides both the same, so the
 // imitation retired with the grey halo it left at the cloud's rim.) T8: everything else the
-// seat has revealed is simply not drawn on, whether or not an eye is on it now — the lights
+// seat has revealed is simply not drawn on, whether or not an eye is on it now (T10: revealed
+// now — a room the DM hid again is fogged like one nobody entered) — the lights
 // and the sky make its shadows, the same as on the DM's lit view. (It was once a memory tier,
 // desaturated and dimmed, which painted line-of-sight wedges over lit ground.)
 //
@@ -105,7 +106,6 @@ import {
   regionRects,
   ringsWithHoles,
   roomAt,
-  roomFog,
   sceneFog,
   serverDoors,
   serverLayers,
@@ -118,8 +118,8 @@ import { effectiveFogLook } from './effectiveFogLook';
 import { outsideFrame, tierPlan, type DrawPlan, type TierScene } from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
-/** What the player's canvas does with one room. */
-export type RoomView = 'visible' | 'explored' | 'dark';
+/** What the player's canvas does with one room. T10: no explored view; hidden is dark. */
+export type RoomView = 'visible' | 'dark';
 
 /** D10 — the one deliberately slow beat in the product. A play beat, not decoration. */
 export const REVEAL_MS = 300;
@@ -390,9 +390,9 @@ const NO_FALLBACK_ROOM: readonly FogRoom[] = [];
 const NO_VIEWS: Map<string, RoomView> = new Map();
 
 /**
- * D3's two layers, resolved per room. `visibleRooms` is the mechanics module's — the same
+ * D3's layers, resolved per room. `visibleRooms` is the mechanics module's — the same
  * pure function the server redacts with, so the canvas and the referee cannot disagree.
- * Everything else the party has ever seen is explored; everything left is black.
+ * T10: everything else is dark, including a room the DM revealed once and hid again.
  */
 export function roomViews(
   rooms: readonly TableRoom[],
@@ -414,16 +414,7 @@ export function roomViews(
   const fog = effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms);
   const visible = storedFog.visible ? new Set(storedFog.visible) : visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
-  for (const id of [...rooms.map((room) => room.id), ...rows]) {
-    views.set(
-      id,
-      visible.has(id)
-        ? 'visible'
-        : roomFog(fog, id).wasEverRevealed
-          ? 'explored'
-          : 'dark',
-    );
-  }
+  for (const id of [...rooms.map((room) => room.id), ...rows]) views.set(id, visible.has(id) ? 'visible' : 'dark');
   return views;
 }
 
@@ -494,7 +485,6 @@ export function revealsBetween(
   for (const [id, view] of next) {
     if (view !== 'visible') continue;
     const before = prev.get(id) ?? 'dark';
-    // T8 — an explored room already shows as it does lit, so only a dark one has a reveal.
     if (before === 'dark') reveals.set(id, before);
   }
   return reveals;
@@ -1168,11 +1158,10 @@ function roomTiers(scene: FogScene): FogRing[] {
 
   const dark = floorsOf('dark');
   const visible = floorsOf('visible');
-  const explored = floorsOf('explored');
   const own = scene.own ?? [];
 
-  // T8 — an explored room is revealed ground like a visible one: one tier, no memory wash.
-  const seen = fogRegion([...visible, ...explored, ...own], dark, scene.pad, FOG_FEATHER);
+  // T8 — one tier, no memory wash. T10: only what is visible now; a hidden room is dark.
+  const seen = fogRegion([...visible, ...own], dark, scene.pad, FOG_FEATHER);
   // A dark room is withheld from the earned hole, but never the cell under the seat's own token.
   const earned = own.length > 0 && isClipperReady() ? clipper2Engine.union([...seen.reach, ...own], []) : seen.reach;
   return ringsWithHoles(earned);
@@ -1198,6 +1187,8 @@ function roomTiers(scene: FogScene): FogRing[] {
 function tierSceneOf(scene: FogScene): TierScene {
   const stored = scene.fog?.rooms ?? {};
   const floors = scene.rooms.filter((room) => room.boundary.length >= 3);
+  // T10 — By sight shows Outdoors while the DM has it revealed, as By hand does.
+  const outdoorsRevealed = !!scene.outdoors && stored[scene.outdoors]?.status === 'revealed';
   return {
     sight: scene.sight ?? [],
     // The fence, on the scene's own switch — and rooms mode is untouched by the whole feature,
@@ -1219,6 +1210,7 @@ function tierSceneOf(scene: FogScene): TierScene {
     frame: scene.bounds,
     open: scene.openParts?.outers ?? scene.open,
     openHoles: scene.openParts?.holes,
+    ...(outdoorsRevealed ? { outdoorsRevealed } : {}),
     own: scene.own,
   };
 }

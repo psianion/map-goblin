@@ -177,6 +177,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       vision.roomAtOf,
       (sceneId) => vision.visibleOf(sceneId),
       vision.groundAtOf,
+      (sceneId) => vision.keptRoomsOf(sceneId),
     ),
   )
   // Table fix pass, decision b: a player opens a door one of their own tokens stands beside.

@@ -27,7 +27,6 @@ import type {
   TriggerDef,
 } from '@dnd/core/src/shared/prep'
 import type { Stores } from '../db/stores'
-import { exploredRooms } from '../fog/redactMap'
 import { roomAnchor, roomRing, type SceneMap, type SceneMapOf } from '../fog/sceneMap'
 
 const NO_FOG: FogState = { byScene: {} }
@@ -96,12 +95,14 @@ export function createTriggerDeps(
       return out
     },
 
-    // The same computation vision.ts uses for the player-held map, on the module state
-    // fog itself was last written with — not vision's cache, which is also keyed on
-    // tokens/doors and would recompute more than this needs.
+    // Every room the party has ever uncovered (the latch), on the module state fog itself was
+    // last written with. A reveal trigger fires on the first uncovering, so this stays the latch
+    // even though a seat now holds only what is revealed now (T10's `heldRooms`).
     exploredOf(campaignId, sceneId) {
       const fog = (stores.moduleState.get(campaignId, 'fog') as FogState | undefined) ?? NO_FOG
-      return [...exploredRooms(sceneFogOf(fog, sceneId))]
+      return Object.entries(sceneFogOf(fog, sceneId).rooms)
+        .filter(([, room]) => room.wasEverRevealed)
+        .map(([id]) => id)
     },
 
     // A fired encounter's spawn/seed lists, materialized through the registry's internal

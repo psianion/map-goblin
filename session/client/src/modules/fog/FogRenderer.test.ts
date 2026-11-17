@@ -195,12 +195,15 @@ describe('roomViews — what each room is doing', () => {
   it('classifies the Outdoors row by the same rule, off the visible list (table fix pass §2.8)', () => {
     const shown = roomViews(ROOMS, { ...fogOf({ '@outdoors': seen }), visible: ['@outdoors'] }, [], [], ['@outdoors']);
     expect(shown.get('@outdoors')).toBe('visible');
-    const dimmed = roomViews(ROOMS, { ...fogOf({ '@outdoors': stale }), visible: [] }, [], [], ['@outdoors']);
-    expect(dimmed.get('@outdoors')).toBe('explored');
+    // T10: hidden again is dark — there is no explored tier.
+    const hidden = roomViews(ROOMS, { ...fogOf({ '@outdoors': stale }), visible: [] }, [], [], ['@outdoors']);
+    expect(hidden.get('@outdoors')).toBe('dark');
     expect(roomViews(ROOMS, { ...fogOf({}), visible: [] }, [], [], ['@outdoors']).get('@outdoors')).toBe('dark');
   });
 
-  it('is clear where the party stands and dim where they have been', () => {
+  // T10 — these rows once asserted 'explored' (a dim memory) for a room seen before; a room
+  // revealed and then hidden, or revealed but out of reach, is now fogged like one never seen.
+  it('is clear where the party stands and dark where they have been', () => {
     const views = roomViews(
       ROOMS,
       fogOf({ [VESTIBULE.id]: seen, [GALLERY.id]: stale }),
@@ -208,11 +211,11 @@ describe('roomViews — what each room is doing', () => {
       [VESTIBULE.id],
     );
     expect(views.get(VESTIBULE.id)).toBe('visible');
-    expect(views.get(GALLERY.id)).toBe('explored');
+    expect(views.get(GALLERY.id)).toBe('dark');
     expect(views.get(VAULT.id)).toBe('dark');
   });
 
-  it('dims a revealed room the party cannot reach through a shut door', () => {
+  it('fogs a revealed room the party cannot reach through a shut door', () => {
     const doors = [liveDoor(door('d-vg', VESTIBULE.id, GALLERY.id))];
     const views = roomViews(
       ROOMS,
@@ -221,8 +224,8 @@ describe('roomViews — what each room is doing', () => {
       [VESTIBULE.id],
     );
     expect(views.get(VESTIBULE.id)).toBe('visible');
-    // Revealed but sealed off: explored, not live — and never black, they have been there.
-    expect(views.get(GALLERY.id)).toBe('explored');
+    // Revealed but sealed off by concealment: fogged until the door opens.
+    expect(views.get(GALLERY.id)).toBe('dark');
   });
 
   it('clears that same room the moment the door opens', () => {
@@ -249,7 +252,7 @@ describe('roomViews — what each room is doing', () => {
       doors,
       [VESTIBULE.id],
     );
-    expect(views.get(GALLERY.id)).toBe('explored');
+    expect(views.get(GALLERY.id)).toBe('dark');
   });
 
   it('with concealment off, revealed is visible however shut the doors are', () => {
@@ -264,9 +267,9 @@ describe('roomViews — what each room is doing', () => {
     expect(views.get(VAULT.id)).toBe('dark');
   });
 
-  it('leaves a re-hidden room the party is standing in dim, not black (D7)', () => {
+  it('fogs a re-hidden room even with the party standing in it (T10)', () => {
     const views = roomViews(ROOMS, fogOf({ [VESTIBULE.id]: stale }), [], [VESTIBULE.id]);
-    expect(views.get(VESTIBULE.id)).toBe('explored');
+    expect(views.get(VESTIBULE.id)).toBe('dark');
   });
 
   // ── no room is lit for free ────────────────────────────────────────────────
@@ -290,7 +293,7 @@ describe('roomViews — what each room is doing', () => {
     expect(views.get(GALLERY.id)).toBe('dark');
   });
 
-  it('leaves a Hide All a map of memories, with nothing lit', () => {
+  it('leaves a Hide All fogged everywhere, with nothing lit (T10)', () => {
     const views = roomViews(
       ROOMS,
       fogOf({ [VESTIBULE.id]: stale, [VAULT.id]: stale }),
@@ -299,8 +302,8 @@ describe('roomViews — what each room is doing', () => {
     );
     // The wash's own regression: the last room going under used to hand the biggest one
     // back as `visible`, which is why a memory measured within 0.35% of the same room live.
-    expect(views.get(VESTIBULE.id)).toBe('explored');
-    expect(views.get(VAULT.id)).toBe('explored');
+    expect(views.get(VESTIBULE.id)).toBe('dark');
+    expect(views.get(VAULT.id)).toBe('dark');
     expect(views.get(GALLERY.id)).toBe('dark');
   });
 
@@ -391,7 +394,7 @@ describe('partyRoomIds', () => {
     expect(ROOMS.some((r) => r.id === PARTY_ROOM_UNKNOWN)).toBe(false);
   });
 
-  it('keeps a revealed room a memory when the party is standing somewhere unknown', () => {
+  it('keeps a revealed room fogged when the party is standing somewhere unknown', () => {
     // Without the line above this reads as "no party", `effectiveFog` drops concealment and
     // the gallery lights up — while the server goes on withholding everything inside it.
     const views = roomViews(
@@ -400,7 +403,7 @@ describe('partyRoomIds', () => {
       [liveDoor(door('d1', VESTIBULE.id, GALLERY.id))],
       partyRoomIds([token({ x: 100, y: 100 })], [GALLERY]),
     );
-    expect(views.get(GALLERY.id)).toBe<RoomView>('explored');
+    expect(views.get(GALLERY.id)).toBe<RoomView>('dark');
   });
 });
 
@@ -414,9 +417,9 @@ describe('revealsBetween — one fade per reveal, and only per reveal', () => {
     expect(revealsBetween(null, views({ [VESTIBULE.id]: 'visible' })).size).toBe(0);
   });
 
-  it('fades a newly visible room from dark, and never an explored one (T8: it already shows)', () => {
+  it('fades a newly visible room from dark, and never one already visible', () => {
     const reveals = revealsBetween(
-      views({ [VESTIBULE.id]: 'dark', [GALLERY.id]: 'explored' }),
+      views({ [VESTIBULE.id]: 'dark', [GALLERY.id]: 'visible' }),
       views({ [VESTIBULE.id]: 'visible', [GALLERY.id]: 'visible' }),
     );
     expect(reveals.get(VESTIBULE.id)).toBe('dark');
@@ -436,7 +439,7 @@ describe('revealsBetween — one fade per reveal, and only per reveal', () => {
   it('does not fade a room that went the other way', () => {
     const reveals = revealsBetween(
       views({ [VESTIBULE.id]: 'visible' }),
-      views({ [VESTIBULE.id]: 'explored' }),
+      views({ [VESTIBULE.id]: 'dark' }),
     );
     expect(reveals.size).toBe(0);
   });
@@ -736,16 +739,17 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(mask)).toHaveLength(0);
   });
 
-  it('draws an explored room as revealed ground, with no memory tier (T8)', () => {
+  // T10 — this row once drew an explored room white (T8). A room hidden again is now fogged
+  // fully, like one nobody entered: only what is visible now lands in the mask.
+  it('fogs a room hidden again fully, with no explored tier (T10)', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
-    drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }), mask);
+    drawFog(scrim, { ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }), rooms: [WEST, FAR], bounds: fogBounds([], [WEST, FAR]) }, mask);
 
-    // The explored room lands in the cloud's mask white, like a visible one: nothing dims or
-    // greys revealed ground any more, the lights and the sky shade it.
     const tiers = fillsOf(mask);
-    expect(tiers.some((f) => f.style.color === 0xffffff)).toBe(true);
     expect(tiers.every((f) => f.style.color === 0xffffff || f.style.color === 0x000000)).toBe(true);
+    expect(fillCovers(mask, WEST.centroid)).toBe(true);
+    expect(fillCovers(mask, FAR.centroid)).toBe(false);
   });
 
   it('leaves an all-dark map one unbroken fill, padded or not', () => {
@@ -756,7 +760,9 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(scrim)).toHaveLength(0);
   });
 
-  it('keeps a remembered room IN the chip stencil — rooms mode lets you stand in one', () => {
+  // T10 — once "keeps a remembered room IN the chip stencil": a hidden room is no ground to
+  // stand on now (§2.2), so it is out of the stencil like any fogged room.
+  it('keeps a hidden room OUT of the chip stencil (T10)', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
     const sightMask = new Graphics();
@@ -764,26 +770,18 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     // a single ring, so counting the stencil's fills there proves nothing whichever tier it
     // was drawn from. Well clear of each other, the coverage question is answerable.
     const twoRooms: FogScene = {
-      ...scene({ [WEST.id]: 'visible', [FAR.id]: 'explored' }),
+      ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }),
       rooms: [WEST, FAR],
       bounds: fogBounds([], [WEST, FAR]),
     };
     drawFog(scrim, twoRooms, mask, sightMask);
 
-    // The cloud mask shows the remembered room as revealed ground (T8: one tier)…
-    expect(fillsOf(mask).every((f) => f.style.color === 0xffffff || f.style.color === 0x000000)).toBe(true);
-    expect(fillCovers(mask, FAR.centroid)).toBe(true);
-    // …and the stencil the chips and the turn ring wear covers BOTH, at one strength. Rooms
-    // mode's live tier is the DM's revealed set rather than a sweep, and D7 lets the party
-    // walk into a room they remember but the DM has not lit — a seat's own token there is on
-    // the wire by design (`inSight` exempts `mine`), so a live-only stencil would rub the
-    // player's own chip off their own canvas. Somebody ELSE's token in that room never
-    // reaches the wire at all: `tokens.redact` gates a foreign token on `scene.visible`.
-    // Vision mode is the live-only one, and it draws no vectors here at all.
+    // The stencil the chips and the turn ring wear is the visible room alone. A seat's own
+    // token is still drawn wherever it stands (§2.8, the `own` footprint).
     const stencilFills = fillsOf(sightMask);
     expect(stencilFills.every((f) => f.style.color === 0xffffff)).toBe(true);
     expect(fillCovers(sightMask, WEST.centroid)).toBe(true);
-    expect(fillCovers(sightMask, FAR.centroid)).toBe(true);
+    expect(fillCovers(sightMask, FAR.centroid)).toBe(false);
     // Never-seen ground stays out of it — the stencil is not a licence to draw anywhere.
     expect(fillCovers(sightMask, [23, 3])).toBe(false);
   });
@@ -805,25 +803,22 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
           });
       });
 
-  it('keeps a memory IN the door stencil — a remembered room still shows its doors', () => {
-    // The other half of the row above, and the whole of the door leak. A door is map
-    // information: once the room around it has been seen, where the door is has stopped being
-    // a secret, and a remembered room that drew its walls but not its doors would be lying
-    // about its own layout. A live position is not like that, which is why the chips wear the
-    // narrower stencil and the marks wear this one.
+  // T10 — once "keeps a memory IN the door stencil": a hidden room is fogged fully, so its
+  // doors go under the cloud with it.
+  it('cuts a hidden room out of the door stencil (T10)', () => {
     const scrim = new Graphics();
     const shownMask = new Graphics();
     drawFog(
       scrim,
-      scene({ [WEST.id]: 'visible', [EAST.id]: 'explored' }),
+      { ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }), rooms: [WEST, FAR], bounds: fogBounds([], [WEST, FAR]) },
       undefined,
       undefined,
       shownMask,
     );
 
     expect(fillsOf(shownMask).every((f) => f.style.color === 0xffffff)).toBe(true);
-    expect(fillCovers(shownMask, [6, 3]), 'the room the party can see').toBe(true);
-    expect(fillCovers(shownMask, [13, 3]), 'the room it only remembers').toBe(true);
+    expect(fillCovers(shownMask, WEST.centroid), 'the room the party can see').toBe(true);
+    expect(fillCovers(shownMask, FAR.centroid), 'the room the DM hid again').toBe(false);
   });
 
   it('cuts never-seen ground out of the door stencil', () => {
@@ -1019,6 +1014,30 @@ describe('drawFog in vision mode', () => {
       { kind: 'sprite', source: 'mask', blend: 'erase' },
     ]);
     expect(drawn.cells).toBe(0);
+  });
+
+  // T10 — By sight paints the rooms the DM has revealed now and Outdoors while it is revealed;
+  // a room hidden again is not among them, so only live sight (or the record) shows it.
+  it('paints the rooms and the Outdoors revealed now, and not one hidden again (T10)', () => {
+    const OPEN: Polygon = [[-5, -5], [40, -5], [40, 40], [-5, 40]];
+    const HOLE = EAST.boundary;
+    const lit = { status: 'revealed' as const, wasEverRevealed: true };
+    const hidden = { status: 're_hidden' as const, wasEverRevealed: true };
+    const planOf = (rooms: Record<string, typeof lit | typeof hidden>) =>
+      drawFog(
+        new Graphics(),
+        visionScene({ fog: { rooms, concealBehindDoors: true }, outdoors: '@outdoors', open: [OPEN], openParts: { outers: [OPEN], holes: [HOLE] } }),
+        new Graphics(),
+      ).plan!;
+    const painted = (plan: ReturnType<typeof planOf>) =>
+      plan.ops.flatMap((op) => (op.target === 'mask' && op.kind === 'polys' && op.blend === 'normal' ? op.polys : []));
+
+    const shown = planOf({ [WEST.id]: lit, [EAST.id]: hidden, '@outdoors': lit });
+    expect(painted(shown)).toEqual([OPEN, WEST.boundary]);
+    // The open ground's holes (walled floors) go back under before the rooms are drawn.
+    expect(shown.ops).toContainEqual(expect.objectContaining({ target: 'mask', polys: [HOLE], blend: 'erase' }));
+
+    expect(painted(planOf({ [WEST.id]: hidden, [EAST.id]: hidden, '@outdoors': hidden }))).toEqual([]);
   });
 
   // The stencil the chip and ring layers wear above the mask is the compositor's `live`
@@ -1387,8 +1406,8 @@ describe('fogScene', () => {
 
     const scene = fogScene();
     expect(scene.views.get(VESTIBULE.id)).toBe('visible');
-    // The authored door is shut, so the gallery is sealed off behind it.
-    expect(scene.views.get(GALLERY.id)).toBe('explored');
+    // The authored door is shut, so the gallery is sealed off behind it (T10: fogged).
+    expect(scene.views.get(GALLERY.id)).toBe('dark');
     expect(scene.bounds).not.toBeNull();
   });
 
@@ -1421,8 +1440,8 @@ describe('fogScene', () => {
     expect(views.get(VESTIBULE.id)).toBe('visible');
     // Through the door the *document* authors: the party walks vestibule → gallery.
     expect(views.get(GALLERY.id)).toBe('visible');
-    // …and never through the one only core believes in.
-    expect(views.get(VAULT.id)).toBe('explored');
+    // …and never through the one only core believes in (T10: so the vault stays fogged).
+    expect(views.get(VAULT.id)).toBe('dark');
   });
 
   // ── vision mode (S3 P2 §3) ───────────────────────────────────────────────
