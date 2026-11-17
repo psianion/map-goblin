@@ -11,6 +11,8 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { regionFor, setCells, tableRegion, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
+import type { TriggersState } from '@dnd/mechanics/triggers'
+import type { Environment } from '@dnd/core/src/shared/world'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the floor union the client rebuilds
 import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the engine's own door and wall resolve
@@ -31,9 +33,6 @@ import { ensureClipperReady } from './clipperBoot'
 import { exploredRooms } from './redactMap'
 import { centreOf, distanceToPoly, isDungeon, pointInPoly } from './sceneMap'
 import { createVision } from './vision'
-
-/** P1 lands this guard skipped; P6 unskips it once the fixes are in. */
-const UNTIL_P6 = true
 
 beforeAll(async () => {
   expect(await ensureClipperReady()).toBe(true)
@@ -135,6 +134,8 @@ interface State {
   token?: [number, number]
   /** Fill the cell record from the token's own sweep first (By sight). */
   sweep?: boolean
+  /** The DM's live room places (the triggers module's room edits), by room id. */
+  live?: Record<string, Environment>
 }
 
 interface Fixture {
@@ -155,6 +156,12 @@ const statesOf = (f: Fixture): State[] => [
   { name: 'by hand, start dark', fog: { rooms: {} } },
   { name: 'by hand, a token outside, Outdoors revealed', fog: { rooms: { '@outdoors': lit } }, token: f.outside },
   { name: 'by hand, the mouth room revealed', fog: { rooms: { '@outdoors': lit, [f.mouthRoom]: lit } }, token: f.outside },
+  {
+    name: 'by hand, a token outside, the unexplored mouth room made Outdoor live',
+    fog: { rooms: { '@outdoors': lit } },
+    token: f.outside,
+    live: { [f.mouthRoom]: 'outdoor' },
+  },
   { name: 'by sight, start dark', fog: { mode: 'vision', containedSight: false, rooms: {} } },
   { name: 'by sight, a token outside', fog: { mode: 'vision', containedSight: false, rooms: {} }, token: f.outside, sweep: true },
   {
@@ -181,6 +188,12 @@ function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog }
     stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc: token } } } satisfies TokensState)
   }
   setFog(state.fog)
+  if (state.live) {
+    const roomEdits = Object.fromEntries(Object.entries(state.live).map(([id, place]) => [id, { place }]))
+    stores.moduleState.put(campaign.id, 'triggers', {
+      byScene: { [SCENE]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, prompts: [], log: [], roomEdits } },
+    } as unknown as TriggersState)
+  }
   if (state.sweep) {
     const patch = vision.autoExplorePatch(SCENE)
     const frame = vision.frameOf(campaign.id, SCENE)!
@@ -213,7 +226,7 @@ interface Resolved {
   floors: Ring[]
 }
 
-function resolve(doc: Doc): Resolved {
+function resolve(doc: Doc, live: Record<string, Environment>): Resolved {
   const out: Resolved = { doors: new Map(), standalone: new Map(), caves: [], edges: [], rooms: new Map(), placeAt: () => '', floors: [] }
   const places: ((x: number, y: number) => string | null)[] = []
   let levelFallback = ''
@@ -247,11 +260,12 @@ function resolve(doc: Doc): Resolved {
       }
     })
     out.floors.push(...(layer.mergedFloor ?? []))
-    for (const room of layer.rooms ?? []) out.rooms.set(room.id, roomKey(doc, layer, room))
+    for (const room of layer.rooms ?? []) out.rooms.set(room.id, roomKey(doc, layer, room, live))
     const index = roomIndexOf(layer.rooms)
     places.push((x, y) => {
       const room = index.roomAt(x, y)
-      return room ? roomPlace(doc, layer, room) : null
+      // The table's live place wins, keyed by the room's id (`renderLoop`'s `tableRoomPlaces`).
+      return room ? (live[room.id] ?? roomPlace(doc, layer, room)) : null
     })
     levelFallback = levelPlace(doc.mapSettings, level)
   }
@@ -268,16 +282,18 @@ function resolve(doc: Doc): Resolved {
 const caveKey = (wall: ResolvedWall) => ({ set: wall.textureSetId ?? '', width: wall.bandWidth ?? null })
 
 /** A room as the renderers read it: its face, its floor fill and its place. */
-function roomKey(doc: Doc, layer: DungeonLayer, room: Room) {
+function roomKey(doc: Doc, layer: DungeonLayer, room: Room, live: Record<string, Environment>) {
   const chain = roomChain(doc, layer, room)
   const pinned = (key: 'floorTextureId' | 'floorTint') => ['room', 'area'].includes(lookSource(chain, key))
   const look = resolveRoomLook(chain)
   return {
     face: (room.boundary ?? room.face ?? []).map(([x, y]) => [round(x), round(y)]),
-    fill: roomHasLook(layer, room)
-      ? { tex: pinned('floorTextureId') ? look.floorTextureId : null, tint: pinned('floorTint') ? look.floorTint : null }
-      : null,
-    place: look.place,
+    // As `roomFloorFills` reads it: a room pinning neither floor key paints no fill.
+    fill:
+      roomHasLook(layer, room) && (pinned('floorTextureId') || pinned('floorTint'))
+        ? { tex: pinned('floorTextureId') ? look.floorTextureId : null, tint: pinned('floorTint') ? look.floorTint : null }
+        : null,
+    place: live[room.id] ?? look.place,
   }
 }
 
@@ -292,9 +308,14 @@ function dmEdgeOf(dm: Resolved, a: [number, number], b: [number, number]) {
 }
 
 /** Every way the player's copy draws differently from the DM's, as readable lines. */
-function differences(dmDoc: Doc, playerDoc: Doc, frame: { minX: number; minY: number; maxX: number; maxY: number }): string[] {
-  const dm = resolve(dmDoc)
-  const player = resolve(playerDoc)
+function differences(
+  dmDoc: Doc,
+  playerDoc: Doc,
+  frame: { minX: number; minY: number; maxX: number; maxY: number },
+  live: Record<string, Environment> = {},
+): string[] {
+  const dm = resolve(dmDoc, live)
+  const player = resolve(playerDoc, live)
   const out: string[] = []
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
   for (const [id, mine] of player.doors) {
@@ -396,10 +417,10 @@ function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number;
 
 describe.each(FIXTURES)('player view parity: $name', (fixture) => {
   const map = fixture.map()
-  ;(UNTIL_P6 ? it.skip : it).each(statesOf(fixture))('$name', (state) => {
+  it.each(statesOf(fixture))('$name', (state) => {
     const { dm, player, fog } = cut(map, state)
     const frame = player.frame ?? { minX: 0, minY: 0, maxX: 30, maxY: 30 }
-    expect({ draws: differences(dm, player, frame), leaks: leaks(dm, player, fog, frame) }).toEqual({ draws: [], leaks: [] })
+    expect({ draws: differences(dm, player, frame, state.live), leaks: leaks(dm, player, fog, frame) }).toEqual({ draws: [], leaks: [] })
   })
 })
 
@@ -429,5 +450,29 @@ describe('a stand-in room (R1)', () => {
     expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')).toMatchObject({
       look: { floorTint: '#ffd0d0', wallWidth: 0.8, wallTextureTint: '#a0a0ff', place: 'underground' },
     })
+  })
+})
+
+describe('a live place the DM moves (R1)', () => {
+  it('re-sends the stand-ins a seat holds, with the new place baked in', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Parity')
+    stores.maps.insert(SCENE, campaign.id, 'Parity', read('testing-cave.ggvtt'))
+    stores.scenes.create(SCENE, campaign.id, SCENE, 'Parity')
+    const vision = createVision(stores)
+    stores.moduleState.put(campaign.id, 'fog', {
+      byScene: { [SCENE]: { rooms: { '@outdoors': lit }, concealBehindDoors: true } },
+    } satisfies FogState)
+    const before = vision.playerMap(SCENE)!
+    const mouth = dungeonOf(before).rooms!.find((r) => r.standIn && r.look?.place === 'underground')!
+    expect(mouth).toBeTruthy()
+    vision.revealDelta(SCENE)
+    stores.moduleState.put(campaign.id, 'triggers', {
+      byScene: {
+        [SCENE]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, prompts: [], log: [], roomEdits: { [CAVE_ENT]: { place: 'outdoor' } } },
+      },
+    } as unknown as TriggersState)
+    const moved = vision.revealDelta(SCENE)!.layers.flatMap((l) => l.rooms).find((r) => JSON.stringify(r.boundary) === JSON.stringify(mouth.boundary))
+    expect(moved).toMatchObject({ standIn: true, look: { place: 'outdoor' } })
   })
 })

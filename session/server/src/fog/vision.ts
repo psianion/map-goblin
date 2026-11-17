@@ -84,6 +84,8 @@ import {
   exploredRooms,
   bandPad,
   groundOf,
+  standInDeltaFor,
+  type Places,
   type Ground,
 } from './redactMap'
 import {
@@ -233,6 +235,9 @@ interface Computed {
   playerChildren: Set<string>
   /** The rooms newly explored at this mutation, sliced once and sent to every player. */
   delta: MapDelta | null
+  /** The DM's live room places, baked into the stand-ins a seat is sent, and their key. */
+  places: Places
+  placesKey: string
   /** §2.7 — ground the table knows, as the redactor's lookup. */
   ground: Ground
   /** §2.7 — the ground outside the walled floors, once any outdoor cell is known. */
@@ -414,6 +419,12 @@ export function createVision(stores: Stores): Vision {
     }
 
     const explored = exploredRooms(fog)
+    // The DM's live room places: a stand-in carries its room's (it has lost the real id the
+    // table's override is keyed by), and a moved place re-sends the stand-ins a seat holds.
+    const places: Places = Object.fromEntries(
+      Object.entries(gate.roomPlaces ?? {}).flatMap(([id, edit]) => (edit.place ? [[id, edit.place]] : [])),
+    )
+    const placesKey = JSON.stringify(places)
     // Table fix pass §2.7: ground the table knows, for what a seat is sent — the cell record,
     // and every outdoor ground cell of a level whose Outdoors row was ever revealed.
     const ground = knownGroundOf(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
@@ -450,7 +461,7 @@ export function createVision(stores: Stores): Vision {
     // grows that set is the one that owes the new fence — the same D5 debt the geometry pays.
     // Only on a room delta: `exploredRooms` never shrinks and nothing else moves the answer.
     const roomDelta = revealed.length
-      ? { ...mapDeltaFor(map, sceneId, revealed, doors, explored), lockMask: lockMaskFor(map, fog, explored) }
+      ? { ...mapDeltaFor(map, sceneId, revealed, doors, explored, places), lockMask: lockMaskFor(map, fog, explored) }
       : null
     // …and the same question asked of every *child*, which is what a reveal that moves no room
     // at all still owes. Two of those exist: a `reveal-secret`, whose door child was cut while
@@ -481,6 +492,9 @@ export function createVision(stores: Stores): Vision {
     const groundMoved =
       !!openGround && (!previous?.openGround || openGround.some((g, i) => g.rings !== previous.openGround?.[i]?.rings))
     const groundDelta: MapDelta | null = groundMoved ? { sceneId, layers: [], openGround } : null
+    // A live place the DM moved reaches the stand-ins a seat holds the way a reveal does.
+    const placeDelta =
+      previous && previous.placesKey !== placesKey ? standInDeltaFor(map, sceneId, fog, doors, ground.test, places) : null
     const next: Computed = {
       revision: stores.moduleState.revision,
       map,
@@ -507,8 +521,13 @@ export function createVision(stores: Stores): Vision {
       ground: ground.test,
       openGround,
       nearGround,
+      places,
+      placesKey,
       delta: mergeDelta(
-        mergeDelta(roomDelta, newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored) : null),
+        mergeDelta(
+          mergeDelta(roomDelta, newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored, places) : null),
+          placeDelta,
+        ),
         groundDelta,
       ),
     }
@@ -627,7 +646,7 @@ export function createVision(stores: Stores): Vision {
     playerMap: (sceneId) => {
       const computed = compute(sceneId)
       return computed
-        ? redactMapForViewer(computed.map, computed.fog, computed.doors, computed.ground, computed.openGround)
+        ? redactMapForViewer(computed.map, computed.fog, computed.doors, computed.ground, computed.openGround, computed.places)
         : null
     },
 
@@ -867,13 +886,16 @@ function ownersOf(tokens: Record<string, Token>): string[] {
 /** Two deltas for one mutation, said in one message — the client merges layers by id. */
 function mergeDelta(rooms: MapDelta | null, doors: MapDelta | null): MapDelta | null {
   if (!rooms || !doors) return rooms ?? doors
-  const layers = [...rooms.layers]
+  const layers = rooms.layers.map((layer) => ({ ...layer }))
   for (const layer of doors.layers) {
     const existing = layers.find((l) => l.id === layer.id)
-    if (existing) existing.children = [...existing.children, ...layer.children]
-    else layers.push(layer)
+    if (existing) {
+      existing.children = [...existing.children, ...layer.children]
+      existing.rooms = [...existing.rooms, ...layer.rooms]
+    } else layers.push(layer)
   }
-  return { ...rooms, layers }
+  // The second delta's own fields (its open ground) survive the merge too.
+  return { ...doors, ...rooms, layers }
 }
 
 /**

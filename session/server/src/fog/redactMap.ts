@@ -25,6 +25,7 @@ import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve'
 import { doorWallLook, edgeStyles, levelStyle, ringStyles } from '@dnd/core/src/shared/wallLook'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the look chain
 import { levelOf } from '@dnd/core/src/shared/lookScope'
+import type { Environment } from '@dnd/core/src/shared/world'
 import type {
   AnyChild,
   DoorChild,
@@ -68,6 +69,7 @@ export function redactMapForViewer(
   doors: Doors,
   ground: Ground = groundOf(fog, scene.frame),
   openGround?: SerializedMapData['openGround'],
+  places: Places = NO_PLACES,
 ): SerializedMapData {
   const kept = exploredRooms(fog)
   // The confining rectangle of the *full* document, measured with the index and so before
@@ -120,7 +122,7 @@ export function redactMapForViewer(
       const { areas: _areas, ...rest } = layer
       return {
         ...rest,
-        ...slice(layer, scene, kept, doors, kept, cut),
+        ...slice(layer, scene, kept, doors, kept, cut, places),
         // The merged floor is one union across the whole layer, so it cannot be cut per
         // room — and handing it over would outline every room in the dungeon. The client
         // rebuilds it from the children it has; the editor already ships it null.
@@ -156,6 +158,7 @@ export function childDeltaFor(
   sceneId: string,
   childIds: ReadonlySet<string>,
   kept: ReadonlySet<string>,
+  places: Places = NO_PLACES,
 ): MapDelta {
   return {
     sceneId,
@@ -171,6 +174,7 @@ export function childDeltaFor(
             .filter((child) => childIds.has(child.id))
             .map((child) => (child.childType === 'door' ? facing(placed(scene, child), kept) : child)) as AnyChild[],
           kept,
+          places,
         ),
         standaloneWalls: [] as WallSegment[],
       }))
@@ -195,13 +199,14 @@ export function mapDeltaFor(
   rooms: readonly string[],
   doors: Doors,
   explored: ReadonlySet<string> = new Set(rooms),
+  places: Places = NO_PLACES,
 ): MapDelta {
   const kept = new Set(rooms)
   return {
     sceneId,
     layers: scene.data.layers
       .filter(isDungeon)
-      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored) }))
+      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored, cutFor(scene, kept), places) }))
       .filter((layer) => layer.rooms.length > 0),
   }
 }
@@ -226,6 +231,7 @@ function slice(
   doors: Doors,
   facingSet: ReadonlySet<string> = kept,
   cut: Cut = cutFor(scene, kept),
+  places: Places = NO_PLACES,
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     ...withStandIns(
@@ -238,6 +244,7 @@ function slice(
         // drawn where the referee's full map puts it.
         .map((child) => (child.childType === 'door' ? facing(placed(scene, child), facingSet) : child)),
       facingSet,
+      places,
     ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
@@ -660,6 +667,7 @@ function withStandIns(
   rooms: Room[],
   children: AnyChild[],
   held: ReadonlySet<string>,
+  places: Places = NO_PLACES,
 ): { rooms: Room[]; children: AnyChild[] } {
   const floors = children.filter((c): c is ShapeChild => c.childType === 'shape' && c.ground !== true)
   if (floors.length === 0) return { rooms, children }
@@ -667,7 +675,7 @@ function withStandIns(
   const standIns = (layer.rooms ?? [])
     .filter((room) => !held.has(room.id) && !shipped.has(room.id))
     .filter((room) => roomRing(room).length >= 3 && floors.some((floor) => shapeCovers(floor, roomRing(room))))
-    .map((room) => standIn(campaignId, room, layer.areas))
+    .map((room) => standIn(campaignId, room, layer.areas, places[room.id]))
   // S5: areas never travel. Each shipped room carries its area's pins folded into its own look,
   // so an area's name and the grouping of rooms nobody explored stay the DM's.
   const own = rooms.map((room) => withAreaFolded(room, layer.areas))
@@ -697,9 +705,35 @@ const STAND_IN_SALT = randomBytes(16)
 const standInId = (campaignId: string, roomId: string): string =>
   `standin-${createHmac('sha256', STAND_IN_SALT).update(`${campaignId}:${roomId}`).digest('hex').slice(0, 16)}`
 
+/** The DM's live place overrides, by real room id (`roomEditsOf`). */
+export type Places = Readonly<Record<string, Environment>>
+const NO_PLACES: Places = {}
+
+/**
+ * The stand-ins a seat holds, re-sent whole when the DM moves a live place (the stand-in's baked
+ * place moved with it). Null when no stand-in ships.
+ */
+export function standInDeltaFor(
+  scene: SceneMap,
+  sceneId: string,
+  fog: SceneFog,
+  doors: Doors,
+  ground: Ground,
+  places: Places,
+): MapDelta | null {
+  const doc = redactMapForViewer(scene, fog, doors, ground, undefined, places)
+  const layers = doc.layers
+    .filter(isDungeon)
+    .map((layer) => ({ id: layer.id, rooms: (layer.rooms ?? []).filter((room) => room.standIn), children: [] as AnyChild[], standaloneWalls: [] as WallSegment[] }))
+    .filter((layer) => layer.rooms.length > 0)
+  return layers.length ? { sceneId, layers } : null
+}
+
 /** A withheld room as the engine needs it to draw the floor around it: face and look, nothing more. */
-function standIn(campaignId: string, room: Room, areas: readonly RoomArea[] | undefined): Room {
-  const look = foldedLook(room, areas)
+function standIn(campaignId: string, room: Room, areas: readonly RoomArea[] | undefined, live?: Environment): Room {
+  // The DM's live place for the room wins, as it does on the DM's own table (`tableRoomPlaces`,
+  // keyed by the real id the stand-in no longer carries).
+  const look = { ...foldedLook(room, areas), ...(live ? { place: live } : {}) }
   const boundary = roomRing(room)
   return {
     id: standInId(campaignId, room.id),
