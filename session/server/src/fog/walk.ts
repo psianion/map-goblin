@@ -24,6 +24,7 @@ import type { ShapeChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer } from '@dnd/core/src/store/types'
 import type { SceneMap } from './sceneMap'
 import { liveLayers } from './sweep'
+import { hasHiddenGround } from './outdoorGround'
 
 type Doors = Record<string, DoorLiveState>
 type Ring = [number, number][]
@@ -94,11 +95,7 @@ function groundOf(map: SceneMap, layers: readonly DungeonLayer[], levelId: strin
     .map((layer) => layer.mergedFloor ?? [])
     .filter((rings) => rings.length > 0)
     .map((rings) => ({ rings, box: boxOf(rings) }))
-  const anyPieces = map.data.layers.some(
-    (layer) => layer.type === 'dungeon' && (layer.children ?? []).some((c) => isGroundPiece(c)),
-  )
-  const anyBase = !!baseGroundOf(settings) || (map.data.levels ?? []).some((l) => baseGroundOf(settings, l))
-  if (map.rooms.length === 0 && !anyPieces && !anyBase) return () => true
+  if (map.rooms.length === 0 && !hasHiddenGround(map.data)) return () => true
   return (x, y) =>
     floors.some((f) => inBox(f.box, x, y) && inRingsEvenOdd(x, y, f.rings)) ||
     pieces.some(

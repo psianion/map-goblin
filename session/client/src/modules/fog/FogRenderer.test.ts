@@ -1240,6 +1240,19 @@ describe('fogBounds', () => {
     expect(bounds.maxX).toBeGreaterThan(1000);
   });
 
+  it('veils the whole frame for a player at start dark holding ground pieces and no room (R3)', () => {
+    // testing-cave at Start dark: ground pieces and plateaus always travel, no room does, and
+    // the server stamps the frame because the map has ground to hide.
+    const terrain = dungeon([], [{ id: 'grass', childType: 'shape', ground: true } as unknown as DoorChild]);
+    const frame = { minX: 0, minY: 0, maxX: 30, maxY: 30 };
+    expect(fogBounds([terrain], [], frame)).toEqual(frame);
+  });
+
+  it('leaves an imported picture unfogged: no rooms, no frame (R3)', () => {
+    const picture = dungeon([], [{ id: 'tree', childType: 'asset' } as unknown as DoorChild]);
+    expect(fogBounds([picture], [], null)).toBeNull();
+  });
+
   it('covers every room and then some, so the edge of the map is not a tell', () => {
     const bounds = fogBounds([], ROOMS)!;
     expect(bounds.minX).toBeLessThan(0);
@@ -2019,7 +2032,11 @@ describe('the lighting composite each seat is mounted with', () => {
     const frame = (): Promise<void> =>
       new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
-    /** Content, no rooms — what `redactMapForViewer` hands a player of an unzoned map (D6). */
+    /**
+     * Content, no rooms — what `redactMapForViewer` hands a player of an imported picture (D6) in
+     * rooms mode: no frame, because there is nothing to hide (R3). A mode flip re-fetches the
+     * document (`fogModeFlips`), so each mode below is mounted with the document it is sent.
+     */
     const unzoned = { version: '3.0', layers: [dungeon([], [door('d1', 'a', 'b')])] };
     /** …and with the referee's measured frame, which is what makes vision mode fog it at all. */
     const withFrame = { ...unzoned, frame: { minX: 0, minY: 0, maxX: 20, maxY: 20 } };
@@ -2035,7 +2052,7 @@ describe('the lighting composite each seat is mounted with', () => {
       layerOf(sceneGraph).children.filter((c) => c instanceof Sprite)[0].visible;
 
     it('stands the cloud and the scrim down on an unzoned map in rooms mode', () => {
-      const { sceneGraph, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      const { sceneGraph, unmount } = mounted('player', unzoned, modeOf('rooms'));
       expect(fogScene().bounds).toBeNull();
       expect(cloudShown(sceneGraph)).toBe(false);
       expect(scrimShown(sceneGraph)).toBe(false);
@@ -2053,7 +2070,7 @@ describe('the lighting composite each seat is mounted with', () => {
       expect(cloudShown(sceneGraph)).toBe(true);
 
       const before = renders();
-      useSessionStore.setState({ session: session(modeOf('rooms')) });
+      useSessionStore.setState({ session: session(modeOf('rooms')), mapData: unzoned });
       await frame();
       expect(cloudShown(sceneGraph)).toBe(false);
       expect(scrimShown(sceneGraph)).toBe(false);
@@ -2062,11 +2079,11 @@ describe('the lighting composite each seat is mounted with', () => {
     });
 
     it('brings it back — with a fresh mask — when the DM flips to vision again', async () => {
-      const { sceneGraph, renders, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      const { sceneGraph, renders, unmount } = mounted('player', unzoned, modeOf('rooms'));
       expect(cloudShown(sceneGraph)).toBe(false);
 
       const before = renders();
-      useSessionStore.setState({ session: session(modeOf('vision')) });
+      useSessionStore.setState({ session: session(modeOf('vision')), mapData: withFrame });
       await frame();
       expect(cloudShown(sceneGraph)).toBe(true);
       // The compositor repainted the two textures the shader is bound to — no stale mask

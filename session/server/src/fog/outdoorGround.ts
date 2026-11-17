@@ -11,13 +11,33 @@
 // that holds a room takes its inside (rock gap included) out of Outdoors.
 
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: floor-piece predicates, pure
-import { inRingsEvenOdd, pieceRings } from '@dnd/core/src/shared/pieces'
+import { baseGroundOf, inRingsEvenOdd, isGroundPiece, pieceRings } from '@dnd/core/src/shared/pieces'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { layersOnLevel } from '@dnd/core/src/shared/visionGate'
 import type { ShapeChild } from '@dnd/core/src/shared/types'
+import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { SceneMap } from './sceneMap'
 
 type Ring = [number, number][]
+
+const groundCache = new WeakMap<SerializedMapData, boolean>()
+
+/**
+ * R3 — whether a map has ground to hide even with no room on it: a ground piece, or base ground
+ * on the map or any level. A map with neither and no rooms is an imported picture, the one map
+ * that carries no fog in By hand mode (table fix pass §2.1 rule 1). Memoised per document.
+ */
+export function hasHiddenGround(data: SerializedMapData): boolean {
+  const hit = groundCache.get(data)
+  if (hit !== undefined) return hit
+  const settings = data.mapSettings
+  const out =
+    !!baseGroundOf(settings) ||
+    (data.levels ?? []).some((level) => baseGroundOf(settings, level)) ||
+    data.layers.some((layer) => layer.type === 'dungeon' && (layer.children ?? []).some((c) => isGroundPiece(c)))
+  groundCache.set(data, out)
+  return out
+}
 
 /**
  * A level's walled floors and caves, as sets of rings each read even-odd: a layer's

@@ -43,7 +43,7 @@ import {
   type SceneMap,
 } from './sceneMap'
 import { exploreLocks, inAnyLock } from './sweep'
-import { enclosedOn } from './outdoorGround'
+import { enclosedOn, hasHiddenGround } from './outdoorGround'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 
@@ -73,10 +73,13 @@ export function redactMapForViewer(
   // leaks only the map's overall size — never where inside it anything is. Only stamped
   // when the map has fog to enforce (rooms); an unzoned map goes over whole and untouched.
   const zoned = scene.data.layers.some((l) => isDungeon(l) && (l.rooms?.length ?? 0) > 0)
+  // R3: a map with ground pieces or base ground has ground to hide with no room at all, so it is
+  // framed and cut like a zoned one; only an imported picture goes over whole.
+  const hidden = hasHiddenGround(scene.data)
   // …and a vision-mode scene needs the rectangle whether or not anyone zoned the map. The
   // player's mask is drawn over exactly this, and a roomless map that shipped without one
   // left the mask no finite territory to cover — the very case the brush exists for.
-  const framed = zoned || fogModeOf(fog) === 'vision'
+  const framed = zoned || hidden || fogModeOf(fog) === 'vision'
   // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
   // reaches a player in any form, revealed or not.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
@@ -95,7 +98,7 @@ export function redactMapForViewer(
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
       // its geometry goes over whole, less what `childShips` withholds on that branch.
-      if (!layer.rooms?.length) {
+      if (!layer.rooms?.length && !hidden) {
         const kids = childrenOf(layer)
         const shipped = kids.filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // Untouched when there was nothing to take, so a layer with no doors stays the very
@@ -272,7 +275,7 @@ function childShips(
   // earned. Handing them over anyway put three marks at full brightness on a canvas that was
   // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
   // principle 2 says must never carry it.
-  if (!layer.rooms?.length) return child.childType !== 'door'
+  if (!layer.rooms?.length && !hasHiddenGround(scene.data)) return child.childType !== 'door'
   return child.childType === 'door'
     ? doorKept(child, kept, doors, cut.ground, outsideFace(scene, child))
     : childKept(child, scene, cut, enclosedOn(scene, levelIdOf(scene.data, layer)))

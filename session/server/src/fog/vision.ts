@@ -92,7 +92,7 @@ import {
   type SceneMapOf,
 } from './sceneMap'
 import { createWalkGrids } from './walk'
-import { enclosedOn, enclosureRings } from './outdoorGround'
+import { enclosedOn, enclosureRings, hasHiddenGround } from './outdoorGround'
 import {
   createSweeps,
   exploreLocks,
@@ -548,7 +548,9 @@ export function createVision(stores: Stores): Vision {
       // what keeps every token on an imported battlemap off the players' wire. Bailing out
       // was what made vision mode unsafe on such a map, and mechanics refused the mode
       // switch on account of exactly this line.
-      if (computed.map.rooms.length === 0 && fogModeOf(computed.fog) !== 'vision') return null
+      // R3: …and a roomless map with ground pieces or base ground is fogged by hand through its
+      // Outdoors row; only an imported picture has nothing to be granular about.
+      if (computed.map.rooms.length === 0 && !hasHiddenGround(computed.map.data) && fogModeOf(computed.fog) !== 'vision') return null
       // P5 — the whole of the per-viewer divergence, in one expression: the same `seen()` rule
       // over a narrower set of eyes. A DM is asked nothing (their redaction is identity), and a
       // caller with no viewer at all — every command path — asks the party question.
@@ -631,7 +633,7 @@ export function createVision(stores: Stores): Vision {
       const computed = compute(sceneId)
       if (!computed || fogModeOf(computed.fog) !== 'rooms' || !computed.map.frame) return null
       const { map, fog } = computed
-      if (map.rooms.length === 0) return null
+      if (map.rooms.length === 0 && !hasHiddenGround(map.data)) return null
       const rows = new Set<string>()
       for (const token of Object.values(computed.tokens)) {
         if (token.hidden || !claimed(token)) continue

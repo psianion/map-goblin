@@ -599,22 +599,27 @@ export function fogBounds(
   layers: readonly Layer[],
   rooms: readonly TableRoom[],
   frame: Bounds | null = null,
-  mode: FogMode = 'rooms',
 ): Bounds | null {
-  // Unzoned map carries no fog at all in rooms mode (D6) — frame or no frame.
+  // Unzoned map carries no fog at all in rooms mode (D6).
   //
   // Vision mode is the exception, and it is the whole of what makes an imported battlemap
   // playable: its unit is the cell rather than the room, so a map nobody traced still has
   // fog for the DM's brush to cut into. It needs the referee's own frame to be finite
   // (`redactMapForViewer` stamps one on a vision scene for exactly this), and a seat holding
   // no frame keeps the old answer rather than blacking the void out to the horizon.
-  if (rooms.length === 0 && holdsUnzonedMap(layers) && !(mode === 'vision' && frame)) return null;
-
+  //
+  // R3 (rca-live.md): the server stamps the frame exactly when the map has something to hide —
+  // rooms, ground pieces or base ground, or a vision-mode scene (`redactMapForViewer`). Ground
+  // pieces and plateaus now always travel, so "content but no rooms" no longer tells an unzoned
+  // map from a player shown nothing; the frame does. Present, it is covered in every mode.
+  //
   // The frame the server measured off the full document at redaction. It is the fog's whole
   // territory: outside it is the dotted void, which is nobody's secret and never fogged —
   // and it is also what makes fog *finite* for a player who has revealed nothing, instead
   // of the EVERYTHING rect blacking the void out to the horizon.
   if (frame) return frame;
+  // No frame: only a roomless imported picture goes unfogged.
+  if (rooms.length === 0 && holdsUnzonedMap(layers)) return null;
 
   if (rooms.length === 0) return EVERYTHING;
 
@@ -923,7 +928,7 @@ export function fogScene(): FogScene {
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
     bounds: mapData
-      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null, mode)
+      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null)
       : null,
     // Off the referee's document, like the rooms it pads: the wall band a player's mask has
     // to clear is the one the referee sent them, not whatever core relaid underneath.
