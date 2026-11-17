@@ -29,7 +29,7 @@ import {
   Texture,
 } from 'pixi.js';
 import type { Bounds } from './FogRenderer';
-import { TARGET_ORDER, type CellTexture, type DrawOp, type DrawPlan, type TierTarget } from './tierPlan';
+import { TARGET_ORDER, blurPasses, type CellTexture, type DrawOp, type DrawPlan, type TierTarget } from './tierPlan';
 
 /** All this needs of the engine — `RenderEngine` satisfies it structurally. */
 export interface TierRenderer {
@@ -115,9 +115,14 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   const maskSoft = shared?.maskSoft ?? RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(rtOf('mask'));
-  softSprite.filters = [soften];
+  // T6 — the cover past the map's edge, read as shown by the blur (the plan's `beyond`), so the
+  // soft copy does not fade live sight toward the edge. In texels: this scene is unscaled.
+  const softBeyond = new Graphics();
+  const softGroup = new Container();
+  softGroup.addChild(softSprite, softBeyond);
+  softGroup.filters = [soften];
   const softScene = new Container();
-  softScene.addChild(softSprite);
+  softScene.addChild(softGroup);
 
   // The memory tier's blur, when a plan asks for one. Kept whatever the plan says, because a
   // filter is a GPU resource and the plan's answer can change between runs.
@@ -152,10 +157,11 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   };
 
   const clearScene = (scene: Container): void => {
-    for (const child of scene.removeChildren()) child.destroy();
+    // Children too: a feathered sprite comes wrapped in a group with its `beyond` fill (T6).
+    for (const child of scene.removeChildren()) child.destroy({ children: true });
   };
 
-  const build = (op: DrawOp, cover: Bounds, scale: number): Container => {
+  const build = (op: DrawOp, cover: Bounds, scale: number, beyond: readonly Bounds[]): Container => {
     switch (op.kind) {
       case 'rect': {
         const g = new Graphics()
@@ -210,8 +216,21 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         sprite.blendMode = op.blend;
         if (op.featherCells) {
           edgeBlur.strength = op.featherCells * scale;
+          edgeBlur.quality = blurPasses(edgeBlur.strength);
           edgeBlur.blendMode = op.blend;
-          sprite.filters = [edgeCoverage, edgeBlur];
+          // T6 — the source's coverage with the cover past the map's edge counted as shown, then
+          // blurred: the feather eases a tier in from hidden ground, never from the frame.
+          sprite.blendMode = 'normal';
+          sprite.filters = [edgeCoverage];
+          const group = new Container();
+          group.addChild(sprite);
+          if (beyond.length > 0) {
+            const shown = new Graphics();
+            for (const r of beyond) shown.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY).fill({ color: 0xffffff, alpha: 1 });
+            group.addChild(shown);
+          }
+          group.filters = [edgeBlur];
+          return group;
         }
         return sprite;
       }
@@ -231,6 +250,7 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         // Nothing composited and nothing stale left behind: an empty mask reads as hidden
         // everywhere, which is this seat's fog.
         for (const name of TARGET_ORDER) engine.renderToTexture(sceneOf(name), rtOf(name), true);
+        softBeyond.clear();
         engine.renderToTexture(softScene, maskSoft, true);
         return null;
       }
@@ -250,14 +270,21 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         scene.scale.set(sx, sy);
         scene.position.set(-cover.minX * sx, -cover.minY * sy);
       }
-      for (const op of plan.ops) sceneOf(op.target).addChild(build(op, cover, look.scale));
+      const beyond = plan.beyond ?? [];
+      for (const op of plan.ops) sceneOf(op.target).addChild(build(op, cover, look.scale, beyond));
 
       // In target order, so a sprite never samples a target that has not been rendered yet.
       // Every target is rendered whether or not the plan gave it work: a target left holding
       // the previous rebuild is a stale reveal.
       for (const name of TARGET_ORDER) engine.renderToTexture(sceneOf(name), rtOf(name), true);
 
+      softBeyond.clear();
+      for (const r of beyond) {
+        softBeyond.rect((r.minX - cover.minX) * sx, (r.minY - cover.minY) * sy, (r.maxX - r.minX) * sx, (r.maxY - r.minY) * sy);
+        softBeyond.fill({ color: 0xffffff, alpha: 1 });
+      }
       soften.strength = look.fade * look.scale;
+      soften.quality = blurPasses(soften.strength);
       engine.renderToTexture(softScene, maskSoft, true);
       return cover;
     },

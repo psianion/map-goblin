@@ -1632,6 +1632,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // memory tier easing with the light level the way the wash under it does, and one render
     // of the mask — per mutation, exactly like the geometry it rasterises.
     fog.setMaskBounds(built.cover);
+    // P7 — the torch glow stays over the map. T6: and the cover is cut at the frame; set before
+    // `setLook` below, whose soft re-render reads the cover past the frame as shown.
+    fog.setFrame(scene.bounds);
     // Which pipeline actually painted the mask this rebuild. A vision plan wants the
     // compositor; anything else — rooms mode, and a vision cover too big for a mask texture
     // (the `EVERYTHING` seat, which holds nothing anywhere) — wants the vector path.
@@ -1722,8 +1725,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // lighting pass's own rim curve rather than on a cut at a radius. Outside darkness the
     // geometry is the whole statement.
     fog.setPools(scene.night?.pools ?? []);
-    // P7 — the torch glow stays over the map.
-    fog.setFrame(scene.bounds);
     // The vector path's own rasterisation. Skipped when the compositor painted the mask —
     // this would render `maskPaint` (empty in vision mode) straight over it — and *not*
     // skipped on a mode flip, which is what re-renders the mask through the now-active path

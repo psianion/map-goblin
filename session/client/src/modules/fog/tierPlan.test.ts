@@ -18,8 +18,13 @@ import {
   MASK_MEMORY_GREY,
   MEMORY_BLUR_CELLS,
   EDGE_FEATHER_CELLS,
+  FRAME_SHADOW_CELLS,
+  FRAME_SHADOW_DEPTH,
+  blurPasses,
   cellTexture,
   edgeFeather,
+  frameShadow,
+  onMapSample,
   outsideFrame,
   tierPlan,
   type DrawOp,
@@ -798,7 +803,8 @@ const legacyPlan = (s: TierScene): DrawPlan => {
   ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
-  return { cover, ops, cells };
+  // T6: the same strips, read as shown by both blurred copies.
+  return { cover, ops, cells, beyond: outsideFrame(cover, s.frame) };
 };
 
 describe('tierPlan — containment off is the shipped mask (R8)', () => {
@@ -1214,5 +1220,143 @@ describe('open ground with holes (P8, the sliver)', () => {
     const { outers, holes } = openGroundParts(doc([SMALL, PATCH_B, NOOK, LINE]), 'L');
     expect(outers).toEqual([SMALL, PATCH_B]);
     expect(holes).toEqual([NOOK]);
+  });
+});
+
+// ── T6: a crisp map edge, a soft shadow past it ─────────────────────────────
+//
+// No GL in this lane, so the shader's edge is checked through its TS twins (`onMapSample`,
+// `frameShadow`, `edgeFeather`) over a one-row model of the mask as texels, blurred the way
+// Pixi 8.17's BlurFilter does it: five Gaussian taps a pass, the first pass `strength /
+// sqrt(sum of 4^-i)` texels apart and each later pass half that (`_applyOptimized`), every tap
+// a linear read. A straight edge is a 1-D question, and the blur is separable.
+describe('the map edge, crisp (T6)', () => {
+  const TAPS = [0.153388, 0.221461, 0.250301, 0.221461, 0.153388];
+  const read = (row: readonly number[], at: number): number => {
+    const c = Math.min(row.length - 1, Math.max(0, at));
+    const i = Math.floor(c);
+    const f = c - i;
+    return row[i] * (1 - f) + row[Math.min(row.length - 1, i + 1)] * f;
+  };
+  const pixiBlur = (row: readonly number[], strength: number, passes: number): number[] => {
+    let sum = 0;
+    for (let i = 0; i < passes; i++) sum += 4 ** -i;
+    let spacing = strength / Math.sqrt(sum);
+    let out = [...row];
+    for (let p = 0; p < passes; p++) {
+      const from = out;
+      out = from.map((_, i) => TAPS.reduce((v, w, k) => v + w * read(from, i + (k - 2) * spacing), 0));
+      spacing /= 2;
+    }
+    return out;
+  };
+
+  /**
+   * One row of texels from x = -8 to 8 cells at `scale` texels a cell, the map's right edge at
+   * x = 0. `tier(x)` is the hard mask; the feather's source is its coverage, and with `beyond`
+   * the cover past the frame counts as shown, as the plan now asks of both blurs.
+   */
+  const modelRow = (scale: number, tier: (x: number) => number, beyond: boolean, passes = blurPasses(scale)) => {
+    const n = 16 * scale;
+    const at = (i: number): number => -8 + (i + 0.5) / scale;
+    const mask = Array.from({ length: n }, (_, i) => (at(i) >= 0 ? 0 : tier(at(i))));
+    const coverage = Array.from({ length: n }, (_, i) => (at(i) >= 0 ? (beyond ? 1 : 0) : mask[i] > 0 ? 1 : 0));
+    const edge = pixiBlur(coverage, EDGE_FEATHER_CELLS * scale, passes);
+    const frame = { minX: -8, minY: -1, maxX: 0, maxY: 1 };
+    /** The shader's maskAt for a world x on the row: held on the map, then the tier times its feather. */
+    return (x: number): number => {
+      const [sx] = onMapSample(x, 0, frame, 1.5 / scale);
+      const t = (sx + 8) * scale - 0.5;
+      return read(mask, t) * edgeFeather(read(edge, t));
+    };
+  };
+
+  it('reads the interior tier right up to the frame: no falloff on any tier', () => {
+    for (const tier of [0.5, 1]) {
+      const m = modelRow(24, () => tier, true);
+      for (const x of [-2, -1, -0.5, -0.1, -0.02, -0.001]) expect(m(x)).toBeCloseTo(tier, 6);
+      // …where P8 read the void past the frame as hidden ground and faded every tier into it.
+      const before = modelRow(24, () => tier, false, 3);
+      expect(before(-0.1)).toBeLessThan(0.1 * tier);
+    }
+  });
+
+  it('asks the plan to count the cover past the frame as shown, and only that', () => {
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [LOOKING] }));
+    expect(plan.beyond).toEqual(outsideFrame(plan.cover!, FRAME));
+    for (const r of plan.beyond!) {
+      const overlapX = Math.min(r.maxX, FRAME.maxX) - Math.max(r.minX, FRAME.minX);
+      const overlapY = Math.min(r.maxY, FRAME.maxY) - Math.max(r.minY, FRAME.minY);
+      expect(overlapX <= 0 || overlapY <= 0).toBe(true);
+    }
+  });
+
+  it('never samples the tier, the cloud or the shadow from past the frame for a point on the map', () => {
+    const inset = 1.5 / 24;
+    for (let x = -3; x <= 27; x += 0.25) {
+      for (let y = -3; y <= 11; y += 0.25) {
+        // Any point, warped any way: the tier is read on the map, the inset in from its edge.
+        const [sx, sy] = onMapSample(x, y, FRAME, inset);
+        expect(sx).toBeGreaterThanOrEqual(FRAME.minX + inset);
+        expect(sx).toBeLessThanOrEqual(FRAME.maxX - inset);
+        expect(sy).toBeGreaterThanOrEqual(FRAME.minY + inset);
+        expect(sy).toBeLessThanOrEqual(FRAME.maxY - inset);
+        const onMap = x >= FRAME.minX && x <= FRAME.maxX && y >= FRAME.minY && y <= FRAME.maxY;
+        if (onMap) expect(frameShadow(x, y, FRAME)).toBe(0);
+        // A point well on the map reads itself.
+        if (x >= inset && x <= FRAME.maxX - inset && y >= inset && y <= FRAME.maxY - inset) {
+          expect([sx, sy]).toEqual([x, y]);
+        }
+      }
+    }
+  });
+
+  it('lays the shadow only past the frame, falling off smoothly over its width', () => {
+    const STEP = 0.005;
+    const d = Array.from({ length: Math.round(2 / STEP) + 1 }, (_, i) => i * STEP);
+    const shade = d.map((t) => frameShadow(FRAME.maxX + t, 4, FRAME));
+    expect(shade[0]).toBe(0); // on the edge itself: the map's, not the shadow's
+    expect(shade[1]).toBeCloseTo(FRAME_SHADOW_DEPTH, 2);
+    for (let i = 2; i < shade.length; i++) {
+      expect(shade[i]).toBeLessThanOrEqual(shade[i - 1]);
+      // No step anywhere along it: every 0.005 cell under 1% of the depth.
+      expect(shade[i - 1] - shade[i]).toBeLessThan(0.01 * FRAME_SHADOW_DEPTH);
+    }
+    expect(frameShadow(FRAME.maxX + FRAME_SHADOW_CELLS, 4, FRAME)).toBe(0);
+    expect(frameShadow(FRAME.maxX + 1.4 * FRAME_SHADOW_CELLS, 4, FRAME)).toBe(0);
+    // It eases into the cloud rather than ending on a line.
+    expect(frameShadow(FRAME.maxX + 0.95 * FRAME_SHADOW_CELLS, 4, FRAME)).toBeLessThan(0.01 * FRAME_SHADOW_DEPTH);
+    // Rounded at a corner: the same reach diagonally as straight out.
+    const r = 0.5;
+    expect(frameShadow(FRAME.maxX + r / Math.SQRT2, FRAME.maxY + r / Math.SQRT2, FRAME)).toBeCloseTo(
+      frameShadow(FRAME.maxX + r, 4, FRAME),
+      9,
+    );
+  });
+
+  // A memory running into hidden ground three cells inside the map. The analytic reference is
+  // the same ramp through a true Gaussian of the blur's width (1.29 strength).
+  const erf = (x: number): number => {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return x >= 0 ? y : -y;
+  };
+  const SIGMA = Math.sqrt(2 * (TAPS[0] * 4 + TAPS[1])) * EDGE_FEATHER_CELLS;
+  const STEP = 0.005;
+  const xs = Array.from({ length: Math.round(4 / STEP) + 1 }, (_, i) => -5 + i * STEP);
+  const biggestStep = (m: (x: number) => number): number =>
+    Math.max(...xs.slice(1).map((x, i) => m(x) - m(xs[i])));
+  const smooth = biggestStep((x) => 0.5 * edgeFeather(0.5 * (1 + erf((x + 3) / (SIGMA * Math.SQRT2)))));
+  const memory = (x: number): number => (x < -3 ? 0 : 0.5);
+
+  it.each([6, 12, 24])('feathers between tiers as a clean gradient at %i texels a cell', (scale) => {
+    const m = modelRow(scale, memory, true);
+    expect(biggestStep(m)).toBeLessThanOrEqual(1.05 * smooth);
+    for (let i = 1; i < xs.length; i++) expect(m(xs[i])).toBeGreaterThanOrEqual(m(xs[i - 1]) - 1e-12);
+  });
+
+  it('replaces a staircase: three passes at 24 texels a cell stepped every five texels', () => {
+    expect(blurPasses(24)).toBe(6);
+    expect(biggestStep(modelRow(24, memory, true, 3))).toBeGreaterThan(2 * smooth);
   });
 });

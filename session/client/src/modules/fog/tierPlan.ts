@@ -94,6 +94,58 @@ export function edgeFeather(coverage: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * T6 — how many passes a mask blur of `strength` texels needs to come out a gradient.
+ *
+ * Pixi 8's BlurFilter samples five taps per pass, the first pass `strength / 1.15` texels
+ * apart and each later one half the last. A hard edge through it is a staircase whose treads
+ * are the last pass's spacing: P8's feather (24 texels at three passes) stepped every five
+ * texels, which read as low-res pixels, and the coastline warp slid the steps about. Enough
+ * passes to bring the last spacing under one texel leave the linear sampler a ramp. Paid per
+ * mask rebuild, never per frame.
+ */
+export function blurPasses(strength: number): number {
+  let sum = 1;
+  for (let passes = 1; passes < 8; passes++) {
+    if (strength / Math.sqrt(sum) / 2 ** (passes - 1) <= 1) return passes;
+    sum += 4 ** -passes;
+  }
+  return 8;
+}
+
+/** T6 — how far past the map's edge its shadow on the cloud reaches, in cells. */
+export const FRAME_SHADOW_CELLS = 1.25;
+
+/** T6 — how far the cloud right against the edge is pulled toward its shaded base. */
+export const FRAME_SHADOW_DEPTH = 0.5;
+
+/**
+ * T6 — the map's shadow on the cloud at a point: 0 anywhere on the map, `FRAME_SHADOW_DEPTH`
+ * on its edge, easing out to 0 at `FRAME_SHADOW_CELLS` past it (rounded at the corners). The
+ * shader's `frameShadow`, written once here so a test can read it.
+ */
+export function frameShadow(x: number, y: number, frame: Bounds): number {
+  const dx = Math.max(frame.minX - x, x - frame.maxX, 0);
+  const dy = Math.max(frame.minY - y, y - frame.maxY, 0);
+  const d = Math.hypot(dx, dy);
+  if (d <= 0) return 0;
+  const t = 1 - Math.min(1, d / FRAME_SHADOW_CELLS);
+  return FRAME_SHADOW_DEPTH * t * t;
+}
+
+/**
+ * T6 — where the shader reads the tier for a point: held on the map, `inset` in from its edge.
+ * Neither the bilinear tap nor the coastline warp can then pull the void past the frame in
+ * over the map; the cover past the edge is the shader's own hard cut instead. The shader's
+ * `onMapSample`.
+ */
+export function onMapSample(x: number, y: number, frame: Bounds, inset: number): [number, number] {
+  return [
+    Math.min(frame.maxX - inset, Math.max(frame.minX + inset, x)),
+    Math.min(frame.maxY - inset, Math.max(frame.minY + inset, y)),
+  ];
+}
+
 /** The two native blends P0 proved into a RenderTexture on 8.17. Nothing else is allowed. */
 export type Blend = 'normal' | 'erase';
 
@@ -207,6 +259,12 @@ export interface DrawPlan {
   ops: readonly DrawOp[];
   /** The record's own bit count — `__fogProbe.memoryCells`, unchanged. */
   cells: number;
+  /**
+   * T6 — the cover past the map's edge (`outsideFrame`), which both blurred copies (`maskSoft`
+   * and the `edge` feather) read as shown. The mask itself stays empty there; the blurs only
+   * stop fading the tier toward the edge, where the shader cuts the cover hard instead.
+   */
+  beyond?: readonly Bounds[];
 }
 
 /** What the compositor needs to know about a seat's fog. `visionTiers`'s arguments, as data. */
@@ -681,5 +739,5 @@ export function tierPlan(scene: TierScene): DrawPlan {
     ops.push({ kind: 'sprite', target: 'grey', source: 'inverseLive', blend: 'erase' });
   }
 
-  return { cover, ops, cells };
+  return { cover, ops, cells, beyond: edge };
 }
