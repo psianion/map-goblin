@@ -1,0 +1,393 @@
+// The player-view parity guard (rca-live.md, fix plan 1): wherever a player is allowed to see
+// something, it must resolve exactly as it does for the DM, and wherever they are not, nothing
+// of it reaches them.
+//
+// Every earlier test checked what data is sent. This one checks what it draws as: each door's
+// pose and look, each wall band, each floor fill and each room's place are resolved with the
+// engine's own pure functions twice, once from the full document (the DM's copy) and once from
+// the player's redacted copy, with the floor union rebuilt the way the client rebuilds it.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { regionFor, setCells, tableRegion, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import type { Token, TokensState } from '@dnd/mechanics/tokens'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the floor union the client rebuilds
+import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the engine's own door and wall resolve
+import { resolveDoors, resolveWalls, type ResolvedWall } from '@dnd/core/src/shared/wallResolve'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the looks the renderers draw with
+import { doorWallLook, edgeStyles, levelStyle, ringStyles, standaloneWallLook } from '@dnd/core/src/shared/wallLook'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the look chain
+import { levelOf, lookSource, resolveRoomLook, roomChain, roomHasLook } from '@dnd/core/src/shared/lookScope'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: a room's place
+import { levelPlace, roomPlace } from '@dnd/core/src/shared/regionGrade'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the room lookup the renderers use
+import { roomIndexOf } from '@dnd/core/src/shared/roomIndex'
+import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { DungeonLayer, DungeonStyle, SerializedMapData } from '@dnd/core/src/store/types'
+import { openDb } from '../db/db'
+import { createStores } from '../db/stores'
+import { ensureClipperReady } from './clipperBoot'
+import { exploredRooms } from './redactMap'
+import { centreOf, distanceToPoly, isDungeon, pointInPoly } from './sceneMap'
+import { createVision } from './vision'
+
+/** P1 lands this guard skipped; P6 unskips it once the fixes are in. */
+const UNTIL_P6 = true
+
+beforeAll(async () => {
+  expect(await ensureClipperReady()).toBe(true)
+}, 30_000)
+
+const read = (name: string): string => readFileSync(join(import.meta.dirname, '../../../testdata', name), 'utf8')
+const SCENE = 'scene-parity'
+const lit = { status: 'revealed' as const, wasEverRevealed: true }
+type Ring = [number, number][]
+type Doc = SerializedMapData
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const CAVE_ENT = '5e1f64a8-4fdc-417a-b7a9-d0e00d196974'
+const BLOO = 'd52adfc6-153b-4bf7-9a25-622d02d49d52'
+const YELLO = '9d001e8a-71c5-4acd-9b6b-fb55d6473a61'
+
+const dungeonOf = (map: Doc): DungeonLayer => map.layers.find(isDungeon)!
+
+const door = (over: Partial<DoorChild> & Pick<DoorChild, 'id' | 'position' | 'angle'>): DoorChild =>
+  ({
+    name: over.id,
+    childType: 'door',
+    visible: true,
+    wallId: '',
+    width: 1,
+    style: 'single',
+    state: 'closed',
+    isSecret: false,
+    ...over,
+  }) as DoorChild
+
+const piece = (id: string, at: [number, number], angle: number, width: number): WallSegment => {
+  const [hx, hy] = [(Math.cos(angle) * width) / 2, (Math.sin(angle) * width) / 2]
+  return {
+    id,
+    points: [
+      [at[0] - hx, at[1] - hy],
+      [at[0] + hx, at[1] + hy],
+    ],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000000',
+    roughness: 0,
+  }
+}
+
+/**
+ * "Testing" with what the live map held and what the rooms could pin: "Single 1" as it stood on
+ * the cave's outer outline (since removed by the user), a truly interior door on its own piece
+ * across the Cave Ent./BLOO threshold, and floor, wall and place pins through a room and an area.
+ */
+function testingFull(): string {
+  const map = JSON.parse(read('testing-cave.ggvtt')) as Doc
+  const layer = dungeonOf(map)
+  const [a, b] = [
+    [19.78398452365659, 9.214678678712243],
+    [19.669279973900622, 6.729413433999651],
+  ]
+  const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  const angle = Math.atan2(b[1] - a[1], b[0] - a[0])
+  layer.standaloneWalls = [...layer.standaloneWalls, piece('inner-piece', mid, angle, 1)]
+  layer.children = [
+    ...layer.children,
+    door({ id: 'single-1', name: 'Single 1', position: [13.66, 18.58], angle: -2.84, roomA: CAVE_ENT, roomB: null }),
+    door({ id: 'inner', name: 'Inner', wallId: 'inner-piece', position: mid, angle, freestanding: true, roomA: CAVE_ENT, roomB: BLOO }),
+  ]
+  layer.areas = [{ id: 'area-deep', name: 'The Deep', look: { place: 'underground', floorTint: '#c0ffc0' } }]
+  layer.rooms = layer.rooms!.map((room) =>
+    room.id === CAVE_ENT
+      ? { ...room, look: { ...room.look, floorTint: '#ffb0b0' } }
+      : room.id === BLOO
+        ? { ...room, look: { floorTextureId: 'gg-forge:wild_sand_8x8_floor_A', wallTextureTint: '#8080ff' } }
+        : room.id === YELLO
+          ? { ...room, areaId: 'area-deep' }
+          : room,
+  )
+  return JSON.stringify(map)
+}
+
+/** The outdoor-cave fixture with a room in its cave, both cave doors bound to it, and pins on the hall. */
+function outdoorCaveFull(): string {
+  const map = JSON.parse(read('outdoor-cave.ggvtt')) as Doc
+  const layer = dungeonOf(map)
+  layer.areas = [{ id: 'area-west', name: 'West wing', look: { floorTint: '#ffd0d0', wallWidth: 0.8 } }]
+  layer.rooms = [
+    { ...layer.rooms![0], areaId: 'area-west', look: { wallTextureTint: '#a0a0ff', place: 'underground' } },
+    { id: 'room-cave', name: 'Cave', anchor: [22, 9] },
+  ]
+  layer.children = layer.children.map((child) =>
+    child.id === 'door-mouth' ? { ...child, roomB: 'room-cave' } : child.id === 'door-inner' ? { ...child, roomA: 'room-cave' } : child,
+  ) as AnyChild[]
+  return JSON.stringify(map)
+}
+
+interface State {
+  name: string
+  fog: Partial<SceneFog>
+  token?: [number, number]
+  /** Fill the cell record from the token's own sweep first (By sight). */
+  sweep?: boolean
+}
+
+interface Fixture {
+  name: string
+  map: () => string
+  outside: [number, number]
+  mouthRoom: string
+}
+
+const FIXTURES: Fixture[] = [
+  { name: 'testing-cave as exported', map: () => read('testing-cave.ggvtt'), outside: [15.5, 25.5], mouthRoom: CAVE_ENT },
+  { name: 'testing-cave with its doors and pins', map: testingFull, outside: [15.5, 25.5], mouthRoom: CAVE_ENT },
+  { name: 'outdoor-cave', map: () => read('outdoor-cave.ggvtt'), outside: [15.5, 9.5], mouthRoom: 'room-hall' },
+  { name: 'outdoor-cave with a cave room and pins', map: outdoorCaveFull, outside: [15.5, 9.5], mouthRoom: 'room-cave' },
+]
+
+const statesOf = (f: Fixture): State[] => [
+  { name: 'by hand, start dark', fog: { rooms: {} } },
+  { name: 'by hand, a token outside, Outdoors revealed', fog: { rooms: { '@outdoors': lit } }, token: f.outside },
+  { name: 'by hand, the mouth room revealed', fog: { rooms: { '@outdoors': lit, [f.mouthRoom]: lit } }, token: f.outside },
+  { name: 'by sight, start dark', fog: { mode: 'vision', containedSight: false, rooms: {} } },
+  { name: 'by sight, a token outside', fog: { mode: 'vision', containedSight: false, rooms: {} }, token: f.outside, sweep: true },
+  {
+    name: 'by sight, the mouth room revealed',
+    fog: { mode: 'vision', containedSight: false, rooms: { [f.mouthRoom]: lit } },
+    token: f.outside,
+    sweep: true,
+  },
+]
+
+/** The DM's copy and the player's copy of a fixture at one fog state. */
+function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog } {
+  const stores = createStores(openDb(':memory:'))
+  const campaign = stores.campaigns.create('Parity')
+  stores.maps.insert(SCENE, campaign.id, 'Parity', map)
+  stores.scenes.create(SCENE, campaign.id, SCENE, 'Parity')
+  const vision = createVision(stores)
+  const setFog = (scene: Partial<SceneFog>) =>
+    stores.moduleState.put(campaign.id, 'fog', {
+      byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, ...scene } },
+    } satisfies FogState)
+  if (state.token) {
+    const token = { id: 'pc', name: 'Bram', size: 'medium', x: state.token[0], y: state.token[1], ownerId: 'p-1', hidden: false, sight: null } as Token
+    stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc: token } } } satisfies TokensState)
+  }
+  setFog(state.fog)
+  if (state.sweep) {
+    const patch = vision.autoExplorePatch(SCENE)
+    const frame = vision.frameOf(campaign.id, SCENE)!
+    setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, patch?.cells ?? []) })
+  }
+  const fog = (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
+  return { dm: vision.sceneMapOf(SCENE)!.data, player: vision.playerMap(SCENE)!, fog }
+}
+
+// ── Resolving a document the way the engine draws it ──────────────────────────
+
+/** A dungeon layer as the client's store holds it: the floor union rebuilt from its own shapes. */
+function asLoaded(layer: DungeonLayer): DungeonLayer {
+  const base = { ...layer, children: layer.children ?? [], standaloneWalls: layer.standaloneWalls ?? [] }
+  return { ...base, mergedFloor: computeMergedFloor(base) }
+}
+
+const round = (v: number): number => Math.round(v * 1e4) / 1e4
+const angleKey = (a: number): number => round(((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI))
+const wallKeys = (s: DungeonStyle) => ({ set: s.wallTextureSetId || '', tint: s.wallTextureTint ?? '', width: s.wallWidth })
+
+interface Resolved {
+  doors: Map<string, unknown>
+  standalone: Map<string, unknown>
+  caves: { points: Ring; key: unknown }[]
+  edges: { a: [number, number]; b: [number, number]; key: unknown }[]
+  rooms: Map<string, unknown>
+  /** The place a point is drawn with: its room's, else its level's. */
+  placeAt: (x: number, y: number) => string
+  floors: Ring[]
+}
+
+function resolve(doc: Doc): Resolved {
+  const out: Resolved = { doors: new Map(), standalone: new Map(), caves: [], edges: [], rooms: new Map(), placeAt: () => '', floors: [] }
+  const places: ((x: number, y: number) => string | null)[] = []
+  let levelFallback = ''
+  for (const raw of doc.layers.filter(isDungeon)) {
+    const layer = asLoaded(raw)
+    const level = levelOf(doc.levels ?? [], layer)
+    const style = levelStyle(layer.style, level.look)
+    const rings = ringStyles(layer, level.look)
+    const edges = edgeStyles(layer, level.look)
+    const walls = resolveWalls(layer)
+    for (const r of resolveDoors(layer, walls)) {
+      if (!r.door.visible) continue
+      const look = doorWallLook(r, style, rings, edges)
+      out.doors.set(r.door.id, {
+        detached: r.detached,
+        position: r.position.map(round),
+        angle: angleKey(r.angle),
+        style: r.door.style,
+        kit: r.door.kit ?? null,
+        look: { set: look.setId ?? '', tint: look.tint, width: round(look.width) },
+      })
+    }
+    for (const wall of walls) {
+      if (wall.kind === 'standalone') out.standalone.set(wall.id, standaloneWallLook(wall, style))
+      if (wall.kind === 'cave') out.caves.push({ points: wall.points, key: caveKey(wall) })
+    }
+    ;(layer.mergedFloor ?? []).forEach((ring, i) => {
+      for (let e = 0; e < ring.length; e++) {
+        const s = edges[i]?.[e] ?? rings[i] ?? style
+        out.edges.push({ a: ring[e], b: ring[(e + 1) % ring.length], key: wallKeys(s) })
+      }
+    })
+    out.floors.push(...(layer.mergedFloor ?? []))
+    for (const room of layer.rooms ?? []) out.rooms.set(room.id, roomKey(doc, layer, room))
+    const index = roomIndexOf(layer.rooms)
+    places.push((x, y) => {
+      const room = index.roomAt(x, y)
+      return room ? roomPlace(doc, layer, room) : null
+    })
+    levelFallback = levelPlace(doc.mapSettings, level)
+  }
+  out.placeAt = (x, y) => {
+    for (const at of places) {
+      const place = at(x, y)
+      if (place) return place
+    }
+    return levelFallback
+  }
+  return out
+}
+
+const caveKey = (wall: ResolvedWall) => ({ set: wall.textureSetId ?? '', width: wall.bandWidth ?? null })
+
+/** A room as the renderers read it: its face, its floor fill and its place. */
+function roomKey(doc: Doc, layer: DungeonLayer, room: Room) {
+  const chain = roomChain(doc, layer, room)
+  const pinned = (key: 'floorTextureId' | 'floorTint') => ['room', 'area'].includes(lookSource(chain, key))
+  const look = resolveRoomLook(chain)
+  return {
+    face: (room.boundary ?? room.face ?? []).map(([x, y]) => [round(x), round(y)]),
+    fill: roomHasLook(layer, room)
+      ? { tex: pinned('floorTextureId') ? look.floorTextureId : null, tint: pinned('floorTint') ? look.floorTint : null }
+      : null,
+    place: look.place,
+  }
+}
+
+/** The DM edge that carries the player's edge `a`→`b`: same line, covering its midpoint. */
+function dmEdgeOf(dm: Resolved, a: [number, number], b: [number, number]) {
+  const [mx, my] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  const ang = Math.atan2(b[1] - a[1], b[0] - a[0])
+  return dm.edges.find((e) => {
+    if (Math.abs(Math.sin(Math.atan2(e.b[1] - e.a[1], e.b[0] - e.a[0]) - ang)) > 1e-3) return false
+    return distanceToPoly([e.a, e.b], mx, my) < 1e-3
+  })
+}
+
+/** Every way the player's copy draws differently from the DM's, as readable lines. */
+function differences(dmDoc: Doc, playerDoc: Doc, frame: { minX: number; minY: number; maxX: number; maxY: number }): string[] {
+  const dm = resolve(dmDoc)
+  const player = resolve(playerDoc)
+  const out: string[] = []
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+  for (const [id, mine] of player.doors) {
+    if (!same(mine, dm.doors.get(id))) out.push(`door ${id}: player ${JSON.stringify(mine)} dm ${JSON.stringify(dm.doors.get(id))}`)
+  }
+  for (const [id, mine] of player.standalone) {
+    if (!same(mine, dm.standalone.get(id))) out.push(`wall ${id}: player ${JSON.stringify(mine)} dm ${JSON.stringify(dm.standalone.get(id))}`)
+  }
+  for (const cave of player.caves) {
+    const twin = dm.caves.find((c) => same(c.points, cave.points))
+    if (!twin || !same(twin.key, cave.key)) out.push(`cave wall at ${JSON.stringify(cave.points[0])}: player ${JSON.stringify(cave.key)} dm ${JSON.stringify(twin?.key)}`)
+  }
+  let edgeMisses = 0
+  for (const edge of player.edges) {
+    const twin = dmEdgeOf(dm, edge.a, edge.b)
+    if (twin && same(twin.key, edge.key)) continue
+    if (edgeMisses++ < 5) out.push(`edge ${JSON.stringify(edge.a)}→${JSON.stringify(edge.b)}: player ${JSON.stringify(edge.key)} dm ${JSON.stringify(twin?.key)}`)
+  }
+  if (edgeMisses > 5) out.push(`…and ${edgeMisses - 5} more edges`)
+  for (const [id, mine] of player.rooms) {
+    if (!same(mine, dm.rooms.get(id))) out.push(`room ${id}: player ${JSON.stringify(mine)} dm ${JSON.stringify(dm.rooms.get(id))}`)
+  }
+  // Every cell centre on a floor the player holds is lit and shadowed by the place it is in.
+  let placeMisses = 0
+  for (let y = frame.minY + 0.5; y < frame.maxY; y++) {
+    for (let x = frame.minX + 0.5; x < frame.maxX; x++) {
+      if (!player.floors.some((ring) => pointInPoly(ring, x, y))) continue
+      const [mine, theirs] = [player.placeAt(x, y), dm.placeAt(x, y)]
+      if (mine !== theirs && placeMisses++ < 5) out.push(`place at ${x},${y}: player ${mine} dm ${theirs}`)
+    }
+  }
+  if (placeMisses > 5) out.push(`…and ${placeMisses - 5} more places`)
+  return out
+}
+
+/**
+ * The leak side: no door, prop, light or label inside a walled floor or cave the party has not
+ * earned. Earned ground inside an outline is a kept room (with the band its art is drawn in),
+ * or a recorded cell whose centre is inside the outline. A door is interior when both its sides
+ * are inside an outline; it travels only with a room the party holds.
+ */
+function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number; minY: number; maxX: number; maxY: number }): string[] {
+  const kept = exploredRooms(fog)
+  const dmLayers = dmDoc.layers.filter(isDungeon).map(asLoaded)
+  const outlines = dmLayers.flatMap((l) => l.mergedFloor ?? [])
+  const enclosed = (x: number, y: number) => outlines.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1
+  const rooms = dmLayers.flatMap((l) => (l.rooms ?? []) as (Room & { boundary: Ring })[])
+  const index = roomIndexOf(rooms)
+  const region = tableRegion(fog, frame)
+  const bytes = region ? toBytes(region.bits) : null
+  const recordedInside = (x: number, y: number): boolean => {
+    if (!region || !bytes) return false
+    for (let row = Math.floor(y - region.minY) - 1; row <= Math.floor(y - region.minY) + 1; row++) {
+      for (let col = Math.floor(x - region.minX) - 1; col <= Math.floor(x - region.minX) + 1; col++) {
+        if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) continue
+        const bit = row * region.cols + col
+        if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+        if (enclosed(region.minX + col + 0.5, region.minY + row + 0.5)) return true
+      }
+    }
+    return false
+  }
+  const nearKept = (x: number, y: number) =>
+    rooms.some((room) => kept.has(room.id) && (pointInPoly(room.boundary, x, y) || distanceToPoly(room.boundary, x, y) <= 1))
+  const out: string[] = []
+  for (const layer of playerDoc.layers.filter(isDungeon)) {
+    for (const child of layer.children ?? []) {
+      if (!['door', 'asset', 'light', 'text'].includes(child.childType)) continue
+      if (child.childType === 'door') {
+        const dmDoor = dmLayers.flatMap((l) => l.children).find((c) => c.id === child.id) as DoorChild
+        if ([dmDoor.roomA, dmDoor.roomB].some((r) => r && kept.has(r))) continue
+        const dmLayer = dmLayers.find((l) => l.children.some((c) => c.id === child.id))!
+        const resolved = resolveDoors(dmLayer, resolveWalls(dmLayer)).find((r) => r.door.id === child.id)!
+        const [nx, ny] = [-Math.sin(resolved.angle) * 0.5, Math.cos(resolved.angle) * 0.5]
+        const [px, py] = resolved.position
+        if (enclosed(px + nx, py + ny) && enclosed(px - nx, py - ny)) out.push(`interior door ${child.id} of an unearned room`)
+        continue
+      }
+      const [x, y] = centreOf(child)
+      if (!enclosed(x, y)) continue
+      const room = index.roomAt(x, y)?.id ?? null
+      if ((room && kept.has(room)) || nearKept(x, y) || recordedInside(x, y)) continue
+      out.push(`${child.childType} ${child.id} inside unearned ground at ${round(x)},${round(y)}`)
+    }
+  }
+  return out
+}
+
+describe.each(FIXTURES)('player view parity: $name', (fixture) => {
+  const map = fixture.map()
+  ;(UNTIL_P6 ? it.skip : it).each(statesOf(fixture))('$name', (state) => {
+    const { dm, player, fog } = cut(map, state)
+    const frame = player.frame ?? { minX: 0, minY: 0, maxX: 30, maxY: 30 }
+    expect({ draws: differences(dm, player, frame), leaks: leaks(dm, player, fog, frame) }).toEqual({ draws: [], leaks: [] })
+  })
+})

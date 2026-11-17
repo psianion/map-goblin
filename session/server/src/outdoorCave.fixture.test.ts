@@ -1,6 +1,7 @@
 // The table fix pass's acceptance map: a current-format (3.11) file with base ground, one walled
-// room, one door from that room to the outside, a cave whose rock has one mouth, and a party
-// start. Every rule test and the browser acceptance spec stand on it, so its shape is pinned here.
+// room, one door from that room to the outside, a cave whose rock has one mouth (with an open
+// cave-kit double door) and one interior door, and a party start. Every rule test and the
+// browser acceptance spec stand on it, so its shape is pinned here.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -27,7 +28,7 @@ describe('outdoor-cave.ggvtt', () => {
     expect(parsed.data.mapSettings.ground?.textureId).toBeTruthy()
   })
 
-  it('has one room, one outside door and one cave mouth', () => {
+  it('has one room, one outside door, one cave mouth with a cave-kit double door, and one interior cave door', () => {
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Fixture')
     stores.maps.insert('scene-cave', campaign.id, 'Outdoor Cave', OUTDOOR_CAVE)
@@ -36,7 +37,11 @@ describe('outdoor-cave.ggvtt', () => {
     expect(map.rooms.map((r) => r.id)).toEqual(['room-hall'])
     expect(map.roomAt(8, 7)).toBe('room-hall')
     expect(map.roomAt(15.5, 7.5)).toBeNull()
-    expect(map.doors.map((d) => [d.id, d.roomA, d.roomB])).toEqual([['door-hall', 'room-hall', null]])
+    expect(map.doors.map((d) => [d.id, d.roomA, d.roomB])).toEqual([
+      ['door-hall', 'room-hall', null],
+      ['door-mouth', null, null],
+      ['door-inner', null, null],
+    ])
     const layer = map.data.layers.find((l) => l.type === 'dungeon')
     expect(layer && 'caveOpenings' in layer ? layer.caveOpenings : []).toHaveLength(1)
     expect(map.frame).toEqual({ minX: 0, minY: 0, maxX: 30, maxY: 20 })

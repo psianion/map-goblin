@@ -43,7 +43,10 @@
       "visible": true,
       "locked": false,
       "opacity": 1,
-      "standaloneWalls": [],
+      "standaloneWalls": [
+        { "id": "wall-mouth", "points": [[18, 8], [18, 10]], "wallType": "normal", "direction": "both", "color": "#000000", "roughness": 0 },
+        { "id": "wall-inner", "points": [[21.5, 6], [22.5, 6]], "wallType": "normal", "direction": "both", "color": "#000000", "roughness": 0 }
+      ],
       "mergedFloor": null,
       "style": {
         "floorColor": "#F1ECDF",
@@ -118,6 +121,40 @@
           "state": "closed",
           "isSecret": false,
           "roomA": "room-hall",
+          "roomB": null
+        },
+        {
+          "id": "door-mouth",
+          "name": "Cave mouth",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-mouth",
+          "position": [18, 9],
+          "angle": 1.5707963267948966,
+          "width": 2,
+          "style": "double",
+          "state": "open",
+          "isSecret": false,
+          "freestanding": true,
+          "kit": "cave",
+          "roomA": null,
+          "roomB": null
+        },
+        {
+          "id": "door-inner",
+          "name": "Inner door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-inner",
+          "position": [22, 6],
+          "angle": 0,
+          "width": 1,
+          "style": "single",
+          "state": "closed",
+          "isSecret": false,
+          "freestanding": true,
+          "kit": "cave",
+          "roomA": null,
           "roomB": null
         }
       ]

@@ -18,7 +18,10 @@ import {
   type LeafPose,
 } from '../assets/doorKits';
 import { getAssetPackManager } from './assetPackInstance';
-import { standaloneWallLook, styleWallLook, type WallLook } from '../shared/wallLook';
+import { doorWallLook } from '../shared/wallLook';
+
+/** Lives in shared/wallLook.ts so the table's server can resolve a door's look; re-exported for callers. */
+export { doorWallLook };
 import { referenceBandPx } from './wallNodeRenderer';
 
 /**
@@ -378,28 +381,6 @@ function renderKitDoor(
     container.addChild(buildLeaf(pose, kit, slices, leafTint, 1, [0, 0]));
   }
   return true;
-}
-
-/**
- * The look of the wall a door sits in, resolved the way `renderNodeWalls` lays
- * it: a drawn wall's own pins, a floor ring's pins (a preset pins the floors it
- * found), else the layer's. Which kit the door is built from follows the set.
- */
-export function doorWallLook(
-  resolved: ResolvedDoor,
-  style: DungeonStyle,
-  ringStyles?: readonly DungeonStyle[],
-  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
-): WallLook {
-  const wall = resolved.wall;
-  if (wall?.kind === 'standalone') return standaloneWallLook(wall, style);
-  if (wall?.kind === 'floor' && wall.ring !== undefined) {
-    const edge = wall.edge !== undefined ? edgeStyles?.[wall.ring]?.[wall.edge] : undefined;
-    return styleWallLook(edge ?? ringStyles?.[wall.ring] ?? style);
-  }
-  const look = styleWallLook(style);
-  // A painted cave's wall: its rock's own width when its floors pin one.
-  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint, width: wall?.bandWidth ?? look.width };
 }
 
 function hexColor(hex: string): number {
