@@ -5,8 +5,11 @@
 // room nobody has entered has none of it — no floor, no walls, no props, not even the id.
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
+import { createHmac, randomBytes } from 'node:crypto'
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import {
+  DEFAULT_WALL_WIDTH,
+  FOG_MARGIN,
   fogModeOf,
   regionOf,
   setCells,
@@ -88,8 +91,16 @@ export function redactMapForViewer(
   // region record, and the room boxes are a walk over every kept boundary.
   const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const lockMask = lockMaskFor(scene, fog, kept)
+  // The table's starting room is the DM's choice of where play opens, and its id names a room:
+  // it travels only once that room is the party's.
+  const startingRoomId = docSansPrep.mapSettings?.startingRoomId
+  const mapSettings =
+    startingRoomId && !kept.has(startingRoomId)
+      ? (({ startingRoomId: _start, ...rest }) => rest)(docSansPrep.mapSettings)
+      : docSansPrep.mapSettings
   return {
     ...docSansPrep,
+    mapSettings,
     ...(framed ? { frame: scene.frame } : {}),
     ...(lockMask ? { lockMask } : {}),
     // Table fix pass §2.7: the ground outside the walled floors, once the seat knows any of it.
@@ -105,8 +116,10 @@ export function redactMapForViewer(
         // object it arrived as rather than growing an empty `children` it never had.
         return shipped.length === kids.length ? layer : { ...layer, children: shipped }
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- S5: areas never travel (`withStandIns`)
+      const { areas: _areas, ...rest } = layer
       return {
-        ...layer,
+        ...rest,
         ...slice(layer, scene, kept, doors, kept, cut),
         // The merged floor is one union across the whole layer, so it cannot be cut per
         // room — and handing it over would outline every room in the dungeon. The client
@@ -151,6 +164,7 @@ export function childDeltaFor(
       .map((layer) => ({
         id: layer.id,
         ...withStandIns(
+          scene.campaignId,
           layer,
           [],
           childrenOf(layer)
@@ -193,21 +207,11 @@ export function mapDeltaFor(
 }
 
 /**
- * FOG_MARGIN and the default wall width, from the client's `fogPad` — the *same* two numbers,
+ * The widest wall band on the map plus its margin — `fogPad`, computed off the same styles and the
+ * same two numbers (S6: `FOG_MARGIN`, `DEFAULT_WALL_WIDTH`, imported from `@dnd/mechanics/fog`),
  * because this is the same distance measured from the other side. See `nearKeptRoom`.
- *
- * These are HAND-COPIES of `session/client/src/modules/fog/fog.ts:152` (`FOG_MARGIN`) and
- * `:155` (`DEFAULT_WALL_WIDTH`). Nothing enforces the equality — no shared module, no test. If
- * they drift, this file ships geometry by one pad while the client's mask cuts by another: too
- * small here and the seat is missing art the mask has already opened (a hole in the world);
- * too large and the seat holds map its mask never covers. Change one, change the other, in the
- * same commit.
  */
-const FOG_MARGIN = 0.5
-const DEFAULT_WALL_WIDTH = 0.5
-
-/** The widest wall band on the map plus its margin — `fogPad`, computed off the same styles. */
-function bandPad(scene: SceneMap): number {
+export function bandPad(scene: SceneMap): number {
   let wallWidth = 0
   for (const layer of scene.data.layers) {
     if (isDungeon(layer)) wallWidth = Math.max(wallWidth, layer.style?.wallWidth ?? 0)
@@ -225,6 +229,7 @@ function slice(
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     ...withStandIns(
+      scene.campaignId,
       layer,
       (layer.rooms ?? []).filter((room) => kept.has(room.id)),
       childrenOf(layer)
@@ -650,6 +655,7 @@ function placed<T extends DoorChild>(scene: SceneMap, door: T): T {
  * not hold whose face lies under a walled floor or cave this slice sends.
  */
 function withStandIns(
+  campaignId: string,
   layer: DungeonLayer,
   rooms: Room[],
   children: AnyChild[],
@@ -661,18 +667,42 @@ function withStandIns(
   const standIns = (layer.rooms ?? [])
     .filter((room) => !held.has(room.id) && !shipped.has(room.id))
     .filter((room) => roomRing(room).length >= 3 && floors.some((floor) => shapeCovers(floor, roomRing(room))))
-    .map((room) => standIn(room, layer.areas))
-  return { rooms: standIns.length ? [...rooms, ...standIns] : rooms, children }
+    .map((room) => standIn(campaignId, room, layer.areas))
+  // S5: areas never travel. Each shipped room carries its area's pins folded into its own look,
+  // so an area's name and the grouping of rooms nobody explored stay the DM's.
+  const own = rooms.map((room) => withAreaFolded(room, layer.areas))
+  return { rooms: standIns.length ? [...own, ...standIns] : own, children }
 }
 
-/** A withheld room as the engine needs it to draw the floor around it: face and look, nothing more. */
-function standIn(room: Room, areas: readonly RoomArea[] | undefined): Room {
+/** A room's look with its area's pins folded in (room pins win, the chain's own order), and no area. */
+function withAreaFolded(room: Room, areas: readonly RoomArea[] | undefined): Room {
+  if (!room.areaId) return room
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
+  const { areaId: _areaId, ...rest } = room
+  const look = foldedLook(room, areas)
+  return Object.keys(look).length > 0 ? { ...rest, look } : rest
+}
+
+function foldedLook(room: Room, areas: readonly RoomArea[] | undefined): NonNullable<Room['look']> {
   const area = room.areaId ? areas?.find((a) => a.id === room.areaId) : undefined
-  // Room pins win over area pins key by key, which is the look chain's own order.
-  const look = { ...area?.look, ...room.look }
+  return { ...area?.look, ...room.look }
+}
+
+/**
+ * A stand-in's id: opaque, so no readable room id (`room-chief`) travels with it. Keyed on this
+ * process's secret, the campaign and the room, so it is stable for as long as the server runs;
+ * the client also drops a stand-in when anything arrives with its face (`mergeMapDelta`).
+ */
+const STAND_IN_SALT = randomBytes(16)
+const standInId = (campaignId: string, roomId: string): string =>
+  `standin-${createHmac('sha256', STAND_IN_SALT).update(`${campaignId}:${roomId}`).digest('hex').slice(0, 16)}`
+
+/** A withheld room as the engine needs it to draw the floor around it: face and look, nothing more. */
+function standIn(campaignId: string, room: Room, areas: readonly RoomArea[] | undefined): Room {
+  const look = foldedLook(room, areas)
   const boundary = roomRing(room)
   return {
-    id: room.id,
+    id: standInId(campaignId, room.id),
     name: '',
     // Not the authored anchor: any point of the face serves, and the face is already sent.
     anchor: boundary[0],

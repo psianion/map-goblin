@@ -100,6 +100,15 @@ export interface SceneFog {
 }
 
 /** The fog row for ground in no room. One per level: `@outdoors`, or `@outdoors:<levelId>`. */
+/**
+ * S6 — the two numbers a room's fog pad is made of, shared by the client's mask (`fogPad`) and the
+ * server's geometry cut (`bandPad`), so the art a seat is sent and the hole its mask opens are
+ * measured by one distance. FOG_MARGIN is the breathing room past a wall band's far face, and
+ * DEFAULT_WALL_WIDTH the band's width where no layer names one, in cells.
+ */
+export const FOG_MARGIN = 0.5
+export const DEFAULT_WALL_WIDTH = 0.5
+
 export const OUTDOORS_ID = '@outdoors'
 
 /** The Outdoors row id for a level; absent level = the map's only (or first) one. */

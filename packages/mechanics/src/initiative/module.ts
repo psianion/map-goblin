@@ -12,7 +12,7 @@
 // documented as loop-proof; a second target would be a refactor of it, and all three roll
 // sources are code we own anyway.
 
-import type { GameModule, ModuleContext } from '../contract'
+import type { GameModule, ModuleContext, Viewer } from '../contract'
 import { ANY_ROLE } from '../contract'
 import { ID_MAX, NAME_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
@@ -69,8 +69,12 @@ function andList(names: readonly string[]): string {
  */
 export interface InitiativeDeps {
   tokenOwnerOf?(campaignId: string, sceneId: string, tokenId: string): string | null | undefined
-  /** Table fix pass F22 — whether a combatant's token is hidden from players right now. */
-  tokenHiddenOf?(sceneId: string, tokenId: string): boolean
+  /**
+   * Table fix pass F22 and S1 — the tokens of a scene this viewer is not sent right now: hidden
+   * ones, and ones out of their sight or in a room they have not been shown (the tokens module's
+   * own redaction). A combatant on one of them is behind the screen with it. Asked once per redact.
+   */
+  tokensWithheldOf?(sceneId: string, viewer: Viewer): ReadonlySet<string> | null
 }
 
 export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<InitiativeState> {
@@ -110,15 +114,16 @@ export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<In
   // party cannot read is not a tracker. A monster's hit points are the one thing a DM keeps
   // behind the screen, so an NPC's pool leaves as a single bit: down or not.
   //
-  // A combatant whose token is hidden is behind the screen whole (F22): its row would name it.
+  // A combatant whose token is hidden, or that this seat cannot see (S1), is behind the screen
+  // whole (F22): its row would name it and say where it is in the order.
   // The turn pointer follows the ordered list a player holds, so it is moved to the same
   // combatant there, or to the next one they can see while a hidden one has the turn.
   redact(state, viewer) {
     if (viewer.role === 'dm' || !Array.isArray(state.entries)) return state
     let touched = false
     const sceneId = state.sceneId
-    const hidden = (e: InitiativeEntry): boolean =>
-      !!sceneId && !!e.tokenId && deps.tokenHiddenOf?.(sceneId, e.tokenId) === true
+    const withheld = sceneId ? deps.tokensWithheldOf?.(sceneId, viewer) : null
+    const hidden = (e: InitiativeEntry): boolean => !!e.tokenId && withheld?.has(e.tokenId) === true
     const shown = state.entries.filter((e) => !hidden(e))
     let turn = state.turn
     if (shown.length !== state.entries.length) {

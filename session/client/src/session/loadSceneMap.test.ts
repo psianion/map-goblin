@@ -301,6 +301,15 @@ const layerOf = (data: SerializedMapData | null) =>
   });
 
 describe('mergeMapDelta', () => {
+  it('drops a stand-in when the room with its face arrives (R1: stand-ins travel under opaque ids)', () => {
+    const face = [[0, 0], [4, 0], [4, 4]];
+    const doc = loaded();
+    (doc.layers[0] as unknown as { rooms: unknown[] }).rooms.push({ id: 'standin-1', name: '', anchor: [0, 0], boundary: face, standIn: true });
+    const real = { id: 'r-gallery', name: 'Gallery', anchor: [1, 1], boundary: face };
+    const merged = mergeMapDelta(doc, delta({ layers: [{ id: 'l1', rooms: [real], children: [], standaloneWalls: [] }] as unknown as MapDelta['layers'] }), 'player', 'scene-1');
+    expect(layerOf(merged).rooms.map((r) => r.id)).toEqual(['r-vestibule', 'r-gallery']);
+  });
+
   it('takes the open ground from a delta that carries no layers (table fix pass §2.7)', () => {
     const openGround = [{ levelId: 'lvl-1', rings: [[[0, 0], [9, 0], [9, 9], [0, 9]]] as [number, number][][] }];
     const merged = mergeMapDelta(loaded(), delta({ layers: [], openGround }), 'player', 'scene-1');

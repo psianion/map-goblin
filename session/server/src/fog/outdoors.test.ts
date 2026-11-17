@@ -12,6 +12,7 @@ import { createStores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { ensureClipperReady } from './clipperBoot'
 import { partyHere } from './partyHere'
+import { pointInPoly } from './sceneMap'
 import { createVision } from './vision'
 
 beforeAll(async () => {
@@ -170,5 +171,38 @@ describe('sight from outside (§2.4, §2.5, §2.7)', () => {
     npc.setTokens(pc({ ownerId: null, kind: 'npc' }))
     npc.setFog({ mode: 'vision' })
     expect(npc.vision.autoExplorePatch(SCENE)).toBeNull()
+  })
+})
+
+describe('the open ground a seat is owed (S3)', () => {
+  const frameRing = (w: number, h: number) => [[0, 0], [w, 0], [w, h], [0, h]]
+  const inside = (rings: [number, number][][], x: number, y: number) =>
+    rings.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1
+
+  it('stays the frame less the walled floors on a base-ground map', () => {
+    for (const [map, w, h] of [[MAP, 30, 20], [readFileSync(join(import.meta.dirname, '../../../testdata/testing-cave.ggvtt'), 'utf8'), 30, 30]] as const) {
+      const t = table(map)
+      t.setTokens(pc())
+      t.setFog({ rooms: { '@outdoors': lit } })
+      const scene = t.vision.sceneMapOf(SCENE)!
+      const floors = scene.data.layers.flatMap((l) => (l.type === 'dungeon' ? (l.mergedFloor ?? []) : []))
+      expect(t.vision.playerMap(SCENE)!.openGround![0].rings).toEqual([frameRing(w, h), ...floors])
+    }
+  })
+
+  it('on a ground-pieces map, opens only around known ground: not the empty frame, not far rock', () => {
+    const map = JSON.parse(withCaveRoom())
+    delete map.mapSettings.ground
+    const t = table(JSON.stringify(map))
+    t.setTokens(pc({ x: 5.5, y: 16.5 }))
+    t.setFog({ rooms: { '@outdoors': lit } })
+    const rings = t.vision.playerMap(SCENE)!.openGround![0].rings as [number, number][][]
+    // The grass patch, and a band pad round it.
+    expect(inside(rings, 5.5, 16.5)).toBe(true)
+    expect(inside(rings, 14.5, 16.5)).toBe(true)
+    // The empty frame, the cave's far rock and the cave inside stay under the fog.
+    expect(inside(rings, 28.5, 18.5)).toBe(false)
+    expect(inside(rings, 26.3, 5)).toBe(false)
+    expect(inside(rings, 22, 9)).toBe(false)
   })
 })

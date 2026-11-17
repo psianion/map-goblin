@@ -31,7 +31,7 @@ type Ring = [number, number][]
 
 /** A wall's reach into the cells beside it: half its width, never a whole cell (§2.1 rule 3). */
 const wallReach = (width: number): number => Math.min(width / 2, 0.45)
-/** The cave rock's drawn half-width, on its outer side (`max(width, 0.15) / 2`). */
+/** The cave rock's drawn half-width (`max(width, 0.15) / 2`), the same on both sides of its outline (S4). */
 const rockReach = (width: number): number => Math.max(width, 0.15) / 2
 
 export interface WalkGrids {
@@ -121,7 +121,8 @@ function wallBlockers(layers: readonly DungeonLayer[]): WalkBlocker[] {
       const width = seg.width ?? 0.5
       out.push(
         seg.wallKind === 'cave' && outside
-          ? { ...line, reach: wallReach(width), outerReach: rockReach(width), outside }
+          ? // S4: the rock is drawn this deep into the floor too, so a token stops at its face.
+            { ...line, reach: rockReach(width), outerReach: rockReach(width), outside }
           : { ...line, reach: wallReach(width) },
       )
     }

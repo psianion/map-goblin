@@ -82,6 +82,7 @@ import {
   mapDeltaFor,
   redactMapForViewer,
   exploredRooms,
+  bandPad,
   groundOf,
   type Ground,
 } from './redactMap'
@@ -92,7 +93,11 @@ import {
   type SceneMapOf,
 } from './sceneMap'
 import { createWalkGrids } from './walk'
-import { enclosedOn, enclosureRings, hasHiddenGround } from './outdoorGround'
+import { enclosedOn, enclosureRings, hasHiddenGround, zonedEnclosureRings } from './outdoorGround'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Clipper wrapper the server already boots (clipperBoot.ts)
+import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: floor-piece predicates, pure
+import { baseGroundOf } from '@dnd/core/src/shared/pieces'
 import {
   createSweeps,
   exploreLocks,
@@ -412,7 +417,9 @@ export function createVision(stores: Stores): Vision {
     // Table fix pass §2.7: ground the table knows, for what a seat is sent — the cell record,
     // and every outdoor ground cell of a level whose Outdoors row was ever revealed.
     const ground = knownGroundOf(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
-    const openGround = ground.outdoors ? openGroundRings(map) : undefined
+    const openGround = ground.outdoors
+      ? openGroundRings(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
+      : undefined
     // §2.5: what the record may hold — ground, or within one cell of it, on any level.
     const levelIds = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevel]
     const nearGround = (x: number, y: number): boolean =>
@@ -469,9 +476,11 @@ export function createVision(stores: Stores): Vision {
     const everRows = new Set(Object.entries(fog.rooms).filter(([, r]) => r.wasEverRevealed).map(([id]) => id))
     const within = (rows: Set<string>) =>
       fog.concealBehindDoors && reached ? new Set([...rows].filter((id) => reached.has(id))) : rows
-    // The open ground arrives once, with the mutation that first lets the seat know any of it.
-    const groundDelta: MapDelta | null =
-      openGround && !previous?.openGround ? { sceneId, layers: [], openGround } : null
+    // The open ground arrives with the mutation that first lets the seat know any of it, and again
+    // whenever a level's rings change (S3: they grow with the ground the seat knows).
+    const groundMoved =
+      !!openGround && (!previous?.openGround || openGround.some((g, i) => g.rings !== previous.openGround?.[i]?.rings))
+    const groundDelta: MapDelta | null = groundMoved ? { sceneId, layers: [], openGround } : null
     const next: Computed = {
       revision: stores.moduleState.revision,
       map,
@@ -1072,21 +1081,73 @@ function recordHasOutdoorCell(map: SceneMap, fog: SceneFog): boolean {
   return false
 }
 
-/** §2.7 — per level, the frame with the level's walled floors as holes (read even-odd). */
-function openGroundRings(map: SceneMap): NonNullable<SerializedMapData['openGround']> {
+type Ring = [number, number][]
+
+/** S3 — a level's open ground, kept with the walk grid it was cut from, keyed by what was known. */
+const openGroundCache = new WeakMap<WalkGrid, { key: string; rings: Ring[] }>()
+/** …and the whole-frame answer of a base-ground level, once per parsed map, so it keeps its identity. */
+const wholeCache = new WeakMap<SceneMap, Map<string, Ring[]>>()
+
+/**
+ * §2.7 — per level, the open ground a seat is owed, as rings read even-odd.
+ *
+ * On a level with base ground every outdoor cell is ground, so it is the frame with the level's
+ * walled floors as holes, as it always was. S3: elsewhere (ground pieces only) it is the known
+ * outdoor ground cells — all of them once the level's Outdoors row is revealed, else the record's
+ * by sight — unioned, grown by the band pad and cut by the zoned walled floors and caves. So the
+ * empty frame and a cave's rock far from any known ground stay under the fog.
+ */
+function openGroundRings(
+  map: SceneMap,
+  fog: SceneFog,
+  gridOn: (levelId: string) => WalkGrid | null,
+): NonNullable<SerializedMapData['openGround']> {
   const f = map.frame!
-  const frameRing: [number, number][] = [
+  const frameRing: Ring = [
     [f.minX, f.minY],
     [f.maxX, f.minY],
     [f.maxX, f.maxY],
     [f.minX, f.maxY],
   ]
   const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
-  return levels.map((levelId) => ({
-    levelId,
-    // R2: the same walled floors and caves outdoor ground is cut by, floor shapes where no union.
-    rings: [frameRing, ...enclosureRings(map, levelId).flat()],
-  }))
+  const region = fogModeOf(fog) === 'vision' ? tableRegion(fog, f) : undefined
+  const inRecord = recordTest(map, region)
+  return levels.map((levelId) => {
+    let byLevel = wholeCache.get(map)
+    if (!byLevel) wholeCache.set(map, (byLevel = new Map()))
+    let wholeRings = byLevel.get(levelId)
+    if (!wholeRings) byLevel.set(levelId, (wholeRings = [frameRing, ...enclosureRings(map, levelId).flat()]))
+    const whole = { levelId, rings: wholeRings }
+    const level = map.data.levels?.find((l) => l.id === levelId) ?? null
+    const grid = gridOn(levelId)
+    if (baseGroundOf(map.data.mapSettings, level) || !grid) return whole
+    const outdoorsKnown = fog.rooms[outdoorsRowOf(map.data, levelId)]?.wasEverRevealed === true
+    const pad = bandPad(map)
+    const key = `${outdoorsKnown}|${pad}|${region?.bits ?? ''}`
+    const hit = openGroundCache.get(grid)
+    if (hit && hit.key === key) return { levelId, rings: hit.rings }
+    const enclosed = enclosedOn(map, levelId)
+    const known = (i: number): boolean => {
+      if (grid.cell[i] === NO_GROUND_CELL) return false
+      const { x, y } = cellCentre(grid, i)
+      return map.roomAt(x, y) === null && !enclosed(x, y) && (outdoorsKnown || inRecord(x, y))
+    }
+    // One rectangle per run of known cells along a row, then one union: cheap at frame scale.
+    const runs: Ring[] = []
+    for (let row = 0; row < grid.rows; row++) {
+      for (let col = 0; col < grid.cols; col++) {
+        if (!known(row * grid.cols + col)) continue
+        const start = col
+        while (col + 1 < grid.cols && known(row * grid.cols + col + 1)) col++
+        const [x0, x1, y0, y1] = [grid.minX + start, grid.minX + col + 1, grid.minY + row, grid.minY + row + 1]
+        runs.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+      }
+    }
+    const grown = runs.length ? clipper2Engine.inflate(clipper2Engine.union(runs, []), pad) : []
+    const rings = grown.length ? (clipper2Engine.difference(grown, zonedEnclosureRings(map, levelId)) as Ring[]) : []
+    openGroundCache.set(grid, { key, rings })
+    return { levelId, rings }
+  })
 }
 
 /** Whether a point's cell, or one of the eight round it, is ground on this grid. */

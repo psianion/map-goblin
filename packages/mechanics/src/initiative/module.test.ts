@@ -567,11 +567,19 @@ describe('a hidden token in the order (F22)', () => {
       { key: 'b', name: 'Lurker', kind: 'npc', tokenId: 'lurker', initiative: null },
     ],
   }
-  const module = createInitiativeModule({ tokenHiddenOf: (sceneId, tokenId) => sceneId === SCENE && tokenId === 'lurker' })
+  const module = createInitiativeModule({ tokensWithheldOf: (sceneId) => (sceneId === SCENE ? new Set(['lurker']) : null) })
   const viewer = { role: 'player' as const, identityId: MARRA.identityId }
 
   it('is withheld from players while its token is hidden, and kept for the DM', () => {
     expect(module.redact!(state, viewer).entries.map((e) => e.key)).toEqual(['a'])
     expect(module.redact!(state, { role: 'dm', identityId: DM.identityId }).entries).toHaveLength(2)
+  })
+
+  it('S1: asks per seat, so a row follows that seat’s sight', () => {
+    const bySeat = createInitiativeModule({
+      tokensWithheldOf: (_sceneId, seat) => new Set(seat.identityId === MARRA.identityId ? ['lurker'] : []),
+    })
+    expect(bySeat.redact!(state, viewer).entries.map((e) => e.key)).toEqual(['a'])
+    expect(bySeat.redact!(state, { role: 'player', identityId: 'someone-else' }).entries).toHaveLength(2)
   })
 })

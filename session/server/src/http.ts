@@ -38,6 +38,8 @@ import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/sr
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
 import { fogModeOf, sceneFogOf, type FogState } from '@dnd/mechanics/fog'
+import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
+import type { DoorChild } from '@dnd/core/src/shared/types'
 import { carryFog, takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
@@ -557,6 +559,9 @@ async function publishScene(
     const previous = new Set(deps.vision.roomsOf(scene.campaign_id, sceneId))
     carrySceneFog(deps, scene.campaign_id, sceneId, (fog) => carryFog(fog, lineage, previous))
   }
+  // S2 — a door whose authored state changed starts again from the new map: its stored live state
+  // (open, locked, found) is dropped. Read against the old map for the same reason as above.
+  pruneSceneDoors(deps, scene.campaign_id, sceneId, reauthoredDoors(deps.vision.doorsOf(scene.campaign_id, sceneId), authoredDoorsOf(map.data)))
   const row = deps.stores.maps.insert(
     randomUUID(),
     scene.campaign_id,
@@ -619,6 +624,23 @@ function carrySceneFog(
   if (!fog || !scene) return
   const next = carry(scene)
   if (next) deps.stores.moduleState.put(campaignId, 'fog', { ...fog, byScene: { ...fog.byScene, [sceneId]: next } })
+}
+
+/** Every door a map file authors, across its dungeon layers. */
+function authoredDoorsOf(data: SerializedMapData): DoorChild[] {
+  return data.layers.flatMap((layer) =>
+    layer.type === 'dungeon' ? (layer.children ?? []).filter((c): c is DoorChild => c.childType === 'door') : [],
+  )
+}
+
+/** Drops the stored live state of `doorIds` in one scene, so the authored state seeds them again. */
+function pruneSceneDoors(deps: HttpDeps, campaignId: string, sceneId: string, doorIds: readonly string[]): void {
+  if (doorIds.length === 0) return
+  const doors = deps.stores.moduleState.get(campaignId, 'doors') as DoorsState | undefined
+  const live = doors?.byScene[sceneId]
+  if (!doors || !live || !doorIds.some((id) => id in live)) return
+  const kept = Object.fromEntries(Object.entries(live).filter(([id]) => !doorIds.includes(id)))
+  deps.stores.moduleState.put(campaignId, 'doors', { ...doors, byScene: { ...doors.byScene, [sceneId]: kept } })
 }
 
 /** DELETE /api/scenes/:id — DM only. */

@@ -57,6 +57,17 @@ function enclosuresOn(map: SceneMap, levelId: string): { rings: Ring[]; anchors:
   })
 }
 
+/**
+ * The zoned walled floors and caves of a level (those holding a room's anchor), with the holes
+ * inside them, as rings for a NonZero Clipper clip: what outdoor ground is cut by.
+ */
+export function zonedEnclosureRings(map: SceneMap, levelId: string): Ring[] {
+  return enclosuresOn(map, levelId).flatMap(({ rings, anchors }) => {
+    const zoned = rings.filter((ring) => anchors.some(([x, y]) => inRingsEvenOdd(x, y, [ring])))
+    return rings.filter((ring) => zoned.includes(ring) || zoned.some((z) => ring !== z && inRingsEvenOdd(ring[0][0], ring[0][1], [z])))
+  })
+}
+
 interface Enclosure {
   rings: Ring[]
   /** The rings that hold a room's anchor: only these take their inside out of Outdoors. */

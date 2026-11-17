@@ -93,6 +93,23 @@ export function seedDoor(door: AuthoredDoor): DoorLiveState {
 }
 
 /**
+ * S2 — the doors whose live state a republish must drop: authored in both maps, with an authored
+ * state that seeds differently (open, locked, secret, archway). Stored state used to outlive the
+ * edit, so a door the DM re-authored as locked stayed open at the table. The new map then seeds
+ * them afresh (`doorsOfScene`).
+ */
+export function reauthoredDoors(before: readonly AuthoredDoor[], after: readonly AuthoredDoor[]): string[] {
+  const was = new Map(before.map((door) => [door.id, seedDoor(door)]))
+  return after
+    .filter((door) => {
+      const old = was.get(door.id)
+      const now = seedDoor(door)
+      return !!old && (old.open !== now.open || old.locked !== now.locked || old.revealed !== now.revealed)
+    })
+    .map((door) => door.id)
+}
+
+/**
  * The scene's live doors, seeded from the authored list for anything not touched yet.
  * Doors the map no longer authors drop out — the map is the source of truth for existence.
  */

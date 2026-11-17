@@ -133,27 +133,33 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   let sessionsRef: SessionManager | null = null
   modules.register(scenesModule(stores, (campaignId) => sessionsRef?.refreshScenes(campaignId)))
   modules.register(rollsModule)
-  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
-  modules.register(
-    createInitiativeModule({
-      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
-        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
-      // Table fix pass F22: a hidden combatant's row stays behind the screen.
-      tokenHiddenOf: (sceneId, tokenId) => {
-        const campaignId = stores.scenes.get(sceneId)?.campaign_id
-        if (!campaignId) return false
-        return (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.hidden === true
-      },
-    }),
-  )
   // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a
   // player's move may not cross, with the DM's live crossing rules.
   const terrainOf = createTerrain(
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
+  // Built before initiative, which reads its redaction (S1); registered below in its old place.
+  const tokens = tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf)
+  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
+  modules.register(
+    createInitiativeModule({
+      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
+        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
+      // Table fix pass F22 and S1: a combatant's row goes where its token goes — not to a seat
+      // that is not sent the token (hidden, out of sight, in a room it has not been shown).
+      tokensWithheldOf: (sceneId, viewer) => {
+        const campaignId = stores.scenes.get(sceneId)?.campaign_id
+        const state = campaignId ? (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined) : undefined
+        const all = state?.byScene?.[sceneId]
+        if (!state || !all || !tokens.redact) return null
+        const shown = tokens.redact(state, viewer).byScene[sceneId] ?? {}
+        return new Set(Object.keys(all).filter((id) => !(id in shown)))
+      },
+    }),
+  )
   // The movement lock (and the pause) stop a player's move through the tokens module's seam.
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf))
+  modules.register(tokens)
   modules.register(table.module)
   modules.register(pinsModule)
   // Read-aloud goes out through the triggers module's existing share path; story journals it.

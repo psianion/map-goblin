@@ -323,18 +323,15 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
 
   // …and the band's *number*, pinned from both sides.
   //
-  // `redactMap.ts`'s `FOG_MARGIN` (0.5) and `DEFAULT_WALL_WIDTH` (0.5) are hand copies of the
-  // client's, at `session/client/src/modules/fog/fog.ts:152` and `:155`, where the same
-  // distance is measured from the other side to cut the mask's hole. Nothing enforces the
-  // equality — no shared module, and until this row no test either: every probe above sits at
-  // 0.4 or 1.5 cells out and passes at any margin between them. Drift ships silently, and it
-  // ships one of two defects — too small here and the seat is missing art its mask has already
-  // opened (a hole in the world), too large and it holds map the mask never covers.
+  // `FOG_MARGIN` (0.5) and `DEFAULT_WALL_WIDTH` (0.5) are one pair now (S6), imported by
+  // `redactMap.ts` and the client's `fog.ts` alike from `@dnd/mechanics/fog`, so the art a seat
+  // is sent and the hole its mask cuts cannot drift apart. Every probe above sits at 0.4 or 1.5
+  // cells out and passes at any margin between them, so this row pins the number itself.
   //
   // So: 0.5 + 0.5 is a one-cell reach, and the probes bracket it at 0.9 and 1.1. The numbers
   // are written out rather than derived from the constants, because a test that reads the
   // constant moves with it and pins nothing. Move `FOG_MARGIN` to 0.3 and the near prop is
-  // dropped; to 0.7 and the far one arrives. Change it here, change it there, same commit.
+  // dropped; to 0.7 and the far one arrives.
   it('measures that band at exactly the pad the client masks by', () => {
     const probed = mapFile()
     const layer = probed.layers[0] as DungeonLayer
@@ -508,12 +505,14 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
   })
 
   it('takes nothing else of the room the party has not earned', () => {
-    // The cave floor runs under east-arm, so it rides as a stand-in (R1): face and look only.
+    // The cave floor runs under east-arm, so it rides as a stand-in (R1): face and look only,
+    // under an opaque id.
     const wire = JSON.stringify(redactedCave())
-    const east = (redactedCave().layers[0] as DungeonLayer).rooms?.find((r) => r.id === 'east-arm')
-    expect(east).toMatchObject({ name: '', standIn: true })
-    expect(east?.number).toBeUndefined()
-    expect(wire).not.toContain('east-arm of secrets')
+    const standIns = (redactedCave().layers[0] as DungeonLayer).rooms?.filter((r) => r.standIn) ?? []
+    expect(standIns).toHaveLength(1)
+    expect(standIns[0]).toMatchObject({ name: '', standIn: true })
+    expect(standIns[0].number).toBeUndefined()
+    expect(wire).not.toContain('east-arm')
     expect(wire).not.toContain('prop-east')
   })
 

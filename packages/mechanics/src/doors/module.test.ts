@@ -458,3 +458,14 @@ describe('players at the door', () => {
     expect(scene(locked).oak).toMatchObject({ open: false, locked: true })
   })
 })
+
+describe('reauthoredDoors (S2)', () => {
+  const authored = (id: string, state: 'closed' | 'open' | 'locked', isSecret = false) => ({ id, state, isSecret })
+
+  it('names the doors whose authored state changed, and only those both maps hold', async () => {
+    const { reauthoredDoors } = await import('./types')
+    const before = [authored('same', 'closed'), authored('locked-now', 'closed'), authored('hidden-now', 'open'), authored('gone', 'open')]
+    const after = [authored('same', 'closed'), authored('locked-now', 'locked'), authored('hidden-now', 'open', true), authored('new', 'locked')]
+    expect(reauthoredDoors(before, after)).toEqual(['locked-now', 'hidden-now'])
+  })
+})

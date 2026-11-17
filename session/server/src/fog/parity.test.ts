@@ -314,8 +314,11 @@ function differences(dmDoc: Doc, playerDoc: Doc, frame: { minX: number; minY: nu
     if (edgeMisses++ < 5) out.push(`edge ${JSON.stringify(edge.a)}→${JSON.stringify(edge.b)}: player ${JSON.stringify(edge.key)} dm ${JSON.stringify(twin?.key)}`)
   }
   if (edgeMisses > 5) out.push(`…and ${edgeMisses - 5} more edges`)
+  // A stand-in travels under an opaque id, so a room is matched to the DM's by its face.
+  const dmByFace = new Map([...dm.rooms.values()].map((key) => [JSON.stringify((key as { face: unknown }).face), key]))
   for (const [id, mine] of player.rooms) {
-    if (!same(mine, dm.rooms.get(id))) out.push(`room ${id}: player ${JSON.stringify(mine)} dm ${JSON.stringify(dm.rooms.get(id))}`)
+    const theirs = dmByFace.get(JSON.stringify((mine as { face: unknown }).face))
+    if (!same(mine, theirs)) out.push(`room ${id}: player ${JSON.stringify(mine)} dm ${JSON.stringify(theirs)}`)
   }
   // Every cell centre on a floor the player holds is lit and shadowed by the place it is in.
   let placeMisses = 0
@@ -365,6 +368,9 @@ function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number;
   const nearKept = (x: number, y: number) =>
     rooms.some((room) => kept.has(room.id) && (pointInPoly(room.boundary, x, y) || distanceToPoly(room.boundary, x, y) <= 1))
   const out: string[] = []
+  // No withheld room's id travels at all: an imported map's ids are readable (`room-chief`).
+  const wire = JSON.stringify(playerDoc)
+  for (const room of rooms) if (!kept.has(room.id) && wire.includes(room.id)) out.push(`withheld room id ${room.id} on the wire`)
   for (const layer of playerDoc.layers.filter(isDungeon)) {
     for (const child of layer.children ?? []) {
       if (!['door', 'asset', 'light', 'text'].includes(child.childType)) continue
@@ -402,8 +408,14 @@ describe('a stand-in room (R1)', () => {
     const map = outdoorCaveFull()
     const outside: State = { name: 'outside', fog: { rooms: { '@outdoors': lit } }, token: [13.5, 7.5] }
     const { player } = cut(map, outside)
-    const hall = dungeonOf(player).rooms!.find((room) => room.id === 'room-hall')!
+    // The hall's own face: the stand-in carries no other way to tell it apart.
+    const hallFace = JSON.stringify(dungeonOf(cut(map, { ...outside, fog: { rooms: { 'room-hall': lit } } }).player).rooms!.find((r) => r.id === 'room-hall')!.boundary)
+    const hall = dungeonOf(player).rooms!.find((room) => room.standIn && JSON.stringify(room.boundary) === hallFace)!
     expect(Object.keys(hall).sort()).toEqual(['anchor', 'boundary', 'id', 'look', 'name', 'standIn'])
+    expect(hall.id).toMatch(/^standin-[0-9a-f]{16}$/)
+    expect(JSON.stringify(player)).not.toContain('room-hall')
+    // S5: areas never travel; their pins ride in each room's look.
+    expect(JSON.stringify(player)).not.toContain('West wing')
     expect(hall).toMatchObject({
       name: '',
       standIn: true,
@@ -412,6 +424,10 @@ describe('a stand-in room (R1)', () => {
     expect(hall.anchor).not.toEqual([8, 7])
     const earned = cut(map, { ...outside, fog: { rooms: { '@outdoors': lit, 'room-hall': lit } } })
     expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')).toMatchObject({ name: 'Hall' })
-    expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')!.standIn).toBeUndefined()
+    expect(dungeonOf(earned.player).rooms!.filter((room) => room.standIn && JSON.stringify(room.boundary) === hallFace)).toEqual([])
+    expect(dungeonOf(earned.player).areas).toBeUndefined()
+    expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')).toMatchObject({
+      look: { floorTint: '#ffd0d0', wallWidth: 0.8, wallTextureTint: '#a0a0ff', place: 'underground' },
+    })
   })
 })

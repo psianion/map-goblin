@@ -74,6 +74,13 @@ describe('stand and move (§2.3)', () => {
     expect(walk({ x: 15.5, y: 7.5 }, { x: 16.5, y: 5.5 })).toBeNull()
   })
 
+  it('S4: refuses the floor-side cell the rock is drawn over, wider than a stone wall would reach', () => {
+    // The cave's rock is 1.2 wide: drawn 0.6 into the floor, so the cell centre 0.5 in is rock.
+    const { walk } = table()
+    expect(walk({ x: 22.5, y: 6.5 }, { x: 18.5, y: 5.5 })).toMatch(new RegExp(`^${SOLID_GROUND}`))
+    expect(walk({ x: 22.5, y: 6.5 }, { x: 19.5, y: 5.5 })).toBeNull()
+  })
+
   it('walks into the cave through its mouth, with no door', () => {
     const { walk } = table()
     expect(walk({ x: 15.5, y: 9.5 }, { x: 22.5, y: 6.5 })).toBeNull()
