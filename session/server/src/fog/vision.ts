@@ -974,8 +974,7 @@ function knownCells(
   return (i) => {
     if (memo[i] !== 0) return memo[i] === 1
     const { x, y } = cellCentre(grid, i)
-    // R2: a cell in no room is Outdoors only outside every walled floor and cave outline.
-    const row = map.roomAt(x, y) ?? (enclosed(x, y) ? null : outdoors)
+    const row = cellRow(map, enclosed, outdoors, x, y)
     const ok =
       (row !== null && fog.rooms[row]?.status === 'revealed') ||
       (inRecord !== null && inRecord(x, y)) ||
@@ -983,6 +982,33 @@ function knownCells(
     memo[i] = ok ? 1 : 2
     return ok
   }
+}
+
+/** How far round a cell's centre a room is looked for when the centre itself lies in none. */
+const EDGE_PROBE = 0.25
+
+/**
+ * The fog row a walk cell counts in: its centre's room, else Outdoors. R2: a cell in no room is
+ * Outdoors only outside every walled floor and cave outline; rock and the gap inside a cave's
+ * outline are no room's. T12: a centre on a cave's very edge falls in the thin cut the edge
+ * makes between the room faces, though the cell stands on the room's floor, as in a tunnel
+ * under a cell wide; such a cell counts in the room a quarter cell round it.
+ */
+function cellRow(
+  map: SceneMap,
+  enclosed: (x: number, y: number) => boolean,
+  outdoors: string,
+  x: number,
+  y: number,
+): string | null {
+  const room = map.roomAt(x, y)
+  if (room !== null) return room
+  if (!enclosed(x, y)) return outdoors
+  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const near = map.roomAt(x + dx * EDGE_PROBE, y + dy * EDGE_PROBE)
+    if (near !== null) return near
+  }
+  return null
 }
 
 /** A level's walk areas and the fog rows (rooms, and the level's Outdoors) each one touches. */
@@ -1005,8 +1031,7 @@ function areasOf(map: SceneMap, grid: WalkGrid, levelId: string): Areas {
     const label = labels[i]
     if (label < 0) continue
     const { x, y } = cellCentre(grid, i)
-    // R2: rock and the gap inside a cave's outline are no room's and not Outdoors either.
-    const row = map.roomAt(x, y) ?? (enclosed(x, y) ? null : outdoors)
+    const row = cellRow(map, enclosed, outdoors, x, y)
     const set = (rows[label] ??= new Set())
     if (row !== null) set.add(row)
   }

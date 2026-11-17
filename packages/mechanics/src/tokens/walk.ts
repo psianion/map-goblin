@@ -30,11 +30,20 @@ export interface WalkBlocker {
   /** Cave rock only: the reach on the rock's outer side, where `outside(x, y)` holds. */
   outerReach?: number
   outside?: (x: number, y: number) => boolean
+  /**
+   * Cave rock only: its reach on the floor side gives way to a passage. A floor-side centre
+   * inside `reach` stays standable where `open(x, y)` holds (a tunnel too narrow for any centre
+   * in it to sit clear of the rock); elsewhere it is solid unless it is the only way between
+   * two stretches of standable ground (see `settleRock`).
+   */
+  open?: (x: number, y: number) => boolean
 }
 
 export const NO_GROUND = 0
 export const SOLID = 1
 export const STANDABLE = 2
+/** While building only: floor under a cave's rock, solid unless a passage needs it. */
+const UNDER_ROCK = 3
 
 /** Bits of `WalkGrid.edge`: what blocks the step. */
 const BY_WALL = 1
@@ -85,6 +94,7 @@ export function buildWalkGrid(
   }
   const grid: WalkGrid = { minX, minY, cols, rows, cell, edge: new Uint8Array(cols * rows * 4), doors: new Map(), crossings: new Map() }
   for (const b of blockers) addBlocker(grid, b)
+  settleRock(grid)
   return grid
 }
 
@@ -101,9 +111,13 @@ function addBlocker(grid: WalkGrid, b: WalkBlocker): void {
       const i = row * cols + col
       const x = minX + col + 0.5
       const y = minY + row + 0.5
-      if (bit === BY_WALL && cell[i] === STANDABLE) {
-        const reach = b.outerReach !== undefined && b.outside?.(x, y) ? b.outerReach : (b.reach ?? 0)
-        if (reach > 0 && distanceToSegment(x, y, b) < reach) cell[i] = SOLID
+      if (bit === BY_WALL && (cell[i] === STANDABLE || cell[i] === UNDER_ROCK)) {
+        const outer = b.outerReach !== undefined && !!b.outside?.(x, y)
+        const reach = (outer ? b.outerReach : b.reach) ?? 0
+        if (reach > 0 && distanceToSegment(x, y, b) < reach) {
+          if (outer || !b.open) cell[i] = SOLID
+          else if (cell[i] === STANDABLE && !b.open(x, y)) cell[i] = UNDER_ROCK
+        }
       }
       for (let k = 0; k < 4; k++) {
         const [dx, dy] = FORWARD[k]
@@ -117,6 +131,78 @@ function addBlocker(grid: WalkGrid, b: WalkBlocker): void {
         if (bit === BY_CROSSING && !grid.crossings.has(e)) grid.crossings.set(e, b.crossing!)
       }
     }
+  }
+}
+
+/**
+ * Floor under a cave's rock (`UNDER_ROCK`) is solid, except where it is the only way between
+ * two stretches of standable ground: where a tunnel leaves a room, its first cells lie within
+ * the rock's reach of the room's own wall, and solid they cut the tunnel off though the map
+ * draws it open. The grid holds one centre per cell, so it cannot keep both the rock and that
+ * passage; it keeps the passage, and only the cells of the shortest way through.
+ *
+ * Standable ground is cut into areas by walls alone (doors and crossings are passages here,
+ * so the answer holds whatever their state). The areas then grow into the floor under the rock
+ * together, a step at a time; where two areas' growth meets, the cells each grew through to
+ * get there stand, and the two count as one. What is left under the rock is solid.
+ */
+function settleRock(grid: WalkGrid): void {
+  const { cols, rows, cell, edge } = grid
+  const n = cols * rows
+  if (!cell.includes(UNDER_ROCK)) return
+  // Each cell's area (a standable one's) or the area that grew into it (under the rock).
+  const area = new Int32Array(n).fill(-1)
+  const from = new Int32Array(n).fill(-1)
+  const queue = new Int32Array(n)
+  const joined: number[] = []
+  const root = (a: number): number => (joined[a] === a ? a : (joined[a] = root(joined[a])))
+  let tail = 0
+  for (let s = 0; s < n; s++) {
+    if (cell[s] !== STANDABLE || area[s] !== -1) continue
+    const id = joined.push(joined.length) - 1
+    area[s] = id
+    let head = tail
+    queue[tail++] = s
+    while (head < tail) {
+      eachStep(grid, queue[head++], (j, e) => {
+        if (area[j] !== -1 || cell[j] !== STANDABLE || (edge[e] & BY_WALL) !== 0) return
+        area[j] = id
+        queue[tail++] = j
+      })
+    }
+  }
+  // Every standable cell is queued, in area order; the floor under the rock is grown from them.
+  for (let head = 0; head < tail; head++) {
+    const i = queue[head]
+    eachStep(grid, i, (j, e) => {
+      if ((edge[e] & BY_WALL) !== 0 || (cell[j] !== STANDABLE && cell[j] !== UNDER_ROCK)) return
+      if (area[j] === -1) {
+        area[j] = area[i]
+        from[j] = i
+        queue[tail++] = j
+        return
+      }
+      if (root(area[j]) === root(area[i])) return
+      joined[root(area[j])] = root(area[i])
+      for (const end of [i, j]) for (let k = end; k !== -1 && cell[k] === UNDER_ROCK; k = from[k]) cell[k] = STANDABLE
+    })
+  }
+  for (let i = 0; i < n; i++) if (cell[i] === UNDER_ROCK) cell[i] = SOLID
+}
+
+/** Calls `visit` with each of a cell's eight neighbours on the grid and the edge index between them. */
+function eachStep(grid: WalkGrid, i: number, visit: (j: number, e: number) => void): void {
+  const { cols, rows } = grid
+  const col = i % cols
+  const row = (i - col) / cols
+  for (let k = 0; k < 8; k++) {
+    const forward = k < 4
+    const [dx, dy] = forward ? FORWARD[k] : FORWARD[k - 4]
+    const nc = forward ? col + dx : col - dx
+    const nr = forward ? row + dy : row - dy
+    if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue
+    const j = nr * cols + nc
+    visit(j, forward ? i * 4 + k : j * 4 + (k - 4))
   }
 }
 

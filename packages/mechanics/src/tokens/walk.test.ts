@@ -37,6 +37,33 @@ describe('the walk grid', () => {
     expect([...grid.cell]).toEqual([SOLID, STANDABLE, STANDABLE])
   })
 
+  describe('floor under a cave’s rock (T12)', () => {
+    // A speck of rock beside the middle cell's centre: inside its reach, cutting no step.
+    const rock = (over: Partial<WalkBlocker>): WalkBlocker[] => [
+      { x1: 1.4, y1: 0.3, x2: 1.6, y2: 0.3, reach: 0.45, outerReach: 0.45, outside: () => false, open: () => false, ...over },
+    ]
+
+    it('stays solid where the floor goes round it', () => {
+      const grid = buildWalkGrid(frame(3, 2), all, rock({}))
+      expect([...grid.cell]).toEqual([STANDABLE, SOLID, STANDABLE, STANDABLE, STANDABLE, STANDABLE])
+    })
+
+    it('stands where it is the only way between two stretches of floor', () => {
+      const grid = buildWalkGrid(frame(3, 1), all, rock({}))
+      expect([...grid.cell]).toEqual([STANDABLE, STANDABLE, STANDABLE])
+    })
+
+    it('stands where the tunnel is too narrow for the grid (`open`)', () => {
+      const grid = buildWalkGrid(frame(3, 2), all, rock({ open: () => true }))
+      expect([...grid.cell]).toEqual([STANDABLE, STANDABLE, STANDABLE, STANDABLE, STANDABLE, STANDABLE])
+    })
+
+    it('never gives way on the rock’s outer side', () => {
+      const grid = buildWalkGrid(frame(3, 1), all, rock({ outside: () => true, open: () => true }))
+      expect([...grid.cell]).toEqual([STANDABLE, SOLID, STANDABLE])
+    })
+  })
+
   it('stops a step that touches a wall, diagonals at a corner included', () => {
     const wall: WalkBlocker[] = [
       { x1: 2, y1: 0, x2: 2, y2: 2, reach: 0.25 },

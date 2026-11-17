@@ -7,7 +7,10 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule, type FogState, type RoomFog, type SceneFog } from '@dnd/mechanics/fog'
-import { STANDABLE, tokensModule, walkAreas, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import { SOLID_GROUND, STANDABLE, tokensModule, walkAreas, type Token, type TokensState } from '@dnd/mechanics/tokens'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the walls sight and walk both read
+import { resolveWalls } from '@dnd/core/src/shared/wallResolve'
+import type { DungeonLayer } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
@@ -112,24 +115,22 @@ describe('Hide all, then Reveal all, in By sight (T11 I1)', () => {
 })
 
 describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => {
-  it('fogs BLOO, YELLO and GREE because no walk area joins them to the mouth', () => {
+  it('shows every revealed room once the mouth door is open (T12)', () => {
     const t = table('rooms')
-    expect([...t.vision.visibleOf(SCENE)!].sort()).toEqual(['@outdoors', CAVE_ENT].sort())
+    expect([...t.vision.visibleOf(SCENE)!].sort()).toEqual(['@outdoors', ...ROOMS].sort())
 
-    // Why, on the walk grid: the tunnel inside the mouth is under a cell wide at y 17 to 19, so
-    // the rock's reach makes these cells solid and the flood from the mouth stops there.
+    // Why, on the walk grid: the tunnel inside the mouth is under a cell wide at y 17 to 19.
+    // Its cells whose centres lie on the cave floor stand, so one walk area runs from outside
+    // the mouth into every room.
     const map = t.vision.sceneMapOf(SCENE)!
     const grid = createWalkGrids().gridFor(map, { [MOUTH_DOOR]: { open: true, locked: false, revealed: true } }, undefined, SCENE)!
     const at = (col: number, row: number) => row * grid.cols + col
     for (const [col, row] of [
       [12, 17],
-      [13, 17],
       [14, 17],
-      [12, 18],
-      [13, 18],
-      [15, 18],
+      [14, 18],
     ]) {
-      expect(grid.cell[at(col, row)], `${col},${row}`).not.toBe(STANDABLE)
+      expect(grid.cell[at(col, row)], `${col},${row}`).toBe(STANDABLE)
     }
     const labels = walkAreas(grid)
     const mouth = labels[at(15, 19)]
@@ -142,12 +143,35 @@ describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => 
       [CAVE_ENT, 15, 10],
     ] as const) {
       expect(map.roomAt(col + 0.5, row + 0.5)).toBe(room)
-      expect(labels[at(col, row)], room).not.toBe(mouth)
+      expect(labels[at(col, row)], room).toBe(mouth)
     }
-    // A token cannot walk in there either: the walk and the fog read the same grid.
+  })
+
+  it('stands no wall, for walk or sight, on the two sliver contours inside BLOO (T12)', () => {
+    const map = table('rooms').vision.sceneMapOf(SCENE)!
+    const walls = map.data.layers.flatMap((l) => (l.type === 'dungeon' && l.children ? resolveWalls(l as DungeonLayer) : []))
+    expect(walls.some((w) => w.kind === 'cave')).toBe(true)
+    const near = (x: number, y: number) => walls.some((w) => w.points.some(([px, py]) => Math.hypot(px - x, py - y) < 0.3))
+    expect(near(23.6, 11.07)).toBe(false)
+    expect(near(25.96, 10.11)).toBe(false)
+  })
+
+  it('walks a player from outside the mouth into Cave Ent., BLOO, YELLO and GREE (T12)', () => {
+    const t = table('rooms')
     const yara = t.tokensOf().find((tk) => tk.name === 'Yara')!
-    expect(t.run('tokens', 'move', { id: yara.id, x: 15.5, y: 19.5 })).toBeNull()
-    expect(JSON.stringify(t.run('tokens', 'move', { id: yara.id, x: 15.5, y: 10.5 }, { role: 'player', identityId: 'p-2' }))).toContain('move-blocked')
+    const P2: Viewer = { role: 'player', identityId: 'p-2' }
+    // The mouth, Cave Ent., BLOO, YELLO and GREE, each walked to from the last.
+    for (const [x, y] of [
+      [15.5, 19.5],
+      [15.5, 10.5],
+      [24.5, 9.5],
+      [25.5, 15.5],
+      [8.5, 13.5],
+    ]) {
+      expect(t.run('tokens', 'move', { id: yara.id, x, y }, P2), `${x},${y}`).toBeNull()
+    }
+    // Standing in the drawn rock is still refused: this centre lies outside the floor, under the rock.
+    expect(JSON.stringify(t.run('tokens', 'move', { id: yara.id, x: 12.5, y: 18.5 }, P2))).toContain(SOLID_GROUND)
   })
 
   it('recomputes what the party sees on every door and fog change', () => {

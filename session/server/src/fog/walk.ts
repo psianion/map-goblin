@@ -18,6 +18,10 @@ import { baseGroundOf, inRingsEvenOdd, isGroundPiece, pieceRings } from '@dnd/co
 import { crossingIdOf, hasPlateaus, layerPlateaus } from '@dnd/core/src/shared/plateaus'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, as above
 import { defaultCrossingKinds } from '@dnd/core/src/shared/crossingKinds'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: a cave's own outline, pure
+import { caveEdges } from '@dnd/core/src/shared/caveFloor'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the WASM Clipper the scene map already boots
+import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { firstLevelId } from '@dnd/core/src/shared/visionGate'
 import type { ShapeChild } from '@dnd/core/src/shared/types'
@@ -110,8 +114,16 @@ function groundOf(map: SceneMap, layers: readonly DungeonLayer[], levelId: strin
 function wallBlockers(layers: readonly DungeonLayer[]): WalkBlocker[] {
   const out: WalkBlocker[] = []
   for (const layer of layers) {
-    const floor = layer.mergedFloor ?? []
-    const outside = floor.length > 0 ? (x: number, y: number) => !inRingsEvenOdd(x, y, floor) : undefined
+    // The floor a cave's rock is drawn round is the cave's own outline, not the layer's union.
+    const caves = caveEdges({ id: layer.id, children: layer.children ?? [] })
+    const outside = (x: number, y: number) => !caves.some((cave) => inRingsEvenOdd(x, y, cave.rings))
+    const rings = caves.flatMap((cave) => cave.rings)
+    const opens = new Map<number, (x: number, y: number) => boolean>()
+    const openFor = (reach: number) => {
+      let open = opens.get(reach)
+      if (!open) opens.set(reach, (open = narrowFloor(rings, reach)))
+      return open
+    }
     for (const seg of extractMoveSegments([layer])) {
       const line = { x1: seg.x1, y1: seg.y1, x2: seg.x2, y2: seg.y2 }
       if (seg.doorId) {
@@ -119,15 +131,55 @@ function wallBlockers(layers: readonly DungeonLayer[]): WalkBlocker[] {
         continue
       }
       const width = seg.width ?? 0.5
-      out.push(
-        seg.wallKind === 'cave' && outside
-          ? // S4: the rock is drawn this deep into the floor too, so a token stops at its face.
-            { ...line, reach: rockReach(width), outerReach: rockReach(width), outside }
-          : { ...line, reach: wallReach(width) },
-      )
+      if (seg.wallKind !== 'cave' || caves.length === 0) {
+        out.push({ ...line, reach: wallReach(width) })
+        continue
+      }
+      // S4: the rock is drawn this deep into the floor too, so a token stops at its face. A
+      // cell is solid when its centre lies in the drawn band, except on the floor side where
+      // the floor between the rock is too narrow for the grid (`narrowFloor`) or the cell is
+      // the only way between two stretches of floor (the walk grid's `settleRock`).
+      const reach = rockReach(width)
+      out.push({ ...line, reach, outerReach: reach, outside, open: openFor(reach) })
     }
   }
   return out
+}
+
+/**
+ * Which cave floor centres the rock's reach covers stay standable all the same: those with no
+ * spot within `reach` + half a cell of them that lies that far clear of the outline.
+ *
+ * The walk grid holds one centre per cell. A floor wide enough to hold a spot `reach` + half a
+ * cell clear of the rock holds a clear strip at least a cell wide, so the grid keeps a centre in
+ * it in every row or column it crosses, and the centres under the rock can be solid without
+ * closing the way. A tunnel drawn open but narrower than that may have no centre clear of the
+ * rock at all (testing-cave's mouth tunnel, under a cell wide), and marking its centres solid
+ * closed a corridor the map plainly draws as floor. There the rule favours passing: a centre
+ * on the cave floor stands, even with rock within half a cell of it.
+ */
+function narrowFloor(rings: readonly Ring[], reach: number): (x: number, y: number) => boolean {
+  const clear = reach + 0.5
+  // The floor shrunk by `clear`: every spot that far from the outline. Without Clipper it is
+  // handed back whole, so every centre is near it and the reach holds as before.
+  const core = clipper2Engine.inflate([...rings], -clear)
+  return (x, y) => {
+    if (inRingsEvenOdd(x, y, core)) return false
+    for (const ring of core) {
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        if (distanceToSegment(x, y, ring[j], ring[i]) <= clear) return false
+      }
+    }
+    return true
+  }
+}
+
+function distanceToSegment(x: number, y: number, [ax, ay]: readonly number[], [bx, by]: readonly number[]): number {
+  const dx = bx - ax
+  const dy = by - ay
+  const len = dx * dx + dy * dy
+  const t = len > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0
+  return Math.hypot(x - (ax + dx * t), y - (ay + dy * t))
 }
 
 /** §2.1 rule 2 — every raised edge whose crossing kind refuses right now, with its refusal. */

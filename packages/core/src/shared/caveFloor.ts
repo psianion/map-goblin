@@ -15,7 +15,7 @@ import type { Layer } from '../store/types';
 import { simplifyPath } from '../geometry/simplify';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { cutCorners, patchArea } from './materialPatch';
-import { floorPieces } from './floorPieces';
+import { floorPieces, isSliverRing } from './floorPieces';
 import { nextAuthoredName } from './authoredName';
 import { flattenRing } from './bezier';
 import { applyShapeTransform } from './plateaus';
@@ -168,7 +168,8 @@ export function caveEdges(layer: { id: string; children: readonly AnyChild[] }):
     // Each floor's region is normalised (its holes cut, wound the one way) before the union:
     // a floor wound the other way round from its neighbour cancelled it where they overlapped
     // under the non-zero rule, leaving rock rings and stems through the middle of the cave.
-    const rings =
+    // A sliver ring the brush left (a speck of a hole) lays no rock and stands as no wall.
+    const rings = (
       shapes.length === 1
         ? drawnShapeRings(shapes[0]).filter((r) => r.length >= 3)
         : clipper2Engine.union(
@@ -177,7 +178,8 @@ export function caveEdges(layer: { id: string; children: readonly AnyChild[] }):
               return !outer ? [] : clipper2Engine.difference([outer], holes);
             }),
             [],
-          );
+          )
+    ).filter((r) => !isSliverRing(r));
     if (rings.length > 0) out.push(width === undefined ? { material, rings } : { material, width, rings });
   }
   edgeMemo.set(layer.id, { children: layer.children, out });
