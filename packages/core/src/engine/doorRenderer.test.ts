@@ -141,15 +141,42 @@ describe('renderDoors sprite dispatch', () => {
     expect(children.some((c) => c instanceof FakeSprite)).toBe(true);
   });
 
-  it('draws nothing for a plain opening: no arch art, no jamb and no glyph', () => {
+  it("draws a plain opening as nothing but a cave's jambs: no arch art and no glyph", () => {
     getTextureOrNull.mockReturnValue(packTexture(200, 200));
-    const onCave = {
-      ...resolved('archway', { bare: true }),
+    const onCave = (over: Partial<DoorChild> = {}) => ({
+      ...resolved('archway', { bare: true, ...over }),
       wall: { id: 'w1', kind: 'cave', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' },
-    } as unknown as ResolvedDoor;
-    expect(render([resolved('archway', { bare: true }), onCave])).toEqual([]);
+    }) as unknown as ResolvedDoor;
+    expect(render([resolved('archway', { bare: true })])).toEqual([]);
+    getTextureOrNull.mockClear();
+    const jambs = render([onCave()]);
+    expect(jambs).toHaveLength(2);
+    expect(jambs.every((c) => c instanceof FakeSprite)).toBe(true);
+    expect(getTextureOrNull.mock.calls.map((c) => c[0])).toEqual(['gg-demo:doorkit-cave-jamb']);
+    expect(render([onCave({ jamb: 'none' })])).toEqual([]);
     getTextureOrNull.mockReturnValue(null);
     expect(render([resolved('archway', { bare: true })])).toEqual([]);
+  });
+
+  it('builds a cave portcullis from its pieces: the iron gate down, the slot and sockets raised', () => {
+    getTextureOrNull.mockReturnValue(packTexture(200, 200));
+    const onCave = (state: DoorChild['state']) => ({
+      ...resolved('portcullis', { state }),
+      wall: { id: 'w1', kind: 'cave', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' },
+    }) as unknown as ResolvedDoor;
+    const asked = () => new Set(getTextureOrNull.mock.calls.map((c) => c[0]));
+    getTextureOrNull.mockClear();
+    const down = render([onCave('closed')]);
+    // The gate's shadow and the gate, then the two jambs.
+    expect(down.filter((c) => c instanceof FakeContainer)).toHaveLength(2);
+    expect(down.filter((c) => c instanceof FakeSprite)).toHaveLength(2);
+    expect(asked()).toEqual(new Set([
+      'gg-demo:doorkit-cave-port-beam', 'gg-demo:doorkit-cave-port-bar-a', 'gg-demo:doorkit-cave-port-bar-b', 'gg-demo:doorkit-cave-jamb',
+    ]));
+    getTextureOrNull.mockClear();
+    const up = render([onCave('open')]);
+    expect(up.filter((c) => c instanceof FakeContainer)).toHaveLength(1);
+    expect(asked()).toEqual(new Set(['gg-demo:doorkit-cave-port-slot', 'gg-demo:doorkit-cave-port-socket', 'gg-demo:doorkit-cave-jamb']));
   });
 
   it('asks for the documented manifest keys', () => {

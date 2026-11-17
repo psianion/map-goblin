@@ -671,7 +671,7 @@ export function subscribeToStore(
           // stone re-layout, no Clipper2.
           doorStateKey: l.children
             .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
-            .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}:${c.openAngle}:${c.hinge}:${c.swing}:${c.hinges}:${c.kit}`)
+            .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}:${c.bare}:${c.openAngle}:${c.hinge}:${c.swing}:${c.hinges}:${c.kit}:${c.jamb}`)
             .join(','),
           // Wall type/direction for lighting, plus the wall's own geometry —
           // see wallDigest. This rides into roomKey, and through it into

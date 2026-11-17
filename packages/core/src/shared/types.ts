@@ -459,8 +459,17 @@ export interface DoorChild extends LayerChild {
   hinge?: 'start' | 'end';
   /** Which side of the wall the door swings to: 1 or -1 (see `leafPoses`). Absent = 1. */
   swing?: 1 | -1;
-  /** False hangs a kit door with no visible hinge hardware. Absent = shown. */
+  /**
+   * Whether a kit door shows its hinge hardware. Absent = shown on stone and
+   * wood, hidden on the cave (`doorShowsHinges`).
+   */
   hinges?: boolean;
+  /**
+   * The jamb closing a cave wall either side of the opening, for every style:
+   * 'fit' the fitted pair of rocks, 'one' a single rock, 'none' the bare band
+   * end. Absent = 'fit'. Other walls close with their own end caps.
+   */
+  jamb?: 'fit' | 'one' | 'none';
   /**
    * The door kit a single or double door is built from, whatever its wall is:
    * 'stone' (Fieldstone), 'wood' (Palisade) or 'cave' (Cave Ink). Absent = the
