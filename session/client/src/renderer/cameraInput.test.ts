@@ -325,3 +325,38 @@ describe('attachCameraInput', () => {
     expect(stage.scale.x).toBe(20);
   });
 });
+
+// Table fix pass F16: Fit framed the drawn content, so ground art left past a sized map's edge
+// pulled the view off-centre, and the open dock covered the bottom of what it framed.
+describe('fitMap on a sized map', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('frames the 30 by 20 locked map, not the art drawn off it, above the dock', () => {
+    const { stage, engine } = mount(20);
+    setAssetsOnly([
+      [5, 5],
+      [80, 60],
+    ]);
+    useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, fixedSize: { width: 30, height: 20, locked: true } } });
+    const dock = document.createElement('div');
+    dock.setAttribute('data-testid', 'dock');
+    dock.getBoundingClientRect = () => ({ height: 200 }) as DOMRect;
+    document.body.appendChild(dock);
+
+    expect(fitMap(engine)).toBe(true);
+    // The map's centre sits in the middle of the 800 by 400 left above the dock.
+    const centre = worldUnder(stage, 400, 200);
+    expect(centre.x).toBeCloseTo(15, 8);
+    expect(centre.y).toBeCloseTo(10, 8);
+    // Every corner is on screen and clear of the dock.
+    for (const [x, y] of [
+      [0, 0],
+      [30, 20],
+    ]) {
+      expect(stage.position.x + x * stage.scale.x).toBeGreaterThanOrEqual(0);
+      expect(stage.position.y + y * stage.scale.y).toBeLessThanOrEqual(400);
+    }
+  });
+});

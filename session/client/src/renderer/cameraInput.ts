@@ -13,6 +13,7 @@
 import type { Container } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { computeContentBounds } from '@dnd/core/src/shared/mapBounds';
+import { lockedFrame } from '@dnd/core/src/shared/pieces';
 import { useStore } from '@dnd/core/src/store/store';
 import { useSessionStore } from '../session/store';
 import { frozenNow } from '../shell/pause';
@@ -47,6 +48,13 @@ const isPlayerSeat = (): boolean => useSessionStore.getState().you?.role !== 'dm
 // be invalidated on every reveal. Cache it the day a map makes this show up in a profile.
 function mapExtent(): Extent | null {
   const { layers, mapSettings } = useStore.getState();
+  // Table fix pass F16: a sized map is its own frame. Art drawn past its edge is never shown
+  // there, so it must not skew the fit either. The size is no secret: the player's copy is
+  // stamped with the same frame.
+  const sized = lockedFrame(mapSettings);
+  if (sized) {
+    return { cx: (sized.minX + sized.maxX) / 2, cy: (sized.minY + sized.maxY) / 2, w: sized.maxX - sized.minX, h: sized.maxY - sized.minY };
+  }
   // `computeContentBounds` (not `computeMapWorldBounds`) on purpose: the latter answers an
   // empty map with a 10×10 box around the origin — a sensible default for an export, and a
   // trap for a camera, which must refuse to frame nothing rather than frame empty origin.
@@ -66,6 +74,18 @@ function mapExtent(): Extent | null {
 
 const zoomThatFits = (e: Extent, width: number, height: number): number =>
   Math.min(MAX_ZOOM, Math.min(width / e.w, height / e.h) * FIT_MARGIN);
+
+/**
+ * F16 — the part of the viewport the map is fitted into: everything above the dock, which
+ * covers the bottom of the canvas while it is open. Read off the page at fit time, so a tab
+ * of either height, or a folded dock, is measured as it is.
+ */
+export function visibleViewport(engine: RenderEngine): { width: number; height: number } {
+  const { width, height } = engine.viewport();
+  const dock = typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('[data-testid="dock"]');
+  const covered = dock ? Math.min(dock.getBoundingClientRect().height, height * 0.6) : 0;
+  return { width, height: Math.max(1, height - covered) };
+}
 
 /**
  * The zoom floor: far enough out to hold the whole map, and no further — past that you only
@@ -88,7 +108,7 @@ export function minZoom(engine: RenderEngine): number {
 export function fitMap(engine: RenderEngine): boolean {
   const extent = mapExtent();
   if (!extent) return false;
-  const { width, height } = engine.viewport();
+  const { width, height } = visibleViewport(engine);
   const zoom = zoomThatFits(extent, width, height);
   const stage = engine.stage();
   stage.scale.set(zoom);
@@ -100,7 +120,7 @@ export function fitMap(engine: RenderEngine): boolean {
 export function fitZoom(engine: RenderEngine): number | null {
   const extent = mapExtent();
   if (!extent) return null;
-  const { width, height } = engine.viewport();
+  const { width, height } = visibleViewport(engine);
   return zoomThatFits(extent, width, height);
 }
 

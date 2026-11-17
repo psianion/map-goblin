@@ -105,3 +105,26 @@ describe('prepareTableForJoin', () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 });
+
+// Table fix pass F2: the seat a browser last held at a campaign's table comes back by name.
+describe('JoinSession, Continue as', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('takes the same seat back when the session is the one it was taken in', async () => {
+    localStorage.setItem('gg.table.seat.c1', JSON.stringify({ name: 'Pim', identityId: 'p-1', token: 'old-token', sessionId: 's1' }));
+    render(<JoinSession code="abc234" />);
+    fireEvent.click(await screen.findByText('Continue as Pim'));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('old-token'));
+    expect(joinAsPlayer).not.toHaveBeenCalled();
+  });
+
+  it('joins a new session under the remembered name, and remembers the new seat', async () => {
+    localStorage.setItem('gg.table.seat.c1', JSON.stringify({ name: 'Pim', identityId: 'p-0', token: 'stale', sessionId: 's0' }));
+    vi.mocked(joinAsPlayer).mockResolvedValue({ identityId: 'p-1', campaignId: 'c1', sessionId: 's1', token: 'new-token' });
+    render(<JoinSession code="abc234" />);
+    fireEvent.click(await screen.findByTestId('join-continue'));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('new-token'));
+    expect(joinAsPlayer).toHaveBeenCalledWith('ABC234', 'Pim');
+    expect(JSON.parse(localStorage.getItem('gg.table.seat.c1')!)).toMatchObject({ name: 'Pim', sessionId: 's1', token: 'new-token' });
+  });
+});

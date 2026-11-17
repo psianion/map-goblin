@@ -80,7 +80,7 @@ describe('HostSetup', () => {
     fireEvent.click(await screen.findByText('Vestibule of Ash'));
     fireEvent.click(screen.getByTestId('host-open'));
     expect(await screen.findByTestId('host-invite')).toBeTruthy();
-    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), { sceneId: 's1', roomId: 'r-vestibule' }, 's1');
+    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), { sceneId: 's1', roomId: 'r-vestibule' }, 's1', undefined);
     expect(screen.getByTestId('invite-code').textContent).toBe('ABC234');
     expect(screen.getByTestId('invite-qr')).toBeTruthy();
     fireEvent.click(screen.getByTestId('host-back'));
@@ -138,5 +138,52 @@ describe('HostSetup', () => {
     fireEvent.click(screen.getByText('Cragmaw'));
     expect(await screen.findByText('Your table is already open')).toBeTruthy();
     expect(screen.getByTestId('invite-code').textContent).toBe('LIVE42');
+  });
+});
+
+// Table fix pass F1 and F18: the wizard offers the map's party start (picked by default), rooms
+// with their outline, and a real QR code; a table already open carries on.
+describe('HostSetup starts', () => {
+  const ROOMED = {
+    ...MAP,
+    mapSettings: { name: 'Outdoor Cave', partyStart: { x: 15.5, y: 7.5 }, fixedSize: { width: 30, height: 20, locked: true } },
+    layers: [{ id: 'layer-1', type: 'dungeon', rooms: [{ id: 'r-hall', name: 'Hall', boundary: [[4, 4], [12, 4], [12, 10], [4, 10]] }] }],
+  };
+
+  it('opens on the party start by default, draws room outlines, and shows a QR code', async () => {
+    vi.mocked(auth.fetchMapDoc).mockResolvedValue(ROOMED);
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
+    render(<HostSetup />);
+    fireEvent.click(screen.getByText('Cragmaw'));
+    fireEvent.click(await screen.findByTestId('library-card'));
+    const party = await screen.findByTestId('start-party');
+    expect(party.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('start-room-outline')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('host-open'));
+    expect(await screen.findByTestId('host-invite')).toBeTruthy();
+    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), undefined, 's1', { sceneId: 's1', x: 15.5, y: 7.5 });
+    expect(screen.getByRole('img', { name: 'Invite QR code' })).toBeTruthy();
+  });
+
+  it('offers the centre of the map when there is no party start and no room', async () => {
+    vi.mocked(auth.fetchMapDoc).mockResolvedValue({ ...MAP, mapSettings: { name: 'Field', fixedSize: { width: 30, height: 20, locked: true } }, layers: [] });
+    saveDmToken({ campaignId: 'c1', name: 'Cragmaw', server: endpoints.httpBase }, tokenFor(Date.now() + 20 * DAY));
+    render(<HostSetup />);
+    fireEvent.click(screen.getByText('Cragmaw'));
+    fireEvent.click(await screen.findByTestId('library-card'));
+    expect((await screen.findByTestId('start-centre')).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByTestId('host-open'));
+    await screen.findByTestId('host-invite');
+    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), undefined, 's1', { sceneId: 's1', x: 15, y: 10 });
+  });
+
+  it('carries a running table on from the canvas handoff, on the scene it named', async () => {
+    window.location.hash = '#handoff=code-1';
+    vi.mocked(auth.redeemHandoff).mockResolvedValue({ campaignId: 'c1', campaignName: 'Cragmaw', token: tokenFor(Date.now() + 30 * DAY), sceneId: 's1' });
+    vi.mocked(auth.fetchActiveSession).mockResolvedValue({ sessionId: 'x', inviteCode: 'ABC234' } as Awaited<ReturnType<typeof auth.fetchActiveSession>>);
+    vi.mocked(auth.startSession).mockResolvedValue({ sessionId: 'x', campaignId: 'c1', inviteCode: 'ABC234', resumed: true });
+    render(<HostSetup />);
+    expect(await screen.findByText('Your table is already open')).toBeTruthy();
+    expect(auth.startSession).toHaveBeenCalledWith('c1', expect.any(String), undefined, 's1');
   });
 });
