@@ -3,8 +3,8 @@
 import { dmCommands, expect, joinTable, test, tokenAt } from './fixtures';
 
 test.describe('@rejoin a returning player', () => {
-  test('the Owner picker stamps the name, and a new tab is offered "Continue as"', async ({ hostSession, browser }) => {
-    const context = await browser.newContext();
+  test('the Owner picker stamps the name, and a new tab is offered "Continue as"', async ({ hostSession, newContext }) => {
+    const context = await newContext();
     const pim = await context.newPage();
     await joinTable(pim, hostSession.inviteCode, 'Pim');
     const pimId = await pim.evaluate(() => (window as unknown as { __sessionStore?: { getState(): { you: { identityId: string } | null } } }).__sessionStore?.getState().you?.identityId);
@@ -23,15 +23,14 @@ test.describe('@rejoin a returning player', () => {
     await again.getByTestId('join-continue').click();
     await expect(again.locator('[data-page="table"]')).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => tokenAt(again, 'Bram')).not.toBeNull();
-    await context.close();
   });
 
-  test('a second person using the same name while Pim is here is not given the token', async ({ hostSession, joinAsPlayer, browser }) => {
+  test('a second person using the same name while Pim is here is not given the token', async ({ hostSession, joinAsPlayer, newContext }) => {
     const pim = await joinAsPlayer('Pim');
     await pim.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
     const claim = pim.getByTestId('token-card-claim');
     if (await claim.isVisible()) await claim.click();
-    const other = await (await browser.newContext()).newPage();
+    const other = await (await newContext()).newPage();
     await joinTable(other, hostSession.inviteCode, 'Pim');
     const mine = await other.evaluate(() => {
       const st = (window as unknown as { __sessionStore?: { getState(): { you: { identityId: string } | null; session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { ownerId: string | null }>> } } } | null } } }).__sessionStore?.getState();
@@ -39,6 +38,5 @@ test.describe('@rejoin a returning player', () => {
       return Object.values(scene).filter((t) => t.ownerId === st?.you?.identityId).length;
     });
     expect(mine).toBe(0);
-    await other.context().close();
   });
 });

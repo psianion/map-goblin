@@ -111,7 +111,7 @@
           "childType": "door",
           "visible": true,
           "wallId": "",
-          "position": [12, 7],
+          "position": [12, 7.5],
           "angle": 1.5707963267948966,
           "width": 1,
           "style": "single",

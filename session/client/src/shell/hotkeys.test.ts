@@ -204,6 +204,20 @@ describe('table hotkeys', () => {
     sheet.remove();
   });
 
+  // A popover (the scene switcher, the Invite card) is a `role="dialog"` but not a sheet: a
+  // digit with focus left inside one still switches the dock.
+  it('switches the dock on a number key with focus in a popover', () => {
+    renderHook(() => useHotkeys());
+    const popover = document.createElement('div');
+    popover.setAttribute('role', 'dialog');
+    const scene = document.createElement('button');
+    popover.appendChild(scene);
+    document.body.appendChild(popover);
+    fireEvent.keyDown(scene, { key: '1' });
+    expect(useTableShell.getState().dockTab).toBe('fog');
+    popover.remove();
+  });
+
   it('has no key claimed twice for either role', () => {
     for (const role of ['dm', 'player'] as const) {
       const doubles = [...keyClaims(role)].filter(([, by]) => by.length > 1);

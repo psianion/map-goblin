@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Caption, FloatBox, Popover, PopoverContent, PopoverTrigger, PrimaryButton, cn } from '@dnd/ui';
+import { Button, Caption, FloatBox, Popover, PopoverContent, PopoverTrigger, PrimaryButton, QrCode, cn } from '@dnd/ui';
 import { Copy, UserPlus } from '@dnd/ui/icons';
 import { useSessionStore } from '../../session/store';
 import { seatColour } from '../seatColour';
@@ -61,16 +61,8 @@ export function InviteBody({ large }: { large?: boolean }) {
           ))}
         </ul>
       </div>
-      {/* No QR encoder in the repo yet: the box holds the place, the code and link carry the invite. */}
-      <div
-        data-testid="invite-qr"
-        aria-label="QR code"
-        className={cn(
-          'flex shrink-0 items-center justify-center rounded-control border border-dashed border-line-strong text-center text-xs text-text-3',
-          large ? 'size-36' : 'size-24',
-        )}
-      >
-        QR
+      <div data-testid="invite-qr" className={cn('shrink-0 rounded-control border border-line p-1', large ? 'size-36' : 'size-24')}>
+        <QrCode value={link} label="Invite QR code" className="size-full" />
       </div>
     </div>
   );

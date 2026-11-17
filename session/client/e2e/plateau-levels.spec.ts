@@ -7,14 +7,14 @@ const PLATEAU_TABLE = join(import.meta.dirname, '../../testdata/plateau-table.ma
 const TOWER_TEST = join(import.meta.dirname, '../../testdata/tower-test.mapbuilder');
 
 test.describe('@levels plateaus and floors', () => {
-  test('a crossing set by hand blocks a player and is named in the refusal', async ({ page, browser }) => {
+  test('a crossing set by hand blocks a player and is named in the refusal', async ({ page, newContext }) => {
     const table = await hostMap(page, PLATEAU_TABLE, 'Plateau Table');
     // Every raised edge refuses (decision a): the DM turns the Climb kind to blocking by hand.
     await dmCommands(table.token, [{ module: 'crossings', action: 'set-blocks', payload: { kindId: 'climb', blocks: true } }]);
     await page.keyboard.press('2');
     await expect(page.getByTestId('map-body')).toBeVisible();
 
-    const player = await (await browser.newContext()).newPage();
+    const player = await (await newContext()).newPage();
     await joinTable(player, table.inviteCode, 'Pim');
     await assertMapLoaded(player, 'Plateau Table');
     // A move up a blocking edge is refused with the kind's own words (B3).
@@ -26,21 +26,20 @@ test.describe('@levels plateaus and floors', () => {
         }),
       )
       .toBe(true);
-    await player.context().close();
   });
 
-  test('a three-floor map lists its levels for the DM and a seat sees the floor its token is on', async ({ page, browser }) => {
+  test('a three-floor map lists its levels for the DM and a seat sees the floor its token is on', async ({ page, newContext }) => {
     const table = await hostMap(page, TOWER_TEST, 'Tower Test');
     await page.keyboard.press('2');
+    await page.getByTestId('map-family-levels').click();
     await expect(page.getByTestId('map-levels').locator('[data-level-id]')).toHaveCount(3);
     await page.getByTestId('map-levels').locator('[data-level-id="level-first"]').getByTestId('level-go').click();
     await expect(page.getByTestId('title-level')).toContainText('First floor');
 
-    const player = await (await browser.newContext()).newPage();
+    const player = await (await newContext()).newPage();
     await joinTable(player, table.inviteCode, 'Pim');
     await assertMapLoaded(player, 'Tower Test');
     // Decision c: a player does not change floor; the DM's switch did not move the player's view.
     await expect(player.getByTestId('title-level')).not.toContainText('First floor');
-    await player.context().close();
   });
 });

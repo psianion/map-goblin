@@ -1,7 +1,7 @@
 // @story — table v2 story and dice (plan section 7). Written against the shared fixtures
 // (`hostSession`: a DM page at a live table; `joinAsPlayer(name)`: a second page seated as
 // that player). Unrun until step T.
-import { expect, test } from './fixtures';
+import { dmCommands, expect, test } from './fixtures';
 
 test.describe('@story story and dice', () => {
   test('a handout shown full screen reaches the player, hides, and stays in their journal', async ({ hostSession, joinAsPlayer }) => {
@@ -106,10 +106,18 @@ test.describe('@story story and dice', () => {
 test.describe('@story the prompt stack', () => {
   test('a check request and the initiative prompt stack without overlap', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
-    await player.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
-    const claim = player.getByTestId('token-card-claim');
-    if (await claim.isVisible()) await claim.click();
     const { page } = hostSession;
+    // The DM hands Bram to the player (the Owner picker's command), so the player has a combatant.
+    const playerId = await player.evaluate(() => (window as unknown as { __sessionStore?: { getState(): { you: { identityId: string } | null } } }).__sessionStore?.getState().you?.identityId);
+    const bramOn = (p: typeof page) =>
+      p.evaluate(() => {
+        const s = (window as unknown as { __sessionStore?: { getState(): { session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string; ownerId: string | null }>> } } } | null } } }).__sessionStore?.getState().session;
+        return Object.values(s?.modules.tokens.byScene[s.activeSceneId] ?? {}).find((t) => t.name === 'Bram') ?? null;
+      });
+    const bram = await bramOn(page);
+    expect(bram, 'Bram on the live scene').not.toBeNull();
+    await dmCommands(hostSession.token, [{ module: 'tokens', action: 'assign', payload: { id: bram!.id, identityId: playerId } }]);
+    await expect.poll(async () => (await bramOn(player))?.ownerId).toBe(playerId);
     await page.keyboard.press('8');
     await expect(page.getByTestId('ask-check')).toBeVisible();
     await page.getByTestId('ask-send').click();

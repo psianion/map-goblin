@@ -20,9 +20,8 @@ import { useTableShell } from './tableShell';
 const isTyping = (t: EventTarget | null): boolean =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
-/** Focus inside an open sheet or dialog, on any control. */
-const inSheet = (t: EventTarget | null): boolean =>
-  t instanceof Element && t.closest('[data-sheet], [role="dialog"]') !== null;
+/** Focus inside an open sheet, on any control. Popovers are dialogs too, but not forms: not here. */
+const inSheet = (t: EventTarget | null): boolean => t instanceof Element && t.closest('[data-sheet]') !== null;
 
 const roleNow = (): Role | undefined => useSessionStore.getState().you?.role;
 

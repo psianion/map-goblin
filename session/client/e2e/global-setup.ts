@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,12 +54,17 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     // which breaks the *next* run rather than this one. Kill the tree.
     if (server.pid) {
       if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' })
+        await once(spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore' }), 'exit')
       } else {
         process.kill(-server.pid, 'SIGTERM')
       }
     }
     await new Promise((done) => setTimeout(done, 500))
-    rmSync(dataDir, { recursive: true, force: true })
+    // Windows may hold `game.db` a moment past the kill; a leftover temp dir is not a failed run.
+    try {
+      rmSync(dataDir, { recursive: true, force: true })
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EPERM') throw err
+    }
   }
 }

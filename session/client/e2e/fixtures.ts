@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test as base, type Browser, type Page } from '@playwright/test';
+import { expect, test as base, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
 import WebSocket from 'ws';
 import { PROTOCOL_VERSION } from '../../../packages/core/src/shared/protocol';
 import { GAME_SERVER } from './ports';
@@ -141,6 +141,8 @@ export async function assertMapLoaded(page: Page, name = DEMO_NAME): Promise<voi
 interface Fixtures {
   hostSession: HostedTable;
   joinAsPlayer: (name: string) => Promise<Page>;
+  /** A second browser context, closed after the test even when it fails, so none leaks into the next. */
+  newContext: (options?: BrowserContextOptions) => Promise<BrowserContext>;
 }
 
 async function newPage(browser: Browser): Promise<Page> {
@@ -165,6 +167,15 @@ export const test = base.extend<Fixtures>({
       return player;
     });
     for (const p of opened) await p.context().close();
+  },
+  newContext: async ({ browser }, provide) => {
+    const opened: BrowserContext[] = [];
+    await provide(async (options) => {
+      const context = await browser.newContext(options);
+      opened.push(context);
+      return context;
+    });
+    for (const context of opened) await context.close();
   },
 });
 
@@ -195,13 +206,13 @@ export async function tokenPoint(page: Page, name: string): Promise<{ x: number;
 /** The 3.11 acceptance fixture: a hall with an outside door, a cave mouth, grass, a party start. */
 export const OUTDOOR_CAVE = join(import.meta.dirname, '../../testdata/outdoor-cave.ggvtt');
 export const OUTDOOR_CAVE_NAME = 'Outdoor Cave';
-/** Fixture landmarks, in world cells (see `outdoorCave.fixture.test.ts`). */
+/** Fixture landmarks, in world cells (see `outdoorCave.fixture.test.ts`; the acceptance walk in `liveTable.test.ts` walks them). */
 export const CAVE = {
   partyStart: { x: 15.5, y: 7.5 },
   dirt: { x: 15.5, y: 9.5 },
   rock: { x: 17.5, y: 5.5 },
   besideDoor: { x: 13.5, y: 7.5 },
-  door: { x: 12, y: 7 },
+  door: { x: 12, y: 7.5 },
   inHall: { x: 10.5, y: 7.5 },
 } as const;
 

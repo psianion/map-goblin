@@ -340,7 +340,8 @@ test.describe('publish dialog', () => {
     down = false
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
     await closeAfterPublish(page)
-    expect(calls.filter((c) => c.method === 'PUT').length).toBe(2)
+    // Only the publish itself: a republish also PUTs the thumbnail (#139).
+    expect(calls.filter((c) => c.method === 'PUT' && c.path === `/api/scenes/${SCENE}/publish`).length).toBe(2)
   })
 
   test('a request that never gets an answer reads as an unreachable server', { tag: '@publish' }, async ({ page }) => {

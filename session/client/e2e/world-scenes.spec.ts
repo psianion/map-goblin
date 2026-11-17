@@ -29,6 +29,7 @@ test.describe('@scenes world and scenes', () => {
     const { page } = hostSession;
     await joinAsPlayer('Pia');
     await page.keyboard.press('2');
+    await page.getByTestId('map-family-levels').click();
     const seats = page.getByTestId('level-seats');
     if (await seats.count()) {
       const pin = seats.first().locator('[data-testid^="level-seat-"]').first();

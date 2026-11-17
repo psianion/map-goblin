@@ -43,8 +43,9 @@ test.describe('@live a running table carries on', () => {
     const { sceneId } = (await up.json()) as { sceneId: string };
     await fetch(`${SERVER_URL}/api/scenes/${sceneId}`, { method: 'PATCH', headers: auth, body: JSON.stringify({ visibleToPlayers: false }) });
     await dmCommands(hostSession.token, [{ module: 'scenes', action: 'activate', payload: { sceneId } }]);
+    // The DM's warning first: it lasts 4 s, and the player's map load can outlast it.
+    await expect(hostSession.page.getByText('This scene was hidden; players see it now')).toBeVisible();
     await assertMapLoaded(player, SECOND_NAME);
     await expect(player.getByTestId('title-scene')).not.toHaveText('No scene yet');
-    await expect(hostSession.page.getByText('This scene was hidden; players see it now')).toBeVisible({ timeout: 15_000 });
   });
 });

@@ -27,6 +27,8 @@ test('Set party start in the rooms list sets, clears and undoes', { tag: '@party
 
   await button.click()
   expect(await partyStart(page)).toBeNull()
+  // Off the button first, as the other undo specs do: the editor's undo key is not a button's.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())
   await page.keyboard.press('Control+z')
-  expect(await partyStart(page)).toEqual(set)
+  await expect.poll(() => partyStart(page)).toEqual(set)
 })

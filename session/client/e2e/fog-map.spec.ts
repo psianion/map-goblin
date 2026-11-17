@@ -19,8 +19,11 @@ test.describe('@map fog and map', () => {
     // The rectangle is a vision-mode tool: wait for the mode to come back from the server.
     await expect(page.getByTestId('fog-rect')).toBeEnabled();
     await page.keyboard.press('Shift+R');
-    await expect(page.getByTestId('fog-rect')).toHaveAttribute('aria-pressed', 'true');
+    // F21: an armed fog tool folds the dock and names itself in the chip above the tab row.
+    await expect(page.getByTestId('armed-chip')).toContainText('Fog');
     await page.keyboard.press('Escape');
+    await expect(page.getByTestId('armed-chip')).toHaveCount(0);
+    await page.keyboard.press('1');
 
     await page.getByText('Look').click();
     await page.getByTestId('fog-look-mist').click();

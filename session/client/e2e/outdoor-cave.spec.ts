@@ -50,16 +50,20 @@ async function handOver(dm: Page, player: string): Promise<void> {
 }
 
 test.describe('@cave outdoor ground, walls and a cave mouth', () => {
-  test('the nine steps of the acceptance walk', async ({ page, browser }) => {
+  test('the nine steps of the acceptance walk', async ({ page, newContext }) => {
     test.setTimeout(240_000);
     const table = await standUpOutdoorCave(`Cave ${Date.now().toString(36)}`);
     await holdDmPass(page, table);
 
-    // 1. Publish (the fixture's upload), hand off, pick Party start, open the table.
+    // 1. Publish (the fixture's upload), hand off, pick Party start, open the table. Steps 1 to
+    // 8 run in By sight; step 9 is the By hand repeat.
     const invite = await openFromHandoff(page, table);
+    await page.keyboard.press('1');
+    await page.getByTestId('fog-mode-vision').click();
+    await expect(page.getByTestId('fog-mode-vision')).toHaveAttribute('aria-pressed', 'true');
 
     // 2. A player joins and gets a token through the Owner picker.
-    const context = await browser.newContext();
+    const context = await newContext();
     let player = await context.newPage();
     await joinTable(player, invite, 'Pim');
     await handOver(page, 'Pim');
@@ -130,6 +134,5 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await expect(page.locator('[data-room-id="room-hall"] [data-testid="fog-party-here"]')).toBeVisible();
     await dragToken(player, 'Bram', CAVE.besideDoor);
     await expect(page.locator('[data-room-id="@outdoors"]')).toHaveAttribute('data-fog-status', 'revealed');
-    await context.close();
   });
 });

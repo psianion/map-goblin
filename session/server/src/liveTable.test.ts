@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import type { DoorsState } from '@dnd/mechanics/doors'
 import type { FogState } from '@dnd/mechanics/fog'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import { createAdminPass } from './auth'
@@ -133,6 +134,79 @@ describe('a returning player (F2)', () => {
       expect(back.body.identityId).not.toBe(twin.body.identityId)
       expect(tokensOf(server, campaignId, sceneId)[0]?.ownerId).toBe(back.body.identityId)
       dm.socket.close()
+    })
+  })
+})
+
+describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () => {
+  // The browser spec's landmarks (`e2e/fixtures.ts` CAVE): keep the two in step.
+  const CAVE = {
+    partyStart: { x: 15.5, y: 7.5 },
+    dirt: { x: 15.5, y: 9.5 },
+    rock: { x: 17.5, y: 5.5 },
+    besideDoor: { x: 13.5, y: 7.5 },
+    inHall: { x: 10.5, y: 7.5 },
+  }
+
+  it('ships the cave and door, walks dirt, refuses rock, names the door from outside, opens it in reach and walks in', async () => {
+    await withTable(async ({ server, base, campaignId, dmToken, upload }) => {
+      const sceneId = await upload()
+      server.stores.moduleState.put(campaignId, 'tokens', {
+        library: { bram: { id: 'bram', name: 'Bram', imageAssetId: null, size: 'medium', disposition: 'friendly', sight: null, light: null, kind: 'pc' } },
+        byScene: {},
+      } satisfies TokensState)
+      const opened = await api(base, 'POST', '/api/sessions', dmToken, {
+        campaignId,
+        sceneId,
+        startingPoint: { sceneId, ...CAVE.partyStart, levelId: 'lvl-1' },
+      })
+      const joined = await api(base, 'POST', '/api/join', undefined, { code: opened.body.inviteCode, name: 'Pim' })
+      const playerToken = joined.body.token as string
+      const dm = await seat(server.port, dmToken)
+      const pim = await seat(server.port, playerToken)
+      const fogMode = () => (server.stores.moduleState.get(campaignId, 'fog') as FogState).byScene[sceneId]?.mode
+      dm.command('fog', 'set-mode', { sceneId, mode: 'vision' })
+      await dm.until(() => fogMode() === 'vision')
+      const bram = () => tokensOf(server, campaignId, sceneId)[0]!
+      expect({ x: bram().x, y: bram().y }).toEqual(CAVE.partyStart)
+      dm.command('tokens', 'assign', { id: bram().id, identityId: joined.body.identityId })
+      await dm.until(() => bram().ownerId === joined.body.identityId)
+
+      /** A player command, answered by its error frame or by `done` coming true. */
+      const step = async (module: string, action: string, payload: Body, done: () => boolean): Promise<string | null> => {
+        pim.frames.length = 0
+        pim.command(module, action, payload)
+        const out = await pim.until((m) => m.type === 'error' || done())
+        return out.type === 'error' ? JSON.stringify(out) : null
+      }
+      const walk = (to: { x: number; y: number }) =>
+        step('tokens', 'move', { id: bram().id, ...to }, () => bram().x === to.x && bram().y === to.y)
+
+      // 3. From outside the player is shipped the open ground, the cave and the door.
+      const shipped = async () => {
+        const doc = (await api(base, 'GET', `/api/maps/${sceneId}`, playerToken)).body as {
+          openGround?: unknown[]
+          layers: { children?: { id: string }[] }[]
+        }
+        const ids = new Set(doc.layers.flatMap((l) => (l.children ?? []).map((c) => c.id)))
+        return { open: (doc.openGround?.length ?? 0) > 0, cave: ids.has('cave-floor'), door: ids.has('door-hall') }
+      }
+      expect(await shipped()).toEqual({ open: true, cave: true, door: true })
+
+      // 4. Walks on dirt, is refused by rock, and is told the door is closed.
+      expect(await walk(CAVE.dirt)).toBeNull()
+      expect(await walk(CAVE.rock)).toContain('solid-ground')
+      expect(await walk(CAVE.inHall)).toContain('door-closed door-hall')
+
+      // 5. Stands beside the door, opens it, and walks into the hall.
+      expect(await walk(CAVE.besideDoor)).toBeNull()
+      const doorOpen = () =>
+        (server.stores.moduleState.get(campaignId, 'doors') as DoorsState | undefined)?.byScene[sceneId]?.['door-hall']?.open === true
+      expect(await step('doors', 'toggle', { id: 'door-hall' }, doorOpen)).toBeNull()
+      expect(await walk(CAVE.inHall)).toBeNull()
+      expect((await shipped()).open).toBe(true)
+      dm.socket.close()
+      pim.socket.close()
     })
   })
 })

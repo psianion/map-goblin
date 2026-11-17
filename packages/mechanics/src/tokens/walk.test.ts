@@ -64,6 +64,24 @@ describe('the walk grid', () => {
     expect(walkRefusal(view(cliff, 5, 5), { x: 0.5, y: 0.5 }, { x: 1.5, y: 4.5 }, 1)).toBeNull()
   })
 
+  it('names a held door on the way to unknown ground, else calls it unexplored', () => {
+    const door: WalkBlocker[] = [
+      { x1: 2, y1: 0, x2: 2, y2: 2, reach: 0.25 },
+      { x1: 2, y1: 2, x2: 2, y2: 3, doorId: 'd1' },
+      { x1: 2, y1: 3, x2: 2, y2: 5, reach: 0.25 },
+    ]
+    // Only the near side of the wall is known.
+    const v: WalkView = { ...view(door, 5, 5), known: (i) => i % 5 < 2 }
+    expect(walkRefusal(v, { x: 0.5, y: 0.5 }, { x: 4.5, y: 0.5 }, 1)).toBe('door-closed d1: that space cannot be occupied')
+    expect(walkRefusal({ ...v, doorLocked: () => true }, { x: 0.5, y: 0.5 }, { x: 4.5, y: 0.5 }, 1)).toMatch(/^door-locked d1/)
+    // A door the seat does not hold is not named, and no start means no way to look for one.
+    expect(walkRefusal({ ...v, heldDoor: () => false }, { x: 0.5, y: 0.5 }, { x: 4.5, y: 0.5 }, 1)).toMatch(/^room-unexplored/)
+    expect(walkRefusal(v, null, { x: 4.5, y: 0.5 }, 1)).toMatch(/^room-unexplored/)
+    // Unknown ground with no door on the way is unexplored.
+    const open: WalkView = { ...view([], 5, 5), known: (i) => i % 5 < 2 }
+    expect(walkRefusal(open, { x: 0.5, y: 0.5 }, { x: 4.5, y: 0.5 }, 1)).toMatch(/^room-unexplored/)
+  })
+
   it('lets a token caught in rock walk out', () => {
     const v = view([{ x1: 2, y1: 0, x2: 2, y2: 3, reach: 0.6 }], 4, 3)
     expect(v.grid.cell[cellAt(v.grid, 1.5, 1.5)]).toBe(SOLID)

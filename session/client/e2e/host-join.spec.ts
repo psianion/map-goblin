@@ -44,7 +44,8 @@ test.describe('@host host and join', () => {
   });
 
   test('a handoff from the canvas lands on the Map step with the campaign chosen', async ({ page }) => {
-    const table = await standUpTable('Handoff spec');
+    // No live table: with one open the handoff resumes it instead (F1, `live-table.spec.ts`).
+    const table = await standUpOutdoorCave('Handoff spec');
     const res = await fetch(`${SERVER_URL}/api/campaigns/${table.campaignId}/handoff`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${table.token}` },
@@ -58,12 +59,11 @@ test.describe('@host host and join', () => {
     expect(new URL(page.url()).hash).toBe('');
   });
 
-  test('a player joins and waits while no scene is live, then sees the table', async ({ hostSession, browser }) => {
-    const player = await (await browser.newContext()).newPage();
+  test('a player joins and waits while no scene is live, then sees the table', async ({ hostSession, newContext }) => {
+    const player = await (await newContext()).newPage();
     await joinTable(player, hostSession.inviteCode, 'Pia');
     await expect(hostSession.page.getByTestId('presence-avatar')).toHaveCount(2);
     await expect(player.getByTestId('title-card')).toBeVisible();
-    await player.context().close();
   });
 });
 

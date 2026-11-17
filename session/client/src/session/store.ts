@@ -318,8 +318,8 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // scene's document without ever rendering nothing (F1). `mapId` keeps the scene
           // list honest when the change is a republish of the scene being played.
           announceRepublish(session, msg.sceneId, msg.mapId);
-          // F19: the live scene reaches players even when it is marked hidden; the DM is told.
-          if (msg.hidden && get().you?.role === 'dm') notify.info('This scene was hidden; players see it now');
+          // F19: the live scene reaches players even when it is marked hidden; the DM is warned.
+          if (msg.hidden && get().you?.role === 'dm') notify.warning('This scene was hidden; players see it now');
           const scenes = session.scenes.map((s) =>
             s.id === msg.sceneId ? { ...s, mapId: msg.mapId } : s,
           );

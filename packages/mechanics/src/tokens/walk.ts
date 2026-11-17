@@ -259,6 +259,51 @@ export function firstDoorOn(grid: WalkGrid, path: readonly number[], held: (door
   return null
 }
 
+/**
+ * The first door on the way to an unknown `target`: a flood with shut doors open, over known
+ * standable cells until it passes a door and over any standable cell after. Null when the target
+ * is reached with no door behind, or not reached.
+ */
+export function firstDoorToUnknown(grid: WalkGrid, start: number, target: number, known: (i: number) => boolean): string | null {
+  if (start < 0 || target < 0 || start === target) return null
+  const { cols, rows, cell, edge } = grid
+  const n = cols * rows
+  // A state is a cell before any door (i) or after one (i + n); `door` holds the first door edge.
+  const seen = new Uint8Array(2 * n)
+  const door = new Int32Array(2 * n)
+  const queue = new Int32Array(2 * n)
+  let head = 0
+  let tail = 0
+  queue[tail++] = start
+  seen[start] = 1
+  while (head < tail) {
+    const s = queue[head++]
+    const past = s >= n
+    const i = past ? s - n : s
+    const col = i % cols
+    const row = (i - col) / cols
+    for (let k = 0; k < 8; k++) {
+      const forward = k < 4
+      const [dx, dy] = forward ? FORWARD[k] : FORWARD[k - 4]
+      const nc = forward ? col + dx : col - dx
+      const nr = forward ? row + dy : row - dy
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue
+      const j = nr * cols + nc
+      const e = forward ? i * 4 + k : j * 4 + (k - 4)
+      if ((edge[e] & (BY_WALL | BY_CROSSING)) !== 0 || cell[j] !== STANDABLE) continue
+      const first = past ? door[s] : (edge[e] & BY_DOOR) !== 0 ? e : -1
+      if (j === target) return first < 0 ? null : (grid.doors.get(first) ?? null)
+      if (first < 0 && !known(j)) continue
+      const t = first < 0 ? j : j + n
+      if (seen[t]) continue
+      seen[t] = 1
+      door[t] = first
+      queue[tail++] = t
+    }
+  }
+  return null
+}
+
 /** The refusal of the first refusing crossing along a path. */
 export function firstCrossingOn(grid: WalkGrid, path: readonly number[]): string | null {
   for (const e of path) {
@@ -285,7 +330,8 @@ const say = (code: string, subjectId: string | null = null): string =>
 
 /**
  * §2.3 — why a player's token may not stand at `to` (or walk there from `from`), or null.
- * In order: no ground, solid, not known, not reached. An unreached spot is flooded again with
+ * In order: no ground, solid, not known, not reached. An unknown spot names the first door on
+ * the way when the seat holds it, else it is unexplored. An unreached spot is flooded again with
  * the doors open, to name the first door on the way the seat holds; then with the crossings
  * open as well, to give the crossing's refusal; else it is plain blocked.
  */
@@ -299,10 +345,15 @@ export function walkRefusal(
   const covered = coveredCells(grid, to.x, to.y, cells)
   if (covered.some((i) => i < 0 || grid.cell[i] === NO_GROUND)) return say(OUTSIDE_MAP)
   if (covered.some((i) => grid.cell[i] === SOLID)) return say(SOLID_GROUND)
-  if (covered.some((i) => !known(i))) return say(ROOM_UNEXPLORED)
-  if (!from) return null
-  const start = anchorCell(grid, from.x, from.y, cells)
+  const start = from ? anchorCell(grid, from.x, from.y, cells) : -1
   const target = anchorCell(grid, to.x, to.y, cells)
+  if (covered.some((i) => !known(i))) {
+    // Name only a door the seat already holds, so an unknown room behind it leaks nothing.
+    const door = firstDoorToUnknown(grid, start, target, known)
+    if (door && view.heldDoor(door)) return say(view.doorLocked(door) ? DOOR_LOCKED : DOOR_CLOSED, door)
+    return say(ROOM_UNEXPLORED)
+  }
+  if (!from) return null
   // Off the grid entirely (a token the DM left outside the frame): nothing to walk from.
   if (start < 0) return null
   if (floodPath(grid, start, target, known)) return null
