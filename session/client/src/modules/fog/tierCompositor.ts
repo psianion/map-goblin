@@ -38,8 +38,8 @@ export interface TierRenderer {
 
 export interface TierCompositor {
   /**
-   * The tier texture the cloud shader samples: transparent where the seat holds nothing,
-   * `MASK_MEMORY_GREY` over its memory, white over live sight.
+   * The tier texture the cloud shader samples: transparent where the seat holds nothing, white
+   * over everything it has revealed (T8: one tier).
    */
   readonly mask: RenderTexture;
   /**
@@ -49,10 +49,8 @@ export interface TierCompositor {
   readonly maskSoft: RenderTexture;
   /** The flat black backstop with the mask's holes erased out of it. */
   readonly scrim: RenderTexture;
-  /** Live sight alone — the stencil the token chips wear. Memory is deliberately not in it. */
+  /** Live sight alone — the stencil the token chips wear. The record is deliberately not in it. */
   readonly live: RenderTexture;
-  /** Ground seen by darkvision and nothing else — the greyscale tier's coverage. */
-  readonly grey: RenderTexture;
   /**
    * Composite one plan. Answers the world rect every target now covers, or null when the plan
    * covers nothing at all — the caller must draw neither the cover nor the scrim on a null,
@@ -81,7 +79,7 @@ export interface TierTextures {
 
 /**
  * P8 — a mask texel as coverage: every channel twice the red, so hidden (0) reads 0 and both the
- * memory grey and live white read 1. The vision mask leaves hidden transparent and the rooms
+ * DM haze's memory grey and white read 1. The vision mask leaves hidden transparent and the rooms
  * path paints it opaque black, and red is the one channel both agree on.
  */
 export function coverageFilter(): ColorMatrixFilter {
@@ -242,7 +240,6 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
     maskSoft,
     scrim: rtOf('scrim'),
     live: rtOf('live'),
-    grey: rtOf('grey'),
     run(plan, look) {
       const cover = plan.cover;
       for (const name of TARGET_ORDER) clearScene(sceneOf(name));

@@ -43,9 +43,6 @@ import {
   SCENE_DARKNESS,
   washDarkness,
   GRADE_STRENGTH,
-  memoryAlpha,
-  EXPLORED_TINT,
-  EXPLORED_TINT_ALPHA,
   FOG_FEATHER,
   PARTY_ROOM_UNKNOWN,
   REBUILD_FLOOR_MS,
@@ -54,6 +51,7 @@ import {
   easeOutQuart,
   fogBounds,
   fogScene,
+  glowPools,
   partyRoomIds,
   revealDurationMs,
   revealsBetween,
@@ -65,7 +63,7 @@ import {
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
-import { DEFAULT_FOG_LOOK, MASK_MEMORY } from './livingFog';
+import { DEFAULT_FOG_LOOK } from './livingFog';
 import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
@@ -75,7 +73,6 @@ type Room = TableRoom & { centroid: [number, number] };
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
 const VOID: VoidStyle = {
   fill: 0x131316,
-  memory: EXPLORED_TINT,
   dot: 0x3a3a3a,
   dotAlpha: 0.45,
   dotsVisible: true,
@@ -417,13 +414,13 @@ describe('revealsBetween — one fade per reveal, and only per reveal', () => {
     expect(revealsBetween(null, views({ [VESTIBULE.id]: 'visible' })).size).toBe(0);
   });
 
-  it('fades a newly visible room from what it was', () => {
+  it('fades a newly visible room from dark, and never an explored one (T8: it already shows)', () => {
     const reveals = revealsBetween(
       views({ [VESTIBULE.id]: 'dark', [GALLERY.id]: 'explored' }),
       views({ [VESTIBULE.id]: 'visible', [GALLERY.id]: 'visible' }),
     );
     expect(reveals.get(VESTIBULE.id)).toBe('dark');
-    expect(reveals.get(GALLERY.id)).toBe('explored');
+    expect(reveals.has(GALLERY.id)).toBe(false);
   });
 
   it('fades from black a room whose geometry only just arrived with the delta', () => {
@@ -463,81 +460,16 @@ describe('reveal timing', () => {
   });
 });
 
-// ── The explored look, at the pixel (D10) ───────────────────────────────────
-// Two browser gates have been lost in here, in opposite directions: the second read every
-// explored room as a flat dark-grey box, and the third read them *brighter* than the lit
-// rooms next to them. Neither is something the wash constants can be checked for alone —
-// what a memory looks like is the multiply composite and the fog's fill together. So the
-// arithmetic below models both halves over a strip of floor and asks both questions: is
-// there still texture in there, and is it below the same floor when the room is live.
-
-/** One flat fill over a base channel value, source-over. Channels are 0..255. */
-const over = (base: number, color: number, alpha: number): number =>
-  base * (1 - alpha) + color * alpha;
-
 /**
  * LightingRenderer's composite, the same on every seat. The blend is `multiply` and the
  * sprite's alpha is a *strength* — `dst · lerp(1, m, a)` — where `m` is the FBO's unlit
  * base: the grade. `#0d0e12` is the gate map's
  * grade, and all four of its torches are in one room: every other room is composited against
  * exactly this. The red channel, the grade's dimmest and so the strictest of the three.
- *
- * P1 made the grade universal, which moved every absolute number in this section: a player's
- * unlit floor on the darkest map in the repo now lands where the *editor* has always drawn it
- * and then a little under. What the rows below assert is therefore the ordering and the
- * texture — which is what the two lost gates were actually about — and they are stated as
- * shares of the live room rather than as levels of 255.
  */
 const AMBIENT = 0x0d;
 const unlit = (base: number): number =>
   base * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
-
-/** A stretch of dungeon floor, as one channel. Texture is the spread between these. */
-const FLOOR = [140, 168, 120, 190, 152];
-const spread = (values: number[]): number => Math.max(...values) - Math.min(...values);
-
-/**
- * What the wash does to whatever it is given — through the composite, as it is now drawn
- * (`VoidStyle.memory`). A fixed constant here was the inversion's whole mechanism: it left a
- * floor standing that the graded room below it could fall through.
- */
-const washedTint = (EXPLORED_TINT & 0xff) * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
-const washed = (base: number): number => over(base, washedTint, EXPLORED_TINT_ALPHA);
-
-describe('the explored look', () => {
-  it('keeps the floor texture readable — a memory, not a placeholder', () => {
-    // Composed the way it actually is: the wash over the room's *lit* render, which is what
-    // collapsed to under three levels of 255 and read as the second gate's flat box. As a
-    // share of the room's own texture, because the grade owns the absolute level now.
-    const drawn = FLOOR.map((v) => washed(unlit(v)));
-    expect(spread(drawn) / spread(FLOOR.map(unlit))).toBeGreaterThan(0.25);
-    // …and nowhere near the void, which is what `never_revealed` is reserved for.
-    expect(Math.min(...drawn)).toBeGreaterThan(washed(0));
-  });
-
-  it('is a strict dimming of the same room live — the third gate’s inversion', () => {
-    // Unlit floor: the case that inverted, because a memory used to skip the multiply
-    // entirely and land ten times brighter than the ambient-lit room beside it.
-    for (const v of FLOOR) expect(washed(unlit(v))).toBeLessThan(unlit(v));
-    // And under a torch at full strength, where the wash has the most to give back.
-    for (const v of FLOOR) expect(washed(v)).toBeLessThan(v);
-    // A dimming the map reads through — the user's call on the live table: a memory is the
-    // room, a step darker under a thin haze, never a wash that replaces it.
-    expect(EXPLORED_TINT_ALPHA).toBeGreaterThan(0);
-    expect(EXPLORED_TINT_ALPHA).toBeLessThan(0.5);
-  });
-
-  it('never pedestals a memory above the dimmest thing a live room can be', () => {
-    // The invariant behind both rows above, stated once: what the wash leaves standing over
-    // pure black is the floor of "explored", and it has to sit under the floor of "visible"
-    // or the order inverts again on the next map with a darker ambient — or, since P1, on any
-    // map at all, the grade having become universal and the live floor having come down with
-    // it. Composited, the pedestal comes down by exactly the same factor, so this now holds
-    // for every grade rather than for the one it was tuned against.
-    const pedestal = washedTint * EXPLORED_TINT_ALPHA;
-    expect(pedestal).toBeLessThan(Math.min(...FLOOR.map(unlit)));
-  });
-});
 
 describe('the grade each seat composites at', () => {
   it('keeps the grade for every seat — the half that is presentation, not vision (W2)', () => {
@@ -550,16 +482,6 @@ describe('the grade each seat composites at', () => {
     // same colour that never changed a pixel — the seats were measured identical at the base.
     expect(voidStyle()).toEqual(voidStyle(true));
     expect(unlit(160)).toBe(160 * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (0x0d / 255)));
-  });
-
-  it('keeps the memory tier a step under live at every light level (F)', () => {
-    // The wash eases with the level so a noon memory is not a night one — but it never
-    // reaches zero, and it is the full pair on the darkest scene the pair was tuned against.
-    expect(memoryAlpha(1)).toBe(EXPLORED_TINT_ALPHA);
-    expect(memoryAlpha(SCENE_DARKNESS.daylight)).toBeLessThan(memoryAlpha(SCENE_DARKNESS.dusk));
-    expect(memoryAlpha(SCENE_DARKNESS.dusk)).toBeLessThan(memoryAlpha(1));
-    expect(memoryAlpha(0)).toBeGreaterThan(0.1);
-    for (const v of FLOOR) expect(over(v, washedTint, memoryAlpha(0))).toBeLessThan(v);
   });
 });
 
@@ -814,16 +736,16 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(mask)).toHaveLength(0);
   });
 
-  it('gives a memory the same padded footprint at its own darkness', () => {
+  it('draws an explored room as revealed ground, with no memory tier (T8)', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
     drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }), mask);
 
-    // The memory's footprint lands in the cloud's mask at the memory tier's grey — which is
-    // where both the mist and the wash over a memory come from now (`LivingFog.setWash`).
-    // The scrim draws no wash of its own: a flat fill there stepped on the sight line.
-    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
-    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
+    // The explored room lands in the cloud's mask white, like a visible one: nothing dims or
+    // greys revealed ground any more, the lights and the sky shade it.
+    const tiers = fillsOf(mask);
+    expect(tiers.some((f) => f.style.color === 0xffffff)).toBe(true);
+    expect(tiers.every((f) => f.style.color === 0xffffff || f.style.color === 0x000000)).toBe(true);
   });
 
   it('leaves an all-dark map one unbroken fill, padded or not', () => {
@@ -848,8 +770,8 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     };
     drawFog(scrim, twoRooms, mask, sightMask);
 
-    // The cloud mask knows both tiers apart…
-    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
+    // The cloud mask shows the remembered room as revealed ground (T8: one tier)…
+    expect(fillsOf(mask).every((f) => f.style.color === 0xffffff || f.style.color === 0x000000)).toBe(true);
     expect(fillCovers(mask, FAR.centroid)).toBe(true);
     // …and the stencil the chips and the turn ring wear covers BOTH, at one strength. Rooms
     // mode's live tier is the DM's revealed set rather than a sweep, and D7 lets the party
@@ -1187,14 +1109,14 @@ describe('drawFog in vision mode', () => {
       }),
     );
 
-    // The wash is the cloud's (`setWash`), read off the mask — the scrim carries no paint of
-    // its own in either mode, and in this one it carries no instructions either.
-    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
+    // The scrim carries no paint of its own in this mode, and no instructions either.
     expect(scrim.context.instructions).toHaveLength(0);
     expect(drawn.cells).toBe(2);
-    // The record as texels and the DM's revealed room, both grey, both under live sight.
-    const greys = drawn.plan!.ops.filter((op) => op.target === 'mask' && op.kind !== 'sprite');
-    expect(greys.map((op) => op.kind)).toEqual(['cells', 'polys']);
+    // The record as texels and the DM's revealed room, under live sight — and white, the same
+    // tier as live sight (T8): revealed ground is never dimmed or greyed.
+    const shown = drawn.plan!.ops.filter((op) => op.target === 'mask' && op.kind !== 'sprite');
+    expect(shown.map((op) => op.kind)).toEqual(['cells', 'polys']);
+    expect(shown.every((op) => 'color' in op && op.color === 0xffffff)).toBe(true);
   });
 
   it('leaves a party with no eyes and no memory an unbroken cover', () => {
@@ -2402,5 +2324,39 @@ describe('drawFog in the dark', () => {
     expect(plan.ops.some((op) => op.kind === 'sprite' && op.target === 'mask' && op.source === 'inverseSeeable')).toBe(
       false,
     );
+  });
+});
+
+// ── T8 — the cloud's warm glow, and only from lights the seat may know of ─────
+describe('glowPools', () => {
+  const lamp = (x: number, y: number) => ({ x, y, inner: 1, outer: 2, warm: true });
+  const night = (pools: ReturnType<typeof lamp>[]): NightSight => ({ lit: [], darkvision: [], pools });
+  const fog = (cells: [number, number][]): SceneFog => ({
+    rooms: {},
+    concealBehindDoors: true,
+    region: setCells(regionOf(VISION_FRAME)!, cells),
+  });
+
+  it('gives a map light on unexplored ground no tint on the cloud', () => {
+    // A lamp on a hidden plateau top, say: the record has never held its cell.
+    expect(glowPools({ rooms: [], night: night([lamp(20.5, 6.5)]), fog: fog([[2, 2]]) })).toEqual([]);
+  });
+
+  it('keeps a light on revealed ground, and one the party carries wherever it stands', () => {
+    const onRecord = lamp(2.5, 2.5);
+    const carried = lamp(14, 3);
+    const pools = glowPools({ rooms: [], night: night([onRecord, carried, lamp(20.5, 6.5)]), fog: fog([[2, 2]]), partyAt: [[14, 3]] });
+    expect(pools).toEqual([onRecord, carried]);
+  });
+
+  it('keeps a light in a room the DM revealed by hand', () => {
+    const inEast = lamp(EAST.centroid[0], EAST.centroid[1]);
+    const revealed: SceneFog = { rooms: { [EAST.id]: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true };
+    expect(glowPools({ rooms: [EAST], night: night([inEast]), fog: revealed })).toEqual([inEast]);
+  });
+
+  it('never sends a darkvision eye’s cold pool to warm anything', () => {
+    const cold = { ...lamp(2.5, 2.5), warm: false };
+    expect(glowPools({ rooms: [], night: { lit: [], darkvision: [], pools: [cold] }, fog: fog([[2, 2]]) })).toEqual([]);
   });
 });

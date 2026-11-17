@@ -36,6 +36,7 @@ import type { Bounds } from './FogRenderer';
 import {
   EDGE_FEATHER_CELLS,
   EDGE_FEATHER_FROM,
+  EDGE_GUARD,
   FRAME_SHADOW_CELLS,
   FRAME_SHADOW_DEPTH,
   blurPasses,
@@ -153,6 +154,8 @@ const FRAGMENT = /* glsl */ `
   uniform float uSeamLobe;
   uniform float uVeil;
   uniform float uGlow;
+  // T8 — 1 on the player's seat: the mask is shown or hidden, no memory tier and no pools.
+  uniform float uOneTier;
   uniform vec4 uMaskRect;
   // P7 — the map frame (minX, minY, maxX, maxY); maxX <= minX is "no frame".
   uniform vec4 uFrame;
@@ -283,6 +286,10 @@ const FRAGMENT = /* glsl */ `
     // geometry's edge. Inward only (0 at the line), and a product, so the tier still never
     // reads above what the hard mask says. This is what turns the cut into mist.
     float e = edgeAt(uv);
+    // T8 — tierPlan's shownAt: revealed ground is one tier, so the feather alone is the fade,
+    // guarded by the hard mask so a hidden gap the blur lifts stays hidden. The bilinear tap
+    // reaches 1/EDGE_GUARD only where the feather is already ~0, so no cell step shows through.
+    if (uOneTier > 0.5) return e * clamp(${EDGE_GUARD.toFixed(1)} * s, 0.0, 1.0);
     // Hidden and memory texels read themselves, flat. Everything above the memory grey — a
     // live texel, or the feather ramp drawn at a live edge — goes through the blur and the
     // pools below, capped by the hard value so nothing here ever lifts the tier above what
@@ -350,7 +357,8 @@ const FRAGMENT = /* glsl */ `
 
     // Torch glow (D4): the party's light warms the fog around it, as lamps do in real mist.
     // Darkvision pools stay cold — a torch is a light, a darkvision ring is an eye, and only
-    // the light should tint the cloud warm.
+    // the light should tint the cloud warm. T8: the player's seat sends only the lights it may
+    // know of (glowPools in FogRenderer), so a lamp on ground nobody has revealed warms nothing.
     float glow = 0.0;
     for (int i = 0; i < MAX_POOLS; i++) {
       if (i >= uPoolCount) break;
@@ -536,6 +544,11 @@ export interface LivingFogLook {
   mist: number;
   /** How dark the cut edge's rim goes. */
   rim: number;
+  /**
+   * T8 — the player's seat: the mask is shown or hidden and nothing between, so the cloud fades
+   * over the feather alone and pools only warm it. Absent: the DM haze's three tiers.
+   */
+  oneTier?: boolean;
 }
 
 export interface LivingFog {
@@ -658,6 +671,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uSeamLobe: { value: SEAM_LOBE, type: 'f32' },
         uVeil: { value: DEFAULT_FOG_LOOK.veil, type: 'f32' },
         uGlow: { value: DEFAULT_FOG_LOOK.glow, type: 'f32' },
+        uOneTier: { value: initialLook.oneTier ? 1 : 0, type: 'f32' },
         uMaskRect: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uFrame: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uTexel: { value: 0, type: 'f32' },

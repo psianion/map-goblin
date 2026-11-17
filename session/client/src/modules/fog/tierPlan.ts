@@ -24,7 +24,8 @@
 //      `live` the night gate may follow it, and erases commute, so it is still the last word.
 //   2. The cover is measured off the frame and the held sources, never off a sweep vertex —
 //      `drawFog`'s own county-mask comment, moved somewhere it can be pinned.
-//   3. Rooms the DM revealed land in the memory tier. Told is not the same as looked at.
+//   3. T8 — revealed ground is one tier: the record, the rooms the DM revealed and live sight all
+//      paint white. Lights and the sky shade it; line of sight only picks new ground and tokens.
 //   4. The night gate exists only when the scene passed one; daylight is the whole sweep.
 //   5. The record's bits become texture bytes one for one — one texel per cell, no geometry,
 //      no `MASK_MAX_CELLS` ceiling.
@@ -45,11 +46,8 @@ import { regionCells, regionRects, sightPad, type NightSight } from './fog';
  */
 export const MASK_LIVE = 0xffffff;
 
-/** …and the memory tier — must equal `livingFog`'s `MASK_MEMORY`. Pinned in the test. */
-export const MASK_MEMORY_GREY = 0x808080;
-
 /**
- * Extra softening on the memory tier, in cells — and it is deliberately zero.
+ * Extra softening on the record's cells, in cells — and it is deliberately zero.
  *
  * The retired `memoryMask` pass spent a supersample-and-blur to turn the record's staircase
  * into a smooth diagonal: three sub-samples per cell, two box passes of radius one, cut at half
@@ -79,8 +77,15 @@ export const MEMORY_BLUR_CELLS = 0;
  * outside what the geometry shows is ever lifted. Every grown edge (a sweep, a held room) spends
  * it inside the `FOG_FEATHER` band it already carries; a record edge, inside the extra cell the
  * record keeps past the ground. The cost: a region much narrower than twice this stays misty.
+ *
+ * T8 — this is a Pixi BlurFilter strength (σ = `BLUR_SIGMA_PER_STRENGTH` × it): 0.9 puts the
+ * fade from 5 % to 95 % over about 1.5 cells, and the Gaussian is what takes the record's cell
+ * staircase out of the edge (`shownAt`).
  */
-export const EDGE_FEATHER_CELLS = 1;
+export const EDGE_FEATHER_CELLS = 0.9;
+
+/** Pixi's 5-tap BlurFilter, all passes together: σ in texels per unit of `strength`. */
+export const BLUR_SIGMA_PER_STRENGTH = Math.sqrt(2 * (0.221461 + 4 * 0.153388));
 
 /** Where `edgeFeather` starts: a blurred straight edge reads exactly half here, on the line. */
 export const EDGE_FEATHER_FROM = 0.5;
@@ -92,6 +97,22 @@ export const EDGE_FEATHER_FROM = 0.5;
 export function edgeFeather(coverage: number): number {
   const t = Math.min(1, Math.max(0, (coverage - EDGE_FEATHER_FROM) / (1 - EDGE_FEATHER_FROM)));
   return t * t * (3 - 2 * t);
+}
+
+/**
+ * T8 — how far the hard mask must read before the feather may show: 1 once the mask's own
+ * (bilinear) value reaches 1/EDGE_GUARD. Keeps a hidden cell or a narrow hidden gap hidden where
+ * the blur alone would lift it, and sits where the feather is already ~0 on any boundary, so it
+ * cannot print the record's staircase back into the fade.
+ */
+export const EDGE_GUARD = 4;
+
+/**
+ * T8 — how shown a point reads on the player's seat, 0 hidden to 1 revealed: the shader's
+ * one-tier `maskAt`. `hard` is the mask texel (bilinear), `coverage` its feathered blur.
+ */
+export function shownAt(hard: number, coverage: number): number {
+  return edgeFeather(coverage) * Math.min(1, Math.max(0, EDGE_GUARD * hard));
 }
 
 /**
@@ -180,9 +201,7 @@ export type TierTarget =
   | 'live'
   | 'mask'
   | 'edge'
-  | 'scrim'
-  | 'inverseLive'
-  | 'grey';
+  | 'scrim';
 
 export const TARGET_ORDER: readonly TierTarget[] = [
   'inverseHeld',
@@ -194,8 +213,6 @@ export const TARGET_ORDER: readonly TierTarget[] = [
   'mask',
   'edge',
   'scrim',
-  'inverseLive',
-  'grey',
 ];
 
 /**
@@ -234,7 +251,7 @@ export type DrawOp =
       /** P8 — the stroke alone, no fill: the band within `grow` of each ring. */
       outline?: boolean;
     }
-  /** The record's cells, linearly upscaled and tinted to the memory grey. */
+  /** The record's cells, linearly upscaled. */
   | {
       kind: 'cells';
       target: TierTarget;
@@ -300,11 +317,11 @@ export interface TierScene {
    * stood in range — on a roomless map, and inside any lock in a room the seat already holds.
    */
   locks?: readonly Polygon[];
-  /** The referee's region record for this seat — the memory tier, and on a roomless map the clip. */
+  /** The referee's region record for this seat — revealed ground, and on a roomless map the clip. */
   region?: RegionMask;
   /** Every room boundary the player was actually handed. */
   rooms: readonly Polygon[];
-  /** …and the ones the DM lit by hand, which are a memory and never live. */
+  /** …and the ones the DM lit by hand: revealed ground, though never live sight. */
   revealed: readonly Polygon[];
   /** Ground the map carries terrain paint on (`paintedGround`) — opens the clip, reveals nothing. */
   painted?: readonly Polygon[];
@@ -450,7 +467,7 @@ export function outsideFrame(cover: Bounds, frame: Bounds): Bounds[] {
 
 /**
  * The record's bits, one RGBA texel per cell. Null when there is no record or nothing set in
- * it — an empty memory tier is no draw at all rather than a transparent one.
+ * it — an empty record is no draw at all rather than a transparent one.
  */
 export function cellTexture(region: RegionMask | undefined): CellTexture | null {
   if (!region || region.cols <= 0 || region.rows <= 0) return null;
@@ -469,11 +486,10 @@ export function cellTexture(region: RegionMask | undefined): CellTexture | null 
 /**
  * The whole vision mask, as draws.
  *
- * Order is the semantics here, exactly as draw order was in `drawFog`: the memory grey goes
- * down first and live white lands over it, which on a vocabulary of `normal` and `erase` is
- * the `max` the two tiers want. The clip comes last on the mask so nothing can be added after
- * it, and the scrim is one erase of the finished mask so the two layers cannot disagree about
- * where a hole is.
+ * Order is the semantics here, exactly as draw order was in `drawFog`: the record and the
+ * revealed rooms go down first and live sight lands over them, all white since T8. The clip
+ * comes last on the mask so nothing can be added after it, and the scrim is one erase of the
+ * finished mask so the two layers cannot disagree about where a hole is.
  */
 export function tierPlan(scene: TierScene): DrawPlan {
   const grow = scene.pad + scene.feather;
@@ -665,14 +681,16 @@ export function tierPlan(scene: TierScene): DrawPlan {
     ops.push({ kind: 'polys', target: 'live', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
   }
 
-  // ── The mask: memory under, live over, the clip last ──────────────────────
+  // ── The mask: revealed ground, live sight, the clip last ──────────────────
+  // T8 — one tier. Ground the seat has revealed draws as the DM's lit view of it whether or not
+  // an eye is on it now; the lights and the sky make its shadows, not a grey wash.
   if (memory) {
     ops.push({
       kind: 'cells',
       target: 'mask',
       cells: memory,
       blurCells: MEMORY_BLUR_CELLS,
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blend: 'normal',
     });
   }
@@ -682,7 +700,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
       target: 'mask',
       polys: revealed,
       grow,
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blend: 'normal',
     });
   }
@@ -720,24 +738,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
 
-  // ── The greyscale tier ────────────────────────────────────────────────────
-  // Ground seen by darkvision and nothing else (decision 7: a darkvision eye sees unlit ground
-  // in greyscale). Live sight is already inside `lit ∪ ¬dark ∪ darkvision`, so the dark ground
-  // minus everything lit, inside live sight, is exactly the darkvision-only ground. The
-  // renderer desaturates under it.
-  if (night && usable(night.darkvision).length > 0 && sight.length > 0) {
-    ops.push({ kind: 'rect', target: 'inverseLive', rect: cover, color: MASK_LIVE, blend: 'normal' });
-    ops.push({ kind: 'sprite', target: 'inverseLive', source: 'live', blend: 'erase' });
-    if (night.dark) {
-      const dark = usable(night.dark);
-      if (dark.length > 0) ops.push({ kind: 'polys', target: 'grey', polys: dark, grow: 0, color: MASK_LIVE, blend: 'normal' });
-    } else {
-      ops.push({ kind: 'rect', target: 'grey', rect: cover, color: MASK_LIVE, blend: 'normal' });
-    }
-    const lit = usable(night.lit);
-    if (lit.length > 0) ops.push({ kind: 'polys', target: 'grey', polys: lit, grow: 0, color: MASK_LIVE, blend: 'erase' });
-    ops.push({ kind: 'sprite', target: 'grey', source: 'inverseLive', blend: 'erase' });
-  }
-
+  // T8 — no greyscale tier: darkvision-only ground draws as the lighting leaves it, the same
+  // as any revealed ground. The night gate above still decides what that sight reveals.
   return { cover, ops, cells, beyond: edge };
 }

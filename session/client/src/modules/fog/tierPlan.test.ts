@@ -12,10 +12,10 @@ import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { regionOf, setCells } from '@dnd/mechanics/fog';
 import { FOG_FEATHER } from './FogRenderer';
 import { fogPad, openGroundParts, regionCells, regionRects, sightPad, type NightSight } from './fog';
-import { MASK_MEMORY } from './livingFog';
 import {
   MASK_LIVE,
-  MASK_MEMORY_GREY,
+  BLUR_SIGMA_PER_STRENGTH,
+  EDGE_GUARD,
   MEMORY_BLUR_CELLS,
   EDGE_FEATHER_CELLS,
   FRAME_SHADOW_CELLS,
@@ -26,6 +26,7 @@ import {
   frameShadow,
   onMapSample,
   outsideFrame,
+  shownAt,
   tierPlan,
   type DrawOp,
   type DrawPlan,
@@ -100,11 +101,14 @@ const polysOn = (plan: DrawPlan, target: TierTarget): PolyOp[] =>
   opsOn(plan, target).filter((op): op is PolyOp => op.kind === 'polys');
 
 describe('tierPlan — the tier colours the cloud shader reads', () => {
-  it('paints the memory tier at exactly the grey the shader ramps on', () => {
-    // `tierPlan` states these itself so it can stay free of Pixi; this is where the two have
-    // to agree, and a drift either way puts the memory tier on the wrong side of a ramp.
-    expect(MASK_MEMORY_GREY).toBe(MASK_MEMORY);
+  it('paints every shown tier white — no memory grey on revealed ground (T8)', () => {
+    // T8 retired the memory tier: the record and the DM's revealed rooms draw as live sight
+    // does, so nothing on the player's mask dims or desaturates ground the seat has revealed.
     expect(MASK_LIVE).toBe(0xffffff);
+    const plan = tierPlan(scene({ sight: [LOOKING], region: brushed([[5, 4]]), revealed: [EAST] }));
+    const drawn = opsOn(plan, 'mask').filter((op) => op.kind !== 'sprite');
+    expect(drawn.length).toBe(2);
+    for (const op of drawn) expect(op).toMatchObject({ color: MASK_LIVE, blend: 'normal' });
   });
 
   it('leaves the memory smoothing to the sampler', () => {
@@ -245,16 +249,16 @@ describe('tierPlan — the tiers', () => {
     [7, 4],
   ]);
 
-  it('lands a DM-revealed room in the memory tier and never in live', () => {
-    // Told is not the same as looked at: the party knows the layout because they were told,
-    // and their own eyes are the only thing that makes anything current.
+  it('shows a DM-revealed room as revealed ground, and never puts it in live sight', () => {
+    // Told is not the same as looked at: the room shows (T8: at full colour), but only the
+    // party's own eyes put it in the stencil the token chips wear.
     const plan = tierPlan(scene({ sight: [LOOKING], revealed: [EAST] }));
     const revealed = polysOn(plan, 'mask').find((op) => op.polys[0] === EAST);
-    expect(revealed).toMatchObject({ color: MASK_MEMORY_GREY, grow: GROW, blend: 'normal' });
+    expect(revealed).toMatchObject({ color: MASK_LIVE, grow: GROW, blend: 'normal' });
     expect(polysOn(plan, 'live').flatMap((op) => op.polys)).toEqual([LOOKING]);
   });
 
-  it('draws the memory under live, which is the max the two tiers want', () => {
+  it('draws revealed ground under live sight', () => {
     const plan = tierPlan(scene({ sight: [LOOKING], region, revealed: [EAST] }));
     const mask = opsOn(plan, 'mask');
     const grey = mask.map((op, i) => (op.kind !== 'sprite' ? i : -1)).filter((i) => i >= 0);
@@ -376,11 +380,11 @@ describe('tierPlan — the record as a texture', () => {
     expect(plan.ops.some((op) => op.kind === 'cells')).toBe(false);
   });
 
-  it('uploads it at the memory grey, linearly, under everything live', () => {
+  it('uploads it white, linearly, under everything live', () => {
     const plan = tierPlan(scene({ rooms: [], region: brushed([[6, 0]]), sight: [UNOCCLUDED] }));
     expect(opsOn(plan, 'mask')[0]).toMatchObject({
       kind: 'cells',
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blurCells: MEMORY_BLUR_CELLS,
       blend: 'normal',
     });
@@ -790,12 +794,12 @@ const legacyPlan = (s: TierScene): DrawPlan => {
       target: 'mask',
       cells: memory,
       blurCells: MEMORY_BLUR_CELLS,
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blend: 'normal',
     });
   }
   if (revealed.length > 0) {
-    ops.push({ kind: 'polys', target: 'mask', polys: revealed, grow, color: MASK_MEMORY_GREY, blend: 'normal' });
+    ops.push({ kind: 'polys', target: 'mask', polys: revealed, grow, color: MASK_LIVE, blend: 'normal' });
   }
   if (sight.length > 0) ops.push({ kind: 'sprite', target: 'mask', source: 'live', blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'mask', source: 'inverseHeld', blend: 'erase' });
@@ -943,20 +947,16 @@ describe('tierPlan — the Lighting pass: dark regions, darkness sources and the
     expect(ops.findIndex((op) => op.blend === 'erase')).toBeLessThan(ops.length - 1);
   });
 
-  it('builds the greyscale tier where darkvision sees and nothing lights, inside live sight', () => {
+  it('draws no greyscale tier for darkvision-only ground — it shows as the lighting leaves it (T8)', () => {
+    // Darkvision still opens ground through the night gate; it only no longer greys it.
     const plan = tierPlan(
       scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [square(12)], pools: [] } }),
     );
-    const grey = opsOn(plan, 'grey');
-    expect(grey[0]?.kind).toBe('rect');
-    expect(grey.some((op) => op.kind === 'polys' && op.blend === 'erase')).toBe(true);
-    expect(grey.at(-1)).toMatchObject({ kind: 'sprite', source: 'inverseLive', blend: 'erase' });
-    expect(opsOn(plan, 'inverseLive').length).toBe(2);
-  });
-
-  it('draws no greyscale tier without a darkvision eye, or in daylight', () => {
-    expect(opsOn(tierPlan(scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [], pools: [] } })), 'grey')).toEqual([]);
-    expect(opsOn(tierPlan(scene({ sight: [LOOKING] })), 'grey')).toEqual([]);
+    const targets = new Set(plan.ops.map((op) => op.target as string));
+    expect(targets.has('grey')).toBe(false);
+    expect(targets.has('inverseLive')).toBe(false);
+    // Light and darkvision both erased out of the gate: the darkvision ring still reveals.
+    expect(polysOn(plan, 'inverseSeeable').some((op) => op.blend === 'erase' && op.polys.length === 2)).toBe(true);
   });
 });
 
@@ -1131,29 +1131,29 @@ describe('tierPlan — the soft edge (P8)', () => {
     const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
     return x >= 0 ? y : -y;
   };
-  const SIGMA = EDGE_FEATHER_CELLS / 2;
+  // T8 — the blur's real spread: Pixi's passes add up to σ = BLUR_SIGMA_PER_STRENGTH × strength.
+  const SIGMA = BLUR_SIGMA_PER_STRENGTH * EDGE_FEATHER_CELLS;
   const coverage = (inward: number): number => 0.5 * (1 + erf(inward / (SIGMA * Math.SQRT2)));
   const STEP = 0.02;
   const xs = Array.from({ length: 301 }, (_, i) => -2 + i * STEP);
 
-  it.each([
-    ['live sight', 1],
-    ['a memory', 0.5],
-  ])('takes %s from hidden to its tier over the feather, with no hard step', (_name, tier) => {
-    const m = xs.map((x) => tier * edgeFeather(coverage(x)));
+  it('takes revealed ground from hidden to shown over about 1.5 cells, with no hard step (T8)', () => {
+    // One tier now: what the shader reads (`shownAt`) over a straight, hard-edged boundary.
+    const m = xs.map((x) => shownAt(x > 0 ? 1 : 0, coverage(x)));
     // Nothing is lifted on or past the boundary: hidden stays exactly hidden.
     xs.forEach((x, i) => {
       if (x <= 0) expect(m[i]).toBeCloseTo(0, 6);
     });
-    // Monotone inward, and every 0.02-cell step under 5% of the tier: a ramp, not a cut.
+    // Monotone inward, and every 0.02-cell step under 3%: a ramp, not a cut.
     for (let i = 1; i < m.length; i++) {
       expect(m[i]).toBeGreaterThanOrEqual(m[i - 1]);
-      expect(m[i] - m[i - 1]).toBeLessThan(0.05 * tier);
+      expect(m[i] - m[i - 1]).toBeLessThan(0.03);
     }
-    // Half way up within the feather, and the whole tier a little past it.
-    const at = (x: number): number => m[Math.round((x + 2) / STEP)];
-    expect(at(EDGE_FEATHER_CELLS)).toBeGreaterThan(0.5 * tier);
-    expect(at(2 * EDGE_FEATHER_CELLS)).toBeGreaterThan(0.99 * tier);
+    // 5 % to 95 % over about a cell and a half.
+    const first = (v: number): number => xs[m.findIndex((y) => y >= v)];
+    const width = first(0.95) - first(0.05);
+    expect(width).toBeGreaterThan(1.3);
+    expect(width).toBeLessThan(1.7);
   });
 
   it('replaces a cut: the shader floored a shown texel at the memory grey, a 0.5 step at the line', () => {
@@ -1161,6 +1161,109 @@ describe('tierPlan — the soft edge (P8)', () => {
     const before = xs.map((x) => (x > 0 ? Math.max(0.5, 2 * coverage(x) - 1) : 0));
     const jump = Math.max(...before.slice(1).map((v, i) => v - before[i]));
     expect(jump).toBeGreaterThanOrEqual(0.5);
+  });
+});
+
+// ── T8: the record's cell staircase, smoothed out of the edge ───────────────
+//
+// The record is one texel per cell, drawn through a linear sampler (a tent), read as coverage
+// (2 × red, capped), blurred by the feather's Gaussian, and read back by the shader's
+// `shownAt` with the bilinear hard value as its guard. Modelled here on a diagonal staircase,
+// the worst case: every cell corner on the boundary is a step the eye could catch.
+describe('the record edge, smooth along a staircase (T8)', () => {
+  const N = 16;
+  const R = 6; // texels per cell, as a small map's mask lands
+  const W = N * R;
+  const K = N; // cell (i, j) is revealed when i + j <= K: a 45° staircase through the middle
+  const cell = (i: number, j: number): number => (i < 0 || j < 0 ? 1 : i >= N || j >= N ? 0 : i + j <= K ? 1 : 0);
+  /** The cell texture through a linear sampler, at a world point in cells. */
+  const tent = (x: number, y: number): number => {
+    const fx = x - 0.5;
+    const fy = y - 0.5;
+    const i = Math.floor(fx);
+    const j = Math.floor(fy);
+    const tx = fx - i;
+    const ty = fy - j;
+    return (
+      (cell(i, j) * (1 - tx) + cell(i + 1, j) * tx) * (1 - ty) + (cell(i, j + 1) * (1 - tx) + cell(i + 1, j + 1) * tx) * ty
+    );
+  };
+  const clampAt = (a: Float64Array, x: number, y: number): number =>
+    a[Math.min(W - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+  // The `edge` target: coverage, Gaussian-blurred (separable) at the feather's σ in texels.
+  const blurred = (() => {
+    const c = new Float64Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) c[y * W + x] = Math.min(1, 2 * tent((x + 0.5) / R, (y + 0.5) / R));
+    const sigma = BLUR_SIGMA_PER_STRENGTH * EDGE_FEATHER_CELLS * R;
+    const rad = Math.ceil(3 * sigma);
+    const k = Array.from({ length: 2 * rad + 1 }, (_, i) => Math.exp(-((i - rad) ** 2) / (2 * sigma * sigma)));
+    const sum = k.reduce((a, b) => a + b, 0);
+    const pass = (src: Float64Array, dx: number, dy: number): Float64Array => {
+      const out = new Float64Array(W * W);
+      for (let y = 0; y < W; y++)
+        for (let x = 0; x < W; x++) {
+          let v = 0;
+          for (let i = -rad; i <= rad; i++) v += k[i + rad] * clampAt(src, x + i * dx, y + i * dy);
+          out[y * W + x] = v / sum;
+        }
+      return out;
+    };
+    return pass(pass(c, 1, 0), 0, 1);
+  })();
+  /** The blurred target through a linear sampler, at a world point in cells. */
+  const edgeAt = (x: number, y: number): number => {
+    const fx = x * R - 0.5;
+    const fy = y * R - 0.5;
+    const i = Math.floor(fx);
+    const j = Math.floor(fy);
+    const tx = fx - i;
+    const ty = fy - j;
+    return (
+      (clampAt(blurred, i, j) * (1 - tx) + clampAt(blurred, i + 1, j) * tx) * (1 - ty) +
+      (clampAt(blurred, i, j + 1) * (1 - tx) + clampAt(blurred, i + 1, j + 1) * tx) * ty
+    );
+  };
+  const shown = (x: number, y: number): number => shownAt(tent(x, y), edgeAt(x, y));
+  // The staircase's mid line runs through (c0, c0); `d` is the distance across it (inward < 0).
+  const c0 = (K + 1) / 2;
+  const at = (d: number, along: number): number =>
+    shown(c0 + (d + along) / Math.SQRT2, c0 + (d - along) / Math.SQRT2);
+
+  it('falls off monotone across the stairs, with no step above a small epsilon', () => {
+    for (const along of [0, 0.25, 0.5, 0.75]) {
+      let prev = at(-3, along);
+      for (let d = -3 + 0.01; d <= 1.5; d += 0.01) {
+        const v = at(d, along);
+        expect(v).toBeLessThanOrEqual(prev + 1e-9);
+        expect(prev - v).toBeLessThan(0.02);
+        prev = v;
+      }
+    }
+  });
+
+  it('reads the same all along the boundary — the cell steps do not show', () => {
+    for (const d of [-1.5, -1, -0.5, -0.25, 0, 0.25]) {
+      const row = Array.from({ length: 401 }, (_, i) => at(d, -2 + i * 0.01));
+      expect(Math.max(...row) - Math.min(...row)).toBeLessThan(0.01);
+    }
+  });
+
+  it('fades over about a cell and a half', () => {
+    let lo = Number.NaN;
+    let hi = Number.NaN;
+    for (let d = -3; d <= 1.5; d += 0.01) {
+      const v = at(d, 0);
+      if (Number.isNaN(hi) && v < 0.95) hi = d;
+      if (Number.isNaN(lo) && v < 0.05) lo = d;
+    }
+    expect(lo - hi).toBeGreaterThan(1.3);
+    expect(lo - hi).toBeLessThan(1.8);
+  });
+
+  it('keeps a lone hidden cell inside revealed ground hidden at its middle — the guard', () => {
+    // The blur alone reads a one-cell hole as nearly shown; the hard value holds it at zero.
+    expect(EDGE_GUARD).toBeGreaterThan(1);
+    expect(shownAt(0, 0.95)).toBe(0);
   });
 });
 
