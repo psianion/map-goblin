@@ -192,3 +192,26 @@ describe('rollable tables and saved rolls', () => {
     expect(t.state().saved).toEqual([])
   })
 })
+
+// Table fix pass F3: a request to everyone is the seats at the table now; a seat that joins
+// later is not asked, and a request the DM has shared is not sent again.
+describe('a request to all (F3)', () => {
+  it('stores the seats present and withholds it from a later seat', () => {
+    const t = table()
+    expect(t.run(DM, 'request', { targets: 'all', label: 'Stealth' })).toBeUndefined()
+    expect(t.state().requests![0].targets).toEqual(['alice', 'bob'])
+    const LATE: PlayerInfo = { identityId: 'cora', name: 'Cora', role: 'player', connected: true }
+    expect(t.view(LATE).requests).toHaveLength(0)
+    expect(t.view(ALICE).requests).toHaveLength(1)
+  })
+
+  it('is not re-sent once shared', () => {
+    const t = table()
+    t.run(DM, 'request', { label: 'Stealth' })
+    const id = t.state().requests![0].id
+    t.run(ALICE, 'roll-result', { requestId: id, total: 12 })
+    expect(t.run(DM, 'share-request', { requestId: id })).toBeUndefined()
+    expect(t.view(ALICE).requests).toHaveLength(0)
+    expect(t.view(BOB).requests).toHaveLength(0)
+  })
+})

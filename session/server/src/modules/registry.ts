@@ -239,6 +239,18 @@ export class ModuleRegistry {
   }
 
   /** Unchanged state, said again — for viewers a *different* module just redacted it for. */
+  /**
+   * Table fix pass — an after-write rule's own re-send of one slice, for a change that moved what
+   * a viewer is owed without writing that module: a token hidden mid-fight (its initiative row),
+   * a party walking into another walk area (the fog slice's `visible` rows). Tagged with the
+   * scene like every other frame, and redacted per viewer on the way out.
+   */
+  refresh(name: string, ctx: DispatchContext, sceneId: string | null): void {
+    this.resend(name, ctx.campaignId, (msg) =>
+      ctx.broadcast(msg.type === 'state-update' && sceneId ? ({ ...msg, sceneId } as SceneTagged) : msg),
+    )
+  }
+
   private resend(name: string, campaignId: string, say: (msg: ServerMessage) => void): void {
     const module = this.modules.get(name)
     if (!module) return

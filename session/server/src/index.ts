@@ -25,7 +25,7 @@ import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { createMirror, mirrorRootFor } from './mirror'
-import { afterWrites, effectsTick } from './modules/effectsTick'
+import { afterWrites, effectsClear, effectsTick, hiddenCombatants } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
@@ -125,7 +125,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), partyHere(vision), effectsTick),
+    afterWrites(autoExplore(vision), partyHere(vision), effectsTick, effectsClear, hiddenCombatants),
     (sessionId) => table.flagsOf(sessionId)?.paused === true,
   )
   modules.register(pingModule)
@@ -138,6 +138,12 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     createInitiativeModule({
       tokenOwnerOf: (campaignId, sceneId, tokenId) =>
         (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
+      // Table fix pass F22: a hidden combatant's row stays behind the screen.
+      tokenHiddenOf: (sceneId, tokenId) => {
+        const campaignId = stores.scenes.get(sceneId)?.campaign_id
+        if (!campaignId) return false
+        return (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.hidden === true
+      },
     }),
   )
   // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a

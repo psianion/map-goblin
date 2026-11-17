@@ -1,6 +1,6 @@
 // Sessions, presence, heartbeat — the behaviour contracts in spec §2.5.
 
-import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
+import type { ClientMessage, MarkEvent, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import type { CommandError, Viewer } from '@dnd/mechanics/contract'
 import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
 import { PROTOCOL_VERSION } from '../config'
@@ -9,7 +9,7 @@ import type { ModuleRegistry } from '../modules/registry'
 import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
 import { CommandRouter } from './CommandRouter'
-import { markEvent, parseMark } from './marks'
+import { markEvent, parseMark, standing } from './marks'
 
 interface Session {
   id: string
@@ -19,6 +19,8 @@ interface Session {
   clients: Set<ClientConnection>
   /** A DM has joined at least once, so a later DM join is a *re*connect. */
   dmSeen: boolean
+  /** Table fix pass, decision d: the templates standing on the table, sent to every later join. */
+  templates: readonly MarkEvent[]
 }
 
 /** One entry of a `SceneSource` list — `visibleToPlayers` never reaches the wire itself (#47 D5); `snapshot` reads it to decide who gets told the scene exists at all. */
@@ -211,6 +213,7 @@ export class SessionManager {
           return this.broadcaster.sendTo(conn, { type: 'error', code: 'invalid-command', message: parsed.error })
         }
         const event = markEvent(parsed.mark, parsed.ttlMs, conn.identity.identityId, this.scenes(session).activeSceneId)
+        session.templates = standing(session.templates, event)
         return this.broadcaster.broadcast(session.id, { type: 'mark', event })
       }
     }
@@ -263,6 +266,8 @@ export class SessionManager {
       state: this.snapshot(session, conn.identity),
       you: player,
     })
+    // The templates standing on the table, after the snapshot, so the seat has a scene to put them on.
+    for (const event of session.templates) this.broadcaster.sendTo(conn, { type: 'mark', event })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)
     if (dmReturning) this.broadcaster.broadcast(session.id, { type: 'dm-reconnected' })
   }
@@ -350,7 +355,7 @@ export class SessionManager {
     const existing = this.sessions.get(id)
     if (existing) return existing
 
-    const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false }
+    const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false, templates: [] }
     this.sessions.set(id, session)
     this.syncTable(session)
     return session

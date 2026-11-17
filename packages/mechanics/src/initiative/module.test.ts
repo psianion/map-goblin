@@ -554,3 +554,24 @@ describe('table v2: End turn follows the token’s owner at the time of the chec
     expect(state.turn).toBe(1)
   })
 })
+
+// Table fix pass F22: "Add to combat" on a hidden token put its row, by name, in front of every
+// player. Reproduced first: the redactor kept every entry whatever its token's hidden flag.
+describe('a hidden token in the order (F22)', () => {
+  const state: InitiativeState = {
+    ...INITIAL_STATE,
+    status: 'gathering',
+    sceneId: SCENE,
+    entries: [
+      { key: 'a', name: 'Bram', kind: 'pc', tokenId: 'bram', initiative: null },
+      { key: 'b', name: 'Lurker', kind: 'npc', tokenId: 'lurker', initiative: null },
+    ],
+  }
+  const module = createInitiativeModule({ tokenHiddenOf: (sceneId, tokenId) => sceneId === SCENE && tokenId === 'lurker' })
+  const viewer = { role: 'player' as const, identityId: MARRA.identityId }
+
+  it('is withheld from players while its token is hidden, and kept for the DM', () => {
+    expect(module.redact!(state, viewer).entries.map((e) => e.key)).toEqual(['a'])
+    expect(module.redact!(state, { role: 'dm', identityId: DM.identityId }).entries).toHaveLength(2)
+  })
+})

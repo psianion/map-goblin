@@ -108,7 +108,8 @@ export function createRollsModule({ rng = Math.random }: RollsDeps = {}): GameMo
       const out: RollsState = { ...state, log }
       if (state.requests) {
         out.requests = state.requests
-          .filter((r) => r.targets === null || r.targets.includes(viewer.identityId))
+          // F3: a request the DM has shared is done, and is not sent again to anyone.
+          .filter((r) => !r.shared && (r.targets === null || r.targets.includes(viewer.identityId)))
           .map((r) => ({ ...r, results: r.results.filter((x) => x.identityId === viewer.identityId) }))
       }
       if (state.tables) out.tables = []
@@ -275,7 +276,9 @@ function request(p: Payload, ctx: Ctx): void {
     dc = num(p.dc, 'dc')
     if (!Number.isInteger(dc) || dc < 1 || dc > DC_MAX) bad(`dc must be a whole number in 1..${DC_MAX}`)
   }
-  let targets: string[] | null = null
+  // F3: 'all' is the seats at the table now, stored as such, so a seat that joins later is not
+  // asked a check the table has already rolled.
+  let targets: string[] | null = [...new Set(ctx.players.filter((pl) => pl.role === 'player').map((pl) => pl.identityId))]
   if (p.targets !== undefined && p.targets !== null && p.targets !== 'all') {
     if (!Array.isArray(p.targets) || p.targets.length === 0) bad("targets must be a non-empty array of players, or 'all'")
     targets = [...new Set(p.targets.map((t, i) => str(t, `targets[${i}]`, ID_MAX)))]

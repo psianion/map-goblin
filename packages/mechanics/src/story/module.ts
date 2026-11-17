@@ -132,10 +132,17 @@ function run(action: string, p: Payload, ctx: Ctx, deps: StoryDeps): void {
       if (!state.handouts.some((h) => h.id === handoutId)) bad('no such handout')
       const audience = audienceOf(p.audience, ctx)
       const mode = p.mode === undefined ? 'card' : oneOf(p.mode, ['card', 'full'] as const, 'mode')
+      // F27: showing a handout again replaces its journal row rather than adding a second one.
+      // The row keeps everyone it was ever shared with, so nobody's journal loses it.
+      const earlier = state.journal.find((j) => j.kind === 'handout' && j.ref === handoutId)
+      const prior = earlier ? (earlier.audience ?? 'all') : null
+      const kept: Audience =
+        prior === null ? audience : prior === 'all' || audience === 'all' ? 'all' : [...new Set([...prior, ...audience])]
+      const rest = { ...state, journal: state.journal.filter((j) => !(j.kind === 'handout' && j.ref === handoutId)) }
       return ctx.setState({
         ...state,
         shown: { handoutId, audience, mode },
-        journal: journaled(state, { kind: 'handout', ref: handoutId, audience }),
+        journal: journaled(rest, { kind: 'handout', ref: handoutId, audience: kept }),
       })
     }
     case 'hide':

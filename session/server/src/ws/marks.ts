@@ -4,8 +4,15 @@
 
 import type { Mark, MarkEvent, MarkPoint, Role } from '@dnd/core/src/shared/protocol'
 
-/** The table client's own lifetimes (shell/marks), so both ends drop a mark together. */
-export const MARK_TTL_MS = { ping: 3000, ruler: 1500, template: 30_000, draw: 10_000 } as const
+/**
+ * The table client's own lifetimes (shell/marks), so both ends drop a mark together. A template
+ * is 0: it stands until the DM clears it (table fix pass, decision d), and a seat that joins
+ * later is sent it.
+ */
+export const MARK_TTL_MS = { ping: 3000, ruler: 1500, template: 0, draw: 10_000 } as const
+/** Standing templates kept per table; the oldest goes past this. */
+export const STANDING_MAX = 50
+const ID_MAX = 64
 export const DRAW_TTL_MIN_MS = 1000
 export const DRAW_TTL_MAX_MS = 60_000
 export const DRAW_POINTS_MAX = 500
@@ -68,9 +75,27 @@ export function parseMark(raw: unknown, role: Role): { mark: Mark; ttlMs: number
       const ttl = Math.max(DRAW_TTL_MIN_MS, Math.min(DRAW_TTL_MAX_MS, asked))
       return { mark: { kind: 'draw', points, ttl }, ttlMs: ttl }
     }
+    case 'clear': {
+      if (role !== 'dm') return dmOnly('clear templates')
+      if (typeof m.id !== 'string' || m.id.length === 0 || m.id.length > ID_MAX) return { error: 'clear needs the id of a template' }
+      return { mark: { kind: 'clear', id: m.id }, ttlMs: 0 }
+    }
     default:
       return { error: 'unknown mark kind' }
   }
+}
+
+/**
+ * The table's standing templates after one relayed mark: a template joins them, a clear takes
+ * the one it names away, anything else leaves them as they were (the same array back).
+ */
+export function standing(kept: readonly MarkEvent[], event: MarkEvent): readonly MarkEvent[] {
+  if (event.mark.kind === 'template') return [...kept, event].slice(-STANDING_MAX)
+  if (event.mark.kind === 'clear') {
+    const id = event.mark.id
+    return kept.some((e) => e.id === id) ? kept.filter((e) => e.id !== id) : kept
+  }
+  return kept
 }
 
 let minted = 0

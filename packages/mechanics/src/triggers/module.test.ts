@@ -437,7 +437,8 @@ describe('light fire-action (M5)', () => {
     )
     const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Brazier lights', toPlayers: false })
+    // The DM-only line is followed by F28's 'Fired' line, since the DM's table toasts neither.
+    expect(sceneOf(next).log.find((l) => l.kind === 'light')).toMatchObject({ text: 'Brazier lights', toPlayers: false })
   })
 })
 
@@ -1539,5 +1540,30 @@ describe('set-lights-all leaves darkness sources alone', () => {
     state = run(mod, state, DM, 'set-lights-all', { on: true }).next
     expect(sceneOf(state).lightEdits.void).toEqual({ darkness: true, visible: false })
     expect(sceneOf(state).lightEdits.a).toEqual({ visible: true })
+  })
+})
+
+// Table fix pass F28, reproduced first: a trigger whose actions say nothing the DM's table
+// toasts (no text, or player-hidden narration) fired with no sign at all.
+describe('a trigger that fires with nothing to say (F28)', () => {
+  it('leaves the DM a "Fired: name" line', () => {
+    const t = trigger(
+      { id: 'x', name: 'Lever', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: '', toPlayers: false }] },
+      { roomId: 'r1' },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
+    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(error).toBeNull()
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ kind: 'fired', text: 'Fired: Lever', toPlayers: false })
+  })
+
+  it('stays quiet when the fire already narrates', () => {
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: 'The floor shakes', toPlayers: true }] },
+      { roomId: 'r1' },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
+    const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(sceneOf(next).log.some((l) => l.kind === 'fired')).toBe(false)
   })
 })

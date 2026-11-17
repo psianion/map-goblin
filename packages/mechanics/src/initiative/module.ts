@@ -69,6 +69,8 @@ function andList(names: readonly string[]): string {
  */
 export interface InitiativeDeps {
   tokenOwnerOf?(campaignId: string, sceneId: string, tokenId: string): string | null | undefined
+  /** Table fix pass F22 — whether a combatant's token is hidden from players right now. */
+  tokenHiddenOf?(sceneId: string, tokenId: string): boolean
 }
 
 export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<InitiativeState> {
@@ -107,16 +109,31 @@ export function createInitiativeModule(deps: InitiativeDeps = {}): GameModule<In
   // Names, initiative and conditions are in front of everyone on purpose — a tracker the
   // party cannot read is not a tracker. A monster's hit points are the one thing a DM keeps
   // behind the screen, so an NPC's pool leaves as a single bit: down or not.
+  //
+  // A combatant whose token is hidden is behind the screen whole (F22): its row would name it.
+  // The turn pointer follows the ordered list a player holds, so it is moved to the same
+  // combatant there, or to the next one they can see while a hidden one has the turn.
   redact(state, viewer) {
     if (viewer.role === 'dm' || !Array.isArray(state.entries)) return state
     let touched = false
-    const entries = state.entries.map((e) => {
+    const sceneId = state.sceneId
+    const hidden = (e: InitiativeEntry): boolean =>
+      !!sceneId && !!e.tokenId && deps.tokenHiddenOf?.(sceneId, e.tokenId) === true
+    const shown = state.entries.filter((e) => !hidden(e))
+    let turn = state.turn
+    if (shown.length !== state.entries.length) {
+      touched = true
+      const order = ordered(state.entries)
+      const next = order.slice(state.turn).concat(order.slice(0, state.turn)).find((e) => !hidden(e))
+      turn = next ? Math.max(0, ordered(shown).findIndex((e) => e.key === next.key)) : 0
+    }
+    const entries = shown.map((e) => {
       if (e.kind !== 'npc' || !e.hp) return e
       touched = true
       const { hp, ...rest } = e
       return hp.current === 0 ? { ...rest, hp: { current: 0, max: 0 } } : rest
     })
-    return touched ? { ...state, entries } : state
+    return touched ? { ...state, entries, turn } : state
   },
   }
 }

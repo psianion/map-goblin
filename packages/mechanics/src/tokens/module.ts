@@ -9,6 +9,7 @@ import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../c
 import { refusal as refusalText } from '../doors/types'
 import { fanAround } from './fan'
 import { sightPartyIds } from './links'
+import { CLEAR_EFFECTS } from './types'
 import type {
   LevelFilterOf,
   SceneVision,
@@ -329,6 +330,8 @@ function run(
       return setEffect(p, ctx)
     case 'gather':
       return gather(p, ctx, terrainOf)
+    case CLEAR_EFFECTS:
+      return clearEffects(p, ctx)
     case 'tick-effects':
       return tickEffects(p, ctx)
     default:
@@ -768,6 +771,18 @@ function tickEffects(p: Payload, ctx: Ctx): void {
   if (changed.length === 0) return
   putAll(ctx, sceneId, changed)
   if (ended.length > 0) ctx.broadcast({ type: 'effects-ended', sceneId, ended })
+}
+
+/**
+ * Internal only, like `tick-effects` (F24): the encounter on the scene ended, so its timers end
+ * with it. One write for every token that held any; nothing at all when none did.
+ */
+function clearEffects(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const changed = Object.values(ctx.state.byScene[sceneId] ?? {})
+    .filter((token) => token.effects?.length)
+    .map((token) => ({ ...token, effects: [] }))
+  if (changed.length > 0) putAll(ctx, sceneId, changed)
 }
 
 /**

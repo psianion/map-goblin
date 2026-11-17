@@ -8,11 +8,23 @@ import type { Vision } from './vision'
 
 /** The token writes that put a party token in a room or Outdoors. */
 const TRIGGERS: readonly string[] = ['place', 'move', 'claim', 'assign', 'gather', 'set-token-level']
+/** …and the writes that can move which rows the party sees (§2.6): its tokens, and doors. */
+const MOVES_SIGHT: Record<string, readonly string[]> = {
+  tokens: [...TRIGGERS, 'hide', 'delete'],
+  doors: ['toggle', 'lock', 'reveal-secret'],
+}
 
 export function partyHere(vision: Vision): AfterWrite {
+  // The rows each scene's seats were last sent: the fog slice carries them (`visible`), and
+  // only a fog write re-sends it, so a party walking into another area re-sends it here.
+  const sent = new Map<string, string>()
   return ({ module, action, sceneId }, ctx, registry) => {
-    if (module !== 'tokens' || !sceneId || !TRIGGERS.includes(action)) return
-    reveal(vision, registry, sceneId, ctx)
+    if (!sceneId || !MOVES_SIGHT[module]?.includes(action)) return
+    if (module === 'tokens' && TRIGGERS.includes(action)) reveal(vision, registry, sceneId, ctx)
+    const rows = (vision.visibleOf(sceneId) ?? []).join('\n')
+    const before = sent.get(sceneId)
+    sent.set(sceneId, rows)
+    if (before !== undefined && before !== rows) registry.refresh('fog', ctx, sceneId)
   }
 }
 

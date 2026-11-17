@@ -111,3 +111,18 @@ describe('story', () => {
     expect(t.state().journal).toEqual([])
   })
 })
+
+// Table fix pass F27: showing a handout again replaced nothing and added a second journal row.
+describe('a handout shown twice (F27)', () => {
+  it('keeps one journal row, shared with everyone it was ever shown to', () => {
+    const t = table()
+    t.run(DM, 'handout-upsert', { id: 'h1', caption: 'The letter', text: 'Meet me at dawn.' })
+    t.run(DM, 'show', { handoutId: 'h1', audience: ['alice'] })
+    t.run(DM, 'show', { handoutId: 'h1', audience: ['bob'] })
+    const rows = t.state().journal.filter((j) => j.kind === 'handout' && j.ref === 'h1')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].audience).toEqual(['alice', 'bob'])
+    t.run(DM, 'show', { handoutId: 'h1' })
+    expect(t.state().journal.filter((j) => j.ref === 'h1').map((j) => j.audience)).toEqual(['all'])
+  })
+})

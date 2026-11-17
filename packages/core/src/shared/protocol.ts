@@ -107,7 +107,7 @@ export interface MarkEvent {
   from: string;
   at: number;
   sceneId: string | null;
-  /** The client drops the mark this long after `at`. */
+  /** The client drops the mark this long after `at`; 0 = it stands until a `clear` names it. */
   ttlMs: number;
   mark: Mark;
 }

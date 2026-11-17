@@ -990,6 +990,10 @@ function fireTrigger(
 ): void {
   for (const action of t.def.actions) runFireAction(scene, t, action, token, deps, now, sceneId, ctx)
   scene.fired[t.def.id] = now
+  // F28: a fire whose actions narrate nothing with words in it to the table leaves the DM a
+  // line, so the DM's table can say it went off.
+  const said = scene.log.some((e) => e.at === now && e.triggerId === t.def.id && e.toPlayers && e.text.trim() !== '')
+  if (!said) pushLog(scene, { triggerId: t.def.id, kind: 'fired', text: `Fired: ${t.def.name || 'a trigger'}`, toPlayers: false }, now)
 }
 
 function runFireAction(

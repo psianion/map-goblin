@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { reaches } from './Broadcaster'
-import { DRAW_TTL_MAX_MS, MARK_TTL_MS, markEvent, parseMark } from './marks'
+import { DRAW_TTL_MAX_MS, MARK_TTL_MS, markEvent, parseMark, standing } from './marks'
 
 describe('parseMark', () => {
   it('rebuilds a ping and drops unknown fields', () => {
@@ -64,5 +64,25 @@ describe('reaches', () => {
     expect(reaches(ended, dm)).toBe(true)
     expect(reaches(ended, alice)).toBe(false)
     expect(reaches({ type: 'pong', t: 1 }, alice)).toBe(true)
+  })
+})
+
+// Table fix pass, decision d: a template stands until the DM clears it.
+describe('standing templates', () => {
+  it('stand, are cleared by id, and only the DM clears them', () => {
+    const placed = parseMark({ kind: 'template', shape: 'circle', origin: { x: 0, y: 0 }, size: 4 }, 'dm')
+    if ('error' in placed) throw new Error(placed.error)
+    expect(placed.ttlMs).toBe(0)
+    const event = markEvent(placed.mark, placed.ttlMs, 'dm-1', 'scene-1')
+    const kept = standing([], event)
+    expect(kept).toEqual([event])
+    expect(parseMark({ kind: 'clear', id: event.id }, 'player')).toHaveProperty('error')
+    const clear = parseMark({ kind: 'clear', id: event.id }, 'dm')
+    if ('error' in clear) throw new Error(clear.error)
+    expect(standing(kept, markEvent(clear.mark, 0, 'dm-1', 'scene-1'))).toEqual([])
+    // A ping changes nothing.
+    const ping = parseMark({ kind: 'ping', x: 1, y: 1 }, 'player')
+    if ('error' in ping) throw new Error(ping.error)
+    expect(standing(kept, markEvent(ping.mark, ping.ttlMs, 'p', null))).toBe(kept)
   })
 })
