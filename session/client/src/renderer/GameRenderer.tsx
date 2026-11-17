@@ -20,6 +20,7 @@ import { LoadingScreen } from '@dnd/ui';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { attachCameraInput, fitMap, visibleViewport } from './cameraInput';
+import { watchSceneThumbnails } from './thumbnail';
 import { useSessionStore } from '../session/store';
 import { swapSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
@@ -200,6 +201,8 @@ export function GameRenderer() {
   useEffect(() => syncWorldToScene(), []);
   // The v2 desk around the map, in the theme's colours and dot grid; never the black void.
   useEffect(() => installTableDesk(setEditorDesk), []);
+  // F20: the DM's table pictures a loaded scene that has no thumbnail yet.
+  useEffect(() => watchSceneThumbnails(), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {
