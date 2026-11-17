@@ -1361,8 +1361,11 @@ describe('assets (D11)', () => {
       expect((await post(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x00]))).status).toBe(400)
       expect((await post(Buffer.alloc(0))).status).toBe(400)
 
-      // Over the 2MB cap, refused on the declared length before a byte is buffered.
-      expect((await post(Buffer.concat([PNG, Buffer.alloc(MAX_ASSET_BYTES)]))).status).toBe(413)
+      // Over the 2MB cap, refused on the declared length before a byte is buffered: a 413, or
+      // the hangup that follows it mid-write.
+      expect([413, 'refused']).toContain(
+        await post(Buffer.concat([PNG, Buffer.alloc(MAX_ASSET_BYTES)])).then((r) => r.status, () => 'refused'),
+      )
 
       // A player uploads their own PC's art (decision 16); a seat at another campaign cannot.
       expect((await post(PNG, playerToken)).status).toBe(201)
