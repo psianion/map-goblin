@@ -71,6 +71,30 @@ describe('Fog tab', () => {
     expect(useToasts.getState().toast?.action?.label).toBe('Undo');
   });
 
+  // T11 (I2) — the Outdoors row is a fog row like a room, so the bulk buttons carry it too.
+  it('reveals and hides the Outdoors row with the rooms', () => {
+    const sent = capture();
+    useSessionStore.setState({
+      session: session({ byScene: { a: { rooms: { '@outdoors': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: false } } }),
+    });
+    render(<FogBody />);
+    fireEvent.click(screen.getByTestId('fog-reveal-all'));
+    expect(Object.keys((sent[0]!.payload as { rooms: object }).rooms).sort()).toEqual(['@outdoors', 'r1', 'r2']);
+    fireEvent.click(screen.getByTestId('fog-hide-all'));
+    expect(sent[1]!.payload).toEqual({ rooms: { '@outdoors': { status: 're_hidden', wasEverRevealed: true } }, forget: true });
+  });
+
+  // T11 (I5) — a row hidden again is fogged fully for players, and the strip says so.
+  it('labels a row hidden again as Hidden', () => {
+    useSessionStore.setState({
+      session: session({ byScene: { a: { rooms: { r1: { status: 're_hidden', wasEverRevealed: true } }, concealBehindDoors: false } } }),
+    });
+    render(<FogStrip />);
+    const row = screen.getAllByRole('listitem').find((r) => r.getAttribute('data-room-id') === 'r1')!;
+    expect(within(row).getByText('Hidden')).toBeTruthy();
+    expect(within(row).queryByText('Explored')).toBeNull();
+  });
+
   it('switches the mode and picks a look', () => {
     const sent = capture();
     render(<FogBody />);

@@ -33,6 +33,12 @@ function useSceneTokens(): Token[] {
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** Table fix pass §4.5: the Outdoors fog rows, one per level as the referee keys them. */
+const outdoorRows = (levels: readonly { id: string; name: string }[]): { id: string; name: string }[] =>
+  levels.length > 1
+    ? levels.map((level) => ({ id: outdoorsId(level.id), name: `Outdoors, ${level.name}` }))
+    : [{ id: outdoorsId(), name: 'Outdoors' }];
+
 function useSceneFog() {
   const fogState = useModuleState<FogState>('fog');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -51,6 +57,7 @@ export function FogBody() {
   const shape = useFogBrush((s) => s.shape);
   const size = useFogBrush((s) => s.size);
   const authoredLook = useStore((s) => s.mapSettings.fogLook);
+  const levels = useStore((s) => s.levels);
   const [confirmReset, setConfirmReset] = useState(false);
   const mode = fogModeOf(fog);
   const armed = activeTool === 'fog';
@@ -116,7 +123,7 @@ export function FogBody() {
         <Caption data-testid="fog-no-party">No player token is on this map, so nothing is seen yet.</Caption>
       )}
       <div className="flex gap-1">
-        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-reveal-all" onClick={() => bulk(revealAllRooms(rooms), 'Revealed every room.')}>
+        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-reveal-all" onClick={() => bulk(revealAllRooms([...outdoorRows(levels), ...rooms]), 'Revealed every room.')}>
           Reveal all
         </Button>
         <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-hide-all" onClick={() => bulk(hideAllRooms(fog.rooms), 'Hid every explored room.', true)}>
@@ -190,12 +197,9 @@ export function FogStrip() {
     );
   }
   const sorted = [...rooms].sort((a, b) => (STATUS_RANK[roomFog(fog, a.id).status] ?? 3) - (STATUS_RANK[roomFog(fog, b.id).status] ?? 3));
-  // Table fix pass §4.5: Outdoors first (one row per level, as the referee keys them), then the
-  // rooms; a row where a party token stands carries a badge.
-  const outdoors =
-    levels.length > 1
-      ? levels.map((level) => ({ id: outdoorsId(level.id), name: `Outdoors, ${level.name}` }))
-      : [{ id: outdoorsId(), name: 'Outdoors' }];
+  // Table fix pass §4.5: Outdoors first, then the rooms; a row where a party token stands
+  // carries a badge.
+  const outdoors = outdoorRows(levels);
   const here = new Set(
     partyTokens(tokens).map((t) => {
       const room = roomAt(rooms, t.x, t.y);

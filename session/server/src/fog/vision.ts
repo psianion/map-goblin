@@ -430,9 +430,15 @@ export function createVision(stores: Stores): Vision {
     // Table fix pass §2.7: ground the table knows, for what a seat is sent — the cell record,
     // and every outdoor ground cell of a level whose Outdoors row is revealed (T10: now, not ever).
     const ground = knownGroundOf(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
-    const openGround = ground.outdoors
-      ? openGroundRings(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
-      : undefined
+    // T11: …and the outdoor ground a party eye sees now, so a Hide all (or an Outdoors row reset)
+    // with auto-explore off cannot leave the party blind on the ground it stands on.
+    const liveOutdoors = vision
+      ? seenOutdoorCells(map, fog, ground.outdoors, eyeLevels, sightOn, (level) => walks.gridFor(map, doors, crossings, sceneId, level))
+      : NO_LIVE_OUTDOORS
+    const openGround =
+      ground.outdoors || liveOutdoors.size > 0
+        ? openGroundRings(map, fog, (level) => walks.gridFor(map, doors, crossings, sceneId, level), liveOutdoors)
+        : undefined
     // §2.5: what the record may hold — ground, or within one cell of it, on any level.
     const levelIds = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevel]
     const nearGround = (x: number, y: number): boolean =>
@@ -1096,6 +1102,51 @@ function recordHasOutdoorCell(map: SceneMap, fog: SceneFog): boolean {
   return false
 }
 
+/** T11 — per level, the walk-grid cells of outdoor ground live sight sees now. */
+type LiveOutdoors = ReadonlyMap<string, ReadonlySet<number>>
+const NO_LIVE_OUTDOORS: LiveOutdoors = new Map()
+
+/**
+ * T11 — the outdoor ground cells (R2: ground, in no room, outside every outline) a party eye sees
+ * now, per level. A token always sees its surroundings in By sight, so this ground is owed to the
+ * seat however the record or the Outdoors row was reset (a Hide all with auto-explore off writes
+ * nothing back). Only asked where it adds anything: every level when no outdoor ground is known
+ * at all, else a ground-pieces level whose Outdoors row is not revealed.
+ */
+function seenOutdoorCells(
+  map: SceneMap,
+  fog: SceneFog,
+  outdoorsKnown: boolean,
+  levels: readonly string[],
+  sightOn: (levelId: string) => PartyVision | null,
+  gridOn: (levelId: string) => WalkGrid | null,
+): LiveOutdoors {
+  const frame = map.frame
+  if (!frame) return NO_LIVE_OUTDOORS
+  const out = new Map<string, Set<number>>()
+  for (const levelId of levels) {
+    const level = map.data.levels?.find((l) => l.id === levelId) ?? null
+    const base = !!baseGroundOf(map.data.mapSettings, level)
+    if (outdoorsKnown && (base || fog.rooms[outdoorsRowOf(map.data, levelId)]?.status === 'revealed')) continue
+    const sight = sightOn(levelId)
+    const grid = gridOn(levelId)
+    if (!sight?.eyes.length || !grid) continue
+    const enclosed = enclosedOn(map, levelId)
+    const cells = new Set<number>()
+    for (const eye of sight.eyes) {
+      for (const [col, row] of cellsCoveredByPolygon(eye.polygon, frame)) {
+        const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
+        const i = cellAt(grid, x, y)
+        if (i < 0 || cells.has(i) || grid.cell[i] === NO_GROUND_CELL) continue
+        if (map.roomAt(x, y) !== null || enclosed(x, y) || !seen(sight, x, y)) continue
+        cells.add(i)
+      }
+    }
+    if (cells.size > 0) out.set(levelId, cells)
+  }
+  return out.size > 0 ? out : NO_LIVE_OUTDOORS
+}
+
 type Ring = [number, number][]
 
 /** S3 — a level's open ground, kept with the walk grid it was cut from, keyed by what was known. */
@@ -1109,13 +1160,15 @@ const wholeCache = new WeakMap<SceneMap, Map<string, Ring[]>>()
  * On a level with base ground every outdoor cell is ground, so it is the frame with the level's
  * walled floors as holes, as it always was. S3: elsewhere (ground pieces only) it is the known
  * outdoor ground cells — all of them once the level's Outdoors row is revealed, else the record's
- * by sight — unioned, grown by the band pad and cut by the zoned walled floors and caves. So the
- * empty frame and a cave's rock far from any known ground stay under the fog.
+ * by sight, and (T11) the ones live sight sees now — unioned, grown by the band pad and cut by
+ * the zoned walled floors and caves. So the empty frame and a cave's rock far from any known
+ * ground stay under the fog.
  */
 function openGroundRings(
   map: SceneMap,
   fog: SceneFog,
   gridOn: (levelId: string) => WalkGrid | null,
+  live: LiveOutdoors = NO_LIVE_OUTDOORS,
 ): NonNullable<SerializedMapData['openGround']> {
   const f = map.frame!
   const frameRing: Ring = [
@@ -1138,11 +1191,13 @@ function openGroundRings(
     if (baseGroundOf(map.data.mapSettings, level) || !grid) return whole
     const outdoorsKnown = fog.rooms[outdoorsRowOf(map.data, levelId)]?.status === 'revealed'
     const pad = bandPad(map)
-    const key = `${outdoorsKnown}|${pad}|${region?.bits ?? ''}`
+    const seenNow = live.get(levelId)
+    const key = `${outdoorsKnown}|${pad}|${region?.bits ?? ''}|${seenNow ? [...seenNow].join(',') : ''}`
     const hit = openGroundCache.get(grid)
     if (hit && hit.key === key) return { levelId, rings: hit.rings }
     const enclosed = enclosedOn(map, levelId)
     const known = (i: number): boolean => {
+      if (seenNow?.has(i)) return true
       if (grid.cell[i] === NO_GROUND_CELL) return false
       const { x, y } = cellCentre(grid, i)
       return map.roomAt(x, y) === null && !enclosed(x, y) && (outdoorsKnown || inRecord(x, y))

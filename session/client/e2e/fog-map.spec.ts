@@ -1,5 +1,5 @@
 // @map: the Fog and Map tabs (plan section 7). Unrun until step T.
-import { expect, test } from './fixtures';
+import { dmCommands, expect, test } from './fixtures';
 
 test.describe('@map fog and map', () => {
   test('Fog: reveal and hide a room, rect, the look picker', async ({ hostSession }) => {
@@ -99,5 +99,42 @@ test.describe('@map the Fog tab after the fix pass', () => {
     await expect(page.getByTestId('fog-party-here').first()).toBeVisible();
     await page.getByTestId('fog-mode-vision').click();
     await expect(page.getByTestId('fog-mode-chip')).toHaveText('Fog: by sight');
+  });
+});
+
+// T11 (I1): Hide all, then Reveal all, in By sight. A party token always sees its surroundings,
+// so the player is still sent, and still shown, the ground the token stands on.
+test.describe('@map By sight after Hide all and Reveal all', () => {
+  test('a player still sees the ground they stand on', async ({ hostSession, joinAsPlayer }) => {
+    const { page } = hostSession;
+    const player = await joinAsPlayer('Pim');
+    type Probe = {
+      __sessionStore: {
+        getState(): {
+          you: { identityId: string } | null;
+          mapData: { openGround?: unknown[] } | null;
+          session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string; ownerId: string | null }>> } } } | null;
+        };
+      };
+    };
+    const me = await player.evaluate(() => (window as unknown as Probe).__sessionStore.getState().you!.identityId);
+    const bram = await page.evaluate(() => {
+      const st = (window as unknown as Probe).__sessionStore.getState();
+      return Object.values(st.session!.modules.tokens.byScene[st.session!.activeSceneId]).find((t) => t.name === 'Bram')!.id;
+    });
+    await dmCommands(hostSession.token, [{ module: 'tokens', action: 'assign', payload: { id: bram, identityId: me } }]);
+
+    await page.keyboard.press('1');
+    await page.getByTestId('fog-mode-vision').click();
+    await expect(page.getByTestId('fog-mode-vision')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('fog-hide-all').click();
+    await page.getByTestId('fog-reveal-all').click();
+    // Reveal all reveals the Outdoors row with the rooms (I2).
+    await expect(page.getByTestId('fog-rooms').locator('[data-room-id="@outdoors"]')).toHaveAttribute('data-fog-status', 'revealed');
+
+    // The player still holds the open ground under Bram, so the fog leaves it clear.
+    await expect
+      .poll(() => player.evaluate(() => ((window as unknown as Probe).__sessionStore.getState().mapData?.openGround?.length ?? 0) > 0))
+      .toBe(true);
   });
 });

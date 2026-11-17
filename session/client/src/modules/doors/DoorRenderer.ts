@@ -9,6 +9,7 @@
 // never behind a modal.
 
 import { Container, Graphics, Sprite } from 'pixi.js';
+import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { renderDoors } from '@dnd/core/src/engine/doorRenderer';
 import { lucideTexture } from '@dnd/core/src/engine/lucideIcons';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -308,9 +309,22 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   };
 
   const world = sceneGraph.worldContainer;
+  // T11: a door kit's slices decode on first use, so the first draw of a door can find them
+  // missing and fall back to core's glyph — for an open door, its swing arcs, which are editor
+  // marks. Core redraws its own copy when the textures land; this copy has to as well, or the
+  // arcs stay on a player's screen until the door next moves. Once a frame at most.
+  let artStale = false;
+  const unsubTextures = getAssetPackManager().subscribeTextures(() => {
+    artStale = true;
+  });
+
   const tick = () => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
+    if (artStale) {
+      artStale = false;
+      drawArt();
+    }
     applyStencil();
     if (fading.size > 0) draw();
   };
@@ -372,6 +386,7 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   return () => {
     canvas.removeEventListener('pointerdown', onDown);
     ticker.remove(tick);
+    unsubTextures();
     unsubDoors();
     unsubSelection();
     // The engine may already be gone (GameRenderer unmounting first).

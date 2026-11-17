@@ -27,11 +27,15 @@ import {
 import { liveDoors, type LiveDoor } from '../doors/doors';
 import type { FogPool } from './livingFog';
 
-/** What a DM reads for each status. The word is the state; colour never carries it alone. */
+/**
+ * What a DM reads for each status. The word is the state; colour never carries it alone.
+ * T11: a row revealed once and hidden again is fogged fully for players since T10, so it reads
+ * Hidden, not Explored.
+ */
 export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
   never_revealed: 'Unrevealed',
   revealed: 'Revealed',
-  re_hidden: 'Explored',
+  re_hidden: 'Hidden',
 };
 
 /** What clicking the room will do next — reveal anything dark, re-hide anything lit. */
@@ -391,8 +395,8 @@ export function roomAt<R extends Room>(rooms: readonly R[], x: number, y: number
   return hit ? rooms.find((room) => room.id === hit.id) : undefined;
 }
 
-/** D9 Reveal All: every room in the scene, latch set. */
-export function revealAllRooms(rooms: readonly Room[]): Record<string, RoomFog> {
+/** D9 Reveal All: every row given, latch set (T11: the caller passes the Outdoors rows too). */
+export function revealAllRooms(rooms: readonly Pick<Room, 'id'>[]): Record<string, RoomFog> {
   const next: Record<string, RoomFog> = {};
   for (const room of rooms) next[room.id] = { status: 'revealed', wasEverRevealed: true };
   return next;
