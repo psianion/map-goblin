@@ -101,18 +101,25 @@ export function syncWorldToScene(): () => void {
     ];
     if (!force && next.length === last.length && next.every((v, i) => v === last[i])) return;
     last = next;
-    setTableWorld(activeSky(), {
-      snap: getDarknessPreview() !== null,
-      allLit: dmLit() && you?.role === 'dm',
-    });
-    setTableRoomPlaces(activeRoomPlaces());
-    const level = activeLevel();
-    if (level && core.ui.activeLevelId !== level) core.setActiveLevelId(level);
+    // A failed pass is logged and forgotten, so the next store write tries again.
+    try {
+      setTableWorld(activeSky(), {
+        snap: getDarknessPreview() !== null,
+        allLit: dmLit() && you?.role === 'dm',
+      });
+      setTableRoomPlaces(activeRoomPlaces());
+      const level = activeLevel();
+      if (level && core.ui.activeLevelId !== level) core.setActiveLevelId(level);
+    } catch (err) {
+      console.error('[world] sync failed', err);
+      last = [];
+    }
   };
-  check();
+  // Subscribed before the first pass, so a first pass that throws still leaves this listening.
   const unsubPrefs = subscribeWorldPrefs(() => check(true));
   const unsubSession = useSessionStore.subscribe(() => check());
   const unsubMap = useStore.subscribe(() => check());
+  check();
   return () => {
     unsubPrefs();
     unsubSession();

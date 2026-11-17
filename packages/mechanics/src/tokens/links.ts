@@ -9,8 +9,27 @@
 
 import type { Token } from './types'
 
-/** The default seed: a claimed token is a player at the table (D7). */
-export const claimed = (token: Token): boolean => token.ownerId !== null
+/**
+ * The default seed: a claimed token is a player at the table (D7), and a PC nobody claimed
+ * sees for the whole party (table fix pass §2.4), so a DM running the PCs on one screen gets
+ * sight.
+ */
+export const claimed = (token: Token): boolean => token.ownerId !== null || token.kind === 'pc'
+
+/** The sight of a party token that sets none: 12 cells, normal vision (§2.4). */
+export const DEFAULT_SIGHT: NonNullable<Token['sight']> = { range: 12, angle: 360, visionMode: 'normal' }
+
+/**
+ * The party's eyes (§2.4): `sightParty`, with every player-owned token and every PC seeing
+ * whether or not "Sees" is on (`DEFAULT_SIGHT` when it sets none). A linked NPC sees only
+ * with sight of its own. The referee's sweep and every seat's mask both read this.
+ */
+export function eyes(tokens: readonly Token[], isSeed?: (token: Token) => boolean): Token[] {
+  return sightParty(tokens, isSeed).flatMap((token) => {
+    if (token.sight) return [token]
+    return token.ownerId !== null || token.kind === 'pc' ? [{ ...token, sight: DEFAULT_SIGHT }] : []
+  })
+}
 
 /**
  * The tokens whose sight the party owns: `isSeed` widened along `sharesSightWith`.

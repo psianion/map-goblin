@@ -3,22 +3,32 @@ import type { DoorChild } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
-import { bandScale, getCatalogEntry, getWallPieces } from '../assets/packCatalog';
+import { GRID_CELL_PX, bandScale, bandSetArt, getCatalogEntry, getWallPieces } from '../assets/packCatalog';
 import {
-  DOOR_SLICE_CELLS,
+  CAVE_PORT,
+  cavePortBars,
+  cavePortKey,
   doorKitFor,
   doorKitKey,
   doorKitOf,
+  doorShowsHinges,
   isKitStyle,
+  kitAt,
   kitWallSet,
   leafPoses,
   leafSlices,
+  wallRockDepth,
+  type CavePortPiece,
+  type DoorJamb,
   type DoorKit,
   type LeafPiece,
   type LeafPose,
 } from '../assets/doorKits';
 import { getAssetPackManager } from './assetPackInstance';
-import { standaloneWallLook, styleWallLook, type WallLook } from '../shared/wallLook';
+import { doorWallLook } from '../shared/wallLook';
+
+/** Lives in shared/wallLook.ts so the table's server can resolve a door's look; re-exported for callers. */
+export { doorWallLook };
 import { referenceBandPx } from './wallNodeRenderer';
 
 /**
@@ -63,8 +73,12 @@ export function renderResolvedDoor(
 ): void {
   const { door, position, angle: wallAngle } = resolved;
   if (!door.visible) return;
-  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it).
-  if (door.bare && !resolved.detached) return;
+  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it),
+  // but for a cave's jambs, which close its rock either side.
+  if (door.bare && !resolved.detached) {
+    renderCaveDoorway(container, resolved, style, ringStyles, edgeStyles);
+    return;
+  }
 
   // Fresh Graphics per door to avoid PixiJS v8 path accumulation
   const g = new Graphics();
@@ -106,6 +120,7 @@ export function renderResolvedDoor(
   // `door-<style>-<state>` entries below are for every other wall.
   const drewSprite =
     renderKitDoor(container, resolved, style, ringStyles, edgeStyles) ||
+    renderCaveDoorway(container, resolved, style, ringStyles, edgeStyles) ||
     renderDoorSprite(container, door, position, wallAngle, wallWidth);
   if (!drewSprite) {
     if (door.style === 'archway') {
@@ -356,7 +371,7 @@ function renderKitDoor(
     slices.set(piece, hit.tex);
   }
   // A door hung without hardware swaps in the bare hinge cap, when the pack has it.
-  if (door.hinges === false) {
+  if (!doorShowsHinges(door, kit)) {
     const plain = doorSpriteTexture(doorKitKey(kit, 'hinge-plain'));
     if (plain) slices.set('hinge', plain.tex);
   }
@@ -371,35 +386,15 @@ function renderKitDoor(
 
   // A kit's own jamb closes cave rock, so in a cave wall it is the size the rock is laid at.
   const jambScale = wallKit?.id === 'cave' ? bandScale(wallWidth) : 1;
-  renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint, jambScale);
+  renderKitJambs(container, kit, setId, position, angle, door.width, wallWidth, wallTint, jambScale, door.jamb);
   const leafTint = hexColor(kit.tint);
+  // A cave leaf is as deep as the rock it hangs in.
+  const laid = kitAt(kit, wallWidth);
   for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
-    container.addChild(buildLeaf(pose, kit, slices, 0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET));
-    container.addChild(buildLeaf(pose, kit, slices, leafTint, 1, [0, 0]));
+    container.addChild(buildLeaf(pose, laid, slices, 0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET));
+    container.addChild(buildLeaf(pose, laid, slices, leafTint, 1, [0, 0]));
   }
   return true;
-}
-
-/**
- * The look of the wall a door sits in, resolved the way `renderNodeWalls` lays
- * it: a drawn wall's own pins, a floor ring's pins (a preset pins the floors it
- * found), else the layer's. Which kit the door is built from follows the set.
- */
-export function doorWallLook(
-  resolved: ResolvedDoor,
-  style: DungeonStyle,
-  ringStyles?: readonly DungeonStyle[],
-  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
-): WallLook {
-  const wall = resolved.wall;
-  if (wall?.kind === 'standalone') return standaloneWallLook(wall, style);
-  if (wall?.kind === 'floor' && wall.ring !== undefined) {
-    const edge = wall.edge !== undefined ? edgeStyles?.[wall.ring]?.[wall.edge] : undefined;
-    return styleWallLook(edge ?? ringStyles?.[wall.ring] ?? style);
-  }
-  const look = styleWallLook(style);
-  // A painted cave's wall: its rock's own width when its floors pin one.
-  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint, width: wall?.bandWidth ?? look.width };
 }
 
 function hexColor(hex: string): number {
@@ -424,7 +419,7 @@ function buildLeaf(
     sprite.anchor.set(0, 0.5);
     sprite.position.set(s.x - SLICE_SEAM, 0);
     sprite.width = s.length + 2 * SLICE_SEAM;
-    sprite.height = DOOR_SLICE_CELLS;
+    sprite.height = kit.sliceCells;
     sprite.tint = tint;
     leaf.addChild(sprite);
   }
@@ -438,7 +433,8 @@ function buildLeaf(
  * raw edge; the set's own end cap is laid over the last stretch of each side,
  * its finished face on the opening's edge, scaled to the wall's width the way
  * the layout scales it at a free end. A kit with its own jamb (the cave) draws
- * that at each edge instead, mirrored on the far side.
+ * that at each edge instead, mirrored on the far side: the fitted pair of rocks,
+ * one rock, or none, as the door's `jamb` says.
  */
 function renderKitJambs(
   container: Container,
@@ -450,6 +446,7 @@ function renderKitJambs(
   wallWidth: number,
   tint: number,
   jambScale: number,
+  jamb: DoorJamb = 'fit',
 ): void {
   const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
   const half = width / 2;
@@ -487,7 +484,9 @@ function renderKitJambs(
     return;
   }
 
-  const hit = doorSpriteTexture(doorKitKey(kit, 'jamb'));
+  if (jamb === 'none') return;
+  // A pack from before the one-rock jamb has the fitted pair only.
+  const hit = (jamb === 'one' ? doorSpriteTexture(doorKitKey(kit, 'jamb-one')) : null) ?? doorSpriteTexture(doorKitKey(kit, 'jamb'));
   if (!hit) return;
   const j = kit.jamb;
   for (const { at, into } of edges) {
@@ -501,6 +500,159 @@ function renderKitJambs(
     sprite.tint = tint;
     container.addChild(sprite);
   }
+}
+
+/**
+ * A portcullis, archway or opening in a cave wall, in the door kit's ink: a
+ * portcullis's iron gate (its floor slot and sockets when raised), or an
+ * archway's rock carried across overhead, see-through; then the jambs either
+ * side, as the door's `jamb` says. An opening is the jambs alone.
+ *
+ * False when the wall is not a cave's or a portcullis's pieces are not
+ * installed, so the caller falls back to the sprite or glyph as before.
+ */
+function renderCaveDoorway(
+  container: Container,
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+  ringStyles?: readonly DungeonStyle[],
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
+): boolean {
+  const { door, position, angle } = resolved;
+  if (door.style !== 'portcullis' && door.style !== 'archway') return false;
+  const look = doorWallLook(resolved, style, ringStyles, edgeStyles);
+  const kit = doorKitFor(look.setId);
+  if (kit?.hang !== 'band' || !look.setId) return false;
+  const s = bandScale(look.width);
+  if (door.style === 'portcullis') {
+    const rock = wallRockDepth(look.width, kit);
+    if (!renderCavePortcullis(container, position, angle, door.width, rock, s, door.state !== 'open')) return false;
+  } else if (!door.bare) {
+    renderRockOverhead(container, look.setId, position, angle, door.width, s);
+  }
+  renderKitJambs(container, kit, look.setId, position, angle, door.width, look.width, 0xffffff, s, door.jamb);
+  return true;
+}
+
+/**
+ * The cave portcullis, along the wall line. Down: a thin iron beam run past both
+ * edges under the jambs, with square bar ends spaced along it, on a drop shadow
+ * like a leaf's. Raised: only the dashed slot it drops into and a socket per bar.
+ * The beam and slot are 0.5-cell tiles, as many as come closest, sharing the run.
+ */
+function renderCavePortcullis(
+  container: Container,
+  position: [number, number],
+  angle: number,
+  width: number,
+  rock: number,
+  s: number,
+  down: boolean,
+): boolean {
+  const pieces: CavePortPiece[] = down ? ['beam', 'bar-a', 'bar-b'] : ['slot', 'socket'];
+  const tex = new Map<CavePortPiece, Texture>();
+  for (const p of pieces) {
+    const hit = doorSpriteTexture(cavePortKey(p));
+    if (!hit) return false;
+    tex.set(p, hit.tex);
+  }
+  const bars = cavePortBars(width, rock);
+  const barAt = (i: number) => -width / 2 + ((i + 0.5) * width) / bars.count;
+
+  const gate = (tint: number, alpha: number, offset: [number, number]): Container => {
+    const c = new Container();
+    c.position.set(position[0] + offset[0], position[1] + offset[1]);
+    c.rotation = angle;
+    c.alpha = alpha;
+    const run = (piece: CavePortPiece, from: number, length: number, height: number) => {
+      const n = Math.max(1, Math.round(length / (CAVE_PORT.tile * s)));
+      for (let i = 0; i < n; i++) {
+        const sprite = new Sprite(tex.get(piece)!);
+        sprite.anchor.set(0, 0.5);
+        sprite.position.set(from + (i * length) / n - SLICE_SEAM, 0);
+        sprite.width = length / n + 2 * SLICE_SEAM;
+        sprite.height = height;
+        sprite.tint = tint;
+        c.addChild(sprite);
+      }
+    };
+    const dot = (piece: CavePortPiece, x: number, side: number) => {
+      const sprite = new Sprite(tex.get(piece)!);
+      sprite.anchor.set(0.5);
+      sprite.position.set(x, 0);
+      sprite.width = side;
+      sprite.height = side;
+      sprite.tint = tint;
+      c.addChild(sprite);
+    };
+    if (down) {
+      // Past each edge by a little, so its cut ends sit under the jambs.
+      run('beam', -width / 2 - 0.04, width + 0.08, CAVE_PORT.beamCanvas * s);
+      const side = (CAVE_PORT.barCanvas * bars.side) / CAVE_PORT.bar;
+      for (let i = 0; i < bars.count; i++) dot(i % 2 ? 'bar-b' : 'bar-a', barAt(i), side);
+    } else {
+      run('slot', -width / 2, width, CAVE_PORT.slotCanvas * s);
+      const side = (CAVE_PORT.socketCanvas * bars.side) / CAVE_PORT.bar;
+      for (let i = 0; i < bars.count; i++) dot('socket', barAt(i), side);
+    }
+    return c;
+  };
+  if (down) container.addChild(gate(0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET));
+  container.addChild(gate(0xffffff, 1, [0, 0]));
+  return true;
+}
+
+/** The band's straight pieces, in the order they are laid across an archway. */
+const OVERHEAD_RUN = ['wall_short_2x6', 'wall_short_2x4', 'wall_short_2x6', 'wall_short_2x2'];
+/** How strongly an archway's rock shows over its gap: enough to read as overhead, not as wall. */
+const OVERHEAD_ALPHA = 0.42;
+
+/**
+ * An archway's rock: the band's own straight pieces laid along the wall line
+ * across the gap, at the size the rock is laid at, cut at the opening's edges
+ * and see-through, so the gap reads as a passage under the rock.
+ */
+function renderRockOverhead(
+  container: Container,
+  setId: string,
+  position: [number, number],
+  angle: number,
+  width: number,
+  s: number,
+): void {
+  const art = bandSetArt(setId);
+  const arch = new Container();
+  arch.position.set(position[0], position[1]);
+  arch.rotation = angle;
+  arch.alpha = OVERHEAD_ALPHA;
+  const rock = new Container();
+  // Started a way back from the edge, so a joint does not land on it.
+  let x = -width / 2 - 1.3 * s;
+  for (let i = 0; x < width / 2; i++) {
+    const entry = art.get(OVERHEAD_RUN[i % OVERHEAD_RUN.length]);
+    if (!entry) return;
+    const tex = resolveTexture(entry.id);
+    if (tex.width <= 1) {
+      doorArtMissed = true;
+      return;
+    }
+    // Pieces stand upright on their canvas; a quarter turn lays their length along the wall.
+    const length = (entry.naturalHeight / GRID_CELL_PX) * s;
+    const sprite = new Sprite(tex);
+    const cr = entry.contentRect;
+    if (cr) sprite.anchor.set((entry.naturalWidth / 2 - cr.x) / cr.w, (entry.naturalHeight / 2 - cr.y) / cr.h);
+    else sprite.anchor.set(0.5);
+    sprite.position.set(x + length / 2, 0);
+    sprite.rotation = Math.PI / 2;
+    const k = (((cr ? cr.w : entry.naturalWidth) / tex.width) * s) / GRID_CELL_PX;
+    sprite.scale.set(k);
+    rock.addChild(sprite);
+    x += length;
+  }
+  const mask = new Graphics().rect(-width / 2, -2 * s - 1, width, 4 * s + 2).fill(0xffffff);
+  rock.mask = mask;
+  arch.addChild(mask, rock);
+  container.addChild(arch);
 }
 
 // Stroke width proportional to wall — thin enough to read as a symbol, not a filled shape.

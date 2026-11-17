@@ -1,4 +1,4 @@
-import type { AnyChild, DoorChild } from '@dnd/core/src/shared/types';
+import type { AnyChild, DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { MapDelta, Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -108,6 +108,17 @@ function keepLiveDoorState(existing: AnyChild, next: AnyChild): AnyChild {
 }
 
 /**
+ * R1 — a stand-in (`Room.standIn`) travels under an opaque id, so the room that later replaces it
+ * (the real one, once earned, or a fresh stand-in) is matched by its face: any held stand-in whose
+ * face an incoming room carries is dropped before the incoming rooms are folded in.
+ */
+function withoutReplacedStandIns(current: readonly Room[], incoming: readonly Room[]): Room[] {
+  const faces = new Set(incoming.map((room) => JSON.stringify(room.boundary ?? room.face ?? [])));
+  const kept = current.filter((room) => !room.standIn || !faces.has(JSON.stringify(room.boundary ?? room.face ?? [])));
+  return kept.length === current.length ? (current as Room[]) : kept;
+}
+
+/**
  * §2.4.5 / D5 — fold a reveal's geometry into the loaded map.
  *
  * The result goes back through `setMapData`, so it lands in the engine down the same
@@ -125,7 +136,9 @@ export function mergeMapDelta(
   role: Role | undefined,
   loadedSceneId: string | null | undefined,
 ): SerializedMapData | null {
-  if (!current || !delta?.layers?.length) return current;
+  // Table fix pass §2.7: the first outdoor cell a seat knows arrives as a delta with open ground
+  // and no layers, so an empty layer list is not "nothing to merge" when it carries that.
+  if (!current || (!delta?.layers?.length && !delta?.openGround)) return current;
   if (loadedSceneId && delta.sceneId !== loadedSceneId) return current;
 
   const byId = new Map(delta.layers.map((layer) => [layer.id, layer]));
@@ -135,12 +148,13 @@ export function mergeMapDelta(
     // exactly what widens the ground a contained near pass may open, so the mask that fences
     // it has to arrive in the same message the art does (`MapDelta.lockMask`).
     ...(delta.lockMask ? { lockMask: delta.lockMask } : {}),
+    ...(delta.openGround ? { openGround: delta.openGround } : {}),
     layers: current.layers.map((layer) => {
       const patch = byId.get(layer.id);
       if (!patch || layer.type !== 'dungeon') return layer;
       return {
         ...layer,
-        rooms: upsertById(layer.rooms ?? [], patch.rooms ?? []),
+        rooms: upsertById(withoutReplacedStandIns(layer.rooms ?? [], patch.rooms ?? []), patch.rooms ?? []),
         children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
       };

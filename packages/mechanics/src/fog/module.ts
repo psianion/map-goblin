@@ -6,7 +6,7 @@
 // Rooms live in the map file, not in module state, so the module is built with a lookup
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
-import { dropScene, type GameModule, type ModuleContext } from '../contract'
+import { dropScene, type GameModule, type ModuleContext, type Viewer } from '../contract'
 import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook.ts'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
@@ -17,15 +17,19 @@ import {
   orRegion,
   regionFor,
   setCells,
+  toBytes,
   type Cell,
   type Frame,
   type RegionMask,
 } from './region'
 import {
   FOG_MODES,
+  PARTY_HERE,
   ROOM_FOG_STATUSES,
   VISION_SHARES,
+  fogModeOf,
   identityRegion,
+  isOutdoorsId,
   roomFogOf,
   sceneFogOf,
   tableRegion,
@@ -62,6 +66,28 @@ export type SceneRoomAt = (
   y: number,
 ) => string | null
 
+/**
+ * Table fix pass §2.7 — the room and Outdoors ids a player seat may see right now, computed by
+ * the server, which sends them on the fog slice (`SceneFog.visible`). Null = nothing to say.
+ */
+export type SceneVisible = (sceneId: string, viewer: Viewer) => readonly string[] | null
+
+/**
+ * Table fix pass §2.1 / §2.5 — whether a world point is ground, or within one cell of it, on any
+ * level: what the record may hold away from rooms. Injected like {@link SceneRoomAt}.
+ */
+export type SceneGroundAt = (campaignId: string, sceneId: string, x: number, y: number) => boolean
+
+/**
+ * T10 — the fog rows a player holds right now, computed by the server (the rooms whose geometry
+ * the seat is sent). Null = no map to judge by, and the slice falls back to {@link heldRow}.
+ */
+export type SceneHeld = (sceneId: string) => ReadonlySet<string> | null
+
+/** T10 — held without a map to judge by: revealed now, or in By sight latched by the record. */
+const heldRow = (scene: SceneFog, room: RoomFog): boolean =>
+  room.status === 'revealed' || (fogModeOf(scene) === 'vision' && room.wasEverRevealed)
+
 const REGION_OPS = ['reveal', 'hide'] as const
 
 type Ctx = ModuleContext<FogState>
@@ -71,6 +97,9 @@ export function fogModule(
   roomsOf: SceneRooms,
   frameOf: SceneFrame = () => null,
   roomAtOf: SceneRoomAt = () => null,
+  visibleOf: SceneVisible = () => null,
+  groundAtOf: SceneGroundAt = () => false,
+  heldOf: SceneHeld = () => null,
 ): GameModule<FogState> {
   return {
     name: 'fog',
@@ -97,16 +126,18 @@ export function fogModule(
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf, groundAtOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
       }
     },
 
-    // D4: a player is told about the rooms they have seen and nothing else. Never-revealed
-    // rooms are absent whole — their ids and their *count* are exactly what must not leak,
-    // so a status field would not be enough. Idempotent: re-filtering drops nothing new.
+    // D4: a player is told about the rooms they hold and nothing else. Never-revealed rooms
+    // are absent whole — their ids and their *count* are exactly what must not leak, so a
+    // status field would not be enough. Idempotent: re-filtering drops nothing new.
+    // T10: held is now, not ever — a room the DM hid again leaves the slice (and the seat
+    // re-fetches its cut when one does), so its id goes where its geometry goes.
     //
     // The vision-mode fields ride the spread whole (mode, share, autoExplore, region): the
     // first three are settings the client has to render the same way the DM set them, and
@@ -123,16 +154,19 @@ export function fogModule(
       const byScene: FogState['byScene'] = {}
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
         const rooms: Record<string, RoomFog> = {}
+        const held = heldOf(sceneId)
         for (const [roomId, fog] of Object.entries(scene.rooms)) {
-          if (fog.wasEverRevealed) rooms[roomId] = fog
+          if (held ? held.has(roomId) : heldRow(scene, fog)) rooms[roomId] = fog
         }
         // Stripped in *both* shares: a table the DM flipped back to party still holds the
         // per-seat records (nothing is ever destroyed), and they are nobody's but the DM's.
         const { regions, ...rest } = scene
+        const seen = visibleOf(sceneId, viewer)
+        const kept: SceneFog = seen ? { ...rest, rooms, visible: [...seen] } : { ...rest, rooms }
         byScene[sceneId] =
           regions && visionShareOf(scene) === 'individual'
-            ? { ...rest, rooms, region: identityRegion(scene, viewer.identityId) }
-            : { ...rest, rooms }
+            ? { ...kept, region: identityRegion(scene, viewer.identityId) }
+            : kept
       }
       // Same rule as the rooms: a line about a room is readable exactly when the room is,
       // so a reveal in a wing the party has never entered is not on this wire at all. A
@@ -156,6 +190,7 @@ function run(
   roomsOf: SceneRooms,
   frameOf: SceneFrame,
   roomAtOf: SceneRoomAt,
+  groundAtOf: SceneGroundAt,
 ): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneFogOf(ctx.state, sceneId)
@@ -173,11 +208,15 @@ function run(
     case 'hide': {
       const id = roomId(p, ctx, sceneId, roomsOf)
       if (!roomFogOf(scene, id).wasEverRevealed) bad('a room nobody has seen cannot be hidden')
-      return setRooms(
+      // T10: Hide fogs the room fully again, so its cells leave the record too.
+      return setScene(
         ctx,
         sceneId,
-        scene,
-        { ...scene.rooms, [id]: { status: 're_hidden', wasEverRevealed: true } },
+        {
+          ...scene,
+          ...forgetRows(scene, [id], ctx, sceneId, frameOf, roomAtOf),
+          rooms: { ...scene.rooms, [id]: { status: 're_hidden', wasEverRevealed: true } },
+        },
         { action: 'hid-room', targetId: id },
       )
     }
@@ -193,7 +232,13 @@ function run(
     }
     case 'set-bulk': {
       const rooms = parseRooms(p.rooms, ctx, sceneId, roomsOf)
-      return setRooms(ctx, sceneId, scene, rooms, {
+      // T10: Hide all says `forget`, and every row it leaves unrevealed leaves the record as well
+      // (Outdoors too, which a sweep records without latching). An undo does not say it, so
+      // taking back a Reveal all leaves the swept ground where it was.
+      const hidden = roomsOf(ctx.campaignId, sceneId).filter((id) => rooms[id]?.status !== 'revealed')
+      const forgotten =
+        p.forget !== undefined && bool(p.forget, 'forget') ? forgetRows(scene, hidden, ctx, sceneId, frameOf, roomAtOf) : {}
+      return setScene(ctx, sceneId, { ...scene, ...forgotten, rooms }, {
         action: bulkAction(rooms, roomsOf(ctx.campaignId, sceneId).length),
       })
     }
@@ -303,7 +348,7 @@ function run(
       // `hide` is deliberately unfiltered: a record written before this rule still holds
       // off-floor cells, and the DM's eraser is the one hand that can take them back.
       const brushed =
-        op === 'reveal' ? brushReveal(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf) : null
+        op === 'reveal' ? brushReveal(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf, groundAtOf) : null
       const paint = (mask: RegionMask): RegionMask =>
         brushed ? setCells(mask, brushed.cells) : clearCells(mask, cells)
       // A brush stroke is a reveal-shaped DM act like the room buttons are, so it reads back
@@ -369,6 +414,20 @@ function run(
         rooms,
       })
     }
+    // Server-internal, like `auto-explore` (table fix pass §2.6): By hand mode reveals the room,
+    // or Outdoors, that a player's token or a PC is put in, and stores it. One write for every
+    // row named; a row already lit is left alone, so standing still writes nothing.
+    case PARTY_HERE: {
+      const rooms = { ...scene.rooms }
+      let changed = false
+      for (const id of parseRoomIds(p.rooms, ctx, sceneId, roomsOf)) {
+        if (rooms[id]?.status === 'revealed') continue
+        rooms[id] = { status: 'revealed', wasEverRevealed: true }
+        changed = true
+      }
+      if (changed) setScene(ctx, sceneId, { ...scene, rooms })
+      return
+    }
     default:
       bad(`fog has no action '${action}'`)
   }
@@ -399,6 +458,7 @@ function brushReveal(
   sceneId: string,
   roomsOf: SceneRooms,
   roomAtOf: SceneRoomAt,
+  groundAtOf: SceneGroundAt,
 ): { cells: Cell[]; rooms: Record<string, RoomFog> } {
   const authored = roomsOf(ctx.campaignId, sceneId)
   const unlatched = new Set(authored.filter((id) => !scene.rooms[id]?.wasEverRevealed))
@@ -413,7 +473,14 @@ function brushReveal(
     // cell — a band cell is in no room and ships none, and the stroke's interior cells are what
     // latch the room its band belongs to.
     // `id` already answers the centre, so a cell well inside a room never pays the band scan.
-    if (id === null && !nearAuthoredFloor(authored.length, roomAt, x, y)) continue
+    // Table fix pass §2.5: outdoor ground (and its one-cell band) is as much the record's as a
+    // room's floor, so a DM can brush open ground in vision mode.
+    if (
+      id === null &&
+      !groundAtOf(ctx.campaignId, sceneId, x, y) &&
+      !nearAuthoredFloor(authored.length, roomAt, x, y)
+    )
+      continue
     kept.push([col, row])
     // `delete` is the guard as well as the bookkeeping: false means the cell landed on a room
     // the map does not author, on none at all (a roomless map, where every cell is floor), or
@@ -449,6 +516,58 @@ function shareMerge(scene: SceneFog, share: VisionShare): Pick<SceneFog, 'region
 }
 
 /** One brush stroke applied to every per-identity record, each in the current frame. */
+/**
+ * T10 — what Hide does to the cell record: every cell of the hidden rows leaves the party's
+ * record and every seat's. A room takes the cells inside it and its one-cell wall band (cells in
+ * no room beside it); an Outdoors row takes every cell in no room. Nothing changes on a scene
+ * that keeps no record or has no map to place a cell by.
+ */
+function forgetRows(
+  scene: SceneFog,
+  rows: readonly string[],
+  ctx: Ctx,
+  sceneId: string,
+  frameOf: SceneFrame,
+  roomAtOf: SceneRoomAt,
+): Pick<SceneFog, 'region' | 'regions'> {
+  const frame = frameOf(ctx.campaignId, sceneId)
+  if (!frame || rows.length === 0 || (!scene.region && !scene.regions)) return {}
+  const hidden = new Set(rows)
+  const outdoors = rows.some(isOutdoorsId)
+  const inHidden = (x: number, y: number): boolean => {
+    const id = roomAtOf(ctx.campaignId, sceneId, x, y)
+    return id !== null && hidden.has(id)
+  }
+  const forgets = (x: number, y: number): boolean => {
+    if (roomAtOf(ctx.campaignId, sceneId, x, y) !== null) return inHidden(x, y)
+    if (outdoors) return true
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) if (inHidden(x + dx, y + dy)) return true
+    }
+    return false
+  }
+  // Every record is normalised to the same frame (`regionFor`), so a bit is one cell in all of them.
+  const memo = new Map<number, boolean>()
+  const forget = (mask: RegionMask): RegionMask => {
+    const bytes = toBytes(mask.bits)
+    const cells: Cell[] = []
+    for (let bit = 0; bit < mask.cols * mask.rows; bit++) {
+      if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+      const col = bit % mask.cols
+      const row = (bit - col) / mask.cols
+      let hit = memo.get(bit)
+      if (hit === undefined) memo.set(bit, (hit = forgets(mask.minX + col + 0.5, mask.minY + row + 0.5)))
+      if (hit) cells.push([col, row])
+    }
+    return cells.length ? clearCells(mask, cells) : mask
+  }
+  const region = scene.region && regionFor(scene.region, frame)
+  return {
+    ...(region ? { region: forget(region) } : {}),
+    ...(scene.regions ? { regions: paintAll(scene.regions, frame, forget) } : {}),
+  }
+}
+
 function paintAll(
   regions: Record<string, RegionMask>,
   frame: Frame,

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FloatBox, Input, PrimaryButton } from '@dnd/ui';
+import { FloatBox, Input, PrimaryButton, SecondaryButton } from '@dnd/ui';
 import { navigate } from '../router';
 import { joinAsPlayer, resolveInviteCode } from '../session/auth';
 import { prepareTableForJoin } from '../session/prepareTableForJoin';
+import { rememberSeat, rememberedSeat, type RememberedSeat } from '../session/seatMemory';
 import { useSessionStore } from '../session/store';
 
 /**
@@ -16,24 +17,48 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
   const [busy, setBusy] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** F2: the table this code opens, and the seat this browser last held at it. */
+  const [table, setTable] = useState<{ campaignId: string; sessionId: string } | null>(null);
+  const [seat, setSeat] = useState<RememberedSeat | null>(null);
 
+  // A code from the link is checked on mount; a typed one once it is whole.
+  const checked = (linkCode ?? '').toUpperCase() === code ? code : code.length === 6 ? code : '';
   useEffect(() => {
-    if (!linkCode) return;
+    if (!checked) return;
     let live = true;
-    resolveInviteCode(linkCode.toUpperCase()).then(
-      () => live && setFound(true),
-      (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
+    resolveInviteCode(checked).then(
+      (found) => {
+        if (!live) return;
+        setFound(true);
+        setTable(found);
+        setSeat(rememberedSeat(found.campaignId));
+      },
+      (e: unknown) => live && linkCode && setError(e instanceof Error ? e.message : String(e)),
     );
     return () => {
       live = false;
     };
-  }, [linkCode]);
+  }, [checked, linkCode]);
 
-  const join = async () => {
+  /**
+   * Into the table. `again`: the remembered seat. The same session takes the seat back as it
+   * was; a new session joins under the remembered name, which the server answers by handing
+   * back the token that name held.
+   */
+  const join = async (again?: RememberedSeat) => {
     setBusy(true);
     setError(null);
     try {
-      const player = await joinAsPlayer(code.trim(), name.trim());
+      const sameSeat = again && table && again.sessionId === table.sessionId ? again : null;
+      const player = sameSeat
+        ? { token: sameSeat.token, identityId: sameSeat.identityId, campaignId: table!.campaignId, sessionId: sameSeat.sessionId }
+        : await joinAsPlayer(code.trim(), (again?.name ?? name).trim());
+      rememberSeat(player.campaignId, {
+        name: (again?.name ?? name).trim(),
+        identityId: player.identityId,
+        token: player.token,
+        sessionId: player.sessionId,
+      });
       useSessionStore.getState().connect(player.token);
       setPreparing(true);
       await prepareTableForJoin(player.token);
@@ -60,6 +85,11 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
             <h1 className="text-xl font-medium">Join a game</h1>
             {found && <p className="mt-1 text-sm text-text-2">Table found. Who are you?</p>}
           </header>
+          {seat && (
+            <SecondaryButton type="button" disabled={busy} data-testid="join-continue" onClick={() => void join(seat)}>
+              Continue as {seat.name}
+            </SecondaryButton>
+          )}
           <label className="flex flex-col gap-1 text-xs text-text-2" htmlFor="invite-code">
             Invite code
             <Input

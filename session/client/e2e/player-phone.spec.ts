@@ -23,8 +23,8 @@ test.describe('@player player shell', () => {
     }
   });
 
-  test('phone: bottom tabs, the log sheet, find me, long-press pings', async ({ hostSession, browser }) => {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  test('phone: bottom tabs, the log sheet, find me, long-press pings', async ({ hostSession, newContext }) => {
+    const context = await newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const phone = await context.newPage();
     await phone.goto(`/join/${hostSession.inviteCode}?e2e=1`);
     await phone.locator('#player-name').fill('Yara');
@@ -52,6 +52,38 @@ test.describe('@player player shell', () => {
       // A long press: held past the threshold with no pointerup and no movement.
       await expect(phone.locator('[data-mark="ping"]')).toHaveCount(1, { timeout: 3000 });
     }
-    await context.close();
+  });
+});
+
+// Table fix pass section 4 at 390 by 844: the prompt stack, the status chips and the title card
+// fit a phone, and nothing scrolls sideways.
+test.describe('@phone the fix pass at phone width', () => {
+  test('prompts stack inside the screen, chips show, and the page never scrolls sideways', async ({ hostSession, newContext }) => {
+    const context = await newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const phone = await context.newPage();
+    await phone.goto(`/join/${hostSession.inviteCode}?e2e=1`);
+    await phone.locator('#player-name').fill('Yara');
+    await phone.getByRole('button', { name: 'Join' }).click();
+    await assertMapLoaded(phone);
+
+    const { page } = hostSession;
+    await page.keyboard.press('3');
+    await page.getByRole('button', { name: 'Lock movement' }).click();
+    await expect(phone.getByTestId('locked-chip')).toBeVisible();
+    await page.keyboard.press('8');
+    await page.getByTestId('ask-send').click();
+    const card = phone.getByTestId('prompt-stack').getByTestId('roll-prompt');
+    await expect(card).toBeVisible();
+    const box = (await card.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    // On a failure, name what sticks out past the right edge: the outermost element of each run.
+    const past = await phone.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('body *'))
+        .filter((el) => el.getBoundingClientRect().right > 390 && !(el.parentElement && el.parentElement.getBoundingClientRect().right > 390))
+        .map((el) => `${el.tagName.toLowerCase()}${el.dataset.testid ? `[data-testid=${el.dataset.testid}]` : ''} class="${el.getAttribute('class') ?? ''}" right=${Math.round(el.getBoundingClientRect().right)}`)
+        .slice(0, 10),
+    );
+    expect(await phone.evaluate(() => document.documentElement.scrollWidth), past.join('\n')).toBeLessThanOrEqual(390);
   });
 });

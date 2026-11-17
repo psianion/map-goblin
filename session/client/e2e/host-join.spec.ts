@@ -1,5 +1,5 @@
 // @host: the host flow and joining (plan section 7). Unrun until step T.
-import { ADMIN_PASS, DEMO_MAP, SERVER_URL, expect, holdDmPass, joinTable, standUpTable, test } from './fixtures';
+import { ADMIN_PASS, DEMO_MAP, SERVER_URL, expect, holdDmPass, joinTable, mintHandoff, standUpOutdoorCave, standUpTable, test } from './fixtures';
 
 test.describe('@host host and join', () => {
   test('three steps with Back, library cards, starting room, QR, and in', async ({ page }) => {
@@ -44,7 +44,8 @@ test.describe('@host host and join', () => {
   });
 
   test('a handoff from the canvas lands on the Map step with the campaign chosen', async ({ page }) => {
-    const table = await standUpTable('Handoff spec');
+    // No live table: with one open the handoff resumes it instead (F1, `live-table.spec.ts`).
+    const table = await standUpOutdoorCave('Handoff spec');
     const res = await fetch(`${SERVER_URL}/api/campaigns/${table.campaignId}/handoff`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${table.token}` },
@@ -58,11 +59,34 @@ test.describe('@host host and join', () => {
     expect(new URL(page.url()).hash).toBe('');
   });
 
-  test('a player joins and waits while no scene is live, then sees the table', async ({ hostSession, browser }) => {
-    const player = await (await browser.newContext()).newPage();
+  test('a player joins and waits while no scene is live, then sees the table', async ({ hostSession, newContext }) => {
+    const player = await (await newContext()).newPage();
     await joinTable(player, hostSession.inviteCode, 'Pia');
     await expect(hostSession.page.getByTestId('presence-avatar')).toHaveCount(2);
     await expect(player.getByTestId('title-card')).toBeVisible();
-    await player.context().close();
+  });
+});
+
+// Table fix pass F18 and F2: the wizard offers Party start on a map that has one, and a player
+// who comes back to the link is offered "Continue as".
+test.describe('@host party start and Continue as', () => {
+  test('a map with a party start offers that tile first, and the outline tiles beside it', async ({ page }) => {
+    const table = await standUpOutdoorCave(`Party start ${Date.now().toString(36)}`);
+    await holdDmPass(page, table);
+    const code = await mintHandoff(table, table.sceneId);
+    await page.goto(`/host?e2e=1#handoff=${code}`);
+    await expect(page.getByTestId('start-party')).toBeVisible();
+    await expect(page.getByTestId('start-centre')).toHaveCount(0);
+    await page.getByTestId('start-party').click();
+    await page.getByTestId('host-open').click();
+    await expect(page.getByTestId('invite-qr')).toBeVisible();
+  });
+
+  test('a returning browser is offered "Continue as" with the name it used', async ({ page }) => {
+    const table = await standUpTable(`Continue ${Date.now().toString(36)}`);
+    await joinTable(page, table.inviteCode, 'Pim');
+    const again = await page.context().newPage();
+    await again.goto(`/join/${table.inviteCode}?e2e=1`);
+    await expect(again.getByTestId('join-continue')).toContainText('Pim');
   });
 });

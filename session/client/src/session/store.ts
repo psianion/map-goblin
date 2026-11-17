@@ -10,7 +10,7 @@ import type {
   ServerMessage,
   SessionState,
 } from '@dnd/core/src/shared/protocol';
-import { receiveMark } from '../shell/marks/marks';
+import { adoptOwnTemplate, receiveMark, useMarks } from '../shell/marks/marks';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
 import {
@@ -176,6 +176,21 @@ function fogModeFlips(prev: unknown, next: unknown): string[] {
   return Object.keys(scenes).filter((sceneId) => modeOf(prev, sceneId) !== modeOf(next, sceneId));
 }
 
+/**
+ * T10 — the scenes where a fog row this seat held is gone from the slice just sent: the DM hid a
+ * room or Outdoors again, or erased a room's last recorded cell. The referee withholds that
+ * room's geometry from then on, and a held copy only grows by delta, so the seat re-fetches.
+ */
+export function fogRowsDropped(prev: unknown, next: unknown): string[] {
+  const before = (prev as FogState | undefined)?.byScene;
+  const after = (next as FogState | undefined)?.byScene;
+  if (!before || !after) return [];
+  return Object.keys(after).filter((sceneId) => {
+    const rows = after[sceneId]?.rooms ?? {};
+    return Object.keys(before[sceneId]?.rooms ?? {}).some((id) => !(id in rows));
+  });
+}
+
 // ponytail: plain zustand — no immer/devtools/subscribeWithSelector like the
 // editor store. Session state arrives as whole snapshots (§2.5), so there is
 // nothing to draft-mutate and no deep selector traffic to memoize.
@@ -297,7 +312,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // broadcast (as a reveal already pushes its `mapDelta`), and this can go.
           if (msg.module === 'fog' && get().you?.role !== 'dm') {
             const { loadedScene, token } = get();
-            for (const sceneId of fogModeFlips(session.modules.fog, msg.state)) {
+            const recut = new Set([
+              ...fogModeFlips(session.modules.fog, msg.state),
+              ...fogRowsDropped(session.modules.fog, msg.state),
+            ]);
+            for (const sceneId of recut) {
               // Any cached copy of that scene was cut under the old mode, whether or not this
               // seat happens to be looking at it now.
               invalidateSceneDocs(sceneId);
@@ -318,6 +337,8 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // scene's document without ever rendering nothing (F1). `mapId` keeps the scene
           // list honest when the change is a republish of the scene being played.
           announceRepublish(session, msg.sceneId, msg.mapId);
+          // F19: the live scene reaches players even when it is marked hidden; the DM is warned.
+          if (msg.hidden && get().you?.role === 'dm') notify.warning('This scene was hidden; players see it now');
           const scenes = session.scenes.map((s) =>
             s.id === msg.sceneId ? { ...s, mapId: msg.mapId } : s,
           );
@@ -378,8 +399,18 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // This seat drew its own marks as it made them (`placeMark`); the echo is skipped.
           const { event } = msg;
           const me = get().you;
-          if (event.from === me?.identityId) break;
-          receiveMark(event.mark, event.from);
+          // Table fix pass, decision d: a clear takes a standing template off every seat,
+          // the DM's own included.
+          if (event.mark.kind === 'clear') {
+            useMarks.getState().drop(event.mark.id);
+            break;
+          }
+          if (event.from === me?.identityId) {
+            // …and this seat's own template is re-keyed to the id that clear will name.
+            if (event.mark.kind === 'template') adoptOwnTemplate(event.mark, event.from, event.id);
+            break;
+          }
+          receiveMark(event.mark, event.from, Date.now(), { id: event.id, ttlMs: event.ttlMs });
           // The DM's pull recentres every player camera on the ping (plan 4.3).
           if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
             const { x, y } = event.mark;

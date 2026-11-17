@@ -9,6 +9,7 @@ import {
   doorKitById,
   doorKitFor,
   doorKitOf,
+  doorShowsHinges,
   isKitStyle,
   type DoorKitId,
 } from '@dnd/core/src/assets/doorKits';
@@ -324,13 +325,14 @@ export const OPEN_ANGLE_STEP = 5;
  */
 export function doorKitModel(door: DoorLike, wallSetId: string | undefined): DoorKitModel | null {
   if (door.childType !== 'door') return null;
-  if (!doorKitOf(door, wallSetId)) return null;
+  const kit = doorKitOf(door, wallSetId);
+  if (!kit) return null;
   return {
     openAngle: Math.min(Math.max(0, door.openAngle ?? DEFAULT_OPEN_ANGLE), MAX_OPEN_ANGLE),
     opensLater: door.state !== 'open',
     hinge: door.style === 'single' ? (door.hinge ?? 'start') : null,
     swing: door.swing === -1 ? -1 : 1,
-    hinges: door.hinges !== false,
+    hinges: doorShowsHinges(door, kit),
   };
 }
 

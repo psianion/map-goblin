@@ -3,7 +3,7 @@ import { flattenRing } from '../shared/bezier';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { applyShapeTransform as applyTransformToPoints } from '../shared/plateaus';
-import { signedArea } from '../shared/floorPieces';
+import { isSliverRing, signedArea } from '../shared/floorPieces';
 
 /**
  * Recompute mergedFloor from the walled floors via Clipper2 boolean union.
@@ -26,7 +26,8 @@ export function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
     (c): c is ShapeChild => c.childType === 'shape' && c.visible && !c.ground,
   );
 
-  return unionFloor(shapeChildren);
+  // A sliver ring (a speck of a hole a brush left) is no floor edge: no wall, rock or fog edge.
+  return unionFloor(shapeChildren)?.filter((r) => !isSliverRing(r)) ?? null;
 }
 
 /** Which way Clipper winds a filled ring, as `signedArea` reads it; asked once it is loaded. */

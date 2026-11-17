@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { caveFloorContours, caveFloorShape, caveFloors, hasCaveLook, smoothCaveRing, wallPatchesToFloors } from './caveFloor';
-import { signedArea } from './floorPieces';
+import { caveEdges, caveFloorContours, caveFloorShape, caveFloors, hasCaveLook, smoothCaveRing, wallPatchesToFloors } from './caveFloor';
+import { isSliverRing, signedArea } from './floorPieces';
+import { computeMergedFloor } from '../engine/mergedFloor';
 import type { DungeonLayer, Layer } from '../store/types';
 
 type Ring = [number, number][];
@@ -62,6 +63,28 @@ describe('a cave floor shape', () => {
       ['id0', 'Cave 4'],
       ['id1', 'Cave 5'],
     ]);
+  });
+});
+
+describe('sliver contours (T12)', () => {
+  // The Testing map's two specks of hole inside BLOO: a brush's leftovers, not a hole anyone drew.
+  const specks: Ring[] = [
+    [[23.5, 11.05], [23.67, 11.05], [23.69, 11.09], [23.52, 11.08]],
+    [[25.91, 10.14], [25.95, 10.06], [26.01, 10.14]],
+  ];
+  const outer = blob(25, 11, 4, 60);
+  const layer = { id: 'sliver-layer', children: [{ ...caveFloorShape([outer, ...specks], look, 'c', 'Cave 1'), visible: true }] };
+
+  it('reads a ring under 0.05 cells², or thinner than 0.1 cell, as a sliver', () => {
+    for (const s of specks) expect(isSliverRing(s)).toBe(true);
+    expect(isSliverRing([[0, 0], [3, 0], [3, 0.05], [0, 0.05]])).toBe(true);
+    expect(isSliverRing([[0, 0], [0.3, 0], [0.3, 0.3], [0, 0.3]])).toBe(false);
+    expect(isSliverRing(outer)).toBe(false);
+  });
+
+  it('lays no rock and stands no wall along a sliver, and the floor union drops it too', () => {
+    expect(caveEdges(layer)).toEqual([{ material: 'GG_Cave_Ink', rings: [outer] }]);
+    expect(computeMergedFloor({ ...layer, type: 'dungeon' } as unknown as DungeonLayer)).toEqual([outer]);
   });
 });
 

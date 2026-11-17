@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Clock } from '@dnd/ui/icons';
+import { useSessionStore } from '../../session/store';
+import { useTokenInteraction } from '../../modules/tokens/drag';
+import { armedLabel } from './armedTool';
 import { useTableShell } from '../tableShell';
 import { Dock } from './Dock';
 import { dockTabs, registerDockTab } from './registry';
@@ -40,6 +43,57 @@ describe('Dock', () => {
     expect(screen.getByText('rooms strip')).toBeTruthy();
     fireEvent.click(screen.getByTestId('dock-collapse'));
     expect(useTableShell.getState().dockTab).toBeNull();
+  });
+
+  // F23: the Encounter row kept "Rolling initiative" after the DM locked the order, because the
+  // context was read once per Dock render and nothing re-rendered the Dock on module state.
+  it('reads "Round N" once the order is locked, without another click', () => {
+    const initiative = (status: 'gathering' | 'running') => ({
+      status,
+      sceneId: 'a',
+      round: 1,
+      turn: 0,
+      entries: [{ key: 'e1', name: 'Bram', kind: 'pc', identityId: 'p', initiative: 12 }],
+      log: [],
+    });
+    useSessionStore.setState({ session: { activeSceneId: 'a', modules: { initiative: initiative('gathering') } } as never });
+    useTableShell.setState({ dockTab: 'encounter' });
+    render(<Dock />);
+    expect(screen.getByTestId('dock-context').textContent).toBe('Rolling initiative');
+    act(() => useSessionStore.setState({ session: { activeSceneId: 'a', modules: { initiative: initiative('running') } } as never }));
+    expect(screen.getByTestId('dock-context').textContent).toBe("Round 1 · Bram's turn");
+    act(() => useSessionStore.setState({ session: null }));
+  });
+
+  // F21: arming placement gave no cue and the next click dropped a second Bram.
+  it('folds the dock and names the armed placement, Esc and all', () => {
+    useSessionStore.setState({
+      session: { activeSceneId: 'a', modules: { tokens: { library: { bram: { id: 'bram', name: 'Bram' } }, byScene: {} } } } as never,
+    });
+    useTableShell.setState({ dockTab: 'tokens', lastDockTab: 'tokens' });
+    render(<Dock />);
+    act(() => useTokenInteraction.getState().setPlacing('bram'));
+    expect(useTableShell.getState().dockTab).toBeNull();
+    expect(screen.getByTestId('armed-chip').textContent).toBe('Placing Bram, click the map, Esc cancels');
+    act(() => useTokenInteraction.getState().setPlacing(null));
+    expect(screen.queryByTestId('armed-chip')).toBeNull();
+    act(() => useSessionStore.setState({ session: null }));
+  });
+
+  it('names an armed fog tool and the template tool', () => {
+    expect(armedLabel(null, 'fog', 'Reveal')).toBe('Fog reveal, click the map, Esc puts it down');
+    expect(armedLabel(null, 'template', null)).toBe('Template, drag a circle or click one to clear it, Esc puts it down');
+    expect(armedLabel(null, 'ping', null)).toBeNull();
+  });
+
+  // F31: short tabs leave more of the map in view.
+  it('opens Fog, Sky, Scenes, Story and Dice short, and Map, Tokens and Encounter tall', () => {
+    // Fog is the stub `beforeEach` registers here; its real registration is in `tabs.ts`.
+    const heights = Object.fromEntries(dockTabs().filter((t) => t.id !== 'fog').map((t) => [t.id, t.height ?? 'lg']));
+    expect(heights).toEqual({ map: 'lg', tokens: 'lg', encounter: 'lg', story: 'sm', world: 'sm', scenes: 'sm', dice: 'sm' });
+    render(<Dock />);
+    fireEvent.click(screen.getByTestId('dock-tab-dice'));
+    expect(screen.getByTestId('dock-body-dice').className).toContain('h-36');
   });
 
   it('swaps a stub for a real body registered under the same id', () => {

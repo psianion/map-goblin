@@ -274,7 +274,8 @@ describe('faces are derived from anchors at scene load (§10)', () => {
       expect(scene.roomAt(50, 50)).toBeNull()
 
       const player = createVision(fx.server.stores).playerMap(sceneId)!
-      const rooms = (player.layers[0] as DungeonLayer).rooms ?? []
+      // Stand-ins (R1) are art for a floor the player holds, not rooms they hold.
+      const rooms = ((player.layers[0] as DungeonLayer).rooms ?? []).filter((r) => !r.standIn)
       // Redaction is unchanged for explored ids: the party holds the hall and only the hall.
       expect(rooms.map((r) => r.id)).toEqual([HALL.id])
       const hall = rooms[0]!

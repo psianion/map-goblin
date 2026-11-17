@@ -10,6 +10,8 @@ import type { Layer } from '@dnd/core/src/store/types';
 import {
   DOOR_CLOSED,
   DOOR_LOCKED,
+  DOOR_OUT_OF_REACH,
+  DOORS_DM_ONLY,
   UNKNOWN_DOOR,
   doorsOfScene,
   refusalSubject,
@@ -80,9 +82,28 @@ export function doorStatusLabel(door: DoorChild, live: DoorLiveState): string {
   return parts.join(' · ');
 }
 
-/** The author's own name for the door ("Reliquary Door"), else a stable fallback. */
-export const doorLabel = (door: DoorChild, index: number): string =>
-  door.name?.trim() || `Door ${index + 1}`;
+/**
+ * The canvas's automatic name for a door ("Double 1", "Opening 2": the style and a number,
+ * `nextAuthoredName`), which says nothing at the table.
+ */
+const isKitName = (door: DoorChild, name: string): boolean => {
+  const style = door.style ? door.style.charAt(0).toUpperCase() + door.style.slice(1) : '';
+  return new RegExp(`^(?:${style ? `${style}|` : ''}Opening) \\d+$`).test(name);
+};
+
+/**
+ * The author's own name for the door ("Reliquary Door"), else a stable fallback. F30: a door
+ * still carrying its automatic kit name is named by the rooms it leads to, when they are known.
+ */
+export const doorLabel = (door: DoorChild, index: number, rooms: readonly { id: string; name?: string }[] = []): string => {
+  const name = door.name?.trim();
+  if (name && !isKitName(door, name)) return name;
+  const nameOf = (id: string | null | undefined) => (id ? rooms.find((r) => r.id === id)?.name?.trim() : undefined);
+  const [a, b] = [nameOf(door.roomA), nameOf(door.roomB)];
+  if (a && b) return `Door between ${a} and ${b}`;
+  if (a || b) return `Door to ${a ?? b}`;
+  return name || `Door ${index + 1}`;
+};
 
 /**
  * The refusals a door hands back, in words a player can act on — or null for anything that
@@ -106,6 +127,9 @@ export function doorRefusal(message: string, doors: readonly LiveDoor[] = []): s
   if (message.startsWith(DOOR_LOCKED)) return named ? `${named} is locked.` : 'The door is locked.';
   if (message.startsWith(DOOR_CLOSED)) return named ? `${named} is closed.` : 'The door is closed.';
   if (message.startsWith(UNKNOWN_DOOR)) return 'That door is no longer there.';
+  // Table fix pass, decision b: a player's own door double-click, refused.
+  if (message.startsWith(DOOR_OUT_OF_REACH)) return named ? `Stand next to ${named} to open it.` : 'Stand next to the door to open it.';
+  if (message.startsWith(DOORS_DM_ONLY)) return 'Only the DM opens doors at this table.';
   return null;
 }
 

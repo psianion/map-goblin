@@ -89,3 +89,25 @@ test.describe('@play tokens and combat', () => {
     await expect(endTurn).toBeHidden();
   });
 });
+
+// Table fix pass F21 and F23.
+test.describe('@play arming and the round', () => {
+  test('arming a token folds the dock behind a chip, and Esc puts it down', async ({ hostSession }) => {
+    const { page } = hostSession;
+    await page.keyboard.press('3');
+    await page.getByTestId('token-tile').first().click();
+    await expect(page.getByTestId('armed-chip')).toContainText('click the map, Esc cancels');
+    await expect(page.locator('[data-testid^="dock-body-"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('armed-chip')).toHaveCount(0);
+  });
+
+  test('the Encounter row reads Round 1 once the order is locked', async ({ hostSession }) => {
+    const { page } = hostSession;
+    await page.keyboard.press('4');
+    await page.getByTestId('encounter-start').click();
+    await expect(page.getByTestId('dock-context')).toHaveText('Rolling initiative');
+    await page.getByTestId('encounter-begin').click();
+    await expect(page.getByTestId('dock-context')).toContainText('Round 1');
+  });
+});

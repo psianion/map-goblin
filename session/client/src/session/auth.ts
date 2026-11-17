@@ -130,8 +130,28 @@ export function startSession(
   token: string,
   startingRoom?: StartingRoom,
   sceneId?: string,
-): Promise<{ sessionId: string; campaignId: string; inviteCode: string }> {
-  return request('/api/sessions', postJson({ campaignId, startingRoom, sceneId }), token);
+  startingPoint?: StartingPoint,
+): Promise<OpenedSession> {
+  return request('/api/sessions', postJson({ campaignId, startingRoom, sceneId, startingPoint }), token);
+}
+
+/**
+ * A start that is a point rather than a room: the map's party start, or the centre of the map.
+ * The party spawns there; in By hand fog its room, or Outdoors, is revealed.
+ */
+export interface StartingPoint {
+  sceneId: string;
+  x: number;
+  y: number;
+  levelId?: string;
+}
+
+/** `resumed` = the campaign's table was already open, and it carried on (same session and code). */
+export interface OpenedSession {
+  sessionId: string;
+  campaignId: string;
+  inviteCode: string;
+  resumed?: boolean;
 }
 
 /** Public code check — JoinSession calls it before asking for a name (§2.3). */
@@ -259,7 +279,9 @@ export function reorderScenes(
 // ─── Handoff and DM token lifetime (decisions 12, 13) ───────
 
 /** `#handoff=<code>` from the canvas → the campaign and a fresh DM token. Single use, no auth. */
-export function redeemHandoff(code: string): Promise<{ campaignId: string; campaignName: string; token: string }> {
+export function redeemHandoff(
+  code: string,
+): Promise<{ campaignId: string; campaignName: string; token: string; sceneId?: string }> {
   return request('/api/handoff/redeem', postJson({ code }));
 }
 

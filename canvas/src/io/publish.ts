@@ -67,12 +67,36 @@ export function getPublishToken(campaignId: string): string | null {
   return localStorage.getItem(tokenKey(campaignId));
 }
 
-export function setPublishToken(campaignId: string, token: string): void {
+/** The campaign's name, kept beside its token so a later publish can offer it by name (F5). */
+function nameKey(campaignId: string): string {
+  return `goblin.publish.name.${campaignId}`;
+}
+
+export function setPublishToken(campaignId: string, token: string, name?: string): void {
   localStorage.setItem(tokenKey(campaignId), token);
+  if (name) localStorage.setItem(nameKey(campaignId), name);
 }
 
 export function clearPublishToken(campaignId: string): void {
   localStorage.removeItem(tokenKey(campaignId));
+  localStorage.removeItem(nameKey(campaignId));
+}
+
+/**
+ * Table fix pass F5: every campaign this browser holds a DM token for, so publishing a new map
+ * offers them before asking for the admin pass again. A token kept before names were stored
+ * reads by the start of its id.
+ */
+export function signedInCampaigns(): { id: string; name: string }[] {
+  const prefix = tokenKey('');
+  const out: { id: string; name: string }[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(prefix)) continue;
+    const id = key.slice(prefix.length);
+    out.push({ id, name: localStorage.getItem(nameKey(id)) ?? `Campaign ${id.slice(0, 6)}` });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** The campaign a map was last published to, from its publish record; null if never. */
@@ -207,10 +231,16 @@ export function refreshDmToken(dmToken: string, campaignId: string): Promise<{ t
 }
 
 /** A single-use code for the table, and the table link that carries it (decision 13). */
-export function mintHandoff(dmToken: string, campaignId: string): Promise<{ code: string; tableUrl: string }> {
+export function mintHandoff(
+  dmToken: string,
+  campaignId: string,
+  sceneId?: string,
+): Promise<{ code: string; tableUrl: string }> {
+  // Table fix pass F1: the scene just published, so a running table carries on with it.
   return api(`/campaigns/${campaignId}/handoff`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${dmToken}` },
+    headers: { authorization: `Bearer ${dmToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify(sceneId ? { sceneId } : {}),
   });
 }
 

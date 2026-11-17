@@ -61,3 +61,32 @@ test.describe('@shell chrome', () => {
     await expect(sheet).toHaveCount(0);
   });
 });
+
+// Table fix pass F13, F26 and F31.
+test.describe('@shell chips, keys and dock heights', () => {
+  test('Movement locked shows on a player seat, and a locked drag is told why', async ({ hostSession, joinAsPlayer }) => {
+    const player = await joinAsPlayer('Bram');
+    const { page } = hostSession;
+    await page.keyboard.press('3');
+    await page.getByRole('button', { name: 'Lock movement' }).click();
+    await expect(player.getByTestId('locked-chip')).toHaveText('Movement locked');
+  });
+
+  test('digits typed in the Token type sheet stay in the sheet', async ({ hostSession }) => {
+    const { page } = hostSession;
+    await page.keyboard.press('3');
+    await page.getByTestId('token-new').click();
+    await page.getByTestId('token-type-art').focus();
+    await page.keyboard.press('2');
+    await expect(page.getByTestId('dock-body-map')).toHaveCount(0);
+  });
+
+  test('Fog, Sky, Scenes, Story and Dice open short; Map, Tokens and Encounter tall', async ({ hostSession }) => {
+    const { page } = hostSession;
+    for (const [key, id, height] of [['1', 'fog', 'sm'], ['2', 'map', 'lg'], ['8', 'dice', 'sm']] as const) {
+      await page.keyboard.press(key);
+      await expect(page.getByTestId(`dock-body-${id}`)).toHaveAttribute('data-height', height);
+      await page.keyboard.press(key);
+    }
+  });
+});

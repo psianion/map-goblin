@@ -9,6 +9,7 @@ import { notify } from '@dnd/ui/toast';
 import { X } from '@dnd/ui/icons';
 import type { RollMode, RollRequest, RollsState } from '@dnd/mechanics/rolls';
 import type { TokensState } from '@dnd/mechanics/tokens';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { CATALOGUE, conditionLabel, parseWhole, sendTokens } from '../tokens/play';
 import {
@@ -26,33 +27,18 @@ import {
   type Advantage,
 } from './dice';
 
+/** A stable empty list: a fresh `[]` per read re-renders a store selector forever. */
+const NO_PLAYERS: PlayerInfo[] = [];
+
 const stop = (e: React.KeyboardEvent) => e.stopPropagation();
 
 export function DiceBody() {
   const { mode, adv, set } = useDiceSettings();
   const [formula, setFormula] = useState('');
-  const players = useSessionStore((s) => s.session?.players ?? []).filter((p) => p.role === 'player');
-  const [targets, setTargets] = useState<string[] | null>(null);
-  const [check, setCheck] = useState('perception');
-  const [dc, setDc] = useState('');
 
   const rollTyped = () => {
     if (!rollFormula(formula, mode, adv)) return notify.error('That is not a formula like 1d20+5.');
     setFormula('');
-  };
-  const ask = () => {
-    const dcValue = parseWhole(dc, 1, 99);
-    sendRolls('request', {
-      targets: targets ?? 'all',
-      label: `${checkLabel(check)} check`,
-      ability: check,
-      ...(dcValue !== undefined ? { dc: dcValue } : {}),
-    });
-  };
-  const toggleTarget = (id: string) => {
-    const now = targets ?? [];
-    const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
-    setTargets(next.length === 0 ? null : next);
   };
 
   return (
@@ -97,25 +83,50 @@ export function DiceBody() {
         onValueChange={(v) => set({ mode: v as RollMode })}
         options={(Object.keys(MODE_LABEL) as RollMode[]).map((m) => ({ value: m, label: MODE_LABEL[m], testId: `dice-mode-${m}` }))}
       />
-      <div className="flex flex-col gap-1.5 border-t border-line pt-2">
-        <Caption>Ask players for a check</Caption>
-        <div className="flex flex-wrap gap-1">
-          <Chip pressed={targets === null} data-testid="ask-target-all" onPressedChange={() => setTargets(null)}>
-            All players
+    </div>
+  );
+}
+
+/** F31: asking for a check is the strip's first column, so the short dock never scrolls it. */
+export function AskCheck() {
+  const players = useSessionStore((s) => s.session?.players ?? NO_PLAYERS).filter((p) => p.role === 'player');
+  const [targets, setTargets] = useState<string[] | null>(null);
+  const [check, setCheck] = useState('perception');
+  const [dc, setDc] = useState('');
+
+  const ask = () => {
+    const dcValue = parseWhole(dc, 1, 99);
+    sendRolls('request', {
+      targets: targets ?? 'all',
+      label: `${checkLabel(check)} check`,
+      ability: check,
+      ...(dcValue !== undefined ? { dc: dcValue } : {}),
+    });
+  };
+  const toggleTarget = (id: string) => {
+    const now = targets ?? [];
+    const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+    setTargets(next.length === 0 ? null : next);
+  };
+
+  return (
+    <div className="flex w-56 shrink-0 flex-col gap-1.5 overflow-y-auto" data-testid="ask-check">
+      <div className="flex flex-wrap gap-1">
+        <Chip pressed={targets === null} data-testid="ask-target-all" onPressedChange={() => setTargets(null)}>
+          All players
+        </Chip>
+        {players.map((p) => (
+          <Chip key={p.identityId} pressed={!!targets?.includes(p.identityId)} data-testid={`ask-target-${p.identityId}`} onPressedChange={() => toggleTarget(p.identityId)}>
+            {p.name}
           </Chip>
-          {players.map((p) => (
-            <Chip key={p.identityId} pressed={!!targets?.includes(p.identityId)} data-testid={`ask-target-${p.identityId}`} onPressedChange={() => toggleTarget(p.identityId)}>
-              {p.name}
-            </Chip>
-          ))}
-        </div>
-        <SelectRow label="Check" value={check} options={CHECKS.map((c) => ({ value: c.id, label: c.label }))} onValueChange={setCheck} />
-        <div className="flex items-center gap-1.5">
-          <Input className="w-16 font-mono" inputMode="numeric" placeholder="DC" aria-label="DC" data-testid="ask-dc" value={dc} onChange={(e) => setDc(e.target.value)} onKeyDown={stop} />
-          <PrimaryButton data-testid="ask-send" disabled={players.length === 0} onClick={ask}>
-            Send
-          </PrimaryButton>
-        </div>
+        ))}
+      </div>
+      <SelectRow label="Check" value={check} options={CHECKS.map((c) => ({ value: c.id, label: c.label }))} onValueChange={setCheck} />
+      <div className="flex items-center gap-1.5">
+        <Input className="w-16 font-mono" inputMode="numeric" placeholder="DC" aria-label="DC" data-testid="ask-dc" value={dc} onChange={(e) => setDc(e.target.value)} onKeyDown={stop} />
+        <PrimaryButton data-testid="ask-send" disabled={players.length === 0} onClick={ask}>
+          Send
+        </PrimaryButton>
       </div>
     </div>
   );
@@ -266,6 +277,7 @@ export function DiceStrip() {
   const requests = useMemo(() => [...(state?.requests ?? [])].reverse(), [state?.requests]);
   return (
     <div className="flex min-w-0 flex-1 gap-4 overflow-x-auto" data-testid="dice-strip">
+      <AskCheck />
       <div className="flex shrink-0 gap-2">
         {requests.length === 0 ? (
           <div className="flex w-40 flex-col gap-1">

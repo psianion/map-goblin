@@ -563,7 +563,9 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
     })
   })
 
-  it('leaves a re-hidden room drawable — explored memory survives a reload (D4)', async () => {
+  // T10 — was "leaves a re-hidden room drawable": Hide now fogs the room fully, so a reload
+  // after it holds the room no more than a seat that never saw it.
+  it('takes a re-hidden room back on a reload, as if nobody had entered it (T10)', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGC', 1)
       const seen = roomOf(AJAR.roomA)
@@ -580,10 +582,9 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
           await fetchMap(server, { name: 'P0', session: 'FGC', identity: 'FGC-p0' }, sceneId),
         ) as SerializedMapData,
       )
-      // The explored room and nothing beside it: taking the last reveal back leaves a
-      // memory, never a fresh loan of the biggest room on the map.
-      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
-      expect(layer.children.length).toBeGreaterThan(0)
+      // Not the hidden room, and never a fresh loan of the biggest room on the map instead.
+      expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id)).toEqual([])
+      expect(JSON.stringify(layer)).not.toContain(seen.id)
     })
   })
 })
@@ -663,9 +664,9 @@ describe('an unrevealed room on the wire', () => {
       })
       await hidden
 
-      // The memory they earned, and not one room more: nothing lit is nothing lent.
+      // T10: Hide all fogs it fully, so nothing is held, and nothing lit is nothing lent.
       const layer = dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
-      expect(layer.rooms?.map((r) => r.id)).toEqual([here.id])
+      expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id)).toEqual([])
     })
   })
 })

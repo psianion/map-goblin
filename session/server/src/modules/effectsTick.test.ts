@@ -8,7 +8,7 @@ import { initiativeModule } from '@dnd/mechanics/initiative'
 import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
-import { afterWrites, effectsTick } from './effectsTick'
+import { afterWrites, effectsClear, effectsTick } from './effectsTick'
 import { ModuleRegistry, type DispatchContext } from './registry'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
@@ -95,5 +95,26 @@ describe('a player’s End turn turns the round too', () => {
     expect(registry.dispatch('initiative', 'end-turn', {}, ctx(PLAYER))).toBeNull()
     const after = (registry.readState(campaign.id, 'tokens') as TokensState).byScene[SCENE][bram.id]
     expect(after.effects).toEqual([{ name: 'Bless', roundsLeft: 2 }])
+  })
+})
+
+// Table fix pass F24: an effect timer outlived the encounter it was set in.
+describe('ending an encounter', () => {
+  it('clears every effect timer on the scene', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Camp')
+    const registry = new ModuleRegistry(stores.moduleState, afterWrites(effectsTick, effectsClear))
+    registry.register(tokensModule())
+    registry.register(initiativeModule)
+    const ctx: DispatchContext = { campaignId: campaign.id, sessionId: 's', activeSceneId: SCENE, sender: DM, players: [], broadcast: () => {} }
+    const run = (module: string, action: string, payload: unknown) => registry.dispatch(module, action, payload, ctx)
+    run('tokens', 'place', { name: 'Bram', x: 1, y: 1 })
+    const [bram] = Object.values((registry.readState(campaign.id, 'tokens') as TokensState).byScene[SCENE])
+    run('tokens', 'set-effect', { target: bram.id, name: 'Bless', rounds: 5 })
+    run('initiative', 'start', { entries: [{ name: 'Bram', kind: 'pc', tokenId: bram.id, initiative: 15 }] })
+    expect(run('initiative', 'end', {})).toBeNull()
+    expect((registry.readState(campaign.id, 'tokens') as TokensState).byScene[SCENE][bram.id].effects).toEqual([])
+    // A wire command cannot reach it.
+    expect(run('tokens', 'clear-effects', { sceneId: SCENE })).toMatchObject({ code: 'invalid-command' })
   })
 })

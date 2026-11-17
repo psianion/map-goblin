@@ -166,6 +166,8 @@ test.describe('publish dialog', () => {
 
     const handoff = calls.find((c) => c.method === 'POST' && c.path === `/api/campaigns/${CAMPAIGN}/handoff`)
     expect(handoff?.headers['authorization']).toBe(`Bearer ${TOKEN}`)
+    // Table fix pass F1: the handoff names the scene just published, so a running table carries on with it.
+    expect(JSON.parse(handoff?.bodyBuffer?.toString() ?? '{}')).toEqual({ sceneId: SCENE })
   })
 
   test('a map change republishes through the stored token', { tag: '@publish' }, async ({ page }) => {
@@ -338,7 +340,8 @@ test.describe('publish dialog', () => {
     down = false
     await d.getByRole('button', { name: 'Publish', exact: true }).click()
     await closeAfterPublish(page)
-    expect(calls.filter((c) => c.method === 'PUT').length).toBe(2)
+    // Only the publish itself: a republish also PUTs the thumbnail (#139).
+    expect(calls.filter((c) => c.method === 'PUT' && c.path === `/api/scenes/${SCENE}/publish`).length).toBe(2)
   })
 
   test('a request that never gets an answer reads as an unreachable server', { tag: '@publish' }, async ({ page }) => {
@@ -414,5 +417,38 @@ test.describe('publish dialog', () => {
       d.getByText(/^Checking what changed since your last publish…$|^No changes since your last publish\.$/),
     ).toBeVisible()
     await expect(d.getByTestId('v2-publish-change')).toHaveText('No changes since your last publish.')
+  })
+
+  // Table fix pass F5: a map never published offers the campaigns this browser is signed in to
+  // before it asks for the admin pass.
+  test('a new map offers the signed-in campaigns first, and publishes with the token kept', { tag: '@publish' }, async ({ page }) => {
+    await gotoApp(page)
+    await page.evaluate(() => {
+      localStorage.setItem('goblin.publish.token.camp-kept', 'tok-kept')
+      localStorage.setItem('goblin.publish.name.camp-kept', 'Kept Campaign')
+    })
+    const calls = await installStubs(page, [
+      {
+        method: 'POST',
+        path: /^\/api\/campaigns\/camp-kept\/maps$/,
+        respond: () => ({ json: { sceneId: 'scene-kept', mapId: 'map-kept', name: 'Untitled', sizeBytes: 1 } }),
+      },
+      { method: 'PUT', path: /^\/api\/maps\/map-kept\/thumbnail$/, respond: () => ({ json: {} }) },
+    ])
+    const d = await openPublish(page)
+    await expect(d.getByTestId('v2-publish-signed-in')).toBeVisible()
+    await expect(d.locator('#v2-publish-pass')).toHaveCount(0)
+    await d.getByTestId('v2-publish-signed-in-camp-kept').click()
+    await expect(d.getByTestId('v2-publish-done')).toHaveText('Published to Kept Campaign.')
+    const upload = calls.find((c) => c.method === 'POST' && c.path === '/api/campaigns/camp-kept/maps')
+    expect(upload?.headers['authorization']).toBe('Bearer tok-kept')
+  })
+
+  test('another campaign still goes through the admin pass', { tag: '@publish' }, async ({ page }) => {
+    await gotoApp(page)
+    await page.evaluate(() => localStorage.setItem('goblin.publish.token.camp-kept', 'tok-kept'))
+    const d = await openPublish(page)
+    await d.getByTestId('v2-publish-use-pass').click()
+    await expect(d.locator('#v2-publish-pass')).toBeVisible()
   })
 })

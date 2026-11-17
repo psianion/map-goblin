@@ -3,6 +3,7 @@ import type { CornerStyle, Room, RoomArea, RoomLook, WallSegment, WallType } fro
 import { WALL_TYPE_OCCLUSION } from './occlusion';
 import { roomIndexOf } from './roomIndex';
 import { caveEdges, onCaveEdge } from './caveFloor';
+import type { ResolvedDoor } from './wallResolve';
 
 /*
  * How a wall looks: which texture set its stones come from, how they are tinted and how
@@ -292,6 +293,31 @@ export function ringStyles(layer: DungeonLayer, level?: RoomLook): DungeonStyle[
 /** The look ring `ring` of a layer's outline is drawn with (pass the layer's level look). */
 export function ringLook(layer: DungeonLayer, ring: number, level?: RoomLook): WallLook {
   return styleWallLook(ringStyles(layer, level)[ring] ?? levelStyle(layer.style, level));
+}
+
+/**
+ * The look of the wall a door sits in, resolved the way `renderNodeWalls` lays
+ * it: a drawn wall's own pins, a floor ring's pins (a preset pins the floors it
+ * found), else the layer's. Which kit the door is built from follows the set.
+ */
+export function doorWallLook(
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+  ringStyles?: readonly DungeonStyle[],
+  edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
+): WallLook {
+  // A door the server placed on the full map carries that wall's look (`DoorChild.placed`).
+  const placed = resolved.door.placed?.look;
+  if (placed) return { setId: placed.setId, tint: placed.tint, width: placed.width, corner: placed.corner };
+  const wall = resolved.wall;
+  if (wall?.kind === 'standalone') return standaloneWallLook(wall, style);
+  if (wall?.kind === 'floor' && wall.ring !== undefined) {
+    const edge = wall.edge !== undefined ? edgeStyles?.[wall.ring]?.[wall.edge] : undefined;
+    return styleWallLook(edge ?? ringStyles?.[wall.ring] ?? style);
+  }
+  const look = styleWallLook(style);
+  // A painted cave's wall: its rock's own width when its floors pin one.
+  return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint, width: wall?.bandWidth ?? look.width };
 }
 
 /* ── Per-edge styles: rooms and areas that pin a wall look ─────────────────

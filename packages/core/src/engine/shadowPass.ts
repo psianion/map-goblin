@@ -26,6 +26,7 @@ import {
   shadowBand,
   shadowLook,
   shadowSignature,
+  wallShadowSigma,
   type ShadowLook,
 } from '../shared/shadows';
 import { timeBucket, type MapEnvironment, type SunVector } from '../shared/world';
@@ -36,7 +37,9 @@ import { baseGroundFrame } from './mapFrame';
 import {
   BLUR_WEIGHTS_5,
   SUN_SHADOW_ALPHA,
+  blurPasses,
   blurStrengthFor,
+  blurStrengthForSigma,
   leeSweeps,
   sunShadowLength,
 } from '../shared/plateauShade';
@@ -57,6 +60,10 @@ function shadowLookNow(): ShadowLook | null {
 
 interface LayerShadows {
   graphics: Graphics;
+  /** T9 — the wall shadows' blur, which multiplies the stacked bands into the ground. */
+  wallBlur: BlurFilter;
+  /** …and its spread in cells, set at the last draw (`wallShadowSigma`). */
+  wallSigma: number;
   /** The cliffs' lee shadows: one part per band and side, each softened by `blur` (see drawCliffShadows). */
   cliff: Container;
   blur: BlurFilter;
@@ -138,20 +145,26 @@ function shadowsOf(layerId: string): LayerShadows | null {
   const graphics = new Graphics();
   graphics.label = 'wallShadows';
   // Shadows darken the ground they fall on rather than painting over it — the one confident
-  // direction the style guide asks for, in the floor's own colours.
-  graphics.blendMode = 'multiply';
+  // direction the style guide asks for, in the floor's own colours. T9: the bands stack normally
+  // and the blur multiplies the softened stack in (a filter composites with its own blend).
+  const wallBlur = new BlurFilter({ strength: 1, quality: 1, kernelSize: CLIFF_BLUR_KERNEL });
+  wallBlur.resolution = 1;
+  wallBlur.blendMode = 'multiply';
+  graphics.filters = [wallBlur];
   entry.sublayers.shadows.addChild(graphics);
 
   // The cliffs' shadows lie in a holder of their own, one blurred part per band and side: a
   // soft lee shadow whose far edge fades out across CLIFF_SHADOW_FADE, never a hard band.
   const cliff = new Container();
   cliff.label = 'cliffShadowHolder';
-  const blur = new BlurFilter({ strength: 1, quality: CLIFF_BLUR_PASSES, kernelSize: CLIFF_BLUR_KERNEL });
+  const blur = new BlurFilter({ strength: 1, quality: 1, kernelSize: CLIFF_BLUR_KERNEL });
   blur.resolution = 1;
   entry.sublayers.shadows.addChild(cliff);
 
   const state: LayerShadows = {
     graphics,
+    wallBlur,
+    wallSigma: 0,
     cliff,
     blur,
     signature: '',
@@ -233,7 +246,12 @@ export function updateShadows(
     if (!state) continue;
     // The blur is in screen pixels: kept at CLIFF_SHADOW_FADE cells at whatever the zoom is.
     const m = state.cliff.worldTransform;
-    state.blur.strength = cliffBlurStrength(Math.hypot(m.a, m.b) || 1);
+    const pxPerCell = Math.hypot(m.a, m.b) || 1;
+    state.blur.strength = cliffBlurStrength(pxPerCell);
+    // T9 — and in enough passes to come out a gradient at this zoom, not a staircase.
+    state.blur.quality = blurPasses(state.blur.strength);
+    state.wallBlur.strength = blurStrengthForSigma(state.wallSigma * pxPerCell);
+    state.wallBlur.quality = blurPasses(state.wallBlur.strength);
 
     // The ground is part of what is drawn, so it is part of what the memo is keyed on — and it
     // arrives on its own schedule. A freshly loaded map has `mergedFloor: null` until
@@ -267,6 +285,7 @@ export function updateShadows(
     if (look === undefined) look = shadowLook(frame.sun, frame.penumbraScale);
     if (cliffLook === undefined) cliffLook = shadowLook(cliffSun, frame.penumbraScale);
     drawWallShadows(state.graphics, layer, look, reach);
+    state.wallSigma = look ? wallShadowSigma(look) : 0;
     drawCliffShadows(state.cliff, state.blur, layer, cliffLook, cliffStrength);
     shadeCliffs(layer.id, cliffLook);
     drawPropShadows(layer.id, look);
@@ -287,12 +306,12 @@ export function updateShadows(
  *
  * Steps outside, segments inside, one fill per step: within a fill the quads merge (non-zero
  * winding), so two walls meeting at a corner cast one shadow rather than a darker wedge where
- * they overlap — and across the steps the fills stack into the soft ramp. Four fills for a
- * whole keep.
+ * they overlap — and across the steps the fills stack into the ramp the layer's blur then
+ * melts smooth (T9). Eight fills for a whole keep.
  *
- * ponytail: four Clipper2 intersections per rebuild (a rebuild being a wall edit, a five-minute
+ * ponytail: eight Clipper2 intersections per rebuild (a rebuild being a wall edit, a five-minute
  * clock bucket or an orientation nudge — never a frame). If a scrub over a big map ever feels
- * it, cut `SHADOW_STEPS` before anything cleverer.
+ * it, cut `SHADOW_STEPS` and widen the blur before anything cleverer.
  */
 function drawWallShadows(g: Graphics, layer: DungeonLayer, look: ShadowLook | null, reach: SunReach): void {
   g.clear();
@@ -413,8 +432,7 @@ export function cliffCaster(frame: SkyFrame, map: MapEnvironment): { sun: SunVec
 }
 /** How far a cliff shadow's edge takes to fade, cells: from 90 % of its darkness to 10 %. */
 export const CLIFF_SHADOW_FADE = 0.4;
-/** The blur's passes and kernel taps (Pixi's BlurFilter `quality` and `kernelSize`). */
-export const CLIFF_BLUR_PASSES = 3;
+/** The blur's kernel taps (Pixi's BlurFilter `kernelSize`); its passes follow the strength (`blurPasses`). */
 export const CLIFF_BLUR_KERNEL = 5;
 export { BLUR_WEIGHTS_5 };
 

@@ -13,7 +13,7 @@
 // room card's Open list and Key buttons set them.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, FolderPlus, GripVertical, ListOrdered, MoreHorizontal, Search, Star, Swords } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Flag, FolderPlus, GripVertical, ListOrdered, MoreHorizontal, Search, Star, Swords } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import {
@@ -24,9 +24,11 @@ import {
   RenameRoomCommand,
   RenumberByReadingOrderCommand,
   ReorderRoomsCommand,
+  SetPartyStartCommand,
   SetStartingRoomCommand,
 } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { getEngineSingleton } from '@/engine/engineSingleton';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
 import type { Command, DungeonLayer, Room, RoomArea, ScenePrep } from '@/store/types';
 import { Caption, IconKeyButton, Input, cn } from '@dnd/ui';
@@ -48,6 +50,14 @@ import { RoomKeyEditor } from './RoomKeyEditor';
 
 /** Pointer travel (px) after which a press on a row is a drag rather than a click. */
 const DRAG_START_PX = 4;
+
+/** The world point at the middle of the canvas view, or null with no engine yet. */
+function viewCentre(): { x: number; y: number } | null {
+  const engine = getEngineSingleton()?.engine;
+  if (!engine) return null;
+  const canvas = engine.canvas();
+  return engine.screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+}
 
 function closeSheet() {
   const s = useStore.getState();
@@ -254,6 +264,17 @@ function RoomsList() {
     selectRoom(room, layer.id, sheet());
   };
 
+  // Table fix pass decision f: a point the party starts at, beside "Start the table here". Set at
+  // the middle of the view (cell centre, shown level), so a party that begins outdoors can.
+  const partyStart = useStore((s) => s.mapSettings.partyStart);
+  const togglePartyStart = () => {
+    if (partyStart) return undoManager.execute(new SetPartyStartCommand(null));
+    const at = viewCentre();
+    if (!at) return;
+    const levelId = useStore.getState().ui.activeLevelId;
+    undoManager.execute(new SetPartyStartCommand({ x: Math.floor(at.x) + 0.5, y: Math.floor(at.y) + 0.5, ...(levelId ? { levelId } : {}) }));
+  };
+
   const roomMenu = (e: ReactMouseEvent, room: Room) => {
     e.preventDefault();
     const isStart = startId === room.id;
@@ -303,6 +324,15 @@ function RoomsList() {
         data-tip="Renumber top-left to bottom-right"
         data-testid="rooms-renumber"
         onClick={renumber}
+      />
+      <IconKeyButton
+        size={26}
+        icon={Flag}
+        label={partyStart ? 'Clear party start' : 'Set party start'}
+        data-tip={partyStart ? 'Clear the party start' : 'Set party start: the party starts the table at the middle of this view'}
+        data-testid="rooms-party-start"
+        active={!!partyStart}
+        onClick={togglePartyStart}
       />
     </>
   );

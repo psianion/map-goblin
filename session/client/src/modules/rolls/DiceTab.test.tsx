@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library
 import { createRollsModule, type RollRequest, type RollsState } from '@dnd/mechanics/rolls';
 import { useLogEntries } from '../../shell/logFeed';
 import { BRAM, YARA, seat, sent, token, tokensState } from '../tokens/playTestSeat';
-import { DiceBody, DiceStrip } from './DiceTab';
+import { AskCheck, DiceBody, DiceStrip } from './DiceTab';
 import { parseTableRows, useDiceSettings } from './dice';
 
 vi.mock('@dnd/ui/toast', () => ({ notify: { info: vi.fn(), error: vi.fn() } }));
@@ -50,7 +50,7 @@ describe('Dice tab body', () => {
 
   it('asks chosen players for a check with a DC', () => {
     const spy = seat({});
-    render(<DiceBody />);
+    render(<AskCheck />); // F31: the ask block moved to the strip's first column
     fireEvent.click(screen.getByTestId(`ask-target-${BRAM.identityId}`));
     fireEvent.change(screen.getByTestId('ask-dc'), { target: { value: '14' } });
     fireEvent.click(screen.getByTestId('ask-send'));

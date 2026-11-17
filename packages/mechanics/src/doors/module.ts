@@ -3,11 +3,14 @@
 // authored door list lives in the map file, so the module is built with a lookup the server
 // backs with its map store — the shape `scenesModule(stores)` already uses.
 
-import { dropScene, type GameModule, type ModuleContext } from '../contract'
+import { ANY_ROLE, dropScene, type GameModule, type ModuleContext } from '../contract'
 import { actorOf, logged, type LogAction } from '../log'
-import { ID_MAX, Reject, bad, obj, str } from '../tokens/validate'
+import { ID_MAX, Reject, bad, bool, denied, obj, str } from '../tokens/validate'
 import {
+  DOORS_DM_ONLY,
   DOOR_LOCKED,
+  DOOR_OUT_OF_REACH,
+  SET_PLAYERS_OPEN,
   UNKNOWN_DOOR,
   doorsOfScene,
   isArchway,
@@ -30,29 +33,37 @@ export type SceneDoors = (campaignId: string, sceneId: string) => readonly Autho
  */
 export type PlayerDoors = (sceneId: string) => ReadonlySet<string> | null
 
+/**
+ * Table fix pass, decision b — whether one of a player's own tokens stands within
+ * `PLAYER_DOOR_REACH` of the door. The server answers it off the tokens state and the map.
+ */
+export type PlayerReach = (campaignId: string, sceneId: string, identityId: string, doorId: string) => boolean
+
 type Ctx = ModuleContext<DoorsState>
 type Payload = Record<string, unknown>
 
 export function doorsModule(
   doorsOf: SceneDoors,
   playerDoorsOf: PlayerDoors = () => null,
+  reachOf: PlayerReach = () => false,
 ): GameModule<DoorsState> {
   return {
     name: 'doors',
     commands: {
-      // D2 — the DM's call. Gated centrally by `ModuleRegistry.dispatch`, so the handler
-      // below never sees a player's toggle; the seat-blind checks in `run` stay as they are.
-      toggle: ['dm'],
+      // D2 — the DM's call, except that a player may open or shut a door their seat holds and
+      // stands beside while "Players open doors" is on (table fix pass, decision b): `run`.
+      toggle: ANY_ROLE,
       lock: ['dm'],
       unlock: ['dm'],
       'reveal-secret': ['dm'],
+      [SET_PLAYERS_OPEN]: ['dm'],
     },
     initialState: { byScene: {} },
     forgetScene: dropScene,
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, doorsOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, doorsOf, playerDoorsOf, reachOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -91,7 +102,19 @@ export function doorsModule(
   }
 }
 
-function run(action: string, p: Payload, ctx: Ctx, doorsOf: SceneDoors): void {
+function run(
+  action: string,
+  p: Payload,
+  ctx: Ctx,
+  doorsOf: SceneDoors,
+  playerDoorsOf: PlayerDoors,
+  reachOf: PlayerReach,
+): void {
+  // The DM's switch is campaign-wide and names no door.
+  if (action === SET_PLAYERS_OPEN) {
+    ctx.setState({ ...ctx.state, playersOpen: bool(p.open, 'open') })
+    return
+  }
   const sceneId = p.sceneId === undefined ? ctx.activeSceneId : str(p.sceneId, 'sceneId', ID_MAX)
   if (!sceneId) bad('no sceneId in the payload and no active scene')
   const id = str(p.id, 'id', ID_MAX)
@@ -114,12 +137,25 @@ function run(action: string, p: Payload, ctx: Ctx, doorsOf: SceneDoors): void {
     bad('an archway is a permanent opening — there is nothing to open, close or lock')
   }
 
+  // A player's toggle (decision b): the door must be one their seat holds, the DM's switch on,
+  // and one of their tokens beside it. A door the seat does not hold refuses as unknown.
+  if (ctx.sender.role !== 'dm') {
+    const held = playerDoorsOf(sceneId)
+    if (held !== null && !held.has(id)) unknownDoor()
+    if (ctx.state.playersOpen === false) denied(refusal(DOORS_DM_ONLY, id, 'only the DM opens doors at this table'))
+    if (!reachOf(ctx.campaignId, sceneId, ctx.sender.identityId, id)) {
+      bad(refusal(DOOR_OUT_OF_REACH, id, 'stand next to that door to open or close it'))
+    }
+  }
+
   switch (action) {
     case 'toggle':
       if (live.locked) bad(refusal(DOOR_LOCKED, id, 'that door is locked'))
       return put(ctx, sceneId, scene, id, { ...live, open: !live.open }, live.open ? 'closed' : 'opened')
     case 'lock':
-      return put(ctx, sceneId, scene, id, { ...live, locked: true }, 'locked')
+      // Locking an open door shuts it (F14): a lock holds a closed door, and a door left open
+      // and locked could never be closed again.
+      return put(ctx, sceneId, scene, id, { ...live, locked: true, open: false }, 'locked')
     case 'unlock':
       return put(ctx, sceneId, scene, id, { ...live, locked: false }, 'unlocked')
     case 'reveal-secret':

@@ -8,7 +8,7 @@
 
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import { carriedCone, eyeReach, lightSources, pointInPolygon, SIGHT_REACH, type LightSource } from '@dnd/mechanics/fog'
-import { sightParty, type Token } from '@dnd/mechanics/tokens'
+import { eyes as partyEyes, type Token } from '@dnd/mechanics/tokens'
 import { effectiveLight, type LightEdit, type RoomEdit, type SkyFrame } from '@dnd/mechanics/triggers'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
 // shared/mapBounds: the sweep subtree (ClockwiseSweep → raycaster → occlusion, wallResolve,
@@ -195,10 +195,9 @@ export function createSweeps(): Sweeps {
       // them. `sightParty` drops hidden tokens itself (hidden trumps links); a token with no
       // sight is in the party but is not an eye. A range of 0 is still an eye — plain sight,
       // which sees whatever is lit — so the test is on `sight` itself, not its range.
+      // Table fix pass §2.4: `partyEyes` gives every player-owned token and PC sight of its own.
       // Levels: only the eyes standing on this level look at it.
-      const claimed = sightParty(Object.values(tokens), isSeed).filter(
-        (token) => token.sight != null && onLevel(map.data, token, level),
-      )
+      const claimed = partyEyes(Object.values(tokens), isSeed).filter((token) => onLevel(map.data, token, level))
       if (claimed.length === 0) return { eyes: [], lit: null, darkAt: null, darkness: [], fence: fence ?? null }
       const scene = sweepsFor(map, doors, level)
       if (scene.polygons.size > SWEEP_CAP) scene.polygons.clear()
@@ -443,7 +442,7 @@ function sightState(door: DoorChild, doors: Doors): 'o' | 's' | 'c' {
  *    the wall it sits on is never split and occludes end to end. That is exactly what a
  *    secret door is: a wall until someone finds it.
  */
-function liveLayers(map: SceneMap, doors: Doors, levelId: string): DungeonLayer[] {
+export function liveLayers(map: SceneMap, doors: Doors, levelId: string): DungeonLayer[] {
   return layersOnLevel(map.data, map.data.layers, levelId).map((layer) => ({
     ...layer,
     children: childrenOf(layer).map((child) => (child.childType === 'door' ? live(child, doors) : child)),

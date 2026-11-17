@@ -9,6 +9,7 @@ import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../c
 import { refusal as refusalText } from '../doors/types'
 import { fanAround } from './fan'
 import { sightPartyIds } from './links'
+import { CLEAR_EFFECTS } from './types'
 import type {
   LevelFilterOf,
   SceneVision,
@@ -58,6 +59,7 @@ import { HP_MAX } from '../initiative/types'
 export * from './fan'
 export * from './links'
 export * from './types'
+export * from './walk'
 // The client snaps optimistically during a drag (§2.4.6) against the same function the
 // server validates with — one rule, one implementation.
 export { snap } from './validate'
@@ -220,14 +222,16 @@ export function tokensModule(
 }
 
 /**
- * `showHp` for one viewer: `all` keeps the pool, `owner` keeps it for the owning seat, `dm`
- * (the default, also for rows that predate the field) never sends it. AC goes with it, as
- * the other number behind the DM's screen. Same object back when nothing is cut.
+ * `showHp` for one viewer: `all` keeps the pool for everyone, `dm` (the default, also for rows
+ * that predate the field) and `owner` keep it for the owning seat only. AC goes with it, as the
+ * other number behind the DM's screen. The owner always gets their own numbers (F25): a
+ * character sheet without its own hit points and armour class is no sheet. Same object back
+ * when nothing is cut.
  */
 function withoutHp<T extends TokenDef>(token: T, viewer: Viewer, ownerId: string | null | undefined): T {
   if (token.hp === undefined && token.ac === undefined) return token
   const show = token.showHp ?? 'dm'
-  if (show === 'all' || (show === 'owner' && ownerId === viewer.identityId)) return token
+  if (show === 'all' || (ownerId != null && ownerId === viewer.identityId)) return token
   const cut = { ...token }
   delete cut.hp
   delete cut.ac
@@ -326,6 +330,8 @@ function run(
       return setEffect(p, ctx)
     case 'gather':
       return gather(p, ctx, terrainOf)
+    case CLEAR_EFFECTS:
+      return clearEffects(p, ctx)
     case 'tick-effects':
       return tickEffects(p, ctx)
     default:
@@ -561,11 +567,14 @@ function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf, ta
     if (table?.movementLocked) denied(refusalText(MOVEMENT_LOCKED, null, 'the DM has locked token movement'))
   }
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
-  const refusal = occupyRefusal(token, pos, visionOf(sceneId), ctx.sender.role)
+  // The mover's own seat: in individual share, what this seat knows is what it may walk on.
+  const scene = visionOf(sceneId, ctx.sender)
+  const refusal = occupyRefusal(token, pos, scene, ctx.sender.role, token)
   if (refusal) bad(refusal)
   // A raised edge whose crossing kind refuses (Impassable, or whatever the DM switched on)
-  // stops a player's move; the DM's own drags are never refused (plan §7).
-  if (ctx.sender.role !== 'dm') {
+  // stops a player's move; the DM's own drags are never refused (plan §7). The walk grid
+  // floods round such edges itself, so the straight-line test is only for scenes without one.
+  if (ctx.sender.role !== 'dm' && !scene?.walkRefusal) {
     const crossing = terrainOf(sceneId)?.crossingRefusal(token, pos, token.levelId) ?? null
     if (crossing) bad(crossing)
   }
@@ -765,6 +774,18 @@ function tickEffects(p: Payload, ctx: Ctx): void {
 }
 
 /**
+ * Internal only, like `tick-effects` (F24): the encounter on the scene ended, so its timers end
+ * with it. One write for every token that held any; nothing at all when none did.
+ */
+function clearEffects(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const changed = Object.values(ctx.state.byScene[sceneId] ?? {})
+    .filter((token) => token.effects?.length)
+    .map((token) => ({ ...token, effects: [] }))
+  if (changed.length > 0) putAll(ctx, sceneId, changed)
+}
+
+/**
  * P4 §4 — one symmetric edge, written on both ends in one command.
  *
  * Symmetry is maintained here rather than read as a union at query time because the closure
@@ -842,7 +863,17 @@ function remove(p: Payload, ctx: Ctx): void {
 function claim(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   if (token.ownerId !== null) denied('that token is already claimed')
-  put(ctx, sceneId, { ...token, ownerId: ctx.sender.identityId })
+  put(ctx, sceneId, withOwner(token, ctx.sender.identityId, ctx))
+}
+
+/**
+ * The token handed to a seat, stamped with the seat's name so a player who comes back under
+ * the same name gets it back (F2: the Owner picker wrote the id alone, so a rejoin found
+ * nothing to match). `null` unhands it and keeps the last name.
+ */
+function withOwner(token: Token, identityId: string | null, ctx: Ctx): Token {
+  const name = identityId ? ctx.players.find((p) => p.identityId === identityId)?.name : undefined
+  return { ...token, ownerId: identityId, ...(name ? { ownerName: name.slice(0, NAME_MAX) } : {}) }
 }
 
 /**
@@ -866,7 +897,7 @@ function assign(p: Payload, ctx: Ctx): void {
   if (identityId !== null && !ctx.players.some((player) => player.identityId === identityId)) {
     bad('no such player at this table')
   }
-  put(ctx, sceneId, { ...token, ownerId: identityId })
+  put(ctx, sceneId, withOwner(token, identityId, ctx))
 }
 
 /**

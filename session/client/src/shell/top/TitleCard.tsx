@@ -1,16 +1,22 @@
 import { useState } from 'react';
-import { Button, FloatBox, Popover, PopoverContent, PopoverTrigger } from '@dnd/ui';
+import { Button, FloatBox, Popover, PopoverContent, PopoverTrigger, cn } from '@dnd/ui';
 import { ChevronDown } from '@dnd/ui/icons';
+import { fogModeOf, type FogState } from '@dnd/mechanics/fog';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { sceneFog } from '../../modules/fog/fog';
 import { useTableShell } from '../tableShell';
 import { SceneSwitcher } from './SceneSwitcher';
 import { setTableSwitch, type TableSwitches } from './sessionActions';
 import { useLevelLabel, useWorldChip } from './titleData';
 
+/** A status chip: read-only words in a pill, the world chip's look on a player's seat. */
+const CHIP = 'shrink-0 rounded-pill border border-line px-2.5 py-0.5 text-xs text-text-2';
+
 /**
  * Top left (board 1, 5): the live scene's name, the level, and for the DM the chevron to the
  * scene switcher, the world chip that opens the World tab, and while the table is paused a
- * Paused chip that resumes it.
+ * Paused chip that resumes it. On a phone the card stays inside the screen: the level and
+ * world chips hide and the name truncates, so the status chips keep their room.
  */
 export function TitleCard() {
   const role = useSessionStore((s) => s.you?.role);
@@ -20,12 +26,17 @@ export function TitleCard() {
   });
   const level = useLevelLabel();
   const world = useWorldChip();
-  const paused = useModuleState<TableSwitches>('table')?.paused === true;
+  const table = useModuleState<TableSwitches>('table');
+  const paused = table?.paused === true;
+  const locked = table?.movementLocked === true;
+  const fogState = useModuleState<FogState>('fog');
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const fogMode = sceneId ? fogModeOf(sceneFog(fogState, sceneId)) : null;
   const [open, setOpen] = useState(false);
   const dm = role === 'dm';
   return (
     <FloatBox
-      className="absolute top-3 left-3 z-20 flex h-11 max-w-md items-center gap-2 py-0 pr-2 pl-3"
+      className="absolute top-3 left-3 z-20 flex h-11 max-w-[calc(100%-1.5rem)] items-center gap-2 py-0 pr-2 pl-3 sm:max-w-md"
       data-testid="title-card"
       data-chrome
     >
@@ -79,6 +90,22 @@ export function TitleCard() {
         >
           Paused
         </Button>
+      )}
+      {/* Table fix pass §4.3 (F13): what the DM is holding, said on every seat. */}
+      {!dm && paused && (
+        <span className={CHIP} data-testid="paused-chip">
+          Paused
+        </span>
+      )}
+      {locked && (
+        <span className={CHIP} data-testid="locked-chip">
+          Movement locked
+        </span>
+      )}
+      {dm && fogMode && (
+        <span className={cn(CHIP, 'max-sm:hidden')} data-testid="fog-mode-chip">
+          {fogMode === 'vision' ? 'Fog: by sight' : 'Fog: by hand'}
+        </span>
       )}
     </FloatBox>
   );

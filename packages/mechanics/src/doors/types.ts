@@ -13,7 +13,20 @@ export interface DoorLiveState {
 
 export interface DoorsState extends Logged {
   byScene: Record<string, Record<string, DoorLiveState>>
+  /** The DM's "Players open doors" switch. Absent = on. */
+  playersOpen?: boolean
 }
+
+/** The DM command that flips {@link DoorsState.playersOpen}. */
+export const SET_PLAYERS_OPEN = 'set-players-open'
+
+/** How near a player's token must stand to a door to open or close it, in cells. */
+export const PLAYER_DOOR_REACH = 1.5
+
+/** A player's toggle refused: none of their tokens stands within reach of the door. */
+export const DOOR_OUT_OF_REACH = 'door-out-of-reach'
+/** A player's toggle refused: the DM switched "Players open doors" off. */
+export const DOORS_DM_ONLY = 'doors-dm-only'
 
 /**
  * The authored fields the runner reads off a map's door. A structural subset of
@@ -77,6 +90,23 @@ export function seedDoor(door: AuthoredDoor): DoorLiveState {
     locked: !isArchway(door) && door.state === 'locked',
     revealed: !door.isSecret,
   }
+}
+
+/**
+ * S2 — the doors whose live state a republish must drop: authored in both maps, with an authored
+ * state that seeds differently (open, locked, secret, archway). Stored state used to outlive the
+ * edit, so a door the DM re-authored as locked stayed open at the table. The new map then seeds
+ * them afresh (`doorsOfScene`).
+ */
+export function reauthoredDoors(before: readonly AuthoredDoor[], after: readonly AuthoredDoor[]): string[] {
+  const was = new Map(before.map((door) => [door.id, seedDoor(door)]))
+  return after
+    .filter((door) => {
+      const old = was.get(door.id)
+      const now = seedDoor(door)
+      return !!old && (old.open !== now.open || old.locked !== now.locked || old.revealed !== now.revealed)
+    })
+    .map((door) => door.id)
 }
 
 /**

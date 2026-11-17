@@ -28,6 +28,7 @@ import {
   SetRoomKeyCommand,
   SetRoomLookCommand,
   SetRoomNumberCommand,
+  SetPartyStartCommand,
   SetStartingRoomCommand,
   SplitRoomCommand,
   createDrawRoomCommand,
@@ -90,6 +91,18 @@ describe('add / remove / rename', () => {
     undoManager.execute(new AddRoomCommand(id, { id: 'hall', name: 'Dupe', anchor: [1, 1] }));
     expect(rooms()).toHaveLength(1);
     expect(rooms()[0].name).toBe('Hall');
+  });
+
+  // Table fix pass decision f: a point beside the starting room, one undo step each way.
+  it('sets and clears the party start, and undo puts the last one back', () => {
+    undoManager.execute(new SetPartyStartCommand({ x: 15.5, y: 7.5, levelId: 'lvl-1' }));
+    expect(useStore.getState().mapSettings.partyStart).toEqual({ x: 15.5, y: 7.5, levelId: 'lvl-1' });
+    undoManager.execute(new SetPartyStartCommand(null));
+    expect(useStore.getState().mapSettings.partyStart).toBeUndefined();
+    undoManager.undo();
+    expect(useStore.getState().mapSettings.partyStart).toEqual({ x: 15.5, y: 7.5, levelId: 'lvl-1' });
+    undoManager.undo();
+    expect(useStore.getState().mapSettings.partyStart).toBeUndefined();
   });
 
   it('removes a room with its key and its starting-room mark; undo restores all three', () => {

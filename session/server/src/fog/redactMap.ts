@@ -1,12 +1,16 @@
 // §2.3.1 — the map a player is allowed to hold, and the slice of it a reveal hands over.
 //
-// The two-tier geometry policy of D4 in one sentence: a room the party has *ever* seen
-// keeps its geometry forever (without it, a reload renders explored rooms black), and a
-// room nobody has entered has none of it — no floor, no walls, no props, not even the id.
-// Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
+// The geometry policy of D4, narrowed by T10: a room the party holds *now* keeps its geometry
+// (`heldRooms`), and any other room has none of it — no floor, no walls, no props, not even the
+// id. A room the DM hid again is fogged fully, so it goes back to being withheld; where its floor
+// must still be drawn it travels as a stand-in. Unzoned map is the DM's alone (D6) and an
+// unrevealed secret door does not exist.
 
+import { createHmac, randomBytes } from 'node:crypto'
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import {
+  DEFAULT_WALL_WIDTH,
+  FOG_MARGIN,
   fogModeOf,
   regionOf,
   setCells,
@@ -16,10 +20,18 @@ import {
   type RegionMask,
   type SceneFog,
 } from '@dnd/mechanics/fog'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the engine's own door resolve, run on the full map
+import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the wall looks the door renderer reads
+import { doorWallLook, edgeStyles, levelStyle, ringStyles } from '@dnd/core/src/shared/wallLook'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the look chain
+import { levelOf } from '@dnd/core/src/shared/lookScope'
+import type { Environment } from '@dnd/core/src/shared/world'
 import type {
   AnyChild,
   DoorChild,
   Room,
+  RoomArea,
   ShapeChild,
   WallSegment,
 } from '@dnd/core/src/shared/types'
@@ -31,20 +43,53 @@ import {
   distanceToPoly,
   isDungeon,
   pointInPoly,
+  roomRing,
   wallsOf,
   type SceneMap,
 } from './sceneMap'
 import { exploreLocks, inAnyLock } from './sweep'
+import { enclosedOn, hasHiddenGround } from './outdoorGround'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
+import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 
 type Doors = Record<string, DoorLiveState>
 
-/** Rooms the party has ever seen — the geometry a player keeps (D4). */
-export function exploredRooms(fog: SceneFog): Set<string> {
-  const explored = new Set<string>()
+/**
+ * T10 — the fog rows a player holds right now, which is the geometry they are sent (D4): every
+ * row the DM has revealed, and in By sight a room the party latched that still has a recorded
+ * cell inside it. Hide, Hide all and the eraser all take a row out of here.
+ */
+export function heldRooms(scene: SceneMap, fog: SceneFog): Set<string> {
+  const held = new Set<string>()
   for (const [roomId, room] of Object.entries(fog.rooms)) {
-    if (room.wasEverRevealed) explored.add(roomId)
+    if (room.status === 'revealed') held.add(roomId)
   }
-  return explored
+  if (fogModeOf(fog) !== 'vision') return held
+  for (const roomId of recordedRooms(scene, fog)) {
+    if (fog.rooms[roomId]?.wasEverRevealed) held.add(roomId)
+  }
+  return held
+}
+
+const recordedCache = new WeakMap<SceneMap, { bits: string; rooms: Set<string> }>()
+
+/** The rooms with a recorded cell centre inside them, in any seat's record. */
+function recordedRooms(scene: SceneMap, fog: SceneFog): Set<string> {
+  const region = tableRegion(fog, scene.frame ?? undefined)
+  if (!region) return new Set()
+  const hit = recordedCache.get(scene)
+  if (hit && hit.bits === region.bits) return hit.rooms
+  const bytes = toBytes(region.bits)
+  const rooms = new Set<string>()
+  for (let bit = 0; bit < region.cols * region.rows; bit++) {
+    if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+    const col = bit % region.cols
+    const row = (bit - col) / region.cols
+    const room = scene.roomAt(region.minX + col + 0.5, region.minY + row + 0.5)
+    if (room !== null) rooms.add(room)
+  }
+  recordedCache.set(scene, { bits: region.bits, rooms })
+  return rooms
 }
 
 /** The player's copy of a scene's map. The DM's copy is the file, untouched. */
@@ -52,44 +97,62 @@ export function redactMapForViewer(
   scene: SceneMap,
   fog: SceneFog,
   doors: Doors,
+  ground: Ground = groundOf(fog, scene.frame),
+  openGround?: SerializedMapData['openGround'],
+  places: Places = NO_PLACES,
 ): SerializedMapData {
-  const kept = exploredRooms(fog)
+  const kept = heldRooms(scene, fog)
   // The confining rectangle of the *full* document, measured with the index and so before
   // any cut (`SceneMap.frame`): the player's
   // fog covers the whole frame, and their redacted layers can no longer measure it. A rect
   // leaks only the map's overall size — never where inside it anything is. Only stamped
   // when the map has fog to enforce (rooms); an unzoned map goes over whole and untouched.
   const zoned = scene.data.layers.some((l) => isDungeon(l) && (l.rooms?.length ?? 0) > 0)
+  // R3: a map with ground pieces or base ground has ground to hide with no room at all, so it is
+  // framed and cut like a zoned one; only an imported picture goes over whole.
+  const hidden = hasHiddenGround(scene.data)
   // …and a vision-mode scene needs the rectangle whether or not anyone zoned the map. The
   // player's mask is drawn over exactly this, and a roomless map that shipped without one
   // left the mask no finite territory to cover — the very case the brush exists for.
-  const framed = zoned || fogModeOf(fog) === 'vision'
+  const framed = zoned || hidden || fogModeOf(fog) === 'vision'
   // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
   // reaches a player in any form, revealed or not.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
   const { prep: _prep, ...docSansPrep } = scene.data
   // Built once for the whole document, not once per layer: the ground lookup decodes the
   // region record, and the room boxes are a walk over every kept boundary.
-  const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const lockMask = lockMaskFor(scene, fog, kept)
+  // The table's starting room is the DM's choice of where play opens, and its id names a room:
+  // it travels only once that room is the party's.
+  const startingRoomId = docSansPrep.mapSettings?.startingRoomId
+  const mapSettings =
+    startingRoomId && !kept.has(startingRoomId)
+      ? (({ startingRoomId: _start, ...rest }) => rest)(docSansPrep.mapSettings)
+      : docSansPrep.mapSettings
   return {
     ...docSansPrep,
+    mapSettings,
     ...(framed ? { frame: scene.frame } : {}),
     ...(lockMask ? { lockMask } : {}),
+    // Table fix pass §2.7: the ground outside the walled floors, once the seat knows any of it.
+    ...(openGround ? { openGround } : {}),
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
       // its geometry goes over whole, less what `childShips` withholds on that branch.
-      if (!layer.rooms?.length) {
+      if (!layer.rooms?.length && !hidden) {
         const kids = childrenOf(layer)
         const shipped = kids.filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
         return shipped.length === kids.length ? layer : { ...layer, children: shipped }
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- S5: areas never travel (`withStandIns`)
+      const { areas: _areas, ...rest } = layer
       return {
-        ...layer,
-        ...slice(layer, scene, kept, doors, kept, cut),
+        ...rest,
+        ...slice(layer, scene, kept, doors, kept, cut, places),
         // The merged floor is one union across the whole layer, so it cannot be cut per
         // room — and handing it over would outline every room in the dungeon. The client
         // rebuilds it from the children it has; the editor already ships it null.
@@ -125,6 +188,7 @@ export function childDeltaFor(
   sceneId: string,
   childIds: ReadonlySet<string>,
   kept: ReadonlySet<string>,
+  places: Places = NO_PLACES,
 ): MapDelta {
   return {
     sceneId,
@@ -132,10 +196,16 @@ export function childDeltaFor(
       .filter(isDungeon)
       .map((layer) => ({
         id: layer.id,
-        rooms: [] as Room[],
-        children: childrenOf(layer)
-          .filter((child) => childIds.has(child.id))
-          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
+        ...withStandIns(
+          scene.campaignId,
+          layer,
+          [],
+          childrenOf(layer)
+            .filter((child) => childIds.has(child.id))
+            .map((child) => (child.childType === 'door' ? facing(placed(scene, child), kept) : child)) as AnyChild[],
+          kept,
+          places,
+        ),
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -159,33 +229,24 @@ export function mapDeltaFor(
   rooms: readonly string[],
   doors: Doors,
   explored: ReadonlySet<string> = new Set(rooms),
+  places: Places = NO_PLACES,
 ): MapDelta {
   const kept = new Set(rooms)
   return {
     sceneId,
     layers: scene.data.layers
       .filter(isDungeon)
-      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored) }))
+      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored, cutFor(scene, kept), places) }))
       .filter((layer) => layer.rooms.length > 0),
   }
 }
 
 /**
- * FOG_MARGIN and the default wall width, from the client's `fogPad` — the *same* two numbers,
+ * The widest wall band on the map plus its margin — `fogPad`, computed off the same styles and the
+ * same two numbers (S6: `FOG_MARGIN`, `DEFAULT_WALL_WIDTH`, imported from `@dnd/mechanics/fog`),
  * because this is the same distance measured from the other side. See `nearKeptRoom`.
- *
- * These are HAND-COPIES of `session/client/src/modules/fog/fog.ts:152` (`FOG_MARGIN`) and
- * `:155` (`DEFAULT_WALL_WIDTH`). Nothing enforces the equality — no shared module, no test. If
- * they drift, this file ships geometry by one pad while the client's mask cuts by another: too
- * small here and the seat is missing art the mask has already opened (a hole in the world);
- * too large and the seat holds map its mask never covers. Change one, change the other, in the
- * same commit.
  */
-const FOG_MARGIN = 0.5
-const DEFAULT_WALL_WIDTH = 0.5
-
-/** The widest wall band on the map plus its margin — `fogPad`, computed off the same styles. */
-function bandPad(scene: SceneMap): number {
+export function bandPad(scene: SceneMap): number {
   let wallWidth = 0
   for (const layer of scene.data.layers) {
     if (isDungeon(layer)) wallWidth = Math.max(wallWidth, layer.style?.wallWidth ?? 0)
@@ -200,13 +261,21 @@ function slice(
   doors: Doors,
   facingSet: ReadonlySet<string> = kept,
   cut: Cut = cutFor(scene, kept),
+  places: Places = NO_PLACES,
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
-    rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
-    children: childrenOf(layer)
-      .filter((child) => childShips(child, layer, scene, kept, doors, cut))
-      // A door on the edge of the known world keeps only the side the party has been.
-      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
+    ...withStandIns(
+      scene.campaignId,
+      layer,
+      (layer.rooms ?? []).filter((room) => kept.has(room.id)),
+      childrenOf(layer)
+        .filter((child) => childShips(child, layer, scene, kept, doors, cut))
+        // A door on the edge of the known world keeps only the side the party has been, and is
+        // drawn where the referee's full map puts it.
+        .map((child) => (child.childType === 'door' ? facing(placed(scene, child), facingSet) : child)),
+      facingSet,
+      places,
+    ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>
@@ -238,8 +307,9 @@ function childShips(
   // title the party has not learned. Marked ones then follow the room rule like any child.
   if (child.childType === 'text' && child.players !== true) return false
   // Plateaus are relief, like terrain: they always ship with their layer, so a player reads the
-  // same heights the DM does.
+  // same heights the DM does. Ground pieces are terrain too (table fix pass §2.7).
   if (child.childType === 'plateau') return true
+  if (child.childType === 'shape' && child.ground === true) return true
   // With no room on the layer there is nothing to earn and nothing for a contour to fence.
   //
   // A door with no room to be bound to can never be earned, and the player's door marks are
@@ -247,8 +317,10 @@ function childShips(
   // earned. Handing them over anyway put three marks at full brightness on a canvas that was
   // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
   // principle 2 says must never carry it.
-  if (!layer.rooms?.length) return child.childType !== 'door'
-  return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, cut)
+  if (!layer.rooms?.length && !hasHiddenGround(scene.data)) return child.childType !== 'door'
+  return child.childType === 'door'
+    ? doorKept(child, kept, doors, cut.ground, outsideFace(scene, child))
+    : childKept(child, scene, cut, enclosedOn(scene, levelIdOf(scene.data, layer)))
 }
 
 /**
@@ -274,15 +346,29 @@ function childShips(
  * renderer draws a wall along every ring it is given, so the cut would print a stone wall
  * across the mouth of a passage that is actually open.
  */
-function childKept(child: AnyChild, scene: SceneMap, cut: Cut): boolean {
+function childKept(child: AnyChild, scene: SceneMap, cut: Cut, enclosed: (x: number, y: number) => boolean): boolean {
   const [x, y] = centreOf(child)
   const room = scene.roomAt(x, y)
   if (room !== null && cut.kept.has(room)) return true
   // Cheapest first, and by a wide margin: the ground lookup is nine bit tests against the
   // child's own cell neighbourhood, where the band test can walk a room outline per room.
-  if (cut.ground(x, y, cut.pad)) return true
+  //
+  // R2: a child inside a walled floor or cave is earned only by ground known inside it. Ground
+  // outside the outline, a pad away across the rock, does not show what stands behind it.
+  if ((enclosed(x, y) ? cut.inside : cut.ground)(x, y, cut.pad)) return true
   if (nearKeptRoom(cut, x, y)) return true
-  return child.childType === 'shape' && coversKeptRoom(child, cut)
+  return child.childType === 'shape' && (coversKeptRoom(child, cut) || outlineNearGround(child, cut))
+}
+
+/**
+ * Table fix pass §2.7 — a walled floor or cave ships when known ground lies within the band pad
+ * of its outline: the cave seen from outside (F10). Its rock is drawn along that outline, so
+ * that is where a seat standing outside sees it.
+ */
+function outlineNearGround(shape: ShapeChild, cut: Cut): boolean {
+  if (cut.ground === NO_GROUND) return false
+  const [dx, dy] = shape.transform?.translate ?? [0, 0]
+  return (shape.contours ?? []).some((ring) => ring.some(([x, y]) => cut.ground(x + dx, y + dy, cut.pad)))
 }
 
 /**
@@ -300,6 +386,8 @@ interface Cut {
   kept: ReadonlySet<string>
   pad: number
   ground: Ground
+  /** The known ground inside walled floors and caves: recorded cells whose centre is inside one. */
+  inside: Ground
   rooms: readonly KeptRoom[]
 }
 
@@ -315,6 +403,7 @@ function cutFor(
   scene: SceneMap,
   kept: ReadonlySet<string>,
   ground: Ground = NO_GROUND,
+  inside: Ground = NO_GROUND,
 ): Cut {
   const pad = bandPad(scene)
   const rooms: KeptRoom[] = []
@@ -329,7 +418,7 @@ function cutFor(
     }
     rooms.push({ boundary: room.boundary, minX, minY, maxX, maxY })
   }
-  return { kept, pad, ground, rooms }
+  return { kept, pad, ground, inside, rooms }
 }
 
 /** "Is there revealed ground within `pad` of this point?" — see {@link groundOf}. */
@@ -359,8 +448,13 @@ export const NO_GROUND: Ground = () => false
  * this is asked once per child, so it walks only the `ceil(pad)` neighbourhood of the child's
  * own cell — nine lookups at today's pad — and measures to the cell *square*, not its centre.
  */
-export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
-  const region = tableRegion(fog, frame ?? undefined)
+export function groundOf(
+  fog: SceneFog,
+  frame: SceneMap['frame'],
+  keep: (x: number, y: number) => boolean = () => true,
+): Ground {
+  // T10: By hand shows no record, so a record kept from By sight earns nothing there.
+  const region = fogModeOf(fog) === 'vision' ? tableRegion(fog, frame ?? undefined) : undefined
   if (!region) return NO_GROUND
   const bytes = toBytes(region.bits)
   const on = (col: number, row: number): boolean => {
@@ -376,6 +470,7 @@ export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
       for (let row = row0 - reach; row <= row0 + reach; row++) {
         if (!on(col, row)) continue
         const [cx, cy] = [region.minX + col, region.minY + row]
+        if (!keep(cx + 0.5, cy + 0.5)) continue
         const dx = Math.max(cx - x, 0, x - (cx + 1))
         const dy = Math.max(cy - y, 0, y - (cy + 1))
         if (Math.hypot(dx, dy) <= pad) return true
@@ -470,9 +565,14 @@ function lockBox(
  * `vision.ts` diffs this across mutations to find the children a brush stroke just earned; the
  * room slice covers the rest.
  */
-export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<string> {
-  const kept = exploredRooms(fog)
-  const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
+export function keptChildIds(
+  scene: SceneMap,
+  fog: SceneFog,
+  doors: Doors,
+  ground: Ground = groundOf(fog, scene.frame),
+): Set<string> {
+  const kept = heldRooms(scene, fog)
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
@@ -519,14 +619,162 @@ function nearKeptRoom(cut: Cut, x: number, y: number): boolean {
 
 /** Does this shape's outline enclose any part of a room the party has earned? */
 function coversKeptRoom(shape: ShapeChild, cut: Cut): boolean {
+  return cut.rooms.some((room) => shapeCovers(shape, room.boundary))
+}
+
+/** Does this shape's outline enclose any vertex of a room's face? */
+function shapeCovers(shape: ShapeChild, boundary: readonly [number, number][]): boolean {
   const outline = shape.contours?.[0]
   if (!outline || outline.length < 3) return false
   // `centreOf` adds the translate to the shape; here the room's world vertices come back to
   // the untransformed contour instead, which is the same comparison from the other end.
   const [dx, dy] = shape.transform?.translate ?? [0, 0]
-  return cut.rooms.some((room) =>
-    room.boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy)),
-  )
+  return boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy))
+}
+
+/*
+ * R1 (rca-live.md) — the player's copy must draw exactly as the DM's wherever it draws at all.
+ *
+ * The engine resolves a door's pose, and every door, wall band, floor fill and room place's
+ * look, from context a player's copy does not hold: the wall a door hangs on (re-snapped to the
+ * nearest one when absent), the merged floor, and the rooms whose looks pin floors, walls and
+ * places. Two mechanisms close that, chosen as the smallest pair that makes the parity test
+ * (`parity.test.ts`) hold, and both live in this file:
+ *
+ * 1. Doors are baked. Each door a player is sent is resolved here against the full map and
+ *    carries the result: the pose in `position` and `angle`, and the host wall's id and look in
+ *    `placed`. Core draws a placed door as given, with no re-snap (`wallResolve.ts`
+ *    `placedDoor`, `wallLook.ts` `doorWallLook`).
+ * 2. Withheld rooms under a sent floor travel as stand-ins: the room's id, face and look (its
+ *    area's pins folded in), with no name, number, anchor, area or notes, marked `standIn`. The
+ *    engine reads them for floor fills, wall pins and place exactly as it reads a real room;
+ *    the client's fog never counts one (`roomsOfLayers`). A later reveal sends the real room
+ *    under the same id, which replaces the stand-in on merge.
+ */
+
+const placementCache = new WeakMap<SceneMap, Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>>>()
+
+/** Every door on the map, resolved as the DM's renderer resolves it. Once per parsed map. */
+function placementsOf(scene: SceneMap): Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>> {
+  const hit = placementCache.get(scene)
+  if (hit) return hit
+  const out = new Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>>()
+  for (const stored of scene.data.layers) {
+    if (!isDungeon(stored)) continue
+    const layer = { ...stored, children: [...childrenOf(stored)], standaloneWalls: [...wallsOf(stored)] }
+    const level = levelOf(scene.data.levels ?? [], layer).look
+    const [style, rings, edges] = [levelStyle(layer.style, level), ringStyles(layer, level), edgeStyles(layer, level)]
+    for (const resolved of resolveDoors(layer, resolveWalls(layer))) {
+      const look = doorWallLook(resolved, style, rings, edges)
+      out.set(resolved.door.id, {
+        position: resolved.position,
+        angle: resolved.angle,
+        placed: {
+          // A floor-ring edge has no id that survives the client's own union: '' finds it by pose.
+          wallId: resolved.wall && resolved.wall.kind !== 'floor' ? resolved.wall.id : '',
+          ...(resolved.detached ? { detached: true } : {}),
+          look: { ...(look.setId ? { setId: look.setId } : {}), tint: look.tint, width: look.width, corner: look.corner },
+        },
+      })
+    }
+  }
+  placementCache.set(scene, out)
+  return out
+}
+
+/** A door as the player is sent it: drawn where, and as, the full map draws it. */
+function placed<T extends DoorChild>(scene: SceneMap, door: T): T {
+  const placement = placementsOf(scene).get(door.id)
+  return placement ? { ...door, ...placement } : door
+}
+
+/**
+ * The rooms a slice ships: the ones it was given, plus a stand-in for every room the player does
+ * not hold whose face lies under a walled floor or cave this slice sends.
+ */
+function withStandIns(
+  campaignId: string,
+  layer: DungeonLayer,
+  rooms: Room[],
+  children: AnyChild[],
+  held: ReadonlySet<string>,
+  places: Places = NO_PLACES,
+): { rooms: Room[]; children: AnyChild[] } {
+  const floors = children.filter((c): c is ShapeChild => c.childType === 'shape' && c.ground !== true)
+  if (floors.length === 0) return { rooms, children }
+  const shipped = new Set(rooms.map((room) => room.id))
+  const standIns = (layer.rooms ?? [])
+    .filter((room) => !held.has(room.id) && !shipped.has(room.id))
+    .filter((room) => roomRing(room).length >= 3 && floors.some((floor) => shapeCovers(floor, roomRing(room))))
+    .map((room) => standIn(campaignId, room, layer.areas, places[room.id]))
+  // S5: areas never travel. Each shipped room carries its area's pins folded into its own look,
+  // so an area's name and the grouping of rooms nobody explored stay the DM's.
+  const own = rooms.map((room) => withAreaFolded(room, layer.areas))
+  return { rooms: standIns.length ? [...own, ...standIns] : own, children }
+}
+
+/** A room's look with its area's pins folded in (room pins win, the chain's own order), and no area. */
+function withAreaFolded(room: Room, areas: readonly RoomArea[] | undefined): Room {
+  if (!room.areaId) return room
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
+  const { areaId: _areaId, ...rest } = room
+  const look = foldedLook(room, areas)
+  return Object.keys(look).length > 0 ? { ...rest, look } : rest
+}
+
+function foldedLook(room: Room, areas: readonly RoomArea[] | undefined): NonNullable<Room['look']> {
+  const area = room.areaId ? areas?.find((a) => a.id === room.areaId) : undefined
+  return { ...area?.look, ...room.look }
+}
+
+/**
+ * A stand-in's id: opaque, so no readable room id (`room-chief`) travels with it. Keyed on this
+ * process's secret, the campaign and the room, so it is stable for as long as the server runs;
+ * the client also drops a stand-in when anything arrives with its face (`mergeMapDelta`).
+ */
+const STAND_IN_SALT = randomBytes(16)
+const standInId = (campaignId: string, roomId: string): string =>
+  `standin-${createHmac('sha256', STAND_IN_SALT).update(`${campaignId}:${roomId}`).digest('hex').slice(0, 16)}`
+
+/** The DM's live place overrides, by real room id (`roomEditsOf`). */
+export type Places = Readonly<Record<string, Environment>>
+const NO_PLACES: Places = {}
+
+/**
+ * The stand-ins a seat holds, re-sent whole when the DM moves a live place (the stand-in's baked
+ * place moved with it). Null when no stand-in ships.
+ */
+export function standInDeltaFor(
+  scene: SceneMap,
+  sceneId: string,
+  fog: SceneFog,
+  doors: Doors,
+  ground: Ground,
+  places: Places,
+): MapDelta | null {
+  const doc = redactMapForViewer(scene, fog, doors, ground, undefined, places)
+  const layers = doc.layers
+    .filter(isDungeon)
+    .map((layer) => ({ id: layer.id, rooms: (layer.rooms ?? []).filter((room) => room.standIn), children: [] as AnyChild[], standaloneWalls: [] as WallSegment[] }))
+    .filter((layer) => layer.rooms.length > 0)
+  return layers.length ? { sceneId, layers } : null
+}
+
+/** A withheld room as the engine needs it to draw the floor around it: face and look, nothing more. */
+function standIn(campaignId: string, room: Room, areas: readonly RoomArea[] | undefined, live?: Environment): Room {
+  // The DM's live place for the room wins, as it does on the DM's own table (`tableRoomPlaces`,
+  // keyed by the real id the stand-in no longer carries).
+  const look = { ...foldedLook(room, areas), ...(live ? { place: live } : {}) }
+  const boundary = roomRing(room)
+  return {
+    id: standInId(campaignId, room.id),
+    name: '',
+    // Not the authored anchor: any point of the face serves, and the face is already sent.
+    anchor: boundary[0],
+    boundary,
+    standIn: true,
+    ...(Object.keys(look).length > 0 ? { look } : {}),
+  }
 }
 
 /**
@@ -538,11 +786,62 @@ function doorBound(door: AuthoredDoor, kept: ReadonlySet<string>): boolean {
   return (!!door.roomA && kept.has(door.roomA)) || (!!door.roomB && kept.has(door.roomB))
 }
 
-/** …and a secret door does not exist at all until the DM says so. */
-export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Doors): boolean {
+/**
+ * …and a secret door does not exist at all until the DM says so. Table fix pass §2.7: a door
+ * with an outside face is also kept when known ground lies within one cell of it, so the door
+ * of a room nobody entered is seen from outside. R2: a door has an outside face only when one of
+ * its sides is outdoor ground (`outsideFace`); a door between two rooms of a cave, or with the
+ * cave's own floor on both sides, has none, whatever its room binding says.
+ */
+export function doorKept(
+  door: DoorChild,
+  kept: ReadonlySet<string>,
+  doors: Doors,
+  ground: Ground = NO_GROUND,
+  outside = true,
+): boolean {
   const live = doors[door.id] ?? seedDoor(door)
   if (door.isSecret && !live.revealed) return false
-  return doorBound(door, kept)
+  if (doorBound(door, kept)) return true
+  return outside && (!door.roomA || !door.roomB) && ground(door.position[0], door.position[1], 1)
+}
+
+/** How far off its wall each side of a door is probed for outdoor ground, cells (`bindDoorToRooms`'s). */
+const DOOR_PROBE = 0.5
+
+/**
+ * R2 — whether one side of a door is outdoor ground: outside every walled floor and cave outline
+ * of the door's level, probed off the door where the full map resolves it.
+ */
+export function outsideFace(scene: SceneMap, door: DoorChild): boolean {
+  const placement = placementsOf(scene).get(door.id)
+  const [px, py] = placement?.position ?? door.position
+  const angle = placement?.angle ?? door.angle
+  const enclosed = enclosedOn(scene, doorLevelsOf(scene).get(door.id) ?? firstLevelId(scene.data))
+  const [nx, ny] = [-Math.sin(angle) * DOOR_PROBE, Math.cos(angle) * DOOR_PROBE]
+  return !enclosed(px + nx, py + ny) || !enclosed(px - nx, py - ny)
+}
+
+const doorLevelCache = new WeakMap<SceneMap, Map<string, string>>()
+
+/** The level of every door's layer, by door id. */
+function doorLevelsOf(scene: SceneMap): Map<string, string> {
+  let out = doorLevelCache.get(scene)
+  if (out) return out
+  out = new Map()
+  for (const layer of scene.data.layers) {
+    if (!isDungeon(layer)) continue
+    for (const child of childrenOf(layer)) if (child.childType === 'door') out.set(child.id, levelIdOf(scene.data, layer))
+  }
+  doorLevelCache.set(scene, out)
+  return out
+}
+
+/** The known ground inside walled floors and caves: recorded cells whose centre lies inside one. */
+function insideGroundOf(scene: SceneMap, fog: SceneFog): Ground {
+  const levels = scene.data.levels?.length ? scene.data.levels.map((l) => l.id) : [firstLevelId(scene.data)]
+  const enclosures = levels.map((level) => enclosedOn(scene, level))
+  return groundOf(fog, scene.frame, (x, y) => enclosures.some((enclosed) => enclosed(x, y)))
 }
 
 /**

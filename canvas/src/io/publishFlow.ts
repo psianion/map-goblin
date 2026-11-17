@@ -15,6 +15,7 @@ import {
   createCampaign,
   mintDmToken,
   mintHandoff,
+  signedInCampaigns,
   uploadMap,
   republishScene,
   putScenePrep,
@@ -32,7 +33,7 @@ async function getDb(): Promise<MapIndexDB> {
   return (await getMapDB()) as unknown as MapIndexDB;
 }
 
-export type PublishMode = 'checking' | 'summary' | 'error' | 'password' | 'campaigns' | 'published';
+export type PublishMode = 'checking' | 'summary' | 'error' | 'signed-in' | 'password' | 'campaigns' | 'published';
 export type PublishChange = 'map' | 'prep' | 'none';
 
 export interface PublishSummary {
@@ -98,7 +99,9 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
   const [publishState, setPublishStateLocal] = useState<PublishRecord | null>(null);
   const [summary, setSummary] = useState<PublishSummary | null>(null);
   // Where the last publish went, for the done step's Open the table.
-  const [published, setPublished] = useState<{ campaignId: string; campaignLabel: string } | null>(null);
+  const [published, setPublished] = useState<{ campaignId: string; campaignLabel: string; sceneId?: string } | null>(null);
+  // F5: the campaigns this browser already holds a DM token for, offered before the pass.
+  const [signedIn, setSignedIn] = useState<{ id: string; name: string }[]>([]);
 
   // Never persisted — lives only as long as the dialog needs it to mint a token.
   const [adminPass, setAdminPass] = useState('');
@@ -148,7 +151,9 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
         ? Object.entries(record).find(([campaignId]) => getPublishToken(campaignId))
         : undefined;
       if (!entry) {
-        setMode('password');
+        const signed = signedInCampaigns();
+        setSignedIn(signed);
+        setMode(signed.length > 0 ? 'signed-in' : 'password');
         return;
       }
       const [campaignId, ps] = entry;
@@ -208,9 +213,11 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
         const bytes = await serializeToBytes(data);
         const result = await uploadMap(token, campaignId, bytes);
         await sendThumbnail(token, result.mapId);
+        sceneId = result.sceneId;
         await remember({ sceneId: result.sceneId, mapHash: hash, prepHash });
       };
 
+      let sceneId = target?.sceneId;
       const action = decidePublish(target, hash, prepHash, force);
       if (target && action === 'none') {
         // Nothing changed: say so, and offer Publish anyway (the table may hold another
@@ -251,11 +258,44 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
         );
       }
       // The dialog stays open on a done step, so the DM can go straight to the table.
-      setPublished({ campaignId, campaignLabel });
+      setPublished({ campaignId, campaignLabel, sceneId });
       setMode('published');
     },
     [activeMapId, publishState],
   );
+
+  /** F5: publish to a campaign this browser is already signed in to, with the token it holds. */
+  const pickSignedIn = useCallback(
+    async (campaign: { id: string; name: string }) => {
+      const token = getPublishToken(campaign.id);
+      if (!token) {
+        setMode('password');
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        await runPublish(campaign.id, token, labelFor(campaign.id, campaign.name));
+      } catch (err) {
+        if (err instanceof PublishAuthError) handleAuthError(campaign.id);
+        else {
+          const message = err instanceof Error ? err.message : 'Publish failed.';
+          setError(message);
+          notify.error(message);
+        }
+      } finally {
+        setBusy(false);
+        setBusyLabel('');
+      }
+    },
+    [runPublish, handleAuthError, labelFor],
+  );
+
+  /** F5: none of the signed-in campaigns: ask for the admin pass after all. */
+  const askForPass = useCallback(() => {
+    setError(null);
+    setMode('password');
+  }, []);
 
   /** Publish from the summary; `force` republishes the map even when nothing changed. */
   const publish = useCallback(async (force = false) => {
@@ -312,7 +352,7 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
       setBusyLabel('Connecting…');
       try {
         const { token } = await mintDmToken(adminPass, campaign.id);
-        setPublishToken(campaign.id, token);
+        setPublishToken(campaign.id, token, campaign.name);
         setAdminPass('');
         await runPublish(campaign.id, token, campaign.name);
       } catch (err) {
@@ -343,7 +383,7 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
     try {
       const created = await createCampaign(adminPass, name);
       campaignId = created.campaignId;
-      setPublishToken(created.campaignId, created.token);
+      setPublishToken(created.campaignId, created.token, name);
       setCampaignNames((prev) => ({ ...prev, [created.campaignId]: name }));
       setAdminPass('');
       await runPublish(created.campaignId, created.token, name);
@@ -380,7 +420,7 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
     setBusyLabel('Opening…');
     setError(null);
     try {
-      const { tableUrl } = await mintHandoff(token, published.campaignId);
+      const { tableUrl } = await mintHandoff(token, published.campaignId, published.sceneId);
       if (tab) {
         tab.opener = null;
         tab.location.href = tableUrl;
@@ -414,6 +454,9 @@ export function usePublishFlow({ open, onClose }: { open: boolean; onClose: () =
     publish,
     connect,
     pickCampaign,
+    signedIn,
+    pickSignedIn,
+    askForPass,
     create,
     retryCheck,
   };

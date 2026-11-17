@@ -17,7 +17,7 @@ import {
   tableRegion,
 } from './types'
 import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
-import { blockedEdge, defaultRoom, effectiveFog, revealPartyRooms, visibleRooms, type FogRoom } from './visibility'
+import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -331,14 +331,23 @@ describe('redact (D4)', () => {
     expect(redact(state, DM)).toBe(state)
   })
 
-  it('gives a player their explored rooms and nothing else', () => {
+  // T10 — once "every room ever revealed": a room the DM hid again is now fogged fully, so
+  // the seat holds only what is revealed now.
+  it('gives a player the rooms they hold now and nothing else', () => {
     const seen = redact(state, P1)
-    expect(seen.byScene[SCENE].rooms).toEqual({
-      hall: { status: 'revealed', wasEverRevealed: true },
-      crypt: { status: 're_hidden', wasEverRevealed: true },
-    })
+    expect(seen.byScene[SCENE].rooms).toEqual({ hall: { status: 'revealed', wasEverRevealed: true } })
     expect(seen.byScene[SCENE].concealBehindDoors).toBe(true)
     expect(Object.keys(seen.byScene['map-2'].rooms)).toEqual([])
+  })
+
+  it('keeps a latched room in By sight, where the record may still show part of it', () => {
+    const vision = { ...state, byScene: { ...state.byScene, [SCENE]: { ...state.byScene[SCENE], mode: 'vision' as const } } }
+    expect(Object.keys(redact(vision, P1).byScene[SCENE].rooms)).toEqual(['hall', 'crypt'])
+  })
+
+  it('takes the held rows from the server when it has a map to judge by (T10)', () => {
+    const judged = fogModule(() => ['hall', 'crypt', 'treasury'], undefined, undefined, undefined, undefined, () => new Set(['crypt']))
+    expect(Object.keys(judged.redact!(state, P1).byScene[SCENE].rooms)).toEqual(['crypt'])
   })
 
   it('leaks neither the id nor the count of an unrevealed room, in any scene', () => {
@@ -489,17 +498,6 @@ describe('defaultRoom / effectiveFog (amendment 2026-07-28)', () => {
   it('has nothing to pick on a map nobody zoned', () => {
     expect(defaultRoom([])).toBeNull()
     expect(effectiveFog(nothing, [], ['nowhere'])).toEqual(nothing)
-  })
-
-  it('reveals the party’s own rooms in rooms mode while the DM has revealed nothing, and only then', () => {
-    expect(idsOf(revealPartyRooms(nothing, ['hall']))).toEqual(['hall'])
-    expect(revealPartyRooms(nothing, [])).toBe(nothing)
-    expect(revealPartyRooms({ ...nothing, mode: 'vision' }, ['hall'])).toEqual({ ...nothing, mode: 'vision' })
-    const lit: SceneFog = { ...nothing, rooms: { vault: { status: 'revealed', wasEverRevealed: true } } }
-    expect(idsOf(revealPartyRooms(lit, ['hall']))).toEqual(['vault'])
-    // A Hide All is the DM's call: a room ever revealed means the table is not fresh.
-    const hidden: SceneFog = { ...nothing, rooms: { hall: { status: 're_hidden', wasEverRevealed: true } } }
-    expect(revealPartyRooms(hidden, ['hall'])).toBe(hidden)
   })
 
   it('reveals the default room while the DM has revealed nothing', () => {
@@ -786,8 +784,11 @@ describe('the table log (§2.4.3)', () => {
     const redact = fog.redact!
 
     it('keeps a room line only for a seat that has seen the room', () => {
-      const state = fire(fire(empty, 'reveal', { roomId: 'crypt' }), 'hide', { roomId: 'crypt' })
-      expect(redact(state, P1).log?.map((e) => e.action)).toEqual(['revealed-room', 'hid-room'])
+      const shown = fire(empty, 'reveal', { roomId: 'crypt' })
+      expect(redact(shown, P1).log?.map((e) => e.action)).toEqual(['revealed-room'])
+      // T10: hidden again, the room is no longer the seat's, and neither are its lines.
+      const state = fire(shown, 'hide', { roomId: 'crypt' })
+      expect(redact(state, P1).log?.map((e) => e.action)).toEqual([])
       // A wing nobody walked into: the line, the room id and the count all stay behind.
       const secret = fire(empty, 'reveal', { roomId: 'treasury' })
       const reset = fire(secret, 'reset', {})
@@ -1058,6 +1059,32 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       const nothing = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 1]] })
       expect(nothing.error).toBeNull()
       expect(getCell(scened(nothing.next).region, 9, 1)).toBe(false)
+    })
+
+    it('keeps a stroke on outdoor ground away from every room (table fix pass §2.5)', () => {
+      // Col 9 is void to the room clamp; here the map says it is ground (a grass patch outside).
+      const outdoors = fogModule(
+        () => ROOMS,
+        (_campaignId, sceneId) => (sceneId === SCENE ? FRAME : null),
+        (_campaignId, _sceneId, x) => ROOM_AT(x),
+        () => null,
+        (_campaignId, _sceneId, x, y) => x > 9 && y < 2,
+      )
+      let next = empty
+      outdoors.handler('region-set', { op: 'reveal', cells: [[9, 0], [9, 5]] }, {
+        campaignId: 'c-1',
+        sessionId: 's-1',
+        activeSceneId: SCENE,
+        sender: DM,
+        players: [],
+        state: empty,
+        setState: (s) => {
+          next = s
+        },
+        broadcast: () => {},
+      })
+      expect(getCell(scened(next).region, 9, 0)).toBe(true)
+      expect(getCell(scened(next).region, 9, 5)).toBe(false)
     })
 
     it('ships no room for a band cell, and latches the room its floor cells fall in', () => {
@@ -1550,6 +1577,83 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         expect(getCell(rubbed.regions!['p-1'], ...PARTY_CELL)).toBe(false)
         expect(getCell(rubbed.regions!['p-1'], ...MINE)).toBe(false)
         expect(getCell(rubbed.regions!['p-2'], ...PARTY_CELL)).toBe(false)
+      })
+    })
+
+    // T10 — Hide fogs a row fully again, so its cells leave the party's record and every seat's.
+    describe('hide forgets the hidden rows from every record', () => {
+      const BAND: [number, number] = [8, 7] // in no room, beside the crypt
+      const OPEN: [number, number] = [9, 7] // in no room, two cells from it
+      /** The same frame with an Outdoors row the DM can name. */
+      const outdoorsFramed = fogModule(
+        () => [...ROOMS, '@outdoors'],
+        (_campaignId, sceneId) => (sceneId === SCENE ? FRAME : null),
+        (_campaignId, _sceneId, x) => ROOM_AT(x),
+      )
+      const send = (state: FogState, action: string, payload: unknown): SceneFog => {
+        let next = state
+        const error = outdoorsFramed.handler(action, payload, {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        })
+        expect(error ?? null).toBeNull()
+        return scened(next)
+      }
+      const seen = (): FogState =>
+        split({
+          region: setCells(regionOf(FRAME)!, [PARTY_CELL, THEIRS, BAND, OPEN]),
+          rooms: {
+            hall: { status: 'revealed', wasEverRevealed: true },
+            crypt: { status: 'revealed', wasEverRevealed: true },
+            '@outdoors': { status: 'revealed', wasEverRevealed: true },
+          },
+        })
+      const cells = (scene: SceneFog, cell: [number, number]) => [
+        getCell(scene.region, ...cell),
+        getCell(scene.regions!['p-1'], ...cell),
+        getCell(scene.regions!['p-2'], ...cell),
+      ]
+
+      it('takes a hidden room and its wall band, and leaves the rest', () => {
+        const scene = send(seen(), 'hide', { roomId: 'crypt' })
+        expect(cells(scene, THEIRS)).toEqual([false, false, false])
+        expect(getCell(scene.region, ...BAND)).toBe(false)
+        expect(getCell(scene.region, ...OPEN)).toBe(true)
+        expect(getCell(scene.region, ...PARTY_CELL)).toBe(true)
+        expect(getCell(scene.regions!['p-1'], ...MINE)).toBe(true)
+      })
+
+      it('takes every cell in no room when Outdoors is hidden', () => {
+        const scene = send(seen(), 'hide', { roomId: '@outdoors' })
+        expect([getCell(scene.region, ...BAND), getCell(scene.region, ...OPEN)]).toEqual([false, false])
+        expect([getCell(scene.region, ...PARTY_CELL), getCell(scene.region, ...THEIRS)]).toEqual([true, true])
+      })
+
+      it('takes everything a Hide all hides, Outdoors included, and nothing an undo hides', () => {
+        const rooms = {
+          hall: { status: 're_hidden' as const, wasEverRevealed: true },
+          crypt: { status: 're_hidden' as const, wasEverRevealed: true },
+        }
+        const hidden = send(seen(), 'set-bulk', { rooms, forget: true })
+        for (const cell of [PARTY_CELL, THEIRS, BAND, OPEN]) expect(getCell(hidden.region, ...cell)).toBe(false)
+        expect(cells(hidden, MINE)).toEqual([false, false, false])
+        const undone = send(seen(), 'set-bulk', { rooms })
+        for (const cell of [PARTY_CELL, THEIRS, BAND, OPEN]) expect(getCell(undone.region, ...cell)).toBe(true)
+      })
+
+      it('keeps a row Hide all leaves revealed', () => {
+        const rooms = { hall: { status: 'revealed' as const, wasEverRevealed: true } }
+        const scene = send(seen(), 'set-bulk', { rooms, forget: true })
+        expect(getCell(scene.region, ...PARTY_CELL)).toBe(true)
+        expect(getCell(scene.region, ...THEIRS)).toBe(false)
       })
     })
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MAP_FILE_ACCEPT } from '@dnd/core/src/shared/mapFile';
 import { useStore } from '@dnd/core/src/store/store';
-import { Button, Caption, FloatBox, Input, PrimaryButton, Tile, cn, timeAgo } from '@dnd/ui';
-import { ArrowLeft, FilePlus2, Upload } from '@dnd/ui/icons';
+import { Button, Caption, FloatBox, Input, PrimaryButton, QrCode, Tile, cn, timeAgo } from '@dnd/ui';
+import { ArrowLeft, FilePlus2, Flag, LocateFixed, Upload } from '@dnd/ui/icons';
 import { endpoints, setServerUrl } from '../endpoints';
 import { navigate } from '../router';
 import {
@@ -17,6 +17,7 @@ import {
   uploadMapFile,
   type CampaignSummary,
   type SceneMeta,
+  type StartingPoint,
 } from '../session/auth';
 import { forgetDmToken, freshDmToken, saveDmToken, storedCampaigns, type StoredCampaign } from '../session/dmTokens';
 import { SceneThumb } from '../modules/scene/SceneThumb';
@@ -84,6 +85,30 @@ function blankMapText(): string {
   return JSON.stringify({ ...doc, mapSettings: { ...doc.mapSettings, name: 'Blank map' } });
 }
 
+/** The start tiles that are points, not rooms (table fix pass F18). */
+const PARTY_START = '@party';
+const MAP_CENTRE = '@centre';
+
+/** A room's outline drawn into its start tile, so the DM picks the room by its shape. */
+function RoomOutline({ ring }: { ring: [number, number][] }) {
+  const xs = ring.map(([x]) => x);
+  const ys = ring.map(([, y]) => y);
+  const [minX, minY] = [Math.min(...xs), Math.min(...ys)];
+  const [w, h] = [Math.max(Math.max(...xs) - minX, 1), Math.max(Math.max(...ys) - minY, 1)];
+  const pad = Math.max(w, h) * 0.1;
+  return (
+    <svg
+      aria-hidden
+      data-testid="start-room-outline"
+      viewBox={`${minX - pad} ${minY - pad} ${w + pad * 2} ${h + pad * 2}`}
+      preserveAspectRatio="xMidYMid meet"
+      className="absolute inset-1 text-text-2"
+    >
+      <polygon points={ring.map(([x, y]) => `${x},${y}`).join(' ')} fill="currentColor" fillOpacity={0.18} stroke="currentColor" strokeWidth={1.25} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function Stepper({ step }: { step: Step }) {
   const at = STEPS.findIndex((s) => s.id === step);
   return (
@@ -134,6 +159,8 @@ export default function HostSetup() {
   const [rooms, setRooms] = useState<StartingRoomOption[]>([]);
   const [levels, setLevels] = useState<StartingRoomPicker['levels']>([]);
   const [startRoomId, setStartRoomId] = useState('');
+  const [partyStart, setPartyStart] = useState<StartingRoomPicker['partyStart']>(undefined);
+  const [centre, setCentre] = useState<StartingRoomPicker['centre']>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [resumed, setResumed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -163,6 +190,8 @@ export default function HostSetup() {
     setRooms([]);
     setLevels([]);
     setStartRoomId('');
+    setPartyStart(undefined);
+    setCentre(null);
     const active = resumeLive ? await fetchActiveSession(c.campaignId, c.token).catch(() => null) : null;
     if (active) {
       setInviteCode(active.inviteCode);
@@ -186,7 +215,20 @@ export default function HostSetup() {
       const res = await redeemOnce(code);
       clearHandoffCode();
       saveDmToken({ campaignId: res.campaignId, name: res.campaignName, server: endpoints.httpBase }, res.token);
-      await enterCampaign({ campaignId: res.campaignId, name: res.campaignName, token: res.token }, false);
+      const c = { campaignId: res.campaignId, name: res.campaignName, token: res.token };
+      // Table fix pass F1: a table already running carries on, on the scene the canvas named,
+      // with the same code and players. Opening never ends it.
+      const live = await fetchActiveSession(c.campaignId, c.token).catch(() => null);
+      if (live && res.sceneId) {
+        const opened = await startSession(c.campaignId, c.token, undefined, res.sceneId);
+        setCampaign(c);
+        setInviteCode(opened.inviteCode);
+        setResumed(true);
+        setStep('invite');
+        return;
+      }
+      await enterCampaign(c, !!live);
+      if (!live && res.sceneId) await choose(res.sceneId, c);
     });
     // Once, on load.
   }, []);
@@ -224,14 +266,25 @@ export default function HostSetup() {
       await enterCampaign({ campaignId: session.campaignId, name, token: session.token }, false);
     });
 
+  /** A scene picked: its start tiles, read off the referee's own copy so rooms carry outlines. */
+  async function choose(id: string, c: Campaign): Promise<void> {
+    setSceneId(id);
+    const picker = startingRoomsOf(await fetchMapDoc(id, c.token));
+    setRooms(picker.rooms);
+    setLevels(picker.levels);
+    setPartyStart(picker.partyStart);
+    setCentre(picker.centre);
+    // The map's party start first; then its starting room; a map with neither starts at its
+    // centre rather than in the dark.
+    setStartRoomId(
+      picker.partyStart ? PARTY_START : picker.defaultRoomId || (picker.rooms.length === 0 && picker.centre ? MAP_CENTRE : ''),
+    );
+  }
+
   const pickScene = (id: string) =>
     run(async () => {
       if (!campaign) return;
-      setSceneId(id);
-      const picker = startingRoomsOf(await fetchMapDoc(id, campaign.token));
-      setRooms(picker.rooms);
-      setLevels(picker.levels);
-      setStartRoomId(picker.defaultRoomId);
+      await choose(id, campaign);
     });
 
   const uploadText = (text: string) =>
@@ -239,20 +292,24 @@ export default function HostSetup() {
       if (!campaign) return;
       const uploaded = await uploadMapFile(campaign.campaignId, campaign.token, text);
       setScenes((await listScenes(campaign.campaignId, campaign.token)).scenes);
-      setSceneId(uploaded.sceneId);
-      const picker = startingRoomsOf(JSON.parse(text));
-      setRooms(picker.rooms);
-      setLevels(picker.levels);
-      setStartRoomId(picker.defaultRoomId);
+      await choose(uploaded.sceneId, campaign);
     });
 
   const openTable = () =>
     run(async () => {
       if (!campaign || !sceneId) return;
-      const startingRoom = startRoomId ? { sceneId, roomId: startRoomId } : undefined;
-      const opened = await startSession(campaign.campaignId, campaign.token, startingRoom, sceneId);
+      const point: StartingPoint | undefined =
+        startRoomId === PARTY_START && partyStart
+          ? { sceneId, x: partyStart.x, y: partyStart.y, ...(partyStart.levelId ? { levelId: partyStart.levelId } : {}) }
+          : startRoomId === MAP_CENTRE && centre
+            ? { sceneId, x: centre.x, y: centre.y }
+            : undefined;
+      const isRoom = startRoomId !== '' && startRoomId !== PARTY_START && startRoomId !== MAP_CENTRE;
+      const startingRoom = isRoom ? { sceneId, roomId: startRoomId } : undefined;
+      const opened = await startSession(campaign.campaignId, campaign.token, startingRoom, sceneId, point);
       setInviteCode(opened.inviteCode);
-      setResumed(false);
+      // A table that was already running carried on (F1): say so on the invite step.
+      setResumed(opened.resumed === true);
       setStep('invite');
     });
 
@@ -265,7 +322,9 @@ export default function HostSetup() {
       data-room-id={r.id}
       data-level-id={r.levelId}
       onClick={() => setStartRoomId(r.id)}
-    />
+    >
+      {r.outline && <RoomOutline ring={r.outline} />}
+    </Tile>
   );
 
   const enterTable = () => {
@@ -416,6 +475,16 @@ export default function HostSetup() {
                 <div className="flex flex-col gap-2" data-testid="host-starting-room">
                   <Caption>Starting room</Caption>
                   <div className="flex flex-wrap gap-2">
+                    {partyStart && (
+                      <Tile name="Party start" active={startRoomId === PARTY_START} onClick={() => setStartRoomId(PARTY_START)} data-testid="start-party">
+                        <Flag aria-hidden strokeWidth={1.75} className="absolute inset-0 m-auto size-4 text-text-2" />
+                      </Tile>
+                    )}
+                    {!partyStart && rooms.length === 0 && centre && (
+                      <Tile name="Centre of the map" active={startRoomId === MAP_CENTRE} onClick={() => setStartRoomId(MAP_CENTRE)} data-testid="start-centre">
+                        <LocateFixed aria-hidden strokeWidth={1.75} className="absolute inset-0 m-auto size-4 text-text-2" />
+                      </Tile>
+                    )}
                     <Tile name="Start dark" active={startRoomId === ''} onClick={() => setStartRoomId('')} data-testid="start-room-none" />
                     {levels.length <= 1 && rooms.map(roomTile)}
                   </div>
@@ -446,9 +515,8 @@ export default function HostSetup() {
                     {inviteLink(inviteCode)}
                   </span>
                 </div>
-                {/* No QR encoder in the repo yet: the box holds the place, the code and link carry the invite. */}
-                <div data-testid="invite-qr" aria-label="QR code" className="flex size-36 shrink-0 items-center justify-center rounded-control border border-dashed border-line-strong text-xs text-text-3">
-                  QR
+                <div data-testid="invite-qr" className="size-36 shrink-0 rounded-control border border-line p-1">
+                  <QrCode value={inviteLink(inviteCode)} label="Invite QR code" className="size-full" />
                 </div>
               </div>
               <PrimaryButton className="self-start" data-testid="enter-table" onClick={enterTable}>

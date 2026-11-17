@@ -12,7 +12,7 @@ import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import type { DoorChild, WallSegment } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { Token } from '@dnd/mechanics/tokens';
-import { createSightCache, sighted } from './visionSight';
+import { clipToFrame, createSightCache, sighted } from './visionSight';
 
 const SPINE = 11;
 
@@ -155,7 +155,8 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
     expect(sees(low, [12.5, 1])).toBe(false);
   });
 
-  it('draws through claimed, unhidden, sighted eyes and no others', () => {
+  // Table fix pass §2.4: a claimed token sees whether or not "Sees" is on (12 cells, normal).
+  it('draws through claimed, unhidden eyes and no others', () => {
     const tokens = [
       scout({ id: 't1' }),
       scout({ id: 't2', ownerId: null }), // the DM's scenery
@@ -164,7 +165,7 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
       // Plain sight, no darkvision: still an eye — it sees whatever is lit.
       scout({ id: 't5', sight: { range: 0, angle: 360, visionMode: 'normal' } }),
     ];
-    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1', 't5']);
+    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1', 't4', 't5']);
   });
 
   it('sweeps a plain-sighted torch-bearer to its torch under the range limit', () => {
@@ -249,3 +250,30 @@ describe('the memo that keeps a still party from paying twice', () => {
   });
 });
 
+
+describe('clipToFrame (P7)', () => {
+  const FRAME = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
+  // A 12-cell sweep, round as an open-ground sweep is, from a token one cell in from the right edge.
+  const reach = (cx: number, cy: number, r: number): [number, number][] =>
+    Array.from({ length: 48 }, (_, i) => [cx + r * Math.cos((i / 48) * 2 * Math.PI), cy + r * Math.sin((i / 48) * 2 * Math.PI)]);
+
+  it('holds a sweep by the edge to the frame, and keeps what is inside it', () => {
+    const clipped = clipToFrame(reach(28.5, 10.5, 12), FRAME);
+    expect(clipped.length).toBeGreaterThanOrEqual(3);
+    for (const [x, y] of clipped) {
+      expect(x).toBeGreaterThanOrEqual(FRAME.minX);
+      expect(x).toBeLessThanOrEqual(FRAME.maxX);
+      expect(y).toBeGreaterThanOrEqual(FRAME.minY);
+      expect(y).toBeLessThanOrEqual(FRAME.maxY);
+    }
+    expect(pointInPolygon([29.5, 10.5], clipped)).toBe(true);
+    expect(pointInPolygon([20, 10.5], clipped)).toBe(true);
+    expect(pointInPolygon([30.5, 10.5], clipped)).toBe(false);
+  });
+
+  it('leaves a sweep wholly inside the frame as it was, and drops one wholly outside', () => {
+    const inside = reach(15, 10, 4);
+    expect(clipToFrame(inside, FRAME)).toEqual(inside);
+    expect(clipToFrame(reach(50, 10, 4), FRAME)).toEqual([]);
+  });
+});

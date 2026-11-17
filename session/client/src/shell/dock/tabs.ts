@@ -33,11 +33,11 @@ const onScene = (): string | null => {
   return name ? `on ${name}` : null;
 };
 
-registerDockTab({ id: 'fog', title: 'Fog', icon: CloudFog, key: '1', Body: FogBody, Strip: FogStrip, context: onScene, onMap: () => mountFogOverlayWhenReady() });
+registerDockTab({ id: 'fog', title: 'Fog', icon: CloudFog, key: '1', height: 'sm', Body: FogBody, Strip: FogStrip, context: onScene, onMap: () => mountFogOverlayWhenReady() });
 registerDockTab({ id: 'map', title: 'Map', icon: MapIcon, key: '2', Body: MapBody, Strip: MapStrip, context: onScene, onMap: mapOnMap });
 registerDockTab({ id: 'tokens', title: 'Tokens', icon: Users, key: '3', Body: TokensBody, Strip: TokensStrip, context: tokensContext });
 registerDockTab({ id: 'encounter', title: 'Encounter', icon: Swords, key: '4', Body: EncounterBody, Strip: EncounterStrip, context: encounterContext, onMap: encounterOnMap });
-registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', Body: StoryBody, Strip: StoryStrip });
-registerDockTab({ id: 'world', title: 'Sky', icon: CloudSun, key: '6', Body: WorldBody, context: onScene });
-registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', Body: ScenesBody, Strip: ScenesStrip });
-registerDockTab({ id: 'dice', title: 'Dice', icon: Dice5, key: '8', Body: DiceBody, Strip: DiceStrip, context: diceContext });
+registerDockTab({ id: 'story', title: 'Story', icon: BookOpen, key: '5', height: 'sm', Body: StoryBody, Strip: StoryStrip });
+registerDockTab({ id: 'world', title: 'Sky', icon: CloudSun, key: '6', height: 'sm', Body: WorldBody, context: onScene });
+registerDockTab({ id: 'scenes', title: 'Scenes', icon: Clapperboard, key: '7', height: 'sm', Body: ScenesBody, Strip: ScenesStrip });
+registerDockTab({ id: 'dice', title: 'Dice', icon: Dice5, key: '8', height: 'sm', Body: DiceBody, Strip: DiceStrip, context: diceContext });

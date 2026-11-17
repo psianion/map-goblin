@@ -117,3 +117,57 @@ export function extractWallSegments(
 
   return segments
 }
+
+/** A span that stops walking (table fix pass §2.1). */
+export interface MoveSegment {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  /** A shut door's span: its id. Absent on a wall span. */
+  doorId?: string
+  /** Wall spans: what the wall is (a cave's rock reaches further out than in). */
+  wallKind?: 'standalone' | 'floor' | 'cave'
+  /** Wall spans: the drawn width, cells. */
+  width?: number
+}
+
+/**
+ * Every span on `dungeonLayers` that stops walking: walls that block movement (normal, terrain,
+ * invisible and window), a cave's rock between its openings, and closed or locked doors with
+ * their ids. Open doors, archways and cave mouths are gaps. One-way walls block both ways. The
+ * door state is read off the children, so the caller lays the live state over them first (an
+ * unfound secret door hidden, which leaves its wall whole), exactly as for the sight sweep.
+ */
+export function extractMoveSegments(dungeonLayers: DungeonLayer[]): MoveSegment[] {
+  const out: MoveSegment[] = []
+  for (const layer of dungeonLayers) {
+    const walls = resolveWalls(layer)
+    const byId = new Map(walls.map((w) => [w.id, w]))
+    const jointIds = new Set(connectorChildren(layer.children ?? []).map((c) => c.id))
+    const doors = resolveDoors(layer, walls).filter((d) => d.door.visible && !jointIds.has(d.door.id))
+    const segs = buildOcclusionSegments(walls, [...toOcclusionDoors(doors, walls), ...connectorApertures(layer, walls)])
+    const layerWidth = layer.style?.wallWidth ?? 0.5
+    for (const seg of segs) {
+      if (!seg.blocksMovement) continue
+      const wall = seg.sourceType === 'wall' ? byId.get(seg.sourceId) : undefined
+      const extra: Partial<MoveSegment> =
+        seg.sourceType === 'door'
+          ? { doorId: seg.sourceId }
+          : {
+              wallKind: wall?.kind ?? 'standalone',
+              width:
+                wall?.kind === 'cave'
+                  ? (wall.bandWidth ?? layerWidth)
+                  : wall?.kind === 'standalone'
+                    ? (wall.width ?? layerWidth)
+                    : layerWidth,
+            }
+      const pts = seg.points
+      for (let i = 0; i < pts.length - 1; i++) {
+        out.push({ x1: pts[i][0], y1: pts[i][1], x2: pts[i + 1][0], y2: pts[i + 1][1], ...extra })
+      }
+    }
+  }
+  return out
+}

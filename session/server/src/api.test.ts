@@ -363,11 +363,13 @@ describe('the starting room the DM picks while setting up', () => {
         body: { code: started.body.inviteCode as string, name: 'Bob' },
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
       expect(state.state.modules.fog).toEqual({
         byScene: {
           [mapId]: {
             rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
             concealBehindDoors: true,
+            visible: ['r-hall'],
           },
         },
       })
@@ -450,11 +452,13 @@ describe('the starting room the DM picks while setting up', () => {
       // The one assertion that would have caught it: the scene the player is looking at is
       // the scene the reveal is stored under, so the fog they were handed is about their map.
       expect(state.state.activeSceneId).toBe(pickedId)
+      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
       expect(state.state.modules.fog).toEqual({
         byScene: {
           [pickedId]: {
             rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
             concealBehindDoors: true,
+            visible: ['r-hall'],
           },
         },
       })
@@ -1357,8 +1361,11 @@ describe('assets (D11)', () => {
       expect((await post(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x00]))).status).toBe(400)
       expect((await post(Buffer.alloc(0))).status).toBe(400)
 
-      // Over the 2MB cap, refused on the declared length before a byte is buffered.
-      expect((await post(Buffer.concat([PNG, Buffer.alloc(MAX_ASSET_BYTES)]))).status).toBe(413)
+      // Over the 2MB cap, refused on the declared length before a byte is buffered: a 413, or
+      // the hangup that follows it mid-write.
+      expect([413, 'refused']).toContain(
+        await post(Buffer.concat([PNG, Buffer.alloc(MAX_ASSET_BYTES)])).then((r) => r.status, () => 'refused'),
+      )
 
       // A player uploads their own PC's art (decision 16); a seat at another campaign cannot.
       expect((await post(PNG, playerToken)).status).toBe(201)
@@ -1574,10 +1581,12 @@ describe('a session that has ended stays ended', () => {
 
   it('does not let a token from the last session open the next one', async () => {
     await withServer(async ({ server, base, adminPass }) => {
-      const { campaignId, dmToken, inviteCode, playerToken } = await table(base, adminPass)
+      const { campaignId, dmToken, inviteCode, playerToken, sessionId } = await table(base, adminPass)
 
-      // Starting a session ends the one before it and mints a fresh invite code — the
-      // closest thing S1 has to rotating one.
+      // Ending a session and starting the next mints a fresh invite code — the closest thing
+      // S1 has to rotating one. (Table fix pass F1: opening alone carries a live table on, so
+      // the end is the DM's own act now.)
+      expect((await api(base, 'POST', `/api/sessions/${sessionId}/end`, { token: dmToken })).status).toBe(200)
       const next = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
       expect(next.status).toBe(201)
       expect(next.body.inviteCode).not.toBe(inviteCode)

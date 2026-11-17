@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 
 const info = vi.fn();
-vi.mock('@dnd/ui/toast', () => ({ notify: { info: (m: string) => info(m) } }));
+const warning = vi.fn();
+vi.mock('@dnd/ui/toast', () => ({ notify: { info: (m: string) => info(m), warning: (m: string) => warning(m) } }));
 
 const { useSessionStore } = await import('./store');
 
@@ -25,6 +26,7 @@ function state(activeSceneId: string, mapId: string): SessionState {
 
 beforeEach(() => {
   info.mockClear();
+  warning.mockClear();
   useSessionStore.setState({ session: state('a', 'm1'), you: dm });
 });
 
@@ -44,5 +46,15 @@ describe('republish notice', () => {
   it('stays quiet on a switch to another scene', () => {
     useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb' });
     expect(info).not.toHaveBeenCalled();
+  });
+
+  // F19: a switch to a scene marked hidden still reaches the players; the DM is told so.
+  it('tells the DM, and only the DM, when the live scene was hidden', () => {
+    useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb', hidden: true });
+    expect(warning).toHaveBeenCalledWith('This scene was hidden; players see it now');
+    warning.mockClear();
+    useSessionStore.setState({ session: state('a', 'm1'), you: { ...dm, role: 'player' } });
+    useSessionStore.getState().applyServerMessage({ type: 'scene-changed', sceneId: 'b', mapId: 'mb', hidden: true });
+    expect(warning).not.toHaveBeenCalled();
   });
 });

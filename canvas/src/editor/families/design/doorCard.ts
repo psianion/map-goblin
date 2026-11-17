@@ -1,6 +1,7 @@
 // The door card: Name, Style, State, Freestanding, Opens to, Secret, Width, Angle, then the kit fields
-// (Material, Hinge, Swing, Hinges). Material and the hanging rows list only the door kits
-// an installed pack ships the art for; with none installed they are not shown at all.
+// (Material, Hinge, Swing, Hinges, Jamb). Material and the hanging rows list only the door kits
+// an installed pack ships the art for; with none installed they are not shown at all. Jamb shows
+// for any door a cave's jamb rock closes.
 
 import { z } from 'zod';
 import { selectLayerForChild } from '@/store/selectors';
@@ -13,7 +14,7 @@ import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 import { notify } from '@dnd/ui/toast';
 import { doorwayEditCommand } from '@dnd/core/src/store/doorwayCommands';
 import { DOOR_ANGLE_STEP, doorAngleValue, doorStyleLabel, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
-import { doorKitById, isKitStyle, MAX_OPEN_ANGLE, type DoorKitId } from '@dnd/core/src/assets/doorKits';
+import { doorKitById, doorKitFor, doorKitOf, doorShowsHinges, isKitStyle, MAX_OPEN_ANGLE, type DoorJamb, type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { cleanDoorName, DOOR_HINGES, DOOR_STATES, DOOR_SWINGS, doorModel, doorStyleChange, OPEN_ANGLE_STEP, swingChoice, swingValue, type DoorMaterial } from '@/editor/models/selectionModel';
 import { editChildren, editKey, runEdit } from './cardWrites';
@@ -286,8 +287,36 @@ const hinges = defineCardField<'door', boolean>({
   control: 'switch',
   section: 'Kit',
   visibleWhen: (o) => liveKit(o) !== null,
-  read: (o) => o.hinges !== false,
+  read: (o) => doorShowsHinges(o, doorKitById(liveKit(o) ?? undefined)),
   write: (_store, ids, on) => editChildren(on ? 'Show hinges' : 'Hide hinges', ids, () => ({ hinges: on })),
+});
+
+const JAMBS: { value: DoorJamb; label: string }[] = [
+  { value: 'fit', label: 'Fitted' },
+  { value: 'one', label: 'One rock' },
+  { value: 'none', label: 'None' },
+];
+
+/** Whether a cave's jamb rock closes this door's opening: a cave kit door, or any other style in a cave wall. */
+function hasCaveJamb(o: DoorChild): boolean {
+  const host = doorHost(state(), o.id);
+  const kit = isKitStyle(o.style) ? doorKitOf(o, host?.wallSetId) : doorKitFor(host?.wallSetId);
+  return kit?.jamb.kind === 'art';
+}
+
+const jamb = defineCardField<'door', DoorJamb>({
+  id: 'card.door.jamb',
+  label: 'Jamb',
+  schema: z.enum(['fit', 'one', 'none']),
+  default: 'fit',
+  home: 'card',
+  control: 'seg',
+  section: 'Kit',
+  options: JAMBS,
+  visibleWhen: hasCaveJamb,
+  read: (o) => o.jamb ?? 'fit',
+  write: (_store, ids, v) =>
+    editChildren('Door jamb', ids, (c) => (c.childType === 'door' ? { jamb: v === 'fit' ? undefined : v } : null)),
 });
 
 export const doorCard = defineCard<'door'>({
@@ -295,5 +324,5 @@ export const doorCard = defineCard<'door'>({
   title: (o) => o.name || doorStyleLabel(o.style),
   // A door rides its wall: it is not flipped, turned or copied on its own (cardActions).
   verbs: SELECTION_VERBS,
-  fields: [name, style, doorState, freestanding, opensTo, secret, width, angle, material, hinge, swing, hinges],
+  fields: [name, style, doorState, freestanding, opensTo, secret, width, angle, material, hinge, swing, hinges, jamb],
 });

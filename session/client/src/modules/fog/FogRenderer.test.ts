@@ -43,9 +43,6 @@ import {
   SCENE_DARKNESS,
   washDarkness,
   GRADE_STRENGTH,
-  memoryAlpha,
-  EXPLORED_TINT,
-  EXPLORED_TINT_ALPHA,
   FOG_FEATHER,
   PARTY_ROOM_UNKNOWN,
   REBUILD_FLOOR_MS,
@@ -54,6 +51,7 @@ import {
   easeOutQuart,
   fogBounds,
   fogScene,
+  glowPools,
   partyRoomIds,
   revealDurationMs,
   revealsBetween,
@@ -65,7 +63,7 @@ import {
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
-import { DEFAULT_FOG_LOOK, MASK_MEMORY } from './livingFog';
+import { DEFAULT_FOG_LOOK } from './livingFog';
 import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
@@ -75,7 +73,6 @@ type Room = TableRoom & { centroid: [number, number] };
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
 const VOID: VoidStyle = {
   fill: 0x131316,
-  memory: EXPLORED_TINT,
   dot: 0x3a3a3a,
   dotAlpha: 0.45,
   dotsVisible: true,
@@ -195,7 +192,18 @@ describe('roomViews — what each room is doing', () => {
     expect([...views.values()]).toEqual<RoomView[]>(['dark', 'dark', 'dark']);
   });
 
-  it('is clear where the party stands and dim where they have been', () => {
+  it('classifies the Outdoors row by the same rule, off the visible list (table fix pass §2.8)', () => {
+    const shown = roomViews(ROOMS, { ...fogOf({ '@outdoors': seen }), visible: ['@outdoors'] }, [], [], ['@outdoors']);
+    expect(shown.get('@outdoors')).toBe('visible');
+    // T10: hidden again is dark — there is no explored tier.
+    const hidden = roomViews(ROOMS, { ...fogOf({ '@outdoors': stale }), visible: [] }, [], [], ['@outdoors']);
+    expect(hidden.get('@outdoors')).toBe('dark');
+    expect(roomViews(ROOMS, { ...fogOf({}), visible: [] }, [], [], ['@outdoors']).get('@outdoors')).toBe('dark');
+  });
+
+  // T10 — these rows once asserted 'explored' (a dim memory) for a room seen before; a room
+  // revealed and then hidden, or revealed but out of reach, is now fogged like one never seen.
+  it('is clear where the party stands and dark where they have been', () => {
     const views = roomViews(
       ROOMS,
       fogOf({ [VESTIBULE.id]: seen, [GALLERY.id]: stale }),
@@ -203,11 +211,11 @@ describe('roomViews — what each room is doing', () => {
       [VESTIBULE.id],
     );
     expect(views.get(VESTIBULE.id)).toBe('visible');
-    expect(views.get(GALLERY.id)).toBe('explored');
+    expect(views.get(GALLERY.id)).toBe('dark');
     expect(views.get(VAULT.id)).toBe('dark');
   });
 
-  it('dims a revealed room the party cannot reach through a shut door', () => {
+  it('fogs a revealed room the party cannot reach through a shut door', () => {
     const doors = [liveDoor(door('d-vg', VESTIBULE.id, GALLERY.id))];
     const views = roomViews(
       ROOMS,
@@ -216,8 +224,8 @@ describe('roomViews — what each room is doing', () => {
       [VESTIBULE.id],
     );
     expect(views.get(VESTIBULE.id)).toBe('visible');
-    // Revealed but sealed off: explored, not live — and never black, they have been there.
-    expect(views.get(GALLERY.id)).toBe('explored');
+    // Revealed but sealed off by concealment: fogged until the door opens.
+    expect(views.get(GALLERY.id)).toBe('dark');
   });
 
   it('clears that same room the moment the door opens', () => {
@@ -244,7 +252,7 @@ describe('roomViews — what each room is doing', () => {
       doors,
       [VESTIBULE.id],
     );
-    expect(views.get(GALLERY.id)).toBe('explored');
+    expect(views.get(GALLERY.id)).toBe('dark');
   });
 
   it('with concealment off, revealed is visible however shut the doors are', () => {
@@ -259,9 +267,9 @@ describe('roomViews — what each room is doing', () => {
     expect(views.get(VAULT.id)).toBe('dark');
   });
 
-  it('leaves a re-hidden room the party is standing in dim, not black (D7)', () => {
+  it('fogs a re-hidden room even with the party standing in it (T10)', () => {
     const views = roomViews(ROOMS, fogOf({ [VESTIBULE.id]: stale }), [], [VESTIBULE.id]);
-    expect(views.get(VESTIBULE.id)).toBe('explored');
+    expect(views.get(VESTIBULE.id)).toBe('dark');
   });
 
   // ── no room is lit for free ────────────────────────────────────────────────
@@ -285,7 +293,7 @@ describe('roomViews — what each room is doing', () => {
     expect(views.get(GALLERY.id)).toBe('dark');
   });
 
-  it('leaves a Hide All a map of memories, with nothing lit', () => {
+  it('leaves a Hide All fogged everywhere, with nothing lit (T10)', () => {
     const views = roomViews(
       ROOMS,
       fogOf({ [VESTIBULE.id]: stale, [VAULT.id]: stale }),
@@ -294,8 +302,8 @@ describe('roomViews — what each room is doing', () => {
     );
     // The wash's own regression: the last room going under used to hand the biggest one
     // back as `visible`, which is why a memory measured within 0.35% of the same room live.
-    expect(views.get(VESTIBULE.id)).toBe('explored');
-    expect(views.get(VAULT.id)).toBe('explored');
+    expect(views.get(VESTIBULE.id)).toBe('dark');
+    expect(views.get(VAULT.id)).toBe('dark');
     expect(views.get(GALLERY.id)).toBe('dark');
   });
 
@@ -386,7 +394,7 @@ describe('partyRoomIds', () => {
     expect(ROOMS.some((r) => r.id === PARTY_ROOM_UNKNOWN)).toBe(false);
   });
 
-  it('keeps a revealed room a memory when the party is standing somewhere unknown', () => {
+  it('keeps a revealed room fogged when the party is standing somewhere unknown', () => {
     // Without the line above this reads as "no party", `effectiveFog` drops concealment and
     // the gallery lights up — while the server goes on withholding everything inside it.
     const views = roomViews(
@@ -395,7 +403,7 @@ describe('partyRoomIds', () => {
       [liveDoor(door('d1', VESTIBULE.id, GALLERY.id))],
       partyRoomIds([token({ x: 100, y: 100 })], [GALLERY]),
     );
-    expect(views.get(GALLERY.id)).toBe<RoomView>('explored');
+    expect(views.get(GALLERY.id)).toBe<RoomView>('dark');
   });
 });
 
@@ -409,13 +417,13 @@ describe('revealsBetween — one fade per reveal, and only per reveal', () => {
     expect(revealsBetween(null, views({ [VESTIBULE.id]: 'visible' })).size).toBe(0);
   });
 
-  it('fades a newly visible room from what it was', () => {
+  it('fades a newly visible room from dark, and never one already visible', () => {
     const reveals = revealsBetween(
-      views({ [VESTIBULE.id]: 'dark', [GALLERY.id]: 'explored' }),
+      views({ [VESTIBULE.id]: 'dark', [GALLERY.id]: 'visible' }),
       views({ [VESTIBULE.id]: 'visible', [GALLERY.id]: 'visible' }),
     );
     expect(reveals.get(VESTIBULE.id)).toBe('dark');
-    expect(reveals.get(GALLERY.id)).toBe('explored');
+    expect(reveals.has(GALLERY.id)).toBe(false);
   });
 
   it('fades from black a room whose geometry only just arrived with the delta', () => {
@@ -431,7 +439,7 @@ describe('revealsBetween — one fade per reveal, and only per reveal', () => {
   it('does not fade a room that went the other way', () => {
     const reveals = revealsBetween(
       views({ [VESTIBULE.id]: 'visible' }),
-      views({ [VESTIBULE.id]: 'explored' }),
+      views({ [VESTIBULE.id]: 'dark' }),
     );
     expect(reveals.size).toBe(0);
   });
@@ -455,81 +463,16 @@ describe('reveal timing', () => {
   });
 });
 
-// ── The explored look, at the pixel (D10) ───────────────────────────────────
-// Two browser gates have been lost in here, in opposite directions: the second read every
-// explored room as a flat dark-grey box, and the third read them *brighter* than the lit
-// rooms next to them. Neither is something the wash constants can be checked for alone —
-// what a memory looks like is the multiply composite and the fog's fill together. So the
-// arithmetic below models both halves over a strip of floor and asks both questions: is
-// there still texture in there, and is it below the same floor when the room is live.
-
-/** One flat fill over a base channel value, source-over. Channels are 0..255. */
-const over = (base: number, color: number, alpha: number): number =>
-  base * (1 - alpha) + color * alpha;
-
 /**
  * LightingRenderer's composite, the same on every seat. The blend is `multiply` and the
  * sprite's alpha is a *strength* — `dst · lerp(1, m, a)` — where `m` is the FBO's unlit
  * base: the grade. `#0d0e12` is the gate map's
  * grade, and all four of its torches are in one room: every other room is composited against
  * exactly this. The red channel, the grade's dimmest and so the strictest of the three.
- *
- * P1 made the grade universal, which moved every absolute number in this section: a player's
- * unlit floor on the darkest map in the repo now lands where the *editor* has always drawn it
- * and then a little under. What the rows below assert is therefore the ordering and the
- * texture — which is what the two lost gates were actually about — and they are stated as
- * shares of the live room rather than as levels of 255.
  */
 const AMBIENT = 0x0d;
 const unlit = (base: number): number =>
   base * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
-
-/** A stretch of dungeon floor, as one channel. Texture is the spread between these. */
-const FLOOR = [140, 168, 120, 190, 152];
-const spread = (values: number[]): number => Math.max(...values) - Math.min(...values);
-
-/**
- * What the wash does to whatever it is given — through the composite, as it is now drawn
- * (`VoidStyle.memory`). A fixed constant here was the inversion's whole mechanism: it left a
- * floor standing that the graded room below it could fall through.
- */
-const washedTint = (EXPLORED_TINT & 0xff) * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
-const washed = (base: number): number => over(base, washedTint, EXPLORED_TINT_ALPHA);
-
-describe('the explored look', () => {
-  it('keeps the floor texture readable — a memory, not a placeholder', () => {
-    // Composed the way it actually is: the wash over the room's *lit* render, which is what
-    // collapsed to under three levels of 255 and read as the second gate's flat box. As a
-    // share of the room's own texture, because the grade owns the absolute level now.
-    const drawn = FLOOR.map((v) => washed(unlit(v)));
-    expect(spread(drawn) / spread(FLOOR.map(unlit))).toBeGreaterThan(0.25);
-    // …and nowhere near the void, which is what `never_revealed` is reserved for.
-    expect(Math.min(...drawn)).toBeGreaterThan(washed(0));
-  });
-
-  it('is a strict dimming of the same room live — the third gate’s inversion', () => {
-    // Unlit floor: the case that inverted, because a memory used to skip the multiply
-    // entirely and land ten times brighter than the ambient-lit room beside it.
-    for (const v of FLOOR) expect(washed(unlit(v))).toBeLessThan(unlit(v));
-    // And under a torch at full strength, where the wash has the most to give back.
-    for (const v of FLOOR) expect(washed(v)).toBeLessThan(v);
-    // A dimming the map reads through — the user's call on the live table: a memory is the
-    // room, a step darker under a thin haze, never a wash that replaces it.
-    expect(EXPLORED_TINT_ALPHA).toBeGreaterThan(0);
-    expect(EXPLORED_TINT_ALPHA).toBeLessThan(0.5);
-  });
-
-  it('never pedestals a memory above the dimmest thing a live room can be', () => {
-    // The invariant behind both rows above, stated once: what the wash leaves standing over
-    // pure black is the floor of "explored", and it has to sit under the floor of "visible"
-    // or the order inverts again on the next map with a darker ambient — or, since P1, on any
-    // map at all, the grade having become universal and the live floor having come down with
-    // it. Composited, the pedestal comes down by exactly the same factor, so this now holds
-    // for every grade rather than for the one it was tuned against.
-    const pedestal = washedTint * EXPLORED_TINT_ALPHA;
-    expect(pedestal).toBeLessThan(Math.min(...FLOOR.map(unlit)));
-  });
-});
 
 describe('the grade each seat composites at', () => {
   it('keeps the grade for every seat — the half that is presentation, not vision (W2)', () => {
@@ -542,16 +485,6 @@ describe('the grade each seat composites at', () => {
     // same colour that never changed a pixel — the seats were measured identical at the base.
     expect(voidStyle()).toEqual(voidStyle(true));
     expect(unlit(160)).toBe(160 * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (0x0d / 255)));
-  });
-
-  it('keeps the memory tier a step under live at every light level (F)', () => {
-    // The wash eases with the level so a noon memory is not a night one — but it never
-    // reaches zero, and it is the full pair on the darkest scene the pair was tuned against.
-    expect(memoryAlpha(1)).toBe(EXPLORED_TINT_ALPHA);
-    expect(memoryAlpha(SCENE_DARKNESS.daylight)).toBeLessThan(memoryAlpha(SCENE_DARKNESS.dusk));
-    expect(memoryAlpha(SCENE_DARKNESS.dusk)).toBeLessThan(memoryAlpha(1));
-    expect(memoryAlpha(0)).toBeGreaterThan(0.1);
-    for (const v of FLOOR) expect(over(v, washedTint, memoryAlpha(0))).toBeLessThan(v);
   });
 });
 
@@ -753,6 +686,126 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
         (i) => (i.data as { style: { alpha: number; width: number; alignment: number } }).style,
       );
 
+  it('cuts the Outdoors hole from the open ground only while Outdoors is visible (§2.8)', () => {
+    const GRASS: Polygon = [
+      [24, 0],
+      [30, 0],
+      [30, 6],
+      [24, 6],
+    ];
+    const holes = (outdoors: RoomView): number => {
+      const mask = new Graphics();
+      const views = { [WEST.id]: 'visible', [EAST.id]: 'dark', '@outdoors': outdoors } as Record<string, RoomView>;
+      drawFog(new Graphics(), { ...scene(views), open: [GRASS], outdoors: '@outdoors' }, mask);
+      return fillsOf(mask).filter((f) => f.style.color === 0xffffff).length;
+    };
+    expect(holes('visible')).toBe(holes('dark') + 1);
+  });
+
+  // T13 — a fill of `color` covers a point when one of its rings does and none of its cut holes do.
+  type PathLike = { instructions?: { action: string; data: unknown[] }[] };
+  const ringsOf = (path?: PathLike): Polygon[] =>
+    (path?.instructions ?? [])
+      .filter((step) => step.action === 'poly' || step.action === 'rect')
+      .map((step) => {
+        if (step.action === 'rect') {
+          const [x, y, w, h] = step.data as number[];
+          return [
+            [x, y],
+            [x + w, y],
+            [x + w, y + h],
+            [x, y + h],
+          ] as Polygon;
+        }
+        const flat = step.data[0] as number[];
+        const poly: Polygon = [];
+        for (let k = 0; k + 1 < flat.length; k += 2) poly.push([flat[k], flat[k + 1]]);
+        return poly;
+      });
+  const paintedAt = (g: Graphics, point: [number, number], color: number): boolean =>
+    g.context.instructions
+      .filter((i) => i.action === 'fill' && (i.data as { style: { color: number } }).style.color === color)
+      .some((i) => {
+        const { path, hole } = i.data as { path?: PathLike; hole?: PathLike };
+        return ringsOf(path).some((r) => pointInPolygon(point, r)) && !ringsOf(hole).some((r) => pointInPolygon(point, r));
+      });
+  const shown = (g: Graphics, point: [number, number]): boolean => paintedAt(g, point, 0xffffff);
+
+  it('fogs a hidden room and its stand-in like unexplored ground, the open ground round them grown (T13)', () => {
+    // Outdoors revealed: the frame with three walled floors cut out — West (visible), East
+    // (dark) and Far, which the referee withheld and sent only as a stand-in.
+    const OPEN: Polygon = [
+      [0, -2],
+      [40, -2],
+      [40, 10],
+      [0, 10],
+    ];
+    const mask = new Graphics();
+    const views = { [WEST.id]: 'visible', [EAST.id]: 'dark', '@outdoors': 'visible' } as Record<string, RoomView>;
+    drawFog(
+      new Graphics(),
+      {
+        ...scene(views),
+        bounds: fogBounds([], [WEST, EAST, FAR]),
+        outdoors: '@outdoors',
+        openParts: { outers: [OPEN], holes: [WEST.boundary, EAST.boundary, FAR.boundary] },
+        standIns: [FAR.boundary],
+      },
+      mask,
+    );
+    // The stand-in reads as unexplored all the way to its floor's edge: grown with its holes in
+    // it, the open ground's pad and feather used to reach two cells into every one of them.
+    for (const p of [[33, 3], [30.3, 3], [35.7, 3], [33, 0.3], [33, 5.7], [30.3, 0.3]] as [number, number][]) {
+      expect(shown(mask, p), `stand-in at ${p}`).toBe(false);
+    }
+    // …and so does the dark room, whatever the open ground round it does.
+    for (const p of [[13, 3], [10.6, 3], [15.7, 5.7]] as [number, number][]) expect(shown(mask, p), `dark at ${p}`).toBe(false);
+    // The ground round them is shown up to their walls, as By sight draws it.
+    for (const p of [[20, 3], [29.5, 3], [33, -1], [33, 7], [2, 3]] as [number, number][]) {
+      expect(shown(mask, p), `outdoors at ${p}`).toBe(true);
+    }
+    expect(shown(mask, WEST.centroid)).toBe(true);
+  });
+
+  it("always clears the seat's own token, even in a dark room (§2.8)", () => {
+    const whites = (own: Polygon[]): number => {
+      const mask = new Graphics();
+      drawFog(new Graphics(), { ...scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }), own }, mask);
+      return fillsOf(mask).filter((f) => f.style.color === 0xffffff).length;
+    };
+    const inEast: Polygon = [
+      [13, 2],
+      [14, 2],
+      [14, 3],
+      [13, 3],
+    ];
+    expect(whites([inEast])).toBe(whites([]) + 1);
+  });
+
+  it("puts the own token in the mask as its footprint, ungrown, and opens the scrim round it (T13)", () => {
+    // After Hide all: nothing visible, the token standing in a hidden room.
+    const TOKEN: Polygon = [
+      [12, 2],
+      [13, 2],
+      [13, 3],
+      [12, 3],
+    ];
+    const scrim = new Graphics();
+    const mask = new Graphics();
+    drawFog(scrim, { ...scene({ [WEST.id]: 'dark', [EAST.id]: 'dark' }), own: [TOKEN] }, mask);
+    // The mask holds the footprint itself — the pad and feather used to grow it a box five cells
+    // wide — and the shader clears round it (`ownClearAt`).
+    expect(shown(mask, [12.5, 2.5])).toBe(true);
+    expect(shown(mask, [13.4, 2.5])).toBe(false);
+    expect(shown(mask, [12.5, 3.9])).toBe(false);
+    // The scrim's backstop is open under the clearing's whole disc, so its feather fades into
+    // the map and never into black, and closed past it.
+    for (const [dx, dy] of [[2.4, 0], [0, -2.3], [-1.7, 1.7], [0, 0]]) {
+      expect(paintedAt(scrim, [12.5 + dx, 2.5 + dy], 0x000000), `scrim at ${dx},${dy}`).toBe(false);
+    }
+    expect(paintedAt(scrim, [12.5 + 3.2, 2.5], 0x000000)).toBe(true);
+  });
+
   it('cuts one merged hole and ramps the cloud mask back in over it', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
@@ -775,16 +828,17 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(mask)).toHaveLength(0);
   });
 
-  it('gives a memory the same padded footprint at its own darkness', () => {
+  // T10 — this row once drew an explored room white (T8). A room hidden again is now fogged
+  // fully, like one nobody entered: only what is visible now lands in the mask.
+  it('fogs a room hidden again fully, with no explored tier (T10)', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
-    drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }), mask);
+    drawFog(scrim, { ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }), rooms: [WEST, FAR], bounds: fogBounds([], [WEST, FAR]) }, mask);
 
-    // The memory's footprint lands in the cloud's mask at the memory tier's grey — which is
-    // where both the mist and the wash over a memory come from now (`LivingFog.setWash`).
-    // The scrim draws no wash of its own: a flat fill there stepped on the sight line.
-    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
-    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
+    const tiers = fillsOf(mask);
+    expect(tiers.every((f) => f.style.color === 0xffffff || f.style.color === 0x000000)).toBe(true);
+    expect(fillCovers(mask, WEST.centroid)).toBe(true);
+    expect(fillCovers(mask, FAR.centroid)).toBe(false);
   });
 
   it('leaves an all-dark map one unbroken fill, padded or not', () => {
@@ -795,7 +849,9 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(scrim)).toHaveLength(0);
   });
 
-  it('keeps a remembered room IN the chip stencil — rooms mode lets you stand in one', () => {
+  // T10 — once "keeps a remembered room IN the chip stencil": a hidden room is no ground to
+  // stand on now (§2.2), so it is out of the stencil like any fogged room.
+  it('keeps a hidden room OUT of the chip stencil (T10)', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
     const sightMask = new Graphics();
@@ -803,26 +859,18 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     // a single ring, so counting the stencil's fills there proves nothing whichever tier it
     // was drawn from. Well clear of each other, the coverage question is answerable.
     const twoRooms: FogScene = {
-      ...scene({ [WEST.id]: 'visible', [FAR.id]: 'explored' }),
+      ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }),
       rooms: [WEST, FAR],
       bounds: fogBounds([], [WEST, FAR]),
     };
     drawFog(scrim, twoRooms, mask, sightMask);
 
-    // The cloud mask knows both tiers apart…
-    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
-    expect(fillCovers(mask, FAR.centroid)).toBe(true);
-    // …and the stencil the chips and the turn ring wear covers BOTH, at one strength. Rooms
-    // mode's live tier is the DM's revealed set rather than a sweep, and D7 lets the party
-    // walk into a room they remember but the DM has not lit — a seat's own token there is on
-    // the wire by design (`inSight` exempts `mine`), so a live-only stencil would rub the
-    // player's own chip off their own canvas. Somebody ELSE's token in that room never
-    // reaches the wire at all: `tokens.redact` gates a foreign token on `scene.visible`.
-    // Vision mode is the live-only one, and it draws no vectors here at all.
+    // The stencil the chips and the turn ring wear is the visible room alone. A seat's own
+    // token is still drawn wherever it stands (§2.8, the `own` footprint).
     const stencilFills = fillsOf(sightMask);
     expect(stencilFills.every((f) => f.style.color === 0xffffff)).toBe(true);
     expect(fillCovers(sightMask, WEST.centroid)).toBe(true);
-    expect(fillCovers(sightMask, FAR.centroid)).toBe(true);
+    expect(fillCovers(sightMask, FAR.centroid)).toBe(false);
     // Never-seen ground stays out of it — the stencil is not a licence to draw anywhere.
     expect(fillCovers(sightMask, [23, 3])).toBe(false);
   });
@@ -844,25 +892,22 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
           });
       });
 
-  it('keeps a memory IN the door stencil — a remembered room still shows its doors', () => {
-    // The other half of the row above, and the whole of the door leak. A door is map
-    // information: once the room around it has been seen, where the door is has stopped being
-    // a secret, and a remembered room that drew its walls but not its doors would be lying
-    // about its own layout. A live position is not like that, which is why the chips wear the
-    // narrower stencil and the marks wear this one.
+  // T10 — once "keeps a memory IN the door stencil": a hidden room is fogged fully, so its
+  // doors go under the cloud with it.
+  it('cuts a hidden room out of the door stencil (T10)', () => {
     const scrim = new Graphics();
     const shownMask = new Graphics();
     drawFog(
       scrim,
-      scene({ [WEST.id]: 'visible', [EAST.id]: 'explored' }),
+      { ...scene({ [WEST.id]: 'visible', [FAR.id]: 'dark' }), rooms: [WEST, FAR], bounds: fogBounds([], [WEST, FAR]) },
       undefined,
       undefined,
       shownMask,
     );
 
     expect(fillsOf(shownMask).every((f) => f.style.color === 0xffffff)).toBe(true);
-    expect(fillCovers(shownMask, [6, 3]), 'the room the party can see').toBe(true);
-    expect(fillCovers(shownMask, [13, 3]), 'the room it only remembers').toBe(true);
+    expect(fillCovers(shownMask, WEST.centroid), 'the room the party can see').toBe(true);
+    expect(fillCovers(shownMask, FAR.centroid), 'the room the DM hid again').toBe(false);
   });
 
   it('cuts never-seen ground out of the door stencil', () => {
@@ -1060,6 +1105,30 @@ describe('drawFog in vision mode', () => {
     expect(drawn.cells).toBe(0);
   });
 
+  // T10 — By sight paints the rooms the DM has revealed now and Outdoors while it is revealed;
+  // a room hidden again is not among them, so only live sight (or the record) shows it.
+  it('paints the rooms and the Outdoors revealed now, and not one hidden again (T10)', () => {
+    const OPEN: Polygon = [[-5, -5], [40, -5], [40, 40], [-5, 40]];
+    const HOLE = EAST.boundary;
+    const lit = { status: 'revealed' as const, wasEverRevealed: true };
+    const hidden = { status: 're_hidden' as const, wasEverRevealed: true };
+    const planOf = (rooms: Record<string, typeof lit | typeof hidden>) =>
+      drawFog(
+        new Graphics(),
+        visionScene({ fog: { rooms, concealBehindDoors: true }, outdoors: '@outdoors', open: [OPEN], openParts: { outers: [OPEN], holes: [HOLE] } }),
+        new Graphics(),
+      ).plan!;
+    const painted = (plan: ReturnType<typeof planOf>) =>
+      plan.ops.flatMap((op) => (op.target === 'mask' && op.kind === 'polys' && op.blend === 'normal' ? op.polys : []));
+
+    const shown = planOf({ [WEST.id]: lit, [EAST.id]: hidden, '@outdoors': lit });
+    expect(painted(shown)).toEqual([OPEN, WEST.boundary]);
+    // The open ground's holes (walled floors) go back under before the rooms are drawn.
+    expect(shown.ops).toContainEqual(expect.objectContaining({ target: 'mask', polys: [HOLE], blend: 'erase' }));
+
+    expect(painted(planOf({ [WEST.id]: hidden, [EAST.id]: hidden, '@outdoors': hidden }))).toEqual([]);
+  });
+
   // The stencil the chip and ring layers wear above the mask is the compositor's `live`
   // target — live sight, night-gated and clipped to held ground, memory deliberately left
   // out. The vector stencil is cleared and stays cleared: in vision mode the fog layer hands
@@ -1148,14 +1217,14 @@ describe('drawFog in vision mode', () => {
       }),
     );
 
-    // The wash is the cloud's (`setWash`), read off the mask — the scrim carries no paint of
-    // its own in either mode, and in this one it carries no instructions either.
-    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
+    // The scrim carries no paint of its own in this mode, and no instructions either.
     expect(scrim.context.instructions).toHaveLength(0);
     expect(drawn.cells).toBe(2);
-    // The record as texels and the DM's revealed room, both grey, both under live sight.
-    const greys = drawn.plan!.ops.filter((op) => op.target === 'mask' && op.kind !== 'sprite');
-    expect(greys.map((op) => op.kind)).toEqual(['cells', 'polys']);
+    // The record as texels and the DM's revealed room, under live sight — and white, the same
+    // tier as live sight (T8): revealed ground is never dimmed or greyed.
+    const shown = drawn.plan!.ops.filter((op) => op.target === 'mask' && op.kind !== 'sprite');
+    expect(shown.map((op) => op.kind)).toEqual(['cells', 'polys']);
+    expect(shown.every((op) => 'color' in op && op.color === 0xffffff)).toBe(true);
   });
 
   it('leaves a party with no eyes and no memory an unbroken cover', () => {
@@ -1199,6 +1268,19 @@ describe('fogBounds', () => {
     expect(bounds).not.toBeNull();
     expect(bounds.minX).toBeLessThan(-1000);
     expect(bounds.maxX).toBeGreaterThan(1000);
+  });
+
+  it('veils the whole frame for a player at start dark holding ground pieces and no room (R3)', () => {
+    // testing-cave at Start dark: ground pieces and plateaus always travel, no room does, and
+    // the server stamps the frame because the map has ground to hide.
+    const terrain = dungeon([], [{ id: 'grass', childType: 'shape', ground: true } as unknown as DoorChild]);
+    const frame = { minX: 0, minY: 0, maxX: 30, maxY: 30 };
+    expect(fogBounds([terrain], [], frame)).toEqual(frame);
+  });
+
+  it('leaves an imported picture unfogged: no rooms, no frame (R3)', () => {
+    const picture = dungeon([], [{ id: 'tree', childType: 'asset' } as unknown as DoorChild]);
+    expect(fogBounds([picture], [], null)).toBeNull();
   });
 
   it('covers every room and then some, so the edge of the map is not a tell', () => {
@@ -1321,6 +1403,47 @@ describe('subscribeFogScene', () => {
     await frame();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('keeps listening when the first rebuild throws, and rebuilds on the next store write', async () => {
+    // The live bug: the first paint threw before the subscribes were taken, and that seat's
+    // fog never redrew again until a reload.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onChange = vi.fn().mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const stop = subscribeFogScene(onChange);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('[fog] rebuild failed', expect.any(Error));
+
+    // Even a write that changes no mask input: the failed rebuild left nothing to compare to.
+    useSessionStore.setState({ latencyMs: 42 });
+    await frame();
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    stop();
+    error.mockRestore();
+  });
+
+  it('rebuilds when the map arrives after the first paint', async () => {
+    // A seat mounting or reconnecting: tokens and fog state present, the document not yet.
+    useSessionStore.setState({
+      mapData: null,
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+      }),
+    });
+    const scenes: FogScene[] = [];
+    const stop = subscribeFogScene(() => scenes.push(fogScene()));
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]!.bounds).toBeNull();
+
+    useSessionStore.setState({ mapData: sent([dungeon(ROOMS)]) });
+    await frame();
+    expect(scenes).toHaveLength(2);
+    expect(scenes[1]!.bounds).not.toBeNull();
+    stop();
+  });
 });
 
 describe('fogScene', () => {
@@ -1372,8 +1495,8 @@ describe('fogScene', () => {
 
     const scene = fogScene();
     expect(scene.views.get(VESTIBULE.id)).toBe('visible');
-    // The authored door is shut, so the gallery is sealed off behind it.
-    expect(scene.views.get(GALLERY.id)).toBe('explored');
+    // The authored door is shut, so the gallery is sealed off behind it (T10: fogged).
+    expect(scene.views.get(GALLERY.id)).toBe('dark');
     expect(scene.bounds).not.toBeNull();
   });
 
@@ -1406,8 +1529,8 @@ describe('fogScene', () => {
     expect(views.get(VESTIBULE.id)).toBe('visible');
     // Through the door the *document* authors: the party walks vestibule → gallery.
     expect(views.get(GALLERY.id)).toBe('visible');
-    // …and never through the one only core believes in.
-    expect(views.get(VAULT.id)).toBe('explored');
+    // …and never through the one only core believes in (T10: so the vault stays fogged).
+    expect(views.get(VAULT.id)).toBe('dark');
   });
 
   // ── vision mode (S3 P2 §3) ───────────────────────────────────────────────
@@ -1441,14 +1564,32 @@ describe('fogScene', () => {
 
     const scene = fogScene();
     expect(scene.mode).toBe('vision');
-    // The DM's scenery, a hidden token and one with no sight at all are not the party.
-    expect(scene.sight).toHaveLength(1);
+    // The DM's scenery and a hidden token are not the party; a claimed token with no sight
+    // set sees all the same (table fix pass §2.4).
+    expect(scene.sight).toHaveLength(2);
     // …and the room classification is not taken at all: the tiers come off the sweep and the
     // region record, and the fade that was its other reader is rooms-only.
     expect(scene.views.size).toBe(0);
     // The stored record rides along whole — the memory tier reads its cells and its reveals,
     // not the reachability classification `views` carries.
     expect(scene.fog?.mode).toBe('vision');
+  });
+
+  it('reads a player’s contained sight with no document in hand', () => {
+    // Mounting or reconnecting: tokens and fog state land before the map. A claimed token
+    // sees without `sight` set, so contained sight (on by default) takes the near pass, and
+    // its locks used to read the missing document's `lockMask` and throw.
+    useSessionStore.setState({
+      mapData: null,
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+      }),
+    });
+    const scene = fogScene();
+    expect(scene.near).toBeDefined();
+    expect(scene.locks).toEqual([]);
+    expect(scene.bounds).toBeNull();
   });
 
   // ── the DM's sight preview ─────────────────────────────────────────────
@@ -1979,7 +2120,11 @@ describe('the lighting composite each seat is mounted with', () => {
     const frame = (): Promise<void> =>
       new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
-    /** Content, no rooms — what `redactMapForViewer` hands a player of an unzoned map (D6). */
+    /**
+     * Content, no rooms — what `redactMapForViewer` hands a player of an imported picture (D6) in
+     * rooms mode: no frame, because there is nothing to hide (R3). A mode flip re-fetches the
+     * document (`fogModeFlips`), so each mode below is mounted with the document it is sent.
+     */
     const unzoned = { version: '3.0', layers: [dungeon([], [door('d1', 'a', 'b')])] };
     /** …and with the referee's measured frame, which is what makes vision mode fog it at all. */
     const withFrame = { ...unzoned, frame: { minX: 0, minY: 0, maxX: 20, maxY: 20 } };
@@ -1995,7 +2140,7 @@ describe('the lighting composite each seat is mounted with', () => {
       layerOf(sceneGraph).children.filter((c) => c instanceof Sprite)[0].visible;
 
     it('stands the cloud and the scrim down on an unzoned map in rooms mode', () => {
-      const { sceneGraph, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      const { sceneGraph, unmount } = mounted('player', unzoned, modeOf('rooms'));
       expect(fogScene().bounds).toBeNull();
       expect(cloudShown(sceneGraph)).toBe(false);
       expect(scrimShown(sceneGraph)).toBe(false);
@@ -2013,7 +2158,7 @@ describe('the lighting composite each seat is mounted with', () => {
       expect(cloudShown(sceneGraph)).toBe(true);
 
       const before = renders();
-      useSessionStore.setState({ session: session(modeOf('rooms')) });
+      useSessionStore.setState({ session: session(modeOf('rooms')), mapData: unzoned });
       await frame();
       expect(cloudShown(sceneGraph)).toBe(false);
       expect(scrimShown(sceneGraph)).toBe(false);
@@ -2022,11 +2167,11 @@ describe('the lighting composite each seat is mounted with', () => {
     });
 
     it('brings it back — with a fresh mask — when the DM flips to vision again', async () => {
-      const { sceneGraph, renders, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      const { sceneGraph, renders, unmount } = mounted('player', unzoned, modeOf('rooms'));
       expect(cloudShown(sceneGraph)).toBe(false);
 
       const before = renders();
-      useSessionStore.setState({ session: session(modeOf('vision')) });
+      useSessionStore.setState({ session: session(modeOf('vision')), mapData: withFrame });
       await frame();
       expect(cloudShown(sceneGraph)).toBe(true);
       // The compositor repainted the two textures the shader is bound to — no stale mask
@@ -2287,5 +2432,39 @@ describe('drawFog in the dark', () => {
     expect(plan.ops.some((op) => op.kind === 'sprite' && op.target === 'mask' && op.source === 'inverseSeeable')).toBe(
       false,
     );
+  });
+});
+
+// ── T8 — the cloud's warm glow, and only from lights the seat may know of ─────
+describe('glowPools', () => {
+  const lamp = (x: number, y: number) => ({ x, y, inner: 1, outer: 2, warm: true });
+  const night = (pools: ReturnType<typeof lamp>[]): NightSight => ({ lit: [], darkvision: [], pools });
+  const fog = (cells: [number, number][]): SceneFog => ({
+    rooms: {},
+    concealBehindDoors: true,
+    region: setCells(regionOf(VISION_FRAME)!, cells),
+  });
+
+  it('gives a map light on unexplored ground no tint on the cloud', () => {
+    // A lamp on a hidden plateau top, say: the record has never held its cell.
+    expect(glowPools({ rooms: [], night: night([lamp(20.5, 6.5)]), fog: fog([[2, 2]]) })).toEqual([]);
+  });
+
+  it('keeps a light on revealed ground, and one the party carries wherever it stands', () => {
+    const onRecord = lamp(2.5, 2.5);
+    const carried = lamp(14, 3);
+    const pools = glowPools({ rooms: [], night: night([onRecord, carried, lamp(20.5, 6.5)]), fog: fog([[2, 2]]), partyAt: [[14, 3]] });
+    expect(pools).toEqual([onRecord, carried]);
+  });
+
+  it('keeps a light in a room the DM revealed by hand', () => {
+    const inEast = lamp(EAST.centroid[0], EAST.centroid[1]);
+    const revealed: SceneFog = { rooms: { [EAST.id]: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true };
+    expect(glowPools({ rooms: [EAST], night: night([inEast]), fog: revealed })).toEqual([inEast]);
+  });
+
+  it('never sends a darkvision eye’s cold pool to warm anything', () => {
+    const cold = { ...lamp(2.5, 2.5), warm: false };
+    expect(glowPools({ rooms: [], night: { lit: [], darkvision: [], pools: [cold] }, fog: fog([[2, 2]]) })).toEqual([]);
   });
 });

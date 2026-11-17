@@ -11,13 +11,26 @@ import { describe, expect, it } from 'vitest';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { regionOf, setCells } from '@dnd/mechanics/fog';
 import { FOG_FEATHER } from './FogRenderer';
-import { fogPad, regionCells, regionRects, sightPad, type NightSight } from './fog';
-import { MASK_MEMORY } from './livingFog';
+import { fogPad, openGroundParts, regionCells, regionRects, sightPad, type NightSight } from './fog';
 import {
   MASK_LIVE,
-  MASK_MEMORY_GREY,
+  BLUR_SIGMA_PER_STRENGTH,
+  GUARD_BLUR_CELLS,
   MEMORY_BLUR_CELLS,
+  OWN_CLEAR_FEATHER,
+  EDGE_FEATHER_CELLS,
+  FRAME_SHADOW_CELLS,
+  FRAME_SHADOW_DEPTH,
+  blurPasses,
   cellTexture,
+  edgeFeather,
+  frameShadow,
+  onMapSample,
+  outsideFrame,
+  ownClearAt,
+  ownClearing,
+  ownDisc,
+  shownAt,
   tierPlan,
   type DrawOp,
   type DrawPlan,
@@ -87,16 +100,27 @@ const fenced = (over: Partial<TierScene> = {}): TierScene => scene({ contained: 
 const opsOn = (plan: DrawPlan, target: TierTarget): DrawOp[] =>
   plan.ops.filter((op) => op.target === target);
 
+/** T13 — the standard normal CDF (Abramowitz and Stegun 7.1.26 erf, good to 1.5e-7). */
+const normalCdf = (z: number): number => {
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const e = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + (z >= 0 ? e : -e));
+};
+
 type PolyOp = Extract<DrawOp, { kind: 'polys' }>;
 const polysOn = (plan: DrawPlan, target: TierTarget): PolyOp[] =>
   opsOn(plan, target).filter((op): op is PolyOp => op.kind === 'polys');
 
 describe('tierPlan — the tier colours the cloud shader reads', () => {
-  it('paints the memory tier at exactly the grey the shader ramps on', () => {
-    // `tierPlan` states these itself so it can stay free of Pixi; this is where the two have
-    // to agree, and a drift either way puts the memory tier on the wrong side of a ramp.
-    expect(MASK_MEMORY_GREY).toBe(MASK_MEMORY);
+  it('paints every shown tier white — no memory grey on revealed ground (T8)', () => {
+    // T8 retired the memory tier: the record and the DM's revealed rooms draw as live sight
+    // does, so nothing on the player's mask dims or desaturates ground the seat has revealed.
     expect(MASK_LIVE).toBe(0xffffff);
+    const plan = tierPlan(scene({ sight: [LOOKING], region: brushed([[5, 4]]), revealed: [EAST] }));
+    const drawn = opsOn(plan, 'mask').filter((op) => op.kind !== 'sprite');
+    expect(drawn.length).toBe(2);
+    for (const op of drawn) expect(op).toMatchObject({ color: MASK_LIVE, blend: 'normal' });
   });
 
   it('leaves the memory smoothing to the sampler', () => {
@@ -237,16 +261,16 @@ describe('tierPlan — the tiers', () => {
     [7, 4],
   ]);
 
-  it('lands a DM-revealed room in the memory tier and never in live', () => {
-    // Told is not the same as looked at: the party knows the layout because they were told,
-    // and their own eyes are the only thing that makes anything current.
+  it('shows a DM-revealed room as revealed ground, and never puts it in live sight', () => {
+    // Told is not the same as looked at: the room shows (T8: at full colour), but only the
+    // party's own eyes put it in the stencil the token chips wear.
     const plan = tierPlan(scene({ sight: [LOOKING], revealed: [EAST] }));
     const revealed = polysOn(plan, 'mask').find((op) => op.polys[0] === EAST);
-    expect(revealed).toMatchObject({ color: MASK_MEMORY_GREY, grow: GROW, blend: 'normal' });
+    expect(revealed).toMatchObject({ color: MASK_LIVE, grow: GROW, blend: 'normal' });
     expect(polysOn(plan, 'live').flatMap((op) => op.polys)).toEqual([LOOKING]);
   });
 
-  it('draws the memory under live, which is the max the two tiers want', () => {
+  it('draws revealed ground under live sight', () => {
     const plan = tierPlan(scene({ sight: [LOOKING], region, revealed: [EAST] }));
     const mask = opsOn(plan, 'mask');
     const grey = mask.map((op, i) => (op.kind !== 'sprite' ? i : -1)).filter((i) => i >= 0);
@@ -368,11 +392,11 @@ describe('tierPlan — the record as a texture', () => {
     expect(plan.ops.some((op) => op.kind === 'cells')).toBe(false);
   });
 
-  it('uploads it at the memory grey, linearly, under everything live', () => {
+  it('uploads it white, linearly, under everything live', () => {
     const plan = tierPlan(scene({ rooms: [], region: brushed([[6, 0]]), sight: [UNOCCLUDED] }));
     expect(opsOn(plan, 'mask')[0]).toMatchObject({
       kind: 'cells',
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blurCells: MEMORY_BLUR_CELLS,
       blend: 'normal',
     });
@@ -447,7 +471,8 @@ describe('tierPlan — contained sight', () => {
       { kind: 'polys', polys: [NEAR], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
       { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
     ]);
-    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+    // (P7's frame strips follow; `the map edge` rows pin those.)
+    expect(opsOn(plan, 'inverseOpen').slice(0, 3)).toMatchObject([
       { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
       { kind: 'polys', polys: regionRects(OPENED), grow: GROW, blend: 'erase' },
       { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
@@ -678,7 +703,7 @@ describe('tierPlan — contained sight', () => {
     ]);
     // `inverseOpen` fails the same way and is built on the same terms: a white cover with the
     // held ground erased out, plus the near term whether or not there is one to erase.
-    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+    expect(opsOn(plan, 'inverseOpen').slice(0, 2)).toMatchObject([
       { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
       { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
     ]);
@@ -753,6 +778,10 @@ const legacyPlan = (s: TierScene): DrawPlan => {
   if (painted.length > 0) {
     ops.push({ kind: 'polys', target: 'inverseHeld', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
   }
+  // P7: the void past the frame goes back over the clip.
+  for (const rect of outsideFrame(cover, s.frame)) {
+    ops.push({ kind: 'rect', target: 'inverseHeld', rect, color: MASK_LIVE, blend: 'normal' });
+  }
   if (s.night && sight.length > 0) {
     ops.push({ kind: 'rect', target: 'inverseSeeable', rect: cover, color: MASK_LIVE, blend: 'normal' });
     if (seeable.length > 0) {
@@ -777,18 +806,21 @@ const legacyPlan = (s: TierScene): DrawPlan => {
       target: 'mask',
       cells: memory,
       blurCells: MEMORY_BLUR_CELLS,
-      color: MASK_MEMORY_GREY,
+      color: MASK_LIVE,
       blend: 'normal',
     });
   }
   if (revealed.length > 0) {
-    ops.push({ kind: 'polys', target: 'mask', polys: revealed, grow, color: MASK_MEMORY_GREY, blend: 'normal' });
+    ops.push({ kind: 'polys', target: 'mask', polys: revealed, grow, color: MASK_LIVE, blend: 'normal' });
   }
   if (sight.length > 0) ops.push({ kind: 'sprite', target: 'mask', source: 'live', blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'mask', source: 'inverseHeld', blend: 'erase' });
+  // P8: the feather copy of the finished mask.
+  ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
-  return { cover, ops, cells };
+  // T6: the same strips, read as shown by both blurred copies.
+  return { cover, ops, cells, beyond: outsideFrame(cover, s.frame) };
 };
 
 describe('tierPlan — containment off is the shipped mask (R8)', () => {
@@ -927,19 +959,630 @@ describe('tierPlan — the Lighting pass: dark regions, darkness sources and the
     expect(ops.findIndex((op) => op.blend === 'erase')).toBeLessThan(ops.length - 1);
   });
 
-  it('builds the greyscale tier where darkvision sees and nothing lights, inside live sight', () => {
+  it('draws no greyscale tier for darkvision-only ground — it shows as the lighting leaves it (T8)', () => {
+    // Darkvision still opens ground through the night gate; it only no longer greys it.
     const plan = tierPlan(
       scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [square(12)], pools: [] } }),
     );
-    const grey = opsOn(plan, 'grey');
-    expect(grey[0]?.kind).toBe('rect');
-    expect(grey.some((op) => op.kind === 'polys' && op.blend === 'erase')).toBe(true);
-    expect(grey.at(-1)).toMatchObject({ kind: 'sprite', source: 'inverseLive', blend: 'erase' });
-    expect(opsOn(plan, 'inverseLive').length).toBe(2);
+    const targets = new Set(plan.ops.map((op) => op.target as string));
+    expect(targets.has('grey')).toBe(false);
+    expect(targets.has('inverseLive')).toBe(false);
+    // Light and darkvision both erased out of the gate: the darkvision ring still reveals.
+    expect(polysOn(plan, 'inverseSeeable').some((op) => op.blend === 'erase' && op.polys.length === 2)).toBe(true);
+  });
+});
+
+describe('tierPlan — table fix pass §2.8', () => {
+  /** Grass outside both halls: the open ground the referee stamps once an outdoor cell is known. */
+  const GRASS: Polygon = [
+    [16, 0],
+    [24, 0],
+    [24, 8],
+    [16, 8],
+  ];
+  const TOKEN: Polygon = [
+    [19, 3],
+    [20, 3],
+    [20, 4],
+    [19, 4],
+  ];
+
+  it('keeps the open ground shipped after a room ships', () => {
+    // The cave door opened and WEST shipped; the grass the player stood on must stay shipped.
+    const plan = tierPlan(fenced({ rooms: [WEST], open: [GRASS] }));
+    const shipped = polysOn(plan, 'inverseShipped').flatMap((op) => op.polys);
+    expect(shipped).toContain(WEST);
+    expect(shipped).toContain(GRASS);
   });
 
-  it('draws no greyscale tier without a darkvision eye, or in daylight', () => {
-    expect(opsOn(tierPlan(scene({ sight: [LOOKING], night: { lit: [square(6)], darkvision: [], pools: [] } })), 'grey')).toEqual([]);
-    expect(opsOn(tierPlan(scene({ sight: [LOOKING] })), 'grey')).toEqual([]);
+  it('ships the frame only while neither a room nor open ground has arrived', () => {
+    const plan = tierPlan(fenced({ rooms: [], open: [] }));
+    expect(polysOn(plan, 'inverseShipped')[0].polys).toEqual([
+      [
+        [FRAME.minX, FRAME.minY],
+        [FRAME.maxX, FRAME.minY],
+        [FRAME.maxX, FRAME.maxY],
+        [FRAME.minX, FRAME.maxY],
+      ],
+    ]);
+  });
+
+  it("always draws the seat's own token and clears the cell under it, after every clip", () => {
+    // No sight, no record, no rooms of its own: the token stands on ground nobody shipped.
+    const plan = tierPlan(fenced({ rooms: [WEST], own: [TOKEN] }));
+    const mask = opsOn(plan, 'mask');
+    const clip = mask.findIndex((op) => op.kind === 'sprite' && op.blend === 'erase');
+    const own = mask.findIndex((op) => op.kind === 'polys' && op.polys.includes(TOKEN));
+    expect(clip).toBeGreaterThanOrEqual(0);
+    expect(own).toBeGreaterThan(clip);
+    expect(mask[own]).toMatchObject({ blend: 'normal', color: MASK_LIVE });
+    const live = opsOn(plan, 'live');
+    expect(live[live.length - 1]).toMatchObject({ kind: 'polys', polys: [TOKEN], blend: 'normal' });
+  });
+
+  it('adds nothing for a seat with no token of its own', () => {
+    const plan = tierPlan(fenced({ rooms: [WEST] }));
+    expect(opsOn(plan, 'live')).toEqual([]);
+  });
+});
+
+/**
+ * A CPU reading of a plan: whether a target is covered at one world point once its ops have
+ * run. Binary (a grown poly covers a point within `grow` of it), which is all an edge row needs.
+ */
+function coveredAt(plan: DrawPlan, target: TierTarget, x: number, y: number): boolean {
+  const c = plan.cover;
+  if (!c || x < c.minX || y < c.minY || x > c.maxX || y > c.maxY) return false;
+  const inside = (p: Polygon): boolean => {
+    let hit = false;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+      const [xi, yi] = p[i];
+      const [xj, yj] = p[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  const near = (p: Polygon, r: number): boolean =>
+    p.some(([ax, ay], i) => {
+      const [bx, by] = p[(i + 1) % p.length];
+      const [dx, dy] = [bx - ax, by - ay];
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - ax - t * dx, y - ay - t * dy) <= r;
+    });
+  let on = false;
+  for (const op of plan.ops) {
+    if (op.target !== target) continue;
+    let hit: boolean;
+    if (op.kind === 'rect') hit = x >= op.rect.minX && x <= op.rect.maxX && y >= op.rect.minY && y <= op.rect.maxY;
+    else if (op.kind === 'polys') hit = op.polys.some((p) => (!op.outline && inside(p)) || (op.grow > 0 && near(p, op.grow)));
+    else if (op.kind === 'cells') {
+      const [col, row] = [Math.floor(x - op.cells.minX), Math.floor(y - op.cells.minY)];
+      hit = col >= 0 && row >= 0 && col < op.cells.cols && row < op.cells.rows && op.cells.data[(row * op.cells.cols + col) * 4 + 3] > 0;
+    } else hit = coveredAt(plan, op.source, x, y);
+    if (hit) on = op.blend === 'normal';
+  }
+  return on;
+}
+
+describe('tierPlan — the map edge (P7)', () => {
+  // A token one cell in from the frame's right edge, with a 12-cell range on open ground: its
+  // sweep runs well past the edge, and so would every grow the plan puts on it.
+  const TOKEN_AT: [number, number] = [22.5, 4.5];
+  const REACH: Polygon = [
+    [TOKEN_AT[0] - 12, TOKEN_AT[1] - 12],
+    [TOKEN_AT[0] + 12, TOKEN_AT[1] - 12],
+    [TOKEN_AT[0] + 12, TOKEN_AT[1] + 12],
+    [TOKEN_AT[0] - 12, TOKEN_AT[1] + 12],
+  ];
+  const SEEN = brushed(
+    Array.from({ length: 8 }, (_, row) => Array.from({ length: 13 }, (_, i) => [11 + i, row] as [number, number])).flat(),
+  );
+  const OPEN: Polygon = [
+    [0, 0],
+    [24, 0],
+    [24, 8],
+    [0, 8],
+  ];
+  const OUTSIDE: [number, number][] = [
+    [24.3, 4.5],
+    [25.2, 4.5],
+    [22.5, 8.4],
+    [22.5, -0.6],
+    [24.4, 8.4],
+  ];
+
+  const rows: [string, TierScene][] = [
+    ['uncontained, a roomless map', scene({ rooms: [], sight: [REACH], region: SEEN })],
+    ['contained, open ground', fenced({ rooms: [], open: [OPEN], sight: [REACH], near: [REACH], region: SEEN })],
+    ['contained, nothing shipped yet', fenced({ rooms: [], sight: [REACH], near: [REACH], region: SEEN })],
+  ];
+
+  it.each(rows)('%s: shows sight up to the edge and nothing past it', (_name, s) => {
+    const plan = tierPlan(s);
+    expect(coveredAt(plan, 'live', 23.5, 4.5)).toBe(true);
+    expect(coveredAt(plan, 'mask', 23.5, 4.5)).toBe(true);
+    for (const [x, y] of OUTSIDE) {
+      expect(coveredAt(plan, 'live', x, y)).toBe(false);
+      expect(coveredAt(plan, 'mask', x, y)).toBe(false);
+      // …and the scrim stays down out there.
+      expect(coveredAt(plan, 'scrim', x, y)).toBe(true);
+    }
+  });
+
+  it('cuts the strips off the cover, not the frame', () => {
+    const cover = { minX: -2, minY: -2, maxX: 26, maxY: 10 };
+    const strips = outsideFrame(cover, FRAME);
+    expect(strips).toHaveLength(4);
+    const area = strips.reduce((sum, r) => sum + (r.maxX - r.minX) * (r.maxY - r.minY), 0);
+    expect(area).toBe(28 * 12 - 24 * 8);
+  });
+});
+
+describe('tierPlan — the soft edge (P8)', () => {
+  it('blurs the finished mask into the feather target, and opens the scrim under the own clearing (T13)', () => {
+    const TOKEN: Polygon = [
+      [6, 1],
+      [7, 1],
+      [7, 2],
+      [6, 2],
+    ];
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [LOOKING], own: [TOKEN] }));
+    // No hard square painted over the feather any more: the shader clears the token round.
+    expect(opsOn(plan, 'edge')).toEqual([
+      { kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS },
+    ]);
+    const scrim = opsOn(plan, 'scrim');
+    expect(scrim[scrim.length - 1]).toEqual({
+      kind: 'polys',
+      target: 'scrim',
+      polys: [ownDisc(ownClearing(TOKEN))],
+      grow: 0,
+      color: MASK_LIVE,
+      blend: 'erase',
+    });
+    // The feather samples the mask after its last clip, so it can only soften what the mask shows.
+    const order = plan.ops.map((op) => op.target);
+    expect(order.indexOf('edge')).toBeGreaterThan(order.lastIndexOf('mask'));
+  });
+
+  // A straight boundary, blurred: coverage is the normal CDF of the inward distance. `erf` by
+  // Abramowitz and Stegun 7.1.26, good to 1.5e-7.
+  const erf = (x: number): number => {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return x >= 0 ? y : -y;
+  };
+  // T8 — the blur's real spread: Pixi's passes add up to σ = BLUR_SIGMA_PER_STRENGTH × strength.
+  const SIGMA = BLUR_SIGMA_PER_STRENGTH * EDGE_FEATHER_CELLS;
+  const coverage = (inward: number): number => 0.5 * (1 + erf(inward / (SIGMA * Math.SQRT2)));
+  const STEP = 0.02;
+  const xs = Array.from({ length: 301 }, (_, i) => -2 + i * STEP);
+
+  it('takes revealed ground from hidden to shown over about 1.5 cells, with no hard step (T8)', () => {
+    // One tier now: what the shader reads (`shownAt`) over a straight, hard-edged boundary.
+    const m = xs.map((x) => shownAt(x > 0 ? 1 : 0, coverage(x)));
+    // Nothing is lifted on or past the boundary: hidden stays exactly hidden.
+    xs.forEach((x, i) => {
+      if (x <= 0) expect(m[i]).toBeCloseTo(0, 6);
+    });
+    // Monotone inward, and every 0.02-cell step under 3%: a ramp, not a cut.
+    for (let i = 1; i < m.length; i++) {
+      expect(m[i]).toBeGreaterThanOrEqual(m[i - 1]);
+      expect(m[i] - m[i - 1]).toBeLessThan(0.03);
+    }
+    // 5 % to 95 % over about a cell and a half.
+    const first = (v: number): number => xs[m.findIndex((y) => y >= v)];
+    const width = first(0.95) - first(0.05);
+    expect(width).toBeGreaterThan(1.3);
+    expect(width).toBeLessThan(1.7);
+  });
+
+  it('replaces a cut: the shader floored a shown texel at the memory grey, a 0.5 step at the line', () => {
+    // The pre-P8 read: hidden texels flat at 0, a live texel never under 0.5.
+    const before = xs.map((x) => (x > 0 ? Math.max(0.5, 2 * coverage(x) - 1) : 0));
+    const jump = Math.max(...before.slice(1).map((v, i) => v - before[i]));
+    expect(jump).toBeGreaterThanOrEqual(0.5);
+  });
+});
+
+// ── T8: the record's cell staircase, smoothed out of the edge ───────────────
+//
+// The record is one texel per cell, drawn through a linear sampler (a tent), read as coverage
+// (2 × red, capped), blurred by the feather's Gaussian, and read back by the shader's
+// `shownAt` with the guard's own blur of the same coverage (T13; T8 guarded with the bilinear
+// hard value). Modelled here on a diagonal staircase, the worst case: every cell corner on the
+// boundary is a step the eye could catch.
+describe('the record edge, smooth along a staircase (T8)', () => {
+  const N = 16;
+  const R = 6; // texels per cell, as a small map's mask lands
+  const W = N * R;
+  const K = N; // cell (i, j) is revealed when i + j <= K: a 45° staircase through the middle
+  const cell = (i: number, j: number): number => (i < 0 || j < 0 ? 1 : i >= N || j >= N ? 0 : i + j <= K ? 1 : 0);
+  /** The cell texture through a linear sampler, at a world point in cells. */
+  const tent = (x: number, y: number): number => {
+    const fx = x - 0.5;
+    const fy = y - 0.5;
+    const i = Math.floor(fx);
+    const j = Math.floor(fy);
+    const tx = fx - i;
+    const ty = fy - j;
+    return (
+      (cell(i, j) * (1 - tx) + cell(i + 1, j) * tx) * (1 - ty) + (cell(i, j + 1) * (1 - tx) + cell(i + 1, j + 1) * tx) * ty
+    );
+  };
+  const clampAt = (a: Float64Array, x: number, y: number): number =>
+    a[Math.min(W - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+  // The `edge` target: coverage, Gaussian-blurred (separable) at the feather's σ in texels —
+  // and (T13) the soft copy the guard reads, the same coverage at the guard's σ.
+  const blurOf = (strength: number): Float64Array => {
+    const c = new Float64Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) c[y * W + x] = Math.min(1, 2 * tent((x + 0.5) / R, (y + 0.5) / R));
+    const sigma = BLUR_SIGMA_PER_STRENGTH * strength * R;
+    const rad = Math.ceil(3 * sigma);
+    const k = Array.from({ length: 2 * rad + 1 }, (_, i) => Math.exp(-((i - rad) ** 2) / (2 * sigma * sigma)));
+    const sum = k.reduce((a, b) => a + b, 0);
+    const pass = (src: Float64Array, dx: number, dy: number): Float64Array => {
+      const out = new Float64Array(W * W);
+      for (let y = 0; y < W; y++)
+        for (let x = 0; x < W; x++) {
+          let v = 0;
+          for (let i = -rad; i <= rad; i++) v += k[i + rad] * clampAt(src, x + i * dx, y + i * dy);
+          out[y * W + x] = v / sum;
+        }
+      return out;
+    };
+    return pass(pass(c, 1, 0), 0, 1);
+  };
+  const blurred = blurOf(EDGE_FEATHER_CELLS);
+  const guardBlur = blurOf(GUARD_BLUR_CELLS);
+  /** A blurred target through a linear sampler, at a world point in cells. */
+  const read = (target: Float64Array, x: number, y: number): number => {
+    const fx = x * R - 0.5;
+    const fy = y * R - 0.5;
+    const i = Math.floor(fx);
+    const j = Math.floor(fy);
+    const tx = fx - i;
+    const ty = fy - j;
+    return (
+      (clampAt(target, i, j) * (1 - tx) + clampAt(target, i + 1, j) * tx) * (1 - ty) +
+      (clampAt(target, i, j + 1) * (1 - tx) + clampAt(target, i + 1, j + 1) * tx) * ty
+    );
+  };
+  const shown = (x: number, y: number): number => shownAt(read(guardBlur, x, y), read(blurred, x, y));
+  // The staircase's mid line runs through (c0, c0); `d` is the distance across it (inward < 0).
+  const c0 = (K + 1) / 2;
+  const at = (d: number, along: number): number =>
+    shown(c0 + (d + along) / Math.SQRT2, c0 + (d - along) / Math.SQRT2);
+
+  it('falls off monotone across the stairs, with no step above a small epsilon', () => {
+    for (const along of [0, 0.25, 0.5, 0.75]) {
+      let prev = at(-3, along);
+      for (let d = -3 + 0.01; d <= 1.5; d += 0.01) {
+        const v = at(d, along);
+        expect(v).toBeLessThanOrEqual(prev + 1e-9);
+        expect(prev - v).toBeLessThan(0.02);
+        prev = v;
+      }
+    }
+  });
+
+  it('reads the same all along the boundary — the cell steps do not show', () => {
+    for (const d of [-1.5, -1, -0.5, -0.25, 0, 0.25]) {
+      const row = Array.from({ length: 401 }, (_, i) => at(d, -2 + i * 0.01));
+      expect(Math.max(...row) - Math.min(...row)).toBeLessThan(0.01);
+    }
+  });
+
+  it('fades over about a cell and a half', () => {
+    let lo = Number.NaN;
+    let hi = Number.NaN;
+    for (let d = -3; d <= 1.5; d += 0.01) {
+      const v = at(d, 0);
+      if (Number.isNaN(hi) && v < 0.95) hi = d;
+      if (Number.isNaN(lo) && v < 0.05) lo = d;
+    }
+    expect(lo - hi).toBeGreaterThan(1.3);
+    expect(lo - hi).toBeLessThan(1.8);
+  });
+
+  it('keeps a lone hidden cell inside revealed ground hidden at its middle — the guard', () => {
+    // The feather alone reads a one-cell hole as nearly shown; the guard's blur of it, at the
+    // hole's middle, is far under where the guard opens (T13), so it holds it at zero.
+    const sigma = BLUR_SIGMA_PER_STRENGTH * GUARD_BLUR_CELLS;
+    const across = 2 * normalCdf(0.5 / sigma) - 1;
+    const soft = 1 - across * across;
+    expect(soft).toBeLessThan(0.2);
+    expect(shownAt(soft, 0.95)).toBe(0);
+    expect(shownAt(0, 0.95)).toBe(0);
+  });
+});
+
+// ── T13: a thin hidden gap, soft ────────────────────────────────────────────
+//
+// A strip of hidden ground `w` wide inside revealed ground, across its width: the hard mask is
+// 0 in it and 1 round it, the feather and the guard each read their own Gaussian blur of that.
+describe('a thin hidden gap inside revealed ground (T13, the white sliver)', () => {
+  const SIGMA_E = BLUR_SIGMA_PER_STRENGTH * EDGE_FEATHER_CELLS;
+  const SIGMA_G = BLUR_SIGMA_PER_STRENGTH * GUARD_BLUR_CELLS;
+  /** The strip's coverage through a blur of σ, at x across it (centred on 0). */
+  const strip = (x: number, w: number, sigma: number): number =>
+    1 - (normalCdf((x + w / 2) / sigma) - normalCdf((x - w / 2) / sigma));
+  const m = (x: number, w: number): number => shownAt(strip(x, w, SIGMA_G), strip(x, w, SIGMA_E));
+  const xs = Array.from({ length: 401 }, (_, i) => -2 + i * 0.01);
+  const biggestStep = (f: (x: number) => number): number =>
+    Math.max(...xs.slice(1).map((x, i) => Math.abs(f(x) - f(xs[i]))));
+
+  it.each([0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1, 1.5])('has no hard step across a %f-cell gap', (w) => {
+    // Every 0.01 cell under 7 %: a ramp of a fifth of a cell or more, never a texel's cut.
+    expect(biggestStep((x) => m(x, w))).toBeLessThan(0.07);
+  });
+
+  it('replaces the hard guard, which stepped from dense cloud to the feather in one texel', () => {
+    // T8's guard: the hard mask itself, so the step at the gap's rim was the feather's whole value.
+    const before = (x: number, w: number): number => edgeFeather(strip(x, w, SIGMA_E)) * (Math.abs(x) < w / 2 ? 0 : 1);
+    for (const w of [0.2, 0.3, 0.5]) expect(biggestStep((x) => before(x, w))).toBeGreaterThan(0.5);
+  });
+
+  it('leaves a gap half a cell wide or more hidden at its middle, and hidden ground past a straight edge hidden', () => {
+    for (const w of [0.5, 0.7, 1, 1.5, 3]) expect(m(0, w)).toBe(0);
+    // A straight edge (an infinitely wide gap): nothing is lifted on the hidden side.
+    const edge = (x: number): number => shownAt(normalCdf(x / SIGMA_G), normalCdf(x / SIGMA_E));
+    for (let x = -2; x <= 0; x += 0.01) expect(edge(x)).toBe(0);
+  });
+});
+
+// ── T13: the seat's own token, cleared round ────────────────────────────────
+describe("the seat's own clearing (T13, §2.8)", () => {
+  const TOKEN: Polygon = [
+    [7, 22],
+    [8, 22],
+    [8, 23],
+    [7, 23],
+  ];
+  const own = ownClearing(TOKEN);
+
+  it('is centred on the token, clear over it and gone a feather past it', () => {
+    expect(own).toEqual({ x: 7.5, y: 22.5, inner: 0.5, outer: 0.5 + OWN_CLEAR_FEATHER });
+    expect(ownClearAt(7.5, 22.5, [own])).toBe(1);
+    expect(ownClearAt(7.9, 22.5, [own])).toBe(1);
+    expect(ownClearAt(7.5 + own.outer, 22.5, [own])).toBe(0);
+    expect(ownClearAt(7.5, 22.5 + own.outer + 1, [own])).toBe(0);
+  });
+
+  it('is round: the same at the same distance in every direction', () => {
+    for (const r of [0.6, 1, 1.5, 2, 2.4]) {
+      const ring = Array.from({ length: 24 }, (_, i) => {
+        const a = (2 * Math.PI * i) / 24;
+        return ownClearAt(own.x + r * Math.cos(a), own.y + r * Math.sin(a), [own]);
+      });
+      expect(Math.max(...ring) - Math.min(...ring)).toBeLessThan(1e-9);
+    }
+  });
+
+  it('is feathered: monotone outward, no step, about a cell and a half from 95 % to 5 %', () => {
+    const rs = Array.from({ length: 401 }, (_, i) => i * 0.01);
+    const v = rs.map((r) => ownClearAt(own.x + r, own.y, [own]));
+    for (let i = 1; i < v.length; i++) {
+      expect(v[i]).toBeLessThanOrEqual(v[i - 1]);
+      expect(v[i - 1] - v[i]).toBeLessThan(0.02);
+    }
+    const first = (t: number): number => rs[v.findIndex((y) => y <= t)];
+    expect(first(0.05) - first(0.95)).toBeGreaterThan(1.3);
+    expect(first(0.05) - first(0.95)).toBeLessThan(1.7);
+  });
+
+  it('opens the scrim over its whole disc, centred on the token', () => {
+    const disc = ownDisc(own);
+    for (let i = 0; i < 64; i++) {
+      const a = (2 * Math.PI * i) / 64;
+      const [x, y] = [own.x + own.outer * Math.cos(a), own.y + own.outer * Math.sin(a)];
+      // Inside the polygon: on the inner side of every edge of a convex, counter-clockwise ring.
+      const inside = disc.every(([x1, y1], k) => {
+        const [x2, y2] = disc[(k + 1) % disc.length];
+        return (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1) >= -1e-9;
+      });
+      expect(inside).toBe(true);
+    }
+    const cx = disc.reduce((s, p) => s + p[0], 0) / disc.length;
+    const cy = disc.reduce((s, p) => s + p[1], 0) / disc.length;
+    expect(cx).toBeCloseTo(7.5, 9);
+    expect(cy).toBeCloseTo(22.5, 9);
+  });
+});
+
+describe('open ground with holes (P8, the sliver)', () => {
+  // A base-ground level as the referee sends it: the frame, then a cave the seat has not earned.
+  const CAVE: Polygon = [
+    [10, 2],
+    [14, 2],
+    [14, 6],
+    [10, 6],
+  ];
+  const OPEN_FRAME: Polygon = [
+    [0, 0],
+    [24, 0],
+    [24, 8],
+    [0, 8],
+  ];
+  const doc = (rings: Polygon[]) => ({ openGround: [{ levelId: 'L', rings }] });
+
+  it('keeps an unearned cave inside open ground off the shipping clip, rim band aside', () => {
+    const { outers, holes } = openGroundParts(doc([OPEN_FRAME, CAVE]), 'L');
+    expect(outers).toEqual([OPEN_FRAME]);
+    expect(holes).toEqual([CAVE]);
+    const plan = tierPlan(fenced({ rooms: [], open: outers, openHoles: holes, sight: [UNOCCLUDED], near: [UNOCCLUDED] }));
+    // The cave's middle stays unshipped, so no sweep, near or far, can open it.
+    expect(coveredAt(plan, 'inverseShipped', 12, 4)).toBe(true);
+    expect(coveredAt(plan, 'mask', 12, 4)).toBe(false);
+    // Its rock, seen from outside, is still shipped, and the grass round it shows.
+    expect(coveredAt(plan, 'inverseShipped', 10.4, 4)).toBe(false);
+    expect(coveredAt(plan, 'mask', 5, 4)).toBe(true);
+  });
+
+  it('reads the rings even-odd, so a second patch of ground is not taken for a hole', () => {
+    const PATCH_B: Polygon = [
+      [18, 1],
+      [22, 1],
+      [22, 5],
+      [18, 5],
+    ];
+    const SMALL: Polygon = [
+      [1, 1],
+      [8, 1],
+      [8, 7],
+      [1, 7],
+    ];
+    const NOOK: Polygon = [
+      [3, 3],
+      [4, 3],
+      [4, 4],
+      [3, 4],
+    ];
+    const LINE: Polygon = [
+      [5, 5],
+      [6, 5],
+      [5, 5],
+    ];
+    const { outers, holes } = openGroundParts(doc([SMALL, PATCH_B, NOOK, LINE]), 'L');
+    expect(outers).toEqual([SMALL, PATCH_B]);
+    expect(holes).toEqual([NOOK]);
+  });
+});
+
+// ── T6: a crisp map edge, a soft shadow past it ─────────────────────────────
+//
+// No GL in this lane, so the shader's edge is checked through its TS twins (`onMapSample`,
+// `frameShadow`, `edgeFeather`) over a one-row model of the mask as texels, blurred the way
+// Pixi 8.17's BlurFilter does it: five Gaussian taps a pass, the first pass `strength /
+// sqrt(sum of 4^-i)` texels apart and each later pass half that (`_applyOptimized`), every tap
+// a linear read. A straight edge is a 1-D question, and the blur is separable.
+describe('the map edge, crisp (T6)', () => {
+  const TAPS = [0.153388, 0.221461, 0.250301, 0.221461, 0.153388];
+  const read = (row: readonly number[], at: number): number => {
+    const c = Math.min(row.length - 1, Math.max(0, at));
+    const i = Math.floor(c);
+    const f = c - i;
+    return row[i] * (1 - f) + row[Math.min(row.length - 1, i + 1)] * f;
+  };
+  const pixiBlur = (row: readonly number[], strength: number, passes: number): number[] => {
+    let sum = 0;
+    for (let i = 0; i < passes; i++) sum += 4 ** -i;
+    let spacing = strength / Math.sqrt(sum);
+    let out = [...row];
+    for (let p = 0; p < passes; p++) {
+      const from = out;
+      out = from.map((_, i) => TAPS.reduce((v, w, k) => v + w * read(from, i + (k - 2) * spacing), 0));
+      spacing /= 2;
+    }
+    return out;
+  };
+
+  /**
+   * One row of texels from x = -8 to 8 cells at `scale` texels a cell, the map's right edge at
+   * x = 0. `tier(x)` is the hard mask; the feather's source is its coverage, and with `beyond`
+   * the cover past the frame counts as shown, as the plan now asks of both blurs.
+   */
+  const modelRow = (scale: number, tier: (x: number) => number, beyond: boolean, passes = blurPasses(scale)) => {
+    const n = 16 * scale;
+    const at = (i: number): number => -8 + (i + 0.5) / scale;
+    const mask = Array.from({ length: n }, (_, i) => (at(i) >= 0 ? 0 : tier(at(i))));
+    const coverage = Array.from({ length: n }, (_, i) => (at(i) >= 0 ? (beyond ? 1 : 0) : mask[i] > 0 ? 1 : 0));
+    const edge = pixiBlur(coverage, EDGE_FEATHER_CELLS * scale, passes);
+    const frame = { minX: -8, minY: -1, maxX: 0, maxY: 1 };
+    /** The shader's maskAt for a world x on the row: held on the map, then the tier times its feather. */
+    return (x: number): number => {
+      const [sx] = onMapSample(x, 0, frame, 1.5 / scale);
+      const t = (sx + 8) * scale - 0.5;
+      return read(mask, t) * edgeFeather(read(edge, t));
+    };
+  };
+
+  it('reads the interior tier right up to the frame: no falloff on any tier', () => {
+    for (const tier of [0.5, 1]) {
+      const m = modelRow(24, () => tier, true);
+      for (const x of [-2, -1, -0.5, -0.1, -0.02, -0.001]) expect(m(x)).toBeCloseTo(tier, 6);
+      // …where P8 read the void past the frame as hidden ground and faded every tier into it.
+      const before = modelRow(24, () => tier, false, 3);
+      expect(before(-0.1)).toBeLessThan(0.1 * tier);
+    }
+  });
+
+  it('asks the plan to count the cover past the frame as shown, and only that', () => {
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [LOOKING] }));
+    expect(plan.beyond).toEqual(outsideFrame(plan.cover!, FRAME));
+    for (const r of plan.beyond!) {
+      const overlapX = Math.min(r.maxX, FRAME.maxX) - Math.max(r.minX, FRAME.minX);
+      const overlapY = Math.min(r.maxY, FRAME.maxY) - Math.max(r.minY, FRAME.minY);
+      expect(overlapX <= 0 || overlapY <= 0).toBe(true);
+    }
+  });
+
+  it('never samples the tier, the cloud or the shadow from past the frame for a point on the map', () => {
+    const inset = 1.5 / 24;
+    for (let x = -3; x <= 27; x += 0.25) {
+      for (let y = -3; y <= 11; y += 0.25) {
+        // Any point, warped any way: the tier is read on the map, the inset in from its edge.
+        const [sx, sy] = onMapSample(x, y, FRAME, inset);
+        expect(sx).toBeGreaterThanOrEqual(FRAME.minX + inset);
+        expect(sx).toBeLessThanOrEqual(FRAME.maxX - inset);
+        expect(sy).toBeGreaterThanOrEqual(FRAME.minY + inset);
+        expect(sy).toBeLessThanOrEqual(FRAME.maxY - inset);
+        const onMap = x >= FRAME.minX && x <= FRAME.maxX && y >= FRAME.minY && y <= FRAME.maxY;
+        if (onMap) expect(frameShadow(x, y, FRAME)).toBe(0);
+        // A point well on the map reads itself.
+        if (x >= inset && x <= FRAME.maxX - inset && y >= inset && y <= FRAME.maxY - inset) {
+          expect([sx, sy]).toEqual([x, y]);
+        }
+      }
+    }
+  });
+
+  it('lays the shadow only past the frame, falling off smoothly over its width', () => {
+    const STEP = 0.005;
+    const d = Array.from({ length: Math.round(2 / STEP) + 1 }, (_, i) => i * STEP);
+    const shade = d.map((t) => frameShadow(FRAME.maxX + t, 4, FRAME));
+    expect(shade[0]).toBe(0); // on the edge itself: the map's, not the shadow's
+    expect(shade[1]).toBeCloseTo(FRAME_SHADOW_DEPTH, 2);
+    for (let i = 2; i < shade.length; i++) {
+      expect(shade[i]).toBeLessThanOrEqual(shade[i - 1]);
+      // No step anywhere along it: every 0.005 cell under 1% of the depth.
+      expect(shade[i - 1] - shade[i]).toBeLessThan(0.01 * FRAME_SHADOW_DEPTH);
+    }
+    expect(frameShadow(FRAME.maxX + FRAME_SHADOW_CELLS, 4, FRAME)).toBe(0);
+    expect(frameShadow(FRAME.maxX + 1.4 * FRAME_SHADOW_CELLS, 4, FRAME)).toBe(0);
+    // It eases into the cloud rather than ending on a line.
+    expect(frameShadow(FRAME.maxX + 0.95 * FRAME_SHADOW_CELLS, 4, FRAME)).toBeLessThan(0.01 * FRAME_SHADOW_DEPTH);
+    // Rounded at a corner: the same reach diagonally as straight out.
+    const r = 0.5;
+    expect(frameShadow(FRAME.maxX + r / Math.SQRT2, FRAME.maxY + r / Math.SQRT2, FRAME)).toBeCloseTo(
+      frameShadow(FRAME.maxX + r, 4, FRAME),
+      9,
+    );
+  });
+
+  // A memory running into hidden ground three cells inside the map. The analytic reference is
+  // the same ramp through a true Gaussian of the blur's width (1.29 strength).
+  const erf = (x: number): number => {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return x >= 0 ? y : -y;
+  };
+  const SIGMA = Math.sqrt(2 * (TAPS[0] * 4 + TAPS[1])) * EDGE_FEATHER_CELLS;
+  const STEP = 0.005;
+  const xs = Array.from({ length: Math.round(4 / STEP) + 1 }, (_, i) => -5 + i * STEP);
+  const biggestStep = (m: (x: number) => number): number =>
+    Math.max(...xs.slice(1).map((x, i) => m(x) - m(xs[i])));
+  const smooth = biggestStep((x) => 0.5 * edgeFeather(0.5 * (1 + erf((x + 3) / (SIGMA * Math.SQRT2)))));
+  const memory = (x: number): number => (x < -3 ? 0 : 0.5);
+
+  it.each([6, 12, 24])('feathers between tiers as a clean gradient at %i texels a cell', (scale) => {
+    const m = modelRow(scale, memory, true);
+    expect(biggestStep(m)).toBeLessThanOrEqual(1.05 * smooth);
+    for (let i = 1; i < xs.length; i++) expect(m(xs[i])).toBeGreaterThanOrEqual(m(xs[i - 1]) - 1e-12);
+  });
+
+  it('replaces a staircase: three passes at 24 texels a cell stepped every five texels', () => {
+    expect(blurPasses(24)).toBe(6);
+    expect(biggestStep(modelRow(24, memory, true, 3))).toBeGreaterThan(2 * smooth);
   });
 });

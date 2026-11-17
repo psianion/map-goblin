@@ -29,6 +29,7 @@ test.describe('@scenes world and scenes', () => {
     const { page } = hostSession;
     await joinAsPlayer('Pia');
     await page.keyboard.press('2');
+    await page.getByTestId('map-family-levels').click();
     const seats = page.getByTestId('level-seats');
     if (await seats.count()) {
       const pin = seats.first().locator('[data-testid^="level-seat-"]').first();
@@ -74,6 +75,27 @@ test.describe('@scenes world and scenes', () => {
 
   test('Session: Export campaign downloads a zip', async ({ hostSession }) => {
     const { page } = hostSession;
+    await page.getByTestId('session-menu').click();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('export-campaign').click();
+    expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+  });
+});
+
+// Table fix pass F20: a scene imported at the table gets a picture from the DM's table once it
+// is live, and the campaign export still carries every scene.
+test.describe('@world scene pictures and the campaign export', () => {
+  test('an imported scene is pictured once live, and the export downloads afterwards', async ({ hostSession }) => {
+    const { page } = hostSession;
+    await page.keyboard.press('7');
+    await page.getByTestId('scene-import-input').setInputFiles(SECOND_MAP);
+    const other = page.getByTestId('scene-card').filter({ hasText: SECOND_NAME });
+    await other.getByTestId('scene-prepare').click();
+    await other.getByTestId('scene-switch').click();
+    await expect(other.getByTestId('scene-live')).toBeVisible();
+    // The DM's table renders and uploads it a couple of seconds after the map loads.
+    await expect(other.locator('img')).toBeVisible({ timeout: 20_000 });
+
     await page.getByTestId('session-menu').click();
     const download = page.waitForEvent('download');
     await page.getByTestId('export-campaign').click();

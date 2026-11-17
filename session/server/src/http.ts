@@ -32,12 +32,14 @@ import {
   type Stores,
 } from './db/stores'
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
-import type { Vision } from './fog/vision'
+import { outdoorsRowOf, type Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
-import type { FogState } from '@dnd/mechanics/fog'
+import { fogModeOf, sceneFogOf, type FogState } from '@dnd/mechanics/fog'
+import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
+import type { DoorChild } from '@dnd/core/src/shared/types'
 import { carryFog, takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
@@ -248,12 +250,20 @@ function publicTableUrl(): string | null {
  * POST /api/campaigns/:id/handoff — DM token in, a single-use code and the table link that
  * carries it out (decision 13). The code rides in the fragment, which no server log sees.
  */
-function mintHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+async function mintHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): Promise<void> {
   const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
   if (!dm) return
+  // Table fix pass F1: the canvas names the scene it was showing, so the table can carry on
+  // with it. Optional; an empty body is the older canvas.
+  const body = await readJson(req, res)
+  if (!body) return
+  const sceneId = text(body.sceneId)
+  if (sceneId && deps.stores.scenes.get(sceneId)?.campaign_id !== campaignId) {
+    return json(res, 400, { error: `no scene '${sceneId}' in this campaign` })
+  }
   const base = publicTableUrl()
   if (!base) return json(res, 503, { error: 'This table server has no PUBLIC_TABLE_URL set, so it cannot say where the table is.' })
-  const code = deps.handoffs.mint(campaignId, dm.id)
+  const code = deps.handoffs.mint(campaignId, dm.id, undefined, sceneId ?? undefined)
   json(res, 200, { code, tableUrl: `${base}/host#handoff=${code}` })
 }
 
@@ -279,6 +289,7 @@ async function redeemHandoff(deps: RouteDeps, req: IncomingMessage, res: ServerR
     campaignId: campaign.id,
     campaignName: campaign.name,
     token: issueToken(deps.hmacSecret, dm.id, campaign.id, 'dm'),
+    ...(handoff.sceneId ? { sceneId: handoff.sceneId } : {}),
   })
 }
 
@@ -548,6 +559,9 @@ async function publishScene(
     const previous = new Set(deps.vision.roomsOf(scene.campaign_id, sceneId))
     carrySceneFog(deps, scene.campaign_id, sceneId, (fog) => carryFog(fog, lineage, previous))
   }
+  // S2 — a door whose authored state changed starts again from the new map: its stored live state
+  // (open, locked, found) is dropped. Read against the old map for the same reason as above.
+  pruneSceneDoors(deps, scene.campaign_id, sceneId, reauthoredDoors(deps.vision.doorsOf(scene.campaign_id, sceneId), authoredDoorsOf(map.data)))
   const row = deps.stores.maps.insert(
     randomUUID(),
     scene.campaign_id,
@@ -610,6 +624,23 @@ function carrySceneFog(
   if (!fog || !scene) return
   const next = carry(scene)
   if (next) deps.stores.moduleState.put(campaignId, 'fog', { ...fog, byScene: { ...fog.byScene, [sceneId]: next } })
+}
+
+/** Every door a map file authors, across its dungeon layers. */
+function authoredDoorsOf(data: SerializedMapData): DoorChild[] {
+  return data.layers.flatMap((layer) =>
+    layer.type === 'dungeon' ? (layer.children ?? []).filter((c): c is DoorChild => c.childType === 'door') : [],
+  )
+}
+
+/** Drops the stored live state of `doorIds` in one scene, so the authored state seeds them again. */
+function pruneSceneDoors(deps: HttpDeps, campaignId: string, sceneId: string, doorIds: readonly string[]): void {
+  if (doorIds.length === 0) return
+  const doors = deps.stores.moduleState.get(campaignId, 'doors') as DoorsState | undefined
+  const live = doors?.byScene[sceneId]
+  if (!doors || !live || !doorIds.some((id) => id in live)) return
+  const kept = Object.fromEntries(Object.entries(live).filter(([id]) => !doorIds.includes(id)))
+  deps.stores.moduleState.put(campaignId, 'doors', { ...doors, byScene: { ...doors.byScene, [sceneId]: kept } })
 }
 
 /** DELETE /api/scenes/:id — DM only. */
@@ -1073,7 +1104,7 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
   )
   // A returning player gets their PC back by name (see `reattachPc`); the seats already at
   // the table are re-sent the state that shows it.
-  if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name)) {
+  if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name, deps.sessionManager.seatsOf(session.id))) {
     deps.sessionManager.refreshScenes(session.campaign_id)
   }
   json(res, 200, {
@@ -1120,18 +1151,39 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     start = { sceneId, roomId }
   }
 
+  // Table fix pass F18: a start that is a point — the map's party start, or its centre.
+  const pointed = body.startingPoint as { sceneId?: unknown; x?: unknown; y?: unknown; levelId?: unknown } | undefined
+  let point: { sceneId: string; x: number; y: number; levelId?: string } | null = null
+  if (pointed != null) {
+    const sceneId = text(pointed.sceneId)
+    const { x, y } = pointed
+    if (!sceneId || typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return json(res, 400, { error: 'startingPoint needs a sceneId, an x and a y' })
+    }
+    const levelId = text(pointed.levelId)
+    point = { sceneId, x, y, ...(levelId ? { levelId } : {}) }
+  }
+
   // Which scene the table opens on. The wizard names it because it is the one it just
   // published, and the campaign's scene order cannot be asked instead — an older scene in
   // the same campaign is just as plausibly first. A starting room already names one.
-  const scene = text(body.sceneId) ?? start?.sceneId ?? null
+  const scene = text(body.sceneId) ?? start?.sceneId ?? point?.sceneId ?? null
   if (scene && deps.stores.scenes.get(scene)?.campaign_id !== campaignId) {
     return json(res, 400, { error: `no scene '${scene}' in this campaign` })
   }
 
-  // createSession ends whatever was running; the table it replaced deserves to hear so.
-  const replaced = deps.stores.sessions.getActiveByCampaign(campaignId)
+  // Table fix pass F1: opening never ends a live table. The one already running carries on,
+  // same session and same code, switched to the named scene the way the dock switches it.
+  // Ending a table is the Session menu's End session, and nothing else's.
+  const live = deps.stores.sessions.getActiveByCampaign(campaignId)
+  if (live) {
+    if (scene && live.active_scene_id !== scene) {
+      const refused = deps.sessionManager.activateScene(live.id, campaignId, scene)
+      if (refused) return json(res, 400, { error: refused.message })
+    }
+    return json(res, 200, { sessionId: live.id, campaignId, inviteCode: live.invite_code, resumed: true })
+  }
   const session = startSession(deps.stores.sessions, campaignId)
-  if (replaced) deps.sessionManager.endSession(replaced.id)
 
   // The scene the wizard set the table up with is the scene the table opens on. Without it
   // the snapshot falls back to the campaign's *first* scene (see `scenes` in index.ts), and
@@ -1178,6 +1230,38 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       dmId: dm.id,
       levelId,
     })
+  }
+
+  // Table fix pass F18: a start at a point (the party start, or the centre of the map). The
+  // party stands there, fanned out on standable cells, and in By hand fog the room or Outdoors
+  // under it is revealed (the place writes do that through `fog.party-here`; this covers a
+  // campaign with no PC to place).
+  if (point) {
+    const ctx = {
+      campaignId,
+      sessionId: session.id,
+      activeSceneId: point.sceneId,
+      sender: { role: 'dm' as const, identityId: dm.id },
+      players: [],
+      broadcast: () => {},
+    }
+    const map = deps.vision.sceneMapOf(point.sceneId)
+    const levels = map?.data.levels ?? []
+    const levelId = levels.length > 1 && levels.some((l) => l.id === point!.levelId) ? point.levelId : undefined
+    if (levelId) deps.modules.dispatch('triggers', 'set-start-level', { sceneId: point.sceneId, levelId }, ctx)
+    spawnParty(deps.modules, deps.vision, {
+      campaignId,
+      sessionId: session.id,
+      sceneId: point.sceneId,
+      point: { x: point.x, y: point.y },
+      dmId: dm.id,
+      levelId,
+    })
+    const fog = (deps.stores.moduleState.get(campaignId, 'fog') as FogState | undefined) ?? { byScene: {} }
+    const row = map && (map.roomAt(point.x, point.y) ?? outdoorsRowOf(map.data, levelId ?? levels[0]?.id ?? ''))
+    if (row && fogModeOf(sceneFogOf(fog, point.sceneId)) === 'rooms' && deps.vision.roomsOf(campaignId, point.sceneId).includes(row)) {
+      deps.modules.dispatch('fog', 'reveal', { sceneId: point.sceneId, roomId: row }, ctx)
+    }
   }
 
   json(res, 201, {

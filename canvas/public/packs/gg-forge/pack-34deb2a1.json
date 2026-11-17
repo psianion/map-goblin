@@ -1,6 +1,6 @@
 {
   "name": "gg-forge",
-  "version": "1.17.4",
+  "version": "1.18.0",
   "description": "Good Goblin forge-generated asset sets",
   "theme": [
     "fantasy"
@@ -1894,8 +1894,8 @@
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 72,
-        "h": 160
+        "w": 210,
+        "h": 467
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -1911,8 +1911,8 @@
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 72,
-        "h": 160
+        "w": 210,
+        "h": 467
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -1928,8 +1928,25 @@
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 280,
-        "h": 544
+        "w": 176,
+        "h": 320
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-jamb-one": {
+      "type": "door",
+      "material": "doorkit-cave-jamb-one",
+      "gridSize": "1x1",
+      "pieceType": "jamb",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 176,
+        "h": 320
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -1945,8 +1962,93 @@
       "frame": {
         "x": 0,
         "y": 0,
-        "w": 72,
-        "h": 160
+        "w": 210,
+        "h": 467
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-port-bar-a": {
+      "type": "door",
+      "material": "doorkit-cave-port-bar-a",
+      "gridSize": "1x1",
+      "pieceType": "port-bar-a",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-port-bar-b": {
+      "type": "door",
+      "material": "doorkit-cave-port-bar-b",
+      "gridSize": "1x1",
+      "pieceType": "port-bar-b",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-port-beam": {
+      "type": "door",
+      "material": "doorkit-cave-port-beam",
+      "gridSize": "1x1",
+      "pieceType": "port-beam",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 96
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-port-slot": {
+      "type": "door",
+      "material": "doorkit-cave-port-slot",
+      "gridSize": "1x1",
+      "pieceType": "port-slot",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 24
+      },
+      "set": "GG_Door_Kits",
+      "tags": [
+        "door"
+      ]
+    },
+    "doorkit-cave-port-socket": {
+      "type": "door",
+      "material": "doorkit-cave-port-socket",
+      "gridSize": "1x1",
+      "pieceType": "port-socket",
+      "variant": "A",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 48,
+        "h": 48
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -1963,7 +2065,7 @@
         "x": 0,
         "y": 0,
         "w": 200,
-        "h": 160
+        "h": 467
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -1980,7 +2082,7 @@
         "x": 0,
         "y": 0,
         "w": 200,
-        "h": 160
+        "h": 467
       },
       "set": "GG_Door_Kits",
       "tags": [
@@ -4462,29 +4564,53 @@
       "checksum": "sha256:d6bd053c1b1d7ba9a761c436f3924f0341bd00498974b8404ed678d9e62d479f",
       "size": 1966
     },
-    "doorkit-cave-hinge-plain_1x1_A-28d2bbd4.webp": {
-      "checksum": "sha256:28d2bbd425dc9524567ba27e03d11e58f7d9d58645154363e9c027178ce60697",
-      "size": 914
+    "doorkit-cave-hinge-plain_1x1_A-ddccd509.webp": {
+      "checksum": "sha256:ddccd509b801b4d448392c8d2759fe2fb1ac7e5f2ba55adfb2a8422a219958b0",
+      "size": 2696
     },
-    "doorkit-cave-hinge_1x1_A-ffa8e34c.webp": {
-      "checksum": "sha256:ffa8e34cce5eadba88d4f3c9d1092dc016437d849e4fa2a76aabfa765bfe1119",
-      "size": 1034
+    "doorkit-cave-hinge_1x1_A-37dbdf91.webp": {
+      "checksum": "sha256:37dbdf914dc6b4e4ee1d219a2bbba46a3d9e709625008dff56ce19c25d593f7c",
+      "size": 2754
     },
-    "doorkit-cave-jamb_1x1_A-a999b293.webp": {
-      "checksum": "sha256:a999b293217be78f4e7ea19e76c06981ead43e2e5e32f29d311da2eaf846a10a",
-      "size": 4938
+    "doorkit-cave-jamb-one_1x1_A-87fc949b.webp": {
+      "checksum": "sha256:87fc949bb6c6565876ff34f8e6fa382be37448b10c5e0f5782ec0fd42c64cb21",
+      "size": 2178
     },
-    "doorkit-cave-latch_1x1_A-1200be1a.webp": {
-      "checksum": "sha256:1200be1ac2ef521c1d9e90e92028939b996221926f71f694387f35b82d048be9",
-      "size": 2076
+    "doorkit-cave-jamb_1x1_A-992c0ccf.webp": {
+      "checksum": "sha256:992c0ccf635356a5459bfd7e7d0243b81e938fa60bcb011f6e191de2a51818c3",
+      "size": 2712
     },
-    "doorkit-cave-tile-a_1x1_A-fb81e406.webp": {
-      "checksum": "sha256:fb81e406f509e4e380eae4795d6a2bcb91522a3bf4546dfa1fbc4b28025afabd",
-      "size": 1570
+    "doorkit-cave-latch_1x1_A-280e88bc.webp": {
+      "checksum": "sha256:280e88bcb90fedb240a3f96ae1d2889cce41506d9c35edcfa37ba8e6031a9d39",
+      "size": 2712
     },
-    "doorkit-cave-tile-b_1x1_A-b1dffded.webp": {
-      "checksum": "sha256:b1dffded9e8ca106821dd78db65e6228854ac09effe948aa7253e5bd628d9511",
-      "size": 1814
+    "doorkit-cave-port-bar-a_1x1_A-e72e2676.webp": {
+      "checksum": "sha256:e72e2676ff88dffccc7490f670a5d81f2cb683aa86630e8b0af0fd63923c9957",
+      "size": 992
+    },
+    "doorkit-cave-port-bar-b_1x1_A-fb78e210.webp": {
+      "checksum": "sha256:fb78e2105d0ed0c8426fb9edd11d939c6d1a0f944460a59ff0985a6328d9d133",
+      "size": 1014
+    },
+    "doorkit-cave-port-beam_1x1_A-460c782c.webp": {
+      "checksum": "sha256:460c782c05fac3e2b35863f43896076914ed9bfe212b6ee48ad3a26f93d361c9",
+      "size": 1224
+    },
+    "doorkit-cave-port-slot_1x1_A-b793295e.webp": {
+      "checksum": "sha256:b793295ebce70654e9181514ed4baaa6a4d4040c610ad4c896b0e4c19e4774d6",
+      "size": 134
+    },
+    "doorkit-cave-port-socket_1x1_A-a98ea790.webp": {
+      "checksum": "sha256:a98ea7901ca1e4a3d39d5901725a046d2d5eefde2093b0385e72019c7af7da6f",
+      "size": 232
+    },
+    "doorkit-cave-tile-a_1x1_A-2bd2fc46.webp": {
+      "checksum": "sha256:2bd2fc469e3a1ad4f06f97e4ef1c10efb88a4824416db496771934c284ca9bc5",
+      "size": 1862
+    },
+    "doorkit-cave-tile-b_1x1_A-82109308.webp": {
+      "checksum": "sha256:821093082598931497c8d2cabe15c574b6d471ec2f14e0d82f460db7938daccd",
+      "size": 2118
     },
     "doorkit-stone-hinge-plain_1x1_A-c51188aa.webp": {
       "checksum": "sha256:c51188aa901c0a7c0056992703420373ea2ffcb6c70bb98a1e07d22f70aaf514",
@@ -4955,5 +5081,5 @@
       "size": 106222
     }
   },
-  "bundleSize": 3278694
+  "bundleSize": 3286976
 }

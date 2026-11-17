@@ -362,6 +362,11 @@ export class SessionStore {
     return this.#activeByCampaign.get(campaignId)
   }
 
+  /** Every running table — the server's one-time passes at start read it. */
+  listActive(): SessionRow[] {
+    return this.#db.prepare<[], SessionRow>('SELECT * FROM sessions WHERE active = 1').all()
+  }
+
   setActiveScene(sessionId: string, sceneId: string | null): void {
     this.#setScene.run(sceneId, sessionId)
   }

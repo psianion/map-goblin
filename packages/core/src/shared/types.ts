@@ -423,6 +423,16 @@ export interface LightChild extends LayerChild {
   tableOn?: boolean;
 }
 
+/** A door's resolved placement, baked for a player's copy (see `DoorChild.placed`). */
+export interface DoorPlacement {
+  /** The wall the door resolved onto: a drawn wall's or a cave run's id, '' for a floor-ring edge. */
+  wallId: string;
+  /** Nothing in reach on the full map: the door is detached there too. Absent = false. */
+  detached?: boolean;
+  /** The look of that wall, which picks the door's kit, jambs, tint and depth. */
+  look: { setId?: string; tint: string; width: number; corner: CornerStyle };
+}
+
 export interface DoorChild extends LayerChild {
   childType: 'door';
   /**
@@ -449,8 +459,17 @@ export interface DoorChild extends LayerChild {
   hinge?: 'start' | 'end';
   /** Which side of the wall the door swings to: 1 or -1 (see `leafPoses`). Absent = 1. */
   swing?: 1 | -1;
-  /** False hangs a kit door with no visible hinge hardware. Absent = shown. */
+  /**
+   * Whether a kit door shows its hinge hardware. Absent = shown on stone and
+   * wood, hidden on the cave (`doorShowsHinges`).
+   */
   hinges?: boolean;
+  /**
+   * The jamb closing a cave wall either side of the opening, for every style:
+   * 'fit' the fitted pair of rocks, 'one' a single rock, 'none' the bare band
+   * end. Absent = 'fit'. Other walls close with their own end caps.
+   */
+  jamb?: 'fit' | 'one' | 'none';
   /**
    * The door kit a single or double door is built from, whatever its wall is:
    * 'stone' (Fieldstone), 'wood' (Palisade) or 'cave' (Cave Ink). Absent = the
@@ -468,6 +487,13 @@ export interface DoorChild extends LayerChild {
    * stops either side. Absent = false.
    */
   bare?: boolean;
+  /**
+   * Table only, never in a file: where the referee resolved this door on the full map, baked into
+   * a player's partial copy by the server. A player's copy lacks the walls, floors and rooms the
+   * door's pose and look are read from, so a door carrying this is drawn exactly as given:
+   * `position` and `angle` are the resolved pose, and no re-snap runs (`shared/wallResolve.ts`).
+   */
+  placed?: DoorPlacement;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */
@@ -665,6 +691,12 @@ export interface Room {
   derivedFrom?: string;
   /** Merge lineage: rooms folded into this one. The server ORs their fog at publish, then strips it. */
   mergedFrom?: string[];
+  /**
+   * Table only, never in a file: a room the player has not earned, sent with no name, number,
+   * anchor or notes, only its face and look, because a floor they hold runs through it and must
+   * draw as the referee's does. Never a revealed room and never part of the fog.
+   */
+  standIn?: true;
 
   // ---- derived at runtime, stripped on save ----
   /** The face the anchor sits in (or `boundary`). Read through `roomFace`. */

@@ -72,6 +72,8 @@ export interface MapDelta {
    * does not depend on mechanics, and this file stays clear of the store's DOM-typed module.
    */
   lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
+  /** `SerializedMapData.openGround`, when this mutation first hands the seat outdoor ground. */
+  openGround?: { levelId: string; rings: [number, number][][] }[];
 }
 
 /** A world-space point (1 unit = 1 grid cell). */
@@ -89,9 +91,15 @@ export type Mark =
   | { kind: 'ping'; x: number; y: number; pull?: boolean }
   | { kind: 'ruler'; from: MarkPoint; to: MarkPoint }
   /** `toward` aims a cone or a line. */
+  /**
+   * `toward` aims a cone or a line. A template stands until its author or the DM clears it by
+   * the id it was relayed with (`MarkEvent.id`), and a seat that joins later is sent it.
+   */
   | { kind: 'template'; shape: 'circle' | 'cone' | 'square' | 'line'; origin: MarkPoint; size: number; toward?: MarkPoint }
   /** `ttl` in ms, clamped by the server. */
-  | { kind: 'draw'; points: [number, number][]; ttl: number };
+  | { kind: 'draw'; points: [number, number][]; ttl: number }
+  /** Removes a standing template, named by the `MarkEvent.id` it was relayed with. */
+  | { kind: 'clear'; id: string };
 
 /** A mark as relayed: stamped by the server with who, when, where and how long it lives. */
 export interface MarkEvent {
@@ -99,7 +107,7 @@ export interface MarkEvent {
   from: string;
   at: number;
   sceneId: string | null;
-  /** The client drops the mark this long after `at`. */
+  /** The client drops the mark this long after `at`; 0 = it stands until a `clear` names it. */
   ttlMs: number;
   mark: Mark;
 }
@@ -127,8 +135,9 @@ export type ServerMessage =
   | { type: 'session-state'; state: SessionState; you: PlayerInfo }
   | { type: 'state-update'; module: string; state: unknown }
   // `mapId` lets a client key its map cache on (sceneId, mapId): a republish of the
-  // active scene re-broadcasts the same sceneId with a new mapId.
-  | { type: 'scene-changed'; sceneId: string; mapId: string }
+  // active scene re-broadcasts the same sceneId with a new mapId. `hidden`: the scene is marked
+  // hidden from players, and they see it now that it is live (the DM's table says so).
+  | { type: 'scene-changed'; sceneId: string; mapId: string; hidden?: true }
   // DM seats only: a scene's prep was rewritten (`PUT /scenes/:id/prep`, or a republish
   // whose file carries prep), so the Prep panel refetches. It drops no map. Additive, so no version
   // bump: a client that does not know it ignores it and keeps the prep it already had.

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION, type SessionState } from '@dnd/core/src/shared/protocol';
 import { useMarks } from '../shell/marks/marks';
-import { useSessionStore } from './store';
+import { fogRowsDropped, useSessionStore } from './store';
 
 vi.mock('../renderer/camera', () => ({ frameWorldPoint: vi.fn() }));
 
@@ -67,5 +67,20 @@ describe('v6 store slices', () => {
     useSessionStore.getState().sendMark({ kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 0 } });
     expect(send).toHaveBeenCalledWith({ type: 'mark', mark: { kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 0 } } });
     useSessionStore.setState({ client: null });
+  });
+});
+
+// T10 — the seat re-fetches its cut when a fog row it held leaves the slice (Hide, Hide all,
+// the eraser): the referee withholds that room from then on, and a held copy only grows by delta.
+describe('fogRowsDropped', () => {
+  const lit = { status: 'revealed' as const, wasEverRevealed: true };
+  const fog = (rooms: Record<string, typeof lit>) => ({ byScene: { 'scene-1': { rooms, concealBehindDoors: true } } });
+
+  it('names a scene that lost a row, and none that only gained or kept them', () => {
+    expect(fogRowsDropped(fog({ hall: lit, '@outdoors': lit }), fog({ hall: lit }))).toEqual(['scene-1']);
+    expect(fogRowsDropped(fog({ hall: lit }), fog({}))).toEqual(['scene-1']);
+    expect(fogRowsDropped(fog({ hall: lit }), fog({ hall: lit, vault: lit }))).toEqual([]);
+    expect(fogRowsDropped(fog({ hall: lit }), fog({ hall: lit }))).toEqual([]);
+    expect(fogRowsDropped(undefined, fog({ hall: lit }))).toEqual([]);
   });
 });

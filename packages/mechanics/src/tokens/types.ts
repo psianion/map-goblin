@@ -188,6 +188,13 @@ export interface SceneVision {
    * leave the room-granular rule below exactly as it was.
    */
   openGround?(x: number, y: number): boolean
+  /**
+   * Table fix pass §2.3 — solid things decide. Why a player's token may not stand at `to`, or
+   * walk there from `from` (null = a place, no walk), on the walk grid of its level; null when
+   * it may. Present wherever the scene has a map frame; it replaces the room graph's
+   * `occupiable` and `blockedEdge`, and the straight-line crossing test, for every player move.
+   */
+  walkRefusal?(token: Token, to: { x: number; y: number }, from: { x: number; y: number } | null): string | null
 }
 
 /**
@@ -202,6 +209,11 @@ export interface SceneVision {
 export const MOVE_BLOCKED = 'move-blocked'
 export const ROOM_UNEXPLORED = 'room-unexplored'
 export const OUTSIDE_MAP = 'outside-map'
+/** The spot is ground, but rock or a wall fills the cell. */
+export const SOLID_GROUND = 'solid-ground'
+
+/** Internal: the server clears every effect timer on a scene when its encounter ends. */
+export const CLEAR_EFFECTS = 'clear-effects'
 
 /**
  * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned

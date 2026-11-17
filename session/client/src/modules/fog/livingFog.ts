@@ -33,6 +33,19 @@ import type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLo
 import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 import { isFrozen } from '@dnd/core/src/shared/freeze';
 import type { Bounds } from './FogRenderer';
+import {
+  EDGE_FEATHER_CELLS,
+  EDGE_FEATHER_FROM,
+  FRAME_SHADOW_CELLS,
+  FRAME_SHADOW_DEPTH,
+  GUARD_BLUR_CELLS,
+  GUARD_FROM,
+  GUARD_TO,
+  blurPasses,
+  outsideFrame,
+  type OwnClearing,
+} from './tierPlan';
+import { coverageFilter } from './tierCompositor';
 
 /** The table-facing cloud shape — shared with `MapSettings.fogLook` (canvas) and
  * `SceneFog.look` (the DM's live override) so all three runtimes agree on one type
@@ -58,6 +71,9 @@ export const MASK_MEMORY = 0x808080;
  * furthest from the mask are dropped, which errs towards the cloud closing at the geometry.
  */
 export const MAX_POOLS = 40;
+
+/** T13 — how many of the seat's own tokens the shader clears round at once (§2.8). */
+export const MAX_OWN = 8;
 
 /**
  * How far the coastline may wander, in world units (= grid cells).
@@ -126,10 +142,13 @@ const VERTEX = /* glsl */ `
 
 const FRAGMENT = /* glsl */ `
   #define MAX_POOLS ${MAX_POOLS}
+  #define MAX_OWN ${MAX_OWN}
   precision mediump float;
   in vec2 vWorld;
   uniform sampler2D uMask;
   uniform sampler2D uMaskSoft;
+  // P8 — the mask's coverage, blurred by EDGE_FEATHER_CELLS: the inward feather at hidden ground.
+  uniform sampler2D uMaskEdge;
   uniform float uTime;
   uniform float uWind;
   uniform float uNoise;
@@ -142,7 +161,13 @@ const FRAGMENT = /* glsl */ `
   uniform float uSeamLobe;
   uniform float uVeil;
   uniform float uGlow;
+  // T8 — 1 on the player's seat: the mask is shown or hidden, no memory tier and no pools.
+  uniform float uOneTier;
   uniform vec4 uMaskRect;
+  // P7 — the map frame (minX, minY, maxX, maxY); maxX <= minX is "no frame".
+  uniform vec4 uFrame;
+  // T6 — one mask texel, in world units: how far in from the frame the tier is read.
+  uniform float uTexel;
   uniform vec3 uDeep;
   // The base lifted toward white — the rim/underlay tint. Not read by this pass yet: the
   // blurred-floor underlay it feeds is WP3 (D3), not shipped here. Kept in sync now so that
@@ -164,6 +189,9 @@ const FRAGMENT = /* glsl */ `
   // abs()/the sign of .z for it — see LivingFog.setPools in the TS half of this file.
   uniform vec4 uPools[MAX_POOLS];
   uniform int uPoolCount;
+  // T13 — the seat's own tokens (x, y, inner, outer): clear to inner, gone by outer (§2.8).
+  uniform vec4 uOwn[MAX_OWN];
+  uniform int uOwnCount;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -230,17 +258,71 @@ const FRAGMENT = /* glsl */ `
     }
     return best;
   }
+  // T6 — 1 on the map, 0 past its frame: a hard line, so the map ends like a page. (P7 eased
+  // this over the last cell inside the frame, which is where the torch tint showed as a line.)
+  float onMap(vec2 p) {
+    if (uFrame.z <= uFrame.x) return 1.0;
+    return step(uFrame.x, p.x) * step(p.x, uFrame.z) * step(uFrame.y, p.y) * step(p.y, uFrame.w);
+  }
+  // T6 — tierPlan's onMapSample: every tier read is held on the map, a texel and a half in from
+  // its edge, so neither the bilinear tap nor the coastline warp drags the void past the frame
+  // in over the map (the warp did, as cloud puffs). Past the frame this reads the tier just
+  // inside it, which the cut in main() then covers and the shadow below is scaled by.
+  vec2 onMapSample(vec2 p) {
+    if (uFrame.z <= uFrame.x) return p;
+    vec2 inset = vec2(1.5 * uTexel);
+    return clamp(p, uFrame.xy + inset, uFrame.zw - inset);
+  }
+  // T6 — tierPlan's frameShadow: the map's shadow on the cloud, full on the edge, gone
+  // FRAME_SHADOW_CELLS past it, rounded at the corners, and nothing on the map itself.
+  float frameShadow(vec2 p) {
+    if (uFrame.z <= uFrame.x) return 0.0;
+    float d = length(max(max(uFrame.xy - p, p - uFrame.zw), 0.0));
+    if (d <= 0.0) return 0.0;
+    float t = 1.0 - clamp(d / ${FRAME_SHADOW_CELLS.toFixed(3)}, 0.0, 1.0);
+    return ${FRAME_SHADOW_DEPTH.toFixed(3)} * t * t;
+  }
+  // P8 — tierPlan's edgeFeather: 0 on and past the boundary with hidden ground, 1 a feather in.
+  float edgeAt(vec2 uv) {
+    float t = clamp((texture(uMaskEdge, uv).a - ${EDGE_FEATHER_FROM.toFixed(3)}) / ${(1 - EDGE_FEATHER_FROM).toFixed(3)}, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+  }
+  // T13 — tierPlan's guardAt, off the soft copy (blurred by GUARD_BLUR_CELLS on the player's seat).
+  float guardAt(vec2 uv) {
+    float t = clamp((texture(uMaskSoft, uv).r - ${GUARD_FROM.toFixed(3)}) / ${(GUARD_TO - GUARD_FROM).toFixed(3)}, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+  }
+  // T13 — tierPlan's ownClearAt: a round, feathered clearing on each of the seat's own tokens.
+  float ownAt(vec2 world) {
+    float best = 0.0;
+    for (int i = 0; i < MAX_OWN; i++) {
+      if (i >= uOwnCount) break;
+      vec4 o = uOwn[i];
+      float t = clamp((distance(world, o.xy) - o.z) / max(o.w - o.z, 1e-3), 0.0, 1.0);
+      best = max(best, 1.0 - t * t * (3.0 - 2.0 * t));
+    }
+    return best;
+  }
   float maskAt(vec2 world) {
+    world = onMapSample(world);
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
     float s = texture(uMask, uv).r;
+    // P8 — every tier eases in from hidden over the feather rather than stepping up at the
+    // geometry's edge. Inward only (0 at the line), and a product, so the tier still never
+    // reads above what the hard mask says. This is what turns the cut into mist.
+    float e = edgeAt(uv);
+    // T8 — tierPlan's shownAt: revealed ground is one tier, so the feather alone is the fade,
+    // guarded so a hidden gap the blur lifts stays hidden. T13: the guard reads the soft copy,
+    // so it eases over a few tenths of a cell where the hard texel stepped in one.
+    if (uOneTier > 0.5) return e * guardAt(uv);
     // Hidden and memory texels read themselves, flat. Everything above the memory grey — a
     // live texel, or the feather ramp drawn at a live edge — goes through the blur and the
     // pools below, capped by the hard value so nothing here ever lifts the tier above what
     // the geometry says. The feather used to come back raw instead, and that put a step at
     // every light's radius in the dark: pool-limited on one texel, the bare feather on the
     // next, memory a cell later — the circle the pale mist then traced around each torch.
-    if (s < 0.51) return s;
+    if (s < 0.51) return s * e;
     float live = clamp(2.0 * texture(uMaskSoft, uv).r - 1.0, 0.0, 1.0);
     // In the dark every live texel is inside some pool's geometry; the pools say how far.
     // The fade lands on the memory grey, not on hidden: what a token sees it has explored,
@@ -253,7 +335,7 @@ const FRAGMENT = /* glsl */ `
     // inside every sight edge — the same tier step as the rim and the wisps, arriving one
     // level lower down. The pool branch already floors for this reason; so does this one now.
     float tier = min(s, max(live, 0.5));
-    return uPoolCount > 0 ? min(tier, max(poolAt(world), 0.5)) : tier;
+    return (uPoolCount > 0 ? min(tier, max(poolAt(world), 0.5)) : tier) * e;
   }
 
   void main() {
@@ -301,7 +383,8 @@ const FRAGMENT = /* glsl */ `
 
     // Torch glow (D4): the party's light warms the fog around it, as lamps do in real mist.
     // Darkvision pools stay cold — a torch is a light, a darkvision ring is an eye, and only
-    // the light should tint the cloud warm.
+    // the light should tint the cloud warm. T8: the player's seat sends only the lights it may
+    // know of (glowPools in FogRenderer), so a lamp on ground nobody has revealed warms nothing.
     float glow = 0.0;
     for (int i = 0; i < MAX_POOLS; i++) {
       if (i >= uPoolCount) break;
@@ -309,10 +392,17 @@ const FRAGMENT = /* glsl */ `
       if (p.z >= 0.0) continue; // not warm — see uPools' comment above
       glow += 1.0 - smoothstep(0.0, p.w * 1.8, distance(vWorld, p.xy));
     }
+    // P7 — and only over the map: a torch by the edge does not warm the cover out in the void.
+    float inMap = onMap(vWorld);
+    glow *= inMap;
     col = mix(col, vec3(1.0, 0.80, 0.50), clamp(glow, 0.0, 1.0) * uGlow * 0.7);
 
     // The coastline. min() is the security half — lobes eat inward, bays never open outward.
-    float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
+    // T6 — and the frame is the one coast it does not wander on: both reads are held on the
+    // map, and the cover past the frame is cut in hard by inMap rather than blurred or warped.
+    float here = maskAt(vWorld);
+    // T13 — the own clearing after the warp, so it stays round and on the token.
+    float m = max(min(here, maskAt(vWorld + w * uWarp)), ownAt(vWorld)) * inMap;
 
     // mFog floors the live/memory step at the memory level (min(m,0.5)*2 is 1 for both m=0.5
     // and m=1) so the cut terms below — d, body, wisp, rim — cannot see which of the two this
@@ -336,6 +426,11 @@ const FRAGMENT = /* glsl */ `
     // sight line once the body around it went pale).
     float rim = smoothstep(0.0, 0.12 * uFade, d) * (1.0 - smoothstep(0.12 * uFade, 0.36 * uFade, d));
     col = mix(col, uDeep * 0.85, rim * uRim);
+
+    // T6 — the map's soft shadow on the cloud just past its edge, in the cloud's own shaded base
+    // rather than black, and only where the map beside it is shown: past unexplored ground the
+    // cloud runs on unmarked. Past the frame, here is the tier just inside it (onMapSample).
+    col = mix(col, uDeep * 0.55, frameShadow(vWorld) * clamp(2.0 * here, 0.0, 1.0));
 
     // Hidden ground renders at exactly uDense, flat — the player seat passes 1.0, so
     // nothing beneath the cover (map bounds included) can telegraph through it. The ramp's
@@ -476,6 +571,11 @@ export interface LivingFogLook {
   mist: number;
   /** How dark the cut edge's rim goes. */
   rim: number;
+  /**
+   * T8 — the player's seat: the mask is shown or hidden and nothing between, so the cloud fades
+   * over the feather alone and pools only warm it. Absent: the DM haze's three tiers.
+   */
+  oneTier?: boolean;
 }
 
 export interface LivingFog {
@@ -488,6 +588,12 @@ export interface LivingFog {
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
   setMaskBounds(bounds: Bounds | null): void;
   /**
+   * P7 — the map frame the torch glow stays inside (null: no frame, glow anywhere). T6: and
+   * where the cover is cut hard and the shadow falls; set it before `renderMask` and `setLook`,
+   * since both blurs read the cover past it as shown.
+   */
+  setFrame(frame: Bounds | null): void;
+  /**
    * The two textures the cloud shader samples, for a caller that paints them itself instead
    * of through `maskPaint` — the raster tier compositor, which composites vision mode's whole
    * mask on the GPU.
@@ -495,7 +601,7 @@ export interface LivingFog {
    * These are the same two objects for the life of this fog: the shader's bind group holds
    * their *sources*, so a caller may resize them in place but must never swap them.
    */
-  readonly maskTextures: { mask: RenderTexture; maskSoft: RenderTexture };
+  readonly maskTextures: { mask: RenderTexture; maskSoft: RenderTexture; maskEdge: RenderTexture };
   /**
    * Where the mask textures currently sit and what they are sized at, or null when the last
    * `setMaskBounds` found nothing coverable — which is "hidden everywhere", and wants no
@@ -528,6 +634,8 @@ export interface LivingFog {
    * Empty (the default, and daylight) leaves the geometry's edge as the only edge.
    */
   setPools(pools: readonly FogPool[]): void;
+  /** T13 — the seat's own tokens, each cleared round and feathered whatever the mask says (§2.8). */
+  setOwn(own: readonly OwnClearing[]): void;
   /** Stretch the cover quad over a world rect (the visible viewport, plus margin). */
   cover(bounds: Bounds): void;
   /** Advance the clock. The caller decides whether reduced motion freezes it. */
@@ -543,14 +651,39 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     indexBuffer: [0, 1, 2, 0, 2, 3],
   });
 
-  const maskRT = RenderTexture.create({ width: 4, height: 4 });
+  // T14 — dynamic, so the sprites drawn from it hear `setMaskBounds`' resize. A static texture's
+  // sprite keeps the bounds of its first render, and the filters on it clip to those: a mask that
+  // grew afterwards was cut off at the old size (By hand, Reveal all: cloud past x≈27).
+  const maskRT = RenderTexture.create({ width: 4, height: 4, dynamic: true });
   // The softened copy: `maskRT` through one blur, re-rendered whenever the mask is.
   const maskSoftRT = RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(maskRT);
-  softSprite.filters = [soften];
+  // T13 — on the player's seat the soft copy is the guard's: the mask read as coverage, blurred
+  // by GUARD_BLUR_CELLS rather than by the look's fade (the one-tier shader reads it for nothing else).
+  const softCoverage = initialLook.oneTier ? coverageFilter() : null;
+  if (softCoverage) softSprite.filters = [softCoverage];
+  const softCells = (): number => (initialLook.oneTier ? GUARD_BLUR_CELLS : fadeCells);
+  // T6 — the cover past the map's edge, read as shown by both blurs (in texels: these scenes
+  // are unscaled), so neither fades a tier toward the frame. The shader cuts the edge itself.
+  const softBeyond = new Graphics();
+  const softGroup = new Container();
+  softGroup.addChild(softSprite, softBeyond);
+  softGroup.filters = [soften];
   const softScene = new Container();
-  softScene.addChild(softSprite);
+  softScene.addChild(softGroup);
+  // P8 — and the feather copy: `maskRT` read as coverage and blurred by EDGE_FEATHER_CELLS.
+  const maskEdgeRT = RenderTexture.create({ width: 4, height: 4 });
+  const edgeCoverage = coverageFilter();
+  const edgeBlur = new BlurFilter({ strength: 0, quality: 3 });
+  const edgeSprite = new Sprite(maskRT);
+  edgeSprite.filters = [edgeCoverage];
+  const edgeBeyond = new Graphics();
+  const edgeGroup = new Container();
+  edgeGroup.addChild(edgeSprite, edgeBeyond);
+  edgeGroup.filters = [edgeBlur];
+  const edgeScene = new Container();
+  edgeScene.addChild(edgeGroup);
   const maskScene = new Container();
   const maskPaint = new Graphics();
   const fadePaint = new Container();
@@ -561,6 +694,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     resources: {
       uMask: maskRT.source,
       uMaskSoft: maskSoftRT.source,
+      uMaskEdge: maskEdgeRT.source,
       fogUniforms: {
         uTime: { value: 0, type: 'f32' },
         uWind: { value: DEFAULT_FOG_LOOK.wind, type: 'f32' },
@@ -574,7 +708,10 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uSeamLobe: { value: SEAM_LOBE, type: 'f32' },
         uVeil: { value: DEFAULT_FOG_LOOK.veil, type: 'f32' },
         uGlow: { value: DEFAULT_FOG_LOOK.glow, type: 'f32' },
+        uOneTier: { value: initialLook.oneTier ? 1 : 0, type: 'f32' },
         uMaskRect: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
+        uFrame: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
+        uTexel: { value: 0, type: 'f32' },
         uCoverRect: { value: [0, 0, 1, 1], type: 'vec4<f32>' },
         uDeep: { value: [0, 0, 0], type: 'vec3<f32>' },
         uMid: { value: [0, 0, 0], type: 'vec3<f32>' },
@@ -582,6 +719,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uWashAlpha: { value: 0, type: 'f32' },
         uPools: { value: new Float32Array(MAX_POOLS * 4), type: 'vec4<f32>', size: MAX_POOLS },
         uPoolCount: { value: 0, type: 'i32' },
+        uOwn: { value: new Float32Array(MAX_OWN * 4), type: 'vec4<f32>', size: MAX_OWN },
+        uOwnCount: { value: 0, type: 'i32' },
         uLayerA: { value: new Float32Array(3 * 4), type: 'vec4<f32>', size: 3 },
         uLayerB: { value: new Float32Array(3 * 4), type: 'vec4<f32>', size: 3 },
       },
@@ -599,7 +738,11 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uWash: Float32Array | number[];
     uPools: Float32Array;
     uPoolCount: number;
+    uOwn: Float32Array;
+    uOwnCount: number;
     uMaskRect: Float32Array | number[];
+    uFrame: Float32Array | number[];
+    uTexel: number;
     uCoverRect: Float32Array | number[];
     uDeep: Float32Array | number[];
     uMid: Float32Array | number[];
@@ -630,6 +773,23 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
    * recomputes it from `FogLook.fade` (D1). Starts at the constructor's own cells so a mask
    * built before the first `setLook` still gets a sane blur. */
   let fadeCells = initialLook.fade;
+  /** T6 — the map frame `setFrame` last named, for the blurs' `beyond` fill. */
+  let frame: Bounds | null = null;
+
+  /** T6 — the mask rect past the frame, white in both blur sources, in texels. */
+  const drawBeyond = (): void => {
+    softBeyond.clear();
+    edgeBeyond.clear();
+    if (!rect || !frame) return;
+    const [sx, sy] = [maskScene.scale.x, maskScene.scale.y];
+    const bounds = { minX: rect.minX, minY: rect.minY, maxX: rect.minX + rect.w, maxY: rect.minY + rect.h };
+    for (const r of outsideFrame(bounds, frame)) {
+      for (const g of [softBeyond, edgeBeyond]) {
+        g.rect((r.minX - rect.minX) * sx, (r.minY - rect.minY) * sy, (r.maxX - r.minX) * sx, (r.maxY - r.minY) * sy);
+        g.fill({ color: 0xffffff, alpha: 1 });
+      }
+    }
+  };
 
   const setVec = (target: Float32Array | number[], values: readonly number[]): void => {
     for (let i = 0; i < values.length; i++) target[i] = values[i];
@@ -669,6 +829,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         rect = null;
         scale = 0;
         setVec(uniforms.uMaskRect, [0, 0, 0, 0]); // degenerate ⇒ maskAt answers hidden
+        uniforms.uTexel = 0;
+        drawBeyond();
         return;
       }
       rect = { minX: bounds.minX, minY: bounds.minY, w, h };
@@ -680,13 +842,24 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         // *source*, and a fresh RenderTexture is a fresh source the bind does not follow.
         maskRT.resize(tw, th);
         maskSoftRT.resize(tw, th);
+        maskEdgeRT.resize(tw, th);
       }
-      soften.strength = fadeCells * s;
+      soften.strength = softCells() * s;
+      soften.quality = blurPasses(soften.strength);
+      edgeBlur.strength = EDGE_FEATHER_CELLS * s;
+      edgeBlur.quality = blurPasses(edgeBlur.strength);
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
+      uniforms.uTexel = 1 / s;
+      drawBeyond();
     },
-    maskTextures: { mask: maskRT, maskSoft: maskSoftRT },
+    setFrame(next) {
+      frame = next;
+      setVec(uniforms.uFrame, next ? [next.minX, next.minY, next.maxX, next.maxY] : [0, 0, 0, 0]);
+      drawBeyond();
+    },
+    maskTextures: { mask: maskRT, maskSoft: maskSoftRT, maskEdge: maskEdgeRT },
     maskFit() {
       return rect
         ? {
@@ -704,6 +877,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       if (!rect) return;
       engine.renderToTexture(maskScene, maskRT, true);
       engine.renderToTexture(softScene, maskSoftRT, true);
+      engine.renderToTexture(edgeScene, maskEdgeRT, true);
     },
     setPalette(p) {
       palette = p;
@@ -720,7 +894,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       if (rect) {
         // The mask geometry has not changed, only how much the soft copy blurs it — so only
         // the soft render needs to run again, not the full `renderMask`.
-        soften.strength = fadeCells * scale;
+        soften.strength = softCells() * scale;
+        soften.quality = blurPasses(soften.strength);
         engine.renderToTexture(softScene, maskSoftRT, true);
       }
     },
@@ -757,6 +932,16 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       });
       uniforms.uPoolCount = kept.length;
     },
+    setOwn(own) {
+      const kept = own.slice(0, MAX_OWN);
+      kept.forEach((o, i) => {
+        uniforms.uOwn[i * 4] = o.x;
+        uniforms.uOwn[i * 4 + 1] = o.y;
+        uniforms.uOwn[i * 4 + 2] = o.inner;
+        uniforms.uOwn[i * 4 + 3] = o.outer;
+      });
+      uniforms.uOwnCount = kept.length;
+    },
     cover(bounds) {
       const [w, h] = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY];
       mesh.position.set(bounds.minX, bounds.minY);
@@ -773,6 +958,11 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       maskScene.destroy({ children: true });
       softScene.destroy({ children: true });
       soften.destroy();
+      softCoverage?.destroy();
+      edgeScene.destroy({ children: true });
+      edgeCoverage.destroy();
+      edgeBlur.destroy();
+      maskEdgeRT.destroy(true);
       maskRT.destroy(true);
       maskSoftRT.destroy(true);
       geometry.destroy();

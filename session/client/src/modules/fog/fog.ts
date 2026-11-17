@@ -2,7 +2,7 @@
 // checked without a GPU or a DOM. Rooms come off the loaded map (they are authored data,
 // D1); their fog status comes off the session's `fog` module slice.
 
-import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine';
+import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
@@ -12,6 +12,8 @@ import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import {
   cellsCoveredByPolygon,
+  DEFAULT_WALL_WIDTH,
+  FOG_MARGIN,
   sceneFogOf,
   toBytes,
   type Cell,
@@ -25,11 +27,15 @@ import {
 import { liveDoors, type LiveDoor } from '../doors/doors';
 import type { FogPool } from './livingFog';
 
-/** What a DM reads for each status. The word is the state; colour never carries it alone. */
+/**
+ * What a DM reads for each status. The word is the state; colour never carries it alone.
+ * T11: a row revealed once and hidden again is fogged fully for players since T10, so it reads
+ * Hidden, not Explored.
+ */
 export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
   never_revealed: 'Unrevealed',
   revealed: 'Revealed',
-  re_hidden: 'Explored',
+  re_hidden: 'Hidden',
 };
 
 /** What clicking the room will do next — reveal anything dark, re-hide anything lit. */
@@ -84,13 +90,17 @@ export type TableRoom = Room & { boundary: [number, number][] };
 /** A room's face, whichever field holds it: the document's `boundary`, else a synced `face`. */
 export const roomRing = (room: Room): [number, number][] => room.boundary ?? room.face ?? [];
 
-/** Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. */
+/**
+ * Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. A room the
+ * server sent as a stand-in (`Room.standIn`) is art only, for the floor it lies under: it is never
+ * a room the player holds, so the fog never counts it.
+ */
 export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
   return layers.flatMap((layer) =>
     layer.type === 'dungeon'
-      ? (layer.rooms ?? []).map((room): TableRoom =>
-          room.boundary ? (room as TableRoom) : { ...room, boundary: roomRing(room) },
-        )
+      ? (layer.rooms ?? [])
+          .filter((room) => !room.standIn)
+          .map((room): TableRoom => (room.boundary ? (room as TableRoom) : { ...room, boundary: roomRing(room) }))
       : [],
   );
 }
@@ -103,6 +113,18 @@ export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
  * fog lane is keyed on (every memo here keys on `mapData`), it is already redacted to exactly
  * the rooms a player may know about, and its faces are the referee's own.
  */
+/**
+ * T13 — the faces of the stand-ins the server sent: rooms withheld from this seat whose floor
+ * art still travels. Never the player's to hold, so By hand fogs them like a hidden room.
+ */
+export function standInFaces(layers: readonly Layer[]): [number, number][][] {
+  return layers.flatMap((layer) =>
+    layer.type === 'dungeon'
+      ? (layer.rooms ?? []).filter((room) => room.standIn).map(roomRing).filter((ring) => ring.length >= 3)
+      : [],
+  );
+}
+
 export function serverLayers(mapData: unknown): Layer[] {
   return (mapData as { layers?: Layer[] } | null)?.layers ?? [];
 }
@@ -152,17 +174,12 @@ export function serverDoors(
  * margin on top, and it is what stops the mask ending *on* the last stone: a boundary that
  * lands precisely on a hard edge reads as a crop even when it is arithmetically right.
  *
- * DUPLICATED, BY HAND, at `session/server/src/fog/redactMap.ts:191` (`FOG_MARGIN`), where the
- * same distance is measured from the other side to decide which geometry a player document is
- * allowed to carry. Nothing enforces the equality. If the two drift, the server ships map by
- * one pad while the client masks by another: either the mask stops short of geometry the seat
- * already has (art in the dark, or worse, visible past the fog edge), or it opens onto map the
- * seat was never sent (a hole in the world). Change one, change the other, in the same commit.
+ * Shared with `session/server/src/fog/redactMap.ts` (`bandPad`) through `@dnd/mechanics/fog`, where
+ * the same distance is measured from the other side to decide which geometry a player document is
+ * allowed to carry (S6). `DEFAULT_WALL_WIDTH` is `DEFAULT_DUNGEON_STYLE`'s, for a document whose
+ * layers have not landed yet.
  */
-export const FOG_MARGIN = 0.5;
-
-/** `DEFAULT_DUNGEON_STYLE`'s, for a document whose layers have not landed yet. */
-const DEFAULT_WALL_WIDTH = 0.5;
+export { FOG_MARGIN };
 
 /**
  * How far past its floor polygon a room's mask reaches.
@@ -390,8 +407,8 @@ export function roomAt<R extends Room>(rooms: readonly R[], x: number, y: number
   return hit ? rooms.find((room) => room.id === hit.id) : undefined;
 }
 
-/** D9 Reveal All: every room in the scene, latch set. */
-export function revealAllRooms(rooms: readonly Room[]): Record<string, RoomFog> {
+/** D9 Reveal All: every row given, latch set (T11: the caller passes the Outdoors rows too). */
+export function revealAllRooms(rooms: readonly Pick<Room, 'id'>[]): Record<string, RoomFog> {
   const next: Record<string, RoomFog> = {};
   for (const room of rooms) next[room.id] = { status: 'revealed', wasEverRevealed: true };
   return next;
@@ -470,6 +487,50 @@ export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Poly
   const { minX, minY, maxX, maxY } = terrain.bounds;
   if (!(maxX > minX && maxY > minY)) return [];
   return decoded ?? [];
+}
+
+/**
+ * P8 — the open ground the referee stamped for one level, as its outer rings and its holes.
+ *
+ * The wire's rings read even-odd: a ring nested inside an odd number of others is a hole. A
+ * base-ground level sends the frame then its walled floors, but a ground-pieces level sends
+ * Clipper's own answer, several outer patches and their holes in no fixed order, so "ring 0
+ * is the frame, the rest are holes" dropped every patch after the first. Rings with no area
+ * (an enclosure's degenerate outline) are neither.
+ */
+export function openGroundParts(
+  mapData: unknown,
+  levelId: string | null | undefined,
+): { outers: Polygon[]; holes: Polygon[] } {
+  const entries = (mapData as SerializedMapData | null)?.openGround ?? [];
+  const entry = entries.find((e) => e.levelId === levelId) ?? (entries.length === 1 ? entries[0] : undefined);
+  const rings = ((entry?.rings ?? []) as Polygon[]).filter((ring) => ring.length >= 3 && Math.abs(ringArea(ring)) > 1e-9);
+  const outers: Polygon[] = [];
+  const holes: Polygon[] = [];
+  for (const ring of rings) {
+    const depth = rings.filter((other) => other !== ring && pointInPolygon(ring[0], other)).length;
+    (depth % 2 === 0 ? outers : holes).push(ring);
+  }
+  return { outers, holes };
+}
+
+const ringArea = (ring: Polygon): number =>
+  ring.reduce((sum, [x, y], i) => {
+    const [u, v] = ring[(i + 1) % ring.length];
+    return sum + x * v - u * y;
+  }, 0) / 2;
+
+/**
+ * Table fix pass §2.7 — the same open ground as Clipper rings (holes wound the other way), for
+ * the Clipper consumers. Empty when the seat knows no outdoor cell yet, or the level has none,
+ * and while Clipper2 is not loaded, since an identity `difference` would hand over the walled
+ * floors as well.
+ */
+export function openGroundOf(mapData: unknown, levelId: string | null | undefined): Polygon[] {
+  const { outers, holes } = openGroundParts(mapData, levelId);
+  if (outers.length === 0) return [];
+  if (holes.length === 0) return outers;
+  return isClipperReady() ? clipper2Engine.difference(outers, holes) : [];
 }
 
 /**

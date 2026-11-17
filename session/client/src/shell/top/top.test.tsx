@@ -64,6 +64,21 @@ describe('TitleCard', () => {
     render(<TitleCard />);
     expect(screen.queryByTestId('title-switcher')).toBeNull();
   });
+
+  // Table fix pass §4.3 (F13): Movement locked on every seat, the fog mode for the DM.
+  it('shows Movement locked on every seat and the fog mode to the DM only', () => {
+    useSessionStore.setState({
+      session: session([dm], { table: { paused: false, movementLocked: true }, fog: { byScene: { a: { rooms: {}, mode: 'vision' } } } }),
+    });
+    render(<TitleCard />);
+    expect(screen.getByTestId('locked-chip').textContent).toBe('Movement locked');
+    expect(screen.getByTestId('fog-mode-chip').textContent).toBe('Fog: by sight');
+    cleanup();
+    useSessionStore.setState({ you: pia });
+    render(<TitleCard />);
+    expect(screen.getByTestId('locked-chip')).toBeTruthy();
+    expect(screen.queryByTestId('fog-mode-chip')).toBeNull();
+  });
 });
 
 describe('SceneSwitcher', () => {

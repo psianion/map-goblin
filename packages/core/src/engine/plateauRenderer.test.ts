@@ -54,7 +54,7 @@ const manager = {
 vi.mock('./assetPackInstance', () => ({ getAssetPackManager: () => manager }));
 
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { borderWidthOf, FACE_DEPTH_WANDER, faceDepth, faceReach, TOP_SEAM } from '../shared/plateauShade';
+import { blurPasses, borderWidthOf, FACE_DEPTH_WANDER, faceDepth, faceReach, TOP_SEAM } from '../shared/plateauShade';
 import { useStore } from '../store/store';
 import { faceTiles, floorTextureEntries } from '../assets/materialKit';
 import { SOFT_EDGE_STEPS } from './softEdge';
@@ -89,7 +89,6 @@ import { plateauGridRegions, redrawGrid } from './floorWallRenderer';
 import type { LayerEntry } from './sceneGraph';
 import {
   BLUR_WEIGHTS_5,
-  CLIFF_BLUR_PASSES,
   CLIFF_SHADOW_ALPHA,
   cliffBlurStrength,
   cliffCaster,
@@ -828,7 +827,8 @@ describe('cliff shadows', () => {
     // makes the passes add up to the filter's, each next one half the last; across the far edge.
     const fade = (pxPerCell: number): number => {
       const strength = cliffBlurStrength(pxPerCell);
-      const sum = [...Array(CLIFF_BLUR_PASSES).keys()].reduce((acc, i) => acc + 0.25 ** i, 0);
+      const passes = blurPasses(strength);
+      const sum = [...Array(passes).keys()].reduce((acc, i) => acc + 0.25 ** i, 0);
       const n = 4000;
       let row: number[] = Array.from({ length: n }, (_, i) => (i < n / 2 ? CLIFF_SHADOW_ALPHA : 0));
       const at = (r: number[], x: number) => {
@@ -838,7 +838,7 @@ describe('cliff shadows', () => {
         return r[i] * (1 - t) + r[Math.min(n - 1, i + 1)] * t;
       };
       const w = [BLUR_WEIGHTS_5[2], BLUR_WEIGHTS_5[1], BLUR_WEIGHTS_5[0], BLUR_WEIGHTS_5[1], BLUR_WEIGHTS_5[2]];
-      for (let pass = 0, u = strength / Math.sqrt(sum); pass < CLIFF_BLUR_PASSES; pass++, u /= 2) {
+      for (let pass = 0, u = strength / Math.sqrt(sum); pass < passes; pass++, u /= 2) {
         const prev = row;
         row = prev.map((_, x) => w.reduce((acc, wk, k) => acc + wk * at(prev, x + (k - 2) * u), 0));
       }

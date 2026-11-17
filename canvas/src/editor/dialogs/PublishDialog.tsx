@@ -93,6 +93,29 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             </Field>
           )}
 
+          {mode === 'signed-in' && (
+            <Field label="Publish to">
+              <div className="flex max-h-[96px] flex-col gap-1.5 overflow-y-auto" data-testid="v2-publish-signed-in">
+                {flow.signedIn.map((c, i) => (
+                  <SecondaryButton
+                    key={c.id}
+                    className="w-full justify-start"
+                    autoFocus={i === 0}
+                    disabled={busy}
+                    data-testid={`v2-publish-signed-in-${c.id}`}
+                    onClick={() => void flow.pickSignedIn(c)}
+                  >
+                    {c.name}
+                  </SecondaryButton>
+                ))}
+              </div>
+              <Hint>You are signed in to these campaigns in this browser.</Hint>
+              <Button variant="ghost" size="sm" className="self-start" disabled={busy} data-testid="v2-publish-use-pass" onClick={flow.askForPass}>
+                Another campaign, with the admin pass
+              </Button>
+            </Field>
+          )}
+
           {mode === 'password' && (
             <Field label="Admin pass" htmlFor="v2-publish-pass">
               <Input

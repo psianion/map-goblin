@@ -98,7 +98,7 @@ function wired(
   const vision = createVision(stores)
   const registry = new ModuleRegistry(stores.moduleState, autoExplore(vision))
   registry.register(tokensModule(vision.visionOf))
-  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
+  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, undefined, undefined, (id) => vision.keptRoomsOf(id)))
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   registry.register(triggersModule(createTriggerDeps(stores, vision.sceneMapOf)))
   const redact = buildRedactor(registry, vision)
@@ -447,7 +447,7 @@ describe('party-mode auto-explore (§4)', () => {
     expect(getCell(table.fogOf().region, ...WEST_CELL)).toBe(true)
 
     // …and a room the DM took back does not come back on its own the next time the party
-    // looks at it. Their cells still show — taking those is a region-hide (P4's brush).
+    // looks at it. T10: the hide takes its cells too, and what the party sees now is written back.
     expect(table.run(DM, 'fog', 'hide', { roomId: 'west' })).toBeNull()
     table.run(DM, 'tokens', 'move', { id, x: 4.5, y: 4.5 })
     expect(table.fogOf().rooms.west).toMatchObject({ status: 're_hidden' })
@@ -661,10 +661,12 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
     })
   })
 
-  it('opens no ground in rooms mode, where D6 is the whole rule', () => {
+  it('opens no unrevealed ground in rooms mode', () => {
     const table = wired()
     const id = scouted(table, 'rooms')
-    expect(table.vision.visionOf(SCENE)!.openGround).toBeUndefined()
+    // Table fix pass §2.2: open ground is known ground in both modes now; by hand, the gap
+    // between the rooms is known only once its Outdoors row is revealed.
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
       message: expect.stringContaining('cannot be occupied'),
     })
@@ -722,6 +724,149 @@ describe('the region brush ships the room it paints (P2 §5)', () => {
     expect(Object.keys(scene.rooms)).toEqual(['east'])
     expect(getCell(scene.region, ...EAST_CELL)).toBe(true)
     expect(getCell(scene.region, ...WEST_CELL)).toBe(false)
+  })
+})
+
+// T10 — Hide fogs a room fully again. Only what is revealed now, or (By sight) recorded or seen
+// now, is shown, held and walkable; a hidden token stays hidden throughout.
+describe('a room hidden again is fogged fully (T10)', () => {
+  const EAST: [number, number] = [12.5, 5.5]
+  const lit = { status: 'revealed' as const, wasEverRevealed: true }
+  /** The fog rows the player's own slice carries. */
+  const slice = (table: ReturnType<typeof wired>) =>
+    Object.keys((table.registry.redactModule('fog', { byScene: { [SCENE]: table.fogOf() } }, P1) as FogState).byScene[SCENE].rooms).sort()
+  /** The real rooms the player's copy of the map holds. */
+  const held = (table: ReturnType<typeof wired>) =>
+    ((table.vision.playerMap(SCENE)!.layers.find((l) => l.type === 'dungeon') as DungeonLayer).rooms ?? [])
+      .filter((room) => !room.standIn)
+      .map((room) => room.id)
+      .sort()
+  /** Whether the party may stand on the east room's floor (§2.2 known ground). */
+  const eastKnown = (table: ReturnType<typeof wired>) => table.vision.visionOf(SCENE, P1)!.openGround!(...EAST)
+
+  it('by hand: Hide takes the room off the screen, the map and the walk', () => {
+    const table = wired()
+    const id = scouted(table, 'rooms')
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    table.run(DM, 'fog', 'reveal', { roomId: 'east' })
+    table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['east', 'west'], ['east', 'west'], true])
+
+    expect(table.run(DM, 'fog', 'hide', { roomId: 'east' })).toBeNull()
+    expect(table.fogOf().rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['west'], ['west'], false])
+    expect(table.vision.visibleOf(SCENE)).toEqual(['west'])
+    expect(JSON.stringify(table.run(P1, 'tokens', 'move', { id, x: EAST[0], y: EAST[1] }))).toContain('room-unexplored')
+
+    // Revealed again, it is all back: the room and its ground.
+    table.run(DM, 'fog', 'reveal', { roomId: 'east' })
+    expect([slice(table), held(table)]).toEqual([['east', 'west'], ['east', 'west']])
+    // (This fixture's floors stand two cells apart, so the step is still refused, as unreached.)
+    expect(eastKnown(table)).toBe(true)
+    expect(JSON.stringify(table.run(P1, 'tokens', 'move', { id, x: EAST[0], y: EAST[1] }))).not.toContain('room-unexplored')
+  })
+
+  it('by hand: Hide all fogs every room, and Reveal all shows them again', () => {
+    const table = wired()
+    scouted(table, 'rooms')
+    table.run(DM, 'fog', 'set-bulk', { rooms: { west: lit, east: lit } })
+    const hidden = { status: 're_hidden' as const, wasEverRevealed: true }
+    expect(table.run(DM, 'fog', 'set-bulk', { rooms: { west: hidden, east: hidden }, forget: true })).toBeNull()
+    expect([slice(table), held(table), table.vision.visibleOf(SCENE)]).toEqual([[], [], []])
+    table.run(DM, 'fog', 'set-bulk', { rooms: { west: lit, east: lit } })
+    expect([slice(table), held(table)]).toEqual([['east', 'west'], ['east', 'west']])
+  })
+
+  it('by hand: conceal behind doors fogs a revealed room the party cannot reach', () => {
+    const table = wired()
+    scouted(table, 'rooms')
+    table.run(DM, 'fog', 'set-bulk', { rooms: { west: lit, east: lit } })
+    // East is revealed but out of the party's reach, so it is fogged (no explored tier).
+    expect(table.vision.visibleOf(SCENE)).toEqual(['west'])
+    table.run(DM, 'fog', 'set-conceal', { concealBehindDoors: false })
+    expect([...table.vision.visibleOf(SCENE)!].sort()).toEqual(['east', 'west'])
+  })
+
+  it('by sight: Hide forgets the room, unless an eye sees it now', () => {
+    const table = wired()
+    const id = scouted(table)
+    table.run(DM, 'fog', 'reveal', { roomId: 'east' })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['east', 'west'], ['east', 'west'], true])
+
+    // The door is shut, so no eye is on the east room: Hide fogs it, cells and all.
+    table.run(DM, 'fog', 'hide', { roomId: 'east' })
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(false)
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['west'], ['west'], false])
+
+    // The west room is in the scout's sight right now, so hiding it writes the sight back.
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    table.run(DM, 'fog', 'hide', { roomId: 'west' })
+    expect(getCell(table.fogOf().region, ...WEST_CELL)).toBe(true)
+    expect(slice(table)).toEqual(['west'])
+
+    // …and an eye that looks into the hidden room earns it again, by the record (within its
+    // range: the room is no longer opened ground).
+    table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
+    table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(true)
+    expect([slice(table), held(table)]).toEqual([['east', 'west'], ['east', 'west']])
+  })
+
+  it('by sight: the brush and the rectangle give a room, and the eraser takes it back', () => {
+    const table = wired()
+    scouted(table)
+    // A rectangle is the same stroke, as a block of cells.
+    const block: [number, number][] = [EAST_CELL, [15, 27], [14, 28], [15, 28]]
+    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: block })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['east', 'west'], ['east', 'west'], true])
+    expect(table.run(DM, 'fog', 'region-set', { op: 'hide', cells: block })).toBeNull()
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['west'], ['west'], false])
+    // Still latched, so a later stroke ships it again.
+    expect(table.fogOf().rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
+  })
+
+  it('by sight: Hide all forgets every record but what the party sees now, and Reveal all shows it all', () => {
+    const table = wired()
+    scouted(table)
+    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL] })
+    const hidden = { status: 're_hidden' as const, wasEverRevealed: true }
+    table.run(DM, 'fog', 'set-bulk', { rooms: { west: hidden, east: hidden }, forget: true })
+    expect([getCell(table.fogOf().region, ...EAST_CELL), getCell(table.fogOf().region, ...WEST_CELL)]).toEqual([false, true])
+    expect(slice(table)).toEqual(['west'])
+    table.run(DM, 'fog', 'set-bulk', { rooms: { west: lit, east: lit } })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['east', 'west'], ['east', 'west'], true])
+  })
+
+  it('switching mode shows only what the new mode shows', () => {
+    const table = wired()
+    scouted(table)
+    // By sight: the east room is held by its record alone, not by a reveal.
+    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL] })
+    expect(slice(table)).toEqual(['east', 'west'])
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    // By hand shows no record: only the revealed west room is held and walkable.
+    table.run(DM, 'fog', 'set-mode', { mode: 'rooms' })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['west'], ['west'], false])
+    // Back to By sight: the record was kept, so the east room is shown again.
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    expect([slice(table), held(table), eastKnown(table)]).toEqual([['east', 'west'], ['east', 'west'], true])
+  })
+
+  it('keeps a hidden token hidden in both modes', () => {
+    for (const mode of ['rooms', 'vision'] as const) {
+      const table = wired()
+      scouted(table, mode)
+      table.run(DM, 'fog', 'set-bulk', { rooms: { west: lit, east: lit } })
+      table.run(DM, 'fog', 'set-conceal', { concealBehindDoors: false })
+      table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
+      table.run(DM, 'tokens', 'place', { name: 'Ogre', x: EAST[0], y: EAST[1] })
+      const ogre = Object.values(table.tokensOf()).find((t) => t.name === 'Ogre')!.id
+      expect(table.tokensFor(P1), mode).toContain(ogre)
+      table.run(DM, 'tokens', 'hide', { id: ogre })
+      expect(table.tokensFor(P1), mode).not.toContain(ogre)
+      table.run(DM, 'fog', 'hide', { roomId: 'east' })
+      expect(table.tokensFor(P1), mode).not.toContain(ogre)
+    }
   })
 })
 

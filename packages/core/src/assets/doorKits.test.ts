@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CAVE_ROCK,
   DOOR_KIT_IDS,
   doorKitById,
   doorKitFor,
@@ -7,11 +8,13 @@ import {
   kitWallSet,
   doorOpenAngle,
   hingeDepth,
+  kitAt,
   leafPoses,
   leafSlices,
   wallHalfDepth,
   type LeafPose,
 } from './doorKits';
+import { bandScale } from './packCatalog';
 
 const stone = doorKitFor('GG_Fieldstone')!;
 const wood = doorKitFor('GG_Palisade')!;
@@ -105,7 +108,7 @@ describe('leafPoses', () => {
   });
 
   it('folds a leaf at 180 flat against the wall face, never through the wall', () => {
-    for (const [kit, wallWidth] of [[stone, 0.5], [stone, 1.2], [cave, 0.5]] as const) {
+    for (const [kit, wallWidth] of [[stone, 0.5], [stone, 1.2], [wood, 0.5]] as const) {
       const [p] = leafPoses(door({ openAngle: 180 }), at, 0, kit, wallWidth);
       const faceToCentre = wallHalfDepth(kit, wallWidth) + kit.thickness / 2;
       close(p.origin, [4, 3 + faceToCentre]);
@@ -126,10 +129,10 @@ describe('leafPoses', () => {
       (q[0] - at[0]) * dir[0] + (q[1] - at[1]) * dir[1],
       ((q[0] - at[0]) * nrm[0] + (q[1] - at[1]) * nrm[1]) * side,
     ];
+    // The kits that hang on a pin; the cave hangs on its jamb rock (below).
     const cases = [
       ['Fieldstone', stone, 0.5],
       ['Palisade', wood, 0.5],
-      ['Cave Ink', cave, 0.5],
     ] as const;
     const shapes = [
       { style: 'single', hinge: 'start' },
@@ -175,25 +178,64 @@ describe('leafPoses', () => {
     }
   });
 
-  it('stands a cave leaf against its jamb rock, not out in the room', () => {
-    // The bug this replaced: the pin sat 0.36 off the wall line, so a cave leaf open
-    // square started 0.36 into the opening and 0.36 down, a quarter cell clear of the rock.
-    const [p] = leafPoses(door({ openAngle: 90 }), at, 0, cave, 0.5);
-    expect(p.origin[0] - 4).toBeCloseTo(cave.thickness / 2, 9); // its back face on the jamb face
-    expect(p.origin[1] - 3).toBeCloseTo(hingeDepth(cave, 0.5, Math.PI / 2), 9);
-    expect(p.origin[1] - 3).toBeLessThan(0.6); // the hinge end still beside the rock
-    const [q] = leafPoses(door({ openAngle: 135 }), at, 0, cave, 0.5);
-    // At 135 the hinge end's centre is within a leaf thickness of the opening's edge.
-    expect(Math.abs(q.origin[0] - 4)).toBeLessThan(cave.thickness);
+  describe('a cave leaf', () => {
+    const w = 1;
+    const rock = CAVE_ROCK * bandScale(w);
+    const T = kitAt(cave, w).thickness;
+    const jc = 0.17 * rock;
+
+    it('is as deep as the rock it hangs in, its caps growing with it and its tiles not', () => {
+      expect(T).toBeCloseTo(rock, 9);
+      const thin = kitAt(cave, 0.5);
+      expect(thin.thickness).toBeCloseTo(CAVE_ROCK * bandScale(0.5), 9);
+      expect(thin.hingeLength / thin.thickness).toBeCloseTo(cave.hingeLength / cave.thickness, 9);
+      expect(thin.sliceCells / thin.thickness).toBeCloseTo(cave.sliceCells / cave.thickness, 9);
+      expect(thin.tileLength).toBe(cave.tileLength);
+      expect(kitAt(stone, 0.5)).toBe(stone);
+    });
+
+    it('lies shut on the wall line across the opening', () => {
+      const [p] = leafPoses(door({ state: 'closed' }), at, 0, cave, w);
+      close(p.origin, [4, 3]);
+      close(along(p, p.length), [4 + 2 - 0.02, 3]);
+    });
+
+    it('stands open square centred on its jamb rock, out of the doorway', () => {
+      // The bug this replaced: the leaf stood on the jamb's face, so a rock-deep leaf
+      // filled most of a cell of the doorway.
+      const [p] = leafPoses(door({ openAngle: 90 }), at, 0, cave, w);
+      close(p.origin, [4 - jc, 3 + rock / 2]); // its end at the wall face
+      // It reaches a third of the rock's depth past the opening's edge.
+      expect(p.origin[0] + T / 2 - 4).toBeCloseTo(0.33 * rock, 9);
+      const [q] = leafPoses(door({ openAngle: 90, hinge: 'end' }), at, 0, cave, w);
+      close(q.origin, [6 + jc, 3 + rock / 2]);
+      expect(q.flip).toBe(true);
+    });
+
+    it('folds flat on the wall face at 180, on its swing side', () => {
+      for (const swing of [1, -1] as const) {
+        const [p] = leafPoses(door({ openAngle: 180, swing }), at, 0, cave, w);
+        close(p.origin, [4 - jc - T / 2, 3 + swing * (rock / 2 + T / 2)]);
+      }
+    });
+
+    it('moves from shut to folded without a jump', () => {
+      let last = leafPoses(door({ openAngle: 0 }), at, 0, cave, w)[0].origin;
+      for (let a = 5; a <= 180; a += 5) {
+        const o = leafPoses(door({ openAngle: a }), at, 0, cave, w)[0].origin;
+        expect(Math.hypot(o[0] - last[0], o[1] - last[1])).toBeLessThan(0.05);
+        last = o;
+      }
+    });
   });
 
   it('eases the pin along the jamb from the leaf face to the wall face', () => {
     expect(hingeDepth(stone, 0.5, 0)).toBeCloseTo(stone.thickness / 2, 9);
     expect(hingeDepth(stone, 0.5, Math.PI)).toBeCloseTo(0.25, 9);
-    expect(hingeDepth(cave, 0.5, Math.PI)).toBeCloseTo(wallHalfDepth(cave, 0.5), 9);
+    expect(hingeDepth(stone, 1.2, Math.PI)).toBeCloseTo(wallHalfDepth(stone, 1.2), 9);
     let last = -Infinity;
     for (let a = 0; a <= 180; a += 5) {
-      const d = hingeDepth(cave, 0.5, (a * Math.PI) / 180);
+      const d = hingeDepth(stone, 1.2, (a * Math.PI) / 180);
       expect(d).toBeGreaterThanOrEqual(last);
       last = d;
     }

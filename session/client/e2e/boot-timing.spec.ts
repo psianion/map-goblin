@@ -91,8 +91,8 @@ async function firstFrame(page: Page): Promise<void> {
 }
 
 test.describe('@boot table boot timing', () => {
-  test('a cold player join fetches only the sets the map uses, and only the DM has the library', async ({ hostSession, browser }) => {
-    const context = await browser.newContext();
+  test('a cold player join fetches only the sets the map uses, and only the DM has the library', async ({ hostSession, newContext }) => {
+    const context = await newContext();
     const player = await context.newPage();
     const net = recordFetches(player);
     const metrics: Record<string, number> = {};
@@ -132,6 +132,5 @@ test.describe('@boot table boot timing', () => {
       await expect(dm.getByTestId('library-download')).toBeVisible();
       await expect(dm.getByTestId('library-download')).toContainText('Download the full library');
     }
-    await context.close();
   });
 });

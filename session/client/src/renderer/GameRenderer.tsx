@@ -17,7 +17,10 @@ import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
 import { useStore } from '@dnd/core/src/store/store';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { LoadingScreen } from '@dnd/ui';
-import { attachCameraInput, fitMap } from './cameraInput';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { TokensState } from '@dnd/mechanics/tokens';
+import { attachCameraInput, fitMap, visibleViewport } from './cameraInput';
+import { watchSceneThumbnails } from './thumbnail';
 import { useSessionStore } from '../session/store';
 import { swapSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
@@ -53,6 +56,25 @@ async function initClipper(): Promise<void> {
  *
  * D9: sizes to its parent element via ResizeObserver. No `100vw/100vh` anywhere.
  */
+/**
+ * The opening view of a scene (table fix pass F16, F18): the map fitted above the dock, and on
+ * a player's seat their own token in the middle of it, at the same zoom. False with nothing to
+ * frame yet.
+ */
+function frame(engine: RenderEngine): boolean {
+  if (!fitMap(engine)) return false;
+  const { session, you } = useSessionStore.getState();
+  if (!you || you.role === 'dm' || !session?.activeSceneId) return true;
+  const tokens = (session.modules.tokens as TokensState | undefined)?.byScene?.[session.activeSceneId];
+  const mine = tokens ? Object.values(tokens).find((t) => t.ownerId === you.identityId) : undefined;
+  if (!mine) return true;
+  const { width, height } = visibleViewport(engine);
+  const stage = engine.stage();
+  const zoom = stage.scale.x;
+  stage.position.set(width / 2 - mine.x * zoom, height / 2 - mine.y * zoom);
+  return true;
+}
+
 export function GameRenderer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const framedScene = useRef<string | null>(null);
@@ -70,6 +92,7 @@ export function GameRenderer() {
     return s.session?.scenes.find((scene) => scene.id === id)?.mapId ?? id;
   });
   const loadedScene = useSessionStore((s) => s.loadedScene);
+  const framedId = loadedScene?.sceneId ?? null;
   const mapData = useSessionStore((s) => s.mapData);
   const token = useSessionStore((s) => s.token);
   const firstSceneDone = useTableAssets((s) => s.firstSceneDone);
@@ -178,6 +201,8 @@ export function GameRenderer() {
   useEffect(() => syncWorldToScene(), []);
   // The v2 desk around the map, in the theme's colours and dot grid; never the black void.
   useEffect(() => installTableDesk(setEditorDesk), []);
+  // F20: the DM's table pictures a loaded scene that has no thumbnail yet.
+  useEffect(() => watchSceneThumbnails(), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {
@@ -249,9 +274,13 @@ export function GameRenderer() {
     // Once per scene, though: from S3 the map grows as rooms are revealed (D5), and
     // re-framing on a reveal would yank the camera out from under whoever is looking at it.
     // The opening view is an opening view, not a response to every delta.
-    if (framedScene.current === sceneId) return;
-    if (fitMap(engine)) {
-      framedScene.current = sceneId;
+    //
+    // Table fix pass F17: keyed on the scene whose document this is, not the scene the table
+    // just switched to. The old map is still held when the switch lands, so keying on the
+    // active scene marked the new one framed before its map had arrived to frame.
+    if (!framedId || framedScene.current === framedId) return;
+    if (frame(engine)) {
+      framedScene.current = framedId;
       return;
     }
     // Nothing to frame yet. A player seat is handed a document stripped to what it has
@@ -259,12 +288,12 @@ export function GameRenderer() {
     // document lands — so keep watching rather than leaving the seat parked over empty space
     // with a click on a door row as its only way back.
     const stop = useStore.subscribe(() => {
-      if (framedScene.current === sceneId || !fitMap(engine)) return;
-      framedScene.current = sceneId;
+      if (framedScene.current === framedId || !frame(engine)) return;
+      framedScene.current = framedId;
       stop();
     });
     return stop;
-  }, [engine, mapData, sceneId]);
+  }, [engine, mapData, framedId]);
 
   const failure = initFailed
     ? 'Renderer failed to start — WebGL may be unavailable.'

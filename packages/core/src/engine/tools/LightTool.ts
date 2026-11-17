@@ -3,8 +3,9 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
-import type { LightChild, DungeonLayer, AssetChild } from '../../store/types';
+import type { LightChild, DungeonLayer, AssetChild, Layer } from '../../store/types';
 import { LIGHT_RADIUS_FT } from '../../store/lightPresets';
+import { nextAuthoredName } from '../../shared/authoredName';
 
 /** How far one R press turns the next light's cone. */
 const CONE_TURN = 45;
@@ -16,8 +17,13 @@ const clampFt = (ft: number): number =>
 const plainR = (e: KeyboardEvent): boolean =>
   e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey;
 
-function countLightsInLayer(layer: DungeonLayer): number {
-  return layer.children.filter((c) => c.childType === 'light').length;
+/**
+ * Table fix pass F30: the next free "Light N" across the map. Counting the lights on the layer
+ * reused a number once one was deleted, so two lights could both be "Light 4".
+ */
+function nextLightName(layers: readonly Layer[]): string {
+  const lights = layers.flatMap((l) => (l.type === 'dungeon' ? l.children.filter((c) => c.childType === 'light') : []));
+  return nextAuthoredName(lights, 'Light');
 }
 
 /** Within 0.5 cells of an asset's centre attaches the light to it — nearest wins. */
@@ -66,7 +72,7 @@ export class LightTool implements DrawingTool {
 
     const child: LightChild = {
       id: crypto.randomUUID(),
-      name: `Light ${countLightsInLayer(activeLayer) + 1}`,
+      name: nextLightName(store.layers),
       childType: 'light',
       visible: true,
       color: defaults.color,

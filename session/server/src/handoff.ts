@@ -12,11 +12,13 @@ export interface Handoff {
   identityId: string
   /** Expiry, epoch ms. */
   exp: number
+  /** The scene the canvas was showing, so the table can resume on it. Absent = none named. */
+  sceneId?: string
 }
 
 export interface HandoffStore {
   /** A fresh 32-byte code for this DM seat; the plaintext is returned and never stored. */
-  mint(campaignId: string, identityId: string, now?: number): string
+  mint(campaignId: string, identityId: string, now?: number, sceneId?: string): string
   /** The handoff a live code names, consumed on the way out; null for anything else. */
   redeem(code: string, now?: number): Handoff | null
 }
@@ -29,10 +31,10 @@ export function createHandoffStore(ttlMs = HANDOFF_TTL_MS): HandoffStore {
     for (const [key, entry] of pending) if (entry.exp <= now) pending.delete(key)
   }
   return {
-    mint(campaignId, identityId, now = Date.now()) {
+    mint(campaignId, identityId, now = Date.now(), sceneId) {
       sweep(now)
       const code = randomBytes(32).toString('base64url')
-      pending.set(hash(code), { campaignId, identityId, exp: now + ttlMs })
+      pending.set(hash(code), { campaignId, identityId, exp: now + ttlMs, ...(sceneId ? { sceneId } : {}) })
       return code
     },
     redeem(code, now = Date.now()) {

@@ -94,6 +94,11 @@ export interface MapSettings extends MapEnvironment {
   roomsVersion?: 2;
   /** The room the table starts in by default; the publish dialog preselects it. */
   startingRoomId?: string;
+  /**
+   * Where the party starts when the table opens there, a point in cells. Optional and
+   * unversioned: older readers keep it as an unknown key.
+   */
+  partyStart?: { x: number; y: number; levelId?: string };
   /** Cells of drop at which a plateau top hides from below; a plateau may override. */
   sightDropCells: number;
   /** The DM's crossing rules, picked by cliff edges and bridges. */
@@ -842,6 +847,12 @@ export interface SerializedMapData {
    * on the DM's copy — the DM reads the real zones.
    */
   lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
+  /**
+   * Ground in no walled floor, per level: the frame minus the walled floors, as rings (outer
+   * rings and holes). Stamped on a player's copy by the session server once the seat knows
+   * any outdoor cell. Absent on authored files and on the DM's copy.
+   */
+  openGround?: { levelId: string; rings: [number, number][][] }[];
   /**
    * Stamped by the session server when the client asks for `?images=external`:
    * the keys of the images it left out of `customImages`, each fetchable as

@@ -6,9 +6,11 @@
 // to end: a hinge cap, plank tiles and a latch cap (GG_Door_Kits in gg-forge,
 // drawn by forge/door-kits.mjs). The caps keep their length; a wider door gets
 // more tiles, so the planks lengthen while the hinge and handle stay the size
-// they were drawn. The leaf's thickness is fixed too: a door is as thick as a
-// door whatever the wall is doing. What follows the wall is the jamb, which
-// always fills the wall's full depth.
+// they were drawn. A stone or wood leaf's thickness is fixed too: a door is as
+// thick as a door whatever the wall is doing, and what follows the wall is the
+// jamb, which always fills the wall's full depth. The cave is the exception: its
+// leaf is as deep as the band's rock and is sized with it (`kitAt`), and it
+// swings about the jamb rock's centre rather than the jamb's face.
 //
 // Everything here is cells and radians, and pure, so the geometry is testable
 // without a GPU; doorRenderer.ts turns it into sprites.
@@ -19,8 +21,13 @@ import { BAND_DRAWN_WIDTH, bandScale } from './packCatalog';
 export type DoorKitId = NonNullable<DoorChild['kit']>;
 export type LeafPiece = 'hinge' | 'tile-a' | 'tile-b' | 'latch';
 
-/** Height of every leaf slice's canvas, cells. The leaf is centred across it. */
-export const DOOR_SLICE_CELLS = 0.4;
+/** The cave rock's depth, stone and ink, at bandScale 1, cells: what a cave leaf and its jambs are drawn to. */
+export const CAVE_ROCK = 0.7;
+/** How far the cave jamb rock's centre sits behind the opening's edge, as a share of the rock's depth. */
+const CAVE_JAMB_CENTRE = 0.17;
+
+/** Which jamb closes a cave wall either side of an opening (`DoorChild.jamb`). */
+export type DoorJamb = NonNullable<DoorChild['jamb']>;
 
 export interface DoorKit {
   id: DoorKitId;
@@ -30,6 +37,14 @@ export interface DoorKit {
   latchLength: number;
   /** A tile's drawn length; placed tiles share the leftover and land near it. */
   tileLength: number;
+  /** Height of every leaf slice's canvas, cells. The leaf is centred across it. */
+  sliceCells: number;
+  /**
+   * How the leaf hangs. `pin`: it turns about its hinge corner, which rides the
+   * jamb's face (`hingeDepth`). `band`: the cave's, drawn at bandScale 1 and sized
+   * with the wall (`kitAt`), turning about the jamb rock's centre (`bandHingeEnd`).
+   */
+  hang: 'pin' | 'band';
   /** Multiplied into the grey-master leaf, the way a wall tint is. */
   tint: string;
   /**
@@ -44,16 +59,19 @@ export interface DoorKit {
 
 const KITS: Record<DoorKitId, DoorKit> = {
   stone: {
-    id: 'stone', thickness: 0.17, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5,
+    id: 'stone', thickness: 0.17, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5, sliceCells: 0.4, hang: 'pin',
     tint: '#8e6844', jamb: { kind: 'ending', capPx: 46 },
   },
   wood: {
-    id: 'wood', thickness: 0.15, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5,
+    id: 'wood', thickness: 0.15, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5, sliceCells: 0.4, hang: 'pin',
     tint: '#ad885c', jamb: { kind: 'ending', capPx: 46 },
   },
   cave: {
-    id: 'cave', thickness: 0.24, hingeLength: 0.18, latchLength: 0.18, tileLength: 0.5,
-    tint: '#ffffff', jamb: { kind: 'art', w: 0.7, h: 1.36, originX: 0.55, originY: 0.66 },
+    // At bandScale 1. The caps grew with the leaf; the tiles keep their length, so
+    // the leaf's edges wave as the old 0.24-deep leaf's did.
+    id: 'cave', thickness: CAVE_ROCK, hingeLength: 0.525, latchLength: 0.525, tileLength: 0.5,
+    sliceCells: 0.4 * (CAVE_ROCK / 0.24), hang: 'band',
+    tint: '#ffffff', jamb: { kind: 'art', w: 0.44, h: 0.8, originX: 0.35, originY: 0.4 },
   },
 };
 
@@ -99,9 +117,52 @@ export function kitWallSet(kit: DoorKit): string {
   return '';
 }
 
-/** The pack entry (local key) holding one slice of a kit. */
-export function doorKitKey(kit: DoorKit, piece: LeafPiece | 'hinge-plain' | 'jamb'): string {
+/** The pack entry (local key) holding one slice of a kit, or one of its jambs. */
+export function doorKitKey(kit: DoorKit, piece: LeafPiece | 'hinge-plain' | 'jamb' | 'jamb-one'): string {
   return `doorkit-${kit.id}-${piece}`;
+}
+
+/** A cave portcullis piece (forge door-kit-art.js `drawCavePort`). */
+export type CavePortPiece = 'beam' | 'bar-a' | 'bar-b' | 'socket' | 'slot';
+
+/** The pack entry (local key) of a cave portcullis piece. */
+export function cavePortKey(piece: CavePortPiece): string {
+  return `doorkit-cave-port-${piece}`;
+}
+
+/**
+ * Cave portcullis sizes at bandScale 1, cells: the beam and slot tiles' length,
+ * each piece's canvas height (beam, slot) or side (bar, socket), and the side of
+ * a bar end's own paint on its canvas.
+ */
+export const CAVE_PORT = { tile: 0.5, beamCanvas: 0.24, slotCanvas: 0.06, bar: 0.22, barCanvas: 0.32, socketCanvas: 0.12 };
+
+/** A cave portcullis's bar ends: their side, as laid in rock `rock` deep, and how many fill `width`. */
+export function cavePortBars(width: number, rock: number): { side: number; count: number } {
+  const side = Math.min(CAVE_PORT.bar, Math.max(0.08, 0.42 * rock));
+  return { side, count: Math.max(2, Math.round(width / (2.4 * side))) };
+}
+
+/**
+ * The kit as it is laid in a wall `wallWidth` wide: a band kit's leaf, caps and
+ * slice canvas scaled to the rock (bandScale), its tiles kept at their length;
+ * any other kit as it is.
+ */
+export function kitAt(kit: DoorKit, wallWidth: number): DoorKit {
+  if (kit.hang !== 'band') return kit;
+  const s = bandScale(wallWidth);
+  return {
+    ...kit,
+    thickness: kit.thickness * s,
+    hingeLength: kit.hingeLength * s,
+    latchLength: kit.latchLength * s,
+    sliceCells: kit.sliceCells * s,
+  };
+}
+
+/** Whether a kit door shows its hinge hardware: its own choice, else shown on stone and wood, hidden on the cave. */
+export function doorShowsHinges(door: Pick<DoorChild, 'hinges'>, kit: DoorKit | null): boolean {
+  return door.hinges ?? kit?.hang !== 'band';
 }
 
 /** Door styles a kit builds. The rest keep their own art or glyphs. */
@@ -164,6 +225,32 @@ export function wallHalfDepth(kit: DoorKit, wallWidth: number, wallKit: DoorKit 
  * but the cave's jamb rock was 0.6 deep, and its open leaf floated a quarter of
  * a cell clear of the rock and well out into the room.
  */
+/**
+ * Where a band kit's leaf has its hinge end, on its own centre line, at `open`
+ * radians: `[along, across]` from the opening's edge, `along` into the opening
+ * (negative is back into the wall) and `across` toward the swing side.
+ *
+ * Shut, it is on the edge on the wall line. Square, the leaf stands centred on
+ * the jamb rock with its end at the wall face, so it is mostly behind the rock
+ * and reaches a third of the rock's depth into the doorway. Folded flat at 180,
+ * it lies on the wall face. Between those it eases (smoothstep), so it never
+ * jumps. `rock` is the wall's rock depth and `thickness` the leaf's, both as laid.
+ */
+export function bandHingeEnd(rock: number, thickness: number, open: number): [number, number] {
+  const jc = CAVE_JAMB_CENTRE * rock;
+  const u = open / (Math.PI / 2);
+  const stops: [number, number][] = [[0, 0], [-jc, rock / 2], [-jc - thickness / 2, rock / 2 + thickness / 2]];
+  const [a, b] = u <= 1 ? [stops[0], stops[1]] : [stops[1], stops[2]];
+  const t = Math.min(1, Math.max(0, u <= 1 ? u : u - 1));
+  const e = t * t * (3 - 2 * t);
+  return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
+}
+
+/** The rock a band kit's leaf hangs in: the cave's as laid, or a composed wall's full width. */
+export function wallRockDepth(wallWidth: number, wallKit: DoorKit | null): number {
+  return wallKit?.hang === 'band' ? CAVE_ROCK * bandScale(wallWidth) : wallWidth;
+}
+
 export function hingeDepth(
   kit: DoorKit,
   wallWidth: number,
@@ -217,7 +304,11 @@ export function leafPoses(
   const nrm: [number, number] = [-dir[1], dir[0]];
   const side = door.swing === -1 ? -1 : 1;
   const open = (doorOpenAngle(door) * Math.PI) / 180;
-  const depth = hingeDepth(kit, wallWidth, open, wallKit);
+  const band = kit.hang === 'band';
+  const depth = band ? 0 : hingeDepth(kit, wallWidth, open, wallKit);
+  const [bandAlong, bandAcross] = band
+    ? bandHingeEnd(wallRockDepth(wallWidth, wallKit), kitAt(kit, wallWidth).thickness, open)
+    : [0, 0];
   const half = door.width / 2;
 
   const leaves: { atEnd: boolean; length: number }[] =
@@ -231,11 +322,20 @@ export function leafPoses(
   return leaves.map(({ atEnd, length }) => {
     const s = atEnd ? 1 : -1;
     const edge: [number, number] = [position[0] + dir[0] * half * s, position[1] + dir[1] * half * s];
-    // On the jamb's face, the opening's edge line, `depth` toward the swing side.
-    const pin: [number, number] = [edge[0] + nrm[0] * side * depth, edge[1] + nrm[1] * side * depth];
     // A start-edge leaf lies along +dir and turns toward the swing side; an
     // end-edge leaf lies along -dir and turns the other way to reach it.
     const rotation = atEnd ? angle + Math.PI - side * open : angle + side * open;
+    if (band) {
+      // Into the opening is +dir from the start edge, -dir from the end edge.
+      const into = -s;
+      const origin: [number, number] = [
+        edge[0] + dir[0] * into * bandAlong + nrm[0] * side * bandAcross,
+        edge[1] + dir[1] * into * bandAlong + nrm[1] * side * bandAcross,
+      ];
+      return { origin, rotation, flip: atEnd, length };
+    }
+    // On the jamb's face, the opening's edge line, `depth` toward the swing side.
+    const pin: [number, number] = [edge[0] + nrm[0] * side * depth, edge[1] + nrm[1] * side * depth];
     // The leaf's centre line sits half a thickness back from the pin, across the
     // leaf's own axis, on the side that puts it on the wall's centre line when shut.
     const back = ((atEnd ? 1 : -1) * side * kit.thickness) / 2;

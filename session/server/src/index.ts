@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { Socket } from 'node:net'
 import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
-import { doorsModule } from '@dnd/mechanics/doors'
+import { PLAYER_DOOR_REACH, doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
 import { createInitiativeModule } from '@dnd/mechanics/initiative'
 import { pinsModule } from '@dnd/mechanics/pins'
@@ -19,12 +19,13 @@ import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
+import { partyHere, reveal as revealPartyHere } from './fog/partyHere'
 import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { createMirror, mirrorRootFor } from './mirror'
-import { afterWrites, effectsTick } from './modules/effectsTick'
+import { afterWrites, effectsClear, effectsTick, hiddenCombatants } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
@@ -124,27 +125,41 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), effectsTick),
+    afterWrites(autoExplore(vision), partyHere(vision), effectsTick, effectsClear, hiddenCombatants),
     (sessionId) => table.flagsOf(sessionId)?.paused === true,
   )
   modules.register(pingModule)
-  modules.register(scenesModule(stores))
+  // Bound late: the session manager is built from the finished registry below.
+  let sessionsRef: SessionManager | null = null
+  modules.register(scenesModule(stores, (campaignId) => sessionsRef?.refreshScenes(campaignId)))
   modules.register(rollsModule)
-  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
-  modules.register(
-    createInitiativeModule({
-      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
-        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
-    }),
-  )
   // Plateaus (plan §7): a token's height off the ground under it, and the raised edges a
   // player's move may not cross, with the DM's live crossing rules.
   const terrainOf = createTerrain(
     vision.sceneMapOf,
     (campaignId) => stores.moduleState.get(campaignId, 'crossings') as CrossingsState | undefined,
   )
+  // Built before initiative, which reads its redaction (S1); registered below in its old place.
+  const tokens = tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf)
+  // End turn belongs to whoever holds the combatant's token now (a PC claimed after it joined).
+  modules.register(
+    createInitiativeModule({
+      tokenOwnerOf: (campaignId, sceneId, tokenId) =>
+        (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene?.[sceneId]?.[tokenId]?.ownerId ?? null,
+      // Table fix pass F22 and S1: a combatant's row goes where its token goes — not to a seat
+      // that is not sent the token (hidden, out of sight, in a room it has not been shown).
+      tokensWithheldOf: (sceneId, viewer) => {
+        const campaignId = stores.scenes.get(sceneId)?.campaign_id
+        const state = campaignId ? (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined) : undefined
+        const all = state?.byScene?.[sceneId]
+        if (!state || !all || !tokens.redact) return null
+        const shown = tokens.redact(state, viewer).byScene[sceneId] ?? {}
+        return new Set(Object.keys(all).filter((id) => !(id in shown)))
+      },
+    }),
+  )
   // The movement lock (and the pause) stop a player's move through the tokens module's seam.
-  modules.register(tokensModule(vision.visionOf, vision.levelFilterOf, terrainOf, table.tableOf))
+  modules.register(tokens)
   modules.register(table.module)
   modules.register(pinsModule)
   // Read-aloud goes out through the triggers module's existing share path; story journals it.
@@ -155,8 +170,32 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     }),
   )
   modules.register(crossingsModule)
-  modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
-  modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
+  modules.register(
+    fogModule(
+      vision.roomsOf,
+      vision.frameOf,
+      vision.roomAtOf,
+      (sceneId) => vision.visibleOf(sceneId),
+      vision.groundAtOf,
+      (sceneId) => vision.keptRoomsOf(sceneId),
+    ),
+  )
+  // Table fix pass, decision b: a player opens a door one of their own tokens stands beside.
+  modules.register(
+    doorsModule(vision.doorsOf, vision.playerDoors, (campaignId, sceneId, identityId, doorId) => {
+      const door = vision.sceneMapOf(sceneId)?.doors.find((d) => d.id === doorId)
+      const tokens = (stores.moduleState.get(campaignId, 'tokens') as TokensState | undefined)?.byScene[sceneId] ?? {}
+      return (
+        !!door &&
+        Object.values(tokens).some(
+          (t) =>
+            t.ownerId === identityId &&
+            !t.hidden &&
+            Math.hypot(t.x - door.position[0], t.y - door.position[1]) <= PLAYER_DOOR_REACH,
+        )
+      )
+    }),
+  )
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
   // and the live cascade resolve the same scene's triggers off the same cache. The registry
   // handle is what lets a fired encounter materialize (internal tokens.spawn /
@@ -170,11 +209,28 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       lightIdsOf: (_campaignId, sceneId) =>
         vision.sceneMapOf(sceneId)?.lights.filter((l) => !l.darkness).map((l) => l.id) ?? [],
       keptLightsOf: (sceneId) => vision.keptLightsOf(sceneId),
+      keptRoomsOf: (sceneId) => vision.keptRoomsOf(sceneId),
     }),
   )
   for (const module of options.modules ?? []) modules.register(module)
 
-  const sessions = new SessionManager(modules, {
+  // Table fix pass §2.6: a table already running when the server starts stores the room, or
+  // Outdoors, its party stands in, the way every place and move now does. Nobody is connected
+  // yet, so there is no one to broadcast to.
+  for (const session of stores.sessions.listActive()) {
+    const sceneId = session.active_scene_id
+    if (!sceneId) continue
+    revealPartyHere(vision, modules, sceneId, {
+      campaignId: session.campaign_id,
+      sessionId: session.id,
+      activeSceneId: sceneId,
+      sender: { role: 'dm', identityId: 'server' },
+      players: [],
+      broadcast: () => {},
+    })
+  }
+
+  const sessions: SessionManager = new SessionManager(modules, {
     vision,
     // Scene metadata is whatever the campaign has published; the active one is session state.
     scenes: ({ id, campaignId }) => {
@@ -207,6 +263,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     tableFlags: table.flagsOf,
     ...options,
   })
+  sessionsRef = sessions
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
   // Trust is a property of the listener a socket arrived on, not of a port number: the
   // tests bind ephemeral ports, and a socket remembers nothing else about where it came in.

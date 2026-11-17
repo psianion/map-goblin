@@ -3,11 +3,14 @@ import { DoorActions } from './DoorActions';
 import { doorLabel, doorStatusLabel } from './doors';
 import { useDoorSelection } from './selection';
 import { useLiveDoors } from './useLiveDoors';
+import { useSessionStore } from '../../session/store';
+import { serverRooms } from '../fog/fog';
 
 /** The door card: beside the selected door, its state and its controls. */
 export function DoorCard() {
   const selectedId = useDoorSelection((s) => s.selectedId);
   const doors = useLiveDoors();
+  const mapData = useSessionStore((s) => s.mapData);
   const index = doors.findIndex((d) => d.door.id === selectedId);
   const entry = index >= 0 ? doors[index] : undefined;
   if (!entry) return null;
@@ -15,7 +18,7 @@ export function DoorCard() {
   return (
     <MapCard
       testId="door-card"
-      title={doorLabel(entry.door, index)}
+      title={doorLabel(entry.door, index, serverRooms(mapData))}
       at={() => ({ x, y })}
       onClose={() => useDoorSelection.getState().select(null)}
     >

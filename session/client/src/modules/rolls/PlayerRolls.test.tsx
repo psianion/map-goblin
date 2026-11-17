@@ -32,6 +32,15 @@ describe('player roll bar', () => {
     ]);
   });
 
+  it('fits a phone inside the gutters and wraps, and keeps one centred row from sm up', () => {
+    seat({}, BRAM);
+    render(<PlayerRollBar />);
+    const bar = screen.getByTestId('player-roll-bar').className.split(' ');
+    for (const c of ['inset-x-3', 'w-fit', 'flex-wrap']) expect(bar).toContain(c);
+    for (const c of ['sm:left-1/2', 'sm:right-auto', 'sm:-translate-x-1/2', 'sm:flex-nowrap']) expect(bar).toContain(c);
+    expect(bar).not.toContain('-translate-x-1/2');
+  });
+
   it('only players get the bar and the prompt', () => {
     seat({ rolls: asked }, DM);
     render(<PlayOverlays />);
@@ -151,5 +160,33 @@ describe('initiative prompt card', () => {
     seat({ initiative: gathering }, DM);
     render(<InitiativePromptCard />);
     expect(screen.queryByTestId('initiative-prompt')).toBeNull();
+  });
+});
+
+// F23: the initiative prompt sat on top of the check card. Prompts now share one stack,
+// bottom-right on a player's seat, newest on top (initiative first: it is the one that waits on
+// the whole table).
+describe('the prompt stack (F23)', () => {
+  it('stacks a check request and the initiative prompt in one column, without overlap', () => {
+    seat(
+      {
+        rolls: asked,
+        initiative: {
+          status: 'gathering',
+          sceneId: 'scene-1',
+          round: 0,
+          turn: 0,
+          entries: [{ key: 'e1', name: 'Bram', kind: 'pc', identityId: BRAM.identityId, initiative: null }],
+          log: [],
+        },
+      },
+      BRAM,
+    );
+    render(<PlayOverlays />);
+    const stack = screen.getByTestId('prompt-stack');
+    const cards = [...stack.querySelectorAll('[role="dialog"]')].map((c) => c.getAttribute('data-testid'));
+    expect(cards).toEqual(['initiative-prompt', 'roll-prompt']);
+    // Neither card places itself: the stack does, so they cannot land on each other.
+    for (const card of stack.querySelectorAll('[role="dialog"]')) expect(card.className).not.toMatch(/\babsolute\b/);
   });
 });

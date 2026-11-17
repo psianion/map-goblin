@@ -1,24 +1,43 @@
 import { useMemo, useState } from 'react';
-import { autoExploreOn, containedSightOn, fogModeOf, sightRangeLimitOn, type FogMode, type FogState, type RoomFog, type RoomFogStatus } from '@dnd/mechanics/fog';
+import { autoExploreOn, containedSightOn, fogModeOf, outdoorsId, sightRangeLimitOn, type FogMode, type FogState, type RoomFog, type RoomFogStatus } from '@dnd/mechanics/fog';
+import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { useStore } from '@dnd/core/src/store/store';
 import { FOG_LOOK_PRESETS } from '@dnd/core/src/shared/fogLook';
-import { Button, Caption, Chip, Fold, KeyHint, Seg, SecondaryButton, SliderRow, SwitchRow } from '@dnd/ui';
+import { Button, Caption, Chip, Fold, KeyHint, SecondaryButton, SliderRow, SwitchRow, cn } from '@dnd/ui';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
+import { tokensOf } from '../tokens/TokenRenderer';
 import { armBrushShape, armFogHide, armFogReveal, brushPossible, useFogBrush } from './brush';
-import { FOG_STATUS_LABEL, hideAllRooms, revealAllRooms, roomFog, sceneFog, serverRooms } from './fog';
+import { FOG_STATUS_LABEL, hideAllRooms, revealAllRooms, roomAt, roomFog, sceneFog, serverRooms } from './fog';
 import { setHighlightedRoom } from './FogOverlay';
 import { FOG_PRESETS } from './livingFog';
 
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
 
-const MODES: { value: FogMode; label: string }[] = [
-  { value: 'rooms', label: 'Rooms' },
-  { value: 'vision', label: 'Vision' },
+/** Table fix pass §4.5: the mode as two tiles, each with what it means at the table. */
+const MODES: { value: FogMode; label: string; meaning: string }[] = [
+  { value: 'vision', label: 'By sight', meaning: 'Players see what their tokens see.' },
+  { value: 'rooms', label: 'By hand', meaning: 'You reveal rooms and outdoors yourself.' },
 ];
 
+/** The tokens that stand for the party: a player's own, or a PC nobody holds yet (§2.4). */
+const partyTokens = (tokens: readonly Token[]): Token[] =>
+  tokens.filter((t) => !t.hidden && (t.ownerId !== null || t.kind === 'pc'));
+
+function useSceneTokens(): Token[] {
+  const tokensState = useModuleState<TokensState>('tokens');
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  return useMemo(() => tokensOf(tokensState, sceneId), [tokensState, sceneId]);
+}
+
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Table fix pass §4.5: the Outdoors fog rows, one per level as the referee keys them. */
+const outdoorRows = (levels: readonly { id: string; name: string }[]): { id: string; name: string }[] =>
+  levels.length > 1
+    ? levels.map((level) => ({ id: outdoorsId(level.id), name: `Outdoors, ${level.name}` }))
+    : [{ id: outdoorsId(), name: 'Outdoors' }];
 
 function useSceneFog() {
   const fogState = useModuleState<FogState>('fog');
@@ -29,6 +48,7 @@ function useSceneFog() {
 /** Board 4 and 10, left: Reveal R, Hide H, Brush W, Rect Shift+R, size, mode, look, settings, bulk. */
 export function FogBody() {
   const fog = useSceneFog();
+  const tokens = useSceneTokens();
   const mapData = useSessionStore((s) => s.mapData);
   const rooms = useMemo(() => serverRooms(mapData), [mapData]);
   const activeTool = useActiveTool((s) => s.activeTool);
@@ -37,6 +57,7 @@ export function FogBody() {
   const shape = useFogBrush((s) => s.shape);
   const size = useFogBrush((s) => s.size);
   const authoredLook = useStore((s) => s.mapSettings.fogLook);
+  const levels = useStore((s) => s.levels);
   const [confirmReset, setConfirmReset] = useState(false);
   const mode = fogModeOf(fog);
   const armed = activeTool === 'fog';
@@ -44,9 +65,10 @@ export function FogBody() {
   const canBrush = useMemo(() => brushPossible(), [mapData]); // eslint-disable-line react-hooks/exhaustive-deps
   const lookPreset = fog.look?.preset ?? authoredLook?.preset ?? null;
 
-  const bulk = (next: Record<string, RoomFog>, message: string): void => {
+  // T10: Hide all also forgets the cell record of what it hides; Undo puts the rooms back only.
+  const bulk = (next: Record<string, RoomFog>, message: string, forget = false): void => {
     const before = fog.rooms;
-    send('set-bulk', { rooms: next });
+    send('set-bulk', forget ? { rooms: next, forget } : { rooms: next });
     showToast({ message, durationMs: UNDO_TOAST_MS, action: { label: 'Undo', onAction: () => send('set-bulk', { rooms: before }) } });
   };
 
@@ -79,12 +101,32 @@ export function FogBody() {
       {mode === 'vision' && (
         <SliderRow label="Brush size" value={size} min={1} max={5} step={1} onValueChange={(v) => useFogBrush.getState().setSize(v)} className="w-full" />
       )}
-      <Seg aria-label="Fog mode" options={MODES} value={mode} onValueChange={(v) => v !== mode && send('set-mode', { mode: v })} />
+      <div className="grid grid-cols-2 gap-1" role="group" aria-label="Fog mode">
+        {MODES.map((m) => (
+          <Button
+            key={m.value}
+            variant="outline"
+            aria-pressed={mode === m.value}
+            data-testid={`fog-mode-${m.value}`}
+            className={cn(
+              'h-auto flex-col items-start gap-0.5 px-2 py-1.5 text-left whitespace-normal',
+              mode === m.value && 'ring-[1.5px] ring-ink ring-inset',
+            )}
+            onClick={() => m.value !== mode && send('set-mode', { mode: m.value })}
+          >
+            <span className="text-xs text-text">{m.label}</span>
+            <span className="text-[10px] leading-snug text-text-3">{m.meaning}</span>
+          </Button>
+        ))}
+      </div>
+      {mode === 'vision' && partyTokens(tokens).length === 0 && (
+        <Caption data-testid="fog-no-party">No player token is on this map, so nothing is seen yet.</Caption>
+      )}
       <div className="flex gap-1">
-        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-reveal-all" onClick={() => bulk(revealAllRooms(rooms), 'Revealed every room.')}>
+        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-reveal-all" onClick={() => bulk(revealAllRooms([...outdoorRows(levels), ...rooms]), 'Revealed every room.')}>
           Reveal all
         </Button>
-        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-hide-all" onClick={() => bulk(hideAllRooms(fog.rooms), 'Hid every explored room.')}>
+        <Button variant="outline" size="sm" disabled={rooms.length === 0} data-testid="fog-hide-all" onClick={() => bulk(hideAllRooms(fog.rooms), 'Hid every explored room.', true)}>
           Hide all
         </Button>
       </div>
@@ -141,6 +183,8 @@ const STATUS_RANK: Record<RoomFogStatus, number> = { never_revealed: 0, re_hidde
 /** Board 4, right: every room with its state and its own Reveal and Hide. */
 export function FogStrip() {
   const fog = useSceneFog();
+  const tokens = useSceneTokens();
+  const levels = useStore((s) => s.levels);
   const mapData = useSessionStore((s) => s.mapData);
   const rooms = useMemo(() => serverRooms(mapData), [mapData]);
   if (rooms.length === 0) {
@@ -153,9 +197,19 @@ export function FogStrip() {
     );
   }
   const sorted = [...rooms].sort((a, b) => (STATUS_RANK[roomFog(fog, a.id).status] ?? 3) - (STATUS_RANK[roomFog(fog, b.id).status] ?? 3));
+  // Table fix pass §4.5: Outdoors first, then the rooms; a row where a party token stands
+  // carries a badge.
+  const outdoors = outdoorRows(levels);
+  const here = new Set(
+    partyTokens(tokens).map((t) => {
+      const room = roomAt(rooms, t.x, t.y);
+      if (room) return room.id;
+      return levels.length > 1 ? outdoorsId(t.levelId ?? levels[0]?.id) : outdoorsId();
+    }),
+  );
   return (
     <ul className="flex gap-2" data-testid="fog-rooms">
-      {sorted.map((room) => {
+      {[...outdoors, ...sorted].map((room) => {
         const status = roomFog(fog, room.id).status;
         return (
           <li
@@ -166,8 +220,15 @@ export function FogStrip() {
             onMouseEnter={() => setHighlightedRoom(room.id)}
             onMouseLeave={() => setHighlightedRoom(null)}
           >
-            <span className="truncate text-xs text-text" title={room.name}>
-              {room.name}
+            <span className="flex items-center gap-1">
+              <span className="min-w-0 flex-1 truncate text-xs text-text" title={room.name}>
+                {room.name}
+              </span>
+              {here.has(room.id) && (
+                <span className="shrink-0 text-[10px] text-ink" data-testid="fog-party-here" title="A party token stands here">
+                  Party
+                </span>
+              )}
             </span>
             <Caption>{FOG_STATUS_LABEL[status]}</Caption>
             <div className="flex gap-1">

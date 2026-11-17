@@ -17,6 +17,7 @@ export { LevelList, type LevelListItem } from './LevelList';
 export { LoadingScreen } from './LoadingScreen';
 export { PanelHeader } from './PanelHeader';
 export { PrimaryButton } from './PrimaryButton';
+export { QrCode } from './QrCode';
 export { SecondaryButton } from './SecondaryButton';
 export { Seg, type SegOption } from './Seg';
 export { SelectRow, type SelectRowOption } from './SelectRow';

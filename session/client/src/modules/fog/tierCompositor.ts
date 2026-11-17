@@ -20,6 +20,7 @@
 
 import {
   BlurFilter,
+  ColorMatrixFilter,
   BufferImageSource,
   Container,
   Graphics,
@@ -28,7 +29,7 @@ import {
   Texture,
 } from 'pixi.js';
 import type { Bounds } from './FogRenderer';
-import { TARGET_ORDER, type CellTexture, type DrawOp, type DrawPlan, type TierTarget } from './tierPlan';
+import { TARGET_ORDER, blurPasses, type CellTexture, type DrawOp, type DrawPlan, type TierTarget } from './tierPlan';
 
 /** All this needs of the engine — `RenderEngine` satisfies it structurally. */
 export interface TierRenderer {
@@ -37,8 +38,8 @@ export interface TierRenderer {
 
 export interface TierCompositor {
   /**
-   * The tier texture the cloud shader samples: transparent where the seat holds nothing,
-   * `MASK_MEMORY_GREY` over its memory, white over live sight.
+   * The tier texture the cloud shader samples: transparent where the seat holds nothing, white
+   * over everything it has revealed (T8: one tier).
    */
   readonly mask: RenderTexture;
   /**
@@ -48,10 +49,8 @@ export interface TierCompositor {
   readonly maskSoft: RenderTexture;
   /** The flat black backstop with the mask's holes erased out of it. */
   readonly scrim: RenderTexture;
-  /** Live sight alone — the stencil the token chips wear. Memory is deliberately not in it. */
+  /** Live sight alone — the stencil the token chips wear. The record is deliberately not in it. */
   readonly live: RenderTexture;
-  /** Ground seen by darkvision and nothing else — the greyscale tier's coverage. */
-  readonly grey: RenderTexture;
   /**
    * Composite one plan. Answers the world rect every target now covers, or null when the plan
    * covers nothing at all — the caller must draw neither the cover nor the scrim on a null,
@@ -74,16 +73,32 @@ export interface TierCompositor {
 export interface TierTextures {
   mask: RenderTexture;
   maskSoft: RenderTexture;
+  /** P8 — the mask's coverage blurred for the inward feather (the plan's `edge` target). */
+  maskEdge?: RenderTexture;
+}
+
+/**
+ * P8 — a mask texel as coverage: every channel twice the red, so hidden (0) reads 0 and both the
+ * DM haze's memory grey and white read 1. The vision mask leaves hidden transparent and the rooms
+ * path paints it opaque black, and red is the one channel both agree on.
+ */
+export function coverageFilter(): ColorMatrixFilter {
+  const filter = new ColorMatrixFilter();
+  const row = [2, 0, 0, 0, 0];
+  filter.matrix = [...row, ...row, ...row, ...row] as ColorMatrixFilter['matrix'];
+  return filter;
 }
 
 export function createTierCompositor(engine: TierRenderer, shared?: TierTextures): TierCompositor {
   const targets = new Map<TierTarget, { rt: RenderTexture; scene: Container; owned: boolean }>(
     TARGET_ORDER.map((name) => {
-      const borrowed = name === 'mask' && shared ? shared.mask : null;
+      const borrowed =
+        name === 'mask' && shared ? shared.mask : name === 'edge' && shared?.maskEdge ? shared.maskEdge : null;
       return [
         name,
         {
-          rt: borrowed ?? RenderTexture.create({ width: 4, height: 4 }),
+          // T14 — dynamic, so a sprite drawn from a target follows its resize (`livingFog`'s maskRT).
+          rt: borrowed ?? RenderTexture.create({ width: 4, height: 4, dynamic: true }),
           scene: new Container(),
           owned: !borrowed,
         },
@@ -94,18 +109,29 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   const sceneOf = (name: TierTarget): Container =>
     (targets.get(name) as { scene: Container }).scene;
 
-  // The soft copy, built exactly as `livingFog` builds it so the shader's remap keeps working
-  // now that P1b has swapped the paint source underneath it.
+  // The soft copy, built exactly as the player seat's `livingFog` builds it (T13: the mask read
+  // as coverage, blurred by `look.fade` — the caller passes the guard's blur), since the
+  // one-tier shader's guard reads it.
   const maskSoft = shared?.maskSoft ?? RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(rtOf('mask'));
-  softSprite.filters = [soften];
+  const softCoverage = coverageFilter();
+  softSprite.filters = [softCoverage];
+  // T6 — the cover past the map's edge, read as shown by the blur (the plan's `beyond`), so the
+  // soft copy does not fade live sight toward the edge. In texels: this scene is unscaled.
+  const softBeyond = new Graphics();
+  const softGroup = new Container();
+  softGroup.addChild(softSprite, softBeyond);
+  softGroup.filters = [soften];
   const softScene = new Container();
-  softScene.addChild(softSprite);
+  softScene.addChild(softGroup);
 
   // The memory tier's blur, when a plan asks for one. Kept whatever the plan says, because a
   // filter is a GPU resource and the plan's answer can change between runs.
   const memoryBlur = new BlurFilter({ strength: 0, quality: 2 });
+  // …and the feather's (P8), on the same terms.
+  const edgeBlur = new BlurFilter({ strength: 0, quality: 3 });
+  const edgeCoverage = coverageFilter();
 
   let cellSource: BufferImageSource | null = null;
   let cellTex: Texture | null = null;
@@ -133,10 +159,11 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   };
 
   const clearScene = (scene: Container): void => {
-    for (const child of scene.removeChildren()) child.destroy();
+    // Children too: a feathered sprite comes wrapped in a group with its `beyond` fill (T6).
+    for (const child of scene.removeChildren()) child.destroy({ children: true });
   };
 
-  const build = (op: DrawOp, cover: Bounds, scale: number): Container => {
+  const build = (op: DrawOp, cover: Bounds, scale: number, beyond: readonly Bounds[]): Container => {
     switch (op.kind) {
       case 'rect': {
         const g = new Graphics()
@@ -149,7 +176,8 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         const g = new Graphics();
         for (const poly of op.polys) {
           if (poly.length < 3) continue;
-          g.poly(poly.flat(), true).fill({ color: op.color, alpha: 1 });
+          g.poly(poly.flat(), true);
+          if (!op.outline) g.fill({ color: op.color, alpha: 1 });
           // Fill *and* a round-joined stroke of width 2r is the polygon ⊕ disc(r) — the
           // offset `reachOf` was paying Clipper for, at 0.003% area error (P0).
           if (op.grow > 0) {
@@ -188,6 +216,24 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         sprite.width = cover.maxX - cover.minX;
         sprite.height = cover.maxY - cover.minY;
         sprite.blendMode = op.blend;
+        if (op.featherCells) {
+          edgeBlur.strength = op.featherCells * scale;
+          edgeBlur.quality = blurPasses(edgeBlur.strength);
+          edgeBlur.blendMode = op.blend;
+          // T6 — the source's coverage with the cover past the map's edge counted as shown, then
+          // blurred: the feather eases a tier in from hidden ground, never from the frame.
+          sprite.blendMode = 'normal';
+          sprite.filters = [edgeCoverage];
+          const group = new Container();
+          group.addChild(sprite);
+          if (beyond.length > 0) {
+            const shown = new Graphics();
+            for (const r of beyond) shown.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY).fill({ color: 0xffffff, alpha: 1 });
+            group.addChild(shown);
+          }
+          group.filters = [edgeBlur];
+          return group;
+        }
         return sprite;
       }
     }
@@ -198,7 +244,6 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
     maskSoft,
     scrim: rtOf('scrim'),
     live: rtOf('live'),
-    grey: rtOf('grey'),
     run(plan, look) {
       const cover = plan.cover;
       for (const name of TARGET_ORDER) clearScene(sceneOf(name));
@@ -206,6 +251,7 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         // Nothing composited and nothing stale left behind: an empty mask reads as hidden
         // everywhere, which is this seat's fog.
         for (const name of TARGET_ORDER) engine.renderToTexture(sceneOf(name), rtOf(name), true);
+        softBeyond.clear();
         engine.renderToTexture(softScene, maskSoft, true);
         return null;
       }
@@ -225,14 +271,21 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         scene.scale.set(sx, sy);
         scene.position.set(-cover.minX * sx, -cover.minY * sy);
       }
-      for (const op of plan.ops) sceneOf(op.target).addChild(build(op, cover, look.scale));
+      const beyond = plan.beyond ?? [];
+      for (const op of plan.ops) sceneOf(op.target).addChild(build(op, cover, look.scale, beyond));
 
       // In target order, so a sprite never samples a target that has not been rendered yet.
       // Every target is rendered whether or not the plan gave it work: a target left holding
       // the previous rebuild is a stale reveal.
       for (const name of TARGET_ORDER) engine.renderToTexture(sceneOf(name), rtOf(name), true);
 
+      softBeyond.clear();
+      for (const r of beyond) {
+        softBeyond.rect((r.minX - cover.minX) * sx, (r.minY - cover.minY) * sy, (r.maxX - r.minX) * sx, (r.maxY - r.minY) * sy);
+        softBeyond.fill({ color: 0xffffff, alpha: 1 });
+      }
       soften.strength = look.fade * look.scale;
+      soften.quality = blurPasses(soften.strength);
       engine.renderToTexture(softScene, maskSoft, true);
       return cover;
     },
@@ -245,7 +298,10 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
       }
       softScene.destroy({ children: true });
       soften.destroy();
+      softCoverage.destroy();
       memoryBlur.destroy();
+      edgeBlur.destroy();
+      edgeCoverage.destroy();
       if (!shared) maskSoft.destroy(true);
       cellTex?.destroy(true);
       cellTex = null;
