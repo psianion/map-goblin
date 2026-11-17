@@ -33,6 +33,8 @@ import type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLo
 import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 import { isFrozen } from '@dnd/core/src/shared/freeze';
 import type { Bounds } from './FogRenderer';
+import { EDGE_FEATHER_CELLS, EDGE_FEATHER_FROM } from './tierPlan';
+import { coverageFilter } from './tierCompositor';
 
 /** The table-facing cloud shape — shared with `MapSettings.fogLook` (canvas) and
  * `SceneFog.look` (the DM's live override) so all three runtimes agree on one type
@@ -130,6 +132,8 @@ const FRAGMENT = /* glsl */ `
   in vec2 vWorld;
   uniform sampler2D uMask;
   uniform sampler2D uMaskSoft;
+  // P8 — the mask's coverage, blurred by EDGE_FEATHER_CELLS: the inward feather at hidden ground.
+  uniform sampler2D uMaskEdge;
   uniform float uTime;
   uniform float uWind;
   uniform float uNoise;
@@ -238,17 +242,26 @@ const FRAGMENT = /* glsl */ `
     float d = min(min(p.x - uFrame.x, uFrame.z - p.x), min(p.y - uFrame.y, uFrame.w - p.y));
     return smoothstep(0.0, 1.0, d);
   }
+  // P8 — tierPlan's edgeFeather: 0 on and past the boundary with hidden ground, 1 a feather in.
+  float edgeAt(vec2 uv) {
+    float t = clamp((texture(uMaskEdge, uv).a - ${EDGE_FEATHER_FROM.toFixed(3)}) / ${(1 - EDGE_FEATHER_FROM).toFixed(3)}, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+  }
   float maskAt(vec2 world) {
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
     float s = texture(uMask, uv).r;
+    // P8 — every tier eases in from hidden over the feather rather than stepping up at the
+    // geometry's edge. Inward only (0 at the line), and a product, so the tier still never
+    // reads above what the hard mask says. This is what turns the cut into mist.
+    float e = edgeAt(uv);
     // Hidden and memory texels read themselves, flat. Everything above the memory grey — a
     // live texel, or the feather ramp drawn at a live edge — goes through the blur and the
     // pools below, capped by the hard value so nothing here ever lifts the tier above what
     // the geometry says. The feather used to come back raw instead, and that put a step at
     // every light's radius in the dark: pool-limited on one texel, the bare feather on the
     // next, memory a cell later — the circle the pale mist then traced around each torch.
-    if (s < 0.51) return s;
+    if (s < 0.51) return s * e;
     float live = clamp(2.0 * texture(uMaskSoft, uv).r - 1.0, 0.0, 1.0);
     // In the dark every live texel is inside some pool's geometry; the pools say how far.
     // The fade lands on the memory grey, not on hidden: what a token sees it has explored,
@@ -261,7 +274,7 @@ const FRAGMENT = /* glsl */ `
     // inside every sight edge — the same tier step as the rim and the wisps, arriving one
     // level lower down. The pool branch already floors for this reason; so does this one now.
     float tier = min(s, max(live, 0.5));
-    return uPoolCount > 0 ? min(tier, max(poolAt(world), 0.5)) : tier;
+    return (uPoolCount > 0 ? min(tier, max(poolAt(world), 0.5)) : tier) * e;
   }
 
   void main() {
@@ -507,7 +520,7 @@ export interface LivingFog {
    * These are the same two objects for the life of this fog: the shader's bind group holds
    * their *sources*, so a caller may resize them in place but must never swap them.
    */
-  readonly maskTextures: { mask: RenderTexture; maskSoft: RenderTexture };
+  readonly maskTextures: { mask: RenderTexture; maskSoft: RenderTexture; maskEdge: RenderTexture };
   /**
    * Where the mask textures currently sit and what they are sized at, or null when the last
    * `setMaskBounds` found nothing coverable — which is "hidden everywhere", and wants no
@@ -563,6 +576,14 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   softSprite.filters = [soften];
   const softScene = new Container();
   softScene.addChild(softSprite);
+  // P8 — and the feather copy: `maskRT` read as coverage and blurred by EDGE_FEATHER_CELLS.
+  const maskEdgeRT = RenderTexture.create({ width: 4, height: 4 });
+  const edgeCoverage = coverageFilter();
+  const edgeBlur = new BlurFilter({ strength: 0, quality: 3 });
+  const edgeSprite = new Sprite(maskRT);
+  edgeSprite.filters = [edgeCoverage, edgeBlur];
+  const edgeScene = new Container();
+  edgeScene.addChild(edgeSprite);
   const maskScene = new Container();
   const maskPaint = new Graphics();
   const fadePaint = new Container();
@@ -573,6 +594,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     resources: {
       uMask: maskRT.source,
       uMaskSoft: maskSoftRT.source,
+      uMaskEdge: maskEdgeRT.source,
       fogUniforms: {
         uTime: { value: 0, type: 'f32' },
         uWind: { value: DEFAULT_FOG_LOOK.wind, type: 'f32' },
@@ -694,8 +716,10 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         // *source*, and a fresh RenderTexture is a fresh source the bind does not follow.
         maskRT.resize(tw, th);
         maskSoftRT.resize(tw, th);
+        maskEdgeRT.resize(tw, th);
       }
       soften.strength = fadeCells * s;
+      edgeBlur.strength = EDGE_FEATHER_CELLS * s;
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
@@ -703,7 +727,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     setFrame(frame) {
       setVec(uniforms.uFrame, frame ? [frame.minX, frame.minY, frame.maxX, frame.maxY] : [0, 0, 0, 0]);
     },
-    maskTextures: { mask: maskRT, maskSoft: maskSoftRT },
+    maskTextures: { mask: maskRT, maskSoft: maskSoftRT, maskEdge: maskEdgeRT },
     maskFit() {
       return rect
         ? {
@@ -721,6 +745,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       if (!rect) return;
       engine.renderToTexture(maskScene, maskRT, true);
       engine.renderToTexture(softScene, maskSoftRT, true);
+      engine.renderToTexture(edgeScene, maskEdgeRT, true);
     },
     setPalette(p) {
       palette = p;
@@ -790,6 +815,10 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       maskScene.destroy({ children: true });
       softScene.destroy({ children: true });
       soften.destroy();
+      edgeScene.destroy({ children: true });
+      edgeCoverage.destroy();
+      edgeBlur.destroy();
+      maskEdgeRT.destroy(true);
       maskRT.destroy(true);
       maskSoftRT.destroy(true);
       geometry.destroy();

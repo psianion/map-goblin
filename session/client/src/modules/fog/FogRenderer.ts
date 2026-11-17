@@ -103,6 +103,7 @@ import {
   type FogRing,
   type NightSight,
   openGroundOf,
+  openGroundParts,
   paintedGround,
   regionRects,
   ringsWithHoles,
@@ -402,6 +403,8 @@ export interface FogScene {
    * walled floors), empty until the seat knows an outdoor cell.
    */
   open?: Polygon[];
+  /** P8 — the same ground as outer rings and holes, for the raster plan, which fills each ring solid. */
+  openParts?: { outers: Polygon[]; holes: Polygon[] };
   /** The shown level's Outdoors fog row (`outdoorsId`), whose view `views` carries in By hand mode. */
   outdoors?: string;
   /** §2.8 — this seat's own tokens' footprints on the shown level, always drawn and cleared. */
@@ -838,6 +841,7 @@ export function fogScene(): FogScene {
   // bare id), and this seat's own tokens' footprints, which §2.8 always draws and clears.
   const outdoors = (core.levels?.length ?? 0) > 1 ? outdoorsId(level) : outdoorsId();
   const open = masked ? openGroundOf(mapData, level) : [];
+  const openParts = masked ? openGroundParts(mapData, level) : { outers: [], holes: [] };
   const own: Polygon[] =
     isPlayer && you ? levelTokens.filter((t) => t.ownerId === you.identityId).map(footprintOf) : [];
   // The table's light switches (`lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
@@ -925,6 +929,7 @@ export function fogScene(): FogScene {
           open.length > 0 ? [outdoors] : [],
         ),
     open,
+    openParts,
     outdoors,
     own,
     // No document, no statement: until the referee has sent one there is nothing to be
@@ -1229,7 +1234,8 @@ function tierSceneOf(scene: FogScene): TierScene {
     feather: FOG_FEATHER,
     night: scene.night,
     frame: scene.bounds,
-    open: scene.open,
+    open: scene.openParts?.outers ?? scene.open,
+    openHoles: scene.openParts?.holes,
     own: scene.own,
   };
 }

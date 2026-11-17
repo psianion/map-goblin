@@ -11,13 +11,15 @@ import { describe, expect, it } from 'vitest';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { regionOf, setCells } from '@dnd/mechanics/fog';
 import { FOG_FEATHER } from './FogRenderer';
-import { fogPad, regionCells, regionRects, sightPad, type NightSight } from './fog';
+import { fogPad, openGroundParts, regionCells, regionRects, sightPad, type NightSight } from './fog';
 import { MASK_MEMORY } from './livingFog';
 import {
   MASK_LIVE,
   MASK_MEMORY_GREY,
   MEMORY_BLUR_CELLS,
+  EDGE_FEATHER_CELLS,
   cellTexture,
+  edgeFeather,
   outsideFrame,
   tierPlan,
   type DrawOp,
@@ -792,6 +794,8 @@ const legacyPlan = (s: TierScene): DrawPlan => {
   }
   if (sight.length > 0) ops.push({ kind: 'sprite', target: 'mask', source: 'live', blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'mask', source: 'inverseHeld', blend: 'erase' });
+  // P8: the feather copy of the finished mask.
+  ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
   return { cover, ops, cells };
@@ -1032,7 +1036,7 @@ function coveredAt(plan: DrawPlan, target: TierTarget, x: number, y: number): bo
     if (op.target !== target) continue;
     let hit: boolean;
     if (op.kind === 'rect') hit = x >= op.rect.minX && x <= op.rect.maxX && y >= op.rect.minY && y <= op.rect.maxY;
-    else if (op.kind === 'polys') hit = op.polys.some((p) => inside(p) || (op.grow > 0 && near(p, op.grow)));
+    else if (op.kind === 'polys') hit = op.polys.some((p) => (!op.outline && inside(p)) || (op.grow > 0 && near(p, op.grow)));
     else if (op.kind === 'cells') {
       const [col, row] = [Math.floor(x - op.cells.minX), Math.floor(y - op.cells.minY)];
       hit = col >= 0 && row >= 0 && col < op.cells.cols && row < op.cells.rows && op.cells.data[(row * op.cells.cols + col) * 4 + 3] > 0;
@@ -1093,5 +1097,122 @@ describe('tierPlan — the map edge (P7)', () => {
     expect(strips).toHaveLength(4);
     const area = strips.reduce((sum, r) => sum + (r.maxX - r.minX) * (r.maxY - r.minY), 0);
     expect(area).toBe(28 * 12 - 24 * 8);
+  });
+});
+
+describe('tierPlan — the soft edge (P8)', () => {
+  it('blurs the finished mask into the feather target, then clears the own token over it', () => {
+    const TOKEN: Polygon = [
+      [6, 1],
+      [7, 1],
+      [7, 2],
+      [6, 2],
+    ];
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [LOOKING], own: [TOKEN] }));
+    expect(opsOn(plan, 'edge')).toEqual([
+      { kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS },
+      { kind: 'polys', target: 'edge', polys: [TOKEN], grow: 0, color: MASK_LIVE, blend: 'normal' },
+    ]);
+    // The feather samples the mask after its last clip, so it can only soften what the mask shows.
+    const order = plan.ops.map((op) => op.target);
+    expect(order.indexOf('edge')).toBeGreaterThan(order.lastIndexOf('mask'));
+  });
+
+  // A straight boundary, blurred: coverage is the normal CDF of the inward distance. `erf` by
+  // Abramowitz and Stegun 7.1.26, good to 1.5e-7.
+  const erf = (x: number): number => {
+    const t = 1 / (1 + 0.3275911 * Math.abs(x));
+    const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return x >= 0 ? y : -y;
+  };
+  const SIGMA = EDGE_FEATHER_CELLS / 2;
+  const coverage = (inward: number): number => 0.5 * (1 + erf(inward / (SIGMA * Math.SQRT2)));
+  const STEP = 0.02;
+  const xs = Array.from({ length: 301 }, (_, i) => -2 + i * STEP);
+
+  it.each([
+    ['live sight', 1],
+    ['a memory', 0.5],
+  ])('takes %s from hidden to its tier over the feather, with no hard step', (_name, tier) => {
+    const m = xs.map((x) => tier * edgeFeather(coverage(x)));
+    // Nothing is lifted on or past the boundary: hidden stays exactly hidden.
+    xs.forEach((x, i) => {
+      if (x <= 0) expect(m[i]).toBeCloseTo(0, 6);
+    });
+    // Monotone inward, and every 0.02-cell step under 5% of the tier: a ramp, not a cut.
+    for (let i = 1; i < m.length; i++) {
+      expect(m[i]).toBeGreaterThanOrEqual(m[i - 1]);
+      expect(m[i] - m[i - 1]).toBeLessThan(0.05 * tier);
+    }
+    // Half way up within the feather, and the whole tier a little past it.
+    const at = (x: number): number => m[Math.round((x + 2) / STEP)];
+    expect(at(EDGE_FEATHER_CELLS)).toBeGreaterThan(0.5 * tier);
+    expect(at(2 * EDGE_FEATHER_CELLS)).toBeGreaterThan(0.99 * tier);
+  });
+
+  it('replaces a cut: the shader floored a shown texel at the memory grey, a 0.5 step at the line', () => {
+    // The pre-P8 read: hidden texels flat at 0, a live texel never under 0.5.
+    const before = xs.map((x) => (x > 0 ? Math.max(0.5, 2 * coverage(x) - 1) : 0));
+    const jump = Math.max(...before.slice(1).map((v, i) => v - before[i]));
+    expect(jump).toBeGreaterThanOrEqual(0.5);
+  });
+});
+
+describe('open ground with holes (P8, the sliver)', () => {
+  // A base-ground level as the referee sends it: the frame, then a cave the seat has not earned.
+  const CAVE: Polygon = [
+    [10, 2],
+    [14, 2],
+    [14, 6],
+    [10, 6],
+  ];
+  const OPEN_FRAME: Polygon = [
+    [0, 0],
+    [24, 0],
+    [24, 8],
+    [0, 8],
+  ];
+  const doc = (rings: Polygon[]) => ({ openGround: [{ levelId: 'L', rings }] });
+
+  it('keeps an unearned cave inside open ground off the shipping clip, rim band aside', () => {
+    const { outers, holes } = openGroundParts(doc([OPEN_FRAME, CAVE]), 'L');
+    expect(outers).toEqual([OPEN_FRAME]);
+    expect(holes).toEqual([CAVE]);
+    const plan = tierPlan(fenced({ rooms: [], open: outers, openHoles: holes, sight: [UNOCCLUDED], near: [UNOCCLUDED] }));
+    // The cave's middle stays unshipped, so no sweep, near or far, can open it.
+    expect(coveredAt(plan, 'inverseShipped', 12, 4)).toBe(true);
+    expect(coveredAt(plan, 'mask', 12, 4)).toBe(false);
+    // Its rock, seen from outside, is still shipped, and the grass round it shows.
+    expect(coveredAt(plan, 'inverseShipped', 10.4, 4)).toBe(false);
+    expect(coveredAt(plan, 'mask', 5, 4)).toBe(true);
+  });
+
+  it('reads the rings even-odd, so a second patch of ground is not taken for a hole', () => {
+    const PATCH_B: Polygon = [
+      [18, 1],
+      [22, 1],
+      [22, 5],
+      [18, 5],
+    ];
+    const SMALL: Polygon = [
+      [1, 1],
+      [8, 1],
+      [8, 7],
+      [1, 7],
+    ];
+    const NOOK: Polygon = [
+      [3, 3],
+      [4, 3],
+      [4, 4],
+      [3, 4],
+    ];
+    const LINE: Polygon = [
+      [5, 5],
+      [6, 5],
+      [5, 5],
+    ];
+    const { outers, holes } = openGroundParts(doc([SMALL, PATCH_B, NOOK, LINE]), 'L');
+    expect(outers).toEqual([SMALL, PATCH_B]);
+    expect(holes).toEqual([NOOK]);
   });
 });

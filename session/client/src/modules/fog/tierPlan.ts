@@ -67,6 +67,33 @@ export const MASK_MEMORY_GREY = 0x808080;
  */
 export const MEMORY_BLUR_CELLS = 0;
 
+/**
+ * P8 — how far, in cells, every boundary with hidden ground feathers inward.
+ *
+ * The cloud used to meet the seen ground on a hard line: the shader read hidden texels flat at
+ * 0 and floored every shown texel at the memory grey, so the step from hidden to shown was the
+ * mask's own edge — the sweep's polygon to the pixel, or the record's cells through a one-cell
+ * bilinear tent. The `edge` target is the mask's coverage blurred by this much, and the shader
+ * scales the tier by `edgeFeather` of it, so the cover thins from dense to the tier's own mist
+ * over this distance instead. Inward only: at the boundary itself the factor is 0, so nothing
+ * outside what the geometry shows is ever lifted. Every grown edge (a sweep, a held room) spends
+ * it inside the `FOG_FEATHER` band it already carries; a record edge, inside the extra cell the
+ * record keeps past the ground. The cost: a region much narrower than twice this stays misty.
+ */
+export const EDGE_FEATHER_CELLS = 1;
+
+/** Where `edgeFeather` starts: a blurred straight edge reads exactly half here, on the line. */
+export const EDGE_FEATHER_FROM = 0.5;
+
+/**
+ * The feather factor for a blurred coverage value — the shader's `edgeAt`, written once here so
+ * a test can read it. 0 at and outside the boundary, 1 a feather deep, smooth at both ends.
+ */
+export function edgeFeather(coverage: number): number {
+  const t = Math.min(1, Math.max(0, (coverage - EDGE_FEATHER_FROM) / (1 - EDGE_FEATHER_FROM)));
+  return t * t * (3 - 2 * t);
+}
+
 /** The two native blends P0 proved into a RenderTexture on 8.17. Nothing else is allowed. */
 export type Blend = 'normal' | 'erase';
 
@@ -100,6 +127,7 @@ export type TierTarget =
   | 'inverseSeeable'
   | 'live'
   | 'mask'
+  | 'edge'
   | 'scrim'
   | 'inverseLive'
   | 'grey';
@@ -112,6 +140,7 @@ export const TARGET_ORDER: readonly TierTarget[] = [
   'inverseSeeable',
   'live',
   'mask',
+  'edge',
   'scrim',
   'inverseLive',
   'grey',
@@ -150,6 +179,8 @@ export type DrawOp =
       grow: number;
       color: number;
       blend: Blend;
+      /** P8 — the stroke alone, no fill: the band within `grow` of each ring. */
+      outline?: boolean;
     }
   /** The record's cells, linearly upscaled and tinted to the memory grey. */
   | {
@@ -160,8 +191,11 @@ export type DrawOp =
       color: number;
       blend: Blend;
     }
-  /** One target composited into another over the whole cover. */
-  | { kind: 'sprite'; target: TierTarget; source: TierTarget; blend: Blend };
+  /**
+   * One target composited into another over the whole cover. With `featherCells` (P8) the
+   * source is read as coverage (shown or not, whatever its tier) and blurred by that many cells.
+   */
+  | { kind: 'sprite'; target: TierTarget; source: TierTarget; blend: Blend; featherCells?: number };
 
 export interface DrawPlan {
   /**
@@ -229,6 +263,11 @@ export interface TierScene {
    * walled floors already cut out). Absent until the seat knows an outdoor cell.
    */
   open?: readonly Polygon[];
+  /**
+   * P8 — the holes in that open ground (walled floors and caves the seat has not earned). Kept
+   * apart because a polygon here is filled solid: a hole ring in `open` would ship its inside.
+   */
+  openHoles?: readonly Polygon[];
   /** §2.8 — this seat's own tokens' footprints: always drawn, the cell under them always clear. */
   own?: readonly Polygon[];
 }
@@ -387,7 +426,9 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const contained = scene.contained;
   const own = usable(scene.own ?? []);
   const held = heldSources(contained, rooms, revealed, scene.region);
-  const shipped = contained ? shippedGround(rooms, usable(scene.open ?? []), scene.frame) : [];
+  const openOuters = usable(scene.open ?? []);
+  const openHoles = contained ? usable(scene.openHoles ?? []) : [];
+  const shipped = contained ? shippedGround(rooms, openOuters, scene.frame) : [];
   const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, [...painted, ...own], grow);
   const cells = regionCells(scene.region);
   if (!cover) return { cover: null, ops: [], cells };
@@ -433,7 +474,17 @@ export function tierPlan(scene: TierScene): DrawPlan {
   // nothing else, which is what `nearTerm` below is for.
   if (contained) {
     ops.push({ kind: 'rect', target: 'inverseShipped', rect: cover, color: MASK_LIVE, blend: 'normal' });
-    if (shipped.length > 0) {
+    if (openHoles.length > 0 && openOuters.length > 0) {
+      // P8 — open ground with holes, as fill-only draws: the outer patches grown, the holes put
+      // back, then the band within `grow` of each hole's rim bought back (a cave's rock seen from
+      // outside), then the rooms the seat holds, which may sit inside a hole.
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: openOuters, grow, color: MASK_LIVE, blend: 'erase' });
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: openHoles, grow: 0, color: MASK_LIVE, blend: 'normal' });
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: openHoles, grow, color: MASK_LIVE, blend: 'erase', outline: true });
+      if (rooms.length > 0) {
+        ops.push({ kind: 'polys', target: 'inverseShipped', polys: rooms, grow, color: MASK_LIVE, blend: 'erase' });
+      }
+    } else if (shipped.length > 0) {
       ops.push({ kind: 'polys', target: 'inverseShipped', polys: shipped, grow, color: MASK_LIVE, blend: 'erase' });
     }
     if (painted.length > 0) {
@@ -594,6 +645,15 @@ export function tierPlan(scene: TierScene): DrawPlan {
   // …and the one exception to "nothing after it": the cell under the seat's own token.
   if (own.length > 0) {
     ops.push({ kind: 'polys', target: 'mask', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
+  }
+
+  // ── The feather (P8) ───────────────────────────────────────────────────────
+  // The finished mask's coverage, blurred, for the shader's inward edge ramp. The seat's own
+  // token goes back over it unblurred: a one-cell clearing is narrower than the feather, and
+  // §2.8 promises it clear whatever the edge does.
+  ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
+  if (own.length > 0) {
+    ops.push({ kind: 'polys', target: 'edge', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
   }
 
   // ── The scrim ─────────────────────────────────────────────────────────────

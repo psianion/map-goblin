@@ -20,6 +20,7 @@
 
 import {
   BlurFilter,
+  ColorMatrixFilter,
   BufferImageSource,
   Container,
   Graphics,
@@ -74,12 +75,27 @@ export interface TierCompositor {
 export interface TierTextures {
   mask: RenderTexture;
   maskSoft: RenderTexture;
+  /** P8 — the mask's coverage blurred for the inward feather (the plan's `edge` target). */
+  maskEdge?: RenderTexture;
+}
+
+/**
+ * P8 — a mask texel as coverage: every channel twice the red, so hidden (0) reads 0 and both the
+ * memory grey and live white read 1. The vision mask leaves hidden transparent and the rooms
+ * path paints it opaque black, and red is the one channel both agree on.
+ */
+export function coverageFilter(): ColorMatrixFilter {
+  const filter = new ColorMatrixFilter();
+  const row = [2, 0, 0, 0, 0];
+  filter.matrix = [...row, ...row, ...row, ...row] as ColorMatrixFilter['matrix'];
+  return filter;
 }
 
 export function createTierCompositor(engine: TierRenderer, shared?: TierTextures): TierCompositor {
   const targets = new Map<TierTarget, { rt: RenderTexture; scene: Container; owned: boolean }>(
     TARGET_ORDER.map((name) => {
-      const borrowed = name === 'mask' && shared ? shared.mask : null;
+      const borrowed =
+        name === 'mask' && shared ? shared.mask : name === 'edge' && shared?.maskEdge ? shared.maskEdge : null;
       return [
         name,
         {
@@ -106,6 +122,9 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   // The memory tier's blur, when a plan asks for one. Kept whatever the plan says, because a
   // filter is a GPU resource and the plan's answer can change between runs.
   const memoryBlur = new BlurFilter({ strength: 0, quality: 2 });
+  // …and the feather's (P8), on the same terms.
+  const edgeBlur = new BlurFilter({ strength: 0, quality: 3 });
+  const edgeCoverage = coverageFilter();
 
   let cellSource: BufferImageSource | null = null;
   let cellTex: Texture | null = null;
@@ -149,7 +168,8 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         const g = new Graphics();
         for (const poly of op.polys) {
           if (poly.length < 3) continue;
-          g.poly(poly.flat(), true).fill({ color: op.color, alpha: 1 });
+          g.poly(poly.flat(), true);
+          if (!op.outline) g.fill({ color: op.color, alpha: 1 });
           // Fill *and* a round-joined stroke of width 2r is the polygon ⊕ disc(r) — the
           // offset `reachOf` was paying Clipper for, at 0.003% area error (P0).
           if (op.grow > 0) {
@@ -188,6 +208,11 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
         sprite.width = cover.maxX - cover.minX;
         sprite.height = cover.maxY - cover.minY;
         sprite.blendMode = op.blend;
+        if (op.featherCells) {
+          edgeBlur.strength = op.featherCells * scale;
+          edgeBlur.blendMode = op.blend;
+          sprite.filters = [edgeCoverage, edgeBlur];
+        }
         return sprite;
       }
     }
@@ -246,6 +271,8 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
       softScene.destroy({ children: true });
       soften.destroy();
       memoryBlur.destroy();
+      edgeBlur.destroy();
+      edgeCoverage.destroy();
       if (!shared) maskSoft.destroy(true);
       cellTex?.destroy(true);
       cellTex = null;

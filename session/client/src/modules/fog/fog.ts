@@ -474,19 +474,47 @@ export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Poly
 }
 
 /**
- * Table fix pass §2.7 — the open ground the referee stamped on this seat's copy for one level:
- * the frame with the walled floors cut out (the wire's rings read even-odd, ring 0 the frame).
- * Empty when the seat knows no outdoor cell yet, or the level has none — and while Clipper2 is
- * not loaded, since an identity `difference` would hand over the walled floors as well.
+ * P8 — the open ground the referee stamped for one level, as its outer rings and its holes.
+ *
+ * The wire's rings read even-odd: a ring nested inside an odd number of others is a hole. A
+ * base-ground level sends the frame then its walled floors, but a ground-pieces level sends
+ * Clipper's own answer, several outer patches and their holes in no fixed order, so "ring 0
+ * is the frame, the rest are holes" dropped every patch after the first. Rings with no area
+ * (an enclosure's degenerate outline) are neither.
  */
-export function openGroundOf(mapData: unknown, levelId: string | null | undefined): Polygon[] {
+export function openGroundParts(
+  mapData: unknown,
+  levelId: string | null | undefined,
+): { outers: Polygon[]; holes: Polygon[] } {
   const entries = (mapData as SerializedMapData | null)?.openGround ?? [];
   const entry = entries.find((e) => e.levelId === levelId) ?? (entries.length === 1 ? entries[0] : undefined);
-  const [frame, ...floors] = entry?.rings ?? [];
-  if (!frame || frame.length < 3) return [];
-  const holes = floors.filter((ring) => ring.length >= 3);
-  if (holes.length === 0) return [frame];
-  return isClipperReady() ? clipper2Engine.difference([frame], holes) : [];
+  const rings = ((entry?.rings ?? []) as Polygon[]).filter((ring) => ring.length >= 3 && Math.abs(ringArea(ring)) > 1e-9);
+  const outers: Polygon[] = [];
+  const holes: Polygon[] = [];
+  for (const ring of rings) {
+    const depth = rings.filter((other) => other !== ring && pointInPolygon(ring[0], other)).length;
+    (depth % 2 === 0 ? outers : holes).push(ring);
+  }
+  return { outers, holes };
+}
+
+const ringArea = (ring: Polygon): number =>
+  ring.reduce((sum, [x, y], i) => {
+    const [u, v] = ring[(i + 1) % ring.length];
+    return sum + x * v - u * y;
+  }, 0) / 2;
+
+/**
+ * Table fix pass §2.7 — the same open ground as Clipper rings (holes wound the other way), for
+ * the Clipper consumers. Empty when the seat knows no outdoor cell yet, or the level has none,
+ * and while Clipper2 is not loaded, since an identity `difference` would hand over the walled
+ * floors as well.
+ */
+export function openGroundOf(mapData: unknown, levelId: string | null | undefined): Polygon[] {
+  const { outers, holes } = openGroundParts(mapData, levelId);
+  if (outers.length === 0) return [];
+  if (holes.length === 0) return outers;
+  return isClipperReady() ? clipper2Engine.difference(outers, holes) : [];
 }
 
 /**
