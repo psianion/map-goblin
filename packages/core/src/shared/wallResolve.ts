@@ -463,6 +463,7 @@ function resolveDoor(
   walls: ResolvedWall[],
   byId: Map<string, ResolvedWall>,
 ): ResolvedDoor {
+  if (door.placed) return placedDoor(door, walls, byId);
   // A hinted wall wins while it exists — that is what makes a door follow a node
   // edit for free. Floor doors and legacy `floor-*` ids never hit, so they
   // re-project onto whichever wall is nearest, hence self-heal across re-unions.
@@ -484,6 +485,41 @@ function resolveDoor(
   const t = Math.min(1 - half, Math.max(half, snap.t));
   const at = pointAt(wall.points, t);
   return { door, wall, t, position: at.position, angle: at.angle, detached: false };
+}
+
+/** How near a placed door's pose must lie to a wall to be standing on it, cells. */
+const PLACED_ON = 1e-3;
+
+/**
+ * A door the server resolved on the full map (`DoorChild.placed`): drawn at its baked pose, never
+ * re-snapped. It is hosted on the wall it stands on where this copy holds one (so the stones and
+ * rock there open for it), else on a piece of its own exactly its width, which cuts nothing.
+ */
+function placedDoor(door: DoorChild, walls: ResolvedWall[], byId: Map<string, ResolvedWall>): ResolvedDoor {
+  const placed = door.placed!;
+  const pose = { door, position: door.position, angle: door.angle };
+  if (placed.detached) return { ...pose, wall: null, t: 0, detached: true };
+  const along = (wall: ResolvedWall | undefined) => {
+    const snap = wall ? snapToNearestWall(door.position, [wall], PLACED_ON) : null;
+    return snap && Math.abs(Math.sin(snap.angle - door.angle)) < PLACED_ON ? snap : null;
+  };
+  const hinted = placed.wallId ? byId.get(placed.wallId) : undefined;
+  const hit = along(hinted) ? hinted : walls.find((w) => along(w));
+  if (hit) return { ...pose, wall: hit, t: along(hit)!.t, detached: false };
+  const [hx, hy] = [(Math.cos(door.angle) * door.width) / 2, (Math.sin(door.angle) * door.width) / 2];
+  const own: ResolvedWall = {
+    id: placed.wallId || `placed:${door.id}`,
+    points: [
+      [door.position[0] - hx, door.position[1] - hy],
+      [door.position[0] + hx, door.position[1] + hy],
+    ],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000000',
+    roughness: 0,
+    kind: 'standalone',
+  };
+  return { ...pose, wall: own, t: 0.5, detached: false };
 }
 
 function nearestWall(door: DoorChild, walls: ResolvedWall[]): ResolvedWall | null {

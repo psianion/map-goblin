@@ -84,13 +84,17 @@ export type TableRoom = Room & { boundary: [number, number][] };
 /** A room's face, whichever field holds it: the document's `boundary`, else a synced `face`. */
 export const roomRing = (room: Room): [number, number][] => room.boundary ?? room.face ?? [];
 
-/** Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. */
+/**
+ * Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. A room the
+ * server sent as a stand-in (`Room.standIn`) is art only, for the floor it lies under: it is never
+ * a room the player holds, so the fog never counts it.
+ */
 export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
   return layers.flatMap((layer) =>
     layer.type === 'dungeon'
-      ? (layer.rooms ?? []).map((room): TableRoom =>
-          room.boundary ? (room as TableRoom) : { ...room, boundary: roomRing(room) },
-        )
+      ? (layer.rooms ?? [])
+          .filter((room) => !room.standIn)
+          .map((room): TableRoom => (room.boundary ? (room as TableRoom) : { ...room, boundary: roomRing(room) }))
       : [],
   );
 }

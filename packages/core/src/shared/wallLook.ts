@@ -306,6 +306,9 @@ export function doorWallLook(
   ringStyles?: readonly DungeonStyle[],
   edgeStyles?: readonly (readonly DungeonStyle[] | null)[],
 ): WallLook {
+  // A door the server placed on the full map carries that wall's look (`DoorChild.placed`).
+  const placed = resolved.door.placed?.look;
+  if (placed) return { setId: placed.setId, tint: placed.tint, width: placed.width, corner: placed.corner };
   const wall = resolved.wall;
   if (wall?.kind === 'standalone') return standaloneWallLook(wall, style);
   if (wall?.kind === 'floor' && wall.ring !== undefined) {

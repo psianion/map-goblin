@@ -196,6 +196,36 @@ describe('resolveDoors', () => {
   });
 });
 
+describe('resolveDoors — a door the server placed on the full map', () => {
+  const look = { setId: 'GG_Cave_Ink', tint: '#ffffff', width: 0.4, corner: 'sharp' as const };
+
+  it('keeps its pose with no wall in reach, on a piece of its own', () => {
+    const l = layer({ children: [door({ wallId: 'gone', position: [3, 4], angle: 0.3, placed: { wallId: 'gone', look } })] });
+    const [r] = resolve(l);
+    expect(r).toMatchObject({ position: [3, 4], angle: 0.3, detached: false });
+    expect(r.wall).toMatchObject({ id: 'gone', kind: 'standalone' });
+  });
+
+  it('never re-snaps to a nearer wall, and is hosted only by a wall it stands on', () => {
+    const l = layer({
+      standaloneWalls: [wall()],
+      children: [
+        door({ id: 'off', wallId: FLOOR_ANCHORED, position: [5, 0.4], angle: 0, placed: { wallId: '', look } }),
+        door({ id: 'on', wallId: FLOOR_ANCHORED, position: [5, 0], angle: Math.PI, placed: { wallId: '', look } }),
+      ],
+    });
+    const [off, on] = resolve(l);
+    expect(off.position).toEqual([5, 0.4]);
+    expect(off.wall?.id).toBe('placed:off');
+    expect(on.wall?.id).toBe('w1');
+  });
+
+  it('stays detached when the full map detached it', () => {
+    const l = layer({ standaloneWalls: [wall()], children: [door({ placed: { wallId: '', detached: true, look } })] });
+    expect(resolve(l)[0]).toMatchObject({ detached: true, wall: null, position: [5, 0] });
+  });
+});
+
 describe('toOcclusionDoors', () => {
   it('excludes detached doors from the occlusion input', () => {
     const l = layer({

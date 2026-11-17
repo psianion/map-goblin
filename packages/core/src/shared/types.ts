@@ -423,6 +423,16 @@ export interface LightChild extends LayerChild {
   tableOn?: boolean;
 }
 
+/** A door's resolved placement, baked for a player's copy (see `DoorChild.placed`). */
+export interface DoorPlacement {
+  /** The wall the door resolved onto: a drawn wall's or a cave run's id, '' for a floor-ring edge. */
+  wallId: string;
+  /** Nothing in reach on the full map: the door is detached there too. Absent = false. */
+  detached?: boolean;
+  /** The look of that wall, which picks the door's kit, jambs, tint and depth. */
+  look: { setId?: string; tint: string; width: number; corner: CornerStyle };
+}
+
 export interface DoorChild extends LayerChild {
   childType: 'door';
   /**
@@ -468,6 +478,13 @@ export interface DoorChild extends LayerChild {
    * stops either side. Absent = false.
    */
   bare?: boolean;
+  /**
+   * Table only, never in a file: where the referee resolved this door on the full map, baked into
+   * a player's partial copy by the server. A player's copy lacks the walls, floors and rooms the
+   * door's pose and look are read from, so a door carrying this is drawn exactly as given:
+   * `position` and `angle` are the resolved pose, and no re-snap runs (`shared/wallResolve.ts`).
+   */
+  placed?: DoorPlacement;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
   /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */
@@ -665,6 +682,12 @@ export interface Room {
   derivedFrom?: string;
   /** Merge lineage: rooms folded into this one. The server ORs their fog at publish, then strips it. */
   mergedFrom?: string[];
+  /**
+   * Table only, never in a file: a room the player has not earned, sent with no name, number,
+   * anchor or notes, only its face and look, because a floor they hold runs through it and must
+   * draw as the referee's does. Never a revealed room and never part of the fog.
+   */
+  standIn?: true;
 
   // ---- derived at runtime, stripped on save ----
   /** The face the anchor sits in (or `boundary`). Read through `roomFace`. */

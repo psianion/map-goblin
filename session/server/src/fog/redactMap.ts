@@ -16,10 +16,17 @@ import {
   type RegionMask,
   type SceneFog,
 } from '@dnd/mechanics/fog'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the engine's own door resolve, run on the full map
+import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the wall looks the door renderer reads
+import { doorWallLook, edgeStyles, levelStyle, ringStyles } from '@dnd/core/src/shared/wallLook'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the look chain
+import { levelOf } from '@dnd/core/src/shared/lookScope'
 import type {
   AnyChild,
   DoorChild,
   Room,
+  RoomArea,
   ShapeChild,
   WallSegment,
 } from '@dnd/core/src/shared/types'
@@ -31,6 +38,7 @@ import {
   distanceToPoly,
   isDungeon,
   pointInPoly,
+  roomRing,
   wallsOf,
   type SceneMap,
 } from './sceneMap'
@@ -136,10 +144,14 @@ export function childDeltaFor(
       .filter(isDungeon)
       .map((layer) => ({
         id: layer.id,
-        rooms: [] as Room[],
-        children: childrenOf(layer)
-          .filter((child) => childIds.has(child.id))
-          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
+        ...withStandIns(
+          layer,
+          [],
+          childrenOf(layer)
+            .filter((child) => childIds.has(child.id))
+            .map((child) => (child.childType === 'door' ? facing(placed(scene, child), kept) : child)) as AnyChild[],
+          kept,
+        ),
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -206,11 +218,16 @@ function slice(
   cut: Cut = cutFor(scene, kept),
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
-    rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
-    children: childrenOf(layer)
-      .filter((child) => childShips(child, layer, scene, kept, doors, cut))
-      // A door on the edge of the known world keeps only the side the party has been.
-      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
+    ...withStandIns(
+      layer,
+      (layer.rooms ?? []).filter((room) => kept.has(room.id)),
+      childrenOf(layer)
+        .filter((child) => childShips(child, layer, scene, kept, doors, cut))
+        // A door on the edge of the known world keeps only the side the party has been, and is
+        // drawn where the referee's full map puts it.
+        .map((child) => (child.childType === 'door' ? facing(placed(scene, child), facingSet) : child)),
+      facingSet,
+    ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>
@@ -540,14 +557,110 @@ function nearKeptRoom(cut: Cut, x: number, y: number): boolean {
 
 /** Does this shape's outline enclose any part of a room the party has earned? */
 function coversKeptRoom(shape: ShapeChild, cut: Cut): boolean {
+  return cut.rooms.some((room) => shapeCovers(shape, room.boundary))
+}
+
+/** Does this shape's outline enclose any vertex of a room's face? */
+function shapeCovers(shape: ShapeChild, boundary: readonly [number, number][]): boolean {
   const outline = shape.contours?.[0]
   if (!outline || outline.length < 3) return false
   // `centreOf` adds the translate to the shape; here the room's world vertices come back to
   // the untransformed contour instead, which is the same comparison from the other end.
   const [dx, dy] = shape.transform?.translate ?? [0, 0]
-  return cut.rooms.some((room) =>
-    room.boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy)),
-  )
+  return boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy))
+}
+
+/*
+ * R1 (rca-live.md) — the player's copy must draw exactly as the DM's wherever it draws at all.
+ *
+ * The engine resolves a door's pose, and every door, wall band, floor fill and room place's
+ * look, from context a player's copy does not hold: the wall a door hangs on (re-snapped to the
+ * nearest one when absent), the merged floor, and the rooms whose looks pin floors, walls and
+ * places. Two mechanisms close that, chosen as the smallest pair that makes the parity test
+ * (`parity.test.ts`) hold, and both live in this file:
+ *
+ * 1. Doors are baked. Each door a player is sent is resolved here against the full map and
+ *    carries the result: the pose in `position` and `angle`, and the host wall's id and look in
+ *    `placed`. Core draws a placed door as given, with no re-snap (`wallResolve.ts`
+ *    `placedDoor`, `wallLook.ts` `doorWallLook`).
+ * 2. Withheld rooms under a sent floor travel as stand-ins: the room's id, face and look (its
+ *    area's pins folded in), with no name, number, anchor, area or notes, marked `standIn`. The
+ *    engine reads them for floor fills, wall pins and place exactly as it reads a real room;
+ *    the client's fog never counts one (`roomsOfLayers`). A later reveal sends the real room
+ *    under the same id, which replaces the stand-in on merge.
+ */
+
+const placementCache = new WeakMap<SceneMap, Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>>>()
+
+/** Every door on the map, resolved as the DM's renderer resolves it. Once per parsed map. */
+function placementsOf(scene: SceneMap): Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>> {
+  const hit = placementCache.get(scene)
+  if (hit) return hit
+  const out = new Map<string, Pick<DoorChild, 'position' | 'angle' | 'placed'>>()
+  for (const stored of scene.data.layers) {
+    if (!isDungeon(stored)) continue
+    const layer = { ...stored, children: [...childrenOf(stored)], standaloneWalls: [...wallsOf(stored)] }
+    const level = levelOf(scene.data.levels ?? [], layer).look
+    const [style, rings, edges] = [levelStyle(layer.style, level), ringStyles(layer, level), edgeStyles(layer, level)]
+    for (const resolved of resolveDoors(layer, resolveWalls(layer))) {
+      const look = doorWallLook(resolved, style, rings, edges)
+      out.set(resolved.door.id, {
+        position: resolved.position,
+        angle: resolved.angle,
+        placed: {
+          // A floor-ring edge has no id that survives the client's own union: '' finds it by pose.
+          wallId: resolved.wall && resolved.wall.kind !== 'floor' ? resolved.wall.id : '',
+          ...(resolved.detached ? { detached: true } : {}),
+          look: { ...(look.setId ? { setId: look.setId } : {}), tint: look.tint, width: look.width, corner: look.corner },
+        },
+      })
+    }
+  }
+  placementCache.set(scene, out)
+  return out
+}
+
+/** A door as the player is sent it: drawn where, and as, the full map draws it. */
+function placed<T extends DoorChild>(scene: SceneMap, door: T): T {
+  const placement = placementsOf(scene).get(door.id)
+  return placement ? { ...door, ...placement } : door
+}
+
+/**
+ * The rooms a slice ships: the ones it was given, plus a stand-in for every room the player does
+ * not hold whose face lies under a walled floor or cave this slice sends.
+ */
+function withStandIns(
+  layer: DungeonLayer,
+  rooms: Room[],
+  children: AnyChild[],
+  held: ReadonlySet<string>,
+): { rooms: Room[]; children: AnyChild[] } {
+  const floors = children.filter((c): c is ShapeChild => c.childType === 'shape' && c.ground !== true)
+  if (floors.length === 0) return { rooms, children }
+  const shipped = new Set(rooms.map((room) => room.id))
+  const standIns = (layer.rooms ?? [])
+    .filter((room) => !held.has(room.id) && !shipped.has(room.id))
+    .filter((room) => roomRing(room).length >= 3 && floors.some((floor) => shapeCovers(floor, roomRing(room))))
+    .map((room) => standIn(room, layer.areas))
+  return { rooms: standIns.length ? [...rooms, ...standIns] : rooms, children }
+}
+
+/** A withheld room as the engine needs it to draw the floor around it: face and look, nothing more. */
+function standIn(room: Room, areas: readonly RoomArea[] | undefined): Room {
+  const area = room.areaId ? areas?.find((a) => a.id === room.areaId) : undefined
+  // Room pins win over area pins key by key, which is the look chain's own order.
+  const look = { ...area?.look, ...room.look }
+  const boundary = roomRing(room)
+  return {
+    id: room.id,
+    name: '',
+    // Not the authored anchor: any point of the face serves, and the face is already sent.
+    anchor: boundary[0],
+    boundary,
+    standIn: true,
+    ...(Object.keys(look).length > 0 ? { look } : {}),
+  }
 }
 
 /**

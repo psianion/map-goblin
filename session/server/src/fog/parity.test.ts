@@ -391,3 +391,22 @@ describe.each(FIXTURES)('player view parity: $name', (fixture) => {
     expect({ draws: differences(dm, player, frame), leaks: leaks(dm, player, fog, frame) }).toEqual({ draws: [], leaks: [] })
   })
 })
+
+describe('a stand-in room (R1)', () => {
+  it('carries face, look and place only, and is replaced by the real room when earned', () => {
+    const map = outdoorCaveFull()
+    const outside: State = { name: 'outside', fog: { rooms: { '@outdoors': lit } }, token: [13.5, 7.5] }
+    const { player } = cut(map, outside)
+    const hall = dungeonOf(player).rooms!.find((room) => room.id === 'room-hall')!
+    expect(Object.keys(hall).sort()).toEqual(['anchor', 'boundary', 'id', 'look', 'name', 'standIn'])
+    expect(hall).toMatchObject({
+      name: '',
+      standIn: true,
+      look: { floorTint: '#ffd0d0', wallWidth: 0.8, wallTextureTint: '#a0a0ff', place: 'underground' },
+    })
+    expect(hall.anchor).not.toEqual([8, 7])
+    const earned = cut(map, { ...outside, fog: { rooms: { '@outdoors': lit, 'room-hall': lit } } })
+    expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')).toMatchObject({ name: 'Hall' })
+    expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')!.standIn).toBeUndefined()
+  })
+})

@@ -230,7 +230,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
 
   it('keeps the geometry of a room that was seen and re-hidden (D4)', () => {
     const layer = layerOf(redacted())
-    expect(layer.rooms?.map((r) => r.id).sort()).toEqual(['hall', 'inner'])
+    expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual(['hall', 'inner'])
     expect(layer.children.map((c) => c.id)).toContain('floor-inner')
     expect(layer.children.map((c) => c.id)).toContain('prop-inner')
   })
@@ -380,9 +380,12 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
 
   it('names only the rooms the player has been in', () => {
     // Names live on the rooms themselves now, so the room cut is the name cut.
-    const rooms = layerOf(redacted()).rooms ?? []
+    // A room under a floor the player holds may ride as a stand-in (R1), nameless.
+    const all = layerOf(redacted()).rooms ?? []
+    const rooms = all.filter((r) => !r.standIn)
     expect(rooms.map((r) => r.id).sort()).toEqual(['hall', 'inner'])
     expect(rooms.map((r) => r.name).sort()).toEqual(['hall of secrets', 'inner of secrets'])
+    expect(all.filter((r) => r.standIn).every((r) => r.name === '' && r.number === undefined)).toBe(true)
   })
 
   it('keeps a door into the unknown but not the id of what is behind it', () => {
@@ -505,8 +508,12 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
   })
 
   it('takes nothing else of the room the party has not earned', () => {
+    // The cave floor runs under east-arm, so it rides as a stand-in (R1): face and look only.
     const wire = JSON.stringify(redactedCave())
-    expect(wire).not.toContain('east-arm')
+    const east = (redactedCave().layers[0] as DungeonLayer).rooms?.find((r) => r.id === 'east-arm')
+    expect(east).toMatchObject({ name: '', standIn: true })
+    expect(east?.number).toBeUndefined()
+    expect(wire).not.toContain('east-arm of secrets')
     expect(wire).not.toContain('prop-east')
   })
 
@@ -710,7 +717,7 @@ describe('vision (D3/D8)', () => {
     const { vision, stores, campaignId } = table()
     set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
     // Nothing computed yet, so the answer is the whole explored set — never nothing.
-    expect(vision.revealDelta(SCENE)?.layers[0].rooms.map((r) => r.id).sort()).toEqual([
+    expect(vision.revealDelta(SCENE)?.layers[0].rooms.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual([
       'hall',
       'inner',
     ])
@@ -740,7 +747,7 @@ describe('vision (D3/D8)', () => {
 
 describe('a scene the DM has revealed nothing in', () => {
   const roomsOfMap = (map: SerializedMapData | null) =>
-    (map?.layers[0] as DungeonLayer).rooms?.map((r) => r.id).sort()
+    (map?.layers[0] as DungeonLayer).rooms?.filter((r) => !r.standIn).map((r) => r.id).sort()
 
   it('sends a player no rooms and shows them nothing, however big the room', () => {
     const { vision, stores, campaignId } = table()
