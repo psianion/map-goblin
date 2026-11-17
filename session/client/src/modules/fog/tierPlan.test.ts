@@ -943,3 +943,57 @@ describe('tierPlan — the Lighting pass: dark regions, darkness sources and the
     expect(opsOn(tierPlan(scene({ sight: [LOOKING] })), 'grey')).toEqual([]);
   });
 });
+
+describe('tierPlan — table fix pass §2.8', () => {
+  /** Grass outside both halls: the open ground the referee stamps once an outdoor cell is known. */
+  const GRASS: Polygon = [
+    [16, 0],
+    [24, 0],
+    [24, 8],
+    [16, 8],
+  ];
+  const TOKEN: Polygon = [
+    [19, 3],
+    [20, 3],
+    [20, 4],
+    [19, 4],
+  ];
+
+  it('keeps the open ground shipped after a room ships', () => {
+    // The cave door opened and WEST shipped; the grass the player stood on must stay shipped.
+    const plan = tierPlan(fenced({ rooms: [WEST], open: [GRASS] }));
+    const shipped = polysOn(plan, 'inverseShipped').flatMap((op) => op.polys);
+    expect(shipped).toContain(WEST);
+    expect(shipped).toContain(GRASS);
+  });
+
+  it('ships the frame only while neither a room nor open ground has arrived', () => {
+    const plan = tierPlan(fenced({ rooms: [], open: [] }));
+    expect(polysOn(plan, 'inverseShipped')[0].polys).toEqual([
+      [
+        [FRAME.minX, FRAME.minY],
+        [FRAME.maxX, FRAME.minY],
+        [FRAME.maxX, FRAME.maxY],
+        [FRAME.minX, FRAME.maxY],
+      ],
+    ]);
+  });
+
+  it("always draws the seat's own token and clears the cell under it, after every clip", () => {
+    // No sight, no record, no rooms of its own: the token stands on ground nobody shipped.
+    const plan = tierPlan(fenced({ rooms: [WEST], own: [TOKEN] }));
+    const mask = opsOn(plan, 'mask');
+    const clip = mask.findIndex((op) => op.kind === 'sprite' && op.blend === 'erase');
+    const own = mask.findIndex((op) => op.kind === 'polys' && op.polys.includes(TOKEN));
+    expect(clip).toBeGreaterThanOrEqual(0);
+    expect(own).toBeGreaterThan(clip);
+    expect(mask[own]).toMatchObject({ blend: 'normal', color: MASK_LIVE });
+    const live = opsOn(plan, 'live');
+    expect(live[live.length - 1]).toMatchObject({ kind: 'polys', polys: [TOKEN], blend: 'normal' });
+  });
+
+  it('adds nothing for a seat with no token of its own', () => {
+    const plan = tierPlan(fenced({ rooms: [WEST] }));
+    expect(opsOn(plan, 'live')).toEqual([]);
+  });
+});

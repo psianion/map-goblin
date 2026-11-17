@@ -2,7 +2,7 @@
 // checked without a GPU or a DOM. Rooms come off the loaded map (they are authored data,
 // D1); their fog status comes off the session's `fog` module slice.
 
-import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine';
+import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
@@ -470,6 +470,22 @@ export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Poly
   const { minX, minY, maxX, maxY } = terrain.bounds;
   if (!(maxX > minX && maxY > minY)) return [];
   return decoded ?? [];
+}
+
+/**
+ * Table fix pass §2.7 — the open ground the referee stamped on this seat's copy for one level:
+ * the frame with the walled floors cut out (the wire's rings read even-odd, ring 0 the frame).
+ * Empty when the seat knows no outdoor cell yet, or the level has none — and while Clipper2 is
+ * not loaded, since an identity `difference` would hand over the walled floors as well.
+ */
+export function openGroundOf(mapData: unknown, levelId: string | null | undefined): Polygon[] {
+  const entries = (mapData as SerializedMapData | null)?.openGround ?? [];
+  const entry = entries.find((e) => e.levelId === levelId) ?? (entries.length === 1 ? entries[0] : undefined);
+  const [frame, ...floors] = entry?.rings ?? [];
+  if (!frame || frame.length < 3) return [];
+  const holes = floors.filter((ring) => ring.length >= 3);
+  if (holes.length === 0) return [frame];
+  return isClipperReady() ? clipper2Engine.difference([frame], holes) : [];
 }
 
 /**

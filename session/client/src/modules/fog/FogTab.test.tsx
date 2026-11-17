@@ -74,7 +74,7 @@ describe('Fog tab', () => {
   it('switches the mode and picks a look', () => {
     const sent = capture();
     render(<FogBody />);
-    fireEvent.click(screen.getByRole('button', { name: 'Vision' }));
+    fireEvent.click(screen.getByTestId('fog-mode-vision'));
     expect(sent.at(-1)).toMatchObject({ action: 'set-mode', payload: { mode: 'vision' } });
     fireEvent.click(screen.getByText('Look'));
     fireEvent.click(screen.getByTestId('fog-look-mist'));
@@ -85,12 +85,38 @@ describe('Fog tab', () => {
     const sent = capture();
     render(<FogStrip />);
     const rows = screen.getAllByRole('listitem');
-    expect(rows.map((r) => r.getAttribute('data-room-id'))).toEqual(['r2', 'r1']);
+    // Outdoors leads the list (table fix pass §4.5), then the rooms, unrevealed first.
+    expect(rows.map((r) => r.getAttribute('data-room-id'))).toEqual(['@outdoors', 'r2', 'r1']);
+    fireEvent.click(within(rows[1]!).getByTestId('room-reveal'));
+    fireEvent.click(within(rows[2]!).getByTestId('room-hide'));
     fireEvent.click(within(rows[0]!).getByTestId('room-reveal'));
-    fireEvent.click(within(rows[1]!).getByTestId('room-hide'));
     expect(sent.map((m) => [m.action, (m.payload as { roomId: string }).roomId])).toEqual([
       ['reveal', 'r2'],
       ['hide', 'r1'],
+      ['reveal', '@outdoors'],
     ]);
+  });
+
+  it('badges the rows a party token stands in', () => {
+    const token = (id: string, x: number, y: number, ownerId: string | null) => ({ id, x, y, ownerId, hidden: false, name: id, size: 'medium' });
+    useSessionStore.setState({
+      session: {
+        ...session({ byScene: { a: { rooms: {}, concealBehindDoors: false } } }),
+        modules: {
+          fog: { byScene: { a: { rooms: {}, concealBehindDoors: false } } },
+          tokens: { byScene: { a: { t1: token('t1', 2, 2, 'p1'), t2: token('t2', 30, 30, 'p2'), t3: token('t3', 12, 2, null) } } },
+        },
+      },
+    });
+    render(<FogStrip />);
+    const badged = screen.getAllByTestId('fog-party-here').map((b) => b.closest('li')?.getAttribute('data-room-id'));
+    // Hall holds a player's token, the far one stands outdoors; the Crypt's goblin is nobody's.
+    expect(badged.sort()).toEqual(['@outdoors', 'r1']);
+  });
+
+  it('warns in By sight mode when no player token is on the map', () => {
+    useSessionStore.setState({ session: session({ byScene: { a: { rooms: {}, mode: 'vision', concealBehindDoors: false } } }) });
+    render(<FogBody />);
+    expect(screen.getByTestId('fog-no-party')).toBeTruthy();
   });
 });

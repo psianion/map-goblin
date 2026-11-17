@@ -109,6 +109,8 @@ export interface Vision {
   frameOf(campaignId: string, sceneId: string): SceneMap['frame']
   /** …and the room a brushed cell falls in, which is the room that has to ship for it. */
   roomAtOf(campaignId: string, sceneId: string, x: number, y: number): string | null
+  /** …and whether a brushed cell is ground, or beside it, on any level (table fix pass §2.5). */
+  groundAtOf(campaignId: string, sceneId: string, x: number, y: number): boolean
   /** Backs `doorsModule` — the doors the map authors. */
   doorsOf(campaignId: string, sceneId: string): readonly AuthoredDoor[]
   /**
@@ -521,6 +523,17 @@ export function createVision(stores: Stores): Vision {
     },
     frameOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.frame ?? null,
     roomAtOf: (_campaignId, sceneId, x, y) => sceneMapOf(sceneId)?.roomAt(x, y) ?? null,
+    groundAtOf: (campaignId, sceneId, x, y) => {
+      const map = sceneMapOf(sceneId)
+      if (!map) return false
+      const doors = doorsOfScene(read(campaignId, 'doors', NO_DOORS), sceneId, map.doors)
+      const crossings = read(campaignId, 'crossings', NO_CROSSINGS)
+      const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
+      return levels.some((level) => {
+        const grid = walks.gridFor(map, doors, crossings, sceneId, level)
+        return !!grid && groundNear(grid, x, y)
+      })
+    },
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 

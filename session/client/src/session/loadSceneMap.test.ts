@@ -301,6 +301,13 @@ const layerOf = (data: SerializedMapData | null) =>
   });
 
 describe('mergeMapDelta', () => {
+  it('takes the open ground from a delta that carries no layers (table fix pass §2.7)', () => {
+    const openGround = [{ levelId: 'lvl-1', rings: [[[0, 0], [9, 0], [9, 9], [0, 9]]] as [number, number][][] }];
+    const merged = mergeMapDelta(loaded(), delta({ layers: [], openGround }), 'player', 'scene-1');
+    expect(merged?.openGround).toEqual(openGround);
+    expect(layerOf(merged).rooms.map((r) => r.id)).toEqual(['r-vestibule']);
+  });
+
   it('upserts by id — a door arriving twice is updated, never duplicated', () => {
     const merged = mergeMapDelta(loaded(), delta(), 'player', 'scene-1');
     const layer = layerOf(merged);

@@ -1049,6 +1049,32 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(getCell(scened(nothing.next).region, 9, 1)).toBe(false)
     })
 
+    it('keeps a stroke on outdoor ground away from every room (table fix pass §2.5)', () => {
+      // Col 9 is void to the room clamp; here the map says it is ground (a grass patch outside).
+      const outdoors = fogModule(
+        () => ROOMS,
+        (_campaignId, sceneId) => (sceneId === SCENE ? FRAME : null),
+        (_campaignId, _sceneId, x) => ROOM_AT(x),
+        () => null,
+        (_campaignId, _sceneId, x, y) => x > 9 && y < 2,
+      )
+      let next = empty
+      outdoors.handler('region-set', { op: 'reveal', cells: [[9, 0], [9, 5]] }, {
+        campaignId: 'c-1',
+        sessionId: 's-1',
+        activeSceneId: SCENE,
+        sender: DM,
+        players: [],
+        state: empty,
+        setState: (s) => {
+          next = s
+        },
+        broadcast: () => {},
+      })
+      expect(getCell(scened(next).region, 9, 0)).toBe(true)
+      expect(getCell(scened(next).region, 9, 5)).toBe(false)
+    })
+
     it('ships no room for a band cell, and latches the room its floor cells fall in', () => {
       // A band cell is in no room, so it can latch none — the stroke's interior is what ships
       // the geometry the band's memory has to sit on.

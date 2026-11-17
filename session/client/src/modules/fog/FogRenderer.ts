@@ -45,6 +45,7 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 // blend modes, which this registers.
 import 'pixi.js/advanced-blend-modes';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
+import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
@@ -57,6 +58,7 @@ import {
   fogModeOf,
   identityRegion,
   lightSources,
+  outdoorsId,
   sightRangeLimitOn,
   type LightSource,
   visibleRooms,
@@ -66,7 +68,7 @@ import {
   type FogState,
   type SceneFog,
 } from '@dnd/mechanics/fog';
-import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens';
+import { SIZE_CELLS, sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import {
   roomEditsOf,
   sceneTriggersOf,
@@ -100,6 +102,7 @@ import {
   fogRegion,
   type FogRing,
   type NightSight,
+  openGroundOf,
   paintedGround,
   regionRects,
   ringsWithHoles,
@@ -394,6 +397,15 @@ export interface FogScene {
    * player's mask and the DM's haze never disagree about what the weather is doing.
    */
   look: FogLook;
+  /**
+   * Table fix pass §2.7 — the shown level's open ground off the referee's document (frame minus
+   * walled floors), empty until the seat knows an outdoor cell.
+   */
+  open?: Polygon[];
+  /** The shown level's Outdoors fog row (`outdoorsId`), whose view `views` carries in By hand mode. */
+  outdoors?: string;
+  /** §2.8 — this seat's own tokens' footprints on the shown level, always drawn and cleared. */
+  own?: Polygon[];
 }
 
 /**
@@ -433,6 +445,8 @@ export function roomViews(
   storedFog: SceneFog,
   doors: readonly LiveDoor[],
   partyRooms: readonly string[],
+  /** Fog rows with no room polygon to key on (the shown level's Outdoors row), by the same rule. */
+  rows: readonly string[] = [],
 ): Map<string, RoomView> {
   const live: Record<string, DoorLiveState> = {};
   const graph: AuthoredDoor[] = [];
@@ -446,12 +460,12 @@ export function roomViews(
   const fog = effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms);
   const visible = storedFog.visible ? new Set(storedFog.visible) : visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
-  for (const room of rooms) {
+  for (const id of [...rooms.map((room) => room.id), ...rows]) {
     views.set(
-      room.id,
-      visible.has(room.id)
+      id,
+      visible.has(id)
         ? 'visible'
-        : roomFog(fog, room.id).wasEverRevealed
+        : roomFog(fog, id).wasEverRevealed
           ? 'explored'
           : 'dark',
     );
@@ -478,6 +492,17 @@ export function roomViews(
  * fix is the server naming the party's rooms on the wire, not a guess on this side.
  */
 export const PARTY_ROOM_UNKNOWN = '\0party-elsewhere';
+
+/** The square a token covers, centred on it (tiny counts as one cell, as it snaps). */
+export function footprintOf(token: Token): Polygon {
+  const half = Math.max(1, SIZE_CELLS[token.size] ?? 1) / 2;
+  return [
+    [token.x - half, token.y - half],
+    [token.x + half, token.y - half],
+    [token.x + half, token.y + half],
+    [token.x - half, token.y + half],
+  ];
+}
 
 /**
  * Where the party is standing, for D3's reachability BFS. A claimed token is a player at
@@ -801,6 +826,12 @@ export function fogScene(): FogScene {
         : []
   ).filter((t) => onLevel(core, t, level));
   const levelTokens = tokens.filter((t) => onLevel(core, t, level));
+  // Table fix pass: the shown level's Outdoors row, as the referee names it (one level ⇒ the
+  // bare id), and this seat's own tokens' footprints, which §2.8 always draws and clears.
+  const outdoors = (core.levels?.length ?? 0) > 1 ? outdoorsId(level) : outdoorsId();
+  const open = masked ? openGroundOf(mapData, level) : [];
+  const own: Polygon[] =
+    isPlayer && you ? levelTokens.filter((t) => t.ownerId === you.identityId).map(footprintOf) : [];
   // The table's light switches (`lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
   // `sceneTriggersOf` has already folded in) and every source burning on this level, darkness
   // sources flagged; night-only lights filtered by the sky's darkness.
@@ -883,7 +914,11 @@ export function fogScene(): FogScene {
           fog,
           serverDoors(mapData, session?.modules?.doors as DoorsState | undefined, sceneId),
           partyRoomIds(tokens, rooms),
+          open.length > 0 ? [outdoors] : [],
         ),
+    open,
+    outdoors,
+    own,
     // No document, no statement: until the referee has sent one there is nothing to be
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
@@ -1121,22 +1156,30 @@ function fillLand(
  * `drawFog` unchanged so vision mode can sit beside it rather than inside it.
  */
 function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
-  const floorsOf = (view: RoomView): Polygon[] =>
-    scene.rooms
+  // Table fix pass §2.8: the Outdoors row is cut from the open ground the referee shipped, in
+  // whichever tier its view puts it — a hole like a room's, never the whole frame.
+  const outdoorsView = scene.outdoors ? scene.views.get(scene.outdoors) : undefined;
+  const floorsOf = (view: RoomView): Polygon[] => [
+    ...scene.rooms
       .filter((room) => room.boundary.length >= 3 && scene.views.get(room.id) === view)
-      .map((room) => room.boundary);
+      .map((room) => room.boundary),
+    ...(outdoorsView === view && view !== 'dark' ? (scene.open ?? []) : []),
+  ];
 
   const dark = floorsOf('dark');
   const visible = floorsOf('visible');
   const explored = floorsOf('explored');
+  const own = scene.own ?? [];
 
-  const seen = fogRegion([...visible, ...explored], dark, scene.pad, FOG_FEATHER);
+  const seen = fogRegion([...visible, ...explored, ...own], dark, scene.pad, FOG_FEATHER);
   // D10's memory tier, on the same padded footprint at its own darkness. It stops at a live
   // room's floor rather than at its own wall, so a wall between a memory and a lit room reads
   // as the memory's — and it runs out to `reach` rather than to `clear`, so the falloff below
   // has a wash to thicken over instead of a gap between the two to fall through.
-  const memory = fogRegion(explored, [...dark, ...visible], scene.pad, FOG_FEATHER);
-  return { earned: ringsWithHoles(seen.reach), memory: ringsWithHoles(memory.reach) };
+  const memory = fogRegion(explored, [...dark, ...visible, ...own], scene.pad, FOG_FEATHER);
+  // A dark room is withheld from the earned hole, but never the cell under the seat's own token.
+  const earned = own.length > 0 && isClipperReady() ? clipper2Engine.union([...seen.reach, ...own], []) : seen.reach;
+  return { earned: ringsWithHoles(earned), memory: ringsWithHoles(memory.reach) };
 }
 
 /**
@@ -1178,6 +1221,8 @@ function tierSceneOf(scene: FogScene): TierScene {
     feather: FOG_FEATHER,
     night: scene.night,
     frame: scene.bounds,
+    open: scene.open,
+    own: scene.own,
   };
 }
 

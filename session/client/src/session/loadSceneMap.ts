@@ -125,7 +125,9 @@ export function mergeMapDelta(
   role: Role | undefined,
   loadedSceneId: string | null | undefined,
 ): SerializedMapData | null {
-  if (!current || !delta?.layers?.length) return current;
+  // Table fix pass §2.7: the first outdoor cell a seat knows arrives as a delta with open ground
+  // and no layers, so an empty layer list is not "nothing to merge" when it carries that.
+  if (!current || (!delta?.layers?.length && !delta?.openGround)) return current;
   if (loadedSceneId && delta.sceneId !== loadedSceneId) return current;
 
   const byId = new Map(delta.layers.map((layer) => [layer.id, layer]));
@@ -135,6 +137,7 @@ export function mergeMapDelta(
     // exactly what widens the ground a contained near pass may open, so the mask that fences
     // it has to arrive in the same message the art does (`MapDelta.lockMask`).
     ...(delta.lockMask ? { lockMask: delta.lockMask } : {}),
+    ...(delta.openGround ? { openGround: delta.openGround } : {}),
     layers: current.layers.map((layer) => {
       const patch = byId.get(layer.id);
       if (!patch || layer.type !== 'dungeon') return layer;

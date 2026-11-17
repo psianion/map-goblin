@@ -7,7 +7,7 @@ test.describe('@map fog and map', () => {
     await page.keyboard.press('1');
     const rooms = page.getByTestId('fog-rooms');
     await expect(rooms).toBeVisible();
-    const first = rooms.locator('[data-room-id]').first();
+    const first = rooms.locator('[data-room-id]:not([data-room-id^="@outdoors"])').first();
     const id = await first.getAttribute('data-room-id');
     const room = rooms.locator(`[data-room-id="${id}"]`);
     await room.getByTestId('room-reveal').click();
@@ -15,7 +15,7 @@ test.describe('@map fog and map', () => {
     await room.getByTestId('room-hide').click();
     await expect(room).not.toHaveAttribute('data-fog-status', 'revealed');
 
-    await page.getByRole('button', { name: 'Vision' }).click();
+    await page.getByTestId('fog-mode-vision').click();
     // The rectangle is a vision-mode tool: wait for the mode to come back from the server.
     await expect(page.getByTestId('fog-rect')).toBeEnabled();
     await page.keyboard.press('Shift+R');

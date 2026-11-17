@@ -69,6 +69,12 @@ export type SceneRoomAt = (
  */
 export type SceneVisible = (sceneId: string, viewer: Viewer) => readonly string[] | null
 
+/**
+ * Table fix pass §2.1 / §2.5 — whether a world point is ground, or within one cell of it, on any
+ * level: what the record may hold away from rooms. Injected like {@link SceneRoomAt}.
+ */
+export type SceneGroundAt = (campaignId: string, sceneId: string, x: number, y: number) => boolean
+
 const REGION_OPS = ['reveal', 'hide'] as const
 
 type Ctx = ModuleContext<FogState>
@@ -79,6 +85,7 @@ export function fogModule(
   frameOf: SceneFrame = () => null,
   roomAtOf: SceneRoomAt = () => null,
   visibleOf: SceneVisible = () => null,
+  groundAtOf: SceneGroundAt = () => false,
 ): GameModule<FogState> {
   return {
     name: 'fog',
@@ -105,7 +112,7 @@ export function fogModule(
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf, groundAtOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -166,6 +173,7 @@ function run(
   roomsOf: SceneRooms,
   frameOf: SceneFrame,
   roomAtOf: SceneRoomAt,
+  groundAtOf: SceneGroundAt,
 ): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneFogOf(ctx.state, sceneId)
@@ -313,7 +321,7 @@ function run(
       // `hide` is deliberately unfiltered: a record written before this rule still holds
       // off-floor cells, and the DM's eraser is the one hand that can take them back.
       const brushed =
-        op === 'reveal' ? brushReveal(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf) : null
+        op === 'reveal' ? brushReveal(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf, groundAtOf) : null
       const paint = (mask: RegionMask): RegionMask =>
         brushed ? setCells(mask, brushed.cells) : clearCells(mask, cells)
       // A brush stroke is a reveal-shaped DM act like the room buttons are, so it reads back
@@ -423,6 +431,7 @@ function brushReveal(
   sceneId: string,
   roomsOf: SceneRooms,
   roomAtOf: SceneRoomAt,
+  groundAtOf: SceneGroundAt,
 ): { cells: Cell[]; rooms: Record<string, RoomFog> } {
   const authored = roomsOf(ctx.campaignId, sceneId)
   const unlatched = new Set(authored.filter((id) => !scene.rooms[id]?.wasEverRevealed))
@@ -437,7 +446,14 @@ function brushReveal(
     // cell — a band cell is in no room and ships none, and the stroke's interior cells are what
     // latch the room its band belongs to.
     // `id` already answers the centre, so a cell well inside a room never pays the band scan.
-    if (id === null && !nearAuthoredFloor(authored.length, roomAt, x, y)) continue
+    // Table fix pass §2.5: outdoor ground (and its one-cell band) is as much the record's as a
+    // room's floor, so a DM can brush open ground in vision mode.
+    if (
+      id === null &&
+      !groundAtOf(ctx.campaignId, sceneId, x, y) &&
+      !nearAuthoredFloor(authored.length, roomAt, x, y)
+    )
+      continue
     kept.push([col, row])
     // `delete` is the guard as well as the bookkeeping: false means the cell landed on a room
     // the map does not author, on none at all (a roomless map, where every cell is floor), or

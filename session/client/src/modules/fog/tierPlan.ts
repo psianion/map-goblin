@@ -224,6 +224,13 @@ export interface TierScene {
   night?: NightSight;
   /** The map frame the cover starts from (`FogScene.bounds`). Null ⇒ nothing is drawn. */
   frame: Bounds | null;
+  /**
+   * Table fix pass §2.7 — the open ground the referee shipped (`SerializedMapData.openGround`,
+   * walled floors already cut out). Absent until the seat knows an outdoor cell.
+   */
+  open?: readonly Polygon[];
+  /** §2.8 — this seat's own tokens' footprints: always drawn, the cell under them always clear. */
+  own?: readonly Polygon[];
 }
 
 const usable = (polys: readonly Polygon[]): Polygon[] => polys.filter((p) => p.length >= 3);
@@ -288,9 +295,13 @@ const asPoly = (b: Bounds): Polygon => [
  * and the erase grows the rooms by `pad + feather` ≥ that cell, so a remembered wall survives
  * this clip and the stones of an explored room stay lit under the grey. Shrink the grow and the
  * walls go back under the cloud.
+ *
+ * Table fix pass §2.8: rooms alone dropped the open ground the moment the first room shipped
+ * (the cave door opening and the grass vanishing behind it). Shipped is the rooms plus the open
+ * ground the referee stamped; the whole frame stays the answer only while neither has arrived.
  */
-const shippedGround = (rooms: readonly Polygon[], frame: Bounds | null): Polygon[] =>
-  rooms.length > 0 ? [...rooms] : frame ? [asPoly(frame)] : [];
+const shippedGround = (rooms: readonly Polygon[], open: readonly Polygon[], frame: Bounds | null): Polygon[] =>
+  rooms.length > 0 || open.length > 0 ? [...rooms, ...open] : frame ? [asPoly(frame)] : [];
 
 /**
  * Frame ∪ held, grown by the pad and the feather — and nothing else, ever.
@@ -360,9 +371,10 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const painted = usable(scene.painted ?? []);
   const revealed = usable(scene.revealed);
   const contained = scene.contained;
+  const own = usable(scene.own ?? []);
   const held = heldSources(contained, rooms, revealed, scene.region);
-  const shipped = contained ? shippedGround(rooms, scene.frame) : [];
-  const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, painted, grow);
+  const shipped = contained ? shippedGround(rooms, usable(scene.open ?? []), scene.frame) : [];
+  const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, [...painted, ...own], grow);
   const cells = regionCells(scene.region);
   if (!cover) return { cover: null, ops: [], cells };
 
@@ -516,6 +528,11 @@ export function tierPlan(scene: TierScene): DrawPlan {
     });
     if (night) ops.push({ kind: 'sprite', target: 'live', source: 'inverseSeeable', blend: 'erase' });
   }
+  // §2.8 — the seat's own token, after every clip on the stencil it wears: a player is never
+  // left without their own token on screen, whatever the sweep, the record or the dark say.
+  if (own.length > 0) {
+    ops.push({ kind: 'polys', target: 'live', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
+  }
 
   // ── The mask: memory under, live over, the clip last ──────────────────────
   if (memory) {
@@ -552,6 +569,10 @@ export function tierPlan(scene: TierScene): DrawPlan {
     source: contained ? 'inverseShipped' : 'inverseHeld',
     blend: 'erase',
   });
+  // …and the one exception to "nothing after it": the cell under the seat's own token.
+  if (own.length > 0) {
+    ops.push({ kind: 'polys', target: 'mask', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
+  }
 
   // ── The scrim ─────────────────────────────────────────────────────────────
   // Opaque black by initialisation with the finished mask's own alpha punched out of it. The

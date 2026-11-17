@@ -195,6 +195,14 @@ describe('roomViews — what each room is doing', () => {
     expect([...views.values()]).toEqual<RoomView[]>(['dark', 'dark', 'dark']);
   });
 
+  it('classifies the Outdoors row by the same rule, off the visible list (table fix pass §2.8)', () => {
+    const shown = roomViews(ROOMS, { ...fogOf({ '@outdoors': seen }), visible: ['@outdoors'] }, [], [], ['@outdoors']);
+    expect(shown.get('@outdoors')).toBe('visible');
+    const dimmed = roomViews(ROOMS, { ...fogOf({ '@outdoors': stale }), visible: [] }, [], [], ['@outdoors']);
+    expect(dimmed.get('@outdoors')).toBe('explored');
+    expect(roomViews(ROOMS, { ...fogOf({}), visible: [] }, [], [], ['@outdoors']).get('@outdoors')).toBe('dark');
+  });
+
   it('is clear where the party stands and dim where they have been', () => {
     const views = roomViews(
       ROOMS,
@@ -752,6 +760,37 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
       .map(
         (i) => (i.data as { style: { alpha: number; width: number; alignment: number } }).style,
       );
+
+  it('cuts the Outdoors hole from the open ground only while Outdoors is visible (§2.8)', () => {
+    const GRASS: Polygon = [
+      [24, 0],
+      [30, 0],
+      [30, 6],
+      [24, 6],
+    ];
+    const holes = (outdoors: RoomView): number => {
+      const mask = new Graphics();
+      const views = { [WEST.id]: 'visible', [EAST.id]: 'dark', '@outdoors': outdoors } as Record<string, RoomView>;
+      drawFog(new Graphics(), { ...scene(views), open: [GRASS], outdoors: '@outdoors' }, mask);
+      return fillsOf(mask).filter((f) => f.style.color === 0xffffff).length;
+    };
+    expect(holes('visible')).toBe(holes('dark') + 1);
+  });
+
+  it("always clears the seat's own token, even in a dark room (§2.8)", () => {
+    const whites = (own: Polygon[]): number => {
+      const mask = new Graphics();
+      drawFog(new Graphics(), { ...scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }), own }, mask);
+      return fillsOf(mask).filter((f) => f.style.color === 0xffffff).length;
+    };
+    const inEast: Polygon = [
+      [13, 2],
+      [14, 2],
+      [14, 3],
+      [13, 3],
+    ];
+    expect(whites([inEast])).toBe(whites([]) + 1);
+  });
 
   it('cuts one merged hole and ramps the cloud mask back in over it', () => {
     const scrim = new Graphics();
