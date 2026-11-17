@@ -22,8 +22,10 @@ export function PlayerRollBar() {
     if (!rollFormula(f, mode, adv)) notify.error('That is not a formula like 1d20+5.');
   };
   return (
+    // Below `sm` the bar is held inside the 0.75rem gutters and the dice wrap to a second row;
+    // from `sm` up it is the one centred row it always was.
     <FloatBox
-      className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 px-2 py-1.5"
+      className="absolute inset-x-3 bottom-3 z-20 mx-auto flex w-fit flex-wrap items-center justify-center gap-1.5 px-2 py-1.5 sm:right-auto sm:left-1/2 sm:mx-0 sm:w-auto sm:-translate-x-1/2 sm:flex-nowrap"
       data-testid="player-roll-bar"
       data-chrome
       role="region"

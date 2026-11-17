@@ -87,7 +87,8 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await expect(player.getByText("You can't stand inside a wall or rock.")).toBeVisible();
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.dirt);
     await dragToken(player, 'Bram', CAVE.inHall);
-    await expect(player.getByText('Hall door is closed.')).toBeVisible();
+    // Nameless: the server blanks a door's name while the room behind it is unearned.
+    await expect(player.getByText('The door is closed.')).toBeVisible();
 
     // 5. Opens the door (beside it, a double-click), walks in; the outdoor ground stays.
     await dragToken(player, 'Bram', CAVE.besideDoor);

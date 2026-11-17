@@ -32,6 +32,15 @@ describe('player roll bar', () => {
     ]);
   });
 
+  it('fits a phone inside the gutters and wraps, and keeps one centred row from sm up', () => {
+    seat({}, BRAM);
+    render(<PlayerRollBar />);
+    const bar = screen.getByTestId('player-roll-bar').className.split(' ');
+    for (const c of ['inset-x-3', 'w-fit', 'flex-wrap']) expect(bar).toContain(c);
+    for (const c of ['sm:left-1/2', 'sm:right-auto', 'sm:-translate-x-1/2', 'sm:flex-nowrap']) expect(bar).toContain(c);
+    expect(bar).not.toContain('-translate-x-1/2');
+  });
+
   it('only players get the bar and the prompt', () => {
     seat({ rolls: asked }, DM);
     render(<PlayOverlays />);

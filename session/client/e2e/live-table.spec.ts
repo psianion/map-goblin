@@ -1,6 +1,6 @@
 // @live: opening or publishing never ends a live table (plan section 1, settled; F1, F19).
 // Written, never run by the builders.
-import { SECOND_MAP, SECOND_NAME, SERVER_URL, assertMapLoaded, dmCommands, expect, mintHandoff, test } from './fixtures';
+import { SECOND_MAP, SECOND_NAME, SERVER_URL, assertMapLoaded, expect, mintHandoff, test } from './fixtures';
 import { readFileSync } from 'node:fs';
 
 test.describe('@live a running table carries on', () => {
@@ -42,7 +42,13 @@ test.describe('@live a running table carries on', () => {
     const up = await fetch(`${SERVER_URL}/api/campaigns/${hostSession.campaignId}/maps`, { method: 'POST', headers: auth, body: readFileSync(SECOND_MAP, 'utf8') });
     const { sceneId } = (await up.json()) as { sceneId: string };
     await fetch(`${SERVER_URL}/api/scenes/${sceneId}`, { method: 'PATCH', headers: auth, body: JSON.stringify({ visibleToPlayers: false }) });
-    await dmCommands(hostSession.token, [{ module: 'scenes', action: 'activate', payload: { sceneId } }]);
+    // From the DM page itself: a `dmCommands` socket would supersede this page's and the
+    // `scene-changed` frame that carries the warning would never reach it.
+    const { page } = hostSession;
+    await page.keyboard.press('7');
+    const card = page.locator(`[data-testid="scene-card"][data-scene-id="${sceneId}"]`);
+    await card.getByTestId('scene-switch').click();
+    await expect(card.getByTestId('scene-live')).toBeVisible();
     // The DM's warning first: it lasts 4 s, and the player's map load can outlast it.
     await expect(hostSession.page.getByText('This scene was hidden; players see it now')).toBeVisible();
     await assertMapLoaded(player, SECOND_NAME);

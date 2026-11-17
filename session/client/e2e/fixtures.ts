@@ -245,6 +245,7 @@ export async function republish(table: { token: string }, sceneId: string, file 
 }
 
 /** Send module commands as the DM over a socket (the session must be open). */
+// Its socket supersedes the DM page's ("one identity, one live socket"): that page misses live frames.
 export const dmCommands = sendCommands;
 
 /** Where a world point sits on the map element, through the camera (`__testProbe.camera`). */

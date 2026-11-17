@@ -209,6 +209,49 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       pim.socket.close()
     })
   })
+
+  it('hands the player the outside door in their doors slice, and a double-click swings it', async () => {
+    await withTable(async ({ server, base, campaignId, dmToken, upload }) => {
+      const sceneId = await upload()
+      server.stores.moduleState.put(campaignId, 'tokens', {
+        library: { bram: { id: 'bram', name: 'Bram', imageAssetId: null, size: 'medium', disposition: 'friendly', sight: null, light: null, kind: 'pc' } },
+        byScene: {},
+      } satisfies TokensState)
+      // A touched door, so the scene has a live entry for the player cut to keep or drop.
+      server.stores.moduleState.put(campaignId, 'doors', {
+        byScene: { [sceneId]: { 'door-hall': { open: false, locked: false, revealed: true } } },
+      } satisfies DoorsState)
+      const opened = await api(base, 'POST', '/api/sessions', dmToken, {
+        campaignId,
+        sceneId,
+        startingPoint: { sceneId, ...CAVE.partyStart, levelId: 'lvl-1' },
+      })
+      const joined = await api(base, 'POST', '/api/join', undefined, { code: opened.body.inviteCode, name: 'Pim' })
+      const dm = await seat(server.port, dmToken)
+      dm.command('fog', 'set-mode', { sceneId, mode: 'vision' })
+      await dm.until(() => (server.stores.moduleState.get(campaignId, 'fog') as FogState).byScene[sceneId]?.mode === 'vision')
+      const pim = await seat(server.port, joined.body.token as string)
+      const snapshot = await pim.until((m) => m.type === 'session-state')
+      const doors = (snapshot.state as { modules: { doors: DoorsState } }).modules.doors
+      expect(Object.keys(doors.byScene[sceneId] ?? {})).toEqual(['door-hall'])
+
+      const bram = () => tokensOf(server, campaignId, sceneId)[0]!
+      dm.command('tokens', 'assign', { id: bram().id, identityId: joined.body.identityId })
+      await dm.until(() => bram().ownerId === joined.body.identityId)
+      pim.frames.length = 0
+      pim.command('tokens', 'move', { id: bram().id, ...CAVE.besideDoor })
+      await pim.until((m) => m.type === 'error' || (bram().x === CAVE.besideDoor.x && bram().y === CAVE.besideDoor.y))
+      expect(pim.frames.find((m) => m.type === 'error')).toBeUndefined()
+      // `DoorRenderer`'s double-click sends this payload: the door id alone, on the live scene.
+      const doorOpen = () =>
+        (server.stores.moduleState.get(campaignId, 'doors') as DoorsState).byScene[sceneId]?.['door-hall']?.open === true
+      pim.command('doors', 'toggle', { id: 'door-hall' })
+      const out = await pim.until((m) => m.type === 'error' || doorOpen())
+      expect(out.type === 'error' ? JSON.stringify(out) : null).toBeNull()
+      dm.socket.close()
+      pim.socket.close()
+    })
+  })
 })
 
 describe('the party start (F18, decision f)', () => {
