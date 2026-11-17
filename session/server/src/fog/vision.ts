@@ -64,7 +64,7 @@ import {
 } from '@dnd/mechanics/tokens'
 import type { CrossingsState } from '@dnd/mechanics/crossings'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
-import { firstLevelId, layersOnLevel, onLevel } from '@dnd/core/src/shared/visionGate'
+import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure
 import { hiddenTops } from '@dnd/core/src/shared/plateaus'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design
@@ -77,6 +77,7 @@ import {
   childDeltaFor,
   keptChildIds,
   doorKept,
+  outsideFace,
   lockMaskFor,
   mapDeltaFor,
   redactMapForViewer,
@@ -91,6 +92,7 @@ import {
   type SceneMapOf,
 } from './sceneMap'
 import { createWalkGrids } from './walk'
+import { enclosedOn, enclosureRings } from './outdoorGround'
 import {
   createSweeps,
   exploreLocks,
@@ -428,7 +430,7 @@ export function createVision(stores: Stores): Vision {
     // a black canvas, disclosing where the doors are. The geometry of an unzoned map is still
     // handed over whole (`redactMapForViewer`); only the doors on it are the DM's, because a
     // door nobody can earn is a door no player should be told about.
-    const held = map.doors.filter((door) => doorKept(door, explored, doors, ground.test))
+    const held = map.doors.filter((door) => doorKept(door, explored, doors, ground.test, outsideFace(map, door)))
     // Against nothing on a cold cache, so the first answer after a restart is everything
     // the party has explored rather than nothing at all. Correctness must not depend on
     // whether someone happened to fetch the map first, and a client already holding a
@@ -935,12 +937,14 @@ function knownCells(
   const individual = !!viewer && viewer.role !== 'dm' && computed.share === 'individual'
   const inRecord = vision ? recordTest(map, individual ? identityRegion(fog, viewer!.identityId) : fog.region) : null
   const sight = vision ? (individual ? computed.sightFor(viewer!.identityId) : computed.sightOn(levelId)) : null
+  const enclosed = enclosedOn(map, levelId)
   return (i) => {
     if (memo[i] !== 0) return memo[i] === 1
     const { x, y } = cellCentre(grid, i)
-    const room = map.roomAt(x, y)
+    // R2: a cell in no room is Outdoors only outside every walled floor and cave outline.
+    const row = map.roomAt(x, y) ?? (enclosed(x, y) ? null : outdoors)
     const ok =
-      fog.rooms[room ?? outdoors]?.wasEverRevealed === true ||
+      (row !== null && fog.rooms[row]?.wasEverRevealed === true) ||
       (inRecord !== null && inRecord(x, y)) ||
       (sight !== null && seen(sight, x, y))
     memo[i] = ok ? 1 : 2
@@ -963,11 +967,15 @@ function areasOf(map: SceneMap, grid: WalkGrid, levelId: string): Areas {
   const labels = walkAreas(grid)
   const rows: Set<string>[] = []
   const outdoors = outdoorsRowOf(map.data, levelId)
+  const enclosed = enclosedOn(map, levelId)
   for (let i = 0; i < labels.length; i++) {
     const label = labels[i]
     if (label < 0) continue
     const { x, y } = cellCentre(grid, i)
-    ;(rows[label] ??= new Set()).add(map.roomAt(x, y) ?? outdoors)
+    // R2: rock and the gap inside a cave's outline are no room's and not Outdoors either.
+    const row = map.roomAt(x, y) ?? (enclosed(x, y) ? null : outdoors)
+    const set = (rows[label] ??= new Set())
+    if (row !== null) set.add(row)
   }
   const areas = { labels, rows }
   areaCache.set(grid, areas)
@@ -1013,15 +1021,20 @@ function knownGroundOf(
   const levels = (map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]).filter(
     (level) => fog.rooms[outdoorsRowOf(map.data, level)]?.wasEverRevealed,
   )
-  const grids = levels.map(gridOn).filter((g): g is WalkGrid => g !== null)
-  const outdoorCell = (grid: WalkGrid, col: number, row: number): boolean => {
+  const grids = levels
+    .map((level) => ({ grid: gridOn(level), enclosed: enclosedOn(map, level) }))
+    .filter((g): g is { grid: WalkGrid; enclosed: (x: number, y: number) => boolean } => g.grid !== null)
+  // R2: outdoor ground is a ground cell outside every walled floor and cave outline of its level.
+  const outdoorCell = ({ grid, enclosed }: (typeof grids)[number], col: number, row: number): boolean => {
     if (col < 0 || row < 0 || col >= grid.cols || row >= grid.rows) return false
     if (grid.cell[row * grid.cols + col] === NO_GROUND_CELL) return false
-    return map.roomAt(grid.minX + col + 0.5, grid.minY + row + 0.5) === null
+    const [x, y] = [grid.minX + col + 0.5, grid.minY + row + 0.5]
+    return map.roomAt(x, y) === null && !enclosed(x, y)
   }
   const outdoorsKnown: Ground = (x, y, pad) => {
     const reach = Math.ceil(pad)
-    for (const grid of grids) {
+    for (const entry of grids) {
+      const { grid } = entry
       const col0 = Math.floor(x - grid.minX)
       const row0 = Math.floor(y - grid.minY)
       for (let col = col0 - reach; col <= col0 + reach; col++) {
@@ -1029,7 +1042,7 @@ function knownGroundOf(
           const [cx, cy] = [grid.minX + col, grid.minY + row]
           const dx = Math.max(cx - x, 0, x - (cx + 1))
           const dy = Math.max(cy - y, 0, y - (cy + 1))
-          if (Math.hypot(dx, dy) <= pad && outdoorCell(grid, col, row)) return true
+          if (Math.hypot(dx, dy) <= pad && outdoorCell(entry, col, row)) return true
         }
       }
     }
@@ -1039,17 +1052,20 @@ function knownGroundOf(
   return { test, outdoors: grids.length > 0 || recordHasOutdoorCell(map, fog) }
 }
 
-/** Whether the table's cell record holds any cell in no room — outdoor ground known by sight. */
+/** Whether the table's cell record holds any outdoor cell (R2: in no room, outside every outline) — known by sight. */
 function recordHasOutdoorCell(map: SceneMap, fog: SceneFog): boolean {
   if (fogModeOf(fog) !== 'vision' || !map.frame) return false
   const region = tableRegion(fog, map.frame)
   if (!region) return false
   const bytes = toBytes(region.bits)
+  const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
+  const enclosures = levels.map((level) => enclosedOn(map, level))
   for (let bit = 0; bit < region.cols * region.rows; bit++) {
     if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
     const col = bit % region.cols
     const row = (bit - col) / region.cols
-    if (map.roomAt(region.minX + col + 0.5, region.minY + row + 0.5) === null) return true
+    const [x, y] = [region.minX + col + 0.5, region.minY + row + 0.5]
+    if (map.roomAt(x, y) === null && enclosures.some((enclosed) => !enclosed(x, y))) return true
   }
   return false
 }
@@ -1066,12 +1082,8 @@ function openGroundRings(map: SceneMap): NonNullable<SerializedMapData['openGrou
   const levels = map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
   return levels.map((levelId) => ({
     levelId,
-    rings: [
-      frameRing,
-      ...layersOnLevel(map.data, map.data.layers, levelId).flatMap((layer) =>
-        layer.type === 'dungeon' ? (layer.mergedFloor ?? []) : [],
-      ),
-    ],
+    // R2: the same walled floors and caves outdoor ground is cut by, floor shapes where no union.
+    rings: [frameRing, ...enclosureRings(map, levelId).flat()],
   }))
 }
 

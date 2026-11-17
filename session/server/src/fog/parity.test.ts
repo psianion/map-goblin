@@ -332,7 +332,7 @@ function differences(dmDoc: Doc, playerDoc: Doc, frame: { minX: number; minY: nu
 
 /**
  * The leak side: no door, prop, light or label inside a walled floor or cave the party has not
- * earned. Earned ground inside an outline is a kept room (with the band its art is drawn in),
+ * earned. A floor with no room in it has nothing to earn: it is Outdoors (`outdoorGround.ts`). Earned ground inside an outline is a kept room (with the band its art is drawn in),
  * or a recorded cell whose centre is inside the outline. A door is interior when both its sides
  * are inside an outline; it travels only with a room the party holds.
  */
@@ -340,16 +340,21 @@ function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number;
   const kept = exploredRooms(fog)
   const dmLayers = dmDoc.layers.filter(isDungeon).map(asLoaded)
   const outlines = dmLayers.flatMap((l) => l.mergedFloor ?? [])
-  const enclosed = (x: number, y: number) => outlines.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1
   const rooms = dmLayers.flatMap((l) => (l.rooms ?? []) as (Room & { boundary: Ring })[])
+  const zoned = outlines.filter((ring) => rooms.some((room) => pointInPoly(ring, room.anchor[0], room.anchor[1])))
+  const enclosed = (x: number, y: number) =>
+    outlines.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1 && zoned.some((ring) => pointInPoly(ring, x, y))
   const index = roomIndexOf(rooms)
   const region = tableRegion(fog, frame)
   const bytes = region ? toBytes(region.bits) : null
   const recordedInside = (x: number, y: number): boolean => {
     if (!region || !bytes) return false
-    for (let row = Math.floor(y - region.minY) - 1; row <= Math.floor(y - region.minY) + 1; row++) {
-      for (let col = Math.floor(x - region.minX) - 1; col <= Math.floor(x - region.minX) + 1; col++) {
+    // Cells whose square lies within a cell of the point, the reach a band piece is judged by.
+    for (let row = Math.floor(y - region.minY) - 2; row <= Math.floor(y - region.minY) + 2; row++) {
+      for (let col = Math.floor(x - region.minX) - 2; col <= Math.floor(x - region.minX) + 2; col++) {
         if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) continue
+        const [cx, cy] = [region.minX + col, region.minY + row]
+        if (Math.hypot(Math.max(cx - x, 0, x - cx - 1), Math.max(cy - y, 0, y - cy - 1)) > 1) continue
         const bit = row * region.cols + col
         if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
         if (enclosed(region.minX + col + 0.5, region.minY + row + 0.5)) return true

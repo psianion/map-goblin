@@ -43,6 +43,9 @@ import {
   type SceneMap,
 } from './sceneMap'
 import { exploreLocks, inAnyLock } from './sweep'
+import { enclosedOn } from './outdoorGround'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
+import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 
 type Doors = Record<string, DoorLiveState>
 
@@ -80,7 +83,7 @@ export function redactMapForViewer(
   const { prep: _prep, ...docSansPrep } = scene.data
   // Built once for the whole document, not once per layer: the ground lookup decodes the
   // region record, and the room boxes are a walk over every kept boundary.
-  const cut = cutFor(scene, kept, ground)
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const lockMask = lockMaskFor(scene, fog, kept)
   return {
     ...docSansPrep,
@@ -270,7 +273,9 @@ function childShips(
   // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
   // principle 2 says must never carry it.
   if (!layer.rooms?.length) return child.childType !== 'door'
-  return child.childType === 'door' ? doorKept(child, kept, doors, cut.ground) : childKept(child, scene, cut)
+  return child.childType === 'door'
+    ? doorKept(child, kept, doors, cut.ground, outsideFace(scene, child))
+    : childKept(child, scene, cut, enclosedOn(scene, levelIdOf(scene.data, layer)))
 }
 
 /**
@@ -296,13 +301,16 @@ function childShips(
  * renderer draws a wall along every ring it is given, so the cut would print a stone wall
  * across the mouth of a passage that is actually open.
  */
-function childKept(child: AnyChild, scene: SceneMap, cut: Cut): boolean {
+function childKept(child: AnyChild, scene: SceneMap, cut: Cut, enclosed: (x: number, y: number) => boolean): boolean {
   const [x, y] = centreOf(child)
   const room = scene.roomAt(x, y)
   if (room !== null && cut.kept.has(room)) return true
   // Cheapest first, and by a wide margin: the ground lookup is nine bit tests against the
   // child's own cell neighbourhood, where the band test can walk a room outline per room.
-  if (cut.ground(x, y, cut.pad)) return true
+  //
+  // R2: a child inside a walled floor or cave is earned only by ground known inside it. Ground
+  // outside the outline, a pad away across the rock, does not show what stands behind it.
+  if ((enclosed(x, y) ? cut.inside : cut.ground)(x, y, cut.pad)) return true
   if (nearKeptRoom(cut, x, y)) return true
   return child.childType === 'shape' && (coversKeptRoom(child, cut) || outlineNearGround(child, cut))
 }
@@ -333,6 +341,8 @@ interface Cut {
   kept: ReadonlySet<string>
   pad: number
   ground: Ground
+  /** The known ground inside walled floors and caves: recorded cells whose centre is inside one. */
+  inside: Ground
   rooms: readonly KeptRoom[]
 }
 
@@ -348,6 +358,7 @@ function cutFor(
   scene: SceneMap,
   kept: ReadonlySet<string>,
   ground: Ground = NO_GROUND,
+  inside: Ground = NO_GROUND,
 ): Cut {
   const pad = bandPad(scene)
   const rooms: KeptRoom[] = []
@@ -362,7 +373,7 @@ function cutFor(
     }
     rooms.push({ boundary: room.boundary, minX, minY, maxX, maxY })
   }
-  return { kept, pad, ground, rooms }
+  return { kept, pad, ground, inside, rooms }
 }
 
 /** "Is there revealed ground within `pad` of this point?" — see {@link groundOf}. */
@@ -392,7 +403,11 @@ export const NO_GROUND: Ground = () => false
  * this is asked once per child, so it walks only the `ceil(pad)` neighbourhood of the child's
  * own cell — nine lookups at today's pad — and measures to the cell *square*, not its centre.
  */
-export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
+export function groundOf(
+  fog: SceneFog,
+  frame: SceneMap['frame'],
+  keep: (x: number, y: number) => boolean = () => true,
+): Ground {
   const region = tableRegion(fog, frame ?? undefined)
   if (!region) return NO_GROUND
   const bytes = toBytes(region.bits)
@@ -409,6 +424,7 @@ export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
       for (let row = row0 - reach; row <= row0 + reach; row++) {
         if (!on(col, row)) continue
         const [cx, cy] = [region.minX + col, region.minY + row]
+        if (!keep(cx + 0.5, cy + 0.5)) continue
         const dx = Math.max(cx - x, 0, x - (cx + 1))
         const dy = Math.max(cy - y, 0, y - (cy + 1))
         if (Math.hypot(dx, dy) <= pad) return true
@@ -510,7 +526,7 @@ export function keptChildIds(
   ground: Ground = groundOf(fog, scene.frame),
 ): Set<string> {
   const kept = exploredRooms(fog)
-  const cut = cutFor(scene, kept, ground)
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
@@ -675,13 +691,59 @@ function doorBound(door: AuthoredDoor, kept: ReadonlySet<string>): boolean {
 /**
  * …and a secret door does not exist at all until the DM says so. Table fix pass §2.7: a door
  * with an outside face is also kept when known ground lies within one cell of it, so the door
- * of a room nobody entered is seen from outside.
+ * of a room nobody entered is seen from outside. R2: a door has an outside face only when one of
+ * its sides is outdoor ground (`outsideFace`); a door between two rooms of a cave, or with the
+ * cave's own floor on both sides, has none, whatever its room binding says.
  */
-export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Doors, ground: Ground = NO_GROUND): boolean {
+export function doorKept(
+  door: DoorChild,
+  kept: ReadonlySet<string>,
+  doors: Doors,
+  ground: Ground = NO_GROUND,
+  outside = true,
+): boolean {
   const live = doors[door.id] ?? seedDoor(door)
   if (door.isSecret && !live.revealed) return false
   if (doorBound(door, kept)) return true
-  return (!door.roomA || !door.roomB) && ground(door.position[0], door.position[1], 1)
+  return outside && (!door.roomA || !door.roomB) && ground(door.position[0], door.position[1], 1)
+}
+
+/** How far off its wall each side of a door is probed for outdoor ground, cells (`bindDoorToRooms`'s). */
+const DOOR_PROBE = 0.5
+
+/**
+ * R2 — whether one side of a door is outdoor ground: outside every walled floor and cave outline
+ * of the door's level, probed off the door where the full map resolves it.
+ */
+export function outsideFace(scene: SceneMap, door: DoorChild): boolean {
+  const placement = placementsOf(scene).get(door.id)
+  const [px, py] = placement?.position ?? door.position
+  const angle = placement?.angle ?? door.angle
+  const enclosed = enclosedOn(scene, doorLevelsOf(scene).get(door.id) ?? firstLevelId(scene.data))
+  const [nx, ny] = [-Math.sin(angle) * DOOR_PROBE, Math.cos(angle) * DOOR_PROBE]
+  return !enclosed(px + nx, py + ny) || !enclosed(px - nx, py - ny)
+}
+
+const doorLevelCache = new WeakMap<SceneMap, Map<string, string>>()
+
+/** The level of every door's layer, by door id. */
+function doorLevelsOf(scene: SceneMap): Map<string, string> {
+  let out = doorLevelCache.get(scene)
+  if (out) return out
+  out = new Map()
+  for (const layer of scene.data.layers) {
+    if (!isDungeon(layer)) continue
+    for (const child of childrenOf(layer)) if (child.childType === 'door') out.set(child.id, levelIdOf(scene.data, layer))
+  }
+  doorLevelCache.set(scene, out)
+  return out
+}
+
+/** The known ground inside walled floors and caves: recorded cells whose centre lies inside one. */
+function insideGroundOf(scene: SceneMap, fog: SceneFog): Ground {
+  const levels = scene.data.levels?.length ? scene.data.levels.map((l) => l.id) : [firstLevelId(scene.data)]
+  const enclosures = levels.map((level) => enclosedOn(scene, level))
+  return groundOf(fog, scene.frame, (x, y) => enclosures.some((enclosed) => enclosed(x, y)))
 }
 
 /**
