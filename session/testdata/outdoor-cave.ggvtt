@@ -95,14 +95,14 @@
           "childType": "shape",
           "visible": true,
           "shapeType": "polygon",
-          "contours": [[[18, 4], [26, 4], [26, 14], [18, 14]]],
+          "contours": [[[18, 4], [26, 4], [26, 14], [18, 14], [18, 13], [18, 12], [18, 11], [18, 10], [18, 9], [18, 8], [18, 7], [18, 6], [18, 5]]],
           "textureId": "gg-forge:cave_floor_8x8_floor_A",
           "textureScale": 1,
           "textureOffsetX": 0,
           "textureOffsetY": 0,
           "textureFillRotation": 0,
           "textureTint": "#ffffff",
-          "styleOverrides": { "wallTextureSetId": "" },
+          "styleOverrides": { "wallTextureSetId": "", "wallWidth": 1.2 },
           "edgeMaterial": "GG_Cave_Ink"
         },
         {

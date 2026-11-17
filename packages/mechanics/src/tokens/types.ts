@@ -188,6 +188,13 @@ export interface SceneVision {
    * leave the room-granular rule below exactly as it was.
    */
   openGround?(x: number, y: number): boolean
+  /**
+   * Table fix pass §2.3 — solid things decide. Why a player's token may not stand at `to`, or
+   * walk there from `from` (null = a place, no walk), on the walk grid of its level; null when
+   * it may. Present wherever the scene has a map frame; it replaces the room graph's
+   * `occupiable` and `blockedEdge`, and the straight-line crossing test, for every player move.
+   */
+  walkRefusal?(token: Token, to: { x: number; y: number }, from: { x: number; y: number } | null): string | null
 }
 
 /**

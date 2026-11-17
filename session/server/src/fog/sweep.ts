@@ -443,7 +443,7 @@ function sightState(door: DoorChild, doors: Doors): 'o' | 's' | 'c' {
  *    the wall it sits on is never split and occludes end to end. That is exactly what a
  *    secret door is: a wall until someone finds it.
  */
-function liveLayers(map: SceneMap, doors: Doors, levelId: string): DungeonLayer[] {
+export function liveLayers(map: SceneMap, doors: Doors, levelId: string): DungeonLayer[] {
   return layersOnLevel(map.data, map.data.layers, levelId).map((layer) => ({
     ...layer,
     children: childrenOf(layer).map((child) => (child.childType === 'door' ? live(child, doors) : child)),

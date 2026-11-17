@@ -130,12 +130,15 @@ export function canOccupy(
  * wire stays backward compatible and the prefix is purely additive.
  */
 export function occupyRefusal(
-  _token: Token,
+  token: Token,
   pos: { x: number; y: number },
   scene: SceneVision | null,
   role: Viewer['role'],
+  from: { x: number; y: number } | null = null,
 ): string | null {
   if (role === 'dm' || !scene) return null
+  // Table fix pass §2.3: where the scene has a walk grid, it is the whole answer.
+  if (scene.walkRefusal) return scene.walkRefusal(token, pos, from)
   const room = scene.roomAt(pos.x, pos.y)
   const say = (code: string, subjectId: string | null = null): string =>
     refusal(code, subjectId, 'that space cannot be occupied')

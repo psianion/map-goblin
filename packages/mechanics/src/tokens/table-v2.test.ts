@@ -324,6 +324,15 @@ describe('redaction by showHp', () => {
     expect(theirs.library.d1.hp).toBeUndefined()
   })
 
+  it('the owner always gets their own hit points, AC, speed and passive, whatever showHp says (F25)', () => {
+    const own: TokensState = {
+      library: {},
+      byScene: { [SCENE]: { pc: token({ id: 'pc', ownerId: 'p-1', hp: { current: 6, max: 9 }, ac: 15, speed: 30, passive: 13 }) } },
+    }
+    expect(module.redact!(own, P1).byScene[SCENE].pc).toMatchObject({ hp: { current: 6, max: 9 }, ac: 15, speed: 30, passive: 13 })
+    expect(module.redact!(own, P2).byScene[SCENE].pc.hp).toBeUndefined()
+  })
+
   it('is idempotent', () => {
     const once = module.redact!(s, P2)
     expect(module.redact!(once, P2)).toEqual(once)

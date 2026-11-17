@@ -22,6 +22,7 @@ import {
   fogModeOf,
   getCell,
   identityRegion,
+  outdoorsId,
   nearAuthoredFloor,
   onAuthoredFloor,
   regionFor,
@@ -47,7 +48,17 @@ import {
   type SceneTriggers,
   type TriggersState,
 } from '@dnd/mechanics/triggers'
-import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import {
+  SIZE_CELLS,
+  cellCentre,
+  sightParty,
+  walkRefusal,
+  type SceneVision,
+  type Token,
+  type TokensState,
+  type WalkGrid,
+} from '@dnd/mechanics/tokens'
+import type { CrossingsState } from '@dnd/mechanics/crossings'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
 import { firstLevelId, onLevel } from '@dnd/core/src/shared/visionGate'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure
@@ -73,6 +84,7 @@ import {
   type SceneMap,
   type SceneMapOf,
 } from './sceneMap'
+import { createWalkGrids } from './walk'
 import {
   createSweeps,
   exploreLocks,
@@ -209,6 +221,7 @@ const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 /** No triggers state yet ⇒ no relights and no ambient dial: `sceneTriggersOf` reads daylight. */
 const NO_TRIGGERS: TriggersState = { byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
+const NO_CROSSINGS: CrossingsState = { byScene: {} }
 
 /**
  * The plateau tops on the map that no party token stands high enough to see: a token sees a top
@@ -234,6 +247,7 @@ function coveredOf(
 export function createVision(stores: Stores): Vision {
   const { sceneMapOf, invalidate: invalidateSceneMap } = createSceneMaps(stores)
   const sweeps = createSweeps()
+  const walks = createWalkGrids()
   const cache = new Map<string, Computed>()
 
   const read = <S>(campaignId: string, module: string, fallback: S): S =>
@@ -497,6 +511,31 @@ export function createVision(stores: Stores): Vision {
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
         blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
+        // Table fix pass §2.3: solid things decide where a player's token stands and walks.
+        walkRefusal: computed.map.frame
+          ? (token, to, from) => {
+              const levelId = levelOfToken(computed.map, token)
+              const grid = walks.gridFor(
+                computed.map,
+                computed.doors,
+                read(computed.map.campaignId, 'crossings', NO_CROSSINGS),
+                sceneId,
+                levelId,
+              )
+              if (!grid) return null
+              return walkRefusal(
+                {
+                  grid,
+                  known: knownCells(computed, viewer, grid, levelId),
+                  heldDoor: (id) => computed.playerDoors.has(id),
+                  doorLocked: (id) => computed.doors[id]?.locked === true,
+                },
+                from,
+                to,
+                SIZE_CELLS[token.size] ?? 1,
+              )
+            }
+          : undefined,
       }
     },
 
@@ -768,4 +807,60 @@ function asSeen(rooms: Record<string, RoomFog>): Record<string, RoomFog> {
     seen[roomId] = room.wasEverRevealed ? { ...room, status: 'revealed' } : room
   }
   return seen
+}
+
+/** The level a token stands on: its own when the map has it, else the map's first. */
+function levelOfToken(map: SceneMap, token: Pick<Token, 'levelId'>): string {
+  return map.data.levels?.some((l) => l.id === token.levelId) ? token.levelId! : firstLevelId(map.data)
+}
+
+/** The Outdoors fog row of a level: one row on a one-level map, one per level otherwise. */
+export function outdoorsRowOf(data: Pick<SerializedMapData, 'levels'>, levelId: string): string {
+  return (data.levels?.length ?? 0) > 1 ? outdoorsId(levelId) : outdoorsId()
+}
+
+/** A stored cell record as a point test, decoded once (the shape `heldIn` takes). */
+function recordTest(map: SceneMap, stored: RegionMask | undefined): (x: number, y: number) => boolean {
+  const region = map.frame ? regionFor(stored, map.frame) : undefined
+  const bytes = region ? toBytes(region.bits) : undefined
+  if (!region || !bytes) return () => false
+  return (x, y) => {
+    const col = Math.floor(x - region.minX)
+    const row = Math.floor(y - region.minY)
+    if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) return false
+    const bit = row * region.cols + col
+    return (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0
+  }
+}
+
+/**
+ * §2.2 — known ground, per cell of a walk grid, memoised. By hand: the cell's room, or
+ * Outdoors, has ever been revealed. By sight, any of: the cell is in the record, in live sight,
+ * its room was ever revealed, or it is outdoors and the DM revealed Outdoors. The party's in
+ * party share, the viewer's own seat in individual share.
+ */
+function knownCells(
+  computed: Computed,
+  viewer: Viewer | undefined,
+  grid: WalkGrid,
+  levelId: string,
+): (i: number) => boolean {
+  const { map, fog } = computed
+  const memo = new Int8Array(grid.cols * grid.rows)
+  const outdoors = outdoorsRowOf(map.data, levelId)
+  const vision = fogModeOf(fog) === 'vision'
+  const individual = !!viewer && viewer.role !== 'dm' && computed.share === 'individual'
+  const inRecord = vision ? recordTest(map, individual ? identityRegion(fog, viewer!.identityId) : fog.region) : null
+  const sight = vision ? (individual ? computed.sightFor(viewer!.identityId) : computed.sightOn(levelId)) : null
+  return (i) => {
+    if (memo[i] !== 0) return memo[i] === 1
+    const { x, y } = cellCentre(grid, i)
+    const room = map.roomAt(x, y)
+    const ok =
+      fog.rooms[room ?? outdoors]?.wasEverRevealed === true ||
+      (inRecord !== null && inRecord(x, y)) ||
+      (sight !== null && seen(sight, x, y))
+    memo[i] = ok ? 1 : 2
+    return ok
+  }
 }

@@ -58,6 +58,7 @@ import { HP_MAX } from '../initiative/types'
 export * from './fan'
 export * from './links'
 export * from './types'
+export * from './walk'
 // The client snaps optimistically during a drag (§2.4.6) against the same function the
 // server validates with — one rule, one implementation.
 export { snap } from './validate'
@@ -220,14 +221,16 @@ export function tokensModule(
 }
 
 /**
- * `showHp` for one viewer: `all` keeps the pool, `owner` keeps it for the owning seat, `dm`
- * (the default, also for rows that predate the field) never sends it. AC goes with it, as
- * the other number behind the DM's screen. Same object back when nothing is cut.
+ * `showHp` for one viewer: `all` keeps the pool for everyone, `dm` (the default, also for rows
+ * that predate the field) and `owner` keep it for the owning seat only. AC goes with it, as the
+ * other number behind the DM's screen. The owner always gets their own numbers (F25): a
+ * character sheet without its own hit points and armour class is no sheet. Same object back
+ * when nothing is cut.
  */
 function withoutHp<T extends TokenDef>(token: T, viewer: Viewer, ownerId: string | null | undefined): T {
   if (token.hp === undefined && token.ac === undefined) return token
   const show = token.showHp ?? 'dm'
-  if (show === 'all' || (show === 'owner' && ownerId === viewer.identityId)) return token
+  if (show === 'all' || (ownerId != null && ownerId === viewer.identityId)) return token
   const cut = { ...token }
   delete cut.hp
   delete cut.ac
@@ -561,11 +564,14 @@ function move(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf, ta
     if (table?.movementLocked) denied(refusalText(MOVEMENT_LOCKED, null, 'the DM has locked token movement'))
   }
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
-  const refusal = occupyRefusal(token, pos, visionOf(sceneId), ctx.sender.role)
+  // The mover's own seat: in individual share, what this seat knows is what it may walk on.
+  const scene = visionOf(sceneId, ctx.sender)
+  const refusal = occupyRefusal(token, pos, scene, ctx.sender.role, token)
   if (refusal) bad(refusal)
   // A raised edge whose crossing kind refuses (Impassable, or whatever the DM switched on)
-  // stops a player's move; the DM's own drags are never refused (plan §7).
-  if (ctx.sender.role !== 'dm') {
+  // stops a player's move; the DM's own drags are never refused (plan §7). The walk grid
+  // floods round such edges itself, so the straight-line test is only for scenes without one.
+  if (ctx.sender.role !== 'dm' && !scene?.walkRefusal) {
     const crossing = terrainOf(sceneId)?.crossingRefusal(token, pos, token.levelId) ?? null
     if (crossing) bad(crossing)
   }
