@@ -165,6 +165,8 @@ export interface Vision {
    * triggers redaction keeps the live `lightEdits` of. Null when the scene has no map.
    */
   keptLightsOf(sceneId: string): ReadonlySet<string> | null
+  /** P9 — the real room ids a player's copy holds (the triggers module's `keptRoomsOf`). */
+  keptRoomsOf(sceneId: string): ReadonlySet<string> | null
   /**
    * Backs `tokensModule`'s level cut: which tokens a player's viewed level shows. Null on a
    * one-level map, for the DM, or with no map — every token shows.
@@ -766,6 +768,8 @@ export function createVision(stores: Stores): Vision {
       if (!computed) return null
       return new Set(computed.map.lights.map((l) => l.id).filter((id) => computed.playerChildren.has(id)))
     },
+
+    keptRoomsOf: (sceneId) => compute(sceneId)?.explored ?? null,
 
     levelFilterOf: (sceneId, viewer) => {
       if (viewer.role === 'dm') return null

@@ -11,6 +11,7 @@
 
 import { ANY_ROLE, dropScene, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
+import { isOutdoorsId } from '../fog/types'
 import { ringOffsets } from '../tokens/fan'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
@@ -107,6 +108,9 @@ export interface TriggerDeps {
   /** The light ids a player's copy of the map keeps (lights in explored rooms), or null when
    *  every light ships. `redact` drops the `lightEdits` of the rest. */
   keptLightsOf?(sceneId: string): ReadonlySet<string> | null
+  /** P9 — the room ids a player's copy of the map holds, or null when every room ships.
+   *  `redact` drops the `roomEdits` of the rest: a room id is not sent ahead of its room. */
+  keptRoomsOf?(sceneId: string): ReadonlySet<string> | null
 }
 
 type Ctx = ModuleContext<TriggersState>
@@ -166,17 +170,24 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       const byScene: TriggersState['byScene'] = {}
       for (const [sceneId, scene] of Object.entries(state.byScene)) {
         // A light in a room the party has not explored is not on the player's map, so its live
-        // edit does not ship either. Room places are not secrets: `roomEdits` ship whole. The
+        // edit does not ship either. P9: the same for a room's place edit, keyed by the real room
+        // id — a withheld room's id must not travel ahead of the room (a stand-in carries its
+        // place baked in, under its own id); the Outdoors rows are not rooms and always ship. The
         // DM's own level pick stays the DM's; seat pins and the start level ship (each seat
         // reads its own).
         const kept = deps.keptLightsOf?.(sceneId) ?? null
+        const rooms = deps.keptRoomsOf?.(sceneId) ?? null
+        const roomEdits =
+          scene.roomEdits && rooms
+            ? Object.fromEntries(Object.entries(scene.roomEdits).filter(([id]) => rooms.has(id) || isOutdoorsId(id)))
+            : scene.roomEdits
         byScene[sceneId] = {
           fired: {},
           armed: {},
           disabled: {},
           lightOverrides: kept ? keepKeys(scene.lightOverrides, kept) : scene.lightOverrides,
           lightEdits: kept ? keepKeys(scene.lightEdits, kept) : scene.lightEdits,
-          ...(scene.roomEdits ? { roomEdits: scene.roomEdits } : {}),
+          ...(roomEdits ? { roomEdits } : {}),
           ...(scene.seatLevel ? { seatLevel: scene.seatLevel } : {}),
           ...(scene.startLevelId ? { startLevelId: scene.startLevelId } : {}),
           ...(scene.darkness !== undefined ? { darkness: scene.darkness } : {}),

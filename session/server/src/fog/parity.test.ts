@@ -9,9 +9,15 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { regionFor, setCells, tableRegion, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
-import type { Token, TokensState } from '@dnd/mechanics/tokens'
-import type { TriggersState } from '@dnd/mechanics/triggers'
+import type { Viewer } from '@dnd/mechanics/contract'
+import { crossingsModule } from '@dnd/mechanics/crossings'
+import { doorsModule } from '@dnd/mechanics/doors'
+import { fogModule, regionFor, setCells, tableRegion, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { createInitiativeModule } from '@dnd/mechanics/initiative'
+import { pinsModule } from '@dnd/mechanics/pins'
+import { storyModule } from '@dnd/mechanics/story'
+import { tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import { triggersModule, type TriggersState } from '@dnd/mechanics/triggers'
 import type { Environment } from '@dnd/core/src/shared/world'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the floor union the client rebuilds
 import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
@@ -29,6 +35,8 @@ import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/share
 import type { DungeonLayer, DungeonStyle, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
+import { ModuleRegistry } from '../modules/registry'
+import { createTriggerDeps } from '../triggers/prepResolver'
 import { ensureClipperReady } from './clipperBoot'
 import { exploredRooms } from './redactMap'
 import { centreOf, distanceToPoly, isDungeon, pointInPoly } from './sceneMap'
@@ -172,8 +180,10 @@ const statesOf = (f: Fixture): State[] => [
   },
 ]
 
-/** The DM's copy and the player's copy of a fixture at one fog state. */
-function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog } {
+const PLAYER: Viewer = { role: 'player', identityId: 'p-1' }
+
+/** The DM's copy and the player's copy of a fixture at one fog state, and the player's join snapshot of every module. */
+function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog; snapshot: Record<string, unknown> } {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Parity')
   stores.maps.insert(SCENE, campaign.id, 'Parity', map)
@@ -200,7 +210,34 @@ function cut(map: string, state: State): { dm: Doc; player: Doc; fog: SceneFog }
     setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, patch?.cells ?? []) })
   }
   const fog = (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
-  return { dm: vision.sceneMapOf(SCENE)!.data, player: vision.playerMap(SCENE)!, fog }
+  // P9 — every module the server runs, wired to the same vision, as a joining player's seat gets them.
+  const registry = new ModuleRegistry(stores.moduleState)
+  registry.register(tokensModule(vision.visionOf, vision.levelFilterOf))
+  registry.register(createInitiativeModule({ tokenOwnerOf: () => null }))
+  registry.register(pinsModule)
+  registry.register(storyModule({ shareReadAloud: () => null }))
+  registry.register(crossingsModule)
+  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (id) => vision.visibleOf(id), vision.groundAtOf))
+  registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
+  registry.register(
+    triggersModule({
+      ...createTriggerDeps(stores, vision.sceneMapOf),
+      keptLightsOf: (id) => vision.keptLightsOf(id),
+      keptRoomsOf: (id) => vision.keptRoomsOf(id),
+    }),
+  )
+  const snapshot = registry.snapshotModules(campaign.id, PLAYER)
+  return { dm: vision.sceneMapOf(SCENE)!.data, player: vision.playerMap(SCENE)!, fog, snapshot }
+}
+
+/** P9 — withheld room ids anywhere in a player's join snapshot, module by module. */
+function snapshotLeaks(dmDoc: Doc, fog: SceneFog, snapshot: Record<string, unknown>): string[] {
+  const kept = exploredRooms(fog)
+  const withheld = dmDoc.layers.filter(isDungeon).flatMap((l) => l.rooms ?? []).filter((room) => !kept.has(room.id))
+  return Object.entries(snapshot).flatMap(([name, slice]) => {
+    const wire = JSON.stringify(slice ?? null)
+    return withheld.filter((room) => wire.includes(room.id)).map((room) => `withheld room id ${room.id} in the ${name} slice`)
+  })
 }
 
 // ── Resolving a document the way the engine draws it ──────────────────────────
@@ -418,9 +455,12 @@ function leaks(dmDoc: Doc, playerDoc: Doc, fog: SceneFog, frame: { minX: number;
 describe.each(FIXTURES)('player view parity: $name', (fixture) => {
   const map = fixture.map()
   it.each(statesOf(fixture))('$name', (state) => {
-    const { dm, player, fog } = cut(map, state)
+    const { dm, player, fog, snapshot } = cut(map, state)
     const frame = player.frame ?? { minX: 0, minY: 0, maxX: 30, maxY: 30 }
-    expect({ draws: differences(dm, player, frame, state.live), leaks: leaks(dm, player, fog, frame) }).toEqual({ draws: [], leaks: [] })
+    expect({
+      draws: differences(dm, player, frame, state.live),
+      leaks: [...leaks(dm, player, fog, frame), ...snapshotLeaks(dm, fog, snapshot)],
+    }).toEqual({ draws: [], leaks: [] })
   })
 })
 

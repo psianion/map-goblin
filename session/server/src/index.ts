@@ -208,6 +208,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       lightIdsOf: (_campaignId, sceneId) =>
         vision.sceneMapOf(sceneId)?.lights.filter((l) => !l.darkness).map((l) => l.id) ?? [],
       keptLightsOf: (sceneId) => vision.keptLightsOf(sceneId),
+      keptRoomsOf: (sceneId) => vision.keptRoomsOf(sceneId),
     }),
   )
   for (const module of options.modules ?? []) modules.register(module)
