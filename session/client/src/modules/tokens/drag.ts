@@ -12,14 +12,19 @@
 import { create } from 'zustand';
 import {
   MOVE_BLOCKED,
+  MOVEMENT_LOCKED,
   OUTSIDE_MAP,
   ROOM_UNEXPLORED,
   SIZE_CELLS,
+  SOLID_GROUND,
+  TABLE_PAUSED,
   snap,
   type Token,
   type TokenSize,
 } from '@dnd/mechanics/tokens';
-import type { Role } from '@dnd/core/src/shared/protocol';
+import { CROSSING_BLOCKED } from '@dnd/mechanics/crossings';
+import type { TableState } from '@dnd/mechanics/table';
+import type { PlayerInfo, Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
@@ -163,11 +168,25 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
  */
 const MOVE_SENTENCES: Record<string, string> = {
   [OUTSIDE_MAP]: 'There is no ground there.',
+  [SOLID_GROUND]: "You can't stand inside a wall or rock.",
   [ROOM_UNEXPLORED]: 'You have not been that way yet.',
   [MOVE_BLOCKED]: 'The way there is blocked.',
 };
 
+/** Table fix pass F13: the DM holding the table, said the same way whatever was refused. */
+const TABLE_SENTENCES: Record<string, string> = {
+  [TABLE_PAUSED]: 'The DM has paused the table.',
+  [MOVEMENT_LOCKED]: 'The DM has locked movement.',
+};
+
 export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
+  const head = message.slice(0, Math.max(0, message.indexOf(':'))).split(' ')[0];
+  if (TABLE_SENTENCES[head]) return TABLE_SENTENCES[head];
+  // `CROSSING_BLOCKED <kindId>: <name>[ — <note>]` — the kind's name, and the DM's note if any.
+  if (head === CROSSING_BLOCKED) {
+    const [name, ...note] = message.slice(message.indexOf(':') + 1).trim().split(' — ');
+    return `${name || 'A crossing'} blocks the way.${note.length ? ` ${note.join(' ')}` : ''}`;
+  }
   if (!message.includes('cannot be occupied')) return null;
   // `<cause> <subject?>: sentence` — the cause is the head word, whether or not an id follows.
   const cause = message.slice(0, Math.max(0, message.indexOf(':'))).split(' ')[0];
@@ -181,11 +200,26 @@ export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): 
  * refusal-toast path (`useTokenFeedback`, which reads `lastError`) is never on. The gesture
  * was answered by a 600ms rubber-band and nothing else, which reads as a dropped frame.
  * These words point at the affordance the panel is already offering beside the token.
+ *
+ * F4: "Another player is holding that token" was said even with nobody else at the table. The
+ * owner is named when the seat knows them, and an owner who is not connected is said to be
+ * away, with the way out (the DM hands it over).
  */
-export function dragRefusal(token: Token): string {
-  return token.ownerId === null
-    ? 'Claim this token to move it.'
-    : 'Another player is holding that token.';
+export function dragRefusal(token: Token, players: readonly PlayerInfo[] = []): string {
+  if (token.ownerId === null) return 'Claim this token to move it.';
+  const owner = players.find((p) => p.identityId === token.ownerId);
+  if (owner?.connected) return `${owner.name} is holding that token.`;
+  return owner
+    ? `That token is ${owner.name}'s, who is not here. The DM can hand it to you.`
+    : 'That token belongs to someone not at the table. The DM can hand it to you.';
+}
+
+/** F13: a player's drag the table refuses before it starts, or null. The DM is never held. */
+export function tableRefusal(role: Role | undefined, table: TableState | undefined): string | null {
+  if (role === 'dm') return null;
+  if (table?.paused) return TABLE_SENTENCES[TABLE_PAUSED];
+  if (table?.movementLocked) return TABLE_SENTENCES[MOVEMENT_LOCKED];
+  return null;
 }
 
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */
@@ -319,11 +353,16 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     select(token.id);
     claim(e);
 
-    const you = useSessionStore.getState().you;
+    const { you, session } = useSessionStore.getState();
     if (!canDrag(token, you?.role, you?.identityId)) {
       // `useToasts.show` keeps one toast for repeated words and restarts its window, so
       // grabbing the token again renews the answer rather than stacking a second one.
-      showToast({ message: dragRefusal(token) });
+      showToast({ message: dragRefusal(token, session?.players ?? []) });
+      return;
+    }
+    const held = tableRefusal(you?.role, session?.modules?.table as TableState | undefined);
+    if (held) {
+      showToast({ message: held });
       return;
     }
     drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };

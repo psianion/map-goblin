@@ -322,7 +322,7 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   let lastClick: { point: { x: number; y: number }; time: number } | null = null;
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0 || isToolActive()) return;
-    if (useSessionStore.getState().you?.role !== 'dm') return;
+    const isDm = useSessionStore.getState().you?.role === 'dm';
     const point = worldPointOf(engine, e);
     if (!point) return;
     const hit = doorAt(doors, point.x, point.y);
@@ -331,8 +331,9 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
     e.preventDefault();
     // Re-selected on both clicks: `DoorMenu`'s capture listener clears the selection on every
     // press over the map, so the second click of a double would otherwise close the menu it
-    // just acted through.
-    useDoorSelection.getState().select(hit.door.id);
+    // just acted through. A player has no door menu: their double-click only asks to swing the
+    // door, and the referee judges reach and the DM's switch (table fix pass, decision b).
+    if (isDm) useDoorSelection.getState().select(hit.door.id);
     const now = Date.now();
     if (isDoubleClick(lastClick, point, now)) {
       lastClick = null;

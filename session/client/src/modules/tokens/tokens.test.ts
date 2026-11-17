@@ -2,11 +2,13 @@ import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
+import { DOOR_CLOSED, DOOR_LOCKED, DOOR_OUT_OF_REACH, DOORS_DM_ONLY } from '@dnd/mechanics/doors';
+import { crossingRefusalMessage } from '@dnd/mechanics/crossings';
+import { MOVE_BLOCKED, MOVEMENT_LOCKED, OUTSIDE_MAP, ROOM_UNEXPLORED, SOLID_GROUND, TABLE_PAUSED } from '@dnd/mechanics/tokens';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { Layer } from '@dnd/core/src/store/types';
-import { liveDoors } from '../doors/doors';
+import { doorRefusal, liveDoors } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import { useToasts, type Toast } from '../../session/toasts';
 import { useRefusalToasts } from '../../session/useRefusalToasts';
@@ -17,9 +19,11 @@ import {
   approach,
   attachTokenInput,
   canDrag,
+  dragRefusal,
   createThrottle,
   drawOrder,
   hitTest,
+  tableRefusal,
   tokenRefusal,
   useTokenInteraction,
   type TokenLayer,
@@ -469,7 +473,10 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
     const h = harness([token({ id: 't1', ownerId: 'p-9' })]);
 
     h.canvas.fire('pointerdown', 0.5, 0.5);
-    expect(useToasts.getState().toast?.message).toBe('Another player is holding that token.');
+    // F4: nobody called p-9 is at the table, so "another player" was the wrong words.
+    expect(useToasts.getState().toast?.message).toBe(
+      'That token belongs to someone not at the table. The DM can hand it to you.',
+    );
     h.detach();
   });
 
@@ -600,5 +607,59 @@ describe('nameplateShown (table v2)', () => {
     expect(nameplateShown(token({ nameplate: 'hover' }), false, false)).toBe(false);
     expect(nameplateShown(token({ nameplate: 'hover' }), true, false)).toBe(true);
     expect(nameplateShown(token({}), false, true)).toBe(true);
+  });
+});
+
+describe('table fix pass B3: a sentence for every refusal a move can get', () => {
+  const said = (code: string) => tokenRefusal(`${code}: that space cannot be occupied`);
+
+  it('says each walk refusal in words', () => {
+    expect(said(OUTSIDE_MAP)).toBe('There is no ground there.');
+    expect(said(SOLID_GROUND)).toBe("You can't stand inside a wall or rock.");
+    expect(said(ROOM_UNEXPLORED)).toBe('You have not been that way yet.');
+    expect(said(MOVE_BLOCKED)).toBe('The way there is blocked.');
+    expect(tokenRefusal(`${DOOR_LOCKED} door-1: that space cannot be occupied`)).toBe('The door is locked.');
+    expect(tokenRefusal(`${DOOR_CLOSED} door-1: that space cannot be occupied`)).toBe('The door is closed.');
+  });
+
+  it('says paused and locked, which carry no "cannot be occupied"', () => {
+    expect(tokenRefusal(`${TABLE_PAUSED}: the DM has paused the table`)).toBe('The DM has paused the table.');
+    expect(tokenRefusal(`${MOVEMENT_LOCKED}: the DM has locked token movement`)).toBe('The DM has locked movement.');
+  });
+
+  it("names a refusing crossing and the DM's note", () => {
+    expect(tokenRefusal(crossingRefusalMessage({ id: 'cliff', name: 'Cliff' }))).toBe('Cliff blocks the way.');
+    expect(tokenRefusal(crossingRefusalMessage({ id: 'cliff', name: 'Cliff', note: 'climb it with a rope' }))).toBe(
+      'Cliff blocks the way. climb it with a rope',
+    );
+  });
+
+  it('refuses a player drag while the table is paused or movement is locked, never the DM', () => {
+    expect(tableRefusal('player', { paused: true, movementLocked: false })).toBe('The DM has paused the table.');
+    expect(tableRefusal('player', { paused: false, movementLocked: true })).toBe('The DM has locked movement.');
+    expect(tableRefusal('player', { paused: false, movementLocked: false })).toBeNull();
+    expect(tableRefusal('dm', { paused: true, movementLocked: true })).toBeNull();
+  });
+
+  // F4: the old words blamed "another player" with nobody else at the table.
+  it('names the real reason a token cannot be dragged', () => {
+    const pim: PlayerInfo = { identityId: 'p-1', name: 'Pim', role: 'player', connected: true };
+    expect(dragRefusal(token({ ownerId: null }))).toBe('Claim this token to move it.');
+    expect(dragRefusal(token({ ownerId: 'p-1' }), [pim])).toBe('Pim is holding that token.');
+    expect(dragRefusal(token({ ownerId: 'p-1' }), [{ ...pim, connected: false }])).toBe(
+      "That token is Pim's, who is not here. The DM can hand it to you.",
+    );
+    expect(dragRefusal(token({ ownerId: 'p-9' }), [pim])).toBe(
+      'That token belongs to someone not at the table. The DM can hand it to you.',
+    );
+  });
+
+  it("words a player's own door refusals", () => {
+    expect(doorRefusal(`${DOOR_OUT_OF_REACH} door-1: stand next to that door to open or close it`)).toBe(
+      'Stand next to the door to open it.',
+    );
+    expect(doorRefusal(`${DOORS_DM_ONLY} door-1: only the DM opens doors at this table`)).toBe(
+      'Only the DM opens doors at this table.',
+    );
   });
 });

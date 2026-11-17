@@ -218,6 +218,25 @@ describe('a press on a door, with token input on the same canvas', () => {
     h.detach();
   });
 
+  // Table fix pass, decision b: a player double-clicks a door to work it; the referee judges
+  // reach. A player has no door menu, so nothing is selected.
+  it("lets a player's double-click ask to swing a door, without selecting it", () => {
+    useSessionStore.setState({ session: session(), you: player });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent).toEqual([]);
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+
+    unmount();
+    h.detach();
+  });
+
   it('treats two slow presses as two single clicks, never a toggle', () => {
     vi.useFakeTimers();
     useSessionStore.setState({ session: session(), you: dm });
@@ -236,15 +255,13 @@ describe('a press on a door, with token input on the same canvas', () => {
   });
 
   /** D2 — the DM works the doors. A player's press has nothing to hit. */
-  it('gives a player no click target and no mark', () => {
+  it('gives a player no mark and no selection', () => {
     useSessionStore.setState({ session: session(), you: player });
-    const sent = captureCommands();
     const h = harness();
     const unmount = mountDoorLayer(h.engine, h.sceneGraph);
 
     h.press(PLAIN.position[0], PLAIN.position[1]);
     h.press(PLAIN.position[0], PLAIN.position[1]);
-    expect(sent).toEqual([]);
     expect(useDoorSelection.getState().selectedId).toBeNull();
     expect(marksOf(h.overlayContainer).children).toEqual([]);
 
