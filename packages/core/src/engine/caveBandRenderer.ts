@@ -396,6 +396,38 @@ type WallEnds = (p: Vec) => [Vec | null, Vec | null];
  * of the one after (null where a chain's own end bounds it instead, or no opening does).
  */
 function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): WallEnds {
+  const { pts, cum, joined } = openingArcs(line, gaps, closed);
+  const total = cum[cum.length - 1];
+  const none: [Vec | null, Vec | null] = [null, null];
+  if (joined.length === 0 || (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN)) return () => none;
+  const at = (s: number): Vec => pointAtArc(pts, cum, closed ? s % total : s);
+  // The stretches of wall between openings, each from where it opens to where it closes.
+  const stretches: [number | null, number | null][] = joined.slice(1).map((o, k): [number, number] => [joined[k][1], o[0]]);
+  if (closed) {
+    stretches.push([joined[joined.length - 1][1], joined[0][0] + total]);
+  } else {
+    stretches.unshift([null, joined[0][0]]);
+    stretches.push([joined[joined.length - 1][1], null]);
+  }
+  return (p) => {
+    const s = arcPosition(pts, p);
+    for (const [from, to] of stretches) {
+      for (const t of closed ? [s, s + total] : [s]) {
+        if ((from === null || t >= from) && (to === null || t <= to)) {
+          return [from === null ? null : at(from), to === null ? null : at(to)];
+        }
+      }
+    }
+    return none;
+  };
+}
+
+/**
+ * The openings on `line` as {@link wallEnds} finds them: `[from, to]` along the arc of `pts`
+ * (the line, its first point repeated at the end when `closed`), in order, touching ones
+ * joined and one across a ring's seam running on past its end.
+ */
+function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Vec[]; cum: number[]; joined: [number, number][] } {
   const pts: Vec[] = line.map(([x, y]) => [x, y]);
   if (closed) pts.push(pts[0]);
   const cum = arcLengths(pts);
@@ -426,28 +458,7 @@ function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): WallEnds {
   if (closed && joined.length > 1 && joined[0][0] <= WALL_END_JOIN && joined[joined.length - 1][1] >= total - WALL_END_JOIN) {
     joined[joined.length - 1][1] = total + joined.shift()![1];
   }
-  const none: [Vec | null, Vec | null] = [null, null];
-  if (joined.length === 0 || (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN)) return () => none;
-  const at = (s: number): Vec => pointAtArc(pts, cum, closed ? s % total : s);
-  // The stretches of wall between openings, each from where it opens to where it closes.
-  const stretches: [number | null, number | null][] = joined.slice(1).map((o, k): [number, number] => [joined[k][1], o[0]]);
-  if (closed) {
-    stretches.push([joined[joined.length - 1][1], joined[0][0] + total]);
-  } else {
-    stretches.unshift([null, joined[0][0]]);
-    stretches.push([joined[joined.length - 1][1], null]);
-  }
-  return (p) => {
-    const s = arcPosition(pts, p);
-    for (const [from, to] of stretches) {
-      for (const t of closed ? [s, s + total] : [s]) {
-        if ((from === null || t >= from) && (to === null || t <= to)) {
-          return [from === null ? null : at(from), to === null ? null : at(to)];
-        }
-      }
-    }
-    return none;
-  };
+  return { pts, cum, joined };
 }
 
 /**
@@ -558,6 +569,9 @@ function laidAtSize(
  * of the ride lets the kit both reach such a tip and keep to the edges either
  * side of it, so the ring is laid as runs from tip to tip, each carried on past
  * its tips, and the rock of the two runs that meet at a tip covers it.
+ *
+ * A measured kit on a ring of straight sides is laid corner by corner instead (see
+ * {@link layExactRing}).
  */
 export function layBandRing(
   poly: Polygon,
@@ -569,6 +583,8 @@ export function layBandRing(
   if (poly.length < 3) return [];
   const base = resampleClosed(poly as Curve, CURVE_STEP);
   if (base.length < 8) return [];
+  const exact = set.some((p) => p.exact) ? layExactRing(poly, gaps, set) : null;
+  if (exact) return exact;
   const tips = sharpCorners(base, true);
   if (tips.length) {
     const n = base.length;
@@ -600,6 +616,181 @@ export function layBandRing(
   // bend the wrong way) is laid corner first after all.
   if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(trimLaps(fullSize(corners.placed, set), set, true), set, true);
   return meetNeighbours(trimLaps(fullSize(walked, set), set, true), set, true);
+}
+
+/** How far a corner's bends may turn from the corner itself, degrees. */
+const EXACT_TURN_TOL = 20;
+/** The scale every straight of a stretch is kept inside when any choice of straights allows it. */
+const EXACT_FIT: [number, number] = [0.85, 1.2];
+/** The scale a stretch no choice fits inside EXACT_FIT may go to. */
+const EXACT_REACH: [number, number] = [0.6, 1.4];
+/** A stretch shorter than this, cells, is left to the lap of the pieces either side. */
+const EXACT_SLIVER = 0.25;
+/** The length, cells, straights' drawn lengths are summed to when a stretch's fill is chosen. */
+const FILL_STEP = 0.01;
+
+/**
+ * A measured kit round a ring of straight sides: each opening bridged straight between its
+ * wall ends, a bend on every corner of the bridged ring at its drawn size (`layCorners`,
+ * its own straights dropped), and each stretch of wall left between bends and openings
+ * filled with straights scaled alike so their art runs exactly from end to end (see
+ * {@link fillStretch}), on the side's straight line at the kit's own shove. A bend an opening
+ * reaches into is dropped, and the stretches either side run to the corner instead. Placements
+ * in walk order, starting after an opening when there is one. Null when the bridged ring is
+ * not one `cornerRing` lays, or a corner's bends do not turn it.
+ */
+function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): WalkPlacement[] | null {
+  const { pts, cum, joined } = openingArcs(poly, gaps, true);
+  const total = cum[cum.length - 1];
+  if (joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return null;
+  const at = (s: number): Vec => pointAtArc(pts, cum, s % total);
+  const openings: [Vec, Vec][] = joined.map(([a, b]) => [at(a), at(b)]);
+  // The ring with each opening bridged: every stretch of wall, from where it opens to where it closes.
+  let bridged: Vec[] = pts.slice(0, -1);
+  if (joined.length > 0) {
+    bridged = joined.flatMap(([, from], k) => {
+      const to = k + 1 < joined.length ? joined[k + 1][0] : joined[0][0] + total;
+      const inner = cum
+        .slice(0, -1)
+        .map((c, i) => ({ i, d: (((c - from) % total) + total) % total }))
+        .filter(({ d }) => d > 1e-9 && d < to - from - 1e-9)
+        .sort((p, q) => p.d - q.d)
+        .map(({ i }) => pts[i]);
+      return [at(from), ...inner, at(to)];
+    });
+  }
+  const corners = ringCorners(bridged);
+  if (!corners) return null;
+  const laid = cornerRing(bridged, bandRide(resampleClosed(bridged, CURVE_STEP), true, kitOut(set)), set);
+  if (!laid) return null;
+  const m = corners.length;
+  const groups: WalkPlacement[][] = corners.map(() => []);
+  for (const pl of laid.placed) {
+    if (pl.branch !== 'corner') continue;
+    const mid = mul(add(pl.P, pl.Q), 0.5);
+    let k = 0;
+    for (let j = 1; j < m; j++) if (dist(corners[j].p, mid) < dist(corners[k].p, mid)) k = j;
+    groups[k].push(pl);
+  }
+  if (groups.some((g, k) => Math.abs(g.reduce((sum, pl) => sum + pl.piece.turnDeg, 0) - corners[k].turn) > EXACT_TURN_TOL)) return null;
+
+  const half = kitOverlap(set) / 2;
+  const out = kitOut(set);
+  const sides = corners.map((c, k) => {
+    const V = c.p;
+    const W = corners[(k + 1) % m].p;
+    const u = norm(sub(W, V));
+    return { V, u, len: dist(V, W), origin: add(V, mul([u[1], -u[0]], out)) };
+  });
+  const along = (k: number, p: Vec): number => dot(sub(p, sides[k].V), sides[k].u);
+  // Where a bend's art ends: half an overlap in from its joint, along its own travel there.
+  const artEnd = (pl: WalkPlacement, end: boolean): Vec => {
+    const turn = ((end ? 1 : -1) * pl.piece.turnDeg * Math.PI) / 360;
+    const chord = Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]) + turn;
+    const t: Vec = [Math.cos(chord), Math.sin(chord)];
+    return add(jointsOf(pl.piece, pl.at)[end ? 1 : 0], mul(t, (end ? -1 : 1) * half * pl.at.scale));
+  };
+  const onSide: { w0: number; w1: number }[][] = corners.map(() => []);
+  for (const [W0, W1] of openings) {
+    const k = sides.findIndex((s, j) => [W0, W1].every((W) => segmentDist(W, s.V, corners[(j + 1) % m].p) <= ON_EDGE));
+    if (k < 0) return null;
+    onSide[k].push({ w0: along(k, W0), w1: along(k, W1) });
+  }
+  onSide.forEach((list) => list.sort((p, q) => p.w0 - q.w0));
+  const starts = sides.map((_, k) => along(k, artEnd(groups[k][groups[k].length - 1], true)));
+  const ends = sides.map((_, k) => along(k, artEnd(groups[(k + 1) % m][0], false)));
+  const dropped = corners.map((_, k) => onSide[k].some((o) => o.w0 < starts[k]) || onSide[(k - 1 + m) % m].some((o) => o.w1 > ends[(k - 1 + m) % m]));
+  // Where a side's rock runs to at a corner left without its bend: where the joint lines meet.
+  const reach = (k: number): number => 2 * out * Math.tan((corners[k].turn * Math.PI) / 360);
+
+  const straights = set.filter((p) => p.turnDeg === 0);
+  let mirror = 0;
+  /** A stretch from t0 to t1 along side k; a scale held inside EXACT_REACH keeps the art to a wall end, else centred. */
+  const fill = (k: number, t0: number, t1: number, wall0: boolean, wall1: boolean): WalkPlacement[] => {
+    const L = t1 - t0;
+    if (L < EXACT_SLIVER) return [];
+    const { origin, u } = sides[k];
+    const start = add(origin, mul(u, t0));
+    const { pieces, f } = fillStretch(L, straights, 2 * half, Math.round(start[0] * 100) * 7919 + Math.round(start[1] * 100));
+    const left = L - pieces.reduce((sum, p) => sum + p.chordCells - 2 * half, 0) * f;
+    let s = t0 + (wall0 === wall1 ? left / 2 : wall1 ? left : 0);
+    return pieces.map((kind) => {
+      const same = straights.filter((p) => p.key === kind.key);
+      const piece = same[mirror++ % same.length];
+      const P = add(origin, mul(u, s - half * f));
+      s += (piece.chordCells - 2 * half) * f;
+      const Q = add(origin, mul(u, s + half * f));
+      return { piece, P, Q, i: 0, nudge: 0, branch: 'side', at: placePiece(piece, P, Q, out, 0, 0) };
+    });
+  };
+  // Walk order, an opening marked as null where it falls.
+  const seq: (WalkPlacement | null)[] = [];
+  sides.forEach((side, k) => {
+    if (!dropped[k]) seq.push(...groups[k]);
+    let cursor = dropped[k] ? -reach(k) : starts[k];
+    let atWall = false;
+    const last = dropped[(k + 1) % m] ? side.len + reach((k + 1) % m) : ends[k];
+    for (const o of onSide[k]) {
+      seq.push(...fill(k, cursor, Math.min(o.w0, last), atWall, o.w0 <= last), null);
+      atWall = o.w1 >= cursor;
+      cursor = Math.max(cursor, o.w1);
+    }
+    seq.push(...fill(k, cursor, last, atWall, false));
+  });
+  const cut = seq.indexOf(null);
+  return [...seq.slice(cut + 1), ...seq.slice(0, Math.max(cut, 0))].filter((pl): pl is WalkPlacement => pl !== null);
+}
+
+/**
+ * The straights a stretch whose art runs `L` cells is filled with, and the one scale they all
+ * take: the drawn length nearest `L` whose scale lies inside EXACT_FIT, else the one whose scale
+ * lies least outside it (kept inside EXACT_REACH), on the fewest pieces, ties and the order the
+ * pieces run in picked by `seed`. Each straight's art is its chord less `overlap`.
+ */
+function fillStretch(L: number, straights: CaveKitPiece[], overlap: number, seed: number): { pieces: CaveKitPiece[]; f: number } {
+  const kinds = straights.filter((p, k) => p.chordCells > overlap && straights.findIndex((q) => q.key === p.key) === k);
+  const steps = kinds.map((p) => Math.max(1, Math.round((p.chordCells - overlap) / FILL_STEP)));
+  const mix = (...xs: number[]): number => xs.reduce((h, x) => Math.imul(h ^ x, 0x01000193) >>> 0, 0x811c9dc5);
+  // Fewest pieces to each drawn length, in FILL_STEP units: the piece laid last, and its count.
+  const top = Math.max(Math.ceil(L / EXACT_REACH[0] / FILL_STEP), Math.min(...steps));
+  const count = new Array<number>(top + 1).fill(Infinity);
+  const lastOf = new Array<number>(top + 1).fill(-1);
+  count[0] = 0;
+  for (let t = 0; t < top; t++) {
+    if (count[t] === Infinity) continue;
+    steps.forEach((step, j) => {
+      const n = t + step;
+      if (n > top) return;
+      const c = count[t] + 1;
+      if (c < count[n] || (c === count[n] && mix(seed, n, j) < mix(seed, n, lastOf[n]))) {
+        count[n] = c;
+        lastOf[n] = j;
+      }
+    });
+  }
+  // How far a drawn length's scale lies outside EXACT_FIT, then how far it is from L, then its count.
+  const misfit = (t: number): number => Math.max(0, EXACT_FIT[0] - L / (t * FILL_STEP), L / (t * FILL_STEP) - EXACT_FIT[1]);
+  const better = (t: number, than: number): boolean => {
+    const m = misfit(t) - misfit(than);
+    if (Math.abs(m) > 1e-9) return m < 0;
+    const d = Math.abs(t * FILL_STEP - L) - Math.abs(than * FILL_STEP - L);
+    return d < -1e-9 || (Math.abs(d) <= 1e-9 && count[t] < count[than]);
+  };
+  let best = -1;
+  for (let t = 1; t <= top; t++) if (count[t] < Infinity && (best < 0 || better(t, best))) best = t;
+  const pieces: CaveKitPiece[] = [];
+  for (let t = best; t > 0; t -= steps[lastOf[t]]) pieces.push(kinds[lastOf[t]]);
+  const order = pieces.map((p, k) => ({ p, h: mix(seed, k) })).sort((a, b) => a.h - b.h).map(({ p }) => p);
+  const drawn = order.reduce((sum, p) => sum + p.chordCells - overlap, 0);
+  return { pieces: order, f: Math.min(EXACT_REACH[1], Math.max(EXACT_REACH[0], L / drawn)) };
+}
+
+/** Distance from `p` to the segment a–b. */
+function segmentDist(p: Vec, a: Vec, b: Vec): number {
+  const v = sub(b, a);
+  const L2 = dot(v, v);
+  const s = L2 > 0 ? Math.max(0, Math.min(1, dot(sub(p, a), v) / L2)) : 0;
+  return dist(p, add(a, mul(v, s)));
 }
 
 /** A measured kit's piece laid below this share of its drawn size is put back to full size. */
@@ -776,23 +967,9 @@ function cornerRing(
   ride: Curve,
   set: CaveKitPiece[],
 ): { placed: WalkPlacement[]; short: boolean; turn: number } | null {
-  const pts: Vec[] = [];
-  for (const p of poly) {
-    const last = pts[pts.length - 1];
-    if (!last || dist(last, p as Vec) > 1e-6) pts.push([p[0], p[1]]);
-  }
-  if (pts.length > 2 && dist(pts[0], pts[pts.length - 1]) <= 1e-6) pts.pop();
-  const m = pts.length;
-  if (m < 3) return null;
-  const corners: RingCorner[] = [];
-  for (let k = 0; k < m; k++) {
-    const a = norm(sub(pts[k], pts[(k - 1 + m) % m]));
-    const b = norm(sub(pts[(k + 1) % m], pts[k]));
-    const turn = (Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]) * 180) / Math.PI;
-    if (Math.abs(turn) < SIDE_TURN_DEG) continue;
-    if (Math.abs(turn) < RING_CORNER_DEG) return null;
-    corners.push({ at: cornerOnRide(ride, pts[k]), turn });
-  }
+  const found = ringCorners(poly);
+  if (!found) return null;
+  const corners: RingCorner[] = found.map((c) => ({ at: cornerOnRide(ride, c.p), turn: c.turn }));
   const shortest = Math.min(...set.filter((p) => p.turnDeg === 0).map((p) => p.chordCells));
   const laid = layCorners(ride, corners, set);
   if (!laid) return null;
@@ -801,6 +978,28 @@ function cornerRing(
     short: Math.min(...laid.sides) < shortest * SHORT_SIDE,
     turn: corners.reduce((sum, c) => sum + c.turn, 0),
   };
+}
+
+/** A ring's corners in order, each vertex with its signed turn, degrees; null for a ring with a curve in it. */
+function ringCorners(poly: Polygon): { p: Vec; turn: number }[] | null {
+  const pts: Vec[] = [];
+  for (const p of poly) {
+    const last = pts[pts.length - 1];
+    if (!last || dist(last, p as Vec) > 1e-6) pts.push([p[0], p[1]]);
+  }
+  if (pts.length > 2 && dist(pts[0], pts[pts.length - 1]) <= 1e-6) pts.pop();
+  const m = pts.length;
+  if (m < 3) return null;
+  const corners: { p: Vec; turn: number }[] = [];
+  for (let k = 0; k < m; k++) {
+    const a = norm(sub(pts[k], pts[(k - 1 + m) % m]));
+    const b = norm(sub(pts[(k + 1) % m], pts[k]));
+    const turn = (Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]) * 180) / Math.PI;
+    if (Math.abs(turn) < SIDE_TURN_DEG) continue;
+    if (Math.abs(turn) < RING_CORNER_DEG) return null;
+    corners.push({ p: pts[k], turn });
+  }
+  return corners;
 }
 
 /**
