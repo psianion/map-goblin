@@ -51,19 +51,30 @@ function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
  * texture. Arm one wait per (layer, texture); when the texture lands, bump the
  * layer's epoch — subscribeToStore folds it into the render key and re-bakes.
  */
-const armedLateTextureWaits = new Set<string>();
+// The wait is the manager's texture signal, not a timed `waitForTexture`: on a slow first
+// download the art can land long after any timeout, and a bake that gave up on it would
+// stay bare for the rest of the session.
+const lateTextures = new Map<string, Set<string>>();
+let lateTexturesWatched: unknown = null;
 export function armLateTextureRebuild(layerId: string, textureId: string): void {
   if (!textureId.includes(':') || textureId.startsWith('data:') || textureId.startsWith('blob:')) return;
-  const key = `${layerId}|${textureId}`;
-  if (armedLateTextureWaits.has(key)) return;
-  armedLateTextureWaits.add(key);
-  getAssetPackManager()
-    .waitForTexture(textureId)
-    .then((tex) => {
-      armedLateTextureWaits.delete(key);
-      // Timed out (bad id, install failed): stay on the fallback quietly.
-      if (tex) useStore.getState().bumpFloorTextureEpoch(layerId);
+  const manager = getAssetPackManager();
+  if (lateTexturesWatched !== manager) {
+    lateTexturesWatched = manager;
+    lateTextures.clear();
+    manager.subscribeTextures(() => {
+      for (const [id, waiting] of [...lateTextures]) {
+        // Asking again also starts a decode the first ask could not (its pack not read yet).
+        if (![...waiting].some((t) => manager.getTextureOrNull(t))) continue;
+        // The bake that follows arms again whatever is still missing.
+        lateTextures.delete(id);
+        useStore.getState().bumpFloorTextureEpoch(id);
+      }
     });
+  }
+  const waiting = lateTextures.get(layerId);
+  if (waiting) waiting.add(textureId);
+  else lateTextures.set(layerId, new Set([textureId]));
 }
 
 /**

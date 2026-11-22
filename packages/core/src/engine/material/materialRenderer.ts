@@ -35,13 +35,26 @@ import { getAssetPackManager } from '../assetPackInstance';
 const waiting = new Set<string>();
 /** Art asked for once already: an id no pack delivers is not asked for again. */
 const asked = new Set<string>();
+/** The art each layer's rock was last drawn without, by layer id. */
+const bare = new Map<string, string[]>();
 
-/** Art can land later than one wait: a decode clears `asked` so the next draw asks again. */
+/**
+ * Art can land later than one wait: a decode clears `asked` so the next draw asks again,
+ * and redraws the rock of a layer drawn without art that has now landed.
+ */
 let watching = false;
 function watchTextures(): void {
   if (watching) return;
   watching = true;
-  getAssetPackManager().subscribeTextures(() => asked.clear());
+  getAssetPackManager().subscribeTextures(() => {
+    asked.clear();
+    for (const [id, art] of [...bare]) {
+      if (!art.some((t) => resolveTexture(t).width > 1)) continue;
+      bare.delete(id);
+      const now = useStore.getState().layers.find((l): l is DungeonLayer => l.id === id && l.type === 'dungeon');
+      if (now) drawLayerMaterials(now);
+    }
+  });
 }
 
 /** Each art id the caves' rock needs that has not loaded; loads them and redraws the layer once they have. */
@@ -53,7 +66,9 @@ function awaitArt(layer: DungeonLayer, materials: readonly string[]): void {
     if (fill) ids.add(fill);
     for (const e of bandSetArt(material).values()) ids.add(e.id);
   }
-  const missing = [...ids].filter((id) => !asked.has(id) && resolveTexture(id).width <= 1);
+  const unloaded = [...ids].filter((id) => resolveTexture(id).width <= 1);
+  if (unloaded.length > 0) bare.set(layer.id, [...(bare.get(layer.id) ?? []), ...unloaded]);
+  const missing = unloaded.filter((id) => !asked.has(id));
   if (missing.length === 0 || waiting.has(layer.id)) return;
   waiting.add(layer.id);
   for (const id of missing) asked.add(id);
@@ -261,6 +276,7 @@ export function drawLayerMaterials(layer: DungeonLayer): void {
   const host = getLayerEntry(layer.id)?.sublayers?.materials;
   if (!host) return;
   for (const child of host.removeChildren()) child.destroy({ children: true });
+  bare.delete(layer.id);
   const caves = caveEdges(layer);
   if (caves.length === 0) return;
   awaitArt(layer, caves.map((c) => c.material));
