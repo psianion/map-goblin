@@ -62,7 +62,19 @@ const RETRACTS: Record<string, readonly string[]> = {
  */
 const CASCADES: Record<string, readonly string[]> = {
   tokens: ['move', 'place', 'update', 'delete', 'claim', 'hide'],
-  fog: ['reveal', 'set-bulk', 'hide', 'reset', 'auto-explore', 'open-map'],
+  fog: [
+    'reveal',
+    'set-bulk',
+    'hide',
+    'reset',
+    'auto-explore',
+    'open-map',
+    // Fog rework: every write that can clear a room's first cell, and Fog all, which re-arms.
+    'region-set',
+    'clear-all',
+    'fog-all',
+    'restore',
+  ],
 }
 
 /**

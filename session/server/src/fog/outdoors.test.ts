@@ -1,17 +1,15 @@
-// Table fix pass §2.4 to §2.7, tests 6.1 rows 7 to 13, on the outdoor-cave fixture: the Outdoors
-// fog row, what the party sees behind doors and cave mouths, the stored party reveal, the record
-// written from outside, a republish, and whose eyes see.
+// Table fix pass §2.4 to §2.7 on the outdoor-cave fixture, as the fog rework left them: the
+// cells sight clears from outside, a republish that moves the frame, whose eyes see, and the
+// open ground a fogged seat is sent.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { fogModule, getCell, regionFor, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule, rebaseRegion, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import type { DoorsState } from '@dnd/mechanics/doors'
-import { tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
-import { ModuleRegistry } from '../modules/registry'
 import { ensureClipperReady } from './clipperBoot'
-import { partyHere } from './partyHere'
 import { pointInPoly } from './sceneMap'
 import { createVision } from './vision'
 
@@ -85,41 +83,6 @@ describe('the Outdoors row and what the party sees (§2.1, §2.6)', () => {
     expect(fog.handler('hide', { roomId: '@outdoors' }, ctx)).toBeUndefined()
     expect(state.byScene[SCENE].rooms['@outdoors']).toEqual({ status: 're_hidden', wasEverRevealed: true })
   })
-
-  it('8: a one-sided door links a room and Outdoors', () => {
-    const t = table()
-    t.setTokens(pc())
-    t.setFog({ rooms: { 'room-hall': lit, '@outdoors': lit } })
-    expect([...t.vision.visionOf(SCENE)!.visible].sort()).toEqual(['@outdoors'])
-    t.setDoors(true)
-    expect([...t.vision.visionOf(SCENE)!.visible].sort()).toEqual(['@outdoors', 'room-hall'])
-    expect(t.vision.visibleOf(SCENE)).toEqual(expect.arrayContaining(['@outdoors', 'room-hall']))
-  })
-
-  it('9: a cave mouth links without a door', () => {
-    const open = table(withCaveRoom())
-    open.setTokens(pc())
-    open.setFog({ rooms: { 'room-cave': lit, '@outdoors': lit } })
-    expect([...open.vision.visionOf(SCENE)!.visible].sort()).toEqual(['@outdoors', 'room-cave'])
-    const sealed = table(withCaveRoom(false))
-    sealed.setTokens(pc())
-    sealed.setFog({ rooms: { 'room-cave': lit, '@outdoors': lit } })
-    expect([...sealed.vision.visionOf(SCENE)!.visible]).toEqual(['@outdoors'])
-  })
-
-  it('10: a party token put in an unrevealed room reveals it, and it stays revealed', () => {
-    const t = table()
-    const registry = new ModuleRegistry(t.stores.moduleState, partyHere(t.vision))
-    registry.register(tokensModule(t.vision.visionOf))
-    registry.register(fogModule(t.vision.roomsOf, t.vision.frameOf, t.vision.roomAtOf))
-    const ctx = { campaignId: t.campaignId, sessionId: 's', activeSceneId: SCENE, sender: DM, players: [], broadcast: () => {} }
-    expect(registry.dispatch('tokens', 'place', { name: 'Bram', kind: 'pc', x: 8.5, y: 7.5 }, ctx)).toBeNull()
-    expect(t.fogOf().rooms['room-hall']).toEqual(lit)
-    // The DM revealing somewhere else does not take it back (F8).
-    expect(registry.dispatch('fog', 'reveal', { roomId: '@outdoors' }, ctx)).toBeNull()
-    expect(t.fogOf().rooms['room-hall']).toEqual(lit)
-    expect(t.vision.visionOf(SCENE)!.visible.has('room-hall')).toBe(true)
-  })
 })
 
 describe('sight from outside (§2.4, §2.5, §2.7)', () => {
@@ -132,18 +95,22 @@ describe('sight from outside (§2.4, §2.5, §2.7)', () => {
     expect(patch.byLevel['lvl-1']).toContainEqual([14, 9])
   })
 
-  it('12: a republish that keeps the frame keeps the record', () => {
+  it('12: a republish that moves the frame keeps cleared cells where they were (row 14)', () => {
     const t = table()
     const frame = t.vision.frameOf(t.campaignId, SCENE)!
-    const region = setCells(regionFor(undefined, frame)!, [[15, 9]])
     t.setTokens(pc())
-    t.setFog({ mode: 'vision', region })
-    expect(t.vision.visionOf(SCENE)!.openGround!(15.5, 9.5)).toBe(true)
-    t.stores.maps.insert('map-2', t.campaignId, 'Outdoor Cave', MAP)
+    t.setFog({ on: true, cleared: { 'lvl-1': setCells(rebaseRegion(undefined, frame)!, [[15, 9]]) } })
+    expect(t.vision.visionOf(SCENE)!.known!(undefined, 15.5, 9.5)).toBe(true)
+    // The same map, grown: a new frame, so the stored record no longer matches it.
+    const grown = JSON.parse(MAP)
+    grown.mapSettings.fixedSize = { width: 34, height: 24, locked: true }
+    t.stores.maps.insert('map-2', t.campaignId, 'Outdoor Cave', JSON.stringify(grown))
     t.stores.scenes.republish(SCENE, 'map-2')
     t.vision.invalidateScene(SCENE)
-    expect(getCell(regionFor(t.fogOf().region, t.vision.frameOf(t.campaignId, SCENE)!), 15, 9)).toBe(true)
-    expect(t.vision.visionOf(SCENE)!.openGround!(15.5, 9.5)).toBe(true)
+    const moved = t.vision.frameOf(t.campaignId, SCENE)!
+    expect(moved).not.toEqual(frame)
+    expect(t.vision.visionOf(SCENE)!.known!(undefined, 15.5, 9.5)).toBe(true)
+    expect(t.vision.visionOf(SCENE)!.known!(undefined, 16.5, 9.5)).toBe(false)
   })
 
   it('13: a player’s token with no sight sees, an unowned PC sees for the party, an NPC does not', () => {
@@ -169,23 +136,32 @@ describe('the open ground a seat is owed (S3)', () => {
   const inside = (rings: [number, number][][], x: number, y: number) =>
     rings.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1
 
+  /** Fog on, and what the token's sight clears written to the record. */
+  const cleared = (t: ReturnType<typeof table>) => {
+    t.setFog({ on: true })
+    const frame = t.vision.frameOf(t.campaignId, SCENE)!
+    const { byLevel } = t.vision.autoExplorePatch(SCENE)!
+    t.setFog({ on: true, cleared: Object.fromEntries(Object.entries(byLevel).map(([l, cells]) => [l, setCells(rebaseRegion(undefined, frame)!, cells)])) })
+  }
+
   it('stays the frame less the walled floors on a base-ground map', () => {
-    for (const [map, w, h] of [[MAP, 30, 20], [readFileSync(join(import.meta.dirname, '../../../testdata/testing-cave.ggvtt'), 'utf8'), 30, 30]] as const) {
+    // Each token stands on open ground, so what it clears includes outdoor cells.
+    for (const [map, w, h, x, y] of [[MAP, 30, 20, 15.5, 9.5], [readFileSync(join(import.meta.dirname, '../../../testdata/testing-cave.ggvtt'), 'utf8'), 30, 30, 7.5, 22.5]] as const) {
       const t = table(map)
-      t.setTokens(pc())
-      t.setFog({ rooms: { '@outdoors': lit } })
+      t.setTokens(pc({ x, y }))
+      cleared(t)
       const scene = t.vision.sceneMapOf(SCENE)!
       const floors = scene.data.layers.flatMap((l) => (l.type === 'dungeon' ? (l.mergedFloor ?? []) : []))
       expect(t.vision.playerMap(SCENE)!.openGround![0].rings).toEqual([frameRing(w, h), ...floors])
     }
   })
 
-  it('on a ground-pieces map, opens only around known ground: not the empty frame, not far rock', () => {
+  it('on a ground-pieces map, opens only around cleared ground: not the empty frame, not far rock', () => {
     const map = JSON.parse(withCaveRoom())
     delete map.mapSettings.ground
     const t = table(JSON.stringify(map))
     t.setTokens(pc({ x: 5.5, y: 16.5 }))
-    t.setFog({ rooms: { '@outdoors': lit } })
+    cleared(t)
     const rings = t.vision.playerMap(SCENE)!.openGround![0].rings as [number, number][][]
     // The grass patch, and a band pad round it.
     expect(inside(rings, 5.5, 16.5)).toBe(true)
@@ -194,38 +170,5 @@ describe('the open ground a seat is owed (S3)', () => {
     expect(inside(rings, 28.5, 18.5)).toBe(false)
     expect(inside(rings, 26.3, 5)).toBe(false)
     expect(inside(rings, 22, 9)).toBe(false)
-  })
-})
-
-// T10 — Outdoors hidden again is fogged fully: shown, sent and walkable only while revealed, or
-// By sight where an eye sees it now.
-describe('the Outdoors row hidden again (T10)', () => {
-  const P1 = { role: 'player' as const, identityId: 'p-1' }
-  const hidden = { status: 're_hidden' as const, wasEverRevealed: true }
-  const OUT: [number, number] = [13.5, 9.5]
-
-  it('by hand: is shown, sent and walkable only while revealed', () => {
-    const { vision, setFog, setTokens } = table()
-    setTokens(pc())
-    const known = () => vision.visionOf(SCENE, P1)!.openGround!(...OUT)
-    setFog({ rooms: { '@outdoors': lit } })
-    expect([known(), vision.visibleOf(SCENE), vision.keptRoomsOf(SCENE)!.has('@outdoors')]).toEqual([true, ['@outdoors'], true])
-    expect(vision.playerMap(SCENE)!.openGround).toBeDefined()
-
-    setFog({ rooms: { '@outdoors': hidden } })
-    expect([known(), vision.visibleOf(SCENE), vision.keptRoomsOf(SCENE)!.has('@outdoors')]).toEqual([false, [], false])
-    expect(vision.playerMap(SCENE)!.openGround).toBeUndefined()
-  })
-
-  it('by sight: hidden ground is known only where an eye sees it now', () => {
-    const { vision, setFog, setTokens } = table()
-    const known = () => vision.visionOf(SCENE, P1)!.openGround!(...OUT)
-    setFog({ mode: 'vision', rooms: { '@outdoors': hidden } })
-    setTokens(pc())
-    expect(known()).toBe(true)
-    setTokens(pc({ hidden: true }))
-    expect(known()).toBe(false)
-    setFog({ mode: 'vision', rooms: { '@outdoors': lit } })
-    expect(known()).toBe(true)
   })
 })

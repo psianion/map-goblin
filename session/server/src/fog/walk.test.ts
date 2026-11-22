@@ -4,13 +4,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { FogState, SceneFog } from '@dnd/mechanics/fog'
+import { rebaseRegion, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { CROSSING_BLOCKED } from '@dnd/mechanics/crossings'
 import type { DoorsState } from '@dnd/mechanics/doors'
 import { MOVE_BLOCKED, SOLID_GROUND, OUTSIDE_MAP, ROOM_UNEXPLORED, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { ensureClipperReady } from './clipperBoot'
+import type { SceneMap } from './sceneMap'
 import { createVision } from './vision'
 
 beforeAll(async () => {
@@ -20,19 +21,17 @@ beforeAll(async () => {
 const MAP = readFileSync(join(import.meta.dirname, '../../../testdata/outdoor-cave.ggvtt'), 'utf8')
 const SCENE = 'scene-cave'
 const PLAYER = { role: 'player' as const, identityId: 'p-1' }
-const known = { status: 'revealed' as const, wasEverRevealed: true }
-
-function table(map = MAP, fog: Partial<SceneFog> = {}, doors?: DoorsState) {
+/** A table with fog off (the walk grid alone decides), or the fog `fog` makes of the map. */
+function table(map = MAP, fog?: (scene: SceneMap) => SceneFog, doors?: DoorsState) {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Cave')
   stores.maps.insert(SCENE, campaign.id, 'Outdoor Cave', map)
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Outdoor Cave')
-  const scene: SceneFog = { rooms: { '@outdoors': known, 'room-hall': known }, concealBehindDoors: true, ...fog }
-  stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: scene } } satisfies FogState)
   if (doors) stores.moduleState.put(campaign.id, 'doors', doors)
   const pc = { id: 'pc', name: 'Bram', size: 'medium', x: 15.5, y: 7.5, ownerId: 'p-1', hidden: false } as Token
   stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc } } } satisfies TokensState)
   const vision = createVision(stores)
+  if (fog) stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: fog(vision.sceneMapOf(SCENE)!) } } satisfies FogState)
   const walk = (from: { x: number; y: number }, to: { x: number; y: number }) =>
     vision.visionOf(SCENE, PLAYER)!.walkRefusal!({ ...pc, ...from }, to, from)
   return { walk }
@@ -62,8 +61,16 @@ describe('stand and move (§2.3)', () => {
     expect(walk({ x: 15.5, y: 7.5 }, { x: 2.5, y: 17.5 })).toBeNull()
   })
 
-  it('refuses ground nobody has been shown, and the frame’s outside', () => {
-    const { walk } = table(MAP, { rooms: { 'room-hall': known } })
+  it('with fog on, walks over cleared ground only, and refuses the frame’s outside (row 11)', () => {
+    // Three cells cleared under and below the token, nothing else.
+    const strip = (scene: SceneMap): SceneFog => {
+      const frame = scene.frame!
+      const at = (x: number, y: number): [number, number] => [Math.floor(x - frame.minX), Math.floor(y - frame.minY)]
+      const cleared = setCells(rebaseRegion(undefined, frame)!, [at(15.5, 7.5), at(15.5, 8.5), at(15.5, 9.5)])
+      return { rooms: {}, concealBehindDoors: true, on: true, cleared: { 'lvl-1': cleared } }
+    }
+    const { walk } = table(MAP, strip)
+    expect(walk({ x: 15.5, y: 7.5 }, { x: 15.5, y: 9.5 })).toBeNull()
     expect(walk({ x: 15.5, y: 7.5 }, { x: 15.5, y: 12.5 })).toMatch(new RegExp(`^${ROOM_UNEXPLORED}`))
     expect(walk({ x: 15.5, y: 7.5 }, { x: 31.5, y: 7.5 })).toMatch(new RegExp(`^${OUTSIDE_MAP}`))
   })
@@ -92,12 +99,12 @@ describe('stand and move (§2.3)', () => {
   })
 
   it('4: allows the same move round through the door once it is open', () => {
-    const { walk } = table(MAP, {}, { byScene: { [SCENE]: { 'door-hall': { open: true, locked: false, revealed: true } } } })
+    const { walk } = table(MAP, undefined, { byScene: { [SCENE]: { 'door-hall': { open: true, locked: false, revealed: true } } } })
     expect(walk({ x: 13.5, y: 5.5 }, { x: 11.5, y: 5.5 })).toBeNull()
   })
 
   it('5: names a shut door several steps away, and says locked when it is', () => {
-    const { walk } = table(MAP, {}, { byScene: { [SCENE]: { 'door-hall': { open: false, locked: true, revealed: true } } } })
+    const { walk } = table(MAP, undefined, { byScene: { [SCENE]: { 'door-hall': { open: false, locked: true, revealed: true } } } })
     expect(walk({ x: 22.5, y: 6.5 }, { x: 6.5, y: 8.5 })).toBe('door-locked door-hall: that space cannot be occupied')
   })
 

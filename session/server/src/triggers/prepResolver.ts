@@ -27,6 +27,7 @@ import type {
   TriggerDef,
 } from '@dnd/core/src/shared/prep'
 import type { Stores } from '../db/stores'
+import { clearedRooms } from '../fog/redactMap'
 import { roomAnchor, roomRing, type SceneMap, type SceneMapOf } from '../fog/sceneMap'
 
 const NO_FOG: FogState = { byScene: {} }
@@ -95,14 +96,14 @@ export function createTriggerDeps(
       return out
     },
 
-    // Every room the party has ever uncovered (the latch), on the module state fog itself was
-    // last written with. A reveal trigger fires on the first uncovering, so this stays the latch
-    // even though a seat now holds only what is revealed now (T10's `heldRooms`).
+    // Fog rework §2.5: the rooms with any cleared cell, by brush or by sight, on the module
+    // state fog itself was last written with. A reveal trigger fires once, on the first cleared
+    // cell; Fog all re-arms it (the triggers module).
     exploredOf(campaignId, sceneId) {
+      const map = sceneMapOf(sceneId)
+      if (!map) return []
       const fog = (stores.moduleState.get(campaignId, 'fog') as FogState | undefined) ?? NO_FOG
-      return Object.entries(sceneFogOf(fog, sceneId).rooms)
-        .filter(([, room]) => room.wasEverRevealed)
-        .map(([id]) => id)
+      return [...clearedRooms(map, sceneFogOf(fog, sceneId))]
     },
 
     // A fired encounter's spawn/seed lists, materialized through the registry's internal

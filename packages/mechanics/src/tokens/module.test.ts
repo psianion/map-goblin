@@ -1110,3 +1110,33 @@ describe('set-token-level', () => {
     expect(Object.keys(module.redact!(state, P2).byScene[SCENE]).sort()).toEqual(['down', 'mine', 'up'])
   })
 })
+
+describe('redact on known ground (fog rework)', () => {
+  // Cleared west of x = 10 on the first level, and everywhere on 'loft'. The room sets say
+  // the opposite on purpose: with `known` wired, they are not read.
+  const vision: SceneVision = {
+    roomAt: () => 'room',
+    visible: new Set(),
+    occupiable: new Set(),
+    known: (levelId, x) => levelId === 'loft' || x < 10,
+  }
+  const redact = buildTokens((sceneId) => (sceneId === SCENE ? vision : null)).redact!
+  const state: TokensState = {
+    library: {},
+    byScene: {
+      [SCENE]: Object.fromEntries(
+        [
+          token({ id: 'cleared', x: 1.5, y: 1.5 }),
+          token({ id: 'fogged', x: 15.5, y: 1.5 }),
+          token({ id: 'upstairs', x: 15.5, y: 1.5, levelId: 'loft' }),
+          token({ id: 'mine', x: 15.5, y: 9.5, ownerId: 'p-1' }),
+          token({ id: 'hidden', x: 1.5, y: 2.5, hidden: true }),
+        ].map((t) => [t.id, t]),
+      ),
+    },
+  }
+
+  it('sends a token on known ground of its own level, and a seat’s own token anywhere', () => {
+    expect(Object.keys(redact(state, P1).byScene[SCENE]).sort()).toEqual(['cleared', 'mine', 'upstairs'])
+  })
+})

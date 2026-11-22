@@ -156,3 +156,23 @@ describe('occupyRefusal — open ground in vision mode', () => {
     expect(why(35.5, scene)).toContain(OUTSIDE_MAP)
   })
 })
+
+describe('known ground (fog rework)', () => {
+  // Cleared on the first level west of x = 10, and everywhere on the level 'loft'.
+  const known: SceneVision = {
+    ...scene,
+    known: (levelId, x) => levelId === 'loft' || x < 10,
+  }
+
+  it('lets a player stand on known ground and refuses the rest as unexplored, where no walk grid answers', () => {
+    expect(occupyRefusal(token, { x: 5.5, y: 1.5 }, known, 'player')).toBeNull()
+    expect(occupyRefusal(token, { x: 15.5, y: 1.5 }, known, 'player')).toMatch(new RegExp(`^${ROOM_UNEXPLORED}`))
+    expect(occupyRefusal({ ...token, levelId: 'loft' }, { x: 15.5, y: 1.5 }, known, 'player')).toBeNull()
+    expect(occupyRefusal(token, { x: 15.5, y: 1.5 }, known, 'dm')).toBeNull()
+  })
+
+  it('leaves the walk grid the whole answer where there is one', () => {
+    const walked: SceneVision = { ...known, walkRefusal: () => null }
+    expect(occupyRefusal(token, { x: 15.5, y: 1.5 }, walked, 'player')).toBeNull()
+  })
+})

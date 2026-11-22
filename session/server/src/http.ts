@@ -32,12 +32,12 @@ import {
   type Stores,
 } from './db/stores'
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
-import { outdoorsRowOf, type Vision } from './fog/vision'
+import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
-import { fogModeOf, sceneFogOf, type FogState } from '@dnd/mechanics/fog'
+import type { FogState } from '@dnd/mechanics/fog'
 import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
 import type { DoorChild } from '@dnd/core/src/shared/types'
 import { carryFog, takeLineage } from './fog/roomLineage'
@@ -1194,17 +1194,10 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   if (scene) deps.stores.sessions.setActiveScene(session.id, scene)
 
   // Nobody can be at this table yet — the invite code is still in this function — so the
-  // reveal lands before the first join rather than racing it, and the broadcast it would
-  // normally make has no one to make it to.
+  // setup lands before the first join rather than racing it, and the broadcast it would
+  // normally make has no one to make it to. Fog rework: nothing is revealed here; a table
+  // opens with fog off, and once the DM turns it on, ground is cleared by brush or by sight.
   if (start) {
-    deps.modules.dispatch('fog', 'reveal', start, {
-      campaignId,
-      sessionId: session.id,
-      activeSceneId: start.sceneId,
-      sender: { role: 'dm', identityId: dm.id },
-      players: [],
-      broadcast: () => {},
-    })
     // On a map with several levels the table opens on the starting room's: every seat without
     // a pick of its own looks there, and the party stands there.
     const map = deps.vision.sceneMapOf(start.sceneId)?.data
@@ -1233,9 +1226,7 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   }
 
   // Table fix pass F18: a start at a point (the party start, or the centre of the map). The
-  // party stands there, fanned out on standable cells, and in By hand fog the room or Outdoors
-  // under it is revealed (the place writes do that through `fog.party-here`; this covers a
-  // campaign with no PC to place).
+  // party stands there, fanned out on standable cells.
   if (point) {
     const ctx = {
       campaignId,
@@ -1257,11 +1248,6 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       dmId: dm.id,
       levelId,
     })
-    const fog = (deps.stores.moduleState.get(campaignId, 'fog') as FogState | undefined) ?? { byScene: {} }
-    const row = map && (map.roomAt(point.x, point.y) ?? outdoorsRowOf(map.data, levelId ?? levels[0]?.id ?? ''))
-    if (row && fogModeOf(sceneFogOf(fog, point.sceneId)) === 'rooms' && deps.vision.roomsOf(campaignId, point.sceneId).includes(row)) {
-      deps.modules.dispatch('fog', 'reveal', { sceneId: point.sceneId, roomId: row }, ctx)
-    }
   }
 
   json(res, 201, {

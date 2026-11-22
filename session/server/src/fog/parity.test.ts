@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { crossingsModule } from '@dnd/mechanics/crossings'
 import { doorsModule } from '@dnd/mechanics/doors'
-import { fogModule, regionFor, setCells, tableRegion, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule, rebaseRegion, setCells, toBytes, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { createInitiativeModule } from '@dnd/mechanics/initiative'
 import { pinsModule } from '@dnd/mechanics/pins'
 import { storyModule } from '@dnd/mechanics/story'
@@ -40,6 +40,7 @@ import { createTriggerDeps } from '../triggers/prepResolver'
 import { ensureClipperReady } from './clipperBoot'
 import { heldRooms } from './redactMap'
 import { centreOf, distanceToPoly, isDungeon, pointInPoly } from './sceneMap'
+import { fogOnWith, roomCells } from './fogOn.fixture'
 import { createVision } from './vision'
 
 beforeAll(async () => {
@@ -48,7 +49,6 @@ beforeAll(async () => {
 
 const read = (name: string): string => readFileSync(join(import.meta.dirname, '../../../testdata', name), 'utf8')
 const SCENE = 'scene-parity'
-const lit = { status: 'revealed' as const, wasEverRevealed: true }
 type Ring = [number, number][]
 type Doc = SerializedMapData
 
@@ -138,13 +138,16 @@ function outdoorCaveFull(): string {
 
 interface State {
   name: string
-  fog: Partial<SceneFog>
+  /** Fog on, unless the state says otherwise. */
+  on?: boolean
+  /** Rooms whose ground is cleared. */
+  cleared?: string[]
   token?: [number, number]
-  /** Fill the cell record from the token's own sweep first (By sight). */
+  /** Clear what the token's own sight clears first (Auto-explore). */
   sweep?: boolean
   /** The DM's live room places (the triggers module's room edits), by room id. */
   live?: Record<string, Environment>
-  /** T10 — a row the DM reveals and then hides again through the fog module, after any sweep. */
+  /** A room the DM brushes clear and then fogs again through the fog module, after any sweep. */
   hide?: string
 }
 
@@ -163,32 +166,19 @@ const FIXTURES: Fixture[] = [
 ]
 
 const statesOf = (f: Fixture): State[] => [
-  { name: 'by hand, start dark', fog: { rooms: {} } },
-  { name: 'by hand, a token outside, Outdoors revealed', fog: { rooms: { '@outdoors': lit } }, token: f.outside },
-  { name: 'by hand, the mouth room revealed', fog: { rooms: { '@outdoors': lit, [f.mouthRoom]: lit } }, token: f.outside },
+  { name: 'fog off, a token outside', on: false, token: f.outside },
+  { name: 'fog on, nothing cleared', token: f.outside },
+  { name: 'fog on, a token outside, what it sees cleared', token: f.outside, sweep: true },
+  { name: 'fog on, the mouth room cleared', cleared: [f.mouthRoom], token: f.outside },
+  { name: 'fog on, the mouth room cleared and what the token sees', cleared: [f.mouthRoom], token: f.outside, sweep: true },
   {
-    name: 'by hand, a token outside, the unexplored mouth room made Outdoor live',
-    fog: { rooms: { '@outdoors': lit } },
+    name: 'fog on, a token outside, the uncleared mouth room made Outdoor live',
     token: f.outside,
+    sweep: true,
     live: { [f.mouthRoom]: 'outdoor' },
   },
-  { name: 'by sight, start dark', fog: { mode: 'vision', containedSight: false, rooms: {} } },
-  { name: 'by sight, a token outside', fog: { mode: 'vision', containedSight: false, rooms: {} }, token: f.outside, sweep: true },
-  {
-    name: 'by sight, the mouth room revealed',
-    fog: { mode: 'vision', containedSight: false, rooms: { [f.mouthRoom]: lit } },
-    token: f.outside,
-    sweep: true,
-  },
-  // T10 — revealed, then hidden again: the room is withheld as if nobody had entered it.
-  { name: 'by hand, the mouth room revealed then hidden', fog: { rooms: { '@outdoors': lit } }, token: f.outside, hide: f.mouthRoom },
-  {
-    name: 'by sight, the mouth room revealed then hidden',
-    fog: { mode: 'vision', containedSight: false, rooms: {} },
-    token: f.outside,
-    sweep: true,
-    hide: f.mouthRoom,
-  },
+  // Cleared, then fogged again: the room is withheld as if nobody had entered it.
+  { name: 'fog on, the mouth room cleared then fogged again', token: f.outside, sweep: true, hide: f.mouthRoom },
 ]
 
 const PLAYER: Viewer = { role: 'player', identityId: 'p-1' }
@@ -204,15 +194,13 @@ function cut(
   stores.maps.insert(SCENE, campaign.id, 'Parity', map)
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Parity')
   const vision = createVision(stores)
-  const setFog = (scene: Partial<SceneFog>) =>
-    stores.moduleState.put(campaign.id, 'fog', {
-      byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, ...scene } },
-    } satisfies FogState)
+  const setFog = (scene: SceneFog) => stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: scene } } satisfies FogState)
   if (state.token) {
     const token = { id: 'pc', name: 'Bram', size: 'medium', x: state.token[0], y: state.token[1], ownerId: 'p-1', hidden: false, sight: null } as Token
     stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc: token } } } satisfies TokensState)
   }
-  setFog(state.fog)
+  const base = fogOnWith(vision.sceneMapOf(SCENE)!, state.cleared ?? [], state.on === false ? { on: false } : {})
+  setFog(base)
   if (state.live) {
     const roomEdits = Object.fromEntries(Object.entries(state.live).map(([id, place]) => [id, { place }]))
     stores.moduleState.put(campaign.id, 'triggers', {
@@ -220,10 +208,12 @@ function cut(
     } as unknown as TriggersState)
   }
   if (state.sweep) {
-    setFog({ ...state.fog, on: true })
-    const patch = vision.autoExplorePatch(SCENE)
     const frame = vision.frameOf(campaign.id, SCENE)!
-    setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, Object.values(patch?.byLevel ?? {}).flat()) })
+    const cleared = { ...base.cleared }
+    for (const [level, cells] of Object.entries(vision.autoExplorePatch(SCENE)?.byLevel ?? {})) {
+      cleared[level] = setCells(rebaseRegion(cleared[level], frame)!, cells)
+    }
+    setFog({ ...base, cleared })
   }
   // P9 — every module the server runs, wired to the same vision, as a joining player's seat gets them.
   const registry = new ModuleRegistry(stores.moduleState)
@@ -233,8 +223,15 @@ function cut(
   registry.register(storyModule({ shareReadAloud: () => null }))
   registry.register(crossingsModule)
   registry.register(
-    fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, (id) => vision.visibleOf(id), vision.groundAtOf, (id) =>
-      vision.keptRoomsOf(id),
+    fogModule(
+      vision.roomsOf,
+      vision.frameOf,
+      vision.roomAtOf,
+      (id) => vision.visibleOf(id),
+      vision.groundAtOf,
+      (id) => vision.keptRoomsOf(id),
+      vision.levelsOf,
+      vision.floorOnOf,
     ),
   )
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
@@ -247,8 +244,10 @@ function cut(
   )
   if (state.hide) {
     const dm = { campaignId: campaign.id, sessionId: 's-1', activeSceneId: SCENE, sender: DM, players: [], broadcast: () => {} }
-    for (const action of ['reveal', 'hide']) {
-      expect(registry.dispatch('fog', action, { sceneId: SCENE, roomId: state.hide }, dm)).toBeNull()
+    const cells = roomCells(vision.sceneMapOf(SCENE)!, state.hide)
+    const levelId = vision.levelsOf(campaign.id, SCENE)[0]
+    for (const op of ['clear', 'fog']) {
+      expect(registry.dispatch('fog', 'region-set', { sceneId: SCENE, levelId, op, cells }, dm)).toBeNull()
     }
   }
   const fog = (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
@@ -437,7 +436,9 @@ function leaks(
   const enclosed = (x: number, y: number) =>
     outlines.filter((ring) => pointInPoly(ring, x, y)).length % 2 === 1 && zoned.some((ring) => pointInPoly(ring, x, y))
   const index = roomIndexOf(rooms)
-  const region = tableRegion(fog, frame)
+  // The fixtures are one level each, so their one record is the whole of it.
+  const stored = Object.values(fog.cleared ?? {})[0]
+  const region = stored ? rebaseRegion(stored, frame) : undefined
   const bytes = region ? toBytes(region.bits) : null
   const recordedInside = (x: number, y: number): boolean => {
     if (!region || !bytes) return false
@@ -488,7 +489,7 @@ describe.each(FIXTURES)('player view parity: $name', (fixture) => {
   it.each(statesOf(fixture))('$name', (state) => {
     const { dm, player, fog, kept, snapshot } = cut(map, state)
     const frame = player.frame ?? { minX: 0, minY: 0, maxX: 30, maxY: 30 }
-    // T10 — a room hidden again is held by nobody, so the leak guard below withholds it whole.
+    // A room fogged again is held by nobody, so the leak guard below withholds it whole.
     if (state.hide) expect(kept.has(state.hide)).toBe(false)
     expect({
       draws: differences(dm, player, frame, state.live),
@@ -500,10 +501,11 @@ describe.each(FIXTURES)('player view parity: $name', (fixture) => {
 describe('a stand-in room (R1)', () => {
   it('carries face, look and place only, and is replaced by the real room when earned', () => {
     const map = outdoorCaveFull()
-    const outside: State = { name: 'outside', fog: { rooms: { '@outdoors': lit } }, token: [13.5, 7.5] }
+    // A token outside the hall, with what it sees cleared: the hall's floor ships, the hall does not.
+    const outside: State = { name: 'outside', token: [13.5, 7.5], sweep: true }
     const { player } = cut(map, outside)
     // The hall's own face: the stand-in carries no other way to tell it apart.
-    const hallFace = JSON.stringify(dungeonOf(cut(map, { ...outside, fog: { rooms: { 'room-hall': lit } } }).player).rooms!.find((r) => r.id === 'room-hall')!.boundary)
+    const hallFace = JSON.stringify(dungeonOf(cut(map, { ...outside, cleared: ['room-hall'] }).player).rooms!.find((r) => r.id === 'room-hall')!.boundary)
     const hall = dungeonOf(player).rooms!.find((room) => room.standIn && JSON.stringify(room.boundary) === hallFace)!
     expect(Object.keys(hall).sort()).toEqual(['anchor', 'boundary', 'id', 'look', 'name', 'standIn'])
     expect(hall.id).toMatch(/^standin-[0-9a-f]{16}$/)
@@ -516,7 +518,7 @@ describe('a stand-in room (R1)', () => {
       look: { floorTint: '#ffd0d0', wallWidth: 0.8, wallTextureTint: '#a0a0ff', place: 'underground' },
     })
     expect(hall.anchor).not.toEqual([8, 7])
-    const earned = cut(map, { ...outside, fog: { rooms: { '@outdoors': lit, 'room-hall': lit } } })
+    const earned = cut(map, { ...outside, cleared: ['room-hall'] })
     expect(dungeonOf(earned.player).rooms!.find((room) => room.id === 'room-hall')).toMatchObject({ name: 'Hall' })
     expect(dungeonOf(earned.player).rooms!.filter((room) => room.standIn && JSON.stringify(room.boundary) === hallFace)).toEqual([])
     expect(dungeonOf(earned.player).areas).toBeUndefined()
@@ -533,9 +535,15 @@ describe('a live place the DM moves (R1)', () => {
     stores.maps.insert(SCENE, campaign.id, 'Parity', read('testing-cave.ggvtt'))
     stores.scenes.create(SCENE, campaign.id, SCENE, 'Parity')
     const vision = createVision(stores)
-    stores.moduleState.put(campaign.id, 'fog', {
-      byScene: { [SCENE]: { rooms: { '@outdoors': lit }, concealBehindDoors: true } },
-    } satisfies FogState)
+    // Fog on, and a token outside the cave with what it sees cleared: the cave's floor ships,
+    // and the mouth room under it as a stand-in.
+    const pc = { id: 'pc', name: 'Bram', size: 'medium', x: 15.5, y: 25.5, ownerId: 'p-1', hidden: false, sight: null } as Token
+    stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc } } } satisfies TokensState)
+    const frame = vision.frameOf(campaign.id, SCENE)!
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, on: true } } } satisfies FogState)
+    const swept = vision.autoExplorePatch(SCENE)!.byLevel
+    const cleared = Object.fromEntries(Object.entries(swept).map(([level, cells]) => [level, setCells(rebaseRegion(undefined, frame)!, cells)]))
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, on: true, cleared } } } satisfies FogState)
     const before = vision.playerMap(SCENE)!
     const mouth = dungeonOf(before).rooms!.find((r) => r.standIn && r.look?.place === 'underground')!
     expect(mouth).toBeTruthy()

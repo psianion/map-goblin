@@ -15,6 +15,7 @@ import { createStores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { createTriggerDeps } from '../triggers/prepResolver'
 import { autoExplore } from './autoExplore'
+import { roomCells } from './fogOn.fixture'
 import { ensureClipperReady } from './clipperBoot'
 import { createVision } from './vision'
 
@@ -265,5 +266,104 @@ describe('Auto-explore (rows 7 to 10, 16)', () => {
     expect(t.cleared('lvl-high', 14.5, 6.5)).toBe(true)
     // The cellar keeps only what the PC saw before it climbed.
     expect(t.cleared('lvl-low', 14.5, 6.5)).toBe(false)
+  })
+})
+
+const P1: Viewer = { role: 'player', identityId: 'p-1' }
+
+describe('what a player is sent and may do (rows 1, 2, 5, 11, 12)', () => {
+  /** The two-room map with a trap zone and a DM-only label in the west room. */
+  const dressed = () =>
+    withChildren(TWO_ROOMS, [
+      { id: 'zone-trap', name: 'Trap', childType: 'zone', visible: true, shape: { kind: 'rect', x: 2, y: 2, width: 2, height: 2 } } as AnyChild,
+      { id: 'gm-note', name: 'gm-note', childType: 'text', visible: true, text: 'Trap here', position: { x: 3, y: 7 } } as unknown as AnyChild,
+    ])
+  const idsOf = (t: ReturnType<typeof table>): string[] => {
+    const doc = t.vision.playerMap(t.scene)!
+    return doc.layers.flatMap((l) => (l.type === 'dungeon' ? [...(l.rooms ?? []).filter((r) => !r.standIn).map((r) => r.id), ...(l.children ?? []).map((c) => c.id)] : []))
+  }
+  const tokensFor = (t: ReturnType<typeof table>, viewer: Viewer): string[] =>
+    Object.values(
+      (t.registry.redactModule('tokens', t.stores.moduleState.get(t.campaign.id, 'tokens'), viewer) as TokensState).byScene[t.scene] ?? {},
+    )
+      .map((tk) => tk.name)
+      .sort()
+  const westCells = (t: ReturnType<typeof table>) => roomCells(t.vision.sceneMapOf(t.scene)!, 'west')
+  const place = (t: ReturnType<typeof table>, name: string, x: number, y: number, over: object = {}) => {
+    expect(t.run('tokens', 'place', { name, x, y, ...over })).toBeNull()
+    return t.tokens().find((tk) => tk.name === name)!.id
+  }
+
+  it('1: fog off sends the whole map and every unhidden token, and still withholds prep, zones, unmarked labels and unfound secret doors', () => {
+    const t = table(dressed())
+    place(t, 'Goblin', 15.5, 5.5)
+    place(t, 'Lurker', 16.5, 5.5, { hidden: true })
+    const ids = idsOf(t)
+    expect(ids).toEqual(expect.arrayContaining(['west', 'east', 'floor-west', 'floor-east', 'door-mid']))
+    expect(ids).not.toContain('zone-trap')
+    expect(ids).not.toContain('gm-note')
+    expect(ids).not.toContain('door-secret-east')
+    expect(JSON.stringify(t.vision.playerMap(t.scene))).not.toContain('"prep"')
+    expect(tokensFor(t, P1)).toEqual(['Goblin'])
+  })
+
+  it('2: fog on with nothing cleared sends no room and no token but the player’s own', () => {
+    const t = table(dressed())
+    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
+    expect(t.run('fog', 'set-auto-explore', { autoExplore: false })).toBeNull()
+    const mine = place(t, 'Bram', 5.5, 5.5)
+    expect(t.run('tokens', 'assign', { id: mine, identityId: 'p-1' })).toBeNull()
+    place(t, 'Goblin', 7.5, 5.5)
+    expect(idsOf(t).filter((id) => id === 'west' || id === 'east')).toEqual([])
+    expect(tokensFor(t, P1)).toEqual(['Bram'])
+  })
+
+  it('5: fogging a room’s last cleared cell stops it shipping', () => {
+    const t = table(TWO_ROOMS)
+    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
+    const level = onlyLevel(t)
+    expect(t.run('fog', 'region-set', { levelId: level, op: 'clear', cells: westCells(t) })).toBeNull()
+    expect(idsOf(t)).toContain('west')
+    expect(t.vision.keptRoomsOf(t.scene)).toEqual(new Set(['west']))
+    const [last, ...rest] = westCells(t)
+    expect(t.run('fog', 'region-set', { levelId: level, op: 'fog', cells: rest })).toBeNull()
+    expect(idsOf(t)).toContain('west')
+    expect(t.run('fog', 'region-set', { levelId: level, op: 'fog', cells: [last] })).toBeNull()
+    expect(idsOf(t)).not.toContain('west')
+    expect(t.vision.keptRoomsOf(t.scene)).toEqual(new Set())
+  })
+
+  it('11: a player moves onto cleared ground and not onto fogged ground; with fog off, anywhere walkable', () => {
+    const t = table(TWO_ROOMS)
+    const mine = place(t, 'Bram', 1.5, 5.5)
+    expect(t.run('tokens', 'assign', { id: mine, identityId: 'p-1' })).toBeNull()
+    // Fog off: across the room, no clearing needed.
+    expect(t.run('tokens', 'move', { id: mine, x: 8.5, y: 8.5 }, P1)).toBeNull()
+
+    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
+    expect(t.run('fog', 'set-auto-explore', { autoExplore: false })).toBeNull()
+    const frame = t.vision.frameOf(t.campaign.id, t.scene)!
+    const at = (x: number, y: number): [number, number] => [Math.floor(x - frame.minX), Math.floor(y - frame.minY)]
+    expect(t.run('fog', 'region-set', { levelId: onlyLevel(t), op: 'clear', cells: [at(8.5, 8.5), at(8.5, 7.5), at(8.5, 6.5)] })).toBeNull()
+    expect(t.run('tokens', 'move', { id: mine, x: 8.5, y: 6.5 }, P1)).toBeNull()
+    expect(t.run('tokens', 'move', { id: mine, x: 2.5, y: 2.5 }, P1)).toMatchObject({ message: expect.stringMatching(/^room-unexplored/) })
+    // The DM is fenced by none of it.
+    expect(t.run('tokens', 'move', { id: mine, x: 2.5, y: 2.5 })).toBeNull()
+  })
+
+  it('12: a monster on a fogged cell is not sent, is sent once the cell is cleared, and stays sent after the party leaves', () => {
+    const t = table(TWO_ROOMS)
+    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
+    const mine = place(t, 'Bram', 5.5, 5.5)
+    expect(t.run('tokens', 'assign', { id: mine, identityId: 'p-1' })).toBeNull()
+    place(t, 'Goblin', 15.5, 5.5)
+    // Behind the shut door: nothing the party sees.
+    expect(tokensFor(t, P1)).toEqual(['Bram'])
+    expect(t.run('doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    expect(tokensFor(t, P1)).toEqual(['Bram', 'Goblin'])
+    // The party steps back and the door shuts: the cleared ground stays the players'.
+    expect(t.run('tokens', 'move', { id: mine, x: 1.5, y: 1.5 })).toBeNull()
+    expect(t.run('doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    expect(tokensFor(t, P1)).toEqual(['Bram', 'Goblin'])
   })
 })

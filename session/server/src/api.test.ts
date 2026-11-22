@@ -336,7 +336,7 @@ describe('the starting room the DM picks while setting up', () => {
     return { campaignId, dmToken, mapId: uploaded.body.mapId as string }
   }
 
-  it('stores it as a plain reveal, and hands it to the first player who joins', async () => {
+  it('reveals nothing for it: the table opens with fog off', async () => {
     await withServer(async ({ server, base, adminPass }) => {
       const { campaignId, dmToken, mapId } = await readyToOpen(base, adminPass)
 
@@ -345,35 +345,7 @@ describe('the starting room the DM picks while setting up', () => {
         body: { campaignId, startingRoom: { sceneId: mapId, roomId: 'r-hall' } },
       })
       expect(started.status).toBe(201)
-
-      // Byte-for-byte what a DM clicking the room in the fog panel would have written, which
-      // is what lets the panel render it as Revealed with no idea where it came from.
-      expect(server.stores.moduleState.get(campaignId, 'fog')).toEqual({
-        byScene: {
-          [mapId]: {
-            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
-            concealBehindDoors: true,
-          },
-        },
-      })
-
-      // …and the player is told about that room and no other: redaction did its usual job on
-      // state it was never told was special. The cell is absent whole, not marked hidden.
-      const joined = await api(base, 'POST', '/api/join', {
-        body: { code: started.body.inviteCode as string, name: 'Bob' },
-      })
-      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
-      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
-      expect(state.state.modules.fog).toEqual({
-        byScene: {
-          [mapId]: {
-            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
-            concealBehindDoors: true,
-            visible: ['r-hall'],
-          },
-        },
-      })
-      socket.terminate()
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
     })
   })
 
@@ -420,7 +392,7 @@ describe('the starting room the DM picks while setting up', () => {
    * fog was written correctly — it was simply written about a scene nobody was looking at, so
    * the DM's panel called the room Unrevealed and the player joined to full black.
    */
-  it('opens the table on the scene it revealed, not on an older map in the campaign', async () => {
+  it('opens the table on the scene it was started with, not on an older map in the campaign', async () => {
     await withServer(async ({ server, base, adminPass }) => {
       const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
       const campaignId = campaign.body.campaignId as string
@@ -449,19 +421,9 @@ describe('the starting room the DM picks while setting up', () => {
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
 
-      // The one assertion that would have caught it: the scene the player is looking at is
-      // the scene the reveal is stored under, so the fog they were handed is about their map.
+      // The one assertion that would have caught it: the scene the player is looking at is the
+      // scene the DM opened the table on.
       expect(state.state.activeSceneId).toBe(pickedId)
-      // The seat is also sent the rows it sees right now (table fix pass §2.7, wire only).
-      expect(state.state.modules.fog).toEqual({
-        byScene: {
-          [pickedId]: {
-            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
-            concealBehindDoors: true,
-            visible: ['r-hall'],
-          },
-        },
-      })
       socket.terminate()
     })
   })

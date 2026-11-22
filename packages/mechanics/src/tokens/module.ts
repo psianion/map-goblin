@@ -266,6 +266,9 @@ function redactLibrary(library: TokensState['library'], viewer: Viewer): TokensS
  */
 function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<string>): boolean {
   if (!scene || mine.has(token.id)) return true
+  // Fog rework: the one rule. A token is sent when it stands on ground the players have, on
+  // its own level — everywhere with fog off, cleared cells with fog on.
+  if (scene.known) return scene.known(token.levelId, token.x, token.y)
   // Plateaus: a token up on a top the party cannot see from where it stands is not seen,
   // whatever the room around it is doing.
   if (scene.coveredAt?.(token.x, token.y)) return false

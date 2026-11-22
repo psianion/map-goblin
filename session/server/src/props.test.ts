@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { FogState } from '@dnd/mechanics/fog'
+import { fogOnWith } from './fog/fogOn.fixture'
+import { createVision } from './fog/vision'
 import type { AnyChild, DungeonLayer, Room, SerializedMapData, WallSegment } from '@dnd/core/src/store/types'
 import { createAdminPass } from './auth'
 import { startServer, type RunningServer } from './index'
@@ -153,9 +155,8 @@ async function table(fx: Fixture, raw: string) {
   const uploaded = await api(fx.base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw })
   expect(uploaded.status).toBe(201)
   const sceneId = uploaded.body.sceneId as string
-  const fog: FogState = {
-    byScene: { [sceneId]: { rooms: { [HALL.id]: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
-  }
+  // Fog on with the hall's ground cleared: the player holds the hall and nothing else.
+  const fog: FogState = { byScene: { [sceneId]: fogOnWith(createVision(fx.server.stores).sceneMapOf(sceneId)!, [HALL.id]) } }
   fx.server.stores.moduleState.put(campaignId, 'fog', fog)
   const started = await api(fx.base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId } })
   const joined = await api(fx.base, 'POST', '/api/join', { body: { code: started.body.inviteCode as string, name: 'Bob' } })

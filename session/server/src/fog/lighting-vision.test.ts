@@ -91,6 +91,8 @@ function scene(spec: SceneSpec): SceneMap {
     lights: layers.flatMap((l) => (l.children as LightChild[]).filter((c) => c.childType === 'light')),
     lightNames: new Map(),
     roomAt: () => null,
+    roomAtOn: () => null,
+    roomLevels: new Map(),
     roomsAlong: () => [],
   }
 }

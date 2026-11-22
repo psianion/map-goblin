@@ -139,9 +139,11 @@ export function occupyRefusal(
   if (role === 'dm' || !scene) return null
   // Table fix pass §2.3: where the scene has a walk grid, it is the whole answer.
   if (scene.walkRefusal) return scene.walkRefusal(token, pos, from)
-  const room = scene.roomAt(pos.x, pos.y)
   const say = (code: string, subjectId: string | null = null): string =>
     refusal(code, subjectId, 'that space cannot be occupied')
+  // Fog rework: with no walk grid to ask, ground the players have is where a token may stand.
+  if (scene.known) return scene.known(token.levelId, pos.x, pos.y) ? null : say(ROOM_UNEXPLORED)
+  const room = scene.roomAt(pos.x, pos.y)
 
   // Off every authored room. Unzoned map is the DM's alone (D6) — except in vision mode,
   // where ground the party has been shown is ground they may stand on (`openGround`). A

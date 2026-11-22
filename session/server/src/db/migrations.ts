@@ -144,4 +144,11 @@ export const MIGRATIONS: readonly string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+
+  // 008 — the fog rework: one model of a switch and cleared cells per level replaces the room
+  // statuses and the two modes. Nothing is converted; every campaign's fog starts over, which
+  // is every scene with fog off.
+  `
+  DELETE FROM module_state WHERE module = 'fog';
+  `,
 ]

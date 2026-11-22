@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule, type FogState, type RoomFog, type SceneFog } from '@dnd/mechanics/fog'
-import { SOLID_GROUND, STANDABLE, tokensModule, walkAreas, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import { SOLID_GROUND, tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the walls sight and walk both read
 import { resolveWalls } from '@dnd/core/src/shared/wallResolve'
 import type { DungeonLayer } from '@dnd/core/src/store/types'
@@ -17,7 +17,6 @@ import { ModuleRegistry } from '../modules/registry'
 import { autoExplore } from './autoExplore'
 import { ensureClipperReady } from './clipperBoot'
 import { createVision } from './vision'
-import { createWalkGrids } from './walk'
 
 beforeAll(async () => {
   expect(await ensureClipperReady()).toBe(true)
@@ -87,23 +86,6 @@ function table(mode: 'rooms' | 'vision') {
 }
 
 describe('Hide all, then Reveal all, in By sight (T11 I1)', () => {
-  it('still sends the ground a party token stands on and sees', () => {
-    const t = table('vision')
-    expect(t.vision.playerMap(SCENE)!.openGround).toBeDefined()
-
-    // Hide all forgets the record and, with auto-explore off, writes nothing back…
-    const all = Object.fromEntries(Object.keys(t.fogOf().rooms).map((id) => [id, hidden]))
-    expect(t.run('fog', 'set-bulk', { rooms: all, forget: true })).toBeNull()
-    // …but the tokens still see the ground round them, so it is still sent.
-    expect(t.vision.playerMap(SCENE)!.openGround).toBeDefined()
-
-    // A Reveal all from a client that left Outdoors out.
-    expect(t.run('fog', 'set-bulk', { rooms: Object.fromEntries(ROOMS.map((id) => [id, lit])) })).toBeNull()
-    expect(t.fogOf().rooms['@outdoors']).toBeUndefined()
-    expect(t.vision.playerMap(SCENE)!.openGround).toBeDefined()
-    // Pim stands on known ground the whole way through.
-    expect(t.vision.visionOf(SCENE, { role: 'player', identityId: 'p-1' })!.openGround!(7.5, 22.5)).toBe(true)
-  })
 
   it('sends no open ground while nobody sees any and nothing is known', () => {
     const t = table('vision')
@@ -115,37 +97,6 @@ describe('Hide all, then Reveal all, in By sight (T11 I1)', () => {
 })
 
 describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => {
-  it('shows every revealed room once the mouth door is open (T12)', () => {
-    const t = table('rooms')
-    expect([...t.vision.visibleOf(SCENE)!].sort()).toEqual(['@outdoors', ...ROOMS].sort())
-
-    // Why, on the walk grid: the tunnel inside the mouth is under a cell wide at y 17 to 19.
-    // Its cells whose centres lie on the cave floor stand, so one walk area runs from outside
-    // the mouth into every room.
-    const map = t.vision.sceneMapOf(SCENE)!
-    const grid = createWalkGrids().gridFor(map, { [MOUTH_DOOR]: { open: true, locked: false, revealed: true } }, undefined, SCENE)!
-    const at = (col: number, row: number) => row * grid.cols + col
-    for (const [col, row] of [
-      [12, 17],
-      [14, 17],
-      [14, 18],
-    ]) {
-      expect(grid.cell[at(col, row)], `${col},${row}`).toBe(STANDABLE)
-    }
-    const labels = walkAreas(grid)
-    const mouth = labels[at(15, 19)]
-    expect(map.roomAt(15.5, 19.5)).toBe(CAVE_ENT)
-    expect(labels[at(7, 22)]).toBe(mouth)
-    for (const [room, col, row] of [
-      [BLOO, 24, 9],
-      [YELLO, 25, 15],
-      [GREE, 8, 13],
-      [CAVE_ENT, 15, 10],
-    ] as const) {
-      expect(map.roomAt(col + 0.5, row + 0.5)).toBe(room)
-      expect(labels[at(col, row)], room).toBe(mouth)
-    }
-  })
 
   it('stands no wall, for walk or sight, on the two sliver contours inside BLOO (T12)', () => {
     const map = table('rooms').vision.sceneMapOf(SCENE)!
@@ -174,16 +125,4 @@ describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => 
     expect(JSON.stringify(t.run('tokens', 'move', { id: yara.id, x: 12.5, y: 18.5 }, P2))).toContain(SOLID_GROUND)
   })
 
-  it('recomputes what the party sees on every door and fog change', () => {
-    const t = table('rooms')
-    expect(t.vision.visibleOf(SCENE)).toContain(CAVE_ENT)
-    t.run('doors', 'toggle', { id: MOUTH_DOOR })
-    expect(t.vision.visibleOf(SCENE)).not.toContain(CAVE_ENT)
-    t.run('doors', 'toggle', { id: MOUTH_DOOR })
-    expect(t.vision.visibleOf(SCENE)).toContain(CAVE_ENT)
-    t.run('fog', 'hide', { roomId: CAVE_ENT })
-    expect(t.vision.visibleOf(SCENE)).not.toContain(CAVE_ENT)
-    t.run('fog', 'set-conceal', { concealBehindDoors: false })
-    expect([...t.vision.visibleOf(SCENE)!].sort()).toEqual(['@outdoors', BLOO, YELLO, GREE].sort())
-  })
 })

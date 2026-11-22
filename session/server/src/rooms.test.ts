@@ -19,6 +19,7 @@ import type { TriggersState } from '@dnd/mechanics/triggers'
 import { createAdminPass } from './auth'
 import { PROTOCOL_VERSION } from './config'
 import { carryFog, takeLineage } from './fog/roomLineage'
+import { fogOnWith, roomCells } from './fog/fogOn.fixture'
 import { createVision } from './fog/vision'
 import { startServer, type RunningServer } from './index'
 import { createTriggerDeps } from './triggers/prepResolver'
@@ -167,6 +168,12 @@ function setFog(fx: Fixture, campaignId: string, sceneId: string, rooms: Record<
 }
 
 const LIT: RoomFog = { status: 'revealed', wasEverRevealed: true }
+
+/** Fog on with these rooms' ground cleared — the players have them and nothing else. */
+function clearRooms(fx: Fixture, campaignId: string, sceneId: string, rooms: string[]): void {
+  const fog: FogState = { byScene: { [sceneId]: fogOnWith(createVision(fx.server.stores).sceneMapOf(sceneId)!, rooms) } }
+  fx.server.stores.moduleState.put(campaignId, 'fog', fog)
+}
 const MEMORY: RoomFog = { status: 're_hidden', wasEverRevealed: true }
 const DARK: RoomFog = { status: 'never_revealed', wasEverRevealed: false }
 
@@ -265,7 +272,7 @@ describe('faces are derived from anchors at scene load (§10)', () => {
   it("ships each explored room with its derived face as boundary, and never the room's door list", async () => {
     await withServer(async (fx) => {
       const { campaignId, sceneId } = await published(fx)
-      setFog(fx, campaignId, sceneId, { [HALL.id]: LIT })
+      clearRooms(fx, campaignId, sceneId, [HALL.id])
 
       const scene = createVision(fx.server.stores).sceneMapOf(sceneId)!
       // The divider splits the floor into two faces, one per anchor.
@@ -397,14 +404,13 @@ describe('the room key is DM-only prep (§2.2, §13)', () => {
       const uploaded = await api(fx.base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(map) })
       const sceneId = uploaded.body.sceneId as string
 
-      // The table opens on the map's own starting room: revealed before anyone joins, which is
-      // also what makes the key pop for the DM.
+      // The table opens on the map's own starting room. Nothing is revealed for it: fog is off.
       const started = await api(fx.base, 'POST', '/api/sessions', {
         token: dmToken,
         body: { campaignId, sceneId, startingRoom: { sceneId, roomId: HALL.id } },
       })
       expect(started.status).toBe(201)
-      expect(fogOf(fx, campaignId, sceneId)[HALL.id]).toEqual(LIT)
+      expect(fx.server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
 
       const joined = await api(fx.base, 'POST', '/api/join', { body: { code: started.body.inviteCode as string, name: 'Bob' } })
       const playerToken = joined.body.token as string
@@ -419,9 +425,27 @@ describe('the room key is DM-only prep (§2.2, §13)', () => {
       // The prep view is the DM's alone.
       expect((await api(fx.base, 'GET', `/api/scenes/${sceneId}/prep`, { token: playerToken })).status).toBe(403)
 
-      // The reveal popped the key on the DM's log, and on nobody else's.
+      // Clearing the hall's ground pops the key on the DM's log, and on nobody else's.
       const dm = await joinSocket(fx.server.port, dmToken)
-      const dmLog = (dm.state.state.modules.triggers as TriggersState).byScene[sceneId]!.log
+      const keyed = new Promise<TriggersState>((resolve) => {
+        dm.socket.on('message', (raw: Buffer) => {
+          const msg = JSON.parse(raw.toString()) as ServerMessage
+          if (msg.type !== 'state-update' || msg.module !== 'triggers') return
+          const state = msg.state as TriggersState
+          if (state.byScene[sceneId]?.log.some((e) => e.kind === 'room-key')) resolve(state)
+        })
+      })
+      const vision = createVision(fx.server.stores)
+      dm.socket.send(
+        JSON.stringify({
+          type: 'command',
+          module: 'fog',
+          action: 'region-set',
+          payload: { sceneId, levelId: vision.levelsOf(campaignId, sceneId)[0], op: 'clear', cells: roomCells(vision.sceneMapOf(sceneId)!, HALL.id) },
+          seq: 0,
+        }),
+      )
+      const dmLog = (await keyed).byScene[sceneId]!.log
       expect(dmLog.find((e) => e.kind === 'room-key')).toMatchObject({ toPlayers: false, detail: { roomId: HALL.id } })
       const player = await joinSocket(fx.server.port, playerToken)
       const seen = JSON.stringify(player.state.state.modules)
