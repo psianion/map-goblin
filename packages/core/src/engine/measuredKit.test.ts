@@ -596,4 +596,43 @@ describe('a kit measured to butt', () => {
     expect(placed[placed.length - 1].Q[0]).toBeCloseTo(13.63291, 5);
     expect(placed[placed.length - 1].Q[1]).toBeCloseTo(5.86641, 5);
   });
+
+  /** How much of any piece's art along the top edge lies inside the x 14 to 15 mouth, 0.05 in from its edges. */
+  function artInMouth(placed: WalkPlacement[], set: CaveKitPiece[]): number {
+    const half = kitOverlap(set) / 2;
+    return Math.max(0, ...placed.map((pl) => {
+      const [a, b] = jointsOf(pl.piece, pl.at);
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const u = a[0] + ((b[0] - a[0]) / L) * half;
+      const v = b[0] - ((b[0] - a[0]) / L) * half;
+      if (Math.abs(a[1] - 6) > 1 || Math.abs(b[1] - 6) > 1) return 0;
+      return Math.min(Math.max(u, v), 15) - Math.max(Math.min(u, v), 14);
+    }));
+  }
+
+  it('leaves the mouth of a 16 by 11 notched ring open, its rock run to both edges', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([[[22, 17], [6, 17], [6, 6], [14, 6], [14, 7], [15, 7], [15, 6], [22, 6]]]);
+    const placed = layBandRing(ring, notchGaps(ring), set);
+    expect(artInMouth(placed, set)).toBe(0);
+    const xs = artEnds(placed, set).map(([x]) => x).sort((p, q) => p - q);
+    expect(Math.abs(xs[0] - 13.95)).toBeLessThan(0.1);
+    expect(Math.abs(xs[1] - 15.05)).toBeLessThan(0.1);
+  });
+
+  it('lays no rock inside the mouth of any notched ring from 6 to 26 cells wide and 5 to 18 deep', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const closed: string[] = [];
+    for (let x0 = 2; x0 <= 11; x0++) {
+      for (let x1 = 17; x1 <= 28; x1++) {
+        for (let y1 = 11; y1 <= 24; y1++) {
+          const [ring] = orientRings([[[x1, y1], [x0, y1], [x0, 6], [14, 6], [14, 7], [15, 7], [15, 6], [x1, 6]]]);
+          if (artInMouth(layBandRing(ring, notchGaps(ring), set), set) > 0) closed.push(`${x0},${x1},${y1}`);
+        }
+      }
+    }
+    expect(closed).toEqual([]);
+  });
 });

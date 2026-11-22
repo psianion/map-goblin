@@ -384,13 +384,18 @@ const WALL_END_JOIN = 0.01;
 /** A gap further than this from every edge of a line is not on it. */
 const ON_EDGE = 0.05;
 
+/** The wall ends either side of the stretch of wall a point stands on: where it opens, where it closes. */
+type WallEnds = (p: Vec) => [Vec | null, Vec | null];
+
 /**
  * Where the wall stops beside each opening on `line` (a ring when `closed`): each gap laid
  * on the edge nearest it as its stretch along that edge, touching stretches joined (round
  * a vertex too, where the next edge is open from its start), and the two outer ends of
- * each joined opening.
+ * each joined opening. Answered for the stretch of wall between two openings that a point
+ * stands on, in the line's own direction: the end of the opening before it and the start
+ * of the one after (null where a chain's own end bounds it instead, or no opening does).
  */
-function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): Vec[] {
+function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): WallEnds {
   const pts: Vec[] = line.map(([x, y]) => [x, y]);
   if (closed) pts.push(pts[0]);
   const cum = arcLengths(pts);
@@ -417,45 +422,82 @@ function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): Vec[] {
     if (last && a <= last[1] + WALL_END_JOIN) last[1] = Math.max(last[1], b);
     else joined.push([a, b]);
   }
-  let ends = joined.flat();
   // An opening across a ring's seam is one opening: its ends at the seam are no wall's.
-  if (closed && ends.length > 0 && ends[0] <= WALL_END_JOIN && ends[ends.length - 1] >= total - WALL_END_JOIN) {
-    ends = ends.slice(1, -1);
+  if (closed && joined.length > 1 && joined[0][0] <= WALL_END_JOIN && joined[joined.length - 1][1] >= total - WALL_END_JOIN) {
+    joined[joined.length - 1][1] = total + joined.shift()![1];
   }
-  return ends.map((s) => pointAtArc(pts, cum, s));
+  const none: [Vec | null, Vec | null] = [null, null];
+  if (joined.length === 0 || (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN)) return () => none;
+  const at = (s: number): Vec => pointAtArc(pts, cum, closed ? s % total : s);
+  // The stretches of wall between openings, each from where it opens to where it closes.
+  const stretches: [number | null, number | null][] = joined.slice(1).map((o, k): [number, number] => [joined[k][1], o[0]]);
+  if (closed) {
+    stretches.push([joined[joined.length - 1][1], joined[0][0] + total]);
+  } else {
+    stretches.unshift([null, joined[0][0]]);
+    stretches.push([joined[joined.length - 1][1], null]);
+  }
+  return (p) => {
+    const s = arcPosition(pts, p);
+    for (const [from, to] of stretches) {
+      for (const t of closed ? [s, s + total] : [s]) {
+        if ((from === null || t >= from) && (to === null || t <= to)) {
+          return [from === null ? null : at(from), to === null ? null : at(to)];
+        }
+      }
+    }
+    return none;
+  };
 }
 
 /**
  * A measured kit's run beside an opening, its end straights moved along their own chords
- * so the art stops level with the wall's end there (see {@link wallEnds}): the nearest
- * one to the end joint, within a cell. The art ends half the kit's overlap back from its
- * joint, so the joint is aimed that far past the wall end, into the opening. No piece goes
- * outside 0.8 to 1.25 times its drawn size; what that cannot make up is left. A kit with
- * no `exact` piece is returned untouched.
+ * so the art stops level with the wall's end there (see {@link wallEnds}). The run stands on
+ * the stretch of wall under its middle piece: its start is aimed at the wall end that opens
+ * that stretch and its end at the one that closes it, so neither is ever aimed across an
+ * opening. The art ends half the kit's overlap back from its joint, so the joint is aimed
+ * that far past the wall end, into the opening. A joint short of its wall end is lengthened
+ * to it when within a cell; no piece goes outside 0.8 to 1.25 times its drawn size, and what
+ * that cannot make up is left. A joint past its wall end, the wall end beside the piece's
+ * chord, is always pulled back, a straight that would go below 0.8 swapped for a shorter
+ * one (see {@link nearestStraight}), and an end piece nothing can bring back is dropped
+ * rather than leave rock across the opening. A kit with no `exact` piece is returned untouched.
  */
-function reachOpenings(run: WalkPlacement[], ends: Vec[], set: CaveKitPiece[]): WalkPlacement[] {
-  if (run.length === 0 || ends.length === 0 || !set.some((p) => p.exact)) return run;
+function reachOpenings(run: WalkPlacement[], ends: WallEnds, set: CaveKitPiece[]): WalkPlacement[] {
+  if (run.length === 0 || !set.some((p) => p.exact)) return run;
   const half = kitOverlap(set) / 2;
   const out = kitOut(set);
   const result = [...run];
-  const reach = (k: number, end: boolean): void => {
+  const middle = run[Math.floor(run.length / 2)];
+  const [opens, closes] = ends(mul(add(middle.P, middle.Q), 0.5));
+  /** False when the piece cannot be kept out of the opening and must go. */
+  const reach = (k: number, end: boolean, wall: Vec | null): boolean => {
     const pl = result[k];
-    if (pl.piece.turnDeg !== 0) return;
+    if (!wall || pl.piece.turnDeg !== 0) return true;
     const joint = jointsOf(pl.piece, pl.at)[end ? 1 : 0];
-    const wall = ends.reduce((a, b) => (dist(b, joint) < dist(a, joint) ? b : a));
-    if (dist(wall, joint) > 1) return;
     const dir = norm(sub(pl.Q, pl.P));
     const L = dist(pl.P, pl.Q);
     const drawn = dist(...pl.piece.jointsCells);
     // Along the chord from the joint to the wall end, then half an overlap on past it.
     const want = dot(sub(wall, joint), dir) * (end ? 1 : -1) + half;
-    const grow = Math.min(Math.max(want, 0.8 * drawn - L), MEET_STRETCH * drawn - L);
+    // Short of its wall end, it reaches only within a cell; past it, only with the wall end
+    // beside its own chord (a run that never came near the opening is not pulled to it).
+    if (want >= 0 ? dist(wall, joint) > 1 : Math.abs(cross(sub(wall, joint), dir)) > 1) return true;
+    let piece = pl.piece;
+    let grow = Math.min(Math.max(want, 0.8 * drawn - L), MEET_STRETCH * drawn - L);
+    if (want < 0 && grow > want) {
+      const swap = nearestStraight(set, L + want, pl.piece);
+      if (!swap) return false;
+      piece = swap;
+      grow = want;
+    }
     const P = end ? pl.P : sub(pl.P, mul(dir, grow));
     const Q = end ? add(pl.Q, mul(dir, grow)) : pl.Q;
-    result[k] = { ...pl, P, Q, at: placePiece(pl.piece, P, Q, out, 0, pl.nudge) };
+    result[k] = { ...pl, piece, P, Q, at: placePiece(piece, P, Q, out, 0, pl.nudge) };
+    return true;
   };
-  reach(0, false);
-  reach(result.length - 1, true);
+  if (!reach(0, false, opens)) result.shift();
+  if (result.length > 0 && !reach(result.length - 1, true, closes)) result.pop();
   return result;
 }
 
@@ -632,8 +674,6 @@ function trimLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): 
   if (placed.length < 2 || !set.some((p) => p.exact)) return placed;
   const overlap = kitOverlap(set);
   const out = kitOut(set);
-  const drawn = (p: CaveKitPiece): number => dist(...p.jointsCells);
-  const straights = set.filter((p) => p.turnDeg === 0);
   const run = [...placed];
   for (let k = 0; k < run.length - (ring ? 0 : 1); k++) {
     const j = (k + 1) % run.length;
@@ -650,17 +690,26 @@ function trimLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): 
     const P = moveLater ? add(pl.P, mul(dir, over / along)) : pl.P;
     const Q = moveLater ? pl.Q : sub(pl.Q, mul(dir, over / along));
     const L = dist(P, Q);
-    let piece = pl.piece;
-    if (L < TRIM_LEAST * drawn(piece)) {
-      const nearest = Math.min(...straights.map((p) => Math.abs(drawn(p) - L)));
-      const near = straights.filter((p) => Math.abs(drawn(p) - L) === nearest);
-      piece = near.find((p) => !!p.flipY === !!pl.piece.flipY) ?? near[0];
-      const s = L / drawn(piece);
-      if (s < TRIM_LEAST || s > MEET_STRETCH) continue;
-    }
+    const piece = L < TRIM_LEAST * dist(...pl.piece.jointsCells) ? nearestStraight(set, L, pl.piece) : pl.piece;
+    if (!piece) continue;
     run[idx] = { ...pl, piece, P, Q, at: placePiece(piece, P, Q, out, 0, pl.nudge) };
   }
   return run;
+}
+
+/**
+ * The kit's straight whose drawn length is nearest `L`, the twin with `like`'s mirror flag
+ * where there is one; null when laid over `L` it would sit outside TRIM_LEAST to
+ * MEET_STRETCH of its own drawn size.
+ */
+function nearestStraight(set: CaveKitPiece[], L: number, like: CaveKitPiece): CaveKitPiece | null {
+  const drawn = (p: CaveKitPiece): number => dist(...p.jointsCells);
+  const straights = set.filter((p) => p.turnDeg === 0);
+  const nearest = Math.min(...straights.map((p) => Math.abs(drawn(p) - L)));
+  const near = straights.filter((p) => Math.abs(drawn(p) - L) === nearest);
+  const piece = near.find((p) => !!p.flipY === !!like.flipY) ?? near[0];
+  const s = L / drawn(piece);
+  return s < TRIM_LEAST || s > MEET_STRETCH ? null : piece;
 }
 
 /**
