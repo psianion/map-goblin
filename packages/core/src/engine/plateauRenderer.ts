@@ -94,7 +94,8 @@ import { baseGroundFrame } from './mapFrame';
 import { isColoredSet, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
-import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
+import { fittedFloor, layBandChain, layBandRing, placeBand, type FloorFit } from './caveBandRenderer';
+import { alongRock } from '../shared/rockLines';
 import { cliffArt, cliffChoice, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
 import { paintSoftTiled, SOFT_EDGE_STEPS, softEdgeLayers, type SoftLayer } from './softEdge';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
@@ -105,6 +106,8 @@ type Vec = [number, number];
 export interface PlateauRenderOptions {
   /** Ask for a re-bake when a pack texture this draw needed lands later. */
   waitFor?: (textureId: string) => void;
+  /** The layer's floor fit (`bandFloorFit`): a top and its shade meet the rock where an edge runs along a wall. */
+  fit?: FloorFit;
 }
 
 const INK = 0x2b2420;
@@ -211,18 +214,19 @@ export function renderPlateaus(
   const slopes = layerSlopes(layer);
   const sprites: CliffSprite[] = [];
   for (const band of plateaus.bands) {
-    const runs = edgeRuns(band);
+    const laid = laidRuns(layer, band);
+    const runs = laid.map((l) => l.run);
     const painted = (run: EdgeRun) => run.edge === 'cliff' && isPaintedBorder(run.owner?.edgeArt);
     for (const run of runs) if (painted(run)) drawPaintedBorder(tops, run, options);
-    drawBandTop(tops, band);
+    drawBandTop(tops, band, fittedAlongWalls(band.surface, laid, options.fit));
     const holder = new Container();
     holder.label = `plateau-band-${band.height}`;
     const faces = slopes.faces.filter((f) => f.run.band === band);
     // The faces of bands drawn over this one show over its edges: its shade stays off them.
     const over = slopes.faces.filter((f) => byPrecedence(f.run.band, band) > 0).flatMap((f) => f.region);
-    drawShade(holder, band, runs, faces, slopes.land, over);
+    drawShade(holder, band, laid, faces, slopes.land, over, options.fit);
     drawSlopeFaces(holder, band, faces, slopes.land);
-    for (const run of runs) if (run.edge === 'cliff' && !painted(run)) sprites.push(...drawCliff(holder, run, options));
+    for (const { run, laid: along } of laid) if (run.edge === 'cliff' && !painted(run)) sprites.push(...drawCliff(holder, along, options));
     // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
     for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
     edges.addChild(holder);
@@ -233,15 +237,82 @@ export function renderPlateaus(
 
 /**
  * The band's top: a translucent lift tint over whatever is beneath it, nothing else. Only where
- * the surface stands at its level, so each level shows its own tint, never two stacked.
+ * the surface stands at its level (`surface`, fitted to the rock along a wall), so each level
+ * shows its own tint, never two stacked.
  */
-function drawBandTop(parent: Container, band: PlateauBand): void {
+function drawBandTop(parent: Container, band: PlateauBand, surface: Polygon[]): void {
   const lift = tierLift(band.height);
-  if (lift === 0 || band.surface.length === 0) return;
+  if (lift === 0 || surface.length === 0) return;
   const tier = new Graphics();
   tier.label = `plateau-top-${band.height}`;
-  fillRings(tier, band.surface, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
+  fillRings(tier, surface, { color: lift > 0 ? 0xffffff : 0x000000, alpha: Math.abs(lift) });
   parent.addChild(tier);
+}
+
+// ─── Along a cave wall ─────────────────────────────────────
+
+/** One edge run, and the run as drawn: on the wall's rock where it runs along a cave wall. */
+export interface LaidRun {
+  run: EdgeRun;
+  /** `run` with its points along a rock line laid on the rock (`alongRock`) and a drop per new segment; `run` itself elsewhere. */
+  laid: EdgeRun;
+  /** The ground between each stretch of `run` along a wall and the rock that stands for it. Empty along none. */
+  zone: Polygon[];
+}
+
+/** How far past the drawn stretch and its rock a stretch's zone reaches, cells: past Clipper's snap. */
+const ZONE_PAD = 0.05;
+
+const laidMemo = new WeakMap<PlateauBand, { lines: unknown; value: LaidRun[] }>();
+
+/** A band's edge runs (`edgeRuns`), each as drawn against the layer's rock lines. Kept per band while the lines stay the same. */
+export function laidRuns(layer: Pick<DungeonLayer, 'rockLines'>, band: PlateauBand): LaidRun[] {
+  const hit = laidMemo.get(band);
+  if (hit && hit.lines === layer.rockLines) return hit.value;
+  const value = edgeRuns(band).map((run): LaidRun => {
+    const along = alongRock(run.points, run.closed, layer.rockLines);
+    if (along.replaced.length === 0) return { run, laid: run, zone: [] };
+    const between = along.replaced.flatMap(({ drawn, rock }) => clipper2Engine.union([[...drawn, ...[...rock].reverse()]], []));
+    const lines = along.replaced.flatMap(({ drawn, rock }) => [drawn, rock]);
+    return {
+      run,
+      laid: { ...run, points: along.points, drops: along.segs.map((i) => run.drops[i]) },
+      zone: clipper2Engine.union([...between, ...clipper2Engine.inflateOpen(lines, ZONE_PAD)], []),
+    };
+  });
+  laidMemo.set(band, { lines: layer.rockLines, value });
+  return value;
+}
+
+/**
+ * `region` fitted to a measured kit's rock (`fit`, the layer's floor fit), but only beside the
+ * stretches of `runs` that go along a wall: there it is cut where it lies past the rock and grown
+ * to meet it, as the floor is (`fittedFloor`). A region on the low side outside the band
+ * (`outside`: a raised edge's shade or face) is fitted the other way round, so it ends where the
+ * fitted top begins. Along no wall it is handed back as it is.
+ */
+export function fittedAlongWalls(region: Polygon[], runs: readonly LaidRun[], fit: FloorFit | undefined, outside = false): Polygon[] {
+  const zone = runs.flatMap((r) => r.zone);
+  if (!fit || zone.length === 0 || region.length === 0) return region;
+  const keep = (rings: Polygon[]) => (rings.length > 0 ? clipper2Engine.intersection(rings, zone) : rings);
+  const tips = keep(fit.tips);
+  const gaps = keep(fit.gaps);
+  return fittedFloor(region, outside ? { tips: gaps, gaps: tips } : { tips, gaps });
+}
+
+/**
+ * A plateau's top texture region (`face` false) or its slope's face texture region, fitted along
+ * the walls its own edge runs on (`fittedAlongWalls`).
+ */
+export function plateauAlongWalls(layer: DungeonLayer, plateau: PlateauChild, rings: Polygon[], fit: FloorFit | undefined, face: boolean): Polygon[] {
+  if (!fit) return rings;
+  const band = layerPlateaus(layer).bands.find((b) => b.shapes.includes(plateau));
+  if (!band) return rings;
+  const mine = laidRuns(layer, band).filter((l) => l.run.owner === plateau);
+  if (!face) return fittedAlongWalls(rings, mine, fit);
+  const slopes = mine.filter((l) => l.run.edge === 'slope');
+  const out = fittedAlongWalls(rings, slopes.filter((l) => l.run.drop > 0), fit, true);
+  return fittedAlongWalls(out, slopes.filter((l) => l.run.drop < 0), fit);
 }
 
 /**
@@ -347,7 +418,7 @@ export interface LayerSlopes {
   land: LandOf;
 }
 
-const slopeMemo = new WeakMap<readonly unknown[], { floor: unknown; terrain: unknown; base: string; dir: unknown; value: LayerSlopes }>();
+const slopeMemo = new WeakMap<readonly unknown[], { floor: unknown; terrain: unknown; base: string; dir: unknown; lines: unknown; value: LayerSlopes }>();
 
 /**
  * Every slope run's face on the layer, with its direction (its plateau's, else the map's), cut
@@ -361,7 +432,7 @@ export function layerSlopes(layer: DungeonLayer): LayerSlopes {
   const base = hasPlateaus(layer) ? baseGroundFrame(layer) : null;
   const baseKey = base ? `${base.minX},${base.minY},${base.maxX},${base.maxY}` : '';
   const hit = slopeMemo.get(layer.children);
-  if (hit && hit.floor === layer.mergedFloor && hit.terrain === terrain && hit.base === baseKey && hit.dir === map.faceDirection) return hit.value;
+  if (hit && hit.floor === layer.mergedFloor && hit.terrain === terrain && hit.base === baseKey && hit.dir === map.faceDirection && hit.lines === layer.rockLines) return hit.value;
 
   const { bands } = layerPlateaus(layer);
   const ground = groundOf(layer, base);
@@ -381,17 +452,18 @@ export function layerSlopes(layer: DungeonLayer): LayerSlopes {
 
   const faces: SlopeFaceRun[] = [];
   for (const band of bands) {
-    for (const run of edgeRuns(band)) {
+    for (const { run, laid } of laidRuns(layer, band)) {
       if (run.edge !== 'slope' || run.drop === 0) continue;
       const deg = faceDirectionOf(run.owner, map.faceDirection);
       // Wandering and stepped by its plateau's id, so it is the same rock on every redraw; each
       // stretch as deep as its own drop, eased into the rim at the ends where the face stops.
+      // Laid along a cave wall's rock where the edge runs on one; its ends read off the drawn ring.
       const ends = run.closed ? undefined : faceEnds(band, run, map.faceDirection);
-      const face = slopeFace(run.points, run.closed, run.drop > 0, band.rings, deg, run.drops, wobbleSeed(run.owner?.id), ends);
+      const face = slopeFace(laid.points, laid.closed, laid.drop > 0, band.rings, deg, laid.drops, wobbleSeed(run.owner?.id), ends);
       if (face.region.length === 0) continue;
       const where = land(band, run.drop > 0);
       const cut = (rings: Polygon[]) => (rings.length === 0 ? [] : clipper2Engine.intersection(rings, where));
-      faces.push({ run, v: faceVector(deg), face, region: cut(face.region), bands: face.bands.map(cut), over: [] });
+      faces.push({ run: laid, v: faceVector(deg), face, region: cut(face.region), bands: face.bands.map(cut), over: [] });
     }
   }
   // One order for every face, the bands' own: where a later band's face lies over an earlier
@@ -406,7 +478,7 @@ export function layerSlopes(layer: DungeonLayer): LayerSlopes {
     f.bands = f.bands.map(off);
   }
   const value: LayerSlopes = { faces, land };
-  slopeMemo.set(layer.children, { floor: layer.mergedFloor, terrain, base: baseKey, dir: map.faceDirection, value });
+  slopeMemo.set(layer.children, { floor: layer.mergedFloor, terrain, base: baseKey, dir: map.faceDirection, lines: layer.rockLines, value });
   return value;
 }
 
@@ -829,20 +901,22 @@ function dropShade(g: Graphics, run: EdgeRun): void {
  * edge, blurred, then cut by a mask of that side and of the ground there is (`land`), less the
  * band's slope faces there and the faces of higher bands (`over`), so it is as dark at the edge
  * as the shade says, never spills up onto the band, never lands on void and stays off a face.
+ * Along a cave wall it runs on the rock and its mask is fitted to it (`fittedAlongWalls`).
  */
-function drawShade(parent: Container, band: PlateauBand, runs: EdgeRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[]): void {
+function drawShade(parent: Container, band: PlateauBand, runs: LaidRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[], fit: FloorFit | undefined): void {
   for (const outward of [true, false]) {
     // A run dropping to a band below shades it from above; one rising to a band it merely meets
     // is that band's to shade, so only the rim of a pit or a dip (rising to the ground or to the
     // plateau it is dug into, `dug`) shades its own band.
-    const mine = runs.filter((r) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || r.dug));
+    const mine = runs.filter(({ run: r }) => r.drop !== 0 && r.drop > 0 === outward && (r.drop > 0 || r.dug));
     if (mine.length === 0) continue;
     const onFaces = [...faces.filter((f) => f.run.drop > 0 === outward).flatMap((f) => f.region), ...over];
-    const region = onFaces.length > 0 ? clipper2Engine.difference(land(band, outward), onFaces) : land(band, outward);
+    const low = onFaces.length > 0 ? clipper2Engine.difference(land(band, outward), onFaces) : land(band, outward);
+    const region = fittedAlongWalls(low, mine, fit, outward);
     if (region.length === 0) continue;
     const g = new Graphics();
     g.label = 'plateau-drop-shade';
-    for (const run of mine) dropShade(g, run);
+    for (const { laid } of mine) dropShade(g, laid);
     const blur = new BlurFilter({ strength: 1, quality: 3, kernelSize: 5 });
     blur.resolution = 1;
     const held = new Container();

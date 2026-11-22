@@ -11,6 +11,7 @@ import type { Polygon } from '../types/geometry';
 import { BORDER_FADE, BORDER_WOBBLE, nestedAlphas, wobbleNoise, wobbleRings } from '../shared/plateauShade';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { paintTiled, type TiledLook } from './floorWallRenderer';
+import { fittedFloor, type FloorFit } from './caveBandRenderer';
 
 /** How many steps a soft edge fades in. */
 export const SOFT_EDGE_STEPS = 8;
@@ -45,11 +46,13 @@ export function outsideBandLayers(outline: Polygon[], width: number, fade: numbe
  * The steps of a band `width` wide just inside a floor's own outline (`rings`: its outer ring,
  * then its holes): crisp on the outline, its inner BORDER_FADE of the width soft, its inner
  * edge wandering as a plateau's painted border's does, the same way every time for `seed`.
+ * With a floor fit (`fit`) the outline is the floor's as painted under a measured kit's rock.
  */
-export function innerBandLayers(rings: Polygon[], width: number, seed: number): SoftLayer[] {
+export function innerBandLayers(rings: Polygon[], width: number, seed: number, fit?: FloorFit): SoftLayer[] {
   const [outer, ...holes] = rings.filter((r) => r.length >= 3);
   if (!outer) return [];
-  const region = holes.length > 0 ? clipper2Engine.difference([outer], holes) : clipper2Engine.union([outer], []);
+  const drawn = holes.length > 0 ? clipper2Engine.difference([outer], holes) : clipper2Engine.union([outer], []);
+  const region = fittedFloor(drawn, fit);
   const lines = region.map((r) => [...r, r[0]]);
   const fade = width * BORDER_FADE;
   const noise = wobbleNoise(seed);

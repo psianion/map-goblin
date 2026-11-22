@@ -24,6 +24,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from './bezier';
 import { ringOwner } from './wallLook';
 import { DEFAULT_SIGHT_DROP_CELLS } from './crossingKinds';
+import { alongRock } from './rockLines';
 
 export type EdgeKind = PlateauChild['edge'];
 
@@ -595,21 +596,26 @@ export interface CliffOccluder {
  * cliffs from `minDrop` cells up, as one-way segments blocking from the low side. Sight
  * passes the map's `sightDropCells`; light passes
  * 1, so a lamp below never lights a top. A plateau's ring has its low side on the left of
- * travel (outside); a pit's on the right.
+ * travel (outside); a pit's on the right. Where a ring runs along a measured kit's rock line
+ * (`DungeonLayer.rockLines`) it blocks on the rock (`alongRock`), each piece as its drawn edge would.
  */
 export function cliffOccluders(
-  layer: Pick<DungeonLayer, 'children'>,
+  layer: Pick<DungeonLayer, 'children' | 'rockLines'>,
   minDrop: number = DEFAULT_SIGHT_DROP_CELLS,
 ): CliffOccluder[] {
   if (!hasPlateaus(layer)) return [];
   const out: CliffOccluder[] = [];
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
-      band.edges[ri].forEach((e, i) => {
-        if (e.drop === 0 || !edgeHides(e.owner, e.edge, e.drop, minDrop)) return;
-        const a = ring[i];
-        const b = ring[(i + 1) % ring.length];
-        out.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], direction: e.drop > 0 ? 'left' : 'right' });
+      const edges = band.edges[ri];
+      const hides = edges.map((e) => e.drop !== 0 && edgeHides(e.owner, e.edge, e.drop, minDrop));
+      if (!hides.some(Boolean)) return;
+      const { points, segs } = alongRock(ring, true, layer.rockLines);
+      segs.forEach((i, j) => {
+        if (!hides[i]) return;
+        const a = points[j];
+        const b = points[(j + 1) % points.length];
+        out.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], direction: edges[i].drop > 0 ? 'left' : 'right' });
       });
     });
   }

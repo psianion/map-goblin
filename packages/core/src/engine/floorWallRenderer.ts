@@ -16,7 +16,7 @@ import type { DungeonStyle } from '../store/types';
 import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
-import { layerSlopes, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
+import { layerSlopes, plateauAlongWalls, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
 import { hasPlateaus } from '../shared/plateaus';
 import { DEFAULT_TEXTURE_SCALE } from '../shared/types';
 import { FACE_TILE_CELLS, faceDirectionOf } from '../shared/plateauShade';
@@ -744,6 +744,9 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     },
   );
   storeRockLines(layer.id, 'floor', rockLines, layer.rockLines?.length ? uninstalledRings(layer.mergedFloor ?? [], rings, edges, drawStyle) : []);
+  // The plateaus below are drawn along the lines just stored: storing them rebuilds nothing.
+  const stored = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon');
+  if (stored && stored.rockLines !== layer.rockLines) layer = { ...layer, rockLines: stored.rockLines };
   const fit: FloorFit | undefined = fits.some((f) => f.tips.length + f.gaps.length > 0)
     ? { tips: fits.flatMap((f) => f.tips), gaps: fits.flatMap((f) => f.gaps) }
     : undefined;
@@ -758,6 +761,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // bail-out: a plateau over painted terrain has no floor under it.
   renderPlateaus(layer, entry.sublayers.plateauTops, entry.sublayers.plateauEdges, {
     waitFor: (id) => armLateTextureRebuild(layer.id, id),
+    fit,
   });
 
   // The authored boundary itself. A ring's stones stand on it, and dragging one
@@ -790,9 +794,12 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     const after = afterOf(plateau);
     const top = tops.get(plateau);
     const face = faces.get(plateau);
+    // Where the plateau's edge runs along a cave wall, its top and face meet the rock as the floor does.
+    const along = (rings: Polygon[], isFace: boolean) => plateauAlongWalls(layer, plateau, rings, fit, isFace);
+    const fitted: TopFill | null = top ? { ...top, rings: along(top.rings, false), soft: top.soft?.map((s) => ({ ...s, rings: along(s.rings, false) })) ?? null } : null;
     return [
-      ...(top ? [{ plateau, rings: top.rings, top, after }] : []),
-      ...(face ? [{ plateau, rings: face, top: null, after }] : []),
+      ...(fitted ? [{ plateau, rings: fitted.rings, top: fitted, after }] : []),
+      ...(face ? [{ plateau, rings: along(face, true), top: null, after }] : []),
     ];
   });
   const drawFaces = (after: number): void => {
@@ -871,7 +878,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     drawWalledExtras(floor, walled, layer, polygons, bleed, covered, fit);
     // The walled floors' painted borders go over the room looks and the older paint, as they
     // always did. A ground piece drawn after this still covers them.
-    for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh);
+    for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh, fit);
   };
 
   drawFaces(-1);

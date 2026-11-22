@@ -23,7 +23,7 @@ import { borderWidthOf, wobbleSeed } from '../shared/plateauShade';
 import { bandFillColor, drawOutlineBand, fittedFloor, type FloorFit } from './caveBandRenderer';
 import { armLateTextureRebuild, fillPolygonsWithHoles, paintTiled, shapeFloorFill, type TiledLook } from './floorWallRenderer';
 import { drawFalls, drawShore, drawWaterEdge, waterEdgeOf, type WaterEdge } from './material/materialRenderer';
-import { innerBandLayers, paintSoftTiled } from './softEdge';
+import { innerBandLayers, paintSoftTiled, type SoftLayer } from './softEdge';
 import { paintSoftPiece, softPieceReady } from './softPiece';
 import { bakedFades } from '../shared/pieceFades';
 
@@ -120,13 +120,21 @@ function artOf(layerId: string, id: string) {
   return null;
 }
 
+/**
+ * The steps of a floor's painted border: a band just inside its own outline, or, for a walled
+ * floor under a measured kit's rock (`fit`), inside the outline as fitted to the rock.
+ */
+export function pieceBorderLayers(shape: ShapeChild, fit?: FloorFit): SoftLayer[] {
+  return innerBandLayers(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id), fit);
+}
+
 /** A floor's painted border: its texture in a band just inside its own outline, ragged and soft on its inner side. Paint only. */
-export function drawPieceBorder(host: Container, layerId: string, shape: ShapeChild): void {
+export function drawPieceBorder(host: Container, layerId: string, shape: ShapeChild, fit?: FloorFit): void {
   const tex = artOf(layerId, shape.edgePaint!);
   if (!tex) return;
   const band = new Container();
   band.label = `floor-border-${shape.id}`;
-  paintSoftTiled(band, innerBandLayers(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id)), tex);
+  paintSoftTiled(band, pieceBorderLayers(shape, fit), tex);
   host.addChild(band);
 }
 
@@ -188,7 +196,7 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
     drawWaterEdge(piece, outline, edge, shored);
     drawFalls(piece, layer, outline);
   }
-  if (shape.edgePaint && !(ctx.bordersOverExtras && !shape.ground)) drawPieceBorder(piece, layer.id, shape);
+  if (shape.edgePaint && !(ctx.bordersOverExtras && !shape.ground)) drawPieceBorder(piece, layer.id, shape, shape.ground ? undefined : ctx.fit);
   if (shape.ground && shape.edgeMaterial) {
     // The rock rim of a ground piece: the band walk a cave gets, with no wall behind it.
     for (const e of bandSetArt(shape.edgeMaterial).values()) artOf(layer.id, e.id);
