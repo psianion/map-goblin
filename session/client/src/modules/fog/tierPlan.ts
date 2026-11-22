@@ -189,7 +189,7 @@ export type Blend = 'normal' | 'erase';
  *
  * - `mask`: the texture the cloud shader samples, and the stencil the tokens and doors wear.
  *   Clears *transparent*, so alpha carries shown-ness and an erased texel reads 0 in `.r`.
- * - `edge`: the mask's coverage blurred, for the shader's inward feather and the DM's edge line.
+ * - `edge`: the mask's coverage blurred, for the shader's inward feather.
  * - `scrim`: the flat black backstop, with the mask's own alpha erased out of it.
  */
 export type TierTarget = 'mask' | 'edge' | 'scrim';

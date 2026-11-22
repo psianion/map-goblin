@@ -3,9 +3,10 @@
 // composited on the GPU (`tierPlan` + `tierCompositor`). Off, nothing is drawn at all.
 //
 // A player's seat draws it solid, over a flat black scrim that is the fail-dark backstop: if the
-// shader never draws, fogged ground is still black. The DM's seat draws the same cloud
-// see-through with a line on its edge, so the DM reads where the players' fog lies without losing
-// the map under it; "As players see it" (`asPlayers.ts`) draws the DM's seat solid instead.
+// shader never draws, fogged ground is still black. The DM's seat draws no cloud: it shows the
+// exact cells, an even pale veil over each fogged one and a line along the grid where fogged
+// meets cleared, so the DM reads cell for cell what the players hold without losing the map under
+// it. "As players see it" (`asPlayers.ts`) draws the DM's seat solid instead.
 //
 // Where this sits is load-bearing. The engine composites lighting as a screen-space multiply
 // *after* the world container, so the fog mounts above that composite and mirrors the camera:
@@ -23,7 +24,7 @@ import type { Layer } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
-import { clearedOn, fogOn, getCell, lightSources, rebaseRegion, type FogState, type RegionMask } from '@dnd/mechanics/fog';
+import { clearedOn, fogOn, getCell, lightSources, rebaseRegion, toBytes, type FogState, type RegionMask } from '@dnd/mechanics/fog';
 import { SIZE_CELLS, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import { roomEditsOf, sceneTriggersOf, worldSkyOf, type LightEdit, type TriggersState } from '@dnd/mechanics/triggers';
 import { timeBucket } from '@dnd/core/src/shared/world';
@@ -38,7 +39,7 @@ import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import { tokensOf } from '../tokens/TokenRenderer';
 import { useAsPlayers } from './asPlayers';
-import { fogFrame, sceneFog } from './fog';
+import { cellOutline, cellRuns, fogFrame, sceneFog, type CellChain } from './fog';
 import { placedLights } from './visionSight';
 import { DEFAULT_FOG_LOOK, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
 import { effectiveFogLook } from './effectiveFogLook';
@@ -61,10 +62,11 @@ export const easeOutQuart = (t: number): number => 1 - (1 - t) ** 4;
 export const REBUILD_FLOOR_MS = 100;
 
 /**
- * The cloud's density over fogged ground on the DM's see-through view: enough to read as cloud,
- * little enough that the map under it stays legible.
+ * The DM's exact-cell view, over the lighting composite so it reads at night as by day. The veil
+ * is a light cool grey, which lightens a dark map and greys a bright one; the line is a light core
+ * on a dark halo, its widths in screen pixels so it stays one weight at any zoom.
  */
-export const DM_DENSE = 0.55;
+export const CELL_VIEW = { veil: 0xdfe3e8, veilAlpha: 0.56, halo: 0x1b1b1b, haloAlpha: 0.6, haloPx: 3.4, line: 0xffffff, linePx: 1.4 };
 
 /** How much of the mist over a fading edge a scene keeps on the brightest sky, 0..1. */
 export const MEMORY_WASH_FLOOR = 0.45;
@@ -93,7 +95,7 @@ export interface FogScene {
   /** The scene's fog is on. Off, nothing is drawn on any seat. */
   on: boolean;
   isPlayer: boolean;
-  /** Drawn solid: a player's seat, or the DM's "As players see it". Otherwise see-through. */
+  /** Drawn solid: a player's seat, or the DM's "As players see it". Otherwise the exact cells. */
   solid: boolean;
   /** The map frame, while fog is on and a document is in hand; null draws nothing. */
   bounds: Bounds | null;
@@ -153,6 +155,43 @@ export function glowPools(pools: readonly FogPool[], cleared: RegionMask | undef
   return pools.filter(
     (p) => onOwn(p.x, p.y) || (cleared !== undefined && getCell(cleared, Math.floor(p.x - cleared.minX), Math.floor(p.y - cleared.minY))),
   );
+}
+
+/** The DM's exact-cell view, in world units: the rects the veil fills and the line's chains. */
+export interface CellView {
+  veil: Bounds[];
+  outline: CellChain[];
+}
+
+/**
+ * What the DM's own view draws for a scene: a veil over exactly the fogged cells of the level
+ * shown, and the line along every edge where a fogged cell meets a cleared one. Nothing past the
+ * frame, so the map's own edge is never lined. Empty on a solid seat, where the cloud is drawn.
+ */
+export function cellView(scene: Pick<FogScene, 'solid' | 'bounds' | 'cleared'>): CellView {
+  const mask = scene.cleared;
+  if (scene.solid || !scene.bounds || !mask) return { veil: [], outline: [] };
+  const bytes = toBytes(mask.bits);
+  const box = { col: 0, row: 0, cols: mask.cols, rows: mask.rows };
+  const inFrame = (col: number, row: number): boolean => col >= 0 && row >= 0 && col < mask.cols && row < mask.rows;
+  const clear = (col: number, row: number): boolean => {
+    if (!inFrame(col, row)) return false;
+    const bit = row * mask.cols + col;
+    return (bytes[bit >>> 3]! & (1 << (bit & 7))) !== 0;
+  };
+  const { minX, minY } = mask;
+  return {
+    veil: cellRuns(box, (col, row) => !clear(col, row)).map(([col, row, n]) => ({
+      minX: minX + col,
+      minY: minY + row,
+      maxX: minX + col + n,
+      maxY: minY + row + 1,
+    })),
+    outline: cellOutline(box, clear, inFrame).map((chain) => ({
+      closed: chain.closed,
+      points: chain.points.map(([col, row]): [number, number] => [minX + col, minY + row]),
+    })),
+  };
 }
 
 /** Everything the fog draws from, read once per mutation. */
@@ -293,7 +332,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   sightMask.includeInBuild = false;
   const shownMask = new Graphics();
   shownMask.includeInBuild = false;
-  layer.addChild(scrim, scrimSprite, fog.mesh, sightMask, sightSprite, shownMask, shownSprite);
+  // The DM's exact-cell view, in place of the cloud on the DM's own seat.
+  const veil = new Graphics();
+  const outline = new Graphics();
+  layer.addChild(scrim, scrimSprite, fog.mesh, veil, outline, sightMask, sightSprite, shownMask, shownSprite);
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
 
@@ -307,7 +349,23 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   let lastLookKey = '';
   let cleared = 0;
   let solid = false;
-  let dense = 1;
+  /** The line's chains at the last rebuild, and the pixel size they were last stroked at. */
+  let chains: CellChain[] = [];
+  let strokedPx = 0;
+  const strokeOutline = (worldPerPx: number): void => {
+    strokedPx = worldPerPx;
+    outline.clear();
+    if (chains.length === 0) return;
+    for (const pass of [
+      { color: CELL_VIEW.halo, alpha: CELL_VIEW.haloAlpha, width: CELL_VIEW.haloPx * worldPerPx },
+      { color: CELL_VIEW.line, alpha: 1, width: CELL_VIEW.linePx * worldPerPx },
+    ]) {
+      for (const chain of chains) {
+        outline.poly(chain.points.flat(), chain.closed);
+      }
+      outline.stroke({ ...pass, join: 'miter', cap: 'butt' });
+    }
+  };
 
   // Read-only instruments for the e2e lanes (unguarded: nothing here a script on the page could
   // not already read), plus `maskAt`, dev only, which stalls the pipeline to read a texel back.
@@ -317,10 +375,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     lastRebuildMs: 0,
     /** How many cells the shown level's cleared record holds. */
     clearedCells: (): number => cleared,
-    /** Drawn solid (a player, or "As players see it") rather than see-through. */
+    /** Drawn solid (a player, or "As players see it") rather than as the DM's exact cells. */
     solid: (): boolean => solid,
-    /** The cloud's density over fogged ground. */
-    dense: (): number => dense,
+    /** Whether the cloud is drawn: not on the DM's own view, which shows the exact cells. */
+    cloud: (): boolean => fog.mesh.visible,
     /** Whether a world point is shown on this seat: the mask's texel there. Null without a mask. */
     shownAt: (x: number, y: number): boolean | null => {
       const read = engine.renderer?.()?.extract;
@@ -385,7 +443,15 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     const cover = raster ? plan.cover : null;
     liveCover = cover;
     scrimSprite.visible = raster && scene.solid;
-    fog.mesh.visible = showing;
+    fog.mesh.visible = showing && scene.solid;
+    const view = cellView(scene);
+    veil.clear();
+    for (const r of view.veil) veil.rect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY);
+    if (view.veil.length > 0) veil.fill({ color: CELL_VIEW.veil, alpha: CELL_VIEW.veilAlpha });
+    veil.visible = showing && !scene.solid;
+    outline.visible = veil.visible;
+    chains = view.outline;
+    strokeOutline(strokedPx);
     if (cover) {
       for (const sprite of [scrimSprite, sightSprite, shownSprite]) {
         sprite.position.set(cover.minX, cover.minY);
@@ -402,9 +468,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     sightMask.label = stencil && !raster ? SIGHT_MASK : '';
     shownMask.label = stencil && !raster ? SHOWN_MASK : '';
 
-    dense = scene.solid ? 1 : DM_DENSE;
-    fog.setDense(dense);
-    fog.setEdgeLine(!scene.solid);
     fog.setPalette(fogPalette(scene.cloudTint, scene.darkness));
     // `setLook` re-renders the soft mask, real GPU work, so only when the weather moved.
     const lookKey = JSON.stringify(scene.look);
@@ -429,7 +492,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     const vp = engine.viewport();
     const tl = engine.screenToWorld(0, 0);
     const br = engine.screenToWorld(vp.width, vp.height);
-    fog.cover({ minX: tl.x - 2, minY: tl.y - 2, maxX: br.x + 2, maxY: br.y + 2 }, (br.x - tl.x) / Math.max(1, vp.width));
+    fog.cover({ minX: tl.x - 2, minY: tl.y - 2, maxX: br.x + 2, maxY: br.y + 2 });
+    // The line keeps its pixel width: re-stroked when the zoom moves, not every frame.
+    const worldPerPx = (br.x - tl.x) / Math.max(1, vp.width);
+    if (outline.visible && Math.abs(worldPerPx - strokedPx) > strokedPx * 0.01) strokeOutline(worldPerPx);
     if (!prefersReducedMotion()) fog.advance(ticker.deltaMS / 1000);
   };
 

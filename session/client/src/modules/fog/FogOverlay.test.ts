@@ -6,7 +6,7 @@
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
-import { Container, Ticker } from 'pixi.js';
+import { Container, Ticker, type Graphics, type GraphicsPath, type Rectangle } from 'pixi.js';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
@@ -76,6 +76,18 @@ const cursorLayer = (): Container =>
   sceneGraph.overlayContainer.children.find((c) => c.label === 'fogOverlay') as Container;
 const cursorDrawn = (): number =>
   ((cursorLayer().children[0] as unknown as { context: { instructions: unknown[] } }).context.instructions ?? []).length;
+/** The cells the cursor fills, as "col,row" against FRAME, read off the rects it drew. */
+const cursorCells = (): string[] => {
+  const fill = cursorLayer().children[0] as Graphics;
+  return fill.context.instructions
+    .filter((i) => i.action === 'fill')
+    .flatMap((i) => (i.data as { path: GraphicsPath }).path.shapePath.shapePrimitives.map((p) => p.shape as Rectangle))
+    .flatMap((r) => {
+      const out: string[] = [];
+      for (let y = r.y; y < r.y + r.height; y++) for (let x = r.x; x < r.x + r.width; x++) out.push(`${x - FRAME.minX},${y - FRAME.minY}`);
+      return out;
+    });
+};
 
 beforeEach(() => {
   canvas = document.createElement('canvas');
@@ -179,5 +191,24 @@ describe('the fog brush', () => {
     expect(cursorDrawn()).toBeGreaterThan(0);
     useActiveTool.getState().setActiveTool(null);
     expect(cursorLayer().visible).toBe(false);
+  });
+
+  it('9: marks exactly the cells a stamp of that size sends, at the frame’s edge too', () => {
+    for (const [size, x, y] of [
+      [1, 4.5, 1.5],
+      [3, 4.5, 1.5],
+      [5, -0.5, -0.5],
+      [5, 13.5, 3.5],
+    ] as const) {
+      useFogBrush.setState({ size });
+      armBrush('clear');
+      pointer('pointermove', x, y);
+      const marked = cursorCells().sort();
+      sent = [];
+      pointer('pointerdown', x, y);
+      up();
+      expect(marked).toEqual(cellsOf(sent).sort());
+      useActiveTool.getState().setActiveTool(null);
+    }
   });
 });

@@ -1,12 +1,12 @@
 // The fog layer on each seat: what `fogScene` reads, and what the mounted layer does with it —
-// solid for a player, see-through with an edge line for the DM, solid again under "As players
-// see it" — and the stencils the token chips wear, which must never let a token show through fog.
+// solid for a player, the exact cells for the DM, solid again under "As players see it" — and
+// the stencils the token chips wear, which must never let a token show through fog.
 //
 // Pixi's display objects need no GPU, so the layer is inspectable in jsdom; what lands in a
 // texture is the GPU's business.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Container, Mesh, Sprite, Ticker } from 'pixi.js';
+import { Container, Graphics, Mesh, Sprite, Ticker } from 'pixi.js';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
@@ -17,7 +17,7 @@ import type { Token } from '@dnd/mechanics/tokens';
 import { SHOWN_MASK, SIGHT_MASK, shownMaskOf, sightMaskOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { useAsPlayers } from './asPlayers';
-import { DM_DENSE, GRADE_STRENGTH, fogScene, glowPools, mountPlayerFogWhenReady } from './FogRenderer';
+import { GRADE_STRENGTH, cellView, fogScene, glowPools, mountPlayerFogWhenReady } from './FogRenderer';
 import { tierPlan } from './tierPlan';
 
 const FRAME = { minX: 0, minY: 0, maxX: 20, maxY: 10 };
@@ -80,7 +80,7 @@ describe('fogScene', () => {
     expect(fogScene()).toMatchObject({ on: false, bounds: null });
   });
 
-  it('covers the frame with fog on, solid for a player and see-through for the DM, with no token needed', () => {
+  it('covers the frame with fog on, solid for a player and exact cells for the DM, with no token needed', () => {
     seat(player, { on: true });
     expect(fogScene()).toMatchObject({ on: true, solid: true, bounds: FRAME });
     seat(dm, { on: true });
@@ -132,6 +132,51 @@ describe('fogScene', () => {
   });
 });
 
+describe("the DM's exact cells", () => {
+  /** Every cell a list of rects covers, as "col,row", on FRAME's grid. */
+  const cellsOf = (rects: { minX: number; minY: number; maxX: number; maxY: number }[]): string[] =>
+    rects.flatMap((r) => {
+      const out: string[] = [];
+      for (let y = r.minY; y < r.maxY; y++) for (let x = r.minX; x < r.maxX; x++) out.push(`${x},${y}`);
+      return out;
+    });
+
+  it('7: veils exactly the fogged cells of the level shown, and nothing past the frame', () => {
+    seat(dm, { on: true, cleared: { upper: cleared([[3, 3], [4, 3]]), lower: cleared([[9, 5]]) } }, [], 'upper');
+    const { veil } = cellView(fogScene());
+    const covered = cellsOf(veil);
+    expect(new Set(covered).size).toBe(covered.length);
+    const fogged: string[] = [];
+    for (let row = 0; row < 10; row++) for (let col = 0; col < 20; col++) if (!['3,3', '4,3'].includes(`${col},${row}`)) fogged.push(`${col},${row}`);
+    expect(covered.sort()).toEqual(fogged.sort());
+    for (const r of veil) {
+      expect(r.minX).toBeGreaterThanOrEqual(FRAME.minX);
+      expect(r.minY).toBeGreaterThanOrEqual(FRAME.minY);
+      expect(r.maxX).toBeLessThanOrEqual(FRAME.maxX);
+      expect(r.maxY).toBeLessThanOrEqual(FRAME.maxY);
+    }
+  });
+
+  it('8: runs the line on cell edges, with the six corners of an L', () => {
+    seat(dm, { on: true, cleared: { upper: cleared([[5, 3], [5, 4], [6, 4]]) } });
+    const { outline } = cellView(fogScene());
+    expect(outline).toHaveLength(1);
+    expect(outline[0]!.closed).toBe(true);
+    expect(outline[0]!.points.map((p) => p.join()).sort()).toEqual(['5,3', '6,3', '6,4', '7,4', '7,5', '5,5'].sort());
+  });
+
+  it('draws no line along the frame itself', () => {
+    seat(dm, { on: true, cleared: { upper: cleared([[0, 0]]) } });
+    const { outline } = cellView(fogScene());
+    expect(outline).toEqual([{ closed: false, points: [[0, 1], [1, 1], [1, 0]] }]);
+  });
+
+  it('draws nothing of it on a solid seat', () => {
+    seat(player, { on: true, cleared: { upper: cleared([[5, 3]]) } });
+    expect(cellView(fogScene())).toEqual({ veil: [], outline: [] });
+  });
+});
+
 describe('the mounted fog layer', () => {
   let ticker: Ticker;
   let sceneGraph: SceneGraph;
@@ -170,21 +215,26 @@ describe('the mounted fog layer', () => {
 
   const fogLayer = (): Container => sceneGraph.overlayContainer.children.find((c) => c.label === 'playerFog') as Container;
   const mesh = (): Mesh => fogLayer().children.find((c) => c instanceof Mesh) as Mesh;
-  const uniform = (name: string): number =>
-    (mesh().shader!.resources.fogUniforms as { uniforms: Record<string, number> }).uniforms[name]!;
+  /** The veil and the line, the two Graphics drawn straight after the cloud. */
+  const cellLayers = (): Graphics[] => {
+    const at = fogLayer().children.indexOf(mesh());
+    return [fogLayer().children[at + 1], fogLayer().children[at + 2]] as Graphics[];
+  };
   const scrimSprite = (): Sprite => fogLayer().children.find((c) => c instanceof Sprite) as Sprite;
   const probe = () =>
-    (window as Window & { __fogProbe?: { dense(): number; solid(): boolean; clearedCells(): number } }).__fogProbe!;
+    (window as Window & { __fogProbe?: { cloud(): boolean; solid(): boolean; clearedCells(): number } }).__fogProbe!;
   const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 150));
 
-  it('runs see-through with the edge line on the DM seat whenever fog is on, with no token selected', () => {
+  it('6: shows the DM the cell veil and no cloud whenever fog is on, with no token selected', () => {
     seat(dm, { on: true, cleared: { upper: cleared([[3, 3]]) } });
     mount();
     expect(fogLayer().visible).toBe(true);
-    expect(mesh().visible).toBe(true);
-    expect(probe().dense()).toBe(DM_DENSE);
-    expect(uniform('uDense')).toBe(DM_DENSE);
-    expect(uniform('uEdgeLine')).toBe(1);
+    expect(mesh().visible).toBe(false);
+    expect(probe().cloud()).toBe(false);
+    const [veil, line] = cellLayers();
+    expect(veil!.visible).toBe(true);
+    expect(line!.visible).toBe(true);
+    expect(veil!.bounds.width).toBe(FRAME.maxX - FRAME.minX);
     // No scrim and no stencil: every token and door mark stays drawn for the DM.
     expect(scrimSprite().visible).toBe(false);
     expect(sightMaskOf(sceneGraph)).toBeNull();
@@ -192,27 +242,28 @@ describe('the mounted fog layer', () => {
     expect(lighting.alpha).toBe(GRADE_STRENGTH);
   });
 
-  it('turns solid under "As players see it" on the DM seat, and back again', async () => {
+  it('6: draws the cloud and no veil under "As players see it" on the DM seat, and back again', async () => {
     seat(dm, { on: true });
     mount();
     useAsPlayers.getState().set(true);
     await flush();
     expect(probe().solid()).toBe(true);
-    expect(uniform('uDense')).toBe(1);
-    expect(uniform('uEdgeLine')).toBe(0);
+    expect(mesh().visible).toBe(true);
+    expect(cellLayers().map((g) => g.visible)).toEqual([false, false]);
     expect(scrimSprite().visible).toBe(true);
     expect(sightMaskOf(sceneGraph)?.label).toBe(SIGHT_MASK);
     useAsPlayers.getState().set(false);
     await flush();
-    expect(uniform('uDense')).toBe(DM_DENSE);
+    expect(mesh().visible).toBe(false);
+    expect(cellLayers().map((g) => g.visible)).toEqual([true, true]);
     expect(sightMaskOf(sceneGraph)).toBeNull();
   });
 
-  it('draws a player solid behind the scrim, with no edge line', () => {
+  it('draws a player solid behind the scrim, with no veil and no line', () => {
     seat(player, { on: true, cleared: { upper: cleared([[3, 3]]) } });
     mount();
-    expect(probe().dense()).toBe(1);
-    expect(uniform('uEdgeLine')).toBe(0);
+    expect(probe().cloud()).toBe(true);
+    expect(cellLayers().map((g) => g.visible)).toEqual([false, false]);
     expect(scrimSprite().visible).toBe(true);
     expect(probe().clearedCells()).toBe(1);
   });

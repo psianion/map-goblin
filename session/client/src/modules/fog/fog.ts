@@ -131,3 +131,116 @@ export function cellAt(frame: Frame, x: number, y: number): Cell | null {
   const [cols, rows] = [Math.round(frame.maxX - frame.minX), Math.round(frame.maxY - frame.minY)];
   return col < 0 || row < 0 || col >= cols || row >= rows ? null : [col, row];
 }
+
+/** A block of cells to look at: the first column and row, and how many of each. */
+export interface CellBox {
+  col: number;
+  row: number;
+  cols: number;
+  rows: number;
+}
+
+/** A run of cells along one row, `[col, row, length]`: one rect to fill. */
+export type CellRun = [number, number, number];
+
+/** The cells of a box that are in a set, as one run per unbroken stretch of each row. */
+export function cellRuns(box: CellBox, inSet: (col: number, row: number) => boolean): CellRun[] {
+  const runs: CellRun[] = [];
+  for (let row = box.row; row < box.row + box.rows; row++) {
+    let start = -1;
+    for (let col = box.col; col <= box.col + box.cols; col++) {
+      const on = col < box.col + box.cols && inSet(col, row);
+      if (on && start < 0) start = col;
+      if (!on && start >= 0) {
+        runs.push([start, row, col - start]);
+        start = -1;
+      }
+    }
+  }
+  return runs;
+}
+
+/** A line along cell edges, as the grid corners it turns at (`[col, row]`, a corner per cell). */
+export interface CellChain {
+  points: [number, number][];
+  /** A ring, whose last point joins its first; open where it runs into the box's edge unlined. */
+  closed: boolean;
+}
+
+/**
+ * The line between the cells of a set and the cells beside them, along cell edges, merged into
+ * as few chains as it takes and with a point only where the line turns. An edge is drawn where a
+ * cell in the box is in the set and its neighbour is not and `edgeTo` the neighbour (default:
+ * every neighbour, the box's outside included).
+ *
+ * Each edge runs with the set on the same hand, so following edges end to end walks the set's
+ * outline and an L of cells comes back as one ring of six corners.
+ */
+export function cellOutline(
+  box: CellBox,
+  inSet: (col: number, row: number) => boolean,
+  edgeTo: (col: number, row: number) => boolean = () => true,
+): CellChain[] {
+  const key = (x: number, y: number): string => `${x},${y}`;
+  const out = new Map<string, [number, number][]>();
+  const incoming = new Map<string, number>();
+  let left = 0;
+  const edge = (x0: number, y0: number, x1: number, y1: number): void => {
+    const from = key(x0, y0);
+    const list = out.get(from);
+    if (list) list.push([x1, y1]);
+    else out.set(from, [[x1, y1]]);
+    incoming.set(key(x1, y1), (incoming.get(key(x1, y1)) ?? 0) + 1);
+    left++;
+  };
+  const lined = (col: number, row: number): boolean => !inSet(col, row) && edgeTo(col, row);
+  for (let row = box.row; row < box.row + box.rows; row++) {
+    for (let col = box.col; col < box.col + box.cols; col++) {
+      if (!inSet(col, row)) continue;
+      if (lined(col, row - 1)) edge(col + 1, row, col, row);
+      if (lined(col - 1, row)) edge(col, row, col, row + 1);
+      if (lined(col, row + 1)) edge(col, row + 1, col + 1, row + 1);
+      if (lined(col + 1, row)) edge(col + 1, row + 1, col + 1, row);
+    }
+  }
+
+  const walk = (start: [number, number]): [number, number][] => {
+    const points: [number, number][] = [start];
+    let at = start;
+    for (;;) {
+      const next = out.get(key(at[0], at[1]))?.pop();
+      if (!next) return points;
+      left--;
+      points.push(next);
+      at = next;
+    }
+  };
+  /** Drop every point the line runs straight through. */
+  const corners = (points: [number, number][], closed: boolean): [number, number][] => {
+    const turns = (a: [number, number], b: [number, number], c: [number, number]): boolean =>
+      (b[0] - a[0]) * (c[1] - b[1]) !== (b[1] - a[1]) * (c[0] - b[0]);
+    const n = points.length;
+    return points.filter((p, i) => {
+      if (!closed && (i === 0 || i === n - 1)) return true;
+      return turns(points[(i - 1 + n) % n]!, p, points[(i + 1) % n]!);
+    });
+  };
+
+  const chains: CellChain[] = [];
+  // Open chains first, one from each corner for every line that starts there and none ends…
+  const starts = [...out].map(([from, list]) => [from, list.length - (incoming.get(from) ?? 0)] as const);
+  for (const [from, n] of starts) {
+    const [x, y] = from.split(',').map(Number) as [number, number];
+    for (let i = 0; i < n; i++) chains.push({ points: corners(walk([x, y]), false), closed: false });
+  }
+  // …then every ring left over.
+  for (const [from, list] of out) {
+    const [x, y] = from.split(',').map(Number) as [number, number];
+    while (left > 0 && list.length > 0) {
+      const points = walk([x, y]);
+      points.pop();
+      chains.push({ points: corners(points, true), closed: true });
+    }
+  }
+  return chains;
+}

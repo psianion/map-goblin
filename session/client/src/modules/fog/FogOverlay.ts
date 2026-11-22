@@ -1,6 +1,6 @@
-// The fog brush on the DM's map: the cursor that shows where the next stamp lands, and the
-// stroke itself. Nothing here ever renders for a player, and nothing here draws the fog: the
-// DM's see-through cloud is the fog layer's own (`FogRenderer`).
+// The fog brush on the DM's map: the cursor that shows which cells the next stamp changes, and
+// the stroke itself. Nothing here ever renders for a player, and nothing here draws the fog: the
+// DM's exact-cell view is the fog layer's own (`FogRenderer`).
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
@@ -11,13 +11,13 @@ import { addScreenOverlay, mountWhenEngineReady, worldPointOf } from '../../rend
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRUSH_FLUSH_CELLS, brushLevelId, useFogBrush } from './brush';
-import { cellAt, fogFrame } from './fog';
+import { cellAt, cellOutline, cellRuns, fogFrame } from './fog';
 
 /**
- * The brush cursor: a white ring on a dark halo, so it reads on grass, on stone and in a cave
- * alike, with the faintest fill to show the disc it covers.
+ * The brush cursor: the cells the stamp will change, lightly filled and ringed with a dashed dark
+ * line along their edges. Line and dashes in screen pixels, so they keep one weight at any zoom.
  */
-const CURSOR = { fill: 0xffffff, fillAlpha: 0.12, halo: 0x1b1b1b, haloAlpha: 0.6, haloWidth: 0.14, line: 0xffffff, lineWidth: 0.05 };
+const CURSOR = { fill: 0xffffff, fillAlpha: 0.42, line: 0x1b1b1b, linePx: 1.2, dashPx: 4, gapPx: 3 };
 
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
 
@@ -34,12 +34,41 @@ export function disc(center: Cell, size: number): Cell[] {
   return cells;
 }
 
+/** The cells one stamp of `size` at `center` sends: its disc, clamped to the frame. */
+export function stampCells(center: Cell, size: number, frame: Frame): Cell[] {
+  const cols = Math.round(frame.maxX - frame.minX);
+  const rows = Math.round(frame.maxY - frame.minY);
+  return disc(center, size).filter(([col, row]) => col >= 0 && row >= 0 && col < cols && row < rows);
+}
+
+/** A polyline as dashes, `on` drawn and `off` skipped along its length, into `g`'s path. */
+function dashed(g: Graphics, points: readonly [number, number][], closed: boolean, on: number, off: number): void {
+  const path = closed ? [...points, points[0]!] : points;
+  let phase = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1]!;
+    const [bx, by] = path[i]!;
+    const len = Math.hypot(bx - ax, by - ay);
+    for (let t = 0; t < len; ) {
+      const at = phase % (on + off);
+      const step = Math.min(at < on ? on - at : on + off - at, len - t);
+      if (at < on) {
+        const [s, e] = [t / len, (t + step) / len];
+        g.moveTo(ax + (bx - ax) * s, ay + (by - ay) * s).lineTo(ax + (bx - ax) * e, ay + (by - ay) * e);
+      }
+      t += step;
+      phase += step;
+    }
+  }
+}
+
 function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   // The cursor lives in screen space, over the lighting composite, so a dark dungeon does not
   // swallow it; it mirrors the camera every frame.
   const cursor = new Container();
-  const ring = new Graphics();
-  cursor.addChild(ring);
+  const cellsFill = new Graphics();
+  const edge = new Graphics();
+  cursor.addChild(cellsFill, edge);
   cursor.eventMode = 'none';
   addScreenOverlay(sceneGraph, cursor, 'fogOverlay');
 
@@ -47,23 +76,38 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   const armed = (): boolean =>
     useSessionStore.getState().you?.role === 'dm' && useActiveTool.getState().activeTool === 'fog';
   const frameNow = (): Frame | null => fogFrame(useSessionStore.getState().mapData);
+  const worldPerPx = (): number => engine.screenToWorld(1, 0).x - engine.screenToWorld(0, 0).x;
+  let drawnPx = 0;
 
   const draw = (): void => {
-    ring.clear();
+    cellsFill.clear();
+    edge.clear();
     const frame = armed() && hoverCell ? frameNow() : null;
     cursor.visible = frame !== null;
     if (!frame || !hoverCell) return;
-    const radius = useFogBrush.getState().size / 2;
-    const [cx, cy] = [frame.minX + hoverCell[0] + 0.5, frame.minY + hoverCell[1] + 0.5];
-    ring.circle(cx, cy, radius).fill({ color: CURSOR.fill, alpha: CURSOR.fillAlpha });
-    ring.circle(cx, cy, radius).stroke({ color: CURSOR.halo, alpha: CURSOR.haloAlpha, width: CURSOR.haloWidth });
-    ring.circle(cx, cy, radius).stroke({ color: CURSOR.line, alpha: 1, width: CURSOR.lineWidth });
+    const size = useFogBrush.getState().size;
+    const cells = stampCells(hoverCell, size, frame);
+    const marked = new Set(cells.map((c) => c.join()));
+    const inStamp = (col: number, row: number): boolean => marked.has(`${col},${row}`);
+    const reach = Math.ceil(size / 2);
+    const box = { col: hoverCell[0] - reach, row: hoverCell[1] - reach, cols: 2 * reach + 1, rows: 2 * reach + 1 };
+    for (const [col, row, n] of cellRuns(box, inStamp)) cellsFill.rect(frame.minX + col, frame.minY + row, n, 1);
+    if (cells.length > 0) cellsFill.fill({ color: CURSOR.fill, alpha: CURSOR.fillAlpha });
+    const px = (drawnPx = worldPerPx());
+    if (!(px > 0)) return;
+    for (const chain of cellOutline(box, inStamp)) {
+      const points = chain.points.map(([col, row]): [number, number] => [frame.minX + col, frame.minY + row]);
+      dashed(edge, points, chain.closed, CURSOR.dashPx * px, CURSOR.gapPx * px);
+    }
+    if (cells.length > 0) edge.stroke({ color: CURSOR.line, alpha: 1, width: CURSOR.linePx * px });
   };
 
   const world = sceneGraph.worldContainer;
   const tick = (): void => {
     cursor.position.copyFrom(world.position);
     cursor.scale.copyFrom(world.scale);
+    // The dashes keep their pixel size: redrawn when the zoom moves, not every frame.
+    if (cursor.visible && Math.abs(worldPerPx() - drawnPx) > drawnPx * 0.01) draw();
   };
   const ticker = engine.ticker();
   ticker.add(tick);
@@ -97,11 +141,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   /** Stamp the disc at one path cell, clamped to the frame: one cell off it refuses the write. */
   const stamp = (cell: Cell): void => {
     if (!strokeFrame) return;
-    const cols = Math.round(strokeFrame.maxX - strokeFrame.minX);
-    const rows = Math.round(strokeFrame.maxY - strokeFrame.minY);
-    for (const [col, row] of disc(cell, useFogBrush.getState().size)) {
-      if (col >= 0 && row >= 0 && col < cols && row < rows) mark([col, row]);
-    }
+    for (const c of stampCells(cell, useFogBrush.getState().size, strokeFrame)) mark(c);
   };
 
   /** Every cell between the last one painted and this one, so a fast flick leaves no gaps. */
