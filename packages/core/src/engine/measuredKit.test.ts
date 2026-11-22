@@ -528,4 +528,72 @@ describe('a kit measured to butt', () => {
       }
     }
   });
+
+  /** The lap each joint asks for: the kit's overlap plus up to 0.3 for the turn there. */
+  function wanted(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): number[] {
+    const travel = (pl: WalkPlacement, half: number) =>
+      Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]) + (half * pl.piece.turnDeg * Math.PI) / 360;
+    return placed.slice(0, ring ? placed.length : -1).map((a, k) => {
+      const d = travel(placed[(k + 1) % placed.length], -1) - travel(a, 1);
+      const turn = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+      return kitOverlap(set) + Math.min(0.3, 0.3 * Math.tan(turn / 2));
+    });
+  }
+
+  /** Every joint laps in full and no more than 0.3 over what it asks for; every piece 0.8 to 1.3 of its size. */
+  function expectSnugLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): void {
+    const want = wanted(placed, set, ring);
+    laps(placed, ring).forEach((lap, k) => {
+      expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+      expect(lap).toBeLessThanOrEqual(want[k] + 0.3);
+    });
+    for (const pl of placed) {
+      expect(pl.at.scale).toBeGreaterThanOrEqual(0.8);
+      expect(pl.at.scale).toBeLessThanOrEqual(1.3);
+    }
+  }
+
+  // A 10 by 10 room with the same notch: its closing straight is laid from under the corner bend before it.
+  const notched10: Polygon = [[21, 16], [11, 16], [11, 6], [14, 6], [14, 7], [15, 7], [15, 6], [21, 6]];
+
+  for (const [name, poly] of [['the notched ring an erase leaves', notched], ['a 10 by 10 notched ring', notched10]] as const) {
+    it(`runs no straight on past the piece it meets round ${name}, still reaching the mouth`, () => {
+      seedButtKit();
+      const set = bandPiecesFor(SET);
+      const [ring] = orientRings([poly]);
+      const placed = layBandRing(ring, notchGaps(ring), set);
+      expectSnugLaps(placed, set, false);
+      const xs = artEnds(placed, set).map(([x]) => x).sort((p, q) => p - q);
+      expect(Math.abs(xs[0] - 13.95)).toBeLessThan(0.05);
+      expect(Math.abs(xs[1] - 15.05)).toBeLessThan(0.05);
+    });
+  }
+
+  // A 14.5 by 7.5 room: an 8-cell straight on its top side runs half a cell on under the closing piece.
+  const longRoom: Polygon = [[2.5, 2.5], [17, 2.5], [17, 10], [2.5, 10]];
+
+  for (const [name, poly] of [['a 10.5 by 8 room', room], ['a 14.5 by 7.5 room', longRoom]] as const) {
+    it(`runs no straight on past the piece it meets round ${name}`, () => {
+      seedButtKit();
+      const set = bandPiecesFor(SET);
+      const [ring] = orientRings([poly]);
+      expectSnugLaps(layBandRing(ring, [], set), set, true);
+    });
+  }
+
+  it('lays the same kit without `exact` on the 10 by 10 notched ring as before', () => {
+    seedButtKit();
+    const plain = withoutExact(bandPiecesFor(SET));
+    const [ring] = orientRings([notched10]);
+    const placed = layBandRing(ring, notchGaps(ring), plain);
+    expect(placed.map((pl) => pl.piece.key + (pl.piece.flipY ? '~' : ''))).toEqual(
+      ['run_2x5', 'turn_in_2x2', 'run_2x5~', 'run_2x2~', 'turn_in_2x2', 'run_2x8', 'turn_in_2x2', 'run_2x5~', 'run_2x2', 'run_2x2'],
+    );
+    const scales = [0.999999, 0.999982, 1, 1, 0.999935, 1, 0.999983, 1, 1.479775, 1.199938];
+    placed.forEach((pl, k) => expect(pl.at.scale).toBeCloseTo(scales[k], 5));
+    expect(placed[0].P[0]).toBeCloseTo(15.421849, 5);
+    expect(placed[0].P[1]).toBeCloseTo(5.855895, 5);
+    expect(placed[placed.length - 1].Q[0]).toBeCloseTo(13.63291, 5);
+    expect(placed[placed.length - 1].Q[1]).toBeCloseTo(5.86641, 5);
+  });
 });

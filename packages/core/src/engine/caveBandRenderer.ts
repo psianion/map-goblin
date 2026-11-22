@@ -543,11 +543,11 @@ export function layBandRing(
   if (spans) {
     const ends = wallEnds(poly, gaps, true);
     return spans.flatMap(([from, to]) =>
-      reachOpenings(meetNeighbours(fullSize(laySpan(ride, set, from, to, { lap: true }), set), set, false), ends, set),
+      reachOpenings(meetNeighbours(trimLaps(fullSize(laySpan(ride, set, from, to, { lap: true }), set), set, false), set, false), ends, set),
     );
   }
   const corners = cornerRing(poly, ride, set);
-  if (corners?.short) return meetNeighbours(fullSize(corners.placed, set), set, true);
+  if (corners?.short) return meetNeighbours(trimLaps(fullSize(corners.placed, set), set, true), set, true);
   let walked: WalkPlacement[] = [];
   try {
     walked = walkClosed(ride, set, LIVE_WALK).placed;
@@ -556,8 +556,8 @@ export function layBandRing(
   }
   // A ring of straight sides the walk cut a corner of (a straight laid across it, or a
   // bend the wrong way) is laid corner first after all.
-  if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(fullSize(corners.placed, set), set, true);
-  return meetNeighbours(fullSize(walked, set), set, true);
+  if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(trimLaps(fullSize(corners.placed, set), set, true), set, true);
+  return meetNeighbours(trimLaps(fullSize(walked, set), set, true), set, true);
 }
 
 /** A measured kit's piece laid below this share of its drawn size is put back to full size. */
@@ -592,6 +592,78 @@ const MEET_STRETCH = 1.25;
 const MEET_TURN_LAP = 0.3;
 
 /**
+ * How the joint from `a` to the next piece `b` meets: `t` the travel there, read off the
+ * earlier piece (a bend's chord turned on by half its turn); `lap` how far `a`'s end runs
+ * past `b`'s start along it; `want` the lap the joint asks for, the kit's overlap plus a
+ * little for the turn there; `side` how far apart the two ends sit across travel.
+ */
+function jointLap(a: WalkPlacement, b: WalkPlacement, overlap: number): { t: Vec; lap: number; want: number; side: number } {
+  const chordAngle = (pl: WalkPlacement): number => Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]);
+  const halfTurn = (pl: WalkPlacement): number => (pl.piece.turnDeg * Math.PI) / 360;
+  const exit = chordAngle(a) + halfTurn(a);
+  const t: Vec = [Math.cos(exit), Math.sin(exit)];
+  // Measured where the art's joints landed, not on the chords: each piece is shoved off its
+  // own chord, and a bend's chord runs at an angle to travel, so that shove alone pulls its
+  // joints back along travel and eats most of the lap the chords show.
+  const d = sub(jointsOf(a.piece, a.at)[1], jointsOf(b.piece, b.at)[0]);
+  const entry = chordAngle(b) - halfTurn(b);
+  const turn = Math.abs(Math.atan2(Math.sin(entry - exit), Math.cos(entry - exit)));
+  return { t, lap: dot(d, t), want: overlap + Math.min(MEET_TURN_LAP, 0.3 * Math.tan(turn / 2)), side: Math.abs(cross(d, t)) };
+}
+
+/** A joint lapping more than this over what it wants, cells, has a straight pulled back. */
+const TRIM_OVER = 0.3;
+/** The least share of its drawn size a straight is pulled back to before another is swapped in. */
+const TRIM_LEAST = 0.8;
+
+/**
+ * One laid run of a measured kit with no straight running on past the piece it meets. Putting
+ * a squashed piece back to full size (see {@link fullSize}) moves its start back under the
+ * straight before it, and that straight was laid up to where the small piece began, so its
+ * flat-cut end pokes out past the turn. Each joint lapping more than TRIM_OVER over what it
+ * wants has its earlier straight's end pulled back along its own chord to the wanted lap, or,
+ * after a bend, the later straight's start pushed on; two bends are left. A straight that would
+ * go below TRIM_LEAST of its drawn size is swapped for the kit's straight nearest the length
+ * left, if that one fits inside TRIM_LEAST to MEET_STRETCH of its own size; else it is left.
+ * An opening is left as {@link meetNeighbours} leaves it. A kit with no `exact` piece is
+ * returned untouched.
+ */
+function trimLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): WalkPlacement[] {
+  if (placed.length < 2 || !set.some((p) => p.exact)) return placed;
+  const overlap = kitOverlap(set);
+  const out = kitOut(set);
+  const drawn = (p: CaveKitPiece): number => dist(...p.jointsCells);
+  const straights = set.filter((p) => p.turnDeg === 0);
+  const run = [...placed];
+  for (let k = 0; k < run.length - (ring ? 0 : 1); k++) {
+    const j = (k + 1) % run.length;
+    const { t, lap, want, side } = jointLap(run[k], run[j], overlap);
+    const over = lap - want;
+    if (over <= TRIM_OVER || side > MEET_SIDE) continue;
+    const moveLater = run[k].piece.turnDeg !== 0;
+    if (moveLater && run[j].piece.turnDeg !== 0) continue;
+    const idx = moveLater ? j : k;
+    const pl = run[idx];
+    const dir = norm(sub(pl.Q, pl.P));
+    const along = dot(dir, t);
+    if (along <= 0) continue;
+    const P = moveLater ? add(pl.P, mul(dir, over / along)) : pl.P;
+    const Q = moveLater ? pl.Q : sub(pl.Q, mul(dir, over / along));
+    const L = dist(P, Q);
+    let piece = pl.piece;
+    if (L < TRIM_LEAST * drawn(piece)) {
+      const nearest = Math.min(...straights.map((p) => Math.abs(drawn(p) - L)));
+      const near = straights.filter((p) => Math.abs(drawn(p) - L) === nearest);
+      piece = near.find((p) => !!p.flipY === !!pl.piece.flipY) ?? near[0];
+      const s = L / drawn(piece);
+      if (s < TRIM_LEAST || s > MEET_STRETCH) continue;
+    }
+    run[idx] = { ...pl, piece, P, Q, at: placePiece(piece, P, Q, out, 0, pl.nudge) };
+  }
+  return run;
+}
+
+/**
  * One laid run of a measured kit with its short joints closed. The walk closes a ring by
  * letting joints lap less than the kit's overlap; art drawn with soft ends hides that, but
  * art measured to butt shows every short lap as a hole in the wall. So each joint that laps
@@ -606,24 +678,13 @@ export function meetNeighbours(placed: WalkPlacement[], set: CaveKitPiece[], rin
   const out = kitOut(set);
   const run = [...placed];
   const limit = run.map((pl) => dist(pl.P, pl.Q) * MEET_STRETCH);
-  const chordAngle = (pl: WalkPlacement): number => Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]);
-  const halfTurn = (pl: WalkPlacement): number => (pl.piece.turnDeg * Math.PI) / 360;
   for (let k = 0; k < run.length - (ring ? 0 : 1); k++) {
     const j = (k + 1) % run.length;
     const a = run[k];
     const b = run[j];
-    // Travel at the joint, read off the earlier piece: a bend's chord turned on by half its turn.
-    const exit = chordAngle(a) + halfTurn(a);
-    const t: Vec = [Math.cos(exit), Math.sin(exit)];
-    // Measured where the art's joints landed, not on the chords: each piece is shoved off its
-    // own chord, and a bend's chord runs at an angle to travel, so that shove alone pulls its
-    // joints back along travel and eats most of the lap the chords show.
-    const d = sub(jointsOf(a.piece, a.at)[1], jointsOf(b.piece, b.at)[0]);
-    const lap = dot(d, t);
-    const entry = chordAngle(b) - halfTurn(b);
-    const turn = Math.abs(Math.atan2(Math.sin(entry - exit), Math.cos(entry - exit)));
-    const short = overlap + Math.min(MEET_TURN_LAP, 0.3 * Math.tan(turn / 2)) - lap;
-    if (short <= 0 || short > MEET_SHORT || Math.abs(cross(d, t)) > MEET_SIDE) continue;
+    const { t, lap, want, side } = jointLap(a, b, overlap);
+    const short = want - lap;
+    if (short <= 0 || short > MEET_SHORT || side > MEET_SIDE) continue;
     const moveLater = b.piece.turnDeg === 0 && (a.piece.turnDeg !== 0 || b.piece.chordCells > a.piece.chordCells);
     const idx = moveLater ? j : k;
     const pl = run[idx];
@@ -803,7 +864,7 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   const spans = openSpans(ride, gaps, false, set) ?? [[first, last]];
   const ends = wallEnds(points as Polygon, gaps, false);
   return spans.flatMap(([from, to]) =>
-    reachOpenings(meetNeighbours(fullSize(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set), set, false), ends, set),
+    reachOpenings(meetNeighbours(trimLaps(fullSize(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set), set, false), set, false), ends, set),
   );
 }
 
