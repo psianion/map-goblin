@@ -10,8 +10,9 @@
 // it has no fog row of its own, so it stays part of Outdoors, as it always was. Only an outline
 // that holds a room takes its inside (rock gap included) out of Outdoors.
 
+import { mapHasHiddenGround } from '@dnd/mechanics/levelGrid'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: floor-piece predicates, pure
-import { baseGroundOf, inRingsEvenOdd, isGroundPiece, pieceRings } from '@dnd/core/src/shared/pieces'
+import { inRingsEvenOdd, pieceRings } from '@dnd/core/src/shared/pieces'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { layersOnLevel } from '@dnd/core/src/shared/visionGate'
 import type { ShapeChild } from '@dnd/core/src/shared/types'
@@ -30,11 +31,7 @@ const groundCache = new WeakMap<SerializedMapData, boolean>()
 export function hasHiddenGround(data: SerializedMapData): boolean {
   const hit = groundCache.get(data)
   if (hit !== undefined) return hit
-  const settings = data.mapSettings
-  const out =
-    !!baseGroundOf(settings) ||
-    (data.levels ?? []).some((level) => baseGroundOf(settings, level)) ||
-    data.layers.some((layer) => layer.type === 'dungeon' && (layer.children ?? []).some((c) => isGroundPiece(c)))
+  const out = mapHasHiddenGround(data)
   groundCache.set(data, out)
   return out
 }

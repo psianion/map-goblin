@@ -10,6 +10,7 @@
     "./doors": "./src/doors/module.ts",
     "./fog": "./src/fog/module.ts",
     "./initiative": "./src/initiative/module.ts",
+    "./levelGrid": "./src/tokens/levelGrid.ts",
     "./log": "./src/log.ts",
     "./pins": "./src/pins/module.ts",
     "./rolls": "./src/rolls/module.ts",
@@ -27,6 +28,7 @@
     "@dnd/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.19.0",
     "typescript": "~5.9.3",
     "vitest": "^4.0.18"
   }

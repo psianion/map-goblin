@@ -30,6 +30,7 @@ import { DimensionHud } from './dimensionHud';
 import { mountZoneOverlay } from './zoneOverlay';
 import { mountRoomOverlay } from '@/canvas/roomOverlay';
 import { mountHeightOverlay } from '@/canvas/heightOverlay';
+import { mountWalkOverlay } from '@/canvas/walkOverlay';
 import { mountPropOverlay } from '@/canvas/propOverlay';
 import { mountSelectionOverlay } from '@/canvas/selectionOverlay';
 import { mountDropToLayer } from '@/editor/dropToLayer';
@@ -143,6 +144,8 @@ export function CanvasHost() {
 
       // The Heights column's highlight, under the rooms' outlines and badges.
       const heightOverlay = mountHeightOverlay(pixiEngine);
+      // The View group's Walkable cells, over the lighting and under the rooms' outlines.
+      const walkOverlay = mountWalkOverlay(pixiEngine);
       // Rooms — same editor-only reasoning as zones: the editor's own overlay (outlines,
       // badges, suggestions), and clicks pick rooms.
       const roomOverlay = mountRoomOverlay(pixiEngine);
@@ -172,6 +175,7 @@ export function CanvasHost() {
         setRoomHighlightEnabled(true);
         roomOverlay.destroy();
         heightOverlay.destroy();
+        walkOverlay.destroy();
         propOverlay.destroy();
         selectionOverlay.destroy();
       };

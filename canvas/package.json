@@ -19,6 +19,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@dnd/core": "workspace:*",
+    "@dnd/mechanics": "workspace:*",
     "@dnd/ui": "workspace:*",
     "@tanstack/react-virtual": "^3.13.23",
     "clipper2-wasm": "^0.2.1",
