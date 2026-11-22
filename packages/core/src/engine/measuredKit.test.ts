@@ -106,10 +106,10 @@ describe('band art that loads late', () => {
     const [ring] = orientRings([square]);
     seedMeasuredKit();
     const placed = layBandRing(ring, [], bandPiecesFor(SET));
-    const art = new Map([...bandSetArt(SET)].map(([key, e]) => [key, key === 'run_2x2' ? { ...e, id: 'late-run' } : e]));
+    const art = new Map([...bandSetArt(SET)].map(([key, e]) => [key, key === 'run_2x4' ? { ...e, id: 'late-run' } : e]));
     const waitFor = vi.fn();
     placeBand(new Container(), placed, art, 0xffffff, 0, undefined, waitFor);
-    expect(placed.some((pl) => pl.piece.key === 'run_2x2')).toBe(true);
+    expect(placed.some((pl) => pl.piece.key === 'run_2x4')).toBe(true);
     expect(waitFor).toHaveBeenCalledWith('late-run');
     expect(waitFor.mock.calls.every(([id]) => id === 'late-run')).toBe(true);
   });

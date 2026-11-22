@@ -629,7 +629,7 @@ const EXACT_SLIVER = 0.25;
 /** The length, cells, straights' drawn lengths are summed to when a stretch's fill is chosen. */
 const FILL_STEP = 0.01;
 /** The scales a stretch's straights are chosen within, tightest first (see {@link fillStretch}). */
-const FILL_BANDS: [number, number][] = [[0.95, 1.05], [0.9, 1.1], EXACT_FIT];
+const FILL_BANDS: [number, number][] = [[0.9, 1.1], EXACT_FIT];
 
 /**
  * A measured kit round a ring of straight sides: each opening bridged straight between its
