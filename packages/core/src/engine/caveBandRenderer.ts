@@ -379,58 +379,83 @@ function gapReach(g: DoorGap, set: CaveKitPiece[]): number {
   return set.some((p) => p.exact) ? Math.hypot(g.width / 2, kitOut(set)) : g.width / 2 + BAND_OUT + CURVE_STEP;
 }
 
+/** Openings closer than this along the line touch. */
+const WALL_END_JOIN = 0.01;
+/** A gap further than this from every edge of a line is not on it. */
+const ON_EDGE = 0.05;
+
+/**
+ * Where the wall stops beside each opening on `line` (a ring when `closed`): each gap laid
+ * on the edge nearest it as its stretch along that edge, touching stretches joined (round
+ * a vertex too, where the next edge is open from its start), and the two outer ends of
+ * each joined opening.
+ */
+function wallEnds(line: Polygon, gaps: DoorGap[], closed: boolean): Vec[] {
+  const pts: Vec[] = line.map(([x, y]) => [x, y]);
+  if (closed) pts.push(pts[0]);
+  const cum = arcLengths(pts);
+  const total = cum[cum.length - 1];
+  const spans: [number, number][] = [];
+  for (const g of gaps) {
+    let best: { d: number; e: number; s: number } | null = null;
+    for (let e = 0; e + 1 < pts.length; e++) {
+      const L = cum[e + 1] - cum[e];
+      if (L < 1e-9) continue;
+      const along = sub(pts[e + 1], pts[e]);
+      const s = Math.max(0, Math.min(L, dot(sub(g.position, pts[e]), along) / L));
+      const d = dist(g.position, add(pts[e], mul(along, s / L)));
+      if (!best || d < best.d) best = { d, e, s };
+    }
+    if (!best || best.d > ON_EDGE) continue;
+    const L = cum[best.e + 1] - cum[best.e];
+    spans.push([cum[best.e] + Math.max(0, best.s - g.width / 2), cum[best.e] + Math.min(L, best.s + g.width / 2)]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const joined: [number, number][] = [];
+  for (const [a, b] of spans) {
+    const last = joined[joined.length - 1];
+    if (last && a <= last[1] + WALL_END_JOIN) last[1] = Math.max(last[1], b);
+    else joined.push([a, b]);
+  }
+  let ends = joined.flat();
+  // An opening across a ring's seam is one opening: its ends at the seam are no wall's.
+  if (closed && ends.length > 0 && ends[0] <= WALL_END_JOIN && ends[ends.length - 1] >= total - WALL_END_JOIN) {
+    ends = ends.slice(1, -1);
+  }
+  return ends.map((s) => pointAtArc(pts, cum, s));
+}
+
 /**
  * A measured kit's run beside an opening, its end straights moved along their own chords
- * so the art stops at the opening's edge: the point where the ride leaves the opening's
- * cover, between the run's end sample and the covered one past it. The art ends half the
- * kit's overlap back from its joint, so the joint is aimed that far into the opening. No
- * piece goes outside 0.8 to 1.25 times its drawn size; what that cannot make up is left.
- * A kit with no `exact` piece is returned untouched.
+ * so the art stops level with the wall's end there (see {@link wallEnds}): the nearest
+ * one to the end joint, within a cell. The art ends half the kit's overlap back from its
+ * joint, so the joint is aimed that far past the wall end, into the opening. No piece goes
+ * outside 0.8 to 1.25 times its drawn size; what that cannot make up is left. A kit with
+ * no `exact` piece is returned untouched.
  */
-function reachOpenings(
-  run: WalkPlacement[],
-  ride: Curve,
-  gaps: DoorGap[],
-  set: CaveKitPiece[],
-  from: number,
-  to: number,
-): WalkPlacement[] {
-  if (run.length === 0 || !set.some((p) => p.exact)) return run;
-  const n = ride.length;
+function reachOpenings(run: WalkPlacement[], ends: Vec[], set: CaveKitPiece[]): WalkPlacement[] {
+  if (run.length === 0 || ends.length === 0 || !set.some((p) => p.exact)) return run;
   const half = kitOverlap(set) / 2;
   const out = kitOut(set);
-  const sample = (i: number): Vec => ride[((i % n) + n) % n];
-  // Coming from covered `a` to open `b`: where the ride leaves the last cover, then half an overlap back.
-  const aim = (a: Vec, b: Vec): Vec | null => {
-    const d = sub(b, a);
-    let u = -1;
-    for (const g of gaps) {
-      const f = sub(a, g.position);
-      const r = gapReach(g, set);
-      const c = dot(f, f) - r * r;
-      if (c > 0) continue;
-      const A = dot(d, d);
-      const B = 2 * dot(f, d);
-      u = Math.max(u, (-B + Math.sqrt(B * B - 4 * A * c)) / (2 * A));
-    }
-    return u < 0 ? null : add(add(a, mul(d, u)), mul(norm(sub(a, b)), half));
-  };
   const result = [...run];
-  const reach = (k: number, target: Vec | null, end: boolean): void => {
+  const reach = (k: number, end: boolean): void => {
     const pl = result[k];
-    if (!target || pl.piece.turnDeg !== 0) return;
-    const dir = norm(sub(pl.Q, pl.P));
+    if (pl.piece.turnDeg !== 0) return;
     const joint = jointsOf(pl.piece, pl.at)[end ? 1 : 0];
+    const wall = ends.reduce((a, b) => (dist(b, joint) < dist(a, joint) ? b : a));
+    if (dist(wall, joint) > 1) return;
+    const dir = norm(sub(pl.Q, pl.P));
     const L = dist(pl.P, pl.Q);
     const drawn = dist(...pl.piece.jointsCells);
-    const want = dot(sub(target, joint), dir) * (end ? 1 : -1);
+    // Along the chord from the joint to the wall end, then half an overlap on past it.
+    const want = dot(sub(wall, joint), dir) * (end ? 1 : -1) + half;
     const grow = Math.min(Math.max(want, 0.8 * drawn - L), MEET_STRETCH * drawn - L);
     const P = end ? pl.P : sub(pl.P, mul(dir, grow));
     const Q = end ? add(pl.Q, mul(dir, grow)) : pl.Q;
     result[k] = { ...pl, P, Q, at: placePiece(pl.piece, P, Q, out, 0, pl.nudge) };
   };
-  reach(0, aim(sample(from - 1), sample(from)), false);
-  reach(result.length - 1, aim(sample(to + 1), sample(to)), true);
+  reach(0, false);
+  reach(result.length - 1, true);
   return result;
 }
 
@@ -516,8 +541,9 @@ export function layBandRing(
   const ride = bandRide(base, true, kitOut(set));
   const spans = openSpans(ride, gaps, true, set);
   if (spans) {
+    const ends = wallEnds(poly, gaps, true);
     return spans.flatMap(([from, to]) =>
-      reachOpenings(meetNeighbours(laySpan(ride, set, from, to, { lap: true }), set, false), ride, gaps, set, from, to),
+      reachOpenings(meetNeighbours(laySpan(ride, set, from, to, { lap: true }), set, false), ends, set),
     );
   }
   const corners = cornerRing(poly, ride, set);
@@ -753,10 +779,10 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   const first = END_PAD;
   const last = ride.length - 1 - END_PAD;
   const spans = openSpans(ride, gaps, false, set) ?? [[first, last]];
-  return spans.flatMap(([from, to]) => {
-    const [i0, i1] = [Math.max(from, first), Math.min(to, last)];
-    return reachOpenings(meetNeighbours(laySpan(ride, set, i0, i1, opts), set, false), ride, gaps, set, i0, i1);
-  });
+  const ends = wallEnds(points as Polygon, gaps, false);
+  return spans.flatMap(([from, to]) =>
+    reachOpenings(meetNeighbours(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set, false), ends, set),
+  );
 }
 
 /* ── Ground under the rock ─────────────────────────────────────────────

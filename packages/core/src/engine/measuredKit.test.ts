@@ -32,6 +32,7 @@ import {
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { renderPlateaus, shadeCliffs } from './plateauRenderer';
+import { ringOpeningGaps } from '../shared/caveFloor';
 import type { BandMeasure, ManifestEntry } from './packManifest';
 import type { DungeonLayer, DungeonStyle, PlateauChild, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -424,6 +425,18 @@ describe('a kit measured to butt', () => {
     const placed = layBandRing(ring, gaps, set);
     expectToOpening(placed, set, [14, 15]);
     lapsInFull(placed, set);
+  });
+
+  it('runs the rock to the edges of the notched ring an erase really leaves', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([[[24, 21], [6, 21], [6, 6], [14, 6], [14, 7], [15, 7], [15, 6], [24, 6]]]);
+    const gaps = ringOpeningGaps(ring, 0, [[[15, 7], [14, 7], [14, 5], [15, 5]]]);
+    expect(gaps.length).toBeGreaterThan(4);
+    const placed = layBandRing(ring, gaps, set);
+    const xs = artEnds(placed, set).map(([x]) => x).sort((p, q) => p - q);
+    expect(Math.abs(xs[0] - 13.95)).toBeLessThan(0.05);
+    expect(Math.abs(xs[1] - 15.05)).toBeLessThan(0.05);
   });
 
   it('runs the rock to a door’s two edges on the same room', () => {
