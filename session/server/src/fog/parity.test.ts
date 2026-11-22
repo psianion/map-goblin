@@ -220,9 +220,10 @@ function cut(
     } as unknown as TriggersState)
   }
   if (state.sweep) {
+    setFog({ ...state.fog, on: true })
     const patch = vision.autoExplorePatch(SCENE)
     const frame = vision.frameOf(campaign.id, SCENE)!
-    setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, patch?.cells ?? []) })
+    setFog({ ...state.fog, region: setCells(regionFor(undefined, frame)!, Object.values(patch?.byLevel ?? {}).flat()) })
   }
   // P9 — every module the server runs, wired to the same vision, as a joining player's seat gets them.
   const registry = new ModuleRegistry(stores.moduleState)

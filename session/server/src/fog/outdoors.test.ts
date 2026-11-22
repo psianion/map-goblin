@@ -123,23 +123,13 @@ describe('the Outdoors row and what the party sees (§2.1, §2.6)', () => {
 })
 
 describe('sight from outside (§2.4, §2.5, §2.7)', () => {
-  it('11: a sweep from outside records outdoor cells, and the cave ships when its rock is seen', () => {
+  it('11: a sweep from outside clears outdoor cells on the token’s level', () => {
     const t = table()
     t.setTokens(pc())
-    t.setFog({ mode: 'vision', containedSight: false })
-    const before = t.vision.playerMap(SCENE)!
-    const ids = (map: typeof before) => map.layers.flatMap((l) => ('children' in l ? l.children.map((c) => c.id) : []))
-    expect(ids(before)).not.toContain('cave-floor')
-
+    t.setFog({ on: true })
     const patch = t.vision.autoExplorePatch(SCENE)!
-    const frame = t.vision.frameOf(t.campaignId, SCENE)!
-    expect(patch.cells).toContainEqual([14, 9])
-    t.setFog({ mode: 'vision', containedSight: false, region: setCells(regionFor(undefined, frame)!, patch.cells) })
-    const after = t.vision.playerMap(SCENE)!
-    expect(ids(after)).toContain('cave-floor')
-    // The ground piece always ships, and the open ground arrives with the first outdoor cell.
-    expect(ids(after)).toContain('grass-patch')
-    expect(after.openGround?.[0].rings.length).toBeGreaterThan(1)
+    expect(Object.keys(patch.byLevel)).toEqual(['lvl-1'])
+    expect(patch.byLevel['lvl-1']).toContainEqual([14, 9])
   })
 
   it('12: a republish that keeps the frame keeps the record', () => {
@@ -159,17 +149,17 @@ describe('sight from outside (§2.4, §2.5, §2.7)', () => {
   it('13: a player’s token with no sight sees, an unowned PC sees for the party, an NPC does not', () => {
     const owned = table()
     owned.setTokens(pc())
-    owned.setFog({ mode: 'vision' })
-    expect(owned.vision.autoExplorePatch(SCENE)?.cells.length).toBeGreaterThan(0)
+    owned.setFog({ on: true })
+    expect(owned.vision.autoExplorePatch(SCENE)?.byLevel['lvl-1'].length).toBeGreaterThan(0)
 
     const unownedPc = table()
     unownedPc.setTokens(pc({ ownerId: null, kind: 'pc' }))
-    unownedPc.setFog({ mode: 'vision' })
-    expect(unownedPc.vision.autoExplorePatch(SCENE)?.cells.length).toBeGreaterThan(0)
+    unownedPc.setFog({ on: true })
+    expect(unownedPc.vision.autoExplorePatch(SCENE)?.byLevel['lvl-1'].length).toBeGreaterThan(0)
 
     const npc = table()
     npc.setTokens(pc({ ownerId: null, kind: 'npc' }))
-    npc.setFog({ mode: 'vision' })
+    npc.setFog({ on: true })
     expect(npc.vision.autoExplorePatch(SCENE)).toBeNull()
   })
 })

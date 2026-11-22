@@ -139,10 +139,11 @@ export interface Sweeps {
      */
     isSeed?: (token: Token) => boolean,
     /**
-     * The scene's `sightRangeLimit` — sweep each eye at its own `sight.range` instead of to
-     * the whole map. Off (the default) is the behaviour this always had.
+     * How far each eye is swept. `'range'` is the fog rework's rule: the token's own
+     * `sight.range` and nothing more, a carried torch included. `true` is the old range switch
+     * (its range, or its torch if that reaches further) and `false`, the default, the whole map.
      */
-    rangeLimited?: boolean,
+    rangeLimited?: boolean | 'range',
     /**
      * The scene's `containedSight`, as the ground it fences sight to — omitted (or null) is
      * classic sight-to-the-walls. Carried onto the returned `PartyVision` rather than applied
@@ -264,7 +265,7 @@ export function createSweeps(): Sweeps {
       // every eye but a darkvision one the source lets through.
       const eyes = claimed.map((token) => {
         const range = token.sight!.range
-        const reach = eyeReach(token)
+        const reach = rangeLimited === 'range' ? range : eyeReach(token)
         const darkvision = token.sight!.visionMode === 'darkvision'
         const blocking = darkness.filter((d) => !(darkvision && d.darkvisionSees))
         return {

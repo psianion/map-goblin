@@ -166,7 +166,7 @@ function index(campaignId: string, stored: SerializedMapData): SceneMap {
   // name overrides fold away. Its saved faces are kept aside as the fallback for a room
   // whose face cannot be derived here.
   const legacy = legacyFaces(stored)
-  const data = migrateRooms(stored)
+  const data = stableLevel(stored, migrateRooms(stored))
   healMergedFloor(data)
   deriveRoomFaces(data, legacy)
   const layers = data.layers.filter(isDungeon)
@@ -223,6 +223,24 @@ function index(campaignId: string, stored: SerializedMapData): SceneMap {
       return [...along]
     },
   }
+}
+
+/** The one level's id on a map stored before levels existed. */
+export const ONLY_LEVEL_ID = 'level-1'
+
+/**
+ * A file with no levels gets one from the migration under a fresh random id, so every parse of
+ * the same file would name its level differently — and the fog's cleared record is keyed by
+ * level id, so a cache eviction or a restart would lose every cleared cell. That level is given
+ * one fixed id instead. Mutates the migration's own copies (`withLevels` mints both the level
+ * and every layer pointing at it), never `stored`.
+ */
+function stableLevel(stored: SerializedMapData, data: SerializedMapData): SerializedMapData {
+  if ((stored.levels?.length ?? 0) > 0 || data.levels?.length !== 1) return data
+  const minted = data.levels[0].id
+  data.levels[0] = { ...data.levels[0], id: ONLY_LEVEL_ID }
+  data.layers = data.layers.map((layer) => (layer.levelId === minted ? { ...layer, levelId: ONLY_LEVEL_ID } : layer))
+  return data
 }
 
 /** The room's face as the runner holds it (`RunnerRoom.boundary`), else whatever it carries. */

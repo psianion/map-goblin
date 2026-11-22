@@ -17,9 +17,12 @@ import {
   autoExploreOn,
   blockedEdge,
   cellsCoveredByPolygon,
+  clearedOn,
   containedSightOn,
   effectiveFog,
   fogModeOf,
+  fogOn,
+  rebaseRegion,
   identityRegion,
   isOutdoorsId,
   outdoorsId,
@@ -31,6 +34,7 @@ import {
   toBytes,
   visibleRooms,
   visionShareOf,
+  type AutoExploreByLevel,
   type Cell,
   type FogRoom,
   type FogState,
@@ -155,12 +159,11 @@ export interface Vision {
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
   /**
-   * S3 P1 — what the party's sight has just earned in a vision-mode scene, or null when
-   * there is nothing new to write (wrong mode, auto-explore off, nobody looking, or the
-   * sweep covers only ground the record already holds). The auto-explore hook feeds this
-   * straight to `fog.auto-explore`.
+   * Fog rework — what the party's sight has just cleared, per level, or null when there is
+   * nothing new to write (fog off, Auto-explore off, nobody looking, or the sweep covers only
+   * ground already cleared). The auto-explore hook feeds this straight to `fog.auto-explore`.
    */
-  autoExplorePatch(sceneId: string): AutoExplorePatch | null
+  autoExplorePatch(sceneId: string): AutoExploreByLevel | null
   /** #47 — call after a re-publish repoints a scene's map, or its cached answers go stale. */
   invalidateScene(sceneId: string): void
   /**
@@ -177,26 +180,6 @@ export interface Vision {
   levelFilterOf(sceneId: string, viewer: Viewer): ((levelId: string | undefined) => boolean) | null
 }
 
-/** The one fog write a successful token move or door toggle can earn (§4). */
-export interface AutoExplorePatch {
-  sceneId: string
-  /** Every non-locked cell the party can see — an idempotent OR, not a delta. */
-  cells: Cell[]
-  /**
-   * Rooms the sweep touched that are not already lit.
-   *
-   * Shared in both shares, on purpose (P5 §1): geometry ships per scene, so any seat's sweep
-   * latches a room for the table. What diverges is presentation and entity redaction, and
-   * the cells below are the presentation half.
-   */
-  rooms: string[]
-  /**
-   * P5 — the cells *each* seat's own eyes earned, in `individual` share. Absent in party
-   * share, where `cells` is the one record everybody reads.
-   */
-  byIdentity?: Record<string, Cell[]>
-}
-
 interface Computed {
   revision: number
   map: SceneMap
@@ -208,6 +191,11 @@ interface Computed {
   sightOn(levelId: string): PartyVision | null
   /** Every level some claimed token stands on — what auto-explore sweeps. */
   eyeLevels: string[]
+  /**
+   * Fog rework — the party's sight on one level as Auto-explore takes it: each eye swept at its
+   * own sight range, walls and closed doors blocking, darkness as ever, no fence.
+   */
+  clearSightOn(levelId: string): PartyVision
   /** The scene's triggers state, for the viewed-level rule. */
   triggers: SceneTriggers
   tokens: Record<string, Token>
@@ -396,6 +384,15 @@ export function createVision(stores: Stores): Vision {
     }
     const sight = sightOn(firstLevel)
     const eyeLevels = [...new Set(eyes(Object.values(tokens)).map((t) => levelOfToken(map, t)))]
+    const clearing = new Map<string, PartyVision>()
+    const clearSightOn = (levelId: string): PartyVision => {
+      let own = clearing.get(levelId)
+      if (!own) {
+        own = sweeps.partyVision(map, tokens, doors, gate, undefined, 'range', null, levelId)
+        clearing.set(levelId, own)
+      }
+      return own
+    }
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -513,6 +510,7 @@ export function createVision(stores: Stores): Vision {
       sight,
       sightOn,
       eyeLevels,
+      clearSightOn,
       triggers,
       tokens,
       sightFor,
@@ -695,86 +693,25 @@ export function createVision(stores: Stores): Vision {
     autoExplorePatch: (sceneId) => {
       const computed = compute(sceneId)
       if (!computed) return null
-      // Every level some claimed eye stands on: a party split across floors explores both.
-      const sights = computed.eyeLevels
-        .map((level) => computed.sightOn(level))
-        .filter((s): s is PartyVision => !!s?.eyes.length)
-      if (sights.length === 0) return null
       const { fog, map } = computed
-      // Sight still drives redaction with auto-explore off (§4); it simply writes nothing.
-      if (!autoExploreOn(fog) || !map.frame) return null
+      // With fog off, or Auto-explore off, no sweep runs at all.
+      if (!fogOn(fog) || !autoExploreOn(fog) || !map.frame) return null
       const frame = map.frame
-
-      const locks = computed.locks
-      const cells: Cell[] = []
-      const rooms = new Set<string>()
-      const counted = new Set<string>()
-      for (const s of sights) {
-        const part = swept(s, map, frame, locks, computed.nearGround)
-        for (const cell of part.cells) {
-          const key = `${cell[0]},${cell[1]}`
-          if (counted.has(key)) continue
-          counted.add(key)
-          cells.push(cell)
-        }
-        for (const room of part.rooms) rooms.add(room)
-      }
-
-      // A swept room latches exactly the way the DM's region brush latches one (mechanics'
-      // `shipRooms`): `re_hidden` plus the latch, so the geometry travels and what the player
-      // then *sees* of it is the cells they actually swept. `revealed` is reserved for a DM's
-      // own act — auto-explore claiming it would wash every explored room whole and leave the
-      // cell tier with nothing to say. A room already latched is left alone, which is also why
-      // a DM's `revealed` survives the party walking back into it.
-      //
-      // Off the *party's* sweep in both shares (P5 §1): the room record is shared, so whoever
-      // opened the door has opened it for the table, and the party union is exactly the union
-      // of the seats' own — `sightParty`'s closure over a union of seeds is the union of the
-      // closures. Only the cells below are per-seat.
-      const fresh = [...rooms].filter((id) => !fog.rooms[id]?.wasEverRevealed)
-      // Undefined = a frame past `REGION_CELL_MAX`, which keeps no cell memory; the room
-      // reveals are the half that decides what geometry a player holds, and they still ride.
-      const region = regionFor(fog.region, frame)
-      if (computed.share !== 'individual') {
+      const crossings = read(map.campaignId, 'crossings', NO_CROSSINGS)
+      const byLevel: Record<string, Cell[]> = {}
+      // Every level some party eye stands on: a party split across floors clears both, each on
+      // its own record.
+      for (const levelId of computed.eyeLevels) {
+        const sight = computed.clearSightOn(levelId)
+        if (!sight.eyes.length) continue
+        const mask = rebaseRegion(clearedOn(fog, levelId), frame)
+        if (!mask) continue
+        const grid = walks.gridFor(map, computed.doors, crossings, sceneId, levelId)
+        const cells = clearedBy(sight, frame, computed.locks, (x, y) => !!grid && groundNear(grid, x, y))
         // The cheap diff: OR the sweep in and see whether a single byte moved.
-        if (!fresh.length && (!region || setCells(region, cells).bits === region.bits)) return null
-        return { sceneId, cells: region ? cells : [], rooms: fresh }
+        if (setCells(mask, cells).bits !== mask.bits) byLevel[levelId] = cells
       }
-
-      // …and per seat: every identity holding a claimed token, connected or not — the record
-      // is state, not a session, so a player who logged off still remembers what their scout
-      // walked past while the rest of the party carried on.
-      //
-      // ponytail: ~2N cell walks per mutation on an N-seat table in individual share, not N.
-      // This loop is the first N. The write it returns bumps the fog revision, and redaction
-      // then asks `sightFor` again per *connected* viewer to build their mask — so a six-seat
-      // table pays roughly twelve enumerations for one token step. What is duplicated is the
-      // cheap half: `cellsCoveredByPolygon` over each eye's box, plus the per-cell room and
-      // lock tests in `swept`. What is not is the expensive half — the shadowcasts are
-      // memoized per origin and reach and are warm by the second pass, and every seat's eyes
-      // are a subset of the party's sweep this function already computed.
-      // The upgrade, if a big table ever measures it, is one walk that tags each cell with the
-      // eyes that reached it rather than a walk per eye set — and that halves both N's at once,
-      // which is why it is the one worth writing rather than a cache over this loop.
-      const byIdentity: Record<string, Cell[]> = {}
-      for (const identityId of computed.owners) {
-        const own = computed.sightFor(identityId)
-        if (!own?.eyes.length) continue
-        const mine = swept(own, map, frame, locks, computed.nearGround).cells
-        const base = region && regionFor(identityRegion(fog, identityId), frame)
-        // The same cheap diff, per record: a seat standing still writes nothing.
-        if (!base || setCells(base, mine).bits === base.bits) continue
-        byIdentity[identityId] = mine
-      }
-      if (!fresh.length && Object.keys(byIdentity).length === 0) return null
-      // The party record is left alone: in individual share it is the *seed* every new seat
-      // starts from, and a flip back to party ORs every seat's own into it (`set-share`).
-      //
-      // ponytail: so it freezes at the moment of the flip. Nothing reads it as "the table's
-      // memory" — the DM's own wash asks `tableRegion`, which unions the seats — and letting
-      // it accrue instead would seed every seat that claims a token later with everything the
-      // rest of the table has seen, which is the mode turned off by the back door.
-      return { sceneId, cells: [], rooms: fresh, byIdentity }
+      return Object.keys(byLevel).length ? { sceneId, byLevel } : null
     },
 
     invalidateScene: (sceneId) => {
@@ -803,19 +740,18 @@ export function createVision(stores: Stores): Vision {
 }
 
 /**
- * What one set of eyes just earned: the non-locked cells they can actually see, and the rooms
- * those cells fall in. Lifted out of `autoExplorePatch` unchanged so the per-seat pass asks
- * the identical question of a narrower sweep rather than a second implementation of it.
+ * Fog rework — the cells one level's party sight clears: every cell an eye's sweep covers that
+ * the eye actually sees (in the dark, lit or within darkvision), outside every explore-lock zone,
+ * on or within one cell of the level's ground. A lock stays the DM's to clear with the brush; the
+ * one-cell band is where the wall art is drawn, and the void past it is nobody's ground.
  */
-function swept(
+function clearedBy(
   sight: PartyVision,
-  map: SceneMap,
   frame: NonNullable<SceneMap['frame']>,
   locks: ReturnType<typeof exploreLocks>,
-  nearGround: (x: number, y: number) => boolean,
-): { cells: Cell[]; rooms: Set<string> } {
+  floor: (x: number, y: number) => boolean,
+): Cell[] {
   const cells: Cell[] = []
-  const rooms = new Set<string>()
   const counted = new Set<string>()
   for (const eye of sight.eyes) {
     for (const [col, row] of cellsCoveredByPolygon(eye.polygon, frame)) {
@@ -823,37 +759,11 @@ function swept(
       if (counted.has(key)) continue
       counted.add(key)
       const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
-      // §3.2 — you explore what you saw, not what your sweep crossed in pitch black. In
-      // daylight this is the identity (a cell enumerated from an eye's own polygon is in
-      // it); in darkness it is the whole difference between walking a lit corridor and
-      // groping down an unlit one.
-      if (!seen(sight, x, y)) continue
-      // A lock beats the sweep by construction: the cell is not written and the room it
-      // belongs to is not credited, so a boss chamber seen through an open door stays
-      // the DM's to reveal (§5).
-      if (inAnyLock(locks, x, y)) continue
-      const room = map.roomAt(x, y)
-      // …and so does the floor. Line of sight runs off the map's edge — over the yards past a
-      // palisade, out into the black beyond a cave mouth — and every cell it crossed out there
-      // used to be written. Three things read that record and all three were wrong about it:
-      // `openGround` let a token stand on ground the map never authored, the containment fence
-      // counted it as opened, and the player's memory tier painted its grey over ground with no
-      // art under it at all, which is the flat-black patch the gate walk photographed. The
-      // record only ever meant "floor the table has opened", so the write is where that is said.
-      //
-      // One cell wider than the floor, though, and that width is the wall art: the band straddles
-      // the room edge and its outer cells are in no room, so clamping the record to the floor
-      // alone left the stones of an explored room under fog on the memory tier, which only ever
-      // paints recorded cells. Recordable is not standable: the walk grid decides that.
-      //
-      // Table fix pass §2.5: "floor" is ground now — base ground, ground pieces and walled
-      // floors, rooms or none — so a cell is recorded when it is ground or within one cell of it.
-      if (room === null && !nearGround(x, y)) continue
+      if (!seen(sight, x, y) || inAnyLock(locks, x, y) || !floor(x, y)) continue
       cells.push([col, row])
-      if (room !== null) rooms.add(room)
     }
   }
-  return { cells, rooms }
+  return cells
 }
 
 /**

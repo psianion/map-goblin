@@ -53,15 +53,16 @@ describe('the map edge (P7)', () => {
   it.each(['testing-cave.ggvtt', 'outdoor-cave.ggvtt'])(
     '%s: a token by the edge records cells up to it and none past it',
     (name) => {
-      const { vision, frame } = table(read(name), { rooms: { '@outdoors': lit } }, byTheRightEdge)
+      const { vision, frame } = table(read(name), { on: true }, byTheRightEdge)
       const patch = vision.autoExplorePatch(SCENE)
       expect(patch).not.toBeNull()
+      const cells = Object.values(patch!.byLevel).flat()
       const cols = Math.round(frame.maxX - frame.minX)
       const rows = Math.round(frame.maxY - frame.minY)
       // The sweep did reach the edge: the last column is written…
-      expect(patch!.cells.some(([col]) => col === cols - 1)).toBe(true)
+      expect(cells.some(([col]) => col === cols - 1)).toBe(true)
       // …and nothing at or past it, on either axis.
-      for (const [col, row] of patch!.cells) {
+      for (const [col, row] of cells) {
         expect(col).toBeGreaterThanOrEqual(0)
         expect(row).toBeGreaterThanOrEqual(0)
         expect(col).toBeLessThan(cols)
