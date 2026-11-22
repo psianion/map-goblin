@@ -112,6 +112,41 @@ export function regionFor(stored: RegionMask | undefined, frame: Frame): RegionM
 }
 
 /**
+ * Fog rework §2.6 — `stored` moved onto the current frame: every cell keeps its place on the map
+ * and cells the new frame does not cover are dropped. The same object back when the frame has not
+ * moved, an empty mask when nothing was stored, and undefined past `REGION_CELL_MAX`.
+ *
+ * `regionFor` starts the record over on a move instead, which was fine while the room record
+ * decided what a player held. The cleared record is now the only memory there is, so a republish
+ * that grows the map must not cost the party the ground it has already cleared.
+ */
+export function rebaseRegion(stored: RegionMask | undefined, frame: Frame): RegionMask | undefined {
+  const fresh = regionOf(frame)
+  if (!fresh || !stored) return fresh
+  if (
+    stored.minX === fresh.minX &&
+    stored.minY === fresh.minY &&
+    stored.cols === fresh.cols &&
+    stored.rows === fresh.rows
+  ) {
+    return stored
+  }
+  const from = toBytes(stored.bits)
+  const to = toBytes(fresh.bits)
+  const dx = Math.round(stored.minX - fresh.minX)
+  const dy = Math.round(stored.minY - fresh.minY)
+  for (let bit = 0; bit < stored.cols * stored.rows; bit++) {
+    if ((from[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+    const col = (bit % stored.cols) + dx
+    const row = Math.floor(bit / stored.cols) + dy
+    if (col < 0 || row < 0 || col >= fresh.cols || row >= fresh.rows) continue
+    const at = row * fresh.cols + col
+    to[at >>> 3] |= 1 << (at & 7)
+  }
+  return { ...fresh, bits: toBase64(to) }
+}
+
+/**
  * ponytail: decodes the whole mask for one bit. Fine for a single probe (a test, a hover);
  * anything asking about a batch goes through `setCells`/`clearCells`, which decode once.
  */

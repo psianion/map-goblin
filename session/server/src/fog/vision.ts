@@ -119,6 +119,10 @@ export interface Vision {
   roomAtOf(campaignId: string, sceneId: string, x: number, y: number): string | null
   /** …and whether a brushed cell is ground, or beside it, on any level (table fix pass §2.5). */
   groundAtOf(campaignId: string, sceneId: string, x: number, y: number): boolean
+  /** Fog rework — the level ids that key a scene's cleared record. */
+  levelsOf(campaignId: string, sceneId: string): readonly string[]
+  /** Fog rework — whether a brushed cell is ground, or beside it, on one level. */
+  floorOnOf(campaignId: string, sceneId: string, levelId: string, x: number, y: number): boolean
   /** Backs `doorsModule` — the doors the map authors. */
   doorsOf(campaignId: string, sceneId: string): readonly AuthoredDoor[]
   /**
@@ -570,6 +574,17 @@ export function createVision(stores: Stores): Vision {
         return !!grid && groundNear(grid, x, y)
       })
     },
+    levelsOf: (_campaignId, sceneId) => {
+      const map = sceneMapOf(sceneId)
+      return map ? levelIdsOf(map) : []
+    },
+    floorOnOf: (campaignId, sceneId, levelId, x, y) => {
+      const map = sceneMapOf(sceneId)
+      if (!map) return false
+      const doors = doorsOfScene(read(campaignId, 'doors', NO_DOORS), sceneId, map.doors)
+      const grid = walks.gridFor(map, doors, read(campaignId, 'crossings', NO_CROSSINGS), sceneId, levelId)
+      return !!grid && groundNear(grid, x, y)
+    },
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 
@@ -929,6 +944,11 @@ function openGroundOf(
 /** The level a token stands on: its own when the map has it, else the map's first. */
 function levelOfToken(map: SceneMap, token: Pick<Token, 'levelId'>): string {
   return map.data.levels?.some((l) => l.id === token.levelId) ? token.levelId! : firstLevelId(map.data)
+}
+
+/** Every level id of the map, in order; the first level's alone on a map with none. */
+function levelIdsOf(map: SceneMap): string[] {
+  return map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
 }
 
 /** The Outdoors fog row of a level: one row on a one-level map, one per level otherwise. */

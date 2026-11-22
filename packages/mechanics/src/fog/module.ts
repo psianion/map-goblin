@@ -11,10 +11,12 @@ import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, FOG_LOOK_RANGES, type FogLayer, type
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {
+  REGION_CELL_MAX,
   clearCells,
   fillRegion,
   nearAuthoredFloor,
   orRegion,
+  rebaseRegion,
   regionFor,
   setCells,
   toBytes,
@@ -23,7 +25,9 @@ import {
   type RegionMask,
 } from './region'
 import {
+  FOG_BRUSH_OPS,
   FOG_MODES,
+  clearedOn,
   PARTY_HERE,
   ROOM_FOG_STATUSES,
   VISION_SHARES,
@@ -84,6 +88,18 @@ export type SceneGroundAt = (campaignId: string, sceneId: string, x: number, y: 
  */
 export type SceneHeld = (sceneId: string) => ReadonlySet<string> | null
 
+/**
+ * Fog rework — the level ids of a scene's map, which key the cleared record. Injected like
+ * {@link SceneFrame}. Empty for a scene with no map.
+ */
+export type SceneLevels = (campaignId: string, sceneId: string) => readonly string[]
+
+/**
+ * Fog rework — whether a world point is ground, or within one cell of it, on one level: what the
+ * brush's `clear` may open there. Injected like {@link SceneGroundAt}.
+ */
+export type SceneFloorOn = (campaignId: string, sceneId: string, levelId: string, x: number, y: number) => boolean
+
 /** T10 — held without a map to judge by: revealed now, or in By sight latched by the record. */
 const heldRow = (scene: SceneFog, room: RoomFog): boolean =>
   room.status === 'revealed' || (fogModeOf(scene) === 'vision' && room.wasEverRevealed)
@@ -100,10 +116,17 @@ export function fogModule(
   visibleOf: SceneVisible = () => null,
   groundAtOf: SceneGroundAt = () => false,
   heldOf: SceneHeld = () => null,
+  levelsOf: SceneLevels = () => [],
+  floorOnOf: SceneFloorOn = () => false,
 ): GameModule<FogState> {
+  const cells: CellLookups = { frameOf, levelsOf, floorOnOf }
   return {
     name: 'fog',
     commands: {
+      'set-on': ['dm'],
+      'clear-all': ['dm'],
+      'fog-all': ['dm'],
+      restore: ['dm'],
       reveal: ['dm'],
       hide: ['dm'],
       reset: ['dm'],
@@ -126,7 +149,8 @@ export function fogModule(
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf, groundAtOf)
+        const p = obj(payload ?? {}, 'payload')
+        if (!runCleared(action, p, ctx, cells)) run(action, p, ctx, roomsOf, frameOf, roomAtOf, groundAtOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -431,6 +455,150 @@ function run(
     default:
       bad(`fog has no action '${action}'`)
   }
+}
+
+/** What the cleared record's commands measure a scene by. */
+interface CellLookups {
+  frameOf: SceneFrame
+  levelsOf: SceneLevels
+  floorOnOf: SceneFloorOn
+}
+
+/**
+ * Fog rework — the commands of the one model: the switch, the brush, the two bulk acts, their
+ * undo, and the party's own sight. True when `action` was one of them; false hands it to the
+ * old handler, which still answers the commands the current client sends until they go.
+ *
+ * Every write re-bases each level's record onto the current frame first (`rebaseRegion`), so
+ * a republish that moved the map keeps cleared ground where it was on the map.
+ */
+function runCleared(action: string, p: Payload, ctx: Ctx, cells: CellLookups): boolean {
+  switch (action) {
+    case 'set-on': {
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      const on = bool(p.on, 'on')
+      // Only turning it on needs a record to play by; turning it off always works.
+      if (on && !rebaseRegion(undefined, frameFor(ctx, sceneId, cells.frameOf))) {
+        bad('that scene is too large to fog: it is over 512 by 512 cells')
+      }
+      setScene(ctx, sceneId, { ...scene, on }, { action: on ? 'turned-fog-on' : 'turned-fog-off' })
+      return true
+    }
+    case 'region-set': {
+      // The old strokes (`reveal` / `hide`) still go to the old handler.
+      if (!(FOG_BRUSH_OPS as readonly unknown[]).includes(p.op)) return false
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      const frame = frameFor(ctx, sceneId, cells.frameOf)
+      const levelId = levelOf(p, ctx, sceneId, cells)
+      const op = oneOf(p.op, FOG_BRUSH_OPS, 'op')
+      const mask = rebaseRegion(clearedOn(scene, levelId), frame)
+      if (!mask) bad('that scene is too large to keep fog for')
+      const stroke = parseCells(p.cells, mask)
+      // `clear` opens only ground the level has, plus the one-cell band its wall art sits on;
+      // the rest of the stroke is dropped rather than refused, since the DM aims at a chamber,
+      // not at its outline. `fog` is unfiltered: covering void costs nothing.
+      const next =
+        op === 'clear'
+          ? setCells(
+              mask,
+              stroke.filter(([col, row]) =>
+                cells.floorOnOf(ctx.campaignId, sceneId, levelId, mask.minX + col + 0.5, mask.minY + row + 0.5),
+              ),
+            )
+          : clearCells(mask, stroke)
+      setScene(ctx, sceneId, withCleared(scene, { ...scene.cleared, [levelId]: next }), { action: 'changed-fog' })
+      return true
+    }
+    case 'clear-all': {
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      const empty = rebaseRegion(undefined, frameFor(ctx, sceneId, cells.frameOf))
+      if (!empty) bad('that scene is too large to keep fog for')
+      // One byte fill per level rather than a floor walk: cells off the ground are never stood
+      // on or drawn, so a full record and a floor-only one show the players the same map.
+      const cleared: Record<string, RegionMask> = {}
+      for (const levelId of cells.levelsOf(ctx.campaignId, sceneId)) cleared[levelId] = fillRegion(empty)
+      setScene(ctx, sceneId, withCleared(scene, cleared), { action: 'cleared-all' })
+      return true
+    }
+    case 'fog-all': {
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      setScene(ctx, sceneId, withCleared(scene, {}), { action: 'fogged-all' })
+      return true
+    }
+    case 'restore': {
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      const frame = frameFor(ctx, sceneId, cells.frameOf)
+      const levels = cells.levelsOf(ctx.campaignId, sceneId)
+      const cleared: Record<string, RegionMask> = {}
+      for (const [levelId, raw] of Object.entries(obj(p.cleared, 'cleared'))) {
+        oneOf(levelId, levels, 'cleared key')
+        const mask = rebaseRegion(parseMask(raw, `cleared.${levelId}`), frame)
+        if (mask) cleared[levelId] = mask
+      }
+      setScene(ctx, sceneId, withCleared(scene, cleared), { action: 'changed-fog' })
+      return true
+    }
+    case 'auto-explore': {
+      // The old payload (`cells`, `rooms`, `byIdentity`) still goes to the old handler.
+      if (p.byLevel === undefined) return false
+      const sceneId = sceneOf(p, ctx)
+      const scene = sceneFogOf(ctx.state, sceneId)
+      const frame = frameFor(ctx, sceneId, cells.frameOf)
+      const levels = cells.levelsOf(ctx.campaignId, sceneId)
+      const cleared = { ...scene.cleared }
+      for (const [levelId, raw] of Object.entries(obj(p.byLevel, 'byLevel'))) {
+        oneOf(levelId, levels, 'byLevel key')
+        const mask = rebaseRegion(cleared[levelId], frame)
+        if (!mask) continue
+        cleared[levelId] = setCells(mask, parseCells(raw, mask))
+      }
+      // No log line: the map opening as the party walks is the map, not an act to read back.
+      setScene(ctx, sceneId, withCleared(scene, cleared))
+      return true
+    }
+    default:
+      return false
+  }
+}
+
+/** The scene with its cleared record replaced; an empty record is stored as none. */
+function withCleared(scene: SceneFog, cleared: Record<string, RegionMask>): SceneFog {
+  const { cleared: _old, ...rest } = scene
+  return Object.keys(cleared).length > 0 ? { ...rest, cleared } : rest
+}
+
+/** The level a brush stroke names: one the scene's map has. */
+function levelOf(p: Payload, ctx: Ctx, sceneId: string, cells: CellLookups): string {
+  return oneOf(p.levelId, cells.levelsOf(ctx.campaignId, sceneId), 'levelId')
+}
+
+/**
+ * A cell record off the wire (`restore`): four whole numbers and bits of exactly the length they
+ * call for, so a hand-made record cannot write past its own grid.
+ */
+function parseMask(value: unknown, field: string): RegionMask {
+  const o = obj(value, field)
+  const whole = (v: unknown, name: string): number => {
+    const n = num(v, `${field}.${name}`)
+    if (!Number.isInteger(n)) bad(`${field}.${name} must be a whole number`)
+    return n
+  }
+  const [minX, minY, cols, rows] = [whole(o.minX, 'minX'), whole(o.minY, 'minY'), whole(o.cols, 'cols'), whole(o.rows, 'rows')]
+  if (cols < 0 || rows < 0 || cols * rows > REGION_CELL_MAX) bad(`${field} is not a cell record this scene can hold`)
+  const bits = typeof o.bits === 'string' ? o.bits : bad(`${field}.bits must be a string`)
+  let length: number
+  try {
+    length = toBytes(bits).length
+  } catch {
+    bad(`${field}.bits must be base64`)
+  }
+  if (length !== Math.ceil((cols * rows) / 8)) bad(`${field}.bits does not fit ${cols} by ${rows} cells`)
+  return { minX, minY, cols, rows, bits }
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   pointInPolygon,
   REGION_CELL_MAX,
   orRegion,
+  rebaseRegion,
   regionFor,
   regionOf,
   setCells,
@@ -270,5 +271,31 @@ describe('pointInPolygon', () => {
     expect(pointInPolygon(tri, 1, 1)).toBe(true)
     expect(pointInPolygon(tri, 3, 3)).toBe(false)
     expect(pointInPolygon(tri, -1, 1)).toBe(false)
+  })
+})
+
+describe('rebaseRegion', () => {
+  it('hands the stored mask back when the frame has not moved', () => {
+    const stored = setCells(regionOf(FRAME)!, [[2, 3]])
+    expect(rebaseRegion(stored, FRAME)).toBe(stored)
+  })
+
+  it('starts from an empty mask when nothing was stored', () => {
+    expect(rebaseRegion(undefined, FRAME)).toEqual(regionOf(FRAME))
+  })
+
+  it('keeps each cell on its spot of the map and drops what the new frame cuts off', () => {
+    // World cells (0, 0) and (9, 9) on the 0..10 frame.
+    const stored = setCells(regionOf(FRAME)!, [[0, 0], [9, 9]])
+    const moved = rebaseRegion(stored, SHIFTED)!
+    expect([moved.minX, moved.minY, moved.cols, moved.rows]).toEqual([-4, -2, 10, 10])
+    // World (0, 0) is column 4, row 2 of the shifted frame; world (9, 9) is past its east edge.
+    expect(getCell(moved, 4, 2)).toBe(true)
+    expect(moved.bits).toBe(setCells(regionOf(SHIFTED)!, [[4, 2]]).bits)
+  })
+
+  it('keeps no record past REGION_CELL_MAX', () => {
+    const stored = setCells(regionOf(FRAME)!, [[0, 0]])
+    expect(rebaseRegion(stored, { minX: 0, minY: 0, maxX: 600, maxY: 600 })).toBeUndefined()
   })
 })
