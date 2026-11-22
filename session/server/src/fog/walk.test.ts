@@ -67,7 +67,7 @@ describe('stand and move (§2.3)', () => {
       const frame = scene.frame!
       const at = (x: number, y: number): [number, number] => [Math.floor(x - frame.minX), Math.floor(y - frame.minY)]
       const cleared = setCells(rebaseRegion(undefined, frame)!, [at(15.5, 7.5), at(15.5, 8.5), at(15.5, 9.5)])
-      return { rooms: {}, concealBehindDoors: true, on: true, cleared: { 'lvl-1': cleared } }
+      return { on: true, cleared: { 'lvl-1': cleared } }
     }
     const { walk } = table(MAP, strip)
     expect(walk({ x: 15.5, y: 7.5 }, { x: 15.5, y: 9.5 })).toBeNull()

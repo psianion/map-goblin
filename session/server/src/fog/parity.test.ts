@@ -222,18 +222,7 @@ function cut(
   registry.register(pinsModule)
   registry.register(storyModule({ shareReadAloud: () => null }))
   registry.register(crossingsModule)
-  registry.register(
-    fogModule(
-      vision.roomsOf,
-      vision.frameOf,
-      vision.roomAtOf,
-      (id) => vision.visibleOf(id),
-      vision.groundAtOf,
-      (id) => vision.keptRoomsOf(id),
-      vision.levelsOf,
-      vision.floorOnOf,
-    ),
-  )
+  registry.register(fogModule(vision.frameOf, vision.levelsOf, vision.floorOnOf))
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   registry.register(
     triggersModule({
@@ -540,10 +529,10 @@ describe('a live place the DM moves (R1)', () => {
     const pc = { id: 'pc', name: 'Bram', size: 'medium', x: 15.5, y: 25.5, ownerId: 'p-1', hidden: false, sight: null } as Token
     stores.moduleState.put(campaign.id, 'tokens', { library: {}, byScene: { [SCENE]: { pc } } } satisfies TokensState)
     const frame = vision.frameOf(campaign.id, SCENE)!
-    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, on: true } } } satisfies FogState)
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { on: true } } } satisfies FogState)
     const swept = vision.autoExplorePatch(SCENE)!.byLevel
     const cleared = Object.fromEntries(Object.entries(swept).map(([level, cells]) => [level, setCells(rebaseRegion(undefined, frame)!, cells)]))
-    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, on: true, cleared } } } satisfies FogState)
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: { on: true, cleared } } } satisfies FogState)
     const before = vision.playerMap(SCENE)!
     const mouth = dungeonOf(before).rooms!.find((r) => r.standIn && r.look?.place === 'underground')!
     expect(mouth).toBeTruthy()

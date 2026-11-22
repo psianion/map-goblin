@@ -49,26 +49,16 @@ const RETRACTS: Record<string, readonly string[]> = {
  * keeps this from ever cascading into itself: `triggers.event` (dispatched internally, below)
  * is not in this table, so its own successful run never queues a second cascade.
  *
- * S3 P1 — `fog.auto-explore` is in it for the same reason `fog.reveal` is: a room the party
+ * S3 P1 — `fog.auto-explore` is in it for the same reason the brush is: a room the party
  * walked into is revealed, and a room-revealed trigger cannot tell the two apart. The
  * causing command's own cascade is no substitute — it runs before the after-write hook and
  * so reads the explored set from *before* the sweep landed. Still no loop: the auto-explore
  * hook fires on `tokens`/`doors` writes only, and `triggers.event` is in neither table.
- *
- * S3 P3 — `fog.open-map` is in it for the reason `fog.set-bulk` is: it reveals every room in
- * the scene, and a room-revealed trigger cannot tell "the DM opened this room" from "the DM
- * opened the whole map". Leaving it out would arm those triggers to fire later on a map that
- * is already open.
  */
 const CASCADES: Record<string, readonly string[]> = {
   tokens: ['move', 'place', 'update', 'delete', 'claim', 'hide'],
   fog: [
-    'reveal',
-    'set-bulk',
-    'hide',
-    'reset',
     'auto-explore',
-    'open-map',
     // Fog rework: every write that can clear a room's first cell, and Fog all, which re-arms.
     'region-set',
     'clear-all',
@@ -253,8 +243,8 @@ export class ModuleRegistry {
   /** Unchanged state, said again — for viewers a *different* module just redacted it for. */
   /**
    * Table fix pass — an after-write rule's own re-send of one slice, for a change that moved what
-   * a viewer is owed without writing that module: a token hidden mid-fight (its initiative row),
-   * a party walking into another walk area (the fog slice's `visible` rows). Tagged with the
+   * a viewer is owed without writing that module: a token hidden mid-fight (its initiative row).
+   * Tagged with the
    * scene like every other frame, and redacted per viewer on the way out.
    */
   refresh(name: string, ctx: DispatchContext, sceneId: string | null): void {

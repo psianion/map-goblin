@@ -25,7 +25,7 @@ function table(map: string, fog: Partial<SceneFog> = {}, token?: Partial<Token>)
   stores.maps.insert(SCENE, campaign.id, 'Frame', map)
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Frame')
   stores.moduleState.put(campaign.id, 'fog', {
-    byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, ...fog } },
+    byScene: { [SCENE]: { ...fog } },
   } satisfies FogState)
   if (token) {
     const pc = { id: 'pc', name: 'Bram', size: 'medium', x: 15.5, y: 9.5, ownerId: 'p-1', hidden: false, ...token } as Token

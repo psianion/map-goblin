@@ -203,7 +203,7 @@ describe('enter-region / within-radius arming', () => {
   })
 })
 
-describe('fog.reset re-arms room-revealed only', () => {
+describe('fog.fog-all re-arms room-revealed only', () => {
   const roomRevealed = trigger(
     { id: 'rr1', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: 'lit', toPlayers: true }] },
     { roomId: 'room-1' },
@@ -222,12 +222,12 @@ describe('fog.reset re-arms room-revealed only', () => {
     })
     const mod = triggersModule(deps)
 
-    let state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'fog', action: 'reveal' } })
+    let state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'fog', action: 'region-set' } })
     expect(sceneOf(state).fired.rr1).toBe(1000)
     expect(sceneOf(state).fired.er1).toBe(1000) // the token was already standing in the region
 
-    explored = [] // the reset itself clears the fog's revealed set
-    state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'fog', action: 'reset' } })
+    explored = [] // Fog all itself clears the fog's cleared ground
+    state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'fog', action: 'fog-all' } })
     expect(sceneOf(state).fired.rr1).toBeUndefined()
     expect(sceneOf(state).fired.er1).toBe(1000) // untouched — sprung traps stay sprung
   })
@@ -1023,15 +1023,15 @@ describe('reveal notes (prep v2)', () => {
     expect(sceneOf(s2)!.log).toHaveLength(1)
   })
 
-  it('fog.reset re-arms a popped note', () => {
+  it('fog.fog-all re-arms a popped note', () => {
     const deps = makeDeps({
       prepOf: () => ({ triggers: [], notes: [{ note: NOTE, roomId: 'room-1' }] }),
       exploredOf: () => ['room-1'],
     })
     const mod = triggersModule(deps)
     const popped = fireEvent(mod, empty, move)
-    const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'reset' } })
-    // The reset event both re-arms and (explored still lists the room) immediately re-pops.
+    const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'fog-all' } })
+    // The Fog all event both re-arms and (explored still lists the room) immediately re-pops.
     expect(sceneOf(reset)!.log.filter((l) => l.kind === 'note')).toHaveLength(2)
   })
 
@@ -1352,10 +1352,10 @@ describe('room keys (prep v3)', () => {
       expect(sceneOf(fireEvent(inert, empty, move))).toBeUndefined()
     })
 
-    it('fog.reset re-arms the pop', () => {
+    it('fog.fog-all re-arms the pop', () => {
       const mod = triggersModule(makeDeps({ prepOf: prepWith(resolvedKey()), exploredOf: () => ['room-1'] }))
       const popped = fireEvent(mod, empty, move)
-      const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'reset' } })
+      const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'fog-all' } })
       expect(sceneOf(reset)!.log.filter((l) => l.kind === 'room-key')).toHaveLength(2)
     })
 

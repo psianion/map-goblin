@@ -144,10 +144,6 @@ export function mergeMapDelta(
   const byId = new Map(delta.layers.map((layer) => [layer.id, layer]));
   const merged: SerializedMapData = {
     ...current,
-    // The reveal's own re-cut fence, when it carries one: the rooms this delta ships are
-    // exactly what widens the ground a contained near pass may open, so the mask that fences
-    // it has to arrive in the same message the art does (`MapDelta.lockMask`).
-    ...(delta.lockMask ? { lockMask: delta.lockMask } : {}),
     ...(delta.openGround ? { openGround: delta.openGround } : {}),
     layers: current.layers.map((layer) => {
       const patch = byId.get(layer.id);

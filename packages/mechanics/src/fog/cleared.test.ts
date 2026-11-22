@@ -17,12 +17,7 @@ const FRAME: Frame = { minX: 0, minY: 0, maxX: 10, maxY: 10 }
 /** lvl-a has floor west of x = 6 only; lvl-b is floor everywhere. */
 function moduleWith(frame: () => Frame | null = () => FRAME) {
   return fogModule(
-    () => [],
     () => frame(),
-    () => null,
-    () => null,
-    () => false,
-    () => null,
     () => LEVELS,
     (_c, _s, levelId, x) => levelId === 'lvl-b' || x < 6,
   )
@@ -157,10 +152,10 @@ describe('the brush', () => {
     expect(run(empty, DM, 'region-set', { levelId: 'lvl-a', op: 'clear', cells: [[10, 0]] }).error).toMatchObject({ code: 'invalid-command' })
   })
 
-  it('leaves the old reveal stroke to the old record', () => {
-    const { next, error } = run(empty, DM, 'region-set', { op: 'reveal', cells: [[1, 1]] })
-    expect(error).toBeNull()
-    expect(sceneOf(next).cleared).toBeUndefined()
+  it('refuses a stroke that is neither clear nor fog', () => {
+    const { next, error } = run(empty, DM, 'region-set', { levelId: 'lvl-a', op: 'reveal', cells: [[1, 1]] })
+    expect(error).toMatchObject({ code: 'invalid-command' })
+    expect(next).toBe(empty)
   })
 })
 
@@ -239,7 +234,7 @@ describe('the default look (fog rework §2.8)', () => {
       ['billow', '#d5dade'],
       ['billow', '#f2f4f6'],
     ])
-    expect([DEFAULT_FOG_LOOK.fade, DEFAULT_FOG_LOOK.veil, DEFAULT_FOG_LOOK.preset]).toEqual([2, 0, undefined])
+    expect([DEFAULT_FOG_LOOK.fade, DEFAULT_FOG_LOOK.veil]).toEqual([2, 0])
     const { next, error } = run(empty, DM, 'set-fog-look', { look: DEFAULT_FOG_LOOK })
     expect(error).toBeNull()
     expect(sceneOf(next).look).toEqual(DEFAULT_FOG_LOOK)

@@ -7,7 +7,7 @@
 // about, and to remember the answers until something moves.
 
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { carriedCone, eyeReach, lightSources, pointInPolygon, SIGHT_REACH, type LightSource } from '@dnd/mechanics/fog'
+import { carriedCone, lightSources, pointInPolygon, type LightSource } from '@dnd/mechanics/fog'
 import { eyes as partyEyes, type Token } from '@dnd/mechanics/tokens'
 import { effectiveLight, type LightEdit, type RoomEdit, type SkyFrame } from '@dnd/mechanics/triggers'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
@@ -74,30 +74,10 @@ export interface DarkArea {
 export interface Eye {
   x: number
   y: number
-  /** How far this eye sees *unlit* ground — darkvision's ring, 0 for plain sight. */
+  /** How far this eye's sight is swept, and how far it sees *unlit* ground with darkvision. */
   range: number
-  /**
-   * How far this eye may push the containment fence, and its sweep radius under the range
-   * limit: its own `range`, or the light it carries if that reaches further. A torch-bearer
-   * with plain sight can see the ground their own torch lights, so that ground is theirs to
-   * claim; without this a range-0 eye could never open a single cell.
-   */
-  reach: number
   darkvision: boolean
   polygon: Polygon
-}
-
-
-/**
- * Contained sight's fence, or the absence of one. Cell tests, not polygons, and applied by
- * `seen` *outside* the sweep memo on purpose: the memo is keyed on origin and reach alone, so
- * clipping a polygon inside it would poison every later reader of the same key.
- */
-export interface SightFence {
-  /** Ground the table has opened — the record the viewer plays by, plus every revealed room. */
-  held(x: number, y: number): boolean
-  /** §5's auto-explore locks, subtracted from the range term only (held cannot contain one). */
-  locks: readonly ZoneShape[]
 }
 
 export interface PartyVision {
@@ -113,8 +93,6 @@ export interface PartyVision {
   darkAt: ((x: number, y: number) => boolean) | null
   /** Darkness sources: no light reaches inside them; only darkvision that may see through does. */
   darkness: DarkArea[]
-  /** Null when the scene plays uncontained, which is `seen` exactly as it always was. */
-  fence: SightFence | null
 }
 
 export interface Sweeps {
@@ -131,26 +109,6 @@ export interface Sweeps {
     tokens: Record<string, Token>,
     doors: Doors,
     gate: LightGate | null,
-    /**
-     * S3 P5 — whose eyes to start the closure from. Omitted is every claimed token, which is
-     * the party. `individual` share passes one seat's own (`t.ownerId === identityId`) and
-     * gets that seat's sight for the same money: the sweeps are memoized per origin and
-     * reach, so a per-identity union re-uses the polygons the party union already took.
-     */
-    isSeed?: (token: Token) => boolean,
-    /**
-     * How far each eye is swept. `'range'` is the fog rework's rule: the token's own
-     * `sight.range` and nothing more, a carried torch included. `true` is the old range switch
-     * (its range, or its torch if that reaches further) and `false`, the default, the whole map.
-     */
-    rangeLimited?: boolean | 'range',
-    /**
-     * The scene's `containedSight`, as the ground it fences sight to — omitted (or null) is
-     * classic sight-to-the-walls. Carried onto the returned `PartyVision` rather than applied
-     * here: it is a per-cell test that `seen` composes, and the sweeps stay untouched so the
-     * memo keys go on meaning what they say.
-     */
-    fence?: SightFence | null,
     /**
      * The level the sweep is taken on: its walls, props, rooms and lights, and only the eyes
      * standing on it. Omitted is the map's first level (a one-level map is all of it).
@@ -189,7 +147,7 @@ export function createSweeps(): Sweeps {
   }
 
   return {
-    partyVision(map, tokens, doors, gate, isSeed, rangeLimited, fence, levelId) {
+    partyVision(map, tokens, doors, gate, levelId) {
       const level = levelId ?? firstLevelId(map.data)
       // P4 §4 — the party's eyes are the sight-link closure of the claimed tokens, not the
       // claimed tokens alone: an unclaimed familiar the DM linked to a scout is looking for
@@ -198,8 +156,8 @@ export function createSweeps(): Sweeps {
       // which sees whatever is lit — so the test is on `sight` itself, not its range.
       // Table fix pass §2.4: `partyEyes` gives every player-owned token and PC sight of its own.
       // Levels: only the eyes standing on this level look at it.
-      const claimed = partyEyes(Object.values(tokens), isSeed).filter((token) => onLevel(map.data, token, level))
-      if (claimed.length === 0) return { eyes: [], lit: null, darkAt: null, darkness: [], fence: fence ?? null }
+      const claimed = partyEyes(Object.values(tokens)).filter((token) => onLevel(map.data, token, level))
+      if (claimed.length === 0) return { eyes: [], lit: null, darkAt: null, darkness: [] }
       const scene = sweepsFor(map, doors, level)
       if (scene.polygons.size > SWEEP_CAP) scene.polygons.clear()
       // One memo for every sweep on this level: kind, origin, reach, wedge and the extra
@@ -249,32 +207,22 @@ export function createSweeps(): Sweeps {
         }
       }
 
-      // By default every eye is swept to the whole map (`SIGHT_REACH`): what bounds sight is
-      // the walls, and in the dark the light. `range` is then kept on the eye for the one
-      // clause it governs — how far *this* eye sees unlit ground, which is `seen`'s
-      // darkvision test.
-      //
-      // `rangeLimited` is the DM's switch for a map that has no walls to do the bounding. On
-      // an imported battlemap nothing occludes a sweep and the scene is rarely dark, so both
-      // of the usual bounds are absent and one token's move claims the whole image. Swept at
-      // `range`, the eye reaches as far as the token can see and no further. The memo keys on
-      // reach already, so the two modes cannot collide in it.
+      // Fog rework: every eye is swept at its own `sight.range` and no further, a carried torch
+      // included. The walls, and in the dark the light, bound it inside that.
       //
       // `sight.angle` is the eye's cone (facing east: tokens carry no facing yet). Darkvision
       // sweeps the same geometry as a normal eye, except that a darkness source's edge stops
       // every eye but a darkvision one the source lets through.
       const eyes = claimed.map((token) => {
         const range = token.sight!.range
-        const reach = rangeLimited === 'range' ? range : eyeReach(token)
         const darkvision = token.sight!.visionMode === 'darkvision'
         const blocking = darkness.filter((d) => !(darkvision && d.darkvisionSees))
         return {
           x: token.x,
           y: token.y,
           range,
-          reach,
           darkvision,
-          polygon: sweep('sight', token.x, token.y, rangeLimited ? reach : SIGHT_REACH, {
+          polygon: sweep('sight', token.x, token.y, range, {
             cone: carriedCone(token.sight!.angle),
             extra: blocking.flatMap((d) => polygonEdges(d.polygon)),
             extraKey: blocking.map((d) => `${d.source.x},${d.source.y},${d.source.radius}`).join(';'),
@@ -286,7 +234,6 @@ export function createSweeps(): Sweeps {
         lit,
         darkAt,
         darkness: darkness.map(({ polygon, darkvisionSees }) => ({ polygon, darkvisionSees })),
-        fence: fence ?? null,
       }
     },
   }
@@ -343,51 +290,27 @@ const litIn = (
   )
 
 /**
- * §3, the whole rule, in one place so the three callers cannot drift:
+ * §3, the whole rule, in one place so its callers cannot drift:
  *
- *   seen_i(p) = inSweep_i(p) AND (held(p) OR (dist_i(p) ≤ reach_i AND p not in a lock))
- *   seen(p)   = any i, AND (NOT dark(p) OR lit(p) OR (darkvision eye AND p in range))
+ *   seen(p) = any i inSweep_i(p), AND (NOT dark(p) OR lit(p) OR (darkvision eye AND p in range))
  *
  * `dark(p)` is the Lighting pass's per-region gate: the room the point is in (else the level)
  * resolves dark under the sky (mood, night, weather, the DM's slider). Inside a darkness
  * source nothing lights the ground, and only a darkvision eye in range sees it, and only
  * when every source covering the point lets darkvision through.
  *
- * `inSweep` is line of sight alone — the eye's sweep reaches the whole map — so in daylight
- * and in any light a player sees as far as the referee does. Party entitlement is the union
- * over the party's eyes, but the darkvision clause is not: only the eye that *has* darkvision
- * may claim unlit ground, and only out to its own range, which is the one thing `range` bounds.
- *
- * The middle clause is containment, and it is null on an uncontained scene — then this is the
- * rule the file always had. Contained, an eye may look freely over ground the table has already
- * opened, and past that fence only as far as its own `reach` carries it — its range, or the
- * torch in its hand if that goes further: walking is what peels the cloud back, and what a
- * step earns is written to the record, so the fence moves with the party and never shrinks
- * (the ratchet). The narrowing is strictly per eye — an eye that fails it is dropped from
- * `looking` before the light gate, so it cannot lend its darkvision to ground it is not itself
- * entitled to.
- *
- * A lock is subtracted from the range term alone: held ground cannot contain a locked cell by
- * construction (a lock is never written to the record and never credits its room), and without
- * the subtraction an eye at a sealed vault's open door would peel it by range.
+ * `inSweep` is line of sight within the eye's range. Party entitlement is the union over the
+ * party's eyes, but the darkvision clause is not: only the eye that *has* darkvision may claim
+ * unlit ground, and only out to its own range.
  */
 export function seen(vision: PartyVision, x: number, y: number): boolean {
   // Per cell, so no allocation here: one pass over the eyes answers both "is anyone looking"
   // and "is a looking darkvision eye in range", each eye's box tested before its polygon.
-  const fence = vision.fence
-  let fenced: boolean | null = null
   let looking = false
   let darkvision = false
   for (const eye of vision.eyes) {
     if (!inBox(boxFor(eye.polygon), x, y) || !pointInPolygon(eye.polygon, x, y)) continue
     const dist = Math.hypot(x - eye.x, y - eye.y)
-    if (fence) {
-      if (fenced === null) {
-        fenced = !fence.held(x, y)
-        if (fenced && inAnyLock(fence.locks, x, y)) return false
-      }
-      if (fenced && dist > eye.reach) continue
-    }
     looking = true
     if (eye.darkvision && dist <= eye.range) darkvision = true
   }

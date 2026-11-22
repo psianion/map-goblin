@@ -748,9 +748,9 @@ describe('scenes (#47)', () => {
       const sceneId = first.body.sceneId as string
       const originalMapId = first.body.mapId as string
 
-      // A table mid-session: fog revealed and a token placed, both keyed on `sceneId`.
+      // A table mid-session: fog on and a token placed, both keyed on `sceneId`.
       server.stores.moduleState.put(campaignId, 'fog', {
-        byScene: { [sceneId]: { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
+        byScene: { [sceneId]: { on: true, autoExplore: false } },
       })
       server.stores.moduleState.put(campaignId, 'tokens', {
         library: {},
@@ -781,7 +781,7 @@ describe('scenes (#47)', () => {
 
       // …and nothing tied to the scene moved: same key, same fog, same token.
       expect(server.stores.moduleState.get(campaignId, 'fog')).toEqual({
-        byScene: { [sceneId]: { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
+        byScene: { [sceneId]: { on: true, autoExplore: false } },
       })
       expect(server.stores.moduleState.get(campaignId, 'tokens')).toEqual({
         library: {},

@@ -104,7 +104,8 @@ const eye = (id: string, x: number, y: number, over: Partial<Token> = {}): Token
     imageAssetId: null,
     size: 'medium',
     disposition: 'friendly',
-    sight: { range: 0, angle: 360, visionMode: 'normal' },
+    // A sight range past any map here, so the walls and the light are what bound the eye.
+    sight: { range: 1000, angle: 360, visionMode: 'normal' },
     light: null,
     defId: null,
     x,
@@ -119,16 +120,7 @@ const eye = (id: string, x: number, y: number, over: Partial<Token> = {}): Token
 const gate = (sky: SkyFrame, over: Partial<LightGate> = {}): LightGate => ({ sky, edits: {}, roomPlaces: {}, ...over })
 
 function visionOf(map: SceneMap, tokens: Token[], g: LightGate | null, levelId?: string) {
-  return createSweeps().partyVision(
-    map,
-    Object.fromEntries(tokens.map((t) => [t.id, t])),
-    {},
-    g,
-    undefined,
-    false,
-    null,
-    levelId,
-  )
+  return createSweeps().partyVision(map, Object.fromEntries(tokens.map((t) => [t.id, t])), {}, g, levelId)
 }
 
 const DARKVISION = (range: number) => ({ range, angle: 360, visionMode: 'darkvision' as const })
@@ -215,7 +207,7 @@ describe('daylight through a cave door at the table', () => {
     const map = scene({ rooms: [cave], walls: [mouth], doors: [caveDoor] })
     const sweeps = createSweeps()
     const tokens = { a: eye('a', 5, 3) }
-    const look = (open: boolean) => sweeps.partyVision(map, tokens, live(open), gate(NOON), undefined, false, null)
+    const look = (open: boolean) => sweeps.partyVision(map, tokens, live(open), gate(NOON))
 
     const opened = look(true)
     expect(opened.darkAt!(10.5, 3)).toBe(false)
@@ -262,7 +254,7 @@ describe('darkness sources', () => {
 
 describe('cones, one-way walls and through-walls', () => {
   it('an eye’s sight.angle is its cone (facing east)', () => {
-    const v = visionOf(scene({}), [eye('a', 0, 0, { sight: { range: 0, angle: 90, visionMode: 'normal' } })], gate(NOON))
+    const v = visionOf(scene({}), [eye('a', 0, 0, { sight: { range: 1000, angle: 90, visionMode: 'normal' } })], gate(NOON))
     expect(seen(v, 5, 0)).toBe(true)
     expect(seen(v, -5, 0)).toBe(false)
   })
@@ -283,7 +275,7 @@ describe('cones, one-way walls and through-walls', () => {
 
   it('a one-way wall stops light from its blocking side', () => {
     const oneWay = wall('w', [[3, 10], [3, -10]], { direction: 'left' })
-    const v = visionOf(scene({ walls: [oneWay], lights: [lamp('l', 0, 0, { radius: 8 })] }), [eye('a', 6, 0, { sight: { range: 0, angle: 360, visionMode: 'normal' } })], gate(MIDNIGHT))
+    const v = visionOf(scene({ walls: [oneWay], lights: [lamp('l', 0, 0, { radius: 8 })] }), [eye('a', 6, 0, { sight: { range: 1000, angle: 360, visionMode: 'normal' } })], gate(MIDNIGHT))
     expect(seen(v, 5, 0)).toBe(false)
   })
 

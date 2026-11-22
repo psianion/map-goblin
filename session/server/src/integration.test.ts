@@ -20,8 +20,7 @@ import type { AnyChild, AssetChild, DoorChild, Room } from '@dnd/core/src/shared
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { DoorLiveState, DoorsState } from '@dnd/mechanics/doors'
-import type { FogState, RoomFog } from '@dnd/mechanics/fog'
-import { defaultRoom } from '@dnd/mechanics/fog'
+import type { FogState } from '@dnd/mechanics/fog'
 import { issueToken, startSession } from './auth'
 import { centreOf, createSceneMaps, type SceneMap } from './fog/sceneMap'
 import { roomCells } from './fog/fogOn.fixture'
@@ -493,10 +492,12 @@ const roomOf = (id: string | null | undefined): SavedRoom => cryptRooms.find((r)
  * brightest thing on it. The default-room fallback used to lend it to a player who had been
  * told nothing (amendment 2026-07-28) and the fourth browser gate read it at full brightness
  * on a scene the DM's panel called Unrevealed, so the rows below are how that stays fixed.
- * Taken from the mechanics helper rather than spelled out, so a re-authored map moves them
- * with it instead of quietly passing.
+ * Measured off the map rather than spelled out, so a re-authored map moves them with it
+ * instead of quietly passing. Lowest id breaks a tie.
  */
-const BIGGEST_ROOM = defaultRoom(cryptRooms)!
+const BIGGEST_ROOM = cryptRooms
+  .filter((room) => !room.isPathway)
+  .reduce((best, room) => (room.area > best.area || (room.area === best.area && room.id < best.id) ? room : best))
 
 /** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
 const STRANDED = cryptLayer.children.filter((child): child is AssetChild => {
@@ -527,7 +528,7 @@ async function fetchMap(server: RunningServer, seat: Seat, sceneId: string): Pro
 async function crypts(server: RunningServer, name: string, players = 1) {
   const row = table(server, name, GATE_MAP)
   server.stores.moduleState.put(row.campaign_id, 'fog', {
-    byScene: { [`${name}-map`]: { rooms: {}, concealBehindDoors: true, on: true, autoExplore: false } },
+    byScene: { [`${name}-map`]: { on: true, autoExplore: false } },
   } satisfies FogState)
   return { sceneId: `${name}-map`, ...(await seatTable(server, name, players)) }
 }
@@ -838,52 +839,6 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
     })
   })
 
-})
-
-// ── D9: the undo window, replayed at the wire ───────────────────────────────
-
-describe('Reveal All / Hide All / undo (D9)', () => {
-  it('restores the exact record the DM held before the bulk op', async () => {
-    await withServer({}, async (server) => {
-      const { sceneId, dm } = await crypts(server, 'FGU', 0)
-      const roomsOf = (state: unknown): Record<string, RoomFog> =>
-        (state as FogState).byScene[sceneId].rooms
-
-      // Reveal All, as the tool builds it: every room in the scene, latch set.
-      const revealedAll = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: Object.fromEntries(
-          cryptRooms.map((room) => [room.id, { status: 'revealed', wasEverRevealed: true }]),
-        ),
-      })
-      // This is the record the undo toast captures — the value, not a re-read.
-      const captured = roomsOf(await revealedAll)
-      expect(Object.keys(captured)).toHaveLength(cryptRooms.length)
-
-      // Hide All, as the tool builds it: everything the party has seen goes back under,
-      // rooms nobody has seen left out of the record entirely.
-      const hidden = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: Object.fromEntries(
-          Object.entries(captured)
-            .filter(([, fog]) => fog.wasEverRevealed)
-            .map(([id]) => [id, { status: 're_hidden', wasEverRevealed: true }]),
-        ),
-      })
-      expect(new Set(Object.values(roomsOf(await hidden)).map((f) => f.status))).toEqual(
-        new Set(['re_hidden']),
-      )
-
-      // Undo: the captured record, replayed verbatim. A `set-bulk` the latch validation
-      // refuses is silent by design (§2.2), so a rejection would look exactly like this
-      // doing nothing — which is why the error frame is asserted too.
-      const restored = nextState(dm, 'fog')
-      const refused = next(dm, 'error').then((e) => e.message)
-      sendCommand(dm, 'fog', 'set-bulk', { rooms: captured })
-      expect(roomsOf(await restored)).toEqual(captured)
-      await expect(refused).rejects.toThrow(/timed out/)
-    })
-  })
 })
 
 // ── D2/D4: a secret door the DM reveals ─────────────────────────────────────

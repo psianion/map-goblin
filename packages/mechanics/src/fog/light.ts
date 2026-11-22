@@ -47,35 +47,6 @@ export function carriedCone(angle: number | undefined): LightCone | undefined {
   return angle !== undefined && angle > 0 && angle < 360 ? { angle, direction: 0 } : undefined
 }
 
-/**
- * How far an eye may push the containment fence, and its sweep radius under the DM's range
- * limit: its own `sight.range` (darkvision's ring), or the light it carries if that reaches
- * further. A torch-bearer with plain sight can see the ground their own torch lights, so that
- * ground is theirs to claim — without the light term a range-0 eye could never open a cell,
- * which is what left a party of humans with torches blind on an imported battlemap. The
- * referee and every seat's mask read this one function, so they cannot disagree about it.
- */
-export function eyeReach(token: LightCarrier & { sight: { range: number } | null }): number {
-  const range = token.sight?.range ?? 0
-  const carried = token.hidden || !token.light ? 0 : Math.max(token.light.dim, token.light.bright)
-  return Math.max(range, carried)
-}
-
-/**
- * How far line of sight is swept, in cells — the whole map, from anywhere on it.
- *
- * An eye's reach is not a radius. What bounds sight is the walls and, in the dark, the light:
- * a lit hall is seen to the far wall by anyone standing in its doorway, and a torch is seen
- * from across a cavern. A token's `sight.range` is how far it can see *without* light, which
- * is darkvision's ring and nothing else — capping the sweep on it drew that ring across every
- * lit room as an arc the referee's own view never had.
- *
- * ponytail: a constant rather than the map's frame. The sweep clamps its rays at this
- * distance and tessellates the rim at a fixed 64 steps, so the number only has to be larger
- * than any map; the cell enumeration and the mask both clip to what the map actually holds.
- */
-export const SIGHT_REACH = 1000
-
 /** Where a light stands and how far it reaches. Lit/unlit is binary: inside the dim edge is lit. */
 export interface LightSource {
   x: number

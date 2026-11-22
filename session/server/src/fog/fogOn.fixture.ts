@@ -12,7 +12,7 @@ export function fogOnWith(map: SceneMap, roomIds: readonly string[], extra: Part
     const levelId = map.roomLevels.get(id)!
     cleared[levelId] = setCells(cleared[levelId] ?? rebaseRegion(undefined, frame)!, roomCells(map, id))
   }
-  return { rooms: {}, concealBehindDoors: true, on: true, ...(Object.keys(cleared).length ? { cleared } : {}), ...extra }
+  return { on: true, ...(Object.keys(cleared).length ? { cleared } : {}), ...extra }
 }
 
 /**

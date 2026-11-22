@@ -34,7 +34,6 @@ import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 import { isFrozen } from '@dnd/core/src/shared/freeze';
 import type { Bounds } from './FogRenderer';
 import {
-  EDGE_FEATHER_CELLS,
   EDGE_FEATHER_FROM,
   FRAME_SHADOW_CELLS,
   FRAME_SHADOW_DEPTH,
@@ -609,20 +608,17 @@ export interface LivingFogLook {
 export interface LivingFog {
   /** The animated cover. The caller parents it where its seat's draw order wants it. */
   mesh: Mesh<Geometry, Shader>;
-  /** Draw the tier mask into this, in world coordinates, then call `renderMask`. */
-  maskPaint: Graphics;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
   setMaskBounds(bounds: Bounds | null): void;
   /**
    * P7 — the map frame the torch glow stays inside (null: no frame, glow anywhere). T6: and
-   * where the cover is cut hard and the shadow falls; set it before `renderMask` and `setLook`,
-   * since both blurs read the cover past it as shown.
+   * where the cover is cut hard and the shadow falls; set it before `setLook`, since the soft
+   * blur reads the cover past it as shown.
    */
   setFrame(frame: Bounds | null): void;
   /**
-   * The two textures the cloud shader samples, for a caller that paints them itself instead
-   * of through `maskPaint` — the raster tier compositor, which composites vision mode's whole
-   * mask on the GPU.
+   * The textures the cloud shader samples, for the caller that paints them — the raster tier
+   * compositor, which composites the whole mask on the GPU.
    *
    * These are the same two objects for the life of this fog: the shader's bind group holds
    * their *sources*, so a caller may resize them in place but must never swap them.
@@ -634,8 +630,6 @@ export interface LivingFog {
    * paint at all.
    */
   maskFit(): { scale: number; bounds: Bounds } | null;
-  /** Rasterise `maskPaint` into the mask texture. */
-  renderMask(): void;
   /** Shade `setLook`'s base and layer tints toward this scene's grade and darkness — kept so
    * a later `setLook` (a new preset, a slider) and a later `setPalette` (the scene's grade or
    * darkness changing) can each fire on their own without clobbering the other's state. */
@@ -653,12 +647,6 @@ export interface LivingFog {
   setDense(dense: number): void;
   /** The line on the cloud's edge, for the DM's see-through view. */
   setEdgeLine(on: boolean): void;
-  /**
-   * The wash under the cloud on the memory tier — a 0xrrggbb colour already graded the way
-   * the map beneath it is, and its strength. 0 (the default) draws none: the DM's haze wants
-   * the cloud alone.
-   */
-  setWash(color: number, alpha: number): void;
   /**
    * The pools live sight runs out over, world units: whole out to `inner`, gone by `outer`.
    * Empty (the default, and daylight) leaves the geometry's edge as the only edge.
@@ -702,21 +690,9 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   softGroup.filters = [soften];
   const softScene = new Container();
   softScene.addChild(softGroup);
-  // P8 — and the feather copy: `maskRT` read as coverage and blurred by EDGE_FEATHER_CELLS.
+  // P8 — and the feather copy, which the tier compositor paints.
   const maskEdgeRT = RenderTexture.create({ width: 4, height: 4 });
-  const edgeCoverage = coverageFilter();
-  const edgeBlur = new BlurFilter({ strength: 0, quality: 3 });
-  const edgeSprite = new Sprite(maskRT);
-  edgeSprite.filters = [edgeCoverage];
-  const edgeBeyond = new Graphics();
-  const edgeGroup = new Container();
-  edgeGroup.addChild(edgeSprite, edgeBeyond);
-  edgeGroup.filters = [edgeBlur];
-  const edgeScene = new Container();
-  edgeScene.addChild(edgeGroup);
   const maskScene = new Container();
-  const maskPaint = new Graphics();
-  maskScene.addChild(maskPaint);
 
   const shader = Shader.from({
     gl: { vertex: VERTEX, fragment: FRAGMENT },
@@ -766,8 +742,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uGlow: number;
     uMist: number;
     uMemoryHold: number;
-    uWashAlpha: number;
-    uWash: Float32Array | number[];
     uPools: Float32Array;
     uPoolCount: number;
     uOwn: Float32Array;
@@ -811,15 +785,12 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   /** T6 — the mask rect past the frame, white in both blur sources, in texels. */
   const drawBeyond = (): void => {
     softBeyond.clear();
-    edgeBeyond.clear();
     if (!rect || !frame) return;
     const [sx, sy] = [maskScene.scale.x, maskScene.scale.y];
     const bounds = { minX: rect.minX, minY: rect.minY, maxX: rect.minX + rect.w, maxY: rect.minY + rect.h };
     for (const r of outsideFrame(bounds, frame)) {
-      for (const g of [softBeyond, edgeBeyond]) {
-        g.rect((r.minX - rect.minX) * sx, (r.minY - rect.minY) * sy, (r.maxX - r.minX) * sx, (r.maxY - r.minY) * sy);
-        g.fill({ color: 0xffffff, alpha: 1 });
-      }
+      softBeyond.rect((r.minX - rect.minX) * sx, (r.minY - rect.minY) * sy, (r.maxX - r.minX) * sx, (r.maxY - r.minY) * sy);
+      softBeyond.fill({ color: 0xffffff, alpha: 1 });
     }
   };
 
@@ -852,7 +823,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
 
   return {
     mesh,
-    maskPaint,
     setMaskBounds(bounds) {
       const w = bounds ? bounds.maxX - bounds.minX : 0;
       const h = bounds ? bounds.maxY - bounds.minY : 0;
@@ -877,8 +847,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       }
       soften.strength = softCells() * s;
       soften.quality = blurPasses(soften.strength);
-      edgeBlur.strength = EDGE_FEATHER_CELLS * s;
-      edgeBlur.quality = blurPasses(edgeBlur.strength);
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
@@ -904,12 +872,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
           }
         : null;
     },
-    renderMask() {
-      if (!rect) return;
-      engine.renderToTexture(maskScene, maskRT, true);
-      engine.renderToTexture(softScene, maskSoftRT, true);
-      engine.renderToTexture(edgeScene, maskEdgeRT, true);
-    },
     setPalette(p) {
       palette = p;
       applyLookColors();
@@ -924,7 +886,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       fadeCells = FADE_BLUR_CELLS_PER_UNIT * look.fade;
       if (rect) {
         // The mask geometry has not changed, only how much the soft copy blurs it — so only
-        // the soft render needs to run again, not the full `renderMask`.
+        // the soft render needs to run again.
         soften.strength = softCells() * scale;
         soften.quality = blurPasses(soften.strength);
         engine.renderToTexture(softScene, maskSoftRT, true);
@@ -938,14 +900,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     },
     setEdgeLine(on) {
       uniforms.uEdgeLine = on ? 1 : 0;
-    },
-    setWash(color, alpha) {
-      setVec(uniforms.uWash, [
-        ((color >> 16) & 0xff) / 255,
-        ((color >> 8) & 0xff) / 255,
-        (color & 0xff) / 255,
-      ]);
-      uniforms.uWashAlpha = Math.min(1, Math.max(0, alpha));
     },
     setPools(pools) {
       // Nearest the mask first when there are too many: the ones a seat can see are the ones
@@ -993,9 +947,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       softScene.destroy({ children: true });
       soften.destroy();
       softCoverage?.destroy();
-      edgeScene.destroy({ children: true });
-      edgeCoverage.destroy();
-      edgeBlur.destroy();
       maskEdgeRT.destroy(true);
       maskRT.destroy(true);
       maskSoftRT.destroy(true);

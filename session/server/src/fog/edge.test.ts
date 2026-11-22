@@ -25,7 +25,7 @@ function table(map: string, fog: Partial<SceneFog>, at: (frame: { maxX: number; 
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Edge')
   const put = (f: Partial<SceneFog>) =>
     stores.moduleState.put(campaign.id, 'fog', {
-      byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, mode: 'vision', ...f } },
+      byScene: { [SCENE]: { ...f } },
     } satisfies FogState)
   put(fog)
   const vision = createVision(stores)

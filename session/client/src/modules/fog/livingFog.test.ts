@@ -46,21 +46,6 @@ const SMALL = { minX: -0.8, minY: -0.8, maxX: 30.8, maxY: 29.8 };
 const BIG = { minX: -3.6, minY: -3.6, maxX: 33.6, maxY: 33.6 };
 
 describe('the mask textures after a resize (T14)', () => {
-  it('keeps the soft and feather copies of the player mask at the new size', () => {
-    const { engine, take } = measuringEngine();
-    const fog = createLivingFog(engine, { dense: 1, mist: 0.6, rim: 0.75, fade: 0.6, oneTier: true });
-    fog.setMaskBounds(SMALL);
-    fog.renderMask();
-    take();
-    fog.setMaskBounds(BIG);
-    fog.renderMask();
-    const sprites = take();
-    expect(sprites.length).toBeGreaterThan(0);
-    for (const s of sprites) expect(s.bounds).toEqual(s.texture);
-    expect(sprites[0].texture).toEqual([Math.ceil(37.2 * 24), Math.ceil(37.2 * 24)]);
-    fog.destroy();
-  });
-
   it('keeps the compositor’s soft copy at the new size, By sight', () => {
     const { engine, take } = measuringEngine();
     const fog = createLivingFog(engine, { dense: 1, mist: 0.6, rim: 0.75, fade: 0.6, oneTier: true });

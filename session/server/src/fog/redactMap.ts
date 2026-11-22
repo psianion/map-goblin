@@ -11,13 +11,9 @@ import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/
 import {
   DEFAULT_WALL_WIDTH,
   FOG_MARGIN,
-  fogModeOf,
   fogOn,
   rebaseRegion,
-  regionOf,
-  setCells,
   toBytes,
-  type Cell,
   type RegionMask,
   type SceneFog,
 } from '@dnd/mechanics/fog'
@@ -48,7 +44,6 @@ import {
   wallsOf,
   type SceneMap,
 } from './sceneMap'
-import { exploreLocks, inAnyLock } from './sweep'
 import { enclosedOn, hasHiddenGround } from './outdoorGround'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
@@ -494,83 +489,6 @@ export function groundOf(
 
 /** Fog off: every point is ground the players have. */
 export const ALL_GROUND: Ground = () => true
-
-/**
- * The auto-explore locks a player's own mask has to fence its near pass with, as cells.
- *
- * Zones are prep and never travel (`slice`, "prep never travels"), so a seat has no way to
- * derive them — and without them a contained near pass clears fog over ground the referee
- * refuses to write (`sweep.ts`'s `seen`, `vision.ts`'s `swept`), permanently, because the
- * server never sends a correction for a cell it declined to grant. So the zones' *cells* ride
- * the document instead: the same `inAnyLock` test the referee applies, evaluated on the cell
- * centres `cellsCoveredByPolygon` counts by, so the fence and the refusal are the same shape.
- *
- * Intersected with the ground this seat actually holds art for, and that is the privacy half:
- * a lock in a room nobody has earned would put its position on the wire. On a zoned map that
- * is the kept rooms and their band (`nearKeptRoom` — the client's own `shippedGround` grows
- * the room polygons by the very same pad), and nothing outside it needs a fence anyway, since
- * `inverseShipped` already refuses to open ground with no art under it. A roomless map ships
- * its image whole (#114), so every lock cell on it is one the near pass could otherwise open.
- *
- * Vision mode only — containment is a vision-mode feature and rooms mode reads none of this —
- * and absent entirely when the map locks nothing, which is nearly every map.
- *
- * ponytail: scanned over the locks' own bounding box rather than the frame, because a frame
- * runs to `REGION_CELL_MAX` (262144 cells) and the zones on it are a few dozen cells across.
- */
-export function lockMaskFor(
-  scene: SceneMap,
-  fog: SceneFog,
-  kept: ReadonlySet<string>,
-): RegionMask | undefined {
-  if (fogModeOf(fog) !== 'vision' || !scene.frame) return undefined
-  const locks = exploreLocks(scene.zones)
-  const box = lockBox(locks)
-  const mask = box && regionOf(scene.frame)
-  if (!box || !mask) return undefined
-  // A map with rooms fences by the rooms this seat holds; a roomless one ships whole, so
-  // every lock cell counts.
-  const cut = scene.rooms.length > 0 ? cutFor(scene, kept) : null
-  const cells: Cell[] = []
-  const from = (v: number, origin: number) => Math.max(0, Math.floor(v - origin))
-  for (let row = from(box.minY, mask.minY); row < Math.min(mask.rows, Math.ceil(box.maxY - mask.minY)); row++) {
-    for (let col = from(box.minX, mask.minX); col < Math.min(mask.cols, Math.ceil(box.maxX - mask.minX)); col++) {
-      const [x, y] = [mask.minX + col + 0.5, mask.minY + row + 0.5]
-      if (!inAnyLock(locks, x, y)) continue
-      if (cut) {
-        const room = scene.roomAt(x, y)
-        if (!(room !== null && cut.kept.has(room)) && !nearKeptRoom(cut, x, y)) continue
-      }
-      cells.push([col, row])
-    }
-  }
-  return cells.length > 0 ? setCells(mask, cells) : undefined
-}
-
-/** The one box every lock zone fits in, or null when the map locks nothing. */
-function lockBox(
-  locks: ReturnType<typeof exploreLocks>,
-): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
-  for (const shape of locks) {
-    const [x0, y0, x1, y1] =
-      shape.kind === 'circle'
-        ? [
-            shape.position.x - shape.radius,
-            shape.position.y - shape.radius,
-            shape.position.x + shape.radius,
-            shape.position.y + shape.radius,
-          ]
-        : shape.kind === 'rect'
-          ? [shape.x, shape.y, shape.x + shape.width, shape.y + shape.height]
-          : [Infinity, Infinity, -Infinity, -Infinity]
-    minX = Math.min(minX, x0)
-    minY = Math.min(minY, y0)
-    maxX = Math.max(maxX, x1)
-    maxY = Math.max(maxY, y1)
-  }
-  return maxX > minX && maxY > minY ? { minX, minY, maxX, maxY } : null
-}
 
 /**
  * Every child id a player is entitled to hold right now — literally `childShips`, the function

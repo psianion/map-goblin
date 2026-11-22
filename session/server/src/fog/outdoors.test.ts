@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { fogModule, rebaseRegion, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { rebaseRegion, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import type { DoorsState } from '@dnd/mechanics/doors'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
@@ -19,10 +19,8 @@ beforeAll(async () => {
 
 const MAP = readFileSync(join(import.meta.dirname, '../../../testdata/outdoor-cave.ggvtt'), 'utf8')
 const SCENE = 'scene-cave'
-const lit = { status: 'revealed' as const, wasEverRevealed: true }
-const DM = { role: 'dm' as const, identityId: 'dm-1' }
 
-/** The fixture with a room in its cave, so the cave is a fog row of its own. */
+/** The fixture with a room in its cave, so the cave is a room of its own. */
 function withCaveRoom(open = true): string {
   const map = JSON.parse(MAP)
   const layer = map.layers.find((l: { type: string }) => l.type === 'dungeon')
@@ -43,7 +41,7 @@ function table(map = MAP) {
   const campaignId = campaign.id
   const setFog = (scene: Partial<SceneFog>) =>
     stores.moduleState.put(campaignId, 'fog', {
-      byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, ...scene } },
+      byScene: { [SCENE]: { ...scene } },
     } satisfies FogState)
   const setTokens = (...tokens: Token[]) =>
     stores.moduleState.put(campaignId, 'tokens', {
@@ -57,33 +55,6 @@ function table(map = MAP) {
   const fogOf = () => (stores.moduleState.get(campaignId, 'fog') as FogState).byScene[SCENE]
   return { stores, campaignId, vision, setFog, setTokens, setDoors, fogOf }
 }
-
-describe('the Outdoors row and what the party sees (§2.1, §2.6)', () => {
-  it('7: is a fog row the DM can reveal and hide', () => {
-    const { vision, campaignId } = table()
-    expect(vision.roomsOf(campaignId, SCENE)).toEqual(['room-hall', '@outdoors'])
-    const fog = fogModule(vision.roomsOf)
-    let state: FogState = { byScene: {} }
-    const ctx = {
-      campaignId,
-      sessionId: 's',
-      activeSceneId: SCENE,
-      sender: DM,
-      players: [],
-      broadcast: () => {},
-      get state() {
-        return state
-      },
-      setState: (next: FogState) => {
-        state = next
-      },
-    }
-    expect(fog.handler('reveal', { roomId: '@outdoors' }, ctx)).toBeUndefined()
-    expect(state.byScene[SCENE].rooms['@outdoors']).toEqual(lit)
-    expect(fog.handler('hide', { roomId: '@outdoors' }, ctx)).toBeUndefined()
-    expect(state.byScene[SCENE].rooms['@outdoors']).toEqual({ status: 're_hidden', wasEverRevealed: true })
-  })
-})
 
 describe('sight from outside (§2.4, §2.5, §2.7)', () => {
   it('11: a sweep from outside clears outdoor cells on the token’s level', () => {
@@ -100,7 +71,7 @@ describe('sight from outside (§2.4, §2.5, §2.7)', () => {
     const frame = t.vision.frameOf(t.campaignId, SCENE)!
     t.setTokens(pc())
     t.setFog({ on: true, cleared: { 'lvl-1': setCells(rebaseRegion(undefined, frame)!, [[15, 9]]) } })
-    expect(t.vision.visionOf(SCENE)!.known!(undefined, 15.5, 9.5)).toBe(true)
+    expect(t.vision.visionOf(SCENE)!.known(undefined, 15.5, 9.5)).toBe(true)
     // The same map, grown: a new frame, so the stored record no longer matches it.
     const grown = JSON.parse(MAP)
     grown.mapSettings.fixedSize = { width: 34, height: 24, locked: true }
@@ -109,8 +80,8 @@ describe('sight from outside (§2.4, §2.5, §2.7)', () => {
     t.vision.invalidateScene(SCENE)
     const moved = t.vision.frameOf(t.campaignId, SCENE)!
     expect(moved).not.toEqual(frame)
-    expect(t.vision.visionOf(SCENE)!.known!(undefined, 15.5, 9.5)).toBe(true)
-    expect(t.vision.visionOf(SCENE)!.known!(undefined, 16.5, 9.5)).toBe(false)
+    expect(t.vision.visionOf(SCENE)!.known(undefined, 15.5, 9.5)).toBe(true)
+    expect(t.vision.visionOf(SCENE)!.known(undefined, 16.5, 9.5)).toBe(false)
   })
 
   it('13: a player’s token with no sight sees, an unowned PC sees for the party, an NPC does not', () => {

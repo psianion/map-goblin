@@ -16,9 +16,7 @@ import {
   autoExploreOn,
   cellsCoveredByPolygon,
   clearedOn,
-  fogModeOf,
   fogOn,
-  outdoorsId,
   rebaseRegion,
   sceneFogOf,
   setCells,
@@ -41,7 +39,6 @@ import {
   NO_GROUND as NO_GROUND_CELL,
   SIZE_CELLS,
   cellCentre,
-  claimed,
   eyes,
   walkRefusal,
   type SceneVision,
@@ -75,7 +72,7 @@ import {
   type SceneMapOf,
 } from './sceneMap'
 import { createWalkGrids } from './walk'
-import { enclosedOn, enclosureRings, hasHiddenGround, zonedEnclosureRings } from './outdoorGround'
+import { enclosedOn, enclosureRings, zonedEnclosureRings } from './outdoorGround'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Clipper wrapper the server already boots (clipperBoot.ts)
 import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: floor-piece predicates, pure
@@ -91,14 +88,10 @@ import {
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
 export interface Vision {
-  /** Backs `fogModule` — the room ids a fog command may name. */
+  /** The room ids of a scene's map — what a starting room may name (`openSession`). */
   roomsOf(campaignId: string, sceneId: string): readonly string[]
   /** Backs `fogModule`'s region commands — the rectangle a region cell is counted from. */
   frameOf(campaignId: string, sceneId: string): SceneMap['frame']
-  /** …and the room a brushed cell falls in, which is the room that has to ship for it. */
-  roomAtOf(campaignId: string, sceneId: string, x: number, y: number): string | null
-  /** …and whether a brushed cell is ground, or beside it, on any level (table fix pass §2.5). */
-  groundAtOf(campaignId: string, sceneId: string, x: number, y: number): boolean
   /** Fog rework — the level ids that key a scene's cleared record. */
   levelsOf(campaignId: string, sceneId: string): readonly string[]
   /** Fog rework — whether a brushed cell is ground, or beside it, on one level. */
@@ -112,26 +105,13 @@ export interface Vision {
    * with no map, which is the scene a player is handed no geometry for either.
    */
   playerDoors(sceneId: string): ReadonlySet<string>
-  /**
-   * Backs `tokensModule` — redaction (D7) and `canOccupy` (D8).
-   *
-   * P5 — the viewer is what makes `individual` share real: pass the seat being redacted for
-   * and `canSee` is that seat's own sight. Omitted (every command-path caller) is the party's,
-   * which is what `canOccupy` asks and what party share answers for everyone anyway.
-   */
+  /** Backs `tokensModule` — redaction (D7) and `canOccupy` (D8). */
   visionOf(sceneId: string, viewer?: Viewer): SceneVision | null
   /** The map GET's player path (D4). Null when the map is unknown or will not parse. */
   playerMap(sceneId: string): SerializedMapData | null
   /** The scene's parsed map, raw — triggers' prep resolver (M4) reuses this cache rather
    *  than parsing the map doc a second time. */
   sceneMapOf: SceneMapOf
-  /** Table fix pass §2.7 — the fog rows a player seat may see right now (`SceneFog.visible`). */
-  visibleOf(sceneId: string): readonly string[] | null
-  /**
-   * Table fix pass §2.6 — By hand mode: the rooms, or Outdoors rows, a party token stands in
-   * that were never revealed, for `fog.party-here`. Null when there is nothing to write.
-   */
-  partyHerePatch(sceneId: string): { sceneId: string; rooms: string[] } | null
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
   /**
@@ -243,7 +223,7 @@ export function createVision(stores: Stores): Vision {
     const clearSightOn = (levelId: string): PartyVision => {
       let own = clearing.get(levelId)
       if (!own) {
-        own = sweeps.partyVision(map, tokens, doors, gate, undefined, 'range', null, levelId)
+        own = sweeps.partyVision(map, tokens, doors, gate, levelId)
         clearing.set(levelId, own)
       }
       return own
@@ -340,26 +320,8 @@ export function createVision(stores: Stores): Vision {
 
   return {
     sceneMapOf,
-    // Table fix pass §2.1: Outdoors is a fog row like a room, one per level.
-    roomsOf: (_campaignId, sceneId) => {
-      const map = sceneMapOf(sceneId)
-      if (!map) return []
-      const rooms = map.rooms.map((room) => room.id)
-      if (!map.frame) return rooms
-      return [...rooms, ...new Set(levelIdsOf(map).map((level) => outdoorsRowOf(map.data, level)))]
-    },
+    roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
     frameOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.frame ?? null,
-    roomAtOf: (_campaignId, sceneId, x, y) => sceneMapOf(sceneId)?.roomAt(x, y) ?? null,
-    groundAtOf: (campaignId, sceneId, x, y) => {
-      const map = sceneMapOf(sceneId)
-      if (!map) return false
-      const doors = doorsOfScene(read(campaignId, 'doors', NO_DOORS), sceneId, map.doors)
-      const crossings = read(campaignId, 'crossings', NO_CROSSINGS)
-      return levelIdsOf(map).some((level) => {
-        const grid = walks.gridFor(map, doors, crossings, sceneId, level)
-        return !!grid && groundNear(grid, x, y)
-      })
-    },
     levelsOf: (_campaignId, sceneId) => {
       const map = sceneMapOf(sceneId)
       return map ? levelIdsOf(map) : []
@@ -386,8 +348,6 @@ export function createVision(stores: Stores): Vision {
         levelId && map.data.levels?.some((l) => l.id === levelId) ? levelId : first
       return {
         roomAt: (x, y) => map.roomAt(x, y),
-        visible: computed.explored,
-        occupiable: computed.explored,
         known: (levelId, x, y) => computed.clearedAt(levelOf(levelId))(x, y),
         walkRefusal: map.frame
           ? (token, to, from) => {
@@ -424,25 +384,6 @@ export function createVision(stores: Stores): Vision {
     },
 
     revealDelta: (sceneId) => compute(sceneId)?.delta ?? null,
-
-    visibleOf: (sceneId) => {
-      const computed = compute(sceneId)
-      return computed ? [...computed.explored] : null
-    },
-
-    partyHerePatch: (sceneId) => {
-      const computed = compute(sceneId)
-      if (!computed || fogModeOf(computed.fog) !== 'rooms' || !computed.map.frame) return null
-      const { map, fog } = computed
-      if (map.rooms.length === 0 && !hasHiddenGround(map.data)) return null
-      const rows = new Set<string>()
-      for (const token of Object.values(computed.tokens)) {
-        if (token.hidden || !claimed(token)) continue
-        const row = map.roomAt(token.x, token.y) ?? outdoorsRowOf(map.data, levelOfToken(map, token))
-        if (!fog.rooms[row]?.wasEverRevealed) rows.add(row)
-      }
-      return rows.size ? { sceneId, rooms: [...rows] } : null
-    },
 
     autoExplorePatch: (sceneId) => {
       const computed = compute(sceneId)
@@ -560,11 +501,6 @@ function levelOfToken(map: SceneMap, token: Pick<Token, 'levelId'>): string {
 /** Every level id of the map, in order; the first level's alone on a map with none. */
 function levelIdsOf(map: SceneMap): string[] {
   return map.data.levels?.length ? map.data.levels.map((l) => l.id) : [firstLevelId(map.data)]
-}
-
-/** The Outdoors fog row of a level: one row on a one-level map, one per level otherwise. */
-export function outdoorsRowOf(data: Pick<SerializedMapData, 'levels'>, levelId: string): string {
-  return (data.levels?.length ?? 0) > 1 ? outdoorsId(levelId) : outdoorsId()
 }
 
 /** Fog rework — a walk grid's cells the players have, as `walkRefusal`'s `known`, memoised. */

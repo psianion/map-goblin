@@ -4,11 +4,10 @@
 
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
-import type { Room, ZoneChild } from '@dnd/core/src/shared/types';
+import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import {
-  cellsCoveredByPolygon,
   sceneFogOf,
   toBytes,
   type Cell,
@@ -131,87 +130,4 @@ export function cellAt(frame: Frame, x: number, y: number): Cell | null {
   const [col, row] = [Math.floor(x - frame.minX), Math.floor(y - frame.minY)];
   const [cols, rows] = [Math.round(frame.maxX - frame.minX), Math.round(frame.maxY - frame.minY)];
   return col < 0 || row < 0 || col >= cols || row >= rows ? null : [col, row];
-}
-
-/**
- * Rooms the region record has bits inside. The mask is decoded once for all the rooms rather
- * than per cell, and each room stops at its first set bit.
- */
-export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | undefined): Set<string> {
-  const seen = new Set<string>();
-  if (!region) return seen;
-  const bytes = toBytes(region.bits);
-  const frame = {
-    minX: region.minX,
-    minY: region.minY,
-    maxX: region.minX + region.cols,
-    maxY: region.minY + region.rows,
-  };
-  for (const room of rooms) {
-    const ring = roomRing(room);
-    if (ring.length < 3) continue;
-    for (const [col, row] of cellsCoveredByPolygon(ring, frame)) {
-      const bit = row * region.cols + col;
-      if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) {
-        seen.add(room.id);
-        break;
-      }
-    }
-  }
-  return seen;
-}
-
-/**
- * Every authored explore lock in the layers handed over, as a rectangle each. Only ever
- * non-empty on the DM's copy: a zone is prep, and the redaction strips zones from a player's
- * document unconditionally.
- *
- * ponytail: a circle lock becomes its bounding box, which over-fences rather than under.
- */
-export function exploreLocks(layers: readonly Layer[]): Polygon[] {
-  return layers
-    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
-    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
-    .flatMap((zone) => {
-      const s = zone.shape;
-      const box =
-        s.kind === 'circle'
-          ? [s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]
-          : // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
-            s.kind === 'rect'
-            ? [s.x, s.y, s.x + s.width, s.y + s.height]
-            : null;
-      if (!box) return [];
-      const [x0, y0, x1, y1] = box;
-      return [
-        [
-          [x0, y0],
-          [x1, y0],
-          [x1, y1],
-          [x0, y1],
-        ] as Polygon,
-      ];
-    });
-}
-
-/**
- * Rooms an authored explore lock covers — the DM's badge for "the party's own sight will never
- * open this one". Box against box, not shape against polygon.
- */
-export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): Set<string> {
-  const locks = exploreLocks(layers).map((poly) => [poly[0][0], poly[0][1], poly[2][0], poly[2][1]]);
-
-  const locked = new Set<string>();
-  if (locks.length === 0) return locked;
-  for (const room of rooms) {
-    const ring = roomRing(room);
-    if (ring.length < 3) continue;
-    const xs = ring.map((p) => p[0]);
-    const ys = ring.map((p) => p[1]);
-    const [rx0, rx1, ry0, ry1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    if (locks.some(([x0, y0, x1, y1]) => x0 < rx1 && x1 > rx0 && y0 < ry1 && y1 > ry0)) {
-      locked.add(room.id);
-    }
-  }
-  return locked;
 }

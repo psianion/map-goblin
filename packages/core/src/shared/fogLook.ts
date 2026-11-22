@@ -2,10 +2,10 @@
 // shared by three runtimes: canvas authors `MapSettings.fogLook` as the map's default, the
 // table's DM can override it live via `SceneFog.look` (packages/mechanics/src/fog), and the
 // session client's shader (session/client/src/modules/fog/livingFog.ts) reads whichever one
-// wins. Types, the runtime name lists a validator needs, the named presets and the shipped
-// default all live here — the one place canvas (which never depends on session-client) and
-// the client shader can both reach them from. The shader itself stays client-side; it
-// re-exports `FOG_PRESETS`/`DEFAULT_FOG_LOOK` from here rather than declaring its own.
+// wins. Types, the runtime name lists a validator needs and the shipped default all live
+// here — the one place canvas (which never depends on session-client) and the client shader
+// can both reach them from. The shader itself stays client-side; it re-exports
+// `DEFAULT_FOG_LOOK` from here rather than declaring its own.
 
 /** The four cloud strata the shader knows how to draw — see `layerNoise` in livingFog.ts's
  * FRAGMENT for what each one looks like. */
@@ -23,13 +23,11 @@ export interface FogLayer {
   angle: number;
 }
 
-/** The named looks the mockup shipped (`FOG_PRESETS`, livingFog.ts) — a `FogLook.preset` of
- * `undefined` means a DM- or map-authored custom mix rather than one of these. */
-export const FOG_LOOK_PRESETS = ['cumulus', 'mist', 'smoke', 'rolling'] as const;
-
-/** The table-facing shape of the cloud — everything `LivingFog.setLook` can change at once. */
+/**
+ * The table-facing shape of the cloud — everything `LivingFog.setLook` can change at once. A map
+ * saved while looks had named presets may still carry a `preset` key here; nothing reads it.
+ */
 export interface FogLook {
-  preset?: (typeof FOG_LOOK_PRESETS)[number];
   /** The mist under the layers — what shows wherever every layer is thin, and the colour the
    * scene grade pulls before it ever reaches a layer tint. */
   base: string;
@@ -76,33 +74,9 @@ const presetLayers = (
     angle,
   })) as [FogLayer, FogLayer, FogLayer];
 
-/** Ported verbatim from docs/mockups/2026-09-09-fog-current-vs-living.html's `PRESETS`. */
-export const FOG_PRESETS: Record<(typeof FOG_LOOK_PRESETS)[number], [FogLayer, FogLayer, FogLayer]> = {
-  cumulus: presetLayers([
-    [0, '#aab2ba', 1.0, 1.05, 0.009, 20],
-    [0, '#d5dade', 0.6, 2.1, 0.017, 160],
-    [0, '#f2f4f6', 0.4, 3.8, 0.028, 335],
-  ]),
-  mist: presetLayers([
-    [2, '#b9c6d2', 1.0, 0.8, 0.006, 10],
-    [2, '#dfe7ee', 0.7, 2.2, 0.012, 190],
-    [1, '#eef2f5', 0.3, 4.0, 0.02, 30],
-  ]),
-  smoke: presetLayers([
-    [1, '#6f7278', 1.0, 1.2, 0.02, 90],
-    [1, '#9a9ea3', 0.6, 2.6, 0.035, 250],
-    [3, '#c4c7cb', 0.35, 4.5, 0.05, 80],
-  ]),
-  rolling: presetLayers([
-    [0, '#9fa8b0', 1.0, 0.6, 0.006, 0],
-    [2, '#cfd6dc', 0.8, 1.8, 0.01, 180],
-    [3, '#eef1f3', 0.35, 3.5, 0.03, 15],
-  ]),
-};
-
 /**
  * The one look the table ships (fog rework §2.8): cloud, not mist. Three billow layers — the
- * `cumulus` rows, copied here so the default outlives the presets — give rounded lobes with light
+ * old `cumulus` rows — give rounded lobes with light
  * tops and shaded undersides, and a narrow fade (2 cells, against the old 4) lets those lobes
  * carry the edge instead of a soft blur. No veil. Base, wind and glow stay as they were. The
  * values are a starting point for the sign-off on screen, not a final answer.

@@ -185,7 +185,7 @@ export interface TriggerDef {
   name: string;
   when: TriggerCondition;
   actions: TriggerAction[];
-  /** Fire once and stay spent. (`fog.reset` re-arms room-revealed triggers only.) */
+  /** Fire once and stay spent. (`fog.fog-all` re-arms room-revealed triggers only.) */
   once: boolean;
   enabled: boolean;
 }

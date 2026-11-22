@@ -21,12 +21,7 @@ export type LogAction =
   | 'unlocked'
   | 'revealed-secret'
   // fog
-  | 'revealed-room'
-  | 'hid-room'
-  | 'revealed-all'
-  | 'hid-all'
   | 'changed-fog'
-  | 'reset-fog'
   | 'turned-fog-on'
   | 'turned-fog-off'
   | 'cleared-all'

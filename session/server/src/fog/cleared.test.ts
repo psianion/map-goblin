@@ -51,18 +51,7 @@ function table(map: string, scene = 'scene-1') {
   const vision = createVision(stores)
   const registry = new ModuleRegistry(stores.moduleState, autoExplore(vision))
   registry.register(tokensModule(vision.visionOf, vision.levelFilterOf))
-  registry.register(
-    fogModule(
-      vision.roomsOf,
-      vision.frameOf,
-      vision.roomAtOf,
-      (id) => vision.visibleOf(id),
-      vision.groundAtOf,
-      (id) => vision.keptRoomsOf(id),
-      vision.levelsOf,
-      vision.floorOnOf,
-    ),
-  )
+  registry.register(fogModule(vision.frameOf, vision.levelsOf, vision.floorOnOf))
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   registry.register(triggersModule(createTriggerDeps(stores, vision.sceneMapOf)))
   const run = (module: string, action: string, payload: object, sender: Viewer = DM) =>
@@ -74,7 +63,7 @@ function table(map: string, scene = 'scene-1') {
       players: ROSTER,
       broadcast: () => {},
     })
-  const fog = (): SceneFog => (stores.moduleState.get(campaign.id, 'fog') as FogState | undefined)?.byScene[scene] ?? { rooms: {}, concealBehindDoors: true }
+  const fog = (): SceneFog => (stores.moduleState.get(campaign.id, 'fog') as FogState | undefined)?.byScene[scene] ?? {}
   const tokens = (): Token[] => Object.values((stores.moduleState.get(campaign.id, 'tokens') as TokensState | undefined)?.byScene[scene] ?? {})
   const cleared = (levelId: string, x: number, y: number): boolean => {
     const mask = fog().cleared?.[levelId]

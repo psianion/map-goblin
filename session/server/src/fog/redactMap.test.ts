@@ -85,7 +85,7 @@ function mapFile(zoned: boolean): SerializedMapData {
 
 /** The hall seen, the vault never. */
 /** Fog on with the hall cleared; on a map nobody zoned, fog on with nothing cleared. */
-const fogged = (s: SceneMap): SceneFog => (s.rooms.length ? fogOnWith(s, ['hall']) : { rooms: {}, concealBehindDoors: true, on: true })
+const fogged = (s: SceneMap): SceneFog => (s.rooms.length ? fogOnWith(s, ['hall']) : { on: true })
 const redactFogged = (s: SceneMap) => redactMapForViewer(s, fogged(s), {})
 
 function playerCopy(zoned: boolean): AnyChild[] {

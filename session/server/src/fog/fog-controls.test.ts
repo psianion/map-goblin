@@ -1,12 +1,11 @@
-// T11 — the DM's fog controls on the Testing map (`testing-cave.ggvtt`), as the live table had
-// them: two claimed tokens outside the cave, the cave-kit double door at its mouth open,
-// concealment and contained sight on, auto-explore off.
+// T11 — the Testing map (`testing-cave.ggvtt`) as the live table had it: two claimed tokens
+// outside the cave, the cave-kit double door at its mouth open.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
-import { fogModule, type FogState, type RoomFog, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule } from '@dnd/mechanics/fog'
 import { SOLID_GROUND, tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the walls sight and walk both read
 import { resolveWalls } from '@dnd/core/src/shared/wallResolve'
@@ -30,17 +29,10 @@ const ROSTER = [
   { identityId: 'p-1', name: 'Pim', role: 'player' as const, connected: true },
   { identityId: 'p-2', name: 'Yara', role: 'player' as const, connected: true },
 ]
-const CAVE_ENT = '5e1f64a8-4fdc-417a-b7a9-d0e00d196974'
-const BLOO = 'd52adfc6-153b-4bf7-9a25-622d02d49d52'
-const YELLO = '9d001e8a-71c5-4acd-9b6b-fb55d6473a61'
-const GREE = '874a0390-99c8-4033-8d68-cfc2344fba38'
-const ROOMS = [CAVE_ENT, BLOO, YELLO, GREE]
 const MOUTH_DOOR = 'd2d33a1e-6c90-4c31-9eab-df4672e6d5f3'
-const lit: RoomFog = { status: 'revealed', wasEverRevealed: true }
-const hidden: RoomFog = { status: 're_hidden', wasEverRevealed: true }
 
 /** The live table: Pim outdoors with a torch, Yara just outside the cave mouth, the mouth door open. */
-function table(mode: 'rooms' | 'vision') {
+function table() {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Testing')
   stores.maps.insert(SCENE, campaign.id, 'Testing', MAP)
@@ -48,7 +40,7 @@ function table(mode: 'rooms' | 'vision') {
   const vision = createVision(stores)
   const registry = new ModuleRegistry(stores.moduleState, autoExplore(vision))
   registry.register(tokensModule(vision.visionOf))
-  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf, undefined, undefined, (id) => vision.keptRoomsOf(id)))
+  registry.register(fogModule(vision.frameOf, vision.levelsOf, vision.floorOnOf))
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   const run = (module: string, action: string, payload: object, sender: Viewer = DM) =>
     registry.dispatch(module, action, { sceneId: SCENE, ...payload }, {
@@ -59,7 +51,6 @@ function table(mode: 'rooms' | 'vision') {
       players: ROSTER,
       broadcast: () => {},
     })
-  const fogOf = (): SceneFog => (stores.moduleState.get(campaign.id, 'fog') as FogState).byScene[SCENE]
   const tokensOf = (): Token[] => Object.values((stores.moduleState.get(campaign.id, 'tokens') as TokensState).byScene[SCENE])
 
   const pim: Partial<Token> = {
@@ -76,30 +67,14 @@ function table(mode: 'rooms' | 'vision') {
     expect(run('tokens', 'update', { id, ...over })).toBeNull()
     expect(run('tokens', 'assign', { id, identityId: owner })).toBeNull()
   }
-  expect(run('fog', 'set-bulk', { rooms: { '@outdoors': lit, ...Object.fromEntries(ROOMS.map((id) => [id, lit])) } })).toBeNull()
   expect(run('doors', 'toggle', { id: MOUTH_DOOR })).toBeNull()
-  if (mode === 'vision') {
-    expect(run('fog', 'set-mode', { mode: 'vision' })).toBeNull()
-    expect(run('fog', 'set-auto-explore', { autoExplore: false })).toBeNull()
-  }
-  return { vision, run, fogOf, tokensOf }
+  return { vision, run, tokensOf }
 }
 
-describe('Hide all, then Reveal all, in By sight (T11 I1)', () => {
-
-  it('sends no open ground while nobody sees any and nothing is known', () => {
-    const t = table('vision')
-    for (const token of t.tokensOf()) t.run('tokens', 'delete', { id: token.id })
-    const all = Object.fromEntries(Object.keys(t.fogOf().rooms).map((id) => [id, hidden]))
-    t.run('fog', 'set-bulk', { rooms: all, forget: true })
-    expect(t.vision.playerMap(SCENE)!.openGround).toBeUndefined()
-  })
-})
-
-describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => {
+describe('the cave on the Testing map (T11 I3)', () => {
 
   it('stands no wall, for walk or sight, on the two sliver contours inside BLOO (T12)', () => {
-    const map = table('rooms').vision.sceneMapOf(SCENE)!
+    const map = table().vision.sceneMapOf(SCENE)!
     const walls = map.data.layers.flatMap((l) => (l.type === 'dungeon' && l.children ? resolveWalls(l as DungeonLayer) : []))
     expect(walls.some((w) => w.kind === 'cave')).toBe(true)
     const near = (x: number, y: number) => walls.some((w) => w.points.some(([px, py]) => Math.hypot(px - x, py - y) < 0.3))
@@ -108,7 +83,7 @@ describe('By hand with conceal behind doors on the Testing map (T11 I3)', () => 
   })
 
   it('walks a player from outside the mouth into Cave Ent., BLOO, YELLO and GREE (T12)', () => {
-    const t = table('rooms')
+    const t = table()
     const yara = t.tokensOf().find((tk) => tk.name === 'Yara')!
     const P2: Viewer = { role: 'player', identityId: 'p-2' }
     // The mouth, Cave Ent., BLOO, YELLO and GREE, each walked to from the last.

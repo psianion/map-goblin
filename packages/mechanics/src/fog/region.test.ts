@@ -4,13 +4,9 @@ import {
   cellsCoveredByPolygon,
   clearCells,
   getCell,
-  nearAuthoredFloor,
-  onAuthoredFloor,
   pointInPolygon,
   REGION_CELL_MAX,
-  orRegion,
   rebaseRegion,
-  regionFor,
   regionOf,
   setCells,
   toBase64,
@@ -67,8 +63,6 @@ describe('regionOf', () => {
     // Thin and long counts the same: it is cells, not the longest side.
     expect(regionOf({ minX: 0, minY: 0, maxX: 2000, maxY: 2000 })).toBeUndefined()
     expect(regionOf({ minX: 0, minY: 0, maxX: 300000, maxY: 1 })).toBeUndefined()
-    // …and `regionFor` passes the refusal straight through rather than inventing a mask.
-    expect(regionFor(undefined, square(513))).toBeUndefined()
   })
 })
 
@@ -108,22 +102,6 @@ describe('setCells / getCell / clearCells', () => {
     const region = regionOf(FRAME)!
     setCells(region, [[1, 1]])
     expect(on(region)).toEqual([])
-  })
-})
-
-describe('regionFor', () => {
-  const frame: Frame = { minX: 0, minY: 0, maxX: 10, maxY: 10 }
-
-  it('keeps a stored mask that still describes this frame, identity included', () => {
-    const stored = set(undefined, [1, 1])
-    expect(regionFor(stored, frame)).toBe(stored)
-  })
-
-  it('starts over when the map moved or resized under it', () => {
-    const stored = set(undefined, [1, 1])
-    expect(on(regionFor(stored, { minX: 0, minY: 0, maxX: 12, maxY: 10 })!)).toEqual([])
-    expect(on(regionFor(stored, { minX: 1, minY: 0, maxX: 11, maxY: 10 })!)).toEqual([])
-    expect(on(regionFor(undefined, frame)!)).toEqual([])
   })
 })
 
@@ -187,77 +165,6 @@ describe('cellsCoveredByPolygon', () => {
     expect(cells).toContainEqual([1, 1])
     expect(cells).toContainEqual([4, 4])
     expect(cells).not.toContainEqual([4, 1])
-  })
-})
-
-/** The same bytes in a longer array — a record whose length this frame could never mint. */
-const padded = (bits: string, length: number): Uint8Array => {
-  const out = new Uint8Array(length)
-  out.set(toBytes(bits))
-  return out
-}
-
-describe('orRegion destroys nothing', () => {
-  it('merges two masks on the same frame', () => {
-    expect(on(orRegion(set(undefined, [1, 1]), set(undefined, [8, 8])))).toEqual([
-      [1, 1],
-      [8, 8],
-    ])
-  })
-
-  it('leaves the base alone when the frames disagree', () => {
-    const other = setCells(regionOf(SHIFTED)!, [[8, 8]])
-    expect(orRegion(set(undefined, [1, 1]), other).bits).toBe(set(undefined, [1, 1]).bits)
-    expect(orRegion(set(undefined, [1, 1]), undefined).bits).toBe(set(undefined, [1, 1]).bits)
-  })
-
-  it('refuses a mask whose byte count disagrees, the way it refuses a disagreeing frame', () => {
-    // Four numbers lining up is not a promise that the bytes do — `bits` is the record, and a
-    // length that cannot come from this frame's cols × rows is a corrupted or hand-made one.
-    // Half-merging it writes cells out of somebody else's mask into this one.
-    const base = set(undefined, [9, 9])
-    const longer = { ...base, bits: toBase64(padded(set(undefined, [1, 1]).bits, 20)) }
-    expect(on(orRegion(base, longer)), 'a mask of the wrong length was merged anyway').toEqual([
-      [9, 9],
-    ])
-
-    // The other direction is inert rather than destructive (`bytes[i] |= undefined` is `| 0`),
-    // and refused for the same reason: the base's own tail is left exactly as it stands.
-    const short = { ...base, bits: toBase64(toBytes(base.bits).slice(0, 4)) }
-    expect(orRegion(base, short).bits).toBe(base.bits)
-  })
-})
-
-describe('the two floor predicates', () => {
-  // One square room, x and y both in [2, 6). Cell centres land on the halves, so (6.5, 4.5) is
-  // the wall band beside its east edge and (7.5, 4.5) is the void past it.
-  const roomAt = (x: number, y: number): string | null =>
-    x >= 2 && x < 6 && y >= 2 && y < 6 ? 'hall' : null
-
-  it('separates standable from recordable at the wall band', () => {
-    // Inside: both say yes.
-    expect(onAuthoredFloor(1, roomAt(4.5, 4.5))).toBe(true)
-    expect(nearAuthoredFloor(1, roomAt, 4.5, 4.5)).toBe(true)
-    // The band: nobody may stand there, the record may remember it. This is the whole fix —
-    // the wall art of an explored room lives on these cells.
-    expect(onAuthoredFloor(1, roomAt(6.5, 4.5))).toBe(false)
-    expect(nearAuthoredFloor(1, roomAt, 6.5, 4.5)).toBe(true)
-    // The diagonal band cell too: a 4-neighbour test would notch every room corner.
-    expect(nearAuthoredFloor(1, roomAt, 6.5, 6.5)).toBe(true)
-    // Two cells out: void to both, which is the palisade-yard patch the clamp was added for.
-    expect(nearAuthoredFloor(1, roomAt, 7.5, 4.5)).toBe(false)
-    expect(nearAuthoredFloor(1, roomAt, 4.5, 0.5)).toBe(false)
-  })
-
-  it('exempts a map with no rooms without asking a neighbour', () => {
-    let asked = 0
-    const counted = (x: number, y: number): string | null => {
-      asked += 1
-      return roomAt(x, y)
-    }
-    expect(nearAuthoredFloor(0, counted, 999, 999)).toBe(true)
-    expect(onAuthoredFloor(0, null)).toBe(true)
-    expect(asked).toBe(0)
   })
 })
 
