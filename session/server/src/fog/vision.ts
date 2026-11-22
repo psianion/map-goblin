@@ -31,7 +31,6 @@ import {
   roomEditsOf,
   sceneTriggersOf,
   viewedLevel,
-  worldSkyOf,
   type SceneTriggers,
   type TriggersState,
 } from '@dnd/mechanics/triggers'
@@ -82,7 +81,6 @@ import {
   exploreLocks,
   inAnyLock,
   seen,
-  type LightGate,
   type PartyVision,
 } from './sweep'
 
@@ -144,7 +142,7 @@ interface Computed {
   eyeLevels: string[]
   /**
    * Fog rework — the party's sight on one level as Auto-explore takes it: each eye swept at its
-   * own sight range, walls and closed doors blocking, darkness as ever, no fence.
+   * own sight range, walls and closed doors blocking, lit or dark alike, no fence.
    */
   clearSightOn(levelId: string): PartyVision
   /**
@@ -205,25 +203,13 @@ export function createVision(stores: Stores): Vision {
     const crossings = read(campaignId, 'crossings', NO_CROSSINGS)
     const gridOn = (levelId: string): WalkGrid | null => walks.gridFor(map, doors, crossings, sceneId, levelId)
     // The sweep is taken once per mutation and cached with the rest: auto-explore reads it.
-    //
-    // P3 — and the light with it. The triggers module holds both halves of the light state the
-    // table is actually playing (the scene's ambient dial and every relit light), and any write
-    // to it bumps the revision this record is keyed on, so a `set-world`, a `set-darkness` or a
-    // trigger firing re-derives the answer for free.
-    const triggersState = read(campaignId, 'triggers', NO_TRIGGERS)
-    const triggers = sceneTriggersOf(triggersState, sceneId)
-    const mapSettings = map.data.mapSettings ?? ({} as NonNullable<typeof map.data.mapSettings>)
-    const gate: LightGate = {
-      sky: worldSkyOf(triggersState, mapSettings, sceneId),
-      edits: triggers.lightEdits,
-      roomPlaces: roomEditsOf(triggers),
-    }
+    const triggers = sceneTriggersOf(read(campaignId, 'triggers', NO_TRIGGERS), sceneId)
     const eyeLevels = [...new Set(eyes(Object.values(tokens)).map((t) => levelOfToken(map, t)))]
     const clearing = new Map<string, PartyVision>()
     const clearSightOn = (levelId: string): PartyVision => {
       let own = clearing.get(levelId)
       if (!own) {
-        own = sweeps.partyVision(map, tokens, doors, gate, levelId)
+        own = sweeps.partyVision(map, tokens, doors, levelId)
         clearing.set(levelId, own)
       }
       return own
@@ -241,7 +227,7 @@ export function createVision(stores: Stores): Vision {
     // The DM's live room places: a stand-in carries its room's (it has lost the real id the
     // table's override is keyed by), and a moved place re-sends the stand-ins a seat holds.
     const places: Places = Object.fromEntries(
-      Object.entries(gate.roomPlaces ?? {}).flatMap(([id, edit]) => (edit.place ? [[id, edit.place]] : [])),
+      Object.entries(roomEditsOf(triggers)).flatMap(([id, edit]) => (edit.place ? [[id, edit.place]] : [])),
     )
     const placesKey = JSON.stringify(places)
     const ground = groundOf(fog, map.frame)
@@ -436,7 +422,7 @@ export function createVision(stores: Stores): Vision {
 
 /**
  * Fog rework — the cells one level's party sight clears: every cell an eye's sweep covers that
- * the eye actually sees (in the dark, lit or within darkvision), outside every explore-lock zone,
+ * the eye actually sees (in the dark as in daylight), outside every explore-lock zone,
  * on or within one cell of the level's ground. A lock stays the DM's to clear with the brush; the
  * one-cell band is where the wall art is drawn, and the void past it is nobody's ground.
  */

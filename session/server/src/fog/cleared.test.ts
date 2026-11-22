@@ -118,21 +118,7 @@ function placePc(t: ReturnType<typeof table>, x: number, y: number, over: Partia
 /** The one level of a single-level map. */
 const onlyLevel = (t: ReturnType<typeof table>): string => t.vision.levelsOf(t.campaign.id, t.scene)[0]
 
-const lamp = (id: string, x: number, y: number, radius: number): AnyChild =>
-  ({
-    id,
-    name: id,
-    childType: 'light',
-    visible: true,
-    color: '#ffcc88',
-    radius,
-    featherRadius: 0.5,
-    intensity: 1,
-    falloff: 'quadratic',
-    position: { x, y },
-  }) as AnyChild
-
-describe('Auto-explore (rows 7 to 10, 16)', () => {
+describe('Auto-explore (rows 7, 8, 10, 16)', () => {
   it('7: a moved PC clears what it sees; the wall and a closed door block; opening the door clears beyond it', () => {
     const t = table(TWO_ROOMS)
     const level = onlyLevel(t)
@@ -174,30 +160,6 @@ describe('Auto-explore (rows 7 to 10, 16)', () => {
     })
     expect(t.cleared('lvl-1', 6.5, 16.5)).toBe(true)
     expect(t.cleared('lvl-1', 9.5, 16.5)).toBe(false)
-  })
-
-  it('9: in the dark a token clears lit ground within range, and unlit ground only with darkvision', () => {
-    const t = table(withChildren(TWO_ROOMS, [lamp('lamp-west', 1.5, 5.5, 2)]))
-    const level = onlyLevel(t)
-    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
-    expect(t.run('triggers', 'set-darkness', { value: 1 })).toBeNull()
-    placePc(t, 5.5, 5.5, { sight: { range: 8, angle: 360, visionMode: 'normal' } })
-    expect(t.cleared(level, 1.5, 5.5)).toBe(true)
-    expect(t.cleared(level, 8.5, 5.5)).toBe(false)
-
-    const far = table(withChildren(TWO_ROOMS, [lamp('lamp-west', 1.5, 5.5, 2)]))
-    expect(far.run('fog', 'set-on', { on: true })).toBeNull()
-    expect(far.run('triggers', 'set-darkness', { value: 1 })).toBeNull()
-    // The lamp's pool is six cells off, past a range of three: lit, but out of sight.
-    placePc(far, 7.5, 5.5, { sight: { range: 3, angle: 360, visionMode: 'normal' } })
-    expect(far.cleared(onlyLevel(far), 1.5, 5.5)).toBe(false)
-
-    const dv = table(TWO_ROOMS)
-    expect(dv.run('fog', 'set-on', { on: true })).toBeNull()
-    expect(dv.run('triggers', 'set-darkness', { value: 1 })).toBeNull()
-    placePc(dv, 5.5, 5.5, { sight: { range: 3, angle: 360, visionMode: 'darkvision' } })
-    expect(dv.cleared(onlyLevel(dv), 7.5, 5.5)).toBe(true)
-    expect(dv.cleared(onlyLevel(dv), 9.5, 5.5)).toBe(false)
   })
 
   it('10: with Auto-explore off, or fog off, moving a PC clears nothing', () => {
@@ -354,5 +316,81 @@ describe('what a player is sent and may do (rows 1, 2, 5, 11, 12)', () => {
     expect(t.run('tokens', 'move', { id: mine, x: 1.5, y: 1.5 })).toBeNull()
     expect(t.run('doors', 'toggle', { id: 'door-mid' })).toBeNull()
     expect(tokensFor(t, P1)).toEqual(['Bram', 'Goblin'])
+  })
+})
+
+describe('Auto-explore in the dark (pass 2, rows 1 to 5)', () => {
+  /** Fog on and the scene at full darkness, with no light anywhere on the map. */
+  const dark = (map: string = TWO_ROOMS) => {
+    const t = table(map)
+    expect(t.run('fog', 'set-on', { on: true })).toBeNull()
+    expect(t.run('triggers', 'set-darkness', { value: 1 })).toBeNull()
+    return t
+  }
+  const sight = (range: number, visionMode: 'normal' | 'darkvision' = 'normal') => ({ sight: { range, angle: 360, visionMode } })
+
+  it('1: a moved PC clears the ground in its line of sight out to its sight distance', () => {
+    const t = dark()
+    const level = onlyLevel(t)
+    const id = placePc(t, 2.5, 5.5, sight(3))
+    expect(t.run('tokens', 'move', { id, x: 4.5, y: 5.5 })).toBeNull()
+    expect(t.cleared(level, 6.5, 5.5)).toBe(true)
+    expect(t.cleared(level, 4.5, 3.5)).toBe(true)
+    expect(t.cleared(level, 8.5, 5.5)).toBe(false)
+  })
+
+  it('2: a wall and a closed door still block what clears; opening the door clears beyond it', () => {
+    const t = dark()
+    const level = onlyLevel(t)
+    placePc(t, 5.5, 5.5)
+    expect(t.cleared(level, 9.5, 8.5)).toBe(true)
+    expect(t.cleared(level, 14.5, 5.5)).toBe(false)
+    expect(t.cleared(level, 14.5, 1.5)).toBe(false)
+    expect(t.run('doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    expect(t.cleared(level, 14.5, 5.5)).toBe(true)
+  })
+
+  it('3: a token with normal vision and one with darkvision clear the same cells', () => {
+    const normal = dark()
+    placePc(normal, 5.5, 5.5, sight(4))
+    const darkvision = dark()
+    placePc(darkvision, 5.5, 5.5, sight(4, 'darkvision'))
+    expect(normal.fog().cleared).toBeDefined()
+    expect(darkvision.fog().cleared).toEqual(normal.fog().cleared)
+  })
+
+  it('4: an explore-lock zone is still never cleared by sight', () => {
+    const zone = {
+      id: 'zone-lock',
+      name: 'Sealed alcove',
+      childType: 'zone',
+      visible: true,
+      shape: { kind: 'rect', x: 7, y: 7, width: 3, height: 3 },
+      blocksAutoExplore: true,
+    } as AnyChild
+    const t = dark(withChildren(TWO_ROOMS, [zone]))
+    const level = onlyLevel(t)
+    placePc(t, 3.5, 3.5)
+    expect(t.cleared(level, 5.5, 5.5)).toBe(true)
+    expect(t.cleared(level, 8.5, 8.5)).toBe(false)
+  })
+
+  it('5: a player’s move onto fogged ground is still refused; after a step the next cleared ground can be entered', () => {
+    const refused = { message: expect.stringMatching(/^room-unexplored/) }
+    const t = dark()
+    const mine = placePc(t, 1.5, 5.5, sight(3))
+    expect(t.run('tokens', 'assign', { id: mine, identityId: 'p-1' })).toBeNull()
+    // Four cells off, past a sight of three: still fogged, so not yet a place to go.
+    expect(t.run('tokens', 'move', { id: mine, x: 5.5, y: 5.5 }, P1)).toMatchObject(refused)
+    expect(t.run('tokens', 'move', { id: mine, x: 3.5, y: 5.5 }, P1)).toBeNull()
+    // The step cleared it in the dark: now it can be entered.
+    expect(t.run('tokens', 'move', { id: mine, x: 5.5, y: 5.5 }, P1)).toBeNull()
+
+    // With Auto-explore off nothing clears by sight, and the player is held where they stand.
+    const off = dark()
+    expect(off.run('fog', 'set-auto-explore', { autoExplore: false })).toBeNull()
+    const held = placePc(off, 1.5, 5.5, sight(3))
+    expect(off.run('tokens', 'assign', { id: held, identityId: 'p-1' })).toBeNull()
+    expect(off.run('tokens', 'move', { id: held, x: 3.5, y: 5.5 }, P1)).toMatchObject(refused)
   })
 })

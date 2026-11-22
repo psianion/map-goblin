@@ -1,13 +1,12 @@
-// S3 P3 §2 — what is burning in a scene right now, as one rule both sides run.
+// S3 P3 §2 — what is burning in a scene right now.
 //
-// The referee redacts by it and the canvas masks by it, so it cannot be two implementations
-// that happen to agree: the server hands in the map's light children and the client hands in
-// the ones its (redacted) document holds, and everything after that — which lights are on,
-// which tokens are carrying one, how far each reaches — is decided here.
+// The table hands in the light children its (redacted) document holds, and everything after
+// that — which lights are on, which tokens are carrying one, how far each reaches — is decided
+// here. Since fog pass 2 light no longer decides what the party clears, so the server does not
+// read it.
 //
 // Geometry is deliberately absent. A source is a point and a radius; turning that into a
-// polygon is a sweep against the scene's occluders, which each side already does its own way
-// (`fog/sweep.ts` server-side, `visionSight.ts` on the canvas).
+// polygon is a sweep against the scene's occluders (`visionSight.ts` on the canvas).
 
 /** A wedge, degrees: direction 0 = east, clockwise on screen. Angle >= 360 is a full circle. */
 export interface LightCone {
