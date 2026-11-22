@@ -475,4 +475,57 @@ describe('a kit measured to butt', () => {
     const exact = layBandRing(ring, [], set);
     expect(placed.map((pl) => pl.piece.key)).toEqual(exact.map((pl) => pl.piece.key));
   });
+
+  const notched: Polygon = [[24, 21], [6, 21], [6, 6], [14, 6], [14, 7], [15, 7], [15, 6], [24, 6]];
+  const notchGaps = (ring: Polygon): DoorGap[] => ringOpeningGaps(ring, 0, [[[15, 7], [14, 7], [14, 5], [15, 5]]]);
+
+  it('lays no piece squashed on the notched ring an erase leaves, still lapping and reaching the mouth', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([notched]);
+    const placed = layBandRing(ring, notchGaps(ring), set);
+    for (const pl of placed) expect(pl.at.scale).toBeGreaterThanOrEqual(0.9);
+    lapsInFull(placed, set);
+    const xs = artEnds(placed, set).map(([x]) => x).sort((p, q) => p - q);
+    expect(Math.abs(xs[0] - 13.95)).toBeLessThan(0.05);
+    expect(Math.abs(xs[1] - 15.05)).toBeLessThan(0.05);
+  });
+
+  it('lays no piece squashed round a 10.5 by 8 room', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([room]);
+    const placed = layBandRing(ring, [], set);
+    for (const pl of placed) expect(pl.at.scale).toBeGreaterThanOrEqual(0.9);
+    for (const lap of laps(placed, true)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+  });
+
+  it('leaves the same kit without `exact` squashed where the walk closes it, as before', () => {
+    seedButtKit();
+    const plain = withoutExact(bandPiecesFor(SET));
+    const [notchRing] = orientRings([notched]);
+    const [roomRing] = orientRings([room]);
+    const door: DoorGap = { wallId: 'floor:0:0', position: [7.75, 2.5], width: 1.5, ring: 0 };
+    const cases = [
+      {
+        placed: layBandRing(notchRing, notchGaps(notchRing), plain),
+        scales: [1, 0.999988, 1, 1, 1, 0.999951, 1, 1, 0.999981, 1, 1, 1, 0.999945, 1.434783, 1.477537],
+        ends: [[15.406532, 5.857944], [13.629776, 5.860769]],
+      },
+      {
+        placed: layBandRing(roomRing, [door], plain),
+        scales: [1, 0.999899, 0.999999, 1, 0.999953, 1, 0.99995, 1, 1.147399, 0.810023],
+        ends: [[8.823251, 2.32], [6.725243, 2.32]],
+      },
+    ];
+    for (const { placed, scales, ends } of cases) {
+      expect(placed).toHaveLength(scales.length);
+      placed.forEach((pl, k) => expect(pl.at.scale).toBeCloseTo(scales[k], 5));
+      const [p, q] = [placed[0].P, placed[placed.length - 1].Q];
+      for (const [got, want] of [[p, ends[0]], [q, ends[1]]]) {
+        expect(got[0]).toBeCloseTo(want[0], 5);
+        expect(got[1]).toBeCloseTo(want[1], 5);
+      }
+    }
+  });
 });

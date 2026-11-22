@@ -543,11 +543,11 @@ export function layBandRing(
   if (spans) {
     const ends = wallEnds(poly, gaps, true);
     return spans.flatMap(([from, to]) =>
-      reachOpenings(meetNeighbours(laySpan(ride, set, from, to, { lap: true }), set, false), ends, set),
+      reachOpenings(meetNeighbours(fullSize(laySpan(ride, set, from, to, { lap: true }), set), set, false), ends, set),
     );
   }
   const corners = cornerRing(poly, ride, set);
-  if (corners?.short) return meetNeighbours(corners.placed, set, true);
+  if (corners?.short) return meetNeighbours(fullSize(corners.placed, set), set, true);
   let walked: WalkPlacement[] = [];
   try {
     walked = walkClosed(ride, set, LIVE_WALK).placed;
@@ -556,8 +556,30 @@ export function layBandRing(
   }
   // A ring of straight sides the walk cut a corner of (a straight laid across it, or a
   // bend the wrong way) is laid corner first after all.
-  if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(corners.placed, set, true);
-  return meetNeighbours(walked, set, true);
+  if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(fullSize(corners.placed, set), set, true);
+  return meetNeighbours(fullSize(walked, set), set, true);
+}
+
+/** A measured kit's piece laid below this share of its drawn size is put back to full size. */
+const FULL_SIZE_BELOW = 0.9;
+
+/**
+ * One laid run of a measured kit with no piece squashed. The walk closes a ring or a span by
+ * scaling its closing piece, and rock drawn to a size reads as a thinner wall shrunk, so a
+ * piece below FULL_SIZE_BELOW of its drawn size is put back to that size about the middle of
+ * its own chord, lapping its neighbours further. A kit with no `exact` piece is returned untouched.
+ */
+function fullSize(placed: WalkPlacement[], set: CaveKitPiece[]): WalkPlacement[] {
+  if (!set.some((p) => p.exact)) return placed;
+  const out = kitOut(set);
+  return placed.map((pl) => {
+    if (pl.at.scale >= FULL_SIZE_BELOW) return pl;
+    const mid = mul(add(pl.P, pl.Q), 0.5);
+    const half = mul(norm(sub(pl.Q, pl.P)), dist(...pl.piece.jointsCells) / 2);
+    const P = sub(mid, half);
+    const Q = add(mid, half);
+    return { ...pl, P, Q, at: placePiece(pl.piece, P, Q, out, 0, pl.nudge) };
+  });
 }
 
 /** A joint short of its lap by more than this, cells, is an opening (a door, a run's end). */
@@ -781,7 +803,7 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   const spans = openSpans(ride, gaps, false, set) ?? [[first, last]];
   const ends = wallEnds(points as Polygon, gaps, false);
   return spans.flatMap(([from, to]) =>
-    reachOpenings(meetNeighbours(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set, false), ends, set),
+    reachOpenings(meetNeighbours(fullSize(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set), set, false), ends, set),
   );
 }
 
