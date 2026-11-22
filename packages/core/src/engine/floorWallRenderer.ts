@@ -1,12 +1,12 @@
 import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
-import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild, RockLine, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
-import { hasLiveTexture } from '../assets/packCatalog';
+import { getWallSet, hasLiveTexture, isBandSet } from '../assets/packCatalog';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBandRenderer';
@@ -23,7 +23,8 @@ import { FACE_TILE_CELLS, faceDirectionOf } from '../shared/plateauShade';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
-import { edgeStyles, ringStyles } from '../shared/wallLook';
+import { edgeStyles, ringStyles, styleWallLook } from '../shared/wallLook';
+import { rockLineOf, storeRockLines } from './rockLines';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
@@ -626,6 +627,23 @@ function drawFaceTile(floor: Container, layerId: string, plateau: PlateauChild, 
 }
 
 /**
+ * The floor rings drawn whole (no per-edge looks) whose wall set no installed pack lists, so
+ * nothing was laid round them.
+ */
+function uninstalledRings(
+  polygons: Polygon[],
+  rings: readonly (DungeonStyle | undefined)[],
+  edges: readonly (DungeonStyle[] | null)[],
+  style: DungeonStyle,
+): Polygon[] {
+  return polygons.filter((poly, i) => {
+    if (poly.length < 3 || (edges[i] && edges[i]!.length === poly.length)) return false;
+    const setId = styleWallLook(rings[i] ?? style).setId;
+    return !!setId && !isBandSet(setId) && getWallSet(setId).length === 0;
+  });
+}
+
+/**
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
@@ -701,6 +719,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const edges = edgeStyles(layer, level);
   // The rings a measured kit's rock was laid round: the floor's paint is fitted to it.
   const fits: FloorFit[] = [];
+  // …and the line it was laid on, saved for light, sight and movement (rockLines.ts).
+  const rockLines: RockLine[] = [];
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
@@ -716,9 +736,14 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
       openings: layer.caveOpenings,
       floorOf: ringFloorOf(layer),
       waitFor: (id) => armLateTextureRebuild(layer.id, id),
-      onBandLaid: (laid) => fits.push(bandFloorFit(laid.ring, laid.placed, laid.gaps, laid.size)),
+      onBandLaid: (laid) => {
+        fits.push(bandFloorFit(laid.ring, laid.placed, laid.gaps, laid.size));
+        const line = rockLineOf(laid.ring, laid.placed);
+        if (line) rockLines.push(line);
+      },
     },
   );
+  storeRockLines(layer.id, 'floor', rockLines, layer.rockLines?.length ? uninstalledRings(layer.mergedFloor ?? [], rings, edges, drawStyle) : []);
   const fit: FloorFit | undefined = fits.some((f) => f.tips.length + f.gaps.length > 0)
     ? { tips: fits.flatMap((f) => f.tips), gaps: fits.flatMap((f) => f.gaps) }
     : undefined;

@@ -703,11 +703,14 @@ export function subscribeToStore(
           plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}|${state.mapSettings.faceDirection ?? ''}`,
           // Where a cave's rock was erased open its edge is no wall: light passes there.
           openingsRef: refId(l.caveOpenings),
+          // Where a measured kit's rock was laid light stops on it (raycaster.ts). Lighting only:
+          // the rebuild writes it, so it must not rebuild.
+          rockLinesRef: refId(l.rockLines),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef, rockLinesRef } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -738,7 +741,7 @@ export function subscribeToStore(
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}|${openingsRef}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}|${openingsRef}|${rockLinesRef}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -860,7 +863,8 @@ export function subscribeToStore(
           item.areasRef === b[i].areasRef &&
           item.propOccluders === b[i].propOccluders &&
           item.plateauKey === b[i].plateauKey &&
-          item.openingsRef === b[i].openingsRef,
+          item.openingsRef === b[i].openingsRef &&
+          item.rockLinesRef === b[i].rockLinesRef,
         ),
     },
   );

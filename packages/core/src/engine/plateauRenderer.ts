@@ -919,7 +919,7 @@ function jointFrame(pl: WalkPlacement): { joints: [Vec, Vec]; tangents: [Vec, Ve
  * The laid ledge split into runs where two pieces in a row do not meet (the end of an open
  * edge). A ring with no break is one closed run.
  */
-function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlacement[]; open: boolean }[] {
+export function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: WalkPlacement[]; open: boolean }[] {
   if (placed.length === 0) return [];
   const frames = new Map(placed.map((pl) => [pl, jointFrame(pl)]));
   const near = (p: Vec, pl: WalkPlacement): boolean => segDist(p, ...frames.get(pl)!.joints) <= RUN_BREAK;

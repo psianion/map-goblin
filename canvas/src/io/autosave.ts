@@ -33,8 +33,10 @@ interface DocumentSlices {
  * built (and `getSerializableState` strips it before saving). It gets rewritten
  * during a boot nobody touched, which is what left every session ending "dirty".
  * A real edit changes the geometry it comes from, so ignoring it loses nothing.
+ * `rockLines` is laid again from the same geometry on every rebuild; unlike the union it is
+ * kept in the file (a map opened without its pack keeps its lines), and goes with any save.
  */
-const DERIVED_LAYER_FIELDS = ['mergedFloor'];
+const DERIVED_LAYER_FIELDS = ['mergedFloor', 'rockLines'];
 
 /**
  * A layer's rooms as the file holds them: each room without its derived face,

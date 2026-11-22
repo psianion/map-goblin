@@ -157,6 +157,8 @@ export function mergeMapDelta(
         rooms: upsertById(withoutReplacedStandIns(layer.rooms ?? [], patch.rooms ?? []), patch.rooms ?? []),
         children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
+        // A reveal carries the seat's whole list of rock lines, so the newest replaces the last.
+        ...(patch.rockLines ? { rockLines: patch.rockLines } : {}),
       };
     }),
   };

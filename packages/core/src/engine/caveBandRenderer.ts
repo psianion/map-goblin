@@ -1250,7 +1250,7 @@ export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandP
  * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
  * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`. A measured
  * kit's rock is drawn to its own floor line, so it gets no strip. `waitFor` is told each
- * piece whose art has not decoded yet.
+ * piece whose art has not decoded yet; `onLaid` each ring as the walk took it, with what it laid.
  */
 export function drawOutlineBand(
   parent: Container,
@@ -1260,6 +1260,7 @@ export function drawOutlineBand(
   gaps: DoorGap[] = [],
   size = 1,
   waitFor?: (textureId: string) => void,
+  onLaid?: (ring: Polygon, placed: WalkPlacement[]) => void,
 ): void {
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
@@ -1267,6 +1268,7 @@ export function drawOutlineBand(
   const strip = !isMeasuredBandSet(setId);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
+    onLaid?.(edge, laid[i]);
     at = placeBand(parent, laid[i], art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined, waitFor);
   });
 }
@@ -1312,6 +1314,12 @@ export interface FloorFit {
  * laid nothing for.
  */
 export function bandSeat(placed: WalkPlacement[]): Polygon[] {
+  const chain = seatLine(placed);
+  return chain.length >= 3 ? clipper2Engine.union([chain], []) : [];
+}
+
+/** The line `bandSeat` closes: the placements' seats chained in walk order, open. */
+export function seatLine(placed: WalkPlacement[]): [number, number][] {
   const chain: [number, number][] = [];
   for (const pl of placed) {
     if (pl.piece.spine) {
@@ -1339,7 +1347,7 @@ export function bandSeat(placed: WalkPlacement[]): Polygon[] {
       chain.push(add(add(J0, mul(v, u)), mul(right, bow + seat)));
     }
   }
-  return chain.length >= 3 ? clipper2Engine.union([chain], []) : [];
+  return chain;
 }
 
 /** A circle as a polygon. */
