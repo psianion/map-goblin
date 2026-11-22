@@ -14,13 +14,13 @@ import { Container, Graphics, Texture } from 'pixi.js';
 import type { DungeonLayer, DungeonStyle, PieceFade, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { bandScale, bandSetArt } from '../assets/packCatalog';
+import { bandSetArt, bandSize } from '../assets/packCatalog';
 import { wallWidthPin } from '../shared/caveFloor';
 import { isWaterMaterial } from '../assets/materialKit';
 import { resolveTexture } from '../assets/textureLoader';
 import { pieceRings } from '../shared/pieces';
 import { borderWidthOf, wobbleSeed } from '../shared/plateauShade';
-import { bandFillColor, drawOutlineBand } from './caveBandRenderer';
+import { bandFillColor, drawOutlineBand, fittedFloor, type FloorFit } from './caveBandRenderer';
 import { armLateTextureRebuild, fillPolygonsWithHoles, paintTiled, shapeFloorFill, type TiledLook } from './floorWallRenderer';
 import { drawFalls, drawShore, drawWaterEdge, waterEdgeOf, type WaterEdge } from './material/materialRenderer';
 import { innerBandLayers, paintSoftTiled } from './softEdge';
@@ -43,6 +43,8 @@ export interface PieceCtx {
   soft: Set<string>;
   /** A walled floor's painted border is drawn by the caller, over the walled extras: skipped here. */
   bordersOverExtras?: boolean;
+  /** Where a measured kit's rock asks the walled floors to be painted off and on (`bandFloorFit`). */
+  fit?: FloorFit;
 }
 
 function area(ring: Polygon): number {
@@ -167,7 +169,8 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
     } else {
       // Grown by the bleed: a dropped ring would be a hole in the floor, so every ring Clipper hands back is drawn.
       const grown = bleed > 0 ? clipper2Engine.inflate(outline, bleed) : outline;
-      const region = grown.length > 0 ? grown : outline;
+      // A walled floor meets the measured kit's rock round it; ground keeps its own edge.
+      const region = shape.ground ? (grown.length > 0 ? grown : outline) : fittedFloor(grown.length > 0 ? grown : outline, ctx.fit);
       if (fill.kind === 'texture') {
         paintTiled(piece, region, fill.texture, { ...look, holes: true });
       } else {
@@ -189,8 +192,10 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
   if (shape.ground && shape.edgeMaterial) {
     // The rock rim of a ground piece: the band walk a cave gets, with no wall behind it.
     for (const e of bandSetArt(shape.edgeMaterial).values()) artOf(layer.id, e.id);
-    const size = bandScale(wallWidthPin(shape) ?? ctx.style.wallWidth);
-    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size);
+    const size = bandSize(shape.edgeMaterial, wallWidthPin(shape) ?? ctx.style.wallWidth);
+    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size, (id) =>
+      armLateTextureRebuild(layer.id, id),
+    );
   }
   host.addChild(piece);
 }

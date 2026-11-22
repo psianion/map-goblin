@@ -91,11 +91,11 @@ import type { PlateauChild } from '../shared/types';
 import { isGroundPiece, pieceRings } from '../shared/pieces';
 import type { WorldBounds } from '../shared/mapBounds';
 import { baseGroundFrame } from './mapFrame';
-import type { CatalogEntry } from '../assets/packCatalog';
+import { isColoredSet, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { layBandChain, layBandRing, placeBand } from './caveBandRenderer';
-import { cliffArt, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
+import { cliffArt, cliffChoice, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
 import { paintSoftTiled, SOFT_EDGE_STEPS, softEdgeLayers, type SoftLayer } from './softEdge';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
@@ -1017,7 +1017,10 @@ function drawCliff(parent: Container, run: EdgeRun, options: PlateauRenderOption
   const ends = ledgeEndPieces(art, run.owner?.edgeArt);
   const drawn = [...walked, ...drawnPlacements(runs.filter((r) => r.open).flatMap((r) => runEnds(r.run, ends)), art)];
   placeBand(rock, drawn, art, 0xffffff, 0);
-  drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));
+  // Art that carries its own light and colour is not shaded: the sun would multiply it dark.
+  if (!isColoredSet(cliffChoice(run.owner?.edgeArt).setId)) {
+    drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));
+  }
 
   if (drawn.length === 0) {
     const ink = new Graphics();

@@ -437,3 +437,16 @@ export const BAND_DRAWN_WIDTH = 1.2;
 export function bandScale(width: number): number {
   return Math.max(width, WALL_SET_DEFAULTS.minWidth) / BAND_DRAWN_WIDTH;
 }
+
+/** The wall width a measured kit is laid at its drawn size for: the default width. */
+export const MEASURED_KIT_WIDTH = 0.5;
+
+/**
+ * The size `setId`'s band is laid at for a wall `width` cells wide. A measured kit
+ * is drawn to span whole cells at the default width, so it is laid at 1 there and
+ * grows with the width from that; any other set takes `bandScale`.
+ */
+export function bandSize(setId: string | undefined, width: number): number {
+  if (!isMeasuredBandSet(setId)) return bandScale(width);
+  return Math.max(width, WALL_SET_DEFAULTS.minWidth) / MEASURED_KIT_WIDTH;
+}

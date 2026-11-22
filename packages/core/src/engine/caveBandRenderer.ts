@@ -10,9 +10,10 @@
 import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
-import { GRID_CELL_PX, bandSetArt, hasLiveTexture, type CatalogEntry } from '../assets/packCatalog';
+import { GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
 import { bandPiecesFor, caveBandPieces, jointsOf, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
+import { clipper2Engine } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import { ringOwner } from '../shared/wallLook';
 import {
@@ -990,6 +991,9 @@ export function drawBandFill(g: Graphics, spec: BandFillSpec, span?: [number, nu
  * there even when its texture arrived trimmed to the content rect; a mirrored
  * straight is drawn mirrored about that same centre, which is what its joints
  * already assume (caveWallKit.ts).
+ *
+ * `waitFor` is told each piece whose art has not decoded yet, so the host can redraw
+ * once it lands (as `placeNodes` does for stones).
  */
 export function placeBand(
   parent: Container,
@@ -998,6 +1002,7 @@ export function placeBand(
   tint: number,
   from: number,
   fill?: BandFillSpec,
+  waitFor?: (textureId: string) => void,
 ): number {
   let at = from;
   if (fill && placed.length > 0) {
@@ -1013,7 +1018,10 @@ export function placeBand(
     const entry = art.get(pl.piece.key);
     if (!entry) continue;
     const tex = resolveTexture(entry.id);
-    if (tex.width <= 1) continue;
+    if (tex.width <= 1) {
+      waitFor?.(entry.id);
+      continue;
+    }
 
     const slot = parent.children[at];
     let sprite: Sprite;
@@ -1064,16 +1072,126 @@ export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandP
 /**
  * Draws `setId`'s border units round `rings` into `parent`, after what it holds, with the
  * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
- * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`.
+ * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`. A measured
+ * kit's rock is drawn to its own floor line, so it gets no strip. `waitFor` is told each
+ * piece whose art has not decoded yet.
  */
-export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number, gaps: DoorGap[] = [], size = 1): void {
+export function drawOutlineBand(
+  parent: Container,
+  rings: Polygon[],
+  setId: string,
+  fillColor: number,
+  gaps: DoorGap[] = [],
+  size = 1,
+  waitFor?: (textureId: string) => void,
+): void {
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
   const laid = layOutlineBand(rings, bandPiecesFor(setId), gaps, size);
+  const strip = !isMeasuredBandSet(setId);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
-    at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps, color: fillColor, size });
+    at = placeBand(parent, laid[i], art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined, waitFor);
   });
+}
+
+/* ── A measured kit's floor ───────────────────────────────────────────
+ *
+ * The walk rounds corners and nudges pieces, so a kit's rock does not lie on the
+ * authored edge: its floor line runs a little inside it here and outside it there,
+ * and a corner sharper than any bend leaves floor past the rock's tip. The ink kit's
+ * strip hid that under shaded ground; a measured kit has none, so the floor's paint
+ * is fitted to the rock instead. Visual only: sight, rooms, fog, hit tests and node
+ * editing keep reading the authored edge.
+ */
+
+/**
+ * How far to the floor side of a laid piece's joint line its seat runs, in the
+ * piece's cells. A kit's joints sit 0.36 to the void side of its floor line and the
+ * rock is solid from the floor line to the joint line, so this is under the rock.
+ */
+export const SEAT_IN = 0.13;
+/** Joint-line samples per cell, as the seat is traced. */
+const SEAT_STEP = 0.25;
+/** How far from the authored edge the paint may be fitted, in cells at size 1. */
+export const FIT_REACH = 0.8;
+/** How far past a door opening's half-width the paint keeps to the authored edge, cells. */
+export const FIT_DOOR_PAD = 0.6;
+/** How far a floor's own region may reach to fill the ground under its rock, cells. */
+export const FIT_GROW = 0.6;
+
+/** What a measured kit's rock asks of the floor under it: paint off `tips`, paint on `gaps`. */
+export interface FloorFit {
+  /** Floor past the rock. */
+  tips: Polygon[];
+  /** Ground between the floor and the rock. */
+  gaps: Polygon[];
+}
+
+/**
+ * The region one ring's rock seats on: each placement's joint line (its chord, bowed
+ * as `fitArc` assumes for a bend) shifted SEAT_IN to the right of travel, the floor
+ * side, chained in walk order and closed. Empty for a ring the walk laid nothing for.
+ */
+export function bandSeat(placed: WalkPlacement[]): Polygon[] {
+  const chain: [number, number][] = [];
+  for (const pl of placed) {
+    const [J0, J1] = jointsOf(pl.piece, pl.at);
+    const v = sub(J1, J0);
+    const L = Math.hypot(v[0], v[1]);
+    if (L < 1e-9) continue;
+    const right: Vec = [-v[1] / L, v[0] / L];
+    const phi = (Math.abs(pl.piece.turnDeg) * Math.PI) / 360;
+    const R = phi > 1e-4 ? L / (2 * Math.sin(phi)) : 0;
+    const sgn = -Math.sign(pl.piece.turnDeg);
+    const seat = SEAT_IN * pl.at.scale;
+    const steps = Math.max(1, Math.ceil(L / SEAT_STEP));
+    for (let k = 0; k <= steps; k++) {
+      const u = k / steps;
+      const bow = R ? sgn * R * (Math.cos(phi * (2 * u - 1)) - Math.cos(phi)) : 0;
+      chain.push(add(add(J0, mul(v, u)), mul(right, bow + seat)));
+    }
+  }
+  return chain.length >= 3 ? clipper2Engine.union([chain], []) : [];
+}
+
+/** A circle as a polygon. */
+function disc(c: Vec, r: number): Polygon {
+  const n = 24;
+  return Array.from({ length: n }, (_, k): [number, number] => [
+    c[0] + r * Math.cos((2 * Math.PI * k) / n),
+    c[1] + r * Math.sin((2 * Math.PI * k) / n),
+  ]);
+}
+
+/**
+ * Where the floor of `ring` (wound void-left, see {@link orientRings}) must be painted
+ * off and on to meet the rock laid round it. Kept within FIT_REACH (times `size`) of
+ * the authored edge, and clear of each door opening on the ring by FIT_DOOR_PAD.
+ */
+export function bandFloorFit(ring: Polygon, placed: WalkPlacement[], doors: DoorGap[] = [], size = 1): FloorFit {
+  const seat = ring.length < 3 ? [] : bandSeat(placed);
+  if (seat.length === 0) return { tips: [], gaps: [] };
+  // A hole's floor is outside it, so what lies past the rock is the other way round.
+  const hole = signedArea(ring) < 0;
+  const outside = clipper2Engine.difference([ring], seat);
+  const inside = clipper2Engine.difference(seat, [ring]);
+  const near = clipper2Engine.inflateOpen([[...ring, ring[0]]], FIT_REACH * size);
+  const open = doors.map((g) => disc(g.position, g.width / 2 + FIT_DOOR_PAD));
+  const guard = (r: Polygon[]): Polygon[] => {
+    const kept = r.length > 0 ? clipper2Engine.intersection(r, near) : r;
+    return open.length > 0 && kept.length > 0 ? clipper2Engine.difference(kept, open) : kept;
+  };
+  return hole ? { tips: guard(inside), gaps: guard(outside) } : { tips: guard(outside), gaps: guard(inside) };
+}
+
+/** A walled floor's `region` as painted under a fitted rock: `(region − tips) ∪ (grown region ∩ gaps)`. */
+export function fittedFloor(region: Polygon[], fit: FloorFit | undefined): Polygon[] {
+  if (!fit || (fit.tips.length === 0 && fit.gaps.length === 0)) return region;
+  const cut = fit.tips.length > 0 ? clipper2Engine.difference(region, fit.tips) : region;
+  if (fit.gaps.length === 0) return cut;
+  const add = clipper2Engine.intersection(clipper2Engine.inflate(region, FIT_GROW), fit.gaps);
+  return add.length > 0 ? clipper2Engine.union(cut, add) : cut;
 }
 
 /* ── Drawn walls on a band layer ──────────────────────────────────────

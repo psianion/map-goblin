@@ -5,7 +5,7 @@ import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
-import { bandScale, isBandSet } from '../assets/packCatalog';
+import { bandSize, isBandSet } from '../assets/packCatalog';
 import { useStore } from '../store/store';
 import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
@@ -274,7 +274,7 @@ const WALL_HIT_SLOP_PX = 4;
  */
 export function wallReach(wall: WallSegment, layer: Pick<DungeonLayer, 'style'>): number {
   const look = standaloneWallLook(wall, layer.style);
-  if (isBandSet(look.setId)) return Math.max(BAND_WALL_REACH * bandScale(look.width), WALL_MIN_HIT_RADIUS);
+  if (isBandSet(look.setId)) return Math.max(BAND_WALL_REACH * bandSize(look.setId, look.width), WALL_MIN_HIT_RADIUS);
   return Math.max(look.width / 2, WALL_MIN_HIT_RADIUS);
 }
 

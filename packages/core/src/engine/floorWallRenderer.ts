@@ -9,7 +9,7 @@ import { unitTexture } from '../assets/textureLoader';
 import { hasLiveTexture } from '../assets/packCatalog';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
-import { ringFloorOf } from './caveBandRenderer';
+import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBandRenderer';
 import { renderDoors } from './doorRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
@@ -52,6 +52,9 @@ function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
  * layer's epoch — subscribeToStore folds it into the render key and re-bakes.
  */
 const armedLateTextureWaits = new Set<string>();
+
+/** Each layer's floor fit from its last rebuild, with the union it was fitted for: the grid redraws on its own. */
+const floorFits = new Map<string, { floor: Polygon[]; fit: FloorFit }>();
 export function armLateTextureRebuild(layerId: string, textureId: string): void {
   if (!textureId.includes(':') || textureId.startsWith('data:') || textureId.startsWith('blob:')) return;
   const key = `${layerId}|${textureId}`;
@@ -512,7 +515,10 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
   // Ground and plateau textures take the layer's own line colour, over what the floors do not already line.
-  const groups: [string, Polygon[]][] = [...byColor];
+  // The walled floors' lines keep to their paint where a measured kit's rock fitted it.
+  const fitted = floorFits.get(layer.id);
+  const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
+  const groups: [string, Polygon[]][] = [...byColor].map(([color, rings]): [string, Polygon[]] => [color, fittedFloor(rings, fit)]);
   if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings]);
 
   for (const [color, rings] of groups) {
@@ -536,9 +542,18 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
  * holes grow too (Clipper offsets a hole ring inward for a positive delta), so an erased
  * opening keeps its own margin.
  */
-function drawWalledExtras(floor: Container, walled: Container, layer: DungeonLayer, polygons: Polygon[], bleed: number, covered: Polygon[]): void {
+function drawWalledExtras(
+  floor: Container,
+  walled: Container,
+  layer: DungeonLayer,
+  polygons: Polygon[],
+  bleed: number,
+  covered: Polygon[],
+  fit?: FloorFit,
+): void {
   const mask = new Graphics();
-  const union = bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons;
+  // Fitted to a measured kit's rock, as the floors under it are (bandFloorFit).
+  const union = fittedFloor(bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons, fit);
   // Off a ground piece that lies on the floors: it is above them, so above their room look and older paint too.
   fillPolygonsWithHoles(mask, covered.length > 0 ? clipper2Engine.difference(union, covered) : union, { color: 0xffffff });
   walled.addChild(mask);
@@ -684,6 +699,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const drawStyle = layerDrawStyle(layer);
   const rings = ringStyles(layer, level);
   const edges = edgeStyles(layer, level);
+  // The rings a measured kit's rock was laid round: the floor's paint is fitted to it.
+  const fits: FloorFit[] = [];
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
@@ -692,8 +709,20 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     drawStyle,
     doorGapsFor(doors, resolvedWalls),
     layer.floorWallEdits ?? {},
-    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer), waitFor: (id) => armLateTextureRebuild(layer.id, id) },
+    {
+      ringStyles: rings,
+      edgeStyles: edges,
+      marks,
+      floorOf: ringFloorOf(layer),
+      waitFor: (id) => armLateTextureRebuild(layer.id, id),
+      onBandLaid: (laid) => fits.push(bandFloorFit(laid.ring, laid.placed, laid.gaps, laid.size)),
+    },
   );
+  const fit: FloorFit | undefined = fits.some((f) => f.tips.length + f.gaps.length > 0)
+    ? { tips: fits.flatMap((f) => f.tips), gaps: fits.flatMap((f) => f.gaps) }
+    : undefined;
+  if (fit && layer.mergedFloor) floorFits.set(layer.id, { floor: layer.mergedFloor, fit });
+  else floorFits.delete(layer.id);
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
     renderDoors(doorsSublayer, doors, drawStyle, gridCellSize, rings, edges);
@@ -794,7 +823,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Every water piece's outline, as one: a shore stops where water meets water.
   const waters = pieces.filter((c) => isWaterPiece(c));
   const water = waters.length > 1 ? clipper2Engine.union(waters.flatMap((c) => pieceOutline(c)), []) : waters.flatMap((c) => pieceOutline(c));
-  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0 };
+  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0, fit };
 
   // A ground piece between two walled floors lies over the floors under it: where it shows
   // (no later walled floor covers it) the walled extras stay off it.
@@ -813,7 +842,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     covered = covered.length > 0 ? clipper2Engine.union(covered, own) : own;
   }
   const walledExtras = (): void => {
-    drawWalledExtras(floor, walled, layer, polygons, bleed, covered);
+    drawWalledExtras(floor, walled, layer, polygons, bleed, covered, fit);
     // The walled floors' painted borders go over the room looks and the older paint, as they
     // always did. A ground piece drawn after this still covers them.
     for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh);
@@ -823,7 +852,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   pieces.forEach((shape, i) => {
     if (unionFilled && i === firstWalled) {
       const floorG = new Graphics();
-      fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
+      fillPolygonsWithHoles(floorG, fittedFloor(polygons, fit), { color: floorColorNum });
       floor.addChild(floorG);
     }
     drawPiece(floor, shape, ctx);

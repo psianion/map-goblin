@@ -10,8 +10,18 @@ import type { Polygon } from '../types/geometry';
 import { standaloneWallLook, styleWallLook, wallTypeGroup, type WallTypeGroup } from '../shared/wallLook';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
-import { bandScale, bandSetArt, getBandSet, getWallPieces, isBandSet, isColoredSet, type CatalogEntry } from '../assets/packCatalog';
+import {
+  bandSetArt,
+  bandSize,
+  getBandSet,
+  getWallPieces,
+  isBandSet,
+  isColoredSet,
+  isMeasuredBandSet,
+  type CatalogEntry,
+} from '../assets/packCatalog';
 import { bandPiecesFor } from '../assets/caveWallKit';
+import type { WalkPlacement } from './caveWalk';
 import { findWallJoints, type JointSpine } from './wallJoints';
 import {
   bandFillColor,
@@ -166,10 +176,28 @@ function placeNodes(
     if (tex.width === 0) continue;
 
     // A cave band's ground strip shares this pool (placeBand); a slot holding
-    // one is pushed along rather than dressed up as a stone.
+    // one is pushed along rather than dressed up as a stone. So is a slot of the
+    // other kind of stone: a mitred one is a sprite under a mask, held together.
     const slot = parent.children[at];
     let sprite: Sprite;
-    if (slot instanceof Sprite) {
+    let mask: Graphics | null = null;
+    if (node.clips?.length) {
+      let held: Container;
+      if (slot && slot.label === CLIPPED_STONE) {
+        held = slot as Container;
+      } else {
+        held = new Container();
+        held.label = CLIPPED_STONE;
+        const g = new Graphics();
+        held.addChild(new Sprite(tex), g);
+        held.mask = g;
+        if (slot) parent.addChildAt(held, at);
+        else parent.addChild(held);
+      }
+      sprite = held.children[0] as Sprite;
+      sprite.texture = tex;
+      mask = held.children[1] as Graphics;
+    } else if (slot instanceof Sprite) {
       sprite = slot;
       sprite.texture = tex;
     } else {
@@ -190,15 +218,53 @@ function placeNodes(
     const [sx, sy] = nodeSpriteScale(node, spec, wallWidth);
     sprite.scale.set(sx, sy);
     sprite.tint = tint;
+    if (mask) drawStoneClip(mask, node, (spec.lengthPx * sx) / 2, (spec.thicknessPx * sy) / 2);
     at++;
   }
   return at;
 }
 
+/** The label of a mitred stone's holder: its sprite, and the mask that cuts it. */
+const CLIPPED_STONE = 'clipped-stone';
+
+/**
+ * A mitred stone's mask: a box well round the stone, cut by each of its half-planes,
+ * so the art is cut along the bisector and never sheared.
+ */
+function drawStoneClip(g: Graphics, node: WallNode, halfLen: number, halfThick: number): void {
+  const ux = Math.cos(node.angle);
+  const uy = Math.sin(node.angle);
+  const a = halfLen + halfThick;
+  const b = 2 * halfThick;
+  let poly: [number, number][] = [[a, b], [-a, b], [-a, -b], [a, -b]].map(([p, q]): [number, number] => [
+    node.x + ux * p - uy * q,
+    node.y + uy * p + ux * q,
+  ]);
+  for (const c of node.clips ?? []) {
+    const side = ([x, y]: [number, number]) => (x - c.x) * c.nx + (y - c.y) * c.ny;
+    const out: [number, number][] = [];
+    for (let k = 0; k < poly.length; k++) {
+      const p = poly[k];
+      const q = poly[(k + 1) % poly.length];
+      const sp = side(p);
+      const sq = side(q);
+      if (sp >= 0) out.push(p);
+      if (sp >= 0 !== sq >= 0) {
+        const f = sp / (sp - sq);
+        out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+      }
+    }
+    poly = out;
+  }
+  g.clear();
+  if (poly.length >= 3) g.poly(poly.flat()).fill({ color: 0xffffff });
+}
+
 /** Drop the tail of the pool a shorter layout no longer needs. */
 function trimTo(parent: Container, count: number): void {
   while (parent.children.length > count) {
-    parent.removeChildAt(parent.children.length - 1).destroy();
+    // A mitred stone takes its sprite and mask with it.
+    parent.removeChildAt(parent.children.length - 1).destroy({ children: true });
   }
 }
 
@@ -498,6 +564,11 @@ function wallSetHasTag(setId: string, tag: string): boolean {
   return getWallPieces(setId, 'straight').some((e) => e.tags.includes(tag));
 }
 
+/** Whether a wall set is one outlined band (`LayoutOptions.continuous`): what the node handles lay it with. */
+export function isContinuousSet(setId: string | undefined): boolean {
+  return !!setId && wallSetHasTag(setId, 'continuous');
+}
+
 /** A continuous set's tee and cross pieces, scaled against the set's band like a corner. */
 function jointSpecs(setId: string): Map<'tee' | 'cross', WallPieceSpec> {
   const out = new Map<'tee' | 'cross', WallPieceSpec>();
@@ -634,6 +705,12 @@ export interface RenderNodeWallsOptions {
   floorOf?: (ring: number) => BandFloor;
   /** Called with each stone's texture id that is not decoded yet, so the host can redraw once it is. */
   waitFor?: (textureId: string) => void;
+  /**
+   * Called for each floor ring a measured band kit was laid round whole: the ring as the
+   * walk took it (void on the left), what it laid, the ring's door gaps and the size. The
+   * host fits the floor's paint to that rock (`bandFloorFit`) without walking it again.
+   */
+  onBandLaid?: (laid: { ring: Polygon; placed: WalkPlacement[]; gaps: DoorGap[]; size: number }) => void;
 }
 
 /**
@@ -679,7 +756,7 @@ export function renderNodeWalls(
   // A cave band kit is a wall family the walk lays rather than one the layout
   // composes: its rock rides the ring as placed pieces, so stone edits mean
   // nothing to it and it takes the ring, the gaps, the tint and the width as
-  // the size its rock is laid at (bandScale).
+  // the size its rock is laid at (bandSize).
   // Keyed on the set each run resolves to (a ring's pin, a wall's pin, else the
   // layer's), the same resolution the stones use.
   const bandCache = new Map<string, Map<string, CatalogEntry> | null>();
@@ -818,16 +895,20 @@ export function renderNodeWalls(
       if (band) {
         // The walk wants the floor on the ring's side: a reversed ring reverses its runs.
         const run = isOriented ? points : [...points].reverse();
-        const size = bandScale(look.width);
+        const size = bandSize(look.setId, look.width);
+        // A measured kit's rock is drawn to its own floor line: no strip behind it.
+        const fill = isMeasuredBandSet(look.setId) ? undefined : { edge: run, closed: false, gaps, color: bandFillColor(floorOf(i)), size };
         pools.set(
           wallsContainer,
-          placeBand(wallsContainer, layBandChain(run, gaps, bandPiecesFor(look.setId), size), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, {
-            edge: run,
-            closed: false,
-            gaps,
-            color: bandFillColor(floorOf(i)),
-            size,
-          }),
+          placeBand(
+            wallsContainer,
+            layBandChain(run, gaps, bandPiecesFor(look.setId), size),
+            band,
+            bandTint(look.setId, look.tint),
+            pools.get(wallsContainer) ?? 0,
+            fill,
+            options.waitFor,
+          ),
         );
         continue;
       }
@@ -864,11 +945,14 @@ export function renderNodeWalls(
     if (band) {
       oriented ??= orientRings(polygons);
       const gaps = [...doorGaps, ...ringGaps].filter((g) => g.ring === i);
-      const size = bandScale(look.width);
-      const fill = { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
+      const size = bandSize(look.setId, look.width);
+      const measured = isMeasuredBandSet(look.setId);
+      const fill = measured ? undefined : { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
+      const placed = layBandRing(oriented[i], gaps, bandPiecesFor(look.setId), size);
+      if (measured) options.onBandLaid?.({ ring: oriented[i], placed, gaps, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, layBandRing(oriented[i], gaps, bandPiecesFor(look.setId), size), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill),
+        placeBand(wallsContainer, placed, band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
       );
       continue;
     }
@@ -920,12 +1004,14 @@ export function renderNodeWalls(
       const gaps = doorGaps.filter((g) => g.wallId === wall.id);
       const target = parts && group !== 'solid' ? parts[group] : wallsContainer;
       const color = bandFillColor(floorOf(-1));
-      const size = bandScale(look.width);
+      const size = bandSize(look.setId, look.width);
+      const strip = !isMeasuredBandSet(look.setId);
       let at = pools.get(target) ?? 0;
       const pieces = bandPiecesFor(look.setId);
       for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
         const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
-        at = placeBand(target, laid, band, bandTint(look.setId, look.tint), at, { edge: run.points, closed: run.closed, gaps, color, size });
+        const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
+        at = placeBand(target, laid, band, bandTint(look.setId, look.tint), at, fill, options.waitFor);
       }
       pools.set(target, at);
       continue;

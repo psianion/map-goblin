@@ -41,7 +41,18 @@ vi.mock('pixi.js', () => {
       this.texture = texture;
     }
   }
-  return { Container: MockContainer, Sprite: MockSprite, Graphics: MockContainer };
+  class MockGraphics extends MockContainer {
+    clear(): this {
+      return this;
+    }
+    poly(): this {
+      return this;
+    }
+    fill(): this {
+      return this;
+    }
+  }
+  return { Container: MockContainer, Sprite: MockSprite, Graphics: MockGraphics };
 });
 
 vi.mock('../assets/textureLoader', () => ({
@@ -49,7 +60,7 @@ vi.mock('../assets/textureLoader', () => ({
   load: vi.fn(() => Promise.resolve(null)),
 }));
 
-import { Container } from 'pixi.js';
+import { Container, Sprite } from 'pixi.js';
 import { renderNodeWalls } from './wallNodeRenderer';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import type { ManifestEntry } from './packManifest';
@@ -112,6 +123,26 @@ describe('renderNodeWalls: coloured and continuous sets', () => {
     expect(ids[ids.length - 1]).toBe(`${PACK}:${OUTLINE}_Joint_B_1x1`);
     // Two caps on the bar, one on the stem's free end.
     expect(ids.filter((id) => id === `${PACK}:${OUTLINE}_Ending_A_1x1`)).toHaveLength(3);
+  });
+
+  it('draws a mitred stone as a sprite under a mask, every other stone as a plain sprite, and reuses both', () => {
+    const c = new Container();
+    const bend = wall('bend', [[0, 0], [6, 0], [3, 5.196]]);
+    renderNodeWalls(c, [], [bend], style(OUTLINE));
+    const kids = c.children as unknown as { label: string; mask?: unknown; children: unknown[] }[];
+    const clipped = kids.filter((k) => k.label === 'clipped-stone');
+    expect(clipped).toHaveLength(2);
+    for (const k of clipped) {
+      expect(k.children).toHaveLength(2);
+      expect(k.children[0]).toBeInstanceOf(Sprite);
+      expect(k.mask).toBe(k.children[1]);
+    }
+    expect(kids.filter((k) => k.label !== 'clipped-stone').every((k) => k instanceof Sprite)).toBe(true);
+    // A redraw that changes nothing keeps every object it drew.
+    const before = [...c.children];
+    renderNodeWalls(c, [], [bend], style(OUTLINE));
+    expect(c.children).toEqual(before);
+    expect(c.children.every((k, i) => k === before[i])).toBe(true);
   });
 
   it('lays no joint piece for a set without the continuous trait', () => {
