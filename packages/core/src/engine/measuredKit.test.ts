@@ -356,18 +356,99 @@ describe('a kit measured to butt', () => {
     });
   }
 
-  it('does not stretch the pieces either side of a door toward each other', () => {
+  /** Where the art stops at a run's two ends: half the kit's overlap in from its end joints. */
+  function artEnds(placed: WalkPlacement[], set: CaveKitPiece[]): [[number, number], [number, number]] {
+    const half = kitOverlap(set) / 2;
+    const a = placed[0];
+    const b = placed[placed.length - 1];
+    const along = (pl: WalkPlacement) => {
+      const L = Math.hypot(pl.Q[0] - pl.P[0], pl.Q[1] - pl.P[1]);
+      return [(pl.Q[0] - pl.P[0]) / L, (pl.Q[1] - pl.P[1]) / L];
+    };
+    const [start] = jointsOf(a.piece, a.at);
+    const [, end] = jointsOf(b.piece, b.at);
+    const ta = along(a);
+    const tb = along(b);
+    return [
+      [start[0] + ta[0] * half, start[1] + ta[1] * half],
+      [end[0] - tb[0] * half, end[1] - tb[1] * half],
+    ];
+  }
+
+  /**
+   * One run round the ring whose art ends within 0.1 of `edges` (x along a top edge), its two
+   * end pieces within 0.8 to 1.25 of their drawn size.
+   */
+  function expectToOpening(placed: WalkPlacement[], set: CaveKitPiece[], edges: [number, number]): void {
+    expect(placed.length).toBeGreaterThan(2);
+    const xs = artEnds(placed, set).map(([x]) => x).sort((p, q) => p - q);
+    expect(Math.abs(xs[0] - edges[0])).toBeLessThan(0.1);
+    expect(Math.abs(xs[1] - edges[1])).toBeLessThan(0.1);
+    for (const pl of [placed[0], placed[placed.length - 1]]) {
+      expect(pl.at.scale).toBeGreaterThanOrEqual(0.8);
+      expect(pl.at.scale).toBeLessThanOrEqual(1.25);
+    }
+  }
+
+  const lapsInFull = (placed: WalkPlacement[], set: CaveKitPiece[]): void => {
+    for (const lap of laps(placed, false)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+  };
+
+  it('runs the rock either side of a door to the door’s edges and leaves the door open', () => {
     seedButtKit();
     const set = bandPiecesFor(SET);
     const [ring] = orientRings([room]);
     const door: DoorGap = { wallId: 'floor:0:0', position: [7.75, 2.5], width: 1.5, ring: 0 };
     const placed = layBandRing(ring, [door], set);
-    const plain = layBandRing(ring, [door], withoutExact(set));
     // One opening: one run round the ring, from one side of the door to the other.
-    expect(placed.length).toBe(plain.length);
-    expect(placed[0].P).toEqual(plain[0].P);
-    expect(placed[placed.length - 1].Q).toEqual(plain[plain.length - 1].Q);
-    expect(Math.hypot(placed[0].P[0] - placed[placed.length - 1].Q[0], placed[0].P[1] - placed[placed.length - 1].Q[1])).toBeGreaterThan(1.5);
+    expectToOpening(placed, set, [7, 8.5]);
+    const [a, b] = artEnds(placed, set);
+    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeGreaterThanOrEqual(door.width - 0.1);
+  });
+
+  const mouthRoom: Polygon = [[6, 6], [24, 6], [24, 21], [6, 21]];
+  /** The mouth room's ring and gaps with a 1 cell erase across its top edge at x 14 to 15. */
+  function erasedMouth(): { ring: Polygon; gaps: DoorGap[] } {
+    const laid = vi.fn();
+    const opening: Polygon = [[14, 5.5], [15, 5.5], [15, 6.5], [14, 6.5]];
+    renderNodeWalls(new Container(), [mouthRoom], [], bandStyle(SET), [], {}, { onBandLaid: laid, openings: [opening] });
+    const { ring, gaps } = laid.mock.calls[0][0];
+    return { ring, gaps };
+  }
+
+  it('runs the rock to the two edges of an opening erased across a room’s edge', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const { ring, gaps } = erasedMouth();
+    expect(gaps.length).toBeGreaterThan(1);
+    const placed = layBandRing(ring, gaps, set);
+    expectToOpening(placed, set, [14, 15]);
+    lapsInFull(placed, set);
+  });
+
+  it('runs the rock to a door’s two edges on the same room', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([mouthRoom]);
+    const door: DoorGap = { wallId: 'floor:0:0', position: [14.5, 6], width: 1.5, ring: 0 };
+    const placed = layBandRing(ring, [door], set);
+    expectToOpening(placed, set, [13.75, 15.25]);
+    lapsInFull(placed, set);
+  });
+
+  it('lays the same kit without `exact` beside an opening as before', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const { ring, gaps } = erasedMouth();
+    const placed = layBandRing(ring, gaps, withoutExact(set));
+    // As laid before a measured kit's rock was run to the opening: stopped short of it.
+    expect(placed.map((pl) => pl.piece.key + (pl.piece.flipY ? '~' : ''))).toEqual(
+      ['run_2x8~', 'turn_in_2x2', 'run_2x8~', 'run_2x5~', 'turn_in_2x2', 'run_2x8~', 'run_2x5~', 'run_2x2~', 'turn_in_2x2', 'run_2x8~', 'run_2x5~', 'run_2x1', 'run_2x8'],
+    );
+    expect(placed[0].P[0]).toBeCloseTo(15.320404, 6);
+    expect(placed[0].P[1]).toBeCloseTo(5.82, 6);
+    expect(placed[placed.length - 1].Q[0]).toBeCloseTo(13.622017, 6);
+    expect(placed[placed.length - 1].Q[1]).toBeCloseTo(5.82, 6);
   });
 
   it('lays the same kit without `exact` as the walk answers, short joints and all', () => {
