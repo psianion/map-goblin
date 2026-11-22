@@ -27,6 +27,8 @@ const BandSchema = z.object({
   turnDeg: z.number(),
   /** An open run's tip. Never laid inside a run. */
   end: z.boolean().optional(),
+  /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
+  spine: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(64).optional(),
 });
 
 const ManifestEntrySchema = z.object({

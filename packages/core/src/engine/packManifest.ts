@@ -42,6 +42,8 @@ export interface BandMeasure {
   turnDeg: number
   /** An open run's tip. Never laid inside a run. */
   end?: boolean
+  /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
+  spine?: [number, number][]
 }
 
 export interface PackManifest {

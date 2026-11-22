@@ -14,10 +14,20 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
 import { Container, Graphics, Sprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { bandPiecesFor } from '../assets/caveWallKit';
+import { bandPiecesFor, jointsOf, mirrorPiece } from '../assets/caveWallKit';
 import { bandScale, bandSetArt, bandSize } from '../assets/packCatalog';
 import { resetAssetPackManager, seedCaveBandPack, seedPack } from '../testing/seedCatalog';
-import { bandFloorFit, FIT_DOOR_PAD, layBandRing, orientRings, placeBand, type FloorFit } from './caveBandRenderer';
+import {
+  bandFloorFit,
+  bandSeat,
+  FIT_DOOR_PAD,
+  fittedFloor,
+  layBandRing,
+  orientRings,
+  placeBand,
+  SEAT_IN,
+  type FloorFit,
+} from './caveBandRenderer';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { renderPlateaus, shadeCliffs } from './plateauRenderer';
 import type { BandMeasure, ManifestEntry } from './packManifest';
@@ -42,11 +52,11 @@ function entry(material: string, gridSize: string, band: BandMeasure, tags: stri
   return { type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: SET, tags, band };
 }
 
-/** Two straights, a bend of each hand and an end piece, measured on their entries. */
-function seedMeasuredKit(tags: string[] = []): void {
+/** Two straights, a bend of each hand and an end piece, measured on their entries; `spines` by key. */
+function seedMeasuredKit(tags: string[] = [], spines: Record<string, [number, number][]> = {}): void {
   seedPack(PACK, {
-    run_2x2_A: entry('run', '2x2', { joints: [[-0.065, 0.983], [-0.065, -0.988]], turnDeg: 0 }, tags),
-    run_2x4_A: entry('run', '2x4', { joints: [[-0.065, 1.983], [-0.065, -1.988]], turnDeg: 0 }, tags),
+    run_2x2_A: entry('run', '2x2', { joints: [[-0.065, 0.983], [-0.065, -0.988]], turnDeg: 0, ...(spines.run_2x2 && { spine: spines.run_2x2 }) }, tags),
+    run_2x4_A: entry('run', '2x4', { joints: [[-0.065, 1.983], [-0.065, -1.988]], turnDeg: 0, ...(spines.run_2x4 && { spine: spines.run_2x4 }) }, tags),
     turn_in_2x2_A: entry('turn_in', '2x2', { joints: [[-0.506, 0.983], [0.983, -0.506]], turnDeg: 90 }, tags),
     turn_out_2x2_A: entry('turn_out', '2x2', { joints: [[-0.025, 0.983], [-0.988, 0.02]], turnDeg: -90 }, tags),
     tip_1x2_A: entry('tip', '1x2', { joints: [[0, 0.98], [0, 0]], turnDeg: 0, end: true }, tags),
@@ -212,5 +222,82 @@ describe('fitting the floor to a measured kit’s rock', () => {
 
   it('fits nothing for a ring the walk laid nothing for', () => {
     expect(bandFloorFit(square, [])).toEqual({ tips: [], gaps: [] });
+  });
+});
+
+describe('a piece that carries its rock’s spine', () => {
+  // Each straight's rock humps 0.8 cell to the floor side (+x) of its joint line, off its
+  // middle: past the authored edge, which lies about 0.36 in from the joints.
+  const HUMP: Record<string, [number, number]> = { run_2x2: [0.735, 0.25], run_2x4: [0.735, 0.5] };
+  const SPINES: Record<string, [number, number][]> = {
+    run_2x2: [[-0.065, 0.983], HUMP.run_2x2, [-0.065, -0.988]],
+    run_2x4: [[-0.065, 1.983], HUMP.run_2x4, [-0.065, -1.988]],
+  };
+
+  it('is carried onto the kit piece, and mirrored with it', () => {
+    seedMeasuredKit([], SPINES);
+    const pool = bandPiecesFor(SET);
+    const run = pool.find((p) => p.key === 'run_2x2' && !p.flipY)!;
+    expect(run.spine).toEqual(SPINES.run_2x2);
+    const mirrored = [[-0.065, 0.988], [0.735, -0.25], [-0.065, -0.983]];
+    expect(mirrorPiece(run).spine).toEqual(mirrored);
+    expect(pool.find((p) => p.key === 'run_2x2' && p.flipY)!.spine).toEqual(mirrored);
+    expect(pool.find((p) => p.key === 'turn_in_2x2')!.spine).toBeUndefined();
+  });
+
+  /** Distance from `p` to the nearest edge of any ring. */
+  function toBoundary(rings: Polygon[], p: [number, number]): number {
+    let best = Infinity;
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i];
+        const b = r[(i + 1) % r.length];
+        const d = [b[0] - a[0], b[1] - a[1]];
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / (d[0] ** 2 + d[1] ** 2 || 1)));
+        best = Math.min(best, Math.hypot(a[0] + d[0] * t - p[0], a[1] + d[1] * t - p[1]));
+      }
+    }
+    return best;
+  }
+
+  it('seats the floor on the rock’s own line, and the kit without it as before', () => {
+    const [ring] = orientRings([square]);
+    seedMeasuredKit([], SPINES);
+    const placed = layBandRing(ring, [], bandPiecesFor(SET));
+    const seat = bandSeat(placed);
+    const floor = fittedFloor([ring], bandFloorFit(ring, placed));
+    const corners = square.map(([x, y]) => [x, y] as [number, number]);
+
+    // Each straight's hump where its sprite draws it (y negated for a mirrored one), and a
+    // point halfway from there to where the joint-line seat ran.
+    const probes = placed.flatMap((pl) => {
+      const q = HUMP[pl.piece.key];
+      if (!q) return [];
+      const y = pl.at.flipY ? -q[1] : q[1];
+      const c = Math.cos(pl.at.rotation);
+      const s = Math.sin(pl.at.rotation);
+      const hump: [number, number] = [pl.at.position.x + (q[0] * c - y * s) * pl.at.scale, pl.at.position.y + (q[0] * s + y * c) * pl.at.scale];
+      if (corners.some(([x, cy]) => Math.hypot(x - hump[0], cy - hump[1]) < 1.5)) return [];
+      const [J0, J1] = jointsOf(pl.piece, pl.at);
+      const v = [J1[0] - J0[0], J1[1] - J0[1]];
+      const L2 = v[0] ** 2 + v[1] ** 2;
+      const t = ((hump[0] - J0[0]) * v[0] + (hump[1] - J0[1]) * v[1]) / L2;
+      const right = [-v[1] / Math.sqrt(L2), v[0] / Math.sqrt(L2)];
+      const old = [J0[0] + v[0] * t + right[0] * SEAT_IN * pl.at.scale, J0[1] + v[1] * t + right[1] * SEAT_IN * pl.at.scale];
+      return [{ pl, hump, between: [(hump[0] + old[0]) / 2, (hump[1] + old[1]) / 2] as [number, number] }];
+    });
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.some((p) => p.pl.at.flipY)).toBe(true);
+    for (const { hump, between } of probes) {
+      expect(toBoundary(seat, hump)).toBeLessThan(0.01);
+      expect(covers([ring], between)).toBe(true);
+      expect(covers(floor, between)).toBe(false);
+    }
+
+    resetAssetPackManager();
+    seedMeasuredKit();
+    const plain = layBandRing(ring, [], bandPiecesFor(SET));
+    const plainFloor = fittedFloor([ring], bandFloorFit(ring, plain));
+    for (const { between } of probes) expect(covers(plainFloor, between)).toBe(true);
   });
 });

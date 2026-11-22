@@ -1131,11 +1131,22 @@ export interface FloorFit {
 /**
  * The region one ring's rock seats on: each placement's joint line (its chord, bowed
  * as `fitArc` assumes for a bend) shifted SEAT_IN to the right of travel, the floor
- * side, chained in walk order and closed. Empty for a ring the walk laid nothing for.
+ * side, chained in walk order and closed. A piece that carries its rock's spine gives
+ * that instead, unshifted: it already runs under the rock. Empty for a ring the walk
+ * laid nothing for.
  */
 export function bandSeat(placed: WalkPlacement[]): Polygon[] {
   const chain: [number, number][] = [];
   for (const pl of placed) {
+    if (pl.piece.spine) {
+      // Mapped as jointsOf maps the joints: a mirrored piece's spine is already mirrored.
+      const c = Math.cos(pl.at.rotation);
+      const s = Math.sin(pl.at.rotation);
+      for (const [x, y] of pl.piece.spine) {
+        chain.push([pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale]);
+      }
+      continue;
+    }
     const [J0, J1] = jointsOf(pl.piece, pl.at);
     const v = sub(J1, J0);
     const L = Math.hypot(v[0], v[1]);
