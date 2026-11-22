@@ -5,8 +5,8 @@ import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { holdAuthoredLook } from '@dnd/core/src/engine/editorDesk';
 import { useStore } from '@/store/store';
 import type { Layer } from '@/store/types';
-import { fillHeightDim } from '@/canvas/heightOverlay';
-import { TERRAIN_THUMB, THUMB_ASPECT, fitFrame, levelThumbFrame, thumbFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
+import { deskPalette, fillHeightDim, strokeHeightRings } from '@/canvas/heightOverlay';
+import { TERRAIN_THUMB, THUMB_ASPECT, THUMB_CSS_PX, fitFrame, levelThumbFrame, thumbFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
 import { heightFocus, parseHeightThumbKey } from './heightModel';
 import { levelDungeons } from './roomModel';
 
@@ -70,12 +70,15 @@ function holdWholeTerrain(holders: Container[]): () => void {
 }
 
 /** How much of what is not at a Heights card's height is erased from its picture. */
-const HEIGHT_DIM = 0.7;
+const HEIGHT_DIM = 0.85;
+/** The card's own rings: the map highlight's ink outline, this many CSS px wide at card size. */
+const HEIGHT_OUTLINE_PX = 1.5;
 
 /**
  * A Heights card: the level's layers drawn as their own tiles draw them, together, framed to
  * the level's content; then everything not at the card's height erased most of the way, so
- * the tile's own ground shows through it and only that height stays at full strength.
+ * the tile's own ground shows through it, and the height's rings outlined as the map
+ * highlight outlines them (the ground's card has no outline).
  */
 function renderHeightThumb(renderer: Renderer, levelId: string, height: number, layers: Layer[]): string | null | undefined {
   const level = levelDungeons(layers, useStore.getState().levels, levelId);
@@ -105,11 +108,15 @@ function renderHeightThumb(renderer: Renderer, levelId: string, height: number, 
 
   // The whole picture in world units, so the wash reaches its edges whatever the frame's shape.
   const seen = { minX: -tx / scale, minY: -ty / scale, maxX: (px - tx) / scale, maxY: (pxH - ty) / scale };
+  const focus = heightFocus(level, height);
   const dim = new Container();
   const g = new Graphics();
   g.blendMode = 'erase';
-  dim.addChild(g);
-  fillHeightDim(g, seen, heightFocus(level, height), 0xffffff, HEIGHT_DIM);
+  fillHeightDim(g, seen, focus, 0xffffff, HEIGHT_DIM);
+  const outline = new Graphics();
+  // World units to a CSS px of the card: the texture holds pxH / THUMB_CSS_PX of its pixels per CSS px.
+  strokeHeightRings(outline, focus, deskPalette(), HEIGHT_OUTLINE_PX, pxH / THUMB_CSS_PX / scale);
+  dim.addChild(g, outline);
   try {
     renderer.render({ container: dim, target: rt, clear: false, transform });
   } finally {

@@ -5,8 +5,8 @@ import type { Polygon } from '@dnd/core/src/types/geometry';
 import type { DungeonLayer } from '@/store/types';
 
 /**
- * The heights in use on a level's layers: distinct, highest first, then 0 for the ground; none
- * on a flat level. Read off the plateaus' nesting, the levels `layerPlateaus` makes its bands
+ * The heights in use on a level's layers with 0 for the ground among them: distinct, highest
+ * first (raised, ground, sunk); none on a flat level. Read off the plateaus' nesting, the levels `layerPlateaus` makes its bands
  * of, so it needs no polygon union and works before the geometry engine has loaded.
  */
 export function levelHeights(layers: readonly DungeonLayer[]): number[] {
@@ -15,7 +15,7 @@ export function levelHeights(layers: readonly DungeonLayer[]): number[] {
     for (const info of plateauChains(plateausOf(layer)).values()) if (info.chain.length > 0 && info.height !== 0) seen.add(info.height);
   }
   if (seen.size === 0) return [];
-  return [...[...seen].sort((a, b) => b - a), 0];
+  return [...seen, 0].sort((a, b) => b - a);
 }
 
 /** A card's label: `+2`, `0`, `-2`. */

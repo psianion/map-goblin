@@ -48,11 +48,11 @@ function raise(...children: PlateauChild[]) {
 const cards = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-testid="shell-height-card"]')];
 
 describe('the heights of a level', () => {
-  it('lists each height once, highest first, then 0 for the ground', () => {
+  it('lists each height once, highest first, with 0 for the ground between raised and sunk', () => {
     const a = layerOf([plat('a', 0, 0, 4, 4, 2), plat('b', 10, 10, 14, 14, -1)]);
     const b = layerOf([plat('c', 20, 20, 24, 24, 2), plat('d', 30, 30, 34, 34, 3)]);
-    expect(levelHeights([a, b])).toEqual([3, 2, -1, 0]);
-    expect(levelHeights([a, b]).map(heightLabel)).toEqual(['+3', '+2', '-1', '0']);
+    expect(levelHeights([a, b])).toEqual([3, 2, 0, -1]);
+    expect(levelHeights([a, b]).map(heightLabel)).toEqual(['+3', '+2', '0', '-1']);
   });
 
   it('lists none on a flat level, plateaus with no height included', () => {
@@ -87,9 +87,9 @@ describe('HeightsColumn', () => {
     raise(plat('top', 0, 0, 4, 4, 2), plat('pit', 10, 10, 14, 14, -2));
     const before = useStore.getState();
     const { container } = render(<HeightsColumn />);
-    expect(cards(container).map((c) => c.textContent)).toEqual(['+2', '-2', '0']);
+    expect(cards(container).map((c) => c.textContent)).toEqual(['+2', '0', '-2']);
 
-    const [top, pit] = cards(container);
+    const [top, , pit] = cards(container);
     fireEvent.pointerEnter(top);
     expect(useShell.getState().heightHover).toBe(2);
     fireEvent.pointerLeave(top);

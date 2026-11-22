@@ -63,11 +63,33 @@ function hexToNum(hex: string | undefined, fallback: number): number {
   return Number.isNaN(n) ? fallback : n;
 }
 
-function palette(): { ink: number; paper: number; key: string } {
+export interface DeskPalette {
+  ink: number;
+  paper: number;
+  key: string;
+}
+
+/** The desk's ink and sheet colours, the ones the editor's overlays draw in. */
+export function deskPalette(): DeskPalette {
   const desk = getEditorDesk();
   const ink = desk?.ink ?? '#1b1b1b';
   const paper = desk?.sheet ?? '#fbfbfb';
   return { ink: hexToNum(ink, 0x1b1b1b), paper: hexToNum(paper, 0xfbfbfb), key: `${ink}${paper}` };
+}
+
+/**
+ * Outlines a raised or sunk height's rings: an ink line `px` wide over a faint sheet-coloured
+ * halo, with `unit` world units to a px. The ground (dimmed inside) has no outline.
+ */
+export function strokeHeightRings(g: Graphics, focus: HeightFocus, pal: DeskPalette, px: number, unit: number): void {
+  if (focus.dim !== 'outside' || focus.rings.length === 0) return;
+  const trace = () => {
+    for (const r of focus.rings) if (r.length >= 3) g.poly(r.flat(), true);
+  };
+  trace();
+  g.stroke({ color: pal.paper, width: (px + 2 * HALO_PX) * unit, alpha: HALO_ALPHA });
+  trace();
+  g.stroke({ color: pal.ink, width: px * unit, alpha: 1 });
 }
 
 /** Mount the height highlight over the engine's world. Call once from the canvas host; `destroy` on teardown. */
@@ -92,7 +114,7 @@ export function mountHeightOverlay(engine: RenderEngine): { destroy(): void } {
   let dirty = true;
   let shown: number | null = null;
   let drawnZoom = 0;
-  let pal = palette();
+  let pal = deskPalette();
 
   const redraw = (): void => {
     g.clear();
@@ -100,18 +122,11 @@ export function mountHeightOverlay(engine: RenderEngine): { destroy(): void } {
     const { heightHover, heightPin } = useShell.getState();
     shown = shownHeight(state, heightHover, heightPin);
     if (shown === null) return;
-    pal = palette();
+    pal = deskPalette();
     const zoom = (drawnZoom = zoomNow());
     const focus = heightFocus(levelDungeons(state.layers, state.levels, state.ui.activeLevelId), shown);
     fillHeightDim(g, computeMapWorldBounds(state.layers), focus, pal.paper, DIM_ALPHA);
-    if (focus.dim !== 'outside' || focus.rings.length === 0) return;
-    const trace = () => {
-      for (const r of focus.rings) if (r.length >= 3) g.poly(r.flat(), true);
-    };
-    trace();
-    g.stroke({ color: pal.paper, width: (OUTLINE_PX + 2 * HALO_PX) / zoom, alpha: HALO_ALPHA });
-    trace();
-    g.stroke({ color: pal.ink, width: OUTLINE_PX / zoom, alpha: 1 });
+    strokeHeightRings(g, focus, pal, OUTLINE_PX, 1 / zoom);
   };
 
   const unsubStore = useStore.subscribe((s, p) => {
@@ -126,7 +141,7 @@ export function mountHeightOverlay(engine: RenderEngine): { destroy(): void } {
     rafId = requestAnimationFrame(tick);
     if (!ticker) follow();
     // The outline keeps its screen width: redrawn at a new zoom, only while something is shown.
-    if (shown !== null && (zoomNow() !== drawnZoom || palette().key !== pal.key)) dirty = true;
+    if (shown !== null && (zoomNow() !== drawnZoom || deskPalette().key !== pal.key)) dirty = true;
     if (dirty) {
       dirty = false;
       redraw();

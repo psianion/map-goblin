@@ -9,7 +9,7 @@ import { Thumb } from './LayersColumn';
 
 /**
  * The dock's Heights column: one card per height in use on the level being edited, highest
- * first, then 0 for the ground, each a picture of where that height is. Hovering a card
+ * first with 0 for the ground among them, each a picture of where that height is. Hovering a card
  * highlights its height on the map; a click keeps the highlight on, and a second click, Esc
  * or another card changes or clears it. A view only: the selection, the tool and the map stay
  * as they are. A flat level has no column.
