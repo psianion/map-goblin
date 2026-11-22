@@ -7,8 +7,12 @@
 // (plateauRenderer's drawPaintedBorder). Its `edgeArt` is `paint` (the default texture) or
 // `paint:<texture id>`; its width is the plateau's `borderWidth`.
 
-import { bandSetArt, getBandSetIds, type CatalogEntry } from '../assets/packCatalog';
-import { kitPieces, ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
+//
+// A band set that carries its own measurements (isMeasuredBandSet) is one cliff look of its
+// own: every measured entry is its art, and its kit is the set's own, not a ledge family.
+
+import { bandSetArt, getBandSet, getBandSetIds, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandEndPiecesFor, bandPiecesFor, kitPieces, ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
 import { floorTextureEntries, outdoorFloorChoices } from '../assets/materialKit';
 
 /** The band set a cliff takes when its plateau names none. */
@@ -84,6 +88,10 @@ function ledgeChoices(): { value: string | undefined; label: string }[] {
   const sets = getBandSetIds();
   const out: { value: string | undefined; label: string }[] = [];
   for (const setId of sets) {
+    if (isMeasuredBandSet(setId)) {
+      if (cliffPieces(cliffArt(setId), setId).length > 0) out.push({ value: setId, label: setLabel(setId) });
+      continue;
+    }
     const families = new Set<string>();
     for (const e of bandSetArt(setId).values()) {
       const base = e.material.split('_')[0];
@@ -110,6 +118,10 @@ function ledgeChoices(): { value: string | undefined; label: string }[] {
 export function cliffArt(edgeArt: string | undefined): Map<string, CatalogEntry> {
   const { setId, family } = cliffChoice(edgeArt);
   const art = new Map<string, CatalogEntry>();
+  if (isMeasuredBandSet(setId)) {
+    for (const e of getBandSet(setId)) if (e.band) art.set(`${e.material}_${e.gridSize}`, e);
+    return art;
+  }
   for (const [key, e] of bandSetArt(setId)) {
     if (e.material === family || e.material.startsWith(`${family}_`)) art.set(key, e);
   }
@@ -118,12 +130,16 @@ export function cliffArt(edgeArt: string | undefined): Map<string, CatalogEntry>
 
 /** The kit pieces a cliff can lay with `art`: its family's, only those with a picture to show. */
 export function cliffPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {
-  const pieces = ledgePieces(cliffChoice(edgeArt).family).filter((p) => art.has(p.key));
+  const { setId, family } = cliffChoice(edgeArt);
+  const kit = isMeasuredBandSet(setId) ? bandPiecesFor(setId) : ledgePieces(family);
+  const pieces = kit.filter((p) => art.has(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
   return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
 }
 
 /** The pieces that end an open ledge run of the family `edgeArt` names, with art in `art`. */
 export function ledgeEndPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {
-  return kitPieces(`${cliffChoice(edgeArt).family}_end_`).filter((p) => art.has(p.key));
+  const { setId, family } = cliffChoice(edgeArt);
+  const ends = isMeasuredBandSet(setId) ? bandEndPiecesFor(setId) : kitPieces(`${family}_end_`);
+  return ends.filter((p) => art.has(p.key));
 }

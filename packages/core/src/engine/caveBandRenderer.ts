@@ -11,7 +11,7 @@ import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
 import { GRID_CELL_PX, bandSetArt, hasLiveTexture, type CatalogEntry } from '../assets/packCatalog';
-import { caveBandPieces, jointsOf, type CaveKitPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, caveBandPieces, jointsOf, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import { ringOwner } from '../shared/wallLook';
@@ -1069,7 +1069,7 @@ export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandP
 export function drawOutlineBand(parent: Container, rings: Polygon[], setId: string, fillColor: number, gaps: DoorGap[] = [], size = 1): void {
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
-  const laid = layOutlineBand(rings, caveBandPieces(), gaps, size);
+  const laid = layOutlineBand(rings, bandPiecesFor(setId), gaps, size);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
     at = placeBand(parent, laid[i], art, 0xffffff, at, { edge, closed: true, gaps, color: fillColor, size });

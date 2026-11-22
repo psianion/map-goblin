@@ -18,6 +18,17 @@ const FrameSchema = z.object({
   h: z.number().int().positive(),
 });
 
+const PointSchema = z.tuple([z.number(), z.number()]);
+
+const BandSchema = z.object({
+  /** The two butt joints, in cells from the tile's centre (x right, y down). */
+  joints: z.tuple([PointSchema, PointSchema]),
+  /** Signed turn across the piece in degrees, positive clockwise on screen. */
+  turnDeg: z.number(),
+  /** An open run's tip. Never laid inside a run. */
+  end: z.boolean().optional(),
+});
+
 const ManifestEntrySchema = z.object({
   type: AssetTypeEnum,
   material: z.string().min(1),
@@ -32,6 +43,8 @@ const ManifestEntrySchema = z.object({
   // Forge-set provenance (set integration writes this; hand-authored packs don't have it).
   set: z.string().min(1).optional(),
   tags: z.array(z.string()),
+  // A band kit piece's own measurements, so a set can carry its kit (see core's caveWallKit).
+  band: BandSchema.optional(),
   // Variant family within its set (vault-cli `families` writes it on object entries).
   // Last so a re-parse keeps the key order and the manifest hash stable.
   family: z.string().min(1).optional(),

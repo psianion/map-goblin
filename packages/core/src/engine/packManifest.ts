@@ -30,6 +30,18 @@ export interface ManifestEntry {
   /** Variant family within `set` ('storage_barrel_dark'); absent = a family of one. */
   family?: string
   tags: string[]
+  /** A band kit piece's own measurements (see caveWallKit's bandPiecesFor). */
+  band?: BandMeasure
+}
+
+/** Where a band kit piece's joints are, as `CaveKitPiece` measures them. */
+export interface BandMeasure {
+  /** The two butt joints, in cells from the tile's centre (x right, y down). */
+  joints: [[number, number], [number, number]]
+  /** Signed turn across the piece in degrees, positive clockwise on screen. */
+  turnDeg: number
+  /** An open run's tip. Never laid inside a run. */
+  end?: boolean
 }
 
 export interface PackManifest {

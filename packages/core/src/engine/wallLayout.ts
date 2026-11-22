@@ -87,6 +87,13 @@ export interface LayoutOptions {
   overlap?: number;
   /** Which corner pieces the turns take. Absent: sharp. */
   cornerStyle?: CornerStyle;
+  /**
+   * The set's wall is one outlined band rather than a row of stones. A turn no
+   * authored corner fits is then carried by its cover stone alone, with the
+   * straights on both sides running right up to the vertex beneath it: arm stones
+   * and a reserve would break the outline either side of the turn.
+   */
+  continuous?: boolean;
 }
 
 /**
@@ -953,7 +960,11 @@ export function layoutWall(
       const capIn = extentToward(capHalfLen, capHalfThick, capAngle, dirIn);
       const capOut = extentToward(capHalfLen, capHalfThick, capAngle, curr.ang);
 
-      if (Math.abs(turn) >= ARM_TURN_MIN) {
+      if (opts.continuous) {
+        // An outlined band: the runs meet at the vertex and the cap covers the join.
+        fan = { cap, armIn: null, armOut: null, capAngle, dIn: 0, dOut: 0 };
+        reachIn = reachOut = 0;
+      } else if (Math.abs(turn) >= ARM_TURN_MIN) {
         const armIn = pick(fanPieces, seed, i * 7919);
         const armOut = pick(fanPieces, seed, i * 7919 + 1);
         const inHalf = pieceWorldLength(armIn, wallWidth) / 2;

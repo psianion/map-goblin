@@ -10,6 +10,7 @@
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import { setBandSetTest } from '../shared/wallLook';
 import type { EntryRect } from '../engine/assetPackManager';
+import type { BandMeasure } from '../engine/packManifest';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
 export const GRID_CELL_PX = 200;
@@ -36,6 +37,8 @@ export interface CatalogEntry {
   tags: string[];
   /** Variant family within `set` (written by the pack build); absent = a family of one. */
   family?: string;
+  /** A band kit piece's own measurements, when its set carries its kit (see `isMeasuredBandSet`). */
+  band?: BandMeasure;
 }
 
 interface CatalogState {
@@ -49,6 +52,8 @@ interface CatalogState {
   wallSets: Map<string, CatalogEntry[]>;
   /** Cave band kits by set id — rock pieces the cave walk lays along a floor ring. */
   bandSets: Map<string, CatalogEntry[]>;
+  /** Band sets whose entries carry their own measurements (`band`), rather than the built-in kit's. */
+  measuredBandSets: Set<string>;
   /** Variant families by `familyKeyOf`, each in cycle order (see `familyCycle`). */
   families: Map<string, CatalogEntry[]>;
   /** Lazily built `propEntries()` answer. */
@@ -69,6 +74,7 @@ function build(): CatalogState {
   const byType = new Map<string, CatalogEntry[]>();
   const wallSets = new Map<string, CatalogEntry[]>();
   const bandSets = new Map<string, CatalogEntry[]>();
+  const measured = new Map<string, CatalogEntry[]>();
 
   for (const { packId, manifest } of manager.getPackManifests()) {
     for (const [entryId, e] of Object.entries(manifest.entries)) {
@@ -89,6 +95,7 @@ function build(): CatalogState {
         label: e.material.replace(/_/g, ' '),
         tags: e.tags,
         family: e.family,
+        band: e.band,
       };
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
@@ -109,6 +116,11 @@ function build(): CatalogState {
         if (setList) setList.push(entry);
         else bandSets.set(entry.set, [entry]);
       }
+      if (entry.set && entry.band) {
+        const setList = measured.get(entry.set);
+        if (setList) setList.push(entry);
+        else measured.set(entry.set, [entry]);
+      }
     }
   }
 
@@ -121,6 +133,16 @@ function build(): CatalogState {
     }
   }
 
+  // A kit that carries its own measurements is a band set by those alone: no naming
+  // rule, no `cave` tag. A straight to run on is all it needs, and only its measured
+  // entries are its band (props shipped beside them are not).
+  const measuredBandSets = new Set<string>();
+  for (const [setId, entries] of measured) {
+    if (!entries.some((e) => e.band!.turnDeg === 0 && !e.band!.end)) continue;
+    bandSets.set(setId, entries);
+    measuredBandSets.add(setId);
+  }
+
   const families = new Map<string, CatalogEntry[]>();
   for (const entry of byId.values()) {
     if (!entry.family) continue;
@@ -131,7 +153,18 @@ function build(): CatalogState {
   }
   for (const list of families.values()) list.sort(cycleOrder);
 
-  return { version: manager.catalogVersion, manager, byId, byLocalId, byType, wallSets, bandSets, families, props: null };
+  return {
+    version: manager.catalogVersion,
+    manager,
+    byId,
+    byLocalId,
+    byType,
+    wallSets,
+    bandSets,
+    measuredBandSets,
+    families,
+    props: null,
+  };
 }
 
 function keyOf(entry: CatalogEntry): string {
@@ -274,6 +307,20 @@ export function isBandSet(setId: string | undefined): boolean {
   return !!setId && current().bandSets.has(setId);
 }
 
+/** True for a band set whose entries carry their own kit measurements (`band`). */
+export function isMeasuredBandSet(setId: string | undefined): boolean {
+  return !!setId && current().measuredBandSets.has(setId);
+}
+
+/**
+ * True when a set's art carries its own colour (any entry of the wall set or band
+ * set is tagged `colored`): such art is drawn untinted, since a tint multiplies it.
+ */
+export function isColoredSet(setId: string | undefined): boolean {
+  if (!setId) return false;
+  return [...getWallSet(setId), ...getBandSet(setId)].some((e) => e.tags.includes('colored'));
+}
+
 // A floor's edge band set to None takes off only a band (shared/wallLook.ts).
 setBandSetTest(isBandSet);
 
@@ -347,8 +394,11 @@ export function familyPosition(id: string): { index: number; count: number } {
  */
 export function propEntries(): CatalogEntry[] {
   const state = current();
+  // A measured kit's band is its measured entries alone: anything else it ships is a prop.
+  const inBand = (e: CatalogEntry, set: string): boolean =>
+    state.bandSets.has(set) && !e.tags.includes('prop') && (!state.measuredBandSets.has(set) || !!e.band);
   state.props ??= (state.byType.get('object') ?? []).filter(
-    (e) => !(e.set && ((state.bandSets.has(e.set) && !e.tags.includes('prop')) || state.wallSets.has(e.set))),
+    (e) => !(e.set && (inBand(e, e.set) || state.wallSets.has(e.set))),
   );
   return state.props;
 }

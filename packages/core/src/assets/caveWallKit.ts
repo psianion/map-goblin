@@ -20,7 +20,7 @@
 // never laid on these numbers (see bandSetArt in packCatalog.ts).
 
 import kit from './caveWallKit.json';
-import { getCatalogEntry } from './packCatalog';
+import { getBandSet, getCatalogEntry, isMeasuredBandSet, type CatalogEntry } from './packCatalog';
 
 /** One measured kit piece. Lengths are in grid cells, angles in degrees. */
 export interface CaveKitPiece {
@@ -110,6 +110,67 @@ export function caveBandPieces(): CaveKitPiece[] {
     bandPool = [...base, ...base.filter((p) => p.turnDeg === 0).map(mirrorPiece)];
   }
   return bandPool;
+}
+
+interface MeasuredKit {
+  pool: CaveKitPiece[];
+  ends: CaveKitPiece[];
+}
+
+/**
+ * A measured kit's pieces, keyed on the catalog's own entry list for the set: that list
+ * is rebuilt on every catalog version, so a pack installed or removed builds afresh.
+ */
+const measuredKits = new WeakMap<CatalogEntry[], MeasuredKit>();
+const warnedDuplicate = new Set<string>();
+
+function measuredKit(setId: string): MeasuredKit {
+  const entries = getBandSet(setId);
+  let kit = measuredKits.get(entries);
+  if (kit) return kit;
+  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean }>();
+  for (const e of entries) {
+    if (!e.band) continue;
+    const key = `${e.material}_${e.gridSize}`;
+    if (byKey.has(key)) {
+      if (import.meta.env?.DEV && !warnedDuplicate.has(`${setId}|${key}`)) {
+        warnedDuplicate.add(`${setId}|${key}`);
+        console.warn(`[band] ${setId} measures ${key} twice; keeping the first`);
+      }
+      continue;
+    }
+    const [a, b] = e.band.joints;
+    byKey.set(key, {
+      piece: {
+        key,
+        jointsCells: [
+          [a[0], a[1]],
+          [b[0], b[1]],
+        ],
+        chordCells: Math.hypot(a[0] - b[0], a[1] - b[1]),
+        turnDeg: e.band.turnDeg,
+      },
+      end: !!e.band.end,
+    });
+  }
+  const measuredPieces = [...byKey.values()];
+  const base = measuredPieces.filter((m) => !m.end).map((m) => m.piece);
+  kit = {
+    pool: [...base, ...base.filter((p) => p.turnDeg === 0).map(mirrorPiece)],
+    ends: measuredPieces.filter((m) => m.end).map((m) => m.piece),
+  };
+  measuredKits.set(entries, kit);
+  return kit;
+}
+
+/** The pieces a band set is laid with: its own measurements when its entries carry them, else the built-in cave kit. */
+export function bandPiecesFor(setId: string | undefined): CaveKitPiece[] {
+  return isMeasuredBandSet(setId) ? measuredKit(setId!).pool : caveBandPieces();
+}
+
+/** A measured kit's run-end pieces. Empty for a set without measurements. */
+export function bandEndPiecesFor(setId: string): CaveKitPiece[] {
+  return isMeasuredBandSet(setId) ? measuredKit(setId).ends : [];
 }
 
 /**
