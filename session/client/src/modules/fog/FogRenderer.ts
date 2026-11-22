@@ -3,7 +3,8 @@
 // composited on the GPU (`tierPlan` + `tierCompositor`). Off, nothing is drawn at all.
 //
 // A player's seat draws it solid, over a flat black scrim that is the fail-dark backstop: if the
-// shader never draws, fogged ground is still black. The DM's seat draws no cloud: it shows the
+// shader never draws, fogged ground is still black, all but the band beside cleared ground that
+// the cloud thins across. The DM's seat draws no cloud: it shows the
 // exact cells, an even pale veil over each fogged one and a line along the grid where fogged
 // meets cleared, so the DM reads cell for cell what the players hold without losing the map under
 // it. "As players see it" (`asPlayers.ts`) draws the DM's seat solid instead.
@@ -43,7 +44,7 @@ import { cellOutline, cellRuns, fogFrame, sceneFog, type CellChain } from './fog
 import { placedLights } from './visionSight';
 import { DEFAULT_FOG_LOOK, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
 import { effectiveFogLook } from './effectiveFogLook';
-import { GUARD_BLUR_CELLS, ownClearing, tierPlan } from './tierPlan';
+import { EDGE_WANDER, edgeBand, edgeBlurCells, ownClearing, tierPlan } from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
 /** The door marks' reveal beat, which `DoorRenderer` still plays. A play beat, not decoration. */
@@ -425,7 +426,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     const lit = composite();
     if (lit) lit.alpha = GRADE_STRENGTH;
 
-    const plan = tierPlan({ frame: scene.bounds, cleared: scene.cleared, own: scene.own });
+    // The scrim opens as far into the fog as the cloud thins, the wander included.
+    const band = edgeBand(scene.look.fade) + EDGE_WANDER;
+    const plan = tierPlan({ frame: scene.bounds, cleared: scene.cleared, own: scene.own, band });
     cleared = plan.cells;
     fog.setMaskBounds(plan.cover);
     // The frame the glow stays inside and the cover is cut at; set before `setLook`, whose soft
@@ -434,7 +437,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     const fit = fog.maskFit();
     const raster = showing && fit !== null;
     // Run even when nothing can be composited, so no target keeps the previous rebuild's holes.
-    tiers.run(raster ? plan : { cover: null, ops: [], cells: plan.cells }, { scale: fit?.scale ?? 1, fade: GUARD_BLUR_CELLS });
+    tiers.run(raster ? plan : { cover: null, ops: [], cells: plan.cells }, { scale: fit?.scale ?? 1, fade: edgeBlurCells(scene.look.fade) });
     scrim.clear();
     if (showing && !raster && scene.solid && plan.cover) {
       const { minX, minY, maxX, maxY } = plan.cover;

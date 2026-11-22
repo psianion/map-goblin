@@ -11,19 +11,23 @@ import {
   EDGE_FEATHER_CELLS,
   FRAME_SHADOW_CELLS,
   FRAME_SHADOW_DEPTH,
-  GUARD_BLUR_CELLS,
   MASK_LIVE,
   OWN_CLEAR_FEATHER,
+  beyondCells,
   blurPasses,
   cellTexture,
+  edgeBand,
+  edgeBlurCells,
+  edgeCover,
   edgeFeather,
+  edgeProfile,
+  edgeRampEnds,
+  edgeShown,
   frameShadow,
   onMapSample,
-  outsideFrame,
   ownClearAt,
   ownClearing,
   ownDisc,
-  shownAt,
   tierPlan,
   type DrawOp,
   type DrawPlan,
@@ -33,14 +37,6 @@ import {
 const FRAME = { minX: 0, minY: 0, maxX: 24, maxY: 8 };
 
 const opsOn = (plan: DrawPlan, target: TierTarget): DrawOp[] => plan.ops.filter((op) => op.target === target);
-
-/** T13 — the standard normal CDF (Abramowitz and Stegun 7.1.26 erf, good to 1.5e-7). */
-const normalCdf = (z: number): number => {
-  const x = Math.abs(z) / Math.SQRT2;
-  const t = 1 / (1 + 0.3275911 * x);
-  const e = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-  return 0.5 * (1 + (z >= 0 ? e : -e));
-};
 
 /** Whether the mask's cells op opens a world cell: its texel is white. */
 const opened = (plan: DrawPlan, col: number, row: number): boolean => {
@@ -93,7 +89,7 @@ describe('tierPlan — the mask is the frame minus the cleared cells', () => {
     expect(tierPlan({ frame: null, cleared: upper })).toMatchObject({ cover: null, ops: [] });
   });
 
-  it('covers the frame and a margin round it, and counts the margin as shown for the blurs', () => {
+  it('covers the frame and a margin round it', () => {
     const plan = tierPlan({ frame: FRAME });
     expect(plan.cover).toEqual({
       minX: -COVER_MARGIN,
@@ -101,7 +97,8 @@ describe('tierPlan — the mask is the frame minus the cleared cells', () => {
       maxX: FRAME.maxX + COVER_MARGIN,
       maxY: FRAME.maxY + COVER_MARGIN,
     });
-    expect(plan.beyond).toEqual(outsideFrame(plan.cover!, FRAME));
+    // Nothing cleared, so nothing past the frame reads as shown either.
+    expect(plan.beyond).toEqual([]);
   });
 
   it('paints the seat’s own token over the record, and opens the scrim round it', () => {
@@ -119,12 +116,27 @@ describe('tierPlan — the mask is the frame minus the cleared cells', () => {
     expect(scrim.at(-1)).toMatchObject({ kind: 'polys', blend: 'erase', polys: [ownDisc(ownClearing(TOKEN))] });
   });
 
-  it('builds the feather off the finished mask and the scrim as one erase of it', () => {
-    const plan = tierPlan({ frame: FRAME, cleared: upper });
+  it('builds the feather off the finished mask, and opens the scrim the band round the cleared cells', () => {
+    const plan = tierPlan({ frame: FRAME, cleared: upper, band: 0.95 });
     expect(opsOn(plan, 'edge')).toEqual([{ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS }]);
+    // The two cleared cells are one run, grown by the band the cloud thins across.
     expect(opsOn(plan, 'scrim')).toEqual([
       { kind: 'rect', target: 'scrim', rect: plan.cover, color: 0x000000, blend: 'normal' },
-      { kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' },
+      {
+        kind: 'polys',
+        target: 'scrim',
+        polys: [
+          [
+            [2, 2],
+            [4, 2],
+            [4, 3],
+            [2, 3],
+          ],
+        ],
+        grow: 0.95,
+        color: MASK_LIVE,
+        blend: 'erase',
+      },
     ]);
   });
 });
@@ -161,142 +173,134 @@ describe('tierPlan — the record as a texture', () => {
   });
 });
 
-describe('the record edge, smooth along a staircase (T8)', () => {
+// ── Pass 2: the players' cloud, thinning across the painted line ─────────────
+//
+// The soft copy is the cell texture through its linear sampler (a ramp a cell wide) blurred by
+// `edgeBlurCells`, and `edgeShown` stretches the band's ends to 0 and 1. Checked two ways: the
+// analytic `edgeProfile` across a straight edge, and a texel model of the real mask blurred
+// (separable Gaussian) round an L of cells and along a staircase.
+describe('the players’ edge (pass 2)', () => {
+  it('reads half on the painted line, full cloud a band into the fog and clear a band into the ground, at every fade', () => {
+    for (const fade of [1, 1.5, 2, 3, 4]) {
+      const band = edgeBand(fade);
+      const ends = edgeRampEnds(fade);
+      const shown = (x: number): number => edgeShown(edgeProfile(x, fade), ends);
+      expect(shown(0)).toBeCloseTo(0.5, 6);
+      expect(shown(-band)).toBeCloseTo(0, 6);
+      expect(shown(band)).toBeCloseTo(1, 6);
+      expect(shown(-band - 0.05)).toBe(0);
+      expect(shown(band + 0.05)).toBe(1);
+      expect(shown(-band / 2)).toBeGreaterThan(0.02);
+      expect(shown(band / 2)).toBeLessThan(0.98);
+    }
+    // Three quarters of a cell each side at the default Edge softness.
+    expect(edgeBand(2)).toBe(0.75);
+  });
+
+  it('widens with fade: a softer edge spends the band over more ground', () => {
+    const at = (fade: number) => edgeShown(edgeProfile(-0.4, fade), edgeRampEnds(fade));
+    expect(at(1)).toBe(0);
+    expect(at(2)).toBeGreaterThan(0);
+    expect(at(4)).toBeGreaterThan(at(2));
+    expect(edgeBlurCells(4)).toBeGreaterThan(edgeBlurCells(2));
+  });
+
+  it('covers in full at the band’s fog end and not at all at its clear end, whatever the cloud’s density', () => {
+    for (const den of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(edgeCover(0, den)).toBe(1);
+      expect(edgeCover(1, den)).toBe(0);
+      // …and only ever falls as the ground clears: the wisps move the cut, never fold it back.
+      let prev = 1;
+      for (let m = 0; m <= 1.0001; m += 0.005) {
+        const c = edgeCover(Math.min(1, m), den);
+        expect(c).toBeLessThanOrEqual(prev + 1e-12);
+        prev = c;
+      }
+    }
+    expect(edgeCover(0.5, 0.5)).toBeCloseTo(0.5, 9);
+    // The density moves the half-way point about: wisps, not a blurred line.
+    expect(edgeCover(0.5, 0.9)).toBeLessThan(0.4);
+    expect(edgeCover(0.5, 0.1)).toBeGreaterThan(0.6);
+  });
+
+  // A texel model of the mask: `R` texels a cell, the cell texture through a linear sampler,
+  // then a separable Gaussian of the soft copy's σ.
   const N = 16;
-  const R = 6; // texels per cell, as a small map's mask lands
+  const R = 6;
   const W = N * R;
-  const K = N; // cell (i, j) is revealed when i + j <= K: a 45° staircase through the middle
-  const cell = (i: number, j: number): number => (i < 0 || j < 0 ? 1 : i >= N || j >= N ? 0 : i + j <= K ? 1 : 0);
-  /** The cell texture through a linear sampler, at a world point in cells. */
-  const tent = (x: number, y: number): number => {
-    const fx = x - 0.5;
-    const fy = y - 0.5;
-    const i = Math.floor(fx);
-    const j = Math.floor(fy);
-    const tx = fx - i;
-    const ty = fy - j;
-    return (
-      (cell(i, j) * (1 - tx) + cell(i + 1, j) * tx) * (1 - ty) + (cell(i, j + 1) * (1 - tx) + cell(i + 1, j + 1) * tx) * ty
-    );
-  };
-  const clampAt = (a: Float64Array, x: number, y: number): number =>
-    a[Math.min(W - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
-  // The `edge` target: coverage, Gaussian-blurred (separable) at the feather's σ in texels —
-  // and (T13) the soft copy the guard reads, the same coverage at the guard's σ.
-  const blurOf = (strength: number): Float64Array => {
+  const softOf = (cell: (i: number, j: number) => number, fade: number): ((x: number, y: number) => number) => {
+    const tent = (x: number, y: number): number => {
+      const [fx, fy] = [x - 0.5, y - 0.5];
+      const [i, j] = [Math.floor(fx), Math.floor(fy)];
+      const [tx, ty] = [fx - i, fy - j];
+      return (cell(i, j) * (1 - tx) + cell(i + 1, j) * tx) * (1 - ty) + (cell(i, j + 1) * (1 - tx) + cell(i + 1, j + 1) * tx) * ty;
+    };
+    const at = (a: Float64Array, x: number, y: number): number => a[Math.min(W - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
     const c = new Float64Array(W * W);
-    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) c[y * W + x] = Math.min(1, 2 * tent((x + 0.5) / R, (y + 0.5) / R));
-    const sigma = BLUR_SIGMA_PER_STRENGTH * strength * R;
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) c[y * W + x] = tent((x + 0.5) / R, (y + 0.5) / R);
+    const sigma = BLUR_SIGMA_PER_STRENGTH * edgeBlurCells(fade) * R;
     const rad = Math.ceil(3 * sigma);
     const k = Array.from({ length: 2 * rad + 1 }, (_, i) => Math.exp(-((i - rad) ** 2) / (2 * sigma * sigma)));
-    const sum = k.reduce((a, b) => a + b, 0);
+    const sum = k.reduce((p, q) => p + q, 0);
     const pass = (src: Float64Array, dx: number, dy: number): Float64Array => {
       const out = new Float64Array(W * W);
       for (let y = 0; y < W; y++)
         for (let x = 0; x < W; x++) {
           let v = 0;
-          for (let i = -rad; i <= rad; i++) v += k[i + rad] * clampAt(src, x + i * dx, y + i * dy);
+          for (let i = -rad; i <= rad; i++) v += k[i + rad] * at(src, x + i * dx, y + i * dy);
           out[y * W + x] = v / sum;
         }
       return out;
     };
-    return pass(pass(c, 1, 0), 0, 1);
+    const blurred = pass(pass(c, 1, 0), 0, 1);
+    return (x, y) => {
+      const [fx, fy] = [x * R - 0.5, y * R - 0.5];
+      const [i, j] = [Math.floor(fx), Math.floor(fy)];
+      const [tx, ty] = [fx - i, fy - j];
+      return (at(blurred, i, j) * (1 - tx) + at(blurred, i + 1, j) * tx) * (1 - ty) + (at(blurred, i, j + 1) * (1 - tx) + at(blurred, i + 1, j + 1) * tx) * ty;
+    };
   };
-  const blurred = blurOf(EDGE_FEATHER_CELLS);
-  const guardBlur = blurOf(GUARD_BLUR_CELLS);
-  /** A blurred target through a linear sampler, at a world point in cells. */
-  const read = (target: Float64Array, x: number, y: number): number => {
-    const fx = x * R - 0.5;
-    const fy = y * R - 0.5;
-    const i = Math.floor(fx);
-    const j = Math.floor(fy);
-    const tx = fx - i;
-    const ty = fy - j;
-    return (
-      (clampAt(target, i, j) * (1 - tx) + clampAt(target, i + 1, j) * tx) * (1 - ty) +
-      (clampAt(target, i, j + 1) * (1 - tx) + clampAt(target, i + 1, j + 1) * tx) * ty
-    );
-  };
-  const shown = (x: number, y: number): number => shownAt(read(guardBlur, x, y), read(blurred, x, y));
-  // The staircase's mid line runs through (c0, c0); `d` is the distance across it (inward < 0).
-  const c0 = (K + 1) / 2;
-  const at = (d: number, along: number): number =>
-    shown(c0 + (d + along) / Math.SQRT2, c0 + (d - along) / Math.SQRT2);
 
-  it('falls off monotone across the stairs, with no step above a small epsilon', () => {
+  it('matches the analytic profile across a straight painted edge', () => {
+    // Clear west of x = 8, fogged east of it.
+    const soft = softOf((i) => (i < 8 ? 1 : 0), 2);
+    for (const d of [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75]) expect(Math.abs(soft(8 - d, 8) - edgeProfile(d, 2))).toBeLessThan(0.02);
+  });
+
+  it('leaves at most a light cloud on the centre of every painted cell of an L, and its fogged neighbours under cloud', () => {
+    const lit = new Set(['6,6', '6,7', '6,8', '7,8', '8,8']);
+    const soft = softOf((i, j) => (lit.has(`${i},${j}`) ? 1 : 0), 2);
+    const ends = edgeRampEnds(2);
+    for (const key of lit) {
+      const [i, j] = key.split(',').map(Number) as [number, number];
+      // An arm one cell wide has the fog half a cell off on both sides: the most cloud any painted cell keeps.
+      expect(edgeCover(edgeShown(soft(i + 0.5, j + 0.5), ends), 0.5)).toBeLessThan(0.25);
+    }
+    // A fogged cell beside the L, and the one tucked in its corner: under the cloud at their centres.
+    for (const [i, j] of [
+      [5, 7],
+      [6, 9],
+      [7, 7],
+    ] as const) {
+      expect(edgeShown(soft(i + 0.5, j + 0.5), ends)).toBeLessThan(0.5);
+    }
+  });
+
+  it('falls off monotone across a staircase, with no hard step', () => {
+    // Cell (i, j) is clear when i + j <= 16: a 45° staircase through the middle.
+    const soft = softOf((i, j) => (i < 0 || j < 0 ? 1 : i >= N || j >= N ? 0 : i + j <= N ? 1 : 0), 2);
+    const ends = edgeRampEnds(2);
+    const c0 = (N + 1) / 2;
+    const at = (d: number, along: number): number => edgeShown(soft(c0 + (d + along) / Math.SQRT2, c0 + (d - along) / Math.SQRT2), ends);
     for (const along of [0, 0.25, 0.5, 0.75]) {
-      let prev = at(-3, along);
-      for (let d = -3 + 0.01; d <= 1.5; d += 0.01) {
+      let prev = at(-2, along);
+      for (let d = -2 + 0.01; d <= 2; d += 0.01) {
         const v = at(d, along);
         expect(v).toBeLessThanOrEqual(prev + 1e-9);
-        expect(prev - v).toBeLessThan(0.02);
+        expect(prev - v).toBeLessThan(0.03);
         prev = v;
       }
     }
-  });
-
-  it('reads the same all along the boundary — the cell steps do not show', () => {
-    for (const d of [-1.5, -1, -0.5, -0.25, 0, 0.25]) {
-      const row = Array.from({ length: 401 }, (_, i) => at(d, -2 + i * 0.01));
-      expect(Math.max(...row) - Math.min(...row)).toBeLessThan(0.01);
-    }
-  });
-
-  it('fades over about a cell and a half', () => {
-    let lo = Number.NaN;
-    let hi = Number.NaN;
-    for (let d = -3; d <= 1.5; d += 0.01) {
-      const v = at(d, 0);
-      if (Number.isNaN(hi) && v < 0.95) hi = d;
-      if (Number.isNaN(lo) && v < 0.05) lo = d;
-    }
-    expect(lo - hi).toBeGreaterThan(1.3);
-    expect(lo - hi).toBeLessThan(1.8);
-  });
-
-  it('keeps a lone hidden cell inside revealed ground hidden at its middle — the guard', () => {
-    // The feather alone reads a one-cell hole as nearly shown; the guard's blur of it, at the
-    // hole's middle, is far under where the guard opens (T13), so it holds it at zero.
-    const sigma = BLUR_SIGMA_PER_STRENGTH * GUARD_BLUR_CELLS;
-    const across = 2 * normalCdf(0.5 / sigma) - 1;
-    const soft = 1 - across * across;
-    expect(soft).toBeLessThan(0.2);
-    expect(shownAt(soft, 0.95)).toBe(0);
-    expect(shownAt(0, 0.95)).toBe(0);
-  });
-});
-
-// ── T13: a thin hidden gap, soft ────────────────────────────────────────────
-//
-// A strip of hidden ground `w` wide inside revealed ground, across its width: the hard mask is
-// 0 in it and 1 round it, the feather and the guard each read their own Gaussian blur of that.
-describe('a thin hidden gap inside revealed ground (T13, the white sliver)', () => {
-  const SIGMA_E = BLUR_SIGMA_PER_STRENGTH * EDGE_FEATHER_CELLS;
-  const SIGMA_G = BLUR_SIGMA_PER_STRENGTH * GUARD_BLUR_CELLS;
-  /** The strip's coverage through a blur of σ, at x across it (centred on 0). */
-  const strip = (x: number, w: number, sigma: number): number =>
-    1 - (normalCdf((x + w / 2) / sigma) - normalCdf((x - w / 2) / sigma));
-  const m = (x: number, w: number): number => shownAt(strip(x, w, SIGMA_G), strip(x, w, SIGMA_E));
-  const xs = Array.from({ length: 401 }, (_, i) => -2 + i * 0.01);
-  const biggestStep = (f: (x: number) => number): number =>
-    Math.max(...xs.slice(1).map((x, i) => Math.abs(f(x) - f(xs[i]))));
-
-  it.each([0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1, 1.5])('has no hard step across a %f-cell gap', (w) => {
-    // Every 0.01 cell under 7 %: a ramp of a fifth of a cell or more, never a texel's cut.
-    expect(biggestStep((x) => m(x, w))).toBeLessThan(0.07);
-  });
-
-  it('replaces the hard guard, which stepped from dense cloud to the feather in one texel', () => {
-    // T8's guard: the hard mask itself, so the step at the gap's rim was the feather's whole value.
-    const before = (x: number, w: number): number => edgeFeather(strip(x, w, SIGMA_E)) * (Math.abs(x) < w / 2 ? 0 : 1);
-    for (const w of [0.2, 0.3, 0.5]) expect(biggestStep((x) => before(x, w))).toBeGreaterThan(0.5);
-  });
-
-  it('leaves a gap half a cell wide or more hidden at its middle, and hidden ground past a straight edge hidden', () => {
-    for (const w of [0.5, 0.7, 1, 1.5, 3]) expect(m(0, w)).toBe(0);
-    // A straight edge (an infinitely wide gap): nothing is lifted on the hidden side.
-    const edge = (x: number): number => shownAt(normalCdf(x / SIGMA_G), normalCdf(x / SIGMA_E));
-    for (let x = -2; x <= 0; x += 0.01) expect(edge(x)).toBe(0);
   });
 });
 
@@ -417,9 +421,30 @@ describe('the map edge, crisp (T6)', () => {
     }
   });
 
-  it('asks the plan to count the cover past the frame as shown, and only that', () => {
-    const plan = tierPlan({ frame: FRAME, cleared: setCells(regionOf(FRAME)!, [[4, 2]]) });
-    expect(plan.beyond).toEqual(outsideFrame(plan.cover!, FRAME));
+  it('asks the plan to carry the cleared edge cells on past the frame, and only those', () => {
+    const cleared = setCells(regionOf(FRAME)!, [
+      [0, 0],
+      [1, 0],
+      [5, 0],
+      [4, 2],
+      [23, 3],
+      [23, 7],
+    ]);
+    const plan = tierPlan({ frame: FRAME, cleared });
+    const [c, f] = [plan.cover!, FRAME];
+    const expected = [
+      { minX: 0, minY: c.minY, maxX: 2, maxY: f.minY },
+      { minX: 5, minY: c.minY, maxX: 6, maxY: f.minY },
+      { minX: 23, minY: f.maxY, maxX: 24, maxY: c.maxY },
+      { minX: c.minX, minY: 0, maxX: f.minX, maxY: 1 },
+      { minX: f.maxX, minY: 3, maxX: c.maxX, maxY: 4 },
+      { minX: f.maxX, minY: 7, maxX: c.maxX, maxY: 8 },
+      { minX: c.minX, minY: c.minY, maxX: f.minX, maxY: f.minY },
+      { minX: f.maxX, minY: f.maxY, maxX: c.maxX, maxY: c.maxY },
+    ];
+    expect(plan.beyond).toEqual(beyondCells(c, cleared));
+    expect(plan.beyond).toHaveLength(expected.length);
+    expect(plan.beyond).toEqual(expect.arrayContaining(expected));
     for (const r of plan.beyond!) {
       const overlapX = Math.min(r.maxX, FRAME.maxX) - Math.max(r.minX, FRAME.minX);
       const overlapY = Math.min(r.maxY, FRAME.maxY) - Math.max(r.minY, FRAME.minY);

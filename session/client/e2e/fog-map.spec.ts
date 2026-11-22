@@ -2,7 +2,8 @@
 //
 // The fog acceptance walk runs on the outdoor-cave fixture (fog rework plan section 5.3): a
 // player sees the whole map until the DM turns fog on, then only the ground the DM's brush and
-// the party's own sight clear, and the DM's own view of it see-through until "As players see it".
+// the party's own sight clear, at night as by day, and the DM's own view of it as exact cells
+// until "As players see it".
 import type { Page } from '@playwright/test';
 import {
   CAVE,
@@ -23,7 +24,7 @@ import {
 interface FogProbe {
   visible(): boolean;
   solid(): boolean;
-  dense(): number;
+  cloud(): boolean;
   clearedCells(): number;
   shownAt(x: number, y: number): boolean | null;
 }
@@ -153,7 +154,7 @@ test.describe('@map the fog, on the outdoor cave', () => {
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
 
     // 3. The DM brushes the ground from the start to the cave mouth clear (the dock folded out
-    // of the way). The player sees that ground; the DM's map shows the fog see-through.
+    // of the way). The player sees that ground; the DM's map shows the exact cells, no cloud.
     await page.keyboard.press('b');
     await stroke(page, [CAVE.partyStart, CAVE.dirt, MOUTH]);
     await page.keyboard.press('Escape');
@@ -161,7 +162,7 @@ test.describe('@map the fog, on the outdoor cave', () => {
     await expect.poll(() => probe(player, 'shownAt', CAVE.dirt.x, CAVE.dirt.y)).toBe(true);
     expect(await probe(page, 'visible')).toBe(true);
     expect(await probe(page, 'solid')).toBe(false);
-    expect(await probe(page, 'dense')).toBeLessThan(1);
+    expect(await probe(page, 'cloud')).toBe(false);
 
     // 4. The DM turns Auto-explore off. The player walks inside the cleared ground and is
     // refused at its edge.
@@ -175,10 +176,12 @@ test.describe('@map the fog, on the outdoor cave', () => {
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.dirt);
     expect(await probe(player, 'clearedCells')).toBe(cleared);
 
-    // 5. Auto-explore back on (its default). The player walks into the cave mouth and the cave
-    // clears ahead. The hall stays fogged: from the dirt and from the mouth, both within sight
-    // range of it, its walls and its closed door stand in the way. (The inner cave door is a lone
-    // wall in an open cave, so the ground past it is in view from the mouth.)
+    // 5. Night falls (darkness 1, no light carried) and Auto-explore goes back on (its default).
+    // The player walks into the cave mouth and the cave clears ahead in the dark, as it would by
+    // day. The hall stays fogged: from the dirt and from the mouth, both within sight range of it,
+    // its walls and its closed door stand in the way. (The inner cave door is a lone wall in an
+    // open cave, so the ground past it is in view from the mouth.)
+    await send(page, 'triggers', 'set-darkness', { value: 1 });
     await page.getByTestId('fog-auto-explore').click();
     await expect(page.getByTestId('fog-auto-explore')).toHaveAttribute('aria-pressed', 'true');
     await dragToken(player, 'Bram', MOUTH);
@@ -186,6 +189,9 @@ test.describe('@map the fog, on the outdoor cave', () => {
     await expect.poll(() => probe(player, 'clearedCells')).toBeGreaterThan(cleared);
     await expect.poll(() => probe(player, 'shownAt', IN_CAVE.x, IN_CAVE.y)).toBe(true);
     expect(await probe(player, 'shownAt', CAVE.inHall.x, CAVE.inHall.y)).toBe(false);
+    // …and the ground that step cleared can be walked onto, still in the dark.
+    await dragToken(player, 'Bram', IN_CAVE);
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(IN_CAVE);
 
     // 6. The goblin appears when its room's ground clears: the DM brushes the hall with W.
     await page.keyboard.press('w');
@@ -237,7 +243,7 @@ test.describe('@map the fog, on the outdoor cave', () => {
     // ground shown, away from the player's own token.
     await page.getByTestId('as-players').click();
     await expect.poll(() => probe(page, 'solid')).toBe(true);
-    expect(await probe(page, 'dense')).toBe(1);
+    expect(await probe(page, 'cloud')).toBe(true);
     for (const at of [CAVE.dirt, GOBLIN, SOUTH, PAST_INNER_DOOR]) {
       expect(await probe(page, 'shownAt', at.x, at.y), `shown at ${at.x},${at.y}`).toBe(await probe(player, 'shownAt', at.x, at.y));
     }

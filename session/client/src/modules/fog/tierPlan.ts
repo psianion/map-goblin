@@ -2,15 +2,15 @@
 //
 // This is the pure half of the tier compositor. The mask is the frame minus the cleared cells of
 // the level shown: the cleared record goes into `mask` as one texel per cell, the feather is
-// `mask` blurred into `edge`, and the scrim is a flat black backstop with `mask` erased out of
-// it. A seat's own token is painted back over all of that, so a player always sees their own.
+// `mask` blurred into `edge`, and the scrim is a flat black backstop with the cleared cells,
+// grown by the band the players' cloud thins across, erased out of it. A seat's own token is painted back over all of that, so a player always sees their own.
 //
 // No Pixi in here. `tierCompositor.ts` is the executor and holds every Pixi object.
 
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { toBytes, type RegionMask } from '@dnd/mechanics/fog';
 import type { Bounds } from './FogRenderer';
-import { regionCells } from './fog';
+import { cellRuns, regionCells, type CellRun } from './fog';
 
 /**
  * The mask's live tier. White, as it has always been.
@@ -56,31 +56,79 @@ export function edgeFeather(coverage: number): number {
 }
 
 /**
- * T13 — the guard's own blur, a BlurFilter strength in cells (σ ≈ 0.26 cell). The player seat's
- * soft copy of the mask (`maskSoft`, read as coverage) is blurred by this much, and the guard
- * reads that copy. The feather alone would lift a hidden cell inside revealed ground; T8 held it
- * with the hard texel (`4 × mask`), which stepped from dense cloud to the feather in one texel —
- * the hard white sliver in a thin hidden gap. Read off this blur, the guard eases instead.
+ * Pass 2 — how far the players' cloud runs each side of the painted line, in cells per unit of
+ * the look's Edge softness (`fade`): full strength this far inside the fog, gone this far inside
+ * the clear ground, half strength on the line itself. 0.75 a side at the default 2.
  */
-export const GUARD_BLUR_CELLS = 0.2;
+export const EDGE_BAND_PER_FADE = 0.375;
 
-/** T13 — the guard is 0 where the soft copy reads at or under this (a boundary reads half)… */
-export const GUARD_FROM = 0.5;
-/** …and 1 from here: a few tenths of a cell inside shown ground, where the feather is still ~0. */
-export const GUARD_TO = 0.8;
+/** The band's half width for a look's `fade`, in cells. */
+export const edgeBand = (fade: number): number => EDGE_BAND_PER_FADE * fade;
 
-/** T13 — the guard for a soft-copy value: the shader's `guardAt`. */
-export function guardAt(soft: number): number {
-  const t = Math.min(1, Math.max(0, (soft - GUARD_FROM) / (GUARD_TO - GUARD_FROM)));
-  return t * t * (3 - 2 * t);
+/** Pass 2 — the most the cloud's edge wanders off the painted line, either way, in cells. */
+export const EDGE_WANDER = 0.2;
+
+/** The smallest blur the soft copy gets, as a Gaussian σ in cells: enough to round a cell's corner. */
+const EDGE_MIN_SIGMA = 0.1;
+
+/**
+ * The soft copy's blur for a look (the player seat's `maskSoft`, the mask's red channel blurred):
+ * a BlurFilter strength in cells. The cell texture through the linear sampler is already a ramp
+ * a cell wide (variance 1/12), so the blur adds what takes the whole to a Gaussian of half the
+ * band, and no less than `EDGE_MIN_SIGMA`.
+ */
+export function edgeBlurCells(fade: number): number {
+  const sigma = edgeBand(fade) / 2;
+  return Math.sqrt(Math.max(sigma * sigma - 1 / 12, EDGE_MIN_SIGMA ** 2)) / BLUR_SIGMA_PER_STRENGTH;
 }
 
 /**
- * T8 — how shown a point reads on the player's seat, 0 hidden to 1 revealed: the shader's
- * one-tier `maskAt`. `soft` is the guard's blurred copy (T13), `coverage` the feather's blur.
+ * The soft copy across a straight painted edge, `x` cells past it into the clear ground: the cell
+ * texture's one-cell linear ramp through the blur's Gaussian. 0.5 on the line, by symmetry.
  */
-export function shownAt(soft: number, coverage: number): number {
-  return edgeFeather(coverage) * guardAt(soft);
+export function edgeProfile(x: number, fade: number): number {
+  const sigma = edgeBlurCells(fade) * BLUR_SIGMA_PER_STRENGTH;
+  const STEPS = 200;
+  let sum = 0;
+  let weight = 0;
+  for (let i = 0; i <= STEPS; i++) {
+    const t = -4 * sigma + (8 * sigma * i) / STEPS;
+    const w = Math.exp(-(t * t) / (2 * sigma * sigma));
+    sum += w * Math.min(1, Math.max(0, x - t + 0.5));
+    weight += w;
+  }
+  return sum / weight;
+}
+
+/** The soft-copy values at the band's two ends, for a look's `fade`: the shader's `uEdgeRamp`. */
+export function edgeRampEnds(fade: number): [number, number] {
+  const lo = edgeProfile(-edgeBand(fade), fade);
+  return [lo, 1 - lo];
+}
+
+/**
+ * Pass 2 — how clear a point reads on the player's seat, 0 under full cloud to 1 clear, from the
+ * soft copy there: the band's ends stretched to 0 and 1. The shader's one-tier `maskAt`.
+ */
+export function edgeShown(soft: number, ends: readonly [number, number]): number {
+  return Math.min(1, Math.max(0, (soft - ends[0]) / (ends[1] - ends[0])));
+}
+
+/**
+ * Pass 2 — how far the cloud's own density pushes the cut about inside the band, so it thins out
+ * as wisps and not as a blurred line. Under a half, so the cover still only falls as ground clears.
+ */
+export const EDGE_WISP = 0.45;
+
+/**
+ * Pass 2 — the players' cloud over a point that reads `shown` clear (`edgeShown`, after the
+ * wander) where the cloud's density is `den`: full at 0, gone at 1, and the density's push fading
+ * to nothing at both ends. The shader's one-tier cover.
+ */
+export function edgeCover(shown: number, den: number): number {
+  const e = shown + (den - 0.5) * EDGE_WISP * 4 * shown * (1 - shown);
+  const t = Math.min(1, Math.max(0, e));
+  return 1 - t * t * (3 - 2 * t);
 }
 
 /** T13 — how far past the token's own edge its clearing fades out, in cells (5–95 % over ~1.5). */
@@ -190,7 +238,7 @@ export type Blend = 'normal' | 'erase';
  * - `mask`: the texture the cloud shader samples, and the stencil the tokens and doors wear.
  *   Clears *transparent*, so alpha carries shown-ness and an erased texel reads 0 in `.r`.
  * - `edge`: the mask's coverage blurred, for the shader's inward feather.
- * - `scrim`: the flat black backstop, with the mask's own alpha erased out of it.
+ * - `scrim`: the flat black backstop, with the cleared cells grown by the band erased out of it.
  */
 export type TierTarget = 'mask' | 'edge' | 'scrim';
 
@@ -269,6 +317,11 @@ export interface TierScene {
   cleared?: RegionMask;
   /** This seat's own tokens' footprints: always clear, whatever the record says. */
   own?: readonly Polygon[];
+  /**
+   * How far the cloud thins past the painted line into the fog (`edgeBand`): the scrim opens
+   * this far round the cleared cells, so nothing black shows through the thinning cloud.
+   */
+  band?: number;
 }
 
 /** How far past the frame the targets reach, in cells: room for the feather to run out. */
@@ -287,6 +340,35 @@ export function outsideFrame(cover: Bounds, frame: Bounds): Bounds[] {
     { minX: cover.minX, minY: frame.minY, maxX: frame.minX, maxY: frame.maxY },
     { minX: frame.maxX, minY: frame.minY, maxX: cover.maxX, maxY: frame.maxY },
   ].filter((r) => r.maxX > r.minX && r.maxY > r.minY);
+}
+
+/**
+ * The cover past the map's edge that the blurs read as shown: the strip beside each run of
+ * cleared cells along the edge, and a corner square where the corner cell is cleared. The edge
+ * cells are carried on outward, so cleared ground running up to the edge does not fade toward it
+ * and fogged ground there is not lifted by it.
+ */
+export function beyondCells(cover: Bounds, cleared: RegionMask | undefined): Bounds[] {
+  if (!cleared || cleared.cols <= 0 || cleared.rows <= 0) return [];
+  const bytes = toBytes(cleared.bits);
+  const { minX, minY, cols, rows } = cleared;
+  const [maxX, maxY] = [minX + cols, minY + rows];
+  const clear = (col: number, row: number): boolean => {
+    const bit = row * cols + col;
+    return (bytes[bit >>> 3]! & (1 << (bit & 7))) !== 0;
+  };
+  const along = (n: number, at: (i: number) => boolean): CellRun[] => cellRuns({ col: 0, row: 0, cols: n, rows: 1 }, (i) => at(i));
+  const out: Bounds[] = [
+    ...along(cols, (c) => clear(c, 0)).map(([c, , n]) => ({ minX: minX + c, minY: cover.minY, maxX: minX + c + n, maxY: minY })),
+    ...along(cols, (c) => clear(c, rows - 1)).map(([c, , n]) => ({ minX: minX + c, minY: maxY, maxX: minX + c + n, maxY: cover.maxY })),
+    ...along(rows, (r) => clear(0, r)).map(([r, , n]) => ({ minX: cover.minX, minY: minY + r, maxX: minX, maxY: minY + r + n })),
+    ...along(rows, (r) => clear(cols - 1, r)).map(([r, , n]) => ({ minX: maxX, minY: minY + r, maxX: cover.maxX, maxY: minY + r + n })),
+  ];
+  if (clear(0, 0)) out.push({ minX: cover.minX, minY: cover.minY, maxX: minX, maxY: minY });
+  if (clear(cols - 1, 0)) out.push({ minX: maxX, minY: cover.minY, maxX: cover.maxX, maxY: minY });
+  if (clear(0, rows - 1)) out.push({ minX: cover.minX, minY: maxY, maxX: minX, maxY: cover.maxY });
+  if (clear(cols - 1, rows - 1)) out.push({ minX: maxX, minY: maxY, maxX: cover.maxX, maxY: cover.maxY });
+  return out;
 }
 
 /**
@@ -309,8 +391,9 @@ export function cellTexture(region: RegionMask | undefined): CellTexture | null 
 
 /**
  * The whole fog mask, as draws: the cleared cells, the seat's own tokens over them, the feather
- * off the finished mask, and the scrim as one erase of it, so the two cannot disagree about
- * where a hole is. A pass that does not run leaves the scrim opaque: fog fails dark.
+ * off the finished mask, and the scrim opened over the same cleared cells grown by the band the
+ * cloud thins across, so the two cannot disagree about where a hole is. A pass that does not run
+ * leaves the scrim opaque: fog fails dark.
  */
 export function tierPlan(scene: TierScene): DrawPlan {
   const cells = regionCells(scene.cleared);
@@ -329,10 +412,20 @@ export function tierPlan(scene: TierScene): DrawPlan {
   if (own.length > 0) ops.push({ kind: 'polys', target: 'mask', polys: own, grow: 0, color: MASK_LIVE, blend: 'normal' });
   ops.push({ kind: 'sprite', target: 'edge', source: 'mask', blend: 'normal', featherCells: EDGE_FEATHER_CELLS });
   ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
-  ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
+  if (cleared && scene.cleared) {
+    const { minX, minY } = scene.cleared;
+    const runs = cellRuns({ col: 0, row: 0, cols: cleared.cols, rows: cleared.rows }, (col, row) => cleared.data[(row * cleared.cols + col) * 4 + 3] === 255);
+    const polys = runs.map(([col, row, n]): Polygon => [
+      [minX + col, minY + row],
+      [minX + col + n, minY + row],
+      [minX + col + n, minY + row + 1],
+      [minX + col, minY + row + 1],
+    ]);
+    ops.push({ kind: 'polys', target: 'scrim', polys, grow: scene.band ?? 0, color: MASK_LIVE, blend: 'erase' });
+  }
   // …and the own clearing's disc, so its feather fades into the map, not into the backstop.
   if (own.length > 0) {
     ops.push({ kind: 'polys', target: 'scrim', polys: own.map((f) => ownDisc(ownClearing(f))), grow: 0, color: MASK_LIVE, blend: 'erase' });
   }
-  return { cover, ops, cells, beyond: outsideFrame(cover, frame) };
+  return { cover, ops, cells, beyond: beyondCells(cover, scene.cleared) };
 }
