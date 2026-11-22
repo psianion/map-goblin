@@ -1,6 +1,6 @@
 // The shell's own view state: which family's flyout is open, the last family tool in hand
 // (the dock keeps its columns while Select is up), the dock's Set up tab, which right sheet
-// is showing, and whether the asset panel is open.
+// is showing, whether the asset panel is open, and which height the Heights column highlights.
 // Never part of the map; nothing here is saved.
 
 import { create } from 'zustand';
@@ -31,8 +31,13 @@ interface ShellState {
   held: ToolType | null;
   /** The dock's Set up tab in front, by id; null is the tool's own. Back to null on every tool change. */
   dockTab: string | null;
+  /** The Heights card under the pointer, and the one clicked to keep its highlight on the map. */
+  heightHover: number | null;
+  heightPin: number | null;
   setFlyout: (family: FamilyDef['id'] | null) => void;
   setDockTab: (tab: string | null) => void;
+  setHeightHover: (height: number | null) => void;
+  setHeightPin: (height: number | null) => void;
   setLastTool: (toolId: string) => void;
   openSheet: (sheet: ShellSheet) => void;
   closeSheet: () => void;
@@ -48,8 +53,12 @@ export const useShell = create<ShellState>()((set) => ({
   spaceReturn: null,
   held: null,
   dockTab: null,
+  heightHover: null,
+  heightPin: null,
   setFlyout: (flyout) => set({ flyout }),
   setDockTab: (dockTab) => set({ dockTab }),
+  setHeightHover: (heightHover) => set({ heightHover }),
+  setHeightPin: (heightPin) => set({ heightPin }),
   setLastTool: (lastToolId) => set({ lastToolId }),
   openSheet: (sheet) => set(sheet ? { sheet, assets: null } : { sheet }),
   closeSheet: () => set({ sheet: null }),
@@ -59,5 +68,5 @@ export const useShell = create<ShellState>()((set) => ({
 
 /** Back to a closed shell: no flyout, no sheet, no remembered tool. For tests and a new mount. */
 export function resetShell(): void {
-  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null, spaceReturn: null, held: null, dockTab: null });
+  useShell.setState({ flyout: null, lastToolId: null, sheet: null, assets: null, spaceReturn: null, held: null, dockTab: null, heightHover: null, heightPin: null });
 }

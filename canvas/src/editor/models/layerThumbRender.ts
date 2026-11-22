@@ -1,10 +1,14 @@
-import { Matrix, RenderTexture, type Container, type Renderer } from 'pixi.js';
+import { Container, Graphics, Matrix, RenderTexture, type Renderer } from 'pixi.js';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { getLayerEntry } from '@/engine/sceneGraph';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { holdAuthoredLook } from '@dnd/core/src/engine/editorDesk';
+import { useStore } from '@/store/store';
 import type { Layer } from '@/store/types';
-import { TERRAIN_THUMB, THUMB_ASPECT, fitFrame, thumbFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
+import { fillHeightDim } from '@/canvas/heightOverlay';
+import { TERRAIN_THUMB, THUMB_ASPECT, fitFrame, levelThumbFrame, thumbFrame, thumbPixels, type ThumbPainter } from './layerThumbs';
+import { heightFocus, parseHeightThumbKey } from './heightModel';
+import { levelDungeons } from './roomModel';
 
 /**
  * Paints one filmstrip tile from the live scene: the layer's own container rendered into a
@@ -65,6 +69,57 @@ function holdWholeTerrain(holders: Container[]): () => void {
   };
 }
 
+/** How much of what is not at a Heights card's height is erased from its picture. */
+const HEIGHT_DIM = 0.7;
+
+/**
+ * A Heights card: the level's layers drawn as their own tiles draw them, together, framed to
+ * the level's content; then everything not at the card's height erased most of the way, so
+ * the tile's own ground shows through it and only that height stays at full strength.
+ */
+function renderHeightThumb(renderer: Renderer, levelId: string, height: number, layers: Layer[]): string | null | undefined {
+  const level = levelDungeons(layers, useStore.getState().levels, levelId);
+  if (level.length === 0) return null;
+  const containers = level.map((l) => getLayerEntry(l.id)?.container);
+  if (containers.some((c) => !c || c.destroyed)) return undefined;
+
+  const pxH = thumbPixels(typeof window === 'undefined' ? 1 : window.devicePixelRatio);
+  const px = Math.round(pxH * THUMB_ASPECT);
+  const rt = textureFor(renderer, px, pxH);
+  const { scale, tx, ty } = fitFrame(levelThumbFrame(level, computeMapWorldBounds(layers)), px, pxH);
+  const transform = new Matrix(scale, 0, 0, scale, tx, ty);
+
+  level.forEach((layer, i) => {
+    const container = containers[i]!;
+    const wasVisible = container.visible;
+    const wrappers = (getLayerEntry(layer.id)?.sublayers?.floor?.children ?? []).filter((c) => c.label === 'terrainFloorMeshWrapper');
+    const releaseTerrain = holdWholeTerrain(wrappers as Container[]);
+    try {
+      container.visible = true;
+      renderer.render({ container, target: rt, clear: i === 0, clearColor: [0, 0, 0, 0], transform });
+    } finally {
+      releaseTerrain();
+      container.visible = wasVisible;
+    }
+  });
+
+  // The whole picture in world units, so the wash reaches its edges whatever the frame's shape.
+  const seen = { minX: -tx / scale, minY: -ty / scale, maxX: (px - tx) / scale, maxY: (pxH - ty) / scale };
+  const dim = new Container();
+  const g = new Graphics();
+  g.blendMode = 'erase';
+  dim.addChild(g);
+  fillHeightDim(g, seen, heightFocus(level, height), 0xffffff, HEIGHT_DIM);
+  try {
+    renderer.render({ container: dim, target: rt, clear: false, transform });
+  } finally {
+    dim.destroy({ children: true });
+  }
+
+  const canvas = renderer.extract.canvas({ target: rt }) as HTMLCanvasElement;
+  return canvas.toDataURL('image/png');
+}
+
 /** Painter for `startLayerThumbs`. */
 export const renderLayerThumb: ThumbPainter = (key: string, layers: Layer[]) => {
   const scene = getEngineSingleton();
@@ -75,6 +130,8 @@ export const renderLayerThumb: ThumbPainter = (key: string, layers: Layer[]) => 
   } catch {
     return undefined; // not initialised yet, or torn down
   }
+  const height = parseHeightThumbKey(key);
+  if (height) return renderHeightThumb(renderer, height.levelId, height.height, layers);
   const { sceneGraph } = scene;
 
   const layer = key === TERRAIN_THUMB ? undefined : layers.find((l) => l.id === key);

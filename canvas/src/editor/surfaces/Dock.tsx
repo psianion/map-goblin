@@ -10,6 +10,7 @@ import { pickTool, useActiveTool, useDockTool, useSettingGetter } from './hooks'
 import { groupBySection } from './sections';
 import { ToolSetting } from './SettingItems';
 import { LayersColumn } from './LayersColumn';
+import { HeightsColumn } from './HeightsColumn';
 import { LevelMenu } from './LevelMenu';
 import { levelLabel } from './model';
 
@@ -120,8 +121,8 @@ function SetupColumn({ tool, tabs }: { tool: ToolDef; tabs: NonNullable<ToolDef[
 }
 
 /**
- * The dock, 112 tall and never another height: Level and Layers, then what the tool in
- * hand uses. While drawing that is its dock settings (on-the-fly controls) and its own
+ * The dock, 112 tall and never another height: Level and Layers (and Heights on a level
+ * with any), then what the tool in hand uses. While drawing that is its dock settings (on-the-fly controls) and its own
  * columns, or, with one of its Set up tabs in front, that tab's settings and columns; while
  * a rail tool (Select) is in hand only the last family tool's own columns stay, so a
  * texture pick is still one click away.
@@ -152,6 +153,7 @@ export const Dock = forwardRef<HTMLDivElement>(function Dock(_props, ref) {
     >
       <LevelColumn />
       <LayersColumn />
+      <HeightsColumn />
       <FamilyColumn tool={tool} />
       {tool && tabs && <SetupColumn tool={tool} tabs={tabs} />}
       {tool && <SettingColumns defs={tab ? (tab.settings ?? []) : dockSettings} />}

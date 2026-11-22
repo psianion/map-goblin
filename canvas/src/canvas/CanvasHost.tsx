@@ -29,6 +29,7 @@ import { SnapIndicator } from './snapIndicator';
 import { DimensionHud } from './dimensionHud';
 import { mountZoneOverlay } from './zoneOverlay';
 import { mountRoomOverlay } from '@/canvas/roomOverlay';
+import { mountHeightOverlay } from '@/canvas/heightOverlay';
 import { mountPropOverlay } from '@/canvas/propOverlay';
 import { mountSelectionOverlay } from '@/canvas/selectionOverlay';
 import { mountDropToLayer } from '@/editor/dropToLayer';
@@ -140,6 +141,8 @@ export function CanvasHost() {
       // Zone markers — editor-only, never present in the session/table bundle
       const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
 
+      // The Heights column's highlight, under the rooms' outlines and badges.
+      const heightOverlay = mountHeightOverlay(pixiEngine);
       // Rooms — same editor-only reasoning as zones: the editor's own overlay (outlines,
       // badges, suggestions), and clicks pick rooms.
       const roomOverlay = mountRoomOverlay(pixiEngine);
@@ -168,6 +171,7 @@ export function CanvasHost() {
         setRoomPicking(false);
         setRoomHighlightEnabled(true);
         roomOverlay.destroy();
+        heightOverlay.destroy();
         propOverlay.destroy();
         selectionOverlay.destroy();
       };
