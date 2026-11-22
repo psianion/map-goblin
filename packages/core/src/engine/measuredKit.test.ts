@@ -14,7 +14,7 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
 import { Container, Graphics, Sprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { bandPiecesFor, jointsOf, mirrorPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, jointsOf, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
 import { bandScale, bandSetArt, bandSize } from '../assets/packCatalog';
 import { resetAssetPackManager, seedCaveBandPack, seedPack } from '../testing/seedCatalog';
 import {
@@ -23,11 +23,13 @@ import {
   FIT_DOOR_PAD,
   fittedFloor,
   layBandRing,
+  meetNeighbours,
   orientRings,
   placeBand,
   SEAT_IN,
   type FloorFit,
 } from './caveBandRenderer';
+import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { renderPlateaus, shadeCliffs } from './plateauRenderer';
 import type { BandMeasure, ManifestEntry } from './packManifest';
@@ -299,5 +301,72 @@ describe('a piece that carries its rock’s spine', () => {
     const plain = layBandRing(ring, [], bandPiecesFor(SET));
     const plainFloor = fittedFloor([ring], bandFloorFit(ring, plain));
     for (const { between } of probes) expect(covers(plainFloor, between)).toBe(true);
+  });
+});
+
+describe('a kit measured to butt', () => {
+  /** Straights of 1, 2, 5 and 8 cells and a 2x2 bend, each joint 0.15 cell past its tile's end. */
+  function seedButtKit(): void {
+    const run = (cells: number) => entry('run', `2x${cells}`, { joints: [[0, cells / 2 + 0.15], [0, -cells / 2 - 0.15]], turnDeg: 0 }, []);
+    seedPack(PACK, {
+      run_2x1_A: run(1),
+      run_2x2_A: run(2),
+      run_2x5_A: run(5),
+      run_2x8_A: run(8),
+      turn_in_2x2_A: entry('turn_in', '2x2', { joints: [[-0.5, 1.15], [1.15, -0.5]], turnDeg: 90 }, []),
+    });
+  }
+  const room: Polygon = [[2.5, 2.5], [13, 2.5], [13, 10.5], [2.5, 10.5]];
+  const sixSided: Polygon = [[18, 3], [23.5, 2], [27.5, 6], [26, 12], [21.5, 14.5], [16.5, 10.5]];
+  const withoutExact = (set: CaveKitPiece[]): CaveKitPiece[] => set.map((p) => ({ ...p, exact: undefined }));
+
+  /** How far each piece's laid end runs past the next one's laid start, along travel there. */
+  function laps(placed: WalkPlacement[], ring: boolean): number[] {
+    return placed.slice(0, ring ? placed.length : -1).map((a, k) => {
+      const b = placed[(k + 1) % placed.length];
+      const [, end] = jointsOf(a.piece, a.at);
+      const [start] = jointsOf(b.piece, b.at);
+      const exit = Math.atan2(a.Q[1] - a.P[1], a.Q[0] - a.P[0]) + (a.piece.turnDeg * Math.PI) / 360;
+      return (end[0] - start[0]) * Math.cos(exit) + (end[1] - start[1]) * Math.sin(exit);
+    });
+  }
+
+  for (const [name, poly] of [['a 10.5 by 8 room', room], ['a six-sided room', sixSided]] as const) {
+    it(`laps every joint round ${name} in full, stretching no piece past 1.25`, () => {
+      seedButtKit();
+      const set = bandPiecesFor(SET);
+      expect(set.every((p) => p.exact)).toBe(true);
+      const [ring] = orientRings([poly]);
+      const placed = layBandRing(ring, [], set);
+      expect(placed.length).toBeGreaterThan(4);
+      for (const lap of laps(placed, true)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+      for (const pl of placed) expect(pl.at.scale).toBeLessThanOrEqual(1.25);
+    });
+  }
+
+  it('does not stretch the pieces either side of a door toward each other', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const [ring] = orientRings([room]);
+    const door: DoorGap = { wallId: 'floor:0:0', position: [7.75, 2.5], width: 1.5, ring: 0 };
+    const placed = layBandRing(ring, [door], set);
+    const plain = layBandRing(ring, [door], withoutExact(set));
+    // One opening: one run round the ring, from one side of the door to the other.
+    expect(placed.length).toBe(plain.length);
+    expect(placed[0].P).toEqual(plain[0].P);
+    expect(placed[placed.length - 1].Q).toEqual(plain[plain.length - 1].Q);
+    expect(Math.hypot(placed[0].P[0] - placed[placed.length - 1].Q[0], placed[0].P[1] - placed[placed.length - 1].Q[1])).toBeGreaterThan(1.5);
+  });
+
+  it('lays the same kit without `exact` as the walk answers, short joints and all', () => {
+    seedButtKit();
+    const set = bandPiecesFor(SET);
+    const plain = withoutExact(set);
+    const [ring] = orientRings([room]);
+    const placed = layBandRing(ring, [], plain);
+    expect(meetNeighbours(placed, plain, true)).toBe(placed);
+    expect(laps(placed, true).some((lap) => lap < kitOverlap(plain) - 0.1)).toBe(true);
+    const exact = layBandRing(ring, [], set);
+    expect(placed.map((pl) => pl.piece.key)).toEqual(exact.map((pl) => pl.piece.key));
   });
 });

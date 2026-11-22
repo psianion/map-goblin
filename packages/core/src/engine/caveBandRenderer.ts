@@ -19,8 +19,10 @@ import { ringOwner } from '../shared/wallLook';
 import {
   BAND_OUT,
   kitOut,
+  kitOverlap,
   layCorners,
   offsetCurve,
+  placePiece,
   resampleClosed,
   tangentAt,
   walkClosed,
@@ -449,9 +451,9 @@ export function layBandRing(
   }
   const ride = bandRide(base, true, kitOut(set));
   const spans = openSpans(ride, gaps, true);
-  if (spans) return spans.flatMap(([from, to]) => laySpan(ride, set, from, to, { lap: true }));
+  if (spans) return spans.flatMap(([from, to]) => meetNeighbours(laySpan(ride, set, from, to, { lap: true }), set, false));
   const corners = cornerRing(poly, ride, set);
-  if (corners?.short) return corners.placed;
+  if (corners?.short) return meetNeighbours(corners.placed, set, true);
   let walked: WalkPlacement[] = [];
   try {
     walked = walkClosed(ride, set, LIVE_WALK).placed;
@@ -460,8 +462,65 @@ export function layBandRing(
   }
   // A ring of straight sides the walk cut a corner of (a straight laid across it, or a
   // bend the wrong way) is laid corner first after all.
-  if (corners && cutsCorner(walked, corners.turn)) return corners.placed;
-  return walked;
+  if (corners && cutsCorner(walked, corners.turn)) return meetNeighbours(corners.placed, set, true);
+  return meetNeighbours(walked, set, true);
+}
+
+/** A joint short of its lap by more than this, cells, is an opening (a door, a run's end). */
+const MEET_SHORT = 0.75;
+/** A joint whose two ends sit further apart than this sideways, cells, is an opening too. */
+const MEET_SIDE = 0.5;
+/** The most a piece is lengthened, as a share of the chord the walk gave it. */
+const MEET_STRETCH = 1.25;
+/** The most extra lap a turn at a joint asks for, cells: it covers the wedge on the outside. */
+const MEET_TURN_LAP = 0.3;
+
+/**
+ * One laid run of a measured kit with its short joints closed. The walk closes a ring by
+ * letting joints lap less than the kit's overlap; art drawn with soft ends hides that, but
+ * art measured to butt shows every short lap as a hole in the wall. So each joint that laps
+ * less than the overlap (plus a little for the turn there) where the art lands has one of
+ * its two pieces lengthened along its own chord to make it up: the longer straight, else the earlier piece.
+ * A joint far short or far apart sideways is an opening and is left. A kit with no `exact`
+ * piece is returned untouched.
+ */
+export function meetNeighbours(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): WalkPlacement[] {
+  if (placed.length < 2 || !set.some((p) => p.exact)) return placed;
+  const overlap = kitOverlap(set);
+  const out = kitOut(set);
+  const run = [...placed];
+  const limit = run.map((pl) => dist(pl.P, pl.Q) * MEET_STRETCH);
+  const chordAngle = (pl: WalkPlacement): number => Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]);
+  const halfTurn = (pl: WalkPlacement): number => (pl.piece.turnDeg * Math.PI) / 360;
+  for (let k = 0; k < run.length - (ring ? 0 : 1); k++) {
+    const j = (k + 1) % run.length;
+    const a = run[k];
+    const b = run[j];
+    // Travel at the joint, read off the earlier piece: a bend's chord turned on by half its turn.
+    const exit = chordAngle(a) + halfTurn(a);
+    const t: Vec = [Math.cos(exit), Math.sin(exit)];
+    // Measured where the art's joints landed, not on the chords: each piece is shoved off its
+    // own chord, and a bend's chord runs at an angle to travel, so that shove alone pulls its
+    // joints back along travel and eats most of the lap the chords show.
+    const d = sub(jointsOf(a.piece, a.at)[1], jointsOf(b.piece, b.at)[0]);
+    const lap = dot(d, t);
+    const entry = chordAngle(b) - halfTurn(b);
+    const turn = Math.abs(Math.atan2(Math.sin(entry - exit), Math.cos(entry - exit)));
+    const short = overlap + Math.min(MEET_TURN_LAP, 0.3 * Math.tan(turn / 2)) - lap;
+    if (short <= 0 || short > MEET_SHORT || Math.abs(cross(d, t)) > MEET_SIDE) continue;
+    const moveLater = b.piece.turnDeg === 0 && (a.piece.turnDeg !== 0 || b.piece.chordCells > a.piece.chordCells);
+    const idx = moveLater ? j : k;
+    const pl = run[idx];
+    const dir = norm(sub(pl.Q, pl.P));
+    const along = dot(dir, t);
+    if (along <= 0) continue;
+    const grow = Math.min(short / along, limit[idx] - dist(pl.P, pl.Q));
+    if (grow <= 0) continue;
+    const P = moveLater ? sub(pl.P, mul(dir, grow)) : pl.P;
+    const Q = moveLater ? pl.Q : add(pl.Q, mul(dir, grow));
+    run[idx] = { ...pl, P, Q, at: placePiece(pl.piece, P, Q, out, 0, pl.nudge) };
+  }
+  return run;
 }
 
 /** The art turns less than the ring's corners do, or a piece stood in where none fit. */
@@ -627,7 +686,7 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   const last = ride.length - 1 - END_PAD;
   const spans = openSpans(ride, gaps, false) ?? [[first, last]];
   return spans.flatMap(([from, to]) =>
-    laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts),
+    meetNeighbours(laySpan(ride, set, Math.max(from, first), Math.min(to, last), opts), set, false),
   );
 }
 

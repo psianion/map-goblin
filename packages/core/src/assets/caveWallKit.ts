@@ -36,6 +36,8 @@ export interface CaveKitPiece {
   flipY?: boolean;
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][];
+  /** True for a piece built from a pack's own measurements: its art butts, so every joint must lap in full. */
+  exact?: boolean;
 }
 
 interface RawPiece {
@@ -153,6 +155,7 @@ function measuredKit(setId: string): MeasuredKit {
         chordCells: Math.hypot(a[0] - b[0], a[1] - b[1]),
         turnDeg: e.band.turnDeg,
         ...(e.band.spine && { spine: e.band.spine.map(([x, y]): [number, number] => [x, y]) }),
+        exact: true,
       },
       end: !!e.band.end,
     });

@@ -17,6 +17,16 @@ function summariesOf(packManager: PackManager): PackSummary[] {
   }));
 }
 
+/**
+ * Every dungeon layer re-laid from the catalogue: walls, band kits, the floor's fit and
+ * plateaus. A pack installed for the first time is picked up by the floor renderer's
+ * catalogue watch, armed once something painted flat for want of it; a pack replaced by
+ * another version left nothing flat to arm it, and the old kit's layout stayed on screen.
+ */
+function relayDungeonLayers(store: MapBuilderStore): void {
+  for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+}
+
 function sameSummaries(a: PackSummary[], b: PackSummary[]): boolean {
   return (
     a.length === b.length &&
@@ -83,6 +93,7 @@ export const createPacksSlice: StateCreator<
     set((state) => {
       state.packs.availableUpdates = state.packs.availableUpdates.filter((u) => u.packId !== packId);
     });
+    if (installed) relayDungeonLayers(get());
     return installed ? { status: 'replaced', previousVersion: installed.version } : { status: 'installed' };
   },
 
@@ -175,6 +186,7 @@ export const createPacksSlice: StateCreator<
           version: updated?.version,
         };
       });
+      relayDungeonLayers(get());
     } catch (err) {
       set((state) => {
         state.packs.activeUpdate = {
