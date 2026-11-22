@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
 import { useStore } from '../../store/store';
@@ -8,6 +8,11 @@ import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { carveCommands, carveFloors, floorPieces } from './eraseShapes';
 import { computeMergedFloor } from '../mergedFloor';
 import { FLATTEN_TOLERANCE, flattenRing } from '../../shared/bezier';
+import { resetAssetPackManager, seedPack } from '../../testing/seedCatalog';
+import { extractMoveSegments, extractWallSegments } from '../lighting/raycaster';
+import { ringOpeningGaps } from '../../shared/caveFloor';
+import { patchArea } from '../../shared/materialPatch';
+import { commitNewFloor } from './newFloor';
 
 beforeAll(async () => {
   const { readFileSync } = await import('node:fs' as string);
@@ -144,6 +149,107 @@ describe('one flattening for every consumer', () => {
     carveFloors(layer, 'l1', [rect(3, 3, 1, 1)]);
     expect(area(shapes()[0].contours[0])).toBeCloseTo(area(flat) - 1, 2);
     expect(FLATTEN_TOLERANCE).toBe(0.05);
+  });
+});
+
+describe('an erase across a cave-edged room', () => {
+  const BAND = 'Test_Band';
+  // One measured straight makes a band set.
+  const seedBand = () =>
+    seedPack('test-pack', {
+      run_2x2_A: { type: 'object', material: 'run', gridSize: '2x2', pieceType: 'object', variant: 'A', set: BAND, tags: [], band: { joints: [[-0.065, 0.983], [-0.065, -0.988]], turnDeg: 0 } },
+    });
+  const layerNow = () => useStore.getState().layers[0] as DungeonLayer;
+  /** The union as the store's subscriber leaves it after a change. */
+  const reunion = () => {
+    const merged = computeMergedFloor(layerNow());
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).mergedFloor = merged;
+    });
+    return layerNow();
+  };
+  const room = (set = BAND) => {
+    seed([floor('room', [rect(0, 0, 10, 8)], { styleOverrides: { wallTextureSetId: set } })]);
+    return reunion();
+  };
+  const length = (segs: { x1: number; y1: number; x2: number; y2: number }[]) => segs.reduce((a, s) => a + Math.hypot(s.x2 - s.x1, s.y2 - s.y1), 0);
+  /** Where the segments along the top edge (y = 0) stop and start again. */
+  const topHole = (segs: { x1: number; y1: number; x2: number; y2: number }[]) => {
+    const top = segs.filter((s) => Math.abs(s.y1) < 1e-6 && Math.abs(s.y2) < 1e-6).map((s) => [Math.min(s.x1, s.x2), Math.max(s.x1, s.x2)]);
+    const left = Math.max(...top.filter(([, b]) => b < 5).map(([, b]) => b));
+    const right = Math.min(...top.filter(([a]) => a > 4).map(([a]) => a));
+    return { left, right, top };
+  };
+  const cut = [rect(4, -0.5, 1, 1)];
+
+  beforeEach(() => seedBand());
+  afterEach(() => resetAssetPackManager());
+
+  it('keeps the cut as an opening, and light, sight and tokens pass there and nowhere else', () => {
+    expect(carveFloors(room(), 'l1', cut)).toBe(true);
+    const l = reunion();
+    expect(patchArea(l.caveOpenings ?? [])).toBeCloseTo(1, 3);
+    for (const segs of [extractWallSegments([l], 'light'), extractWallSegments([l], 'sight'), extractMoveSegments([l])]) {
+      const { left, right, top } = topHole(segs);
+      expect(right - left).toBeGreaterThan(0.85);
+      expect(right - left).toBeLessThan(1.15);
+      // The walls either side of the hole still block.
+      expect(top.some(([a, b]) => a < 0.01 && b > 3.9)).toBe(true);
+      expect(top.some(([a, b]) => a < 5.1 && b > 9.99)).toBe(true);
+      // The room's other three sides, whole: no hole anywhere else.
+      expect(length(segs)).toBeCloseTo(36 - (right - left), 3);
+    }
+    // The band's rock stops along the same stretch.
+    const gaps = ringOpeningGaps(l.mergedFloor![0], 0, l.caveOpenings).filter((g) => Math.abs(g.position[1]) < 1e-6);
+    expect(Math.min(...gaps.map((g) => g.position[0] - g.width / 2))).toBeCloseTo(topHole(extractWallSegments([l])).left, 6);
+    expect(Math.max(...gaps.map((g) => g.position[0] + g.width / 2))).toBeCloseTo(topHole(extractWallSegments([l])).right, 6);
+    expect(Math.max(...gaps.map((g) => g.width))).toBeLessThanOrEqual(0.5);
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(layerNow().caveOpenings).toBeUndefined();
+  });
+
+  it('keeps no opening with Rock on cut edge on, and the ring blocks all round', () => {
+    useStore.setState((s) => {
+      s.tools.settings.material.rockOnCut = true;
+    });
+    carveFloors(room(), 'l1', cut);
+    const l = reunion();
+    expect(l.caveOpenings).toBeUndefined();
+    // The ring round the notch: 36, less the cell of edge cut, plus the notch's three sides.
+    expect(length(extractWallSegments([l]))).toBeCloseTo(37, 3);
+    expect(length(extractMoveSegments([l]))).toBeCloseTo(37, 3);
+  });
+
+  it('opens nothing for an erase wholly inside the room or wholly outside it', () => {
+    carveFloors(room(), 'l1', [rect(4, 3, 1, 1)]);
+    expect(layerNow().caveOpenings).toBeUndefined();
+    expect(carveFloors(reunion(), 'l1', [rect(4, -3, 1, 1)])).toBe(false);
+    expect(layerNow().caveOpenings).toBeUndefined();
+  });
+
+  it('opens nothing on a room walled with a stone set, and cuts its floor as before', () => {
+    carveFloors(room('Stone_Set'), 'l1', cut);
+    expect(layerNow().caveOpenings).toBeUndefined();
+    expect(area(shapes()[0].contours[0])).toBeCloseTo(79.5);
+  });
+
+  it('closes the opening when a floor is drawn back over it', () => {
+    carveFloors(room(), 'l1', cut);
+    useStore.setState((s) => {
+      s.tools.settings.floorWalls = BAND;
+    });
+    commitNewFloor('Draw rectangle', 'l1', floor('patch', [rect(3, -1, 3, 2)]));
+    expect(layerNow().caveOpenings).toBeUndefined();
+    undoManager.undo();
+    expect(layerNow().caveOpenings).toBeDefined();
+  });
+
+  it('drops the opening once the room is erased away', () => {
+    carveFloors(room(), 'l1', cut);
+    carveFloors(reunion(), 'l1', [rect(-1, -1, 12, 10)]);
+    expect(shapes()).toHaveLength(0);
+    expect(layerNow().caveOpenings).toBeUndefined();
   });
 });
 

@@ -75,7 +75,7 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   if (settings.doorFreestanding) return { kind: 'free' };
   const at: [number, number] = [point.x, point.y];
   const style = settings.doorStyle ?? 'single';
-  const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style) - WIDTH_EPSILON);
+  const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style, settings.doorBare) - WIDTH_EPSILON);
   const along = (list: ResolvedWall[], reach: number): Placement | null => {
     const snap = snapToNearestWall(at, list, reach);
     return snap ? { kind: 'along', snap } : null;
@@ -84,7 +84,7 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   const onWall = along(holds, ON_WALL_REACH) ?? along(holds.filter((w) => w.kind === 'cave'), CAVE_ROCK_REACH);
   if (onWall) return onWall;
   const maxSpan = Math.max(MIN_SPAN, settings.doorWidth || 1);
-  const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));
+  const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth), settings.doorBare);
   if (span) return { kind: 'span', span };
   return along(holds, ALONG_REACH) ?? along(holds.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD) ?? { kind: 'free' };
 }
@@ -166,10 +166,11 @@ export { minDoorWidth };
  *
  * A wall too short even for the style's minimum keeps the minimum — there is no
  * legal width to be had there, and going narrower only trades one invalid door
- * for another. Pass `Infinity` for a detached door, which has no opening to fit.
+ * for another. Pass `Infinity` for a detached door, which has no opening to fit. `bare`
+ * is whether the door is an Opening, which may be one cell (`minDoorWidth`).
  */
-export function clampDoorWidth(width: number, style: DoorStyle, wallLength: number): number {
-  return Math.max(minDoorWidth(style), Math.min(width, wallLength));
+export function clampDoorWidth(width: number, style: DoorStyle, wallLength: number, bare = false): number {
+  return Math.max(minDoorWidth(style, bare), Math.min(width, wallLength));
 }
 
 export { nextAuthoredName };
@@ -463,7 +464,7 @@ export class DoorTool implements DrawingTool {
       // The width the DM asked for, fitted to the wall: a shorter wall takes a
       // narrower door. Only a wall shorter than the style's minimum is left too
       // short, and `isPlaceable`'s width-vs-wall check previews that red.
-      width: clampDoorWidth(settings.doorWidth || 1, style, wallLength),
+      width: clampDoorWidth(settings.doorWidth || 1, style, wallLength, settings.doorBare),
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
@@ -496,7 +497,7 @@ export class DoorTool implements DrawingTool {
   ): DoorPlan {
     const settings = useStore.getState().tools.settings;
     const style = settings.doorStyle ?? 'single';
-    const width = spanWidth ?? Math.max(settings.doorWidth || 1, minDoorWidth(style));
+    const width = spanWidth ?? Math.max(settings.doorWidth || 1, minDoorWidth(style, settings.doorBare));
     const angle = spanAngle ?? ((settings.doorAngle ?? 0) * Math.PI) / 180;
     const piece = freePiece([point.x, point.y], angle, width, {
       wallType: settings.wallType,

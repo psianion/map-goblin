@@ -352,7 +352,7 @@ export function doorModel(door: DoorLike, room: number, wallSetId?: string): Doo
   // A wall door can also be a portal (it draws from pack art); the menu offers it too.
   const base: DoorStyle[] = door.childType === 'door' ? [...PLACEABLE_DOOR_STYLES, 'portal'] : [...PLACEABLE_DOOR_STYLES];
   if (!base.includes(style)) base.push(style);
-  const min = minDoorWidth(style);
+  const min = minDoorWidth(style, door.childType === 'door' && door.bare);
   return {
     style,
     state: door.state,
@@ -386,17 +386,19 @@ export function doorWidthValue(v: number, span: { min: number; max: number }): n
  * On a wall door the width follows both ways: up so a double has room for two leaves,
  * back down so a width only the old style needed cannot overhang the opening. On a joint
  * the style is the authored truth and `kind` follows it, and so does the state: an arch
- * is open, and a door that was an arch a moment ago reads shut. `room` is as `doorModel`'s.
+ * is open, and a door that was an arch a moment ago reads shut. `room` is as `doorModel`'s;
+ * `bare` is whether the new style is the Opening.
  */
 export function doorStyleChange(
   door: DoorLike,
   next: DoorStyle,
   room: number,
+  bare = false,
 ): { before: Partial<DoorLike>; after: Partial<DoorLike> } {
   if (door.childType === 'door') {
     return {
       before: { style: door.style, width: door.width },
-      after: { style: next, width: clampDoorWidth(door.width, next, room) },
+      after: { style: next, width: clampDoorWidth(door.width, next, room, bare) },
     };
   }
   const style = connectorStyle(door);

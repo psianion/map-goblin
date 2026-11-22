@@ -59,7 +59,7 @@ const style = defineCardField<'door', DoorStyleChoice>({
     const cmds = ids.flatMap((id) => {
       const host = doorHost(state(), id);
       if (!host || doorStyleChoice(host.door.style, host.door.bare) === choice) return [];
-      const { after } = doorStyleChange(host.door, next, host.room);
+      const { after } = doorStyleChange(host.door, next, host.room, bare);
       const cmd = doorwayEditCommand('Door style', host.layer, id, { style: host.door.style, bare: host.door.bare }, { style: next, bare }, {
         width: (after as Partial<DoorChild>).width,
       });

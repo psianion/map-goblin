@@ -6,6 +6,7 @@ import { propSegments } from '../../shared/propOcclusion'
 import { cliffOccluders } from '../../shared/plateaus'
 import {
   connectorApertures,
+  openingApertures,
   resolveWalls,
   resolveDoors,
   toOcclusionDoors,
@@ -83,9 +84,11 @@ export function extractWallSegments(
       (d) => d.door.visible && !jointIds.has(d.door.id),
     )
 
+    // A floor ring through a region erased open is open there (`openingApertures`).
     const occlusionSegs = buildOcclusionSegments(walls, [
       ...toOcclusionDoors(doors, walls),
       ...connectorApertures(layer, walls),
+      ...openingApertures(layer, walls),
     ])
     for (const seg of occlusionSegs) {
       if (kind === 'light' ? !seg.blocksLight : !seg.blocksVision) continue
@@ -146,7 +149,7 @@ export function extractMoveSegments(dungeonLayers: DungeonLayer[]): MoveSegment[
     const byId = new Map(walls.map((w) => [w.id, w]))
     const jointIds = new Set(connectorChildren(layer.children ?? []).map((c) => c.id))
     const doors = resolveDoors(layer, walls).filter((d) => d.door.visible && !jointIds.has(d.door.id))
-    const segs = buildOcclusionSegments(walls, [...toOcclusionDoors(doors, walls), ...connectorApertures(layer, walls)])
+    const segs = buildOcclusionSegments(walls, [...toOcclusionDoors(doors, walls), ...connectorApertures(layer, walls), ...openingApertures(layer, walls)])
     const layerWidth = layer.style?.wallWidth ?? 0.5
     for (const seg of segs) {
       if (!seg.blocksMovement) continue

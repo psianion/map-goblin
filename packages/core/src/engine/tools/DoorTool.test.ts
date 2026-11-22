@@ -922,4 +922,12 @@ describe('clampDoorWidth', () => {
       expect(clampDoorWidth(width, 'single', wallLength)).toBeLessThanOrEqual(wallLength);
     }
   });
+
+  it('lets an Opening be one cell, and every other wide style still two', () => {
+    expect(clampDoorWidth(1, 'archway', 6, true)).toBe(1);
+    expect(clampDoorWidth(1, 'archway', 6)).toBe(2);
+    expect(clampDoorWidth(1, 'double', 6, true)).toBe(2);
+    expect(clampDoorWidth(1, 'portcullis', 6, true)).toBe(2);
+    expect(clampDoorWidth(1, 'single', 6)).toBe(1);
+  });
 });

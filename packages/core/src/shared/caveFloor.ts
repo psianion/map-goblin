@@ -300,17 +300,128 @@ export function caveOpeningGaps(cave: CaveEdge, openings: readonly Polygon[] | u
   return gaps;
 }
 
+/** A floor ring's edge this near an opening region is open there, cells. */
+const FLOOR_OPEN_REACH = 0.05;
+
+const openReachMemo = new WeakMap<readonly Polygon[], { rings: Polygon[]; box: [number, number, number, number] }>();
+
+/** The opening regions grown by `FLOOR_OPEN_REACH`, and their bounds. Memoised on the regions. */
+function openReach(openings: readonly Polygon[]): { rings: Polygon[]; box: [number, number, number, number] } {
+  let hit = openReachMemo.get(openings);
+  if (hit) return hit;
+  const rings = clipper2Engine.inflate([...openings], FLOOR_OPEN_REACH);
+  const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      box[0] = Math.min(box[0], x);
+      box[1] = Math.min(box[1], y);
+      box[2] = Math.max(box[2], x);
+      box[3] = Math.max(box[3], y);
+    }
+  }
+  hit = { rings, box };
+  openReachMemo.set(openings, hit);
+  return hit;
+}
+
+/**
+ * The stretches of the floor ring edge `a` → `b` that lie inside one of the layer's opening
+ * regions, or within `FLOOR_OPEN_REACH` of one, as parameter intervals along it. Along them a
+ * cave-edged room has no rock and no wall. Empty with no openings.
+ */
+export function floorEdgeOpenSpans(a: [number, number], b: [number, number], openings: readonly Polygon[] | undefined): [number, number][] {
+  if (!openings || openings.length === 0) return [];
+  const { rings, box } = openReach(openings);
+  if (Math.max(a[0], b[0]) < box[0] || Math.min(a[0], b[0]) > box[2] || Math.max(a[1], b[1]) < box[1] || Math.min(a[1], b[1]) > box[3]) return [];
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  // Cut the edge where it crosses any ring, then keep the pieces whose middle is inside (even-odd).
+  const cuts = [0, 1];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i];
+      const q = ring[(i + 1) % ring.length];
+      const ex = q[0] - p[0];
+      const ey = q[1] - p[1];
+      const den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const t = ((p[0] - a[0]) * ey - (p[1] - a[1]) * ex) / den;
+      const u = ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / den;
+      if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.push(t);
+    }
+  }
+  cuts.sort((m, n) => m - n);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const [t0, t1] = [cuts[i], cuts[i + 1]];
+    if (t1 - t0 < 1e-9) continue;
+    const mx = a[0] + dx * ((t0 + t1) / 2);
+    const my = a[1] + dy * ((t0 + t1) / 2);
+    let inside = false;
+    for (const ring of rings) {
+      for (let k = 0, j = ring.length - 1; k < ring.length; j = k++) {
+        const [xk, yk] = ring[k];
+        const [xj, yj] = ring[j];
+        if (yk > my !== yj > my && mx < ((xj - xk) * (my - yk)) / (yj - yk) + xk) inside = !inside;
+      }
+    }
+    if (!inside) continue;
+    const last = out[out.length - 1];
+    if (last && t0 - last[1] < 1e-9) last[1] = t1;
+    else out.push([t0, t1]);
+  }
+  return out;
+}
+
+/**
+ * A floor ring's open stretches (`floorEdgeOpenSpans`) as gaps in its rock, in the shape a
+ * door's gap takes and no longer than `OPEN_GAP` each, as `caveOpeningGaps` hands them.
+ */
+export function ringOpeningGaps(
+  ring: Polygon,
+  r: number,
+  openings: readonly Polygon[] | undefined,
+): { wallId: string; position: [number, number]; width: number; ring: number }[] {
+  if (!openings || openings.length === 0) return [];
+  const gaps: { wallId: string; position: [number, number]; width: number; ring: number }[] = [];
+  ring.forEach((a, e) => {
+    const b = ring[(e + 1) % ring.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    for (const [t0, t1] of floorEdgeOpenSpans(a, b, openings)) {
+      const n = Math.max(1, Math.ceil(((t1 - t0) * len) / OPEN_GAP));
+      for (let k = 0; k < n; k++) {
+        const t = t0 + ((t1 - t0) * (k + 0.5)) / n;
+        gaps.push({ wallId: `floor:${r}:${e}`, position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: ((t1 - t0) * len) / n, ring: r });
+      }
+    }
+  });
+  return gaps;
+}
+
 /**
  * The layer's opening regions once an erase stroke over `area` has crossed a cave's rock, or
  * null when the stroke opens nothing: it lies wholly inside the cave (a hole, rocked round
  * as ever) or nowhere near one. A stroke that only brushes the rock from outside, cutting no
- * floor, counts: the rock rides outside the floor's edge.
+ * floor, counts: the rock rides outside the floor's edge. `rooms` are the regions of the
+ * layer's cave-edged rooms (the editor knows which those are): a stroke opens one when it
+ * cuts its floor and reaches outside it, with no reach beyond the floor.
  */
-export function openCaveAt(layer: { id: string; children: readonly AnyChild[]; caveOpenings?: Polygon[] }, area: Polygon[]): Polygon[] | null {
+export function openCaveAt(
+  layer: { id: string; children: readonly AnyChild[]; caveOpenings?: Polygon[] },
+  area: Polygon[],
+  rooms: Polygon[] = [],
+): Polygon[] | null {
+  if (area.length === 0) return null;
   const caves = caveEdges(layer).flatMap((c) => c.rings);
-  if (caves.length === 0 || area.length === 0) return null;
-  if (patchArea(clipper2Engine.difference(area, caves)) < 1e-6) return null;
-  if (patchArea(clipper2Engine.intersection(clipper2Engine.inflate(area, CAVE_ROCK_REACH), caves)) < 1e-6) return null;
+  const crossesCave =
+    caves.length > 0 &&
+    patchArea(clipper2Engine.difference(area, caves)) >= 1e-6 &&
+    patchArea(clipper2Engine.intersection(clipper2Engine.inflate(area, CAVE_ROCK_REACH), caves)) >= 1e-6;
+  const crossesRoom =
+    rooms.length > 0 &&
+    patchArea(clipper2Engine.difference(area, rooms)) >= 1e-6 &&
+    patchArea(clipper2Engine.intersection(area, rooms)) >= 1e-6;
+  if (!crossesCave && !crossesRoom) return null;
   return clipper2Engine.union([...(layer.caveOpenings ?? []), ...area], []);
 }
 
@@ -332,6 +443,23 @@ export function closeCaveOpenings(openings: Polygon[] | undefined, area: Polygon
   if (patchArea(clipper2Engine.intersection(openings, painted)) < 1e-6) return openings;
   const left = clipper2Engine.difference(openings, painted);
   return patchArea(left) < MIN_OPENING ? undefined : left;
+}
+
+/**
+ * The opening regions still within the rock's reach of an edge of `edges` (the rings of the
+ * layer's painted caves and cave-edged rooms); the rest go. `openings` itself when all stay.
+ */
+export function openingsNear(openings: Polygon[] | undefined, edges: Polygon[]): Polygon[] | undefined {
+  if (!openings || openings.length === 0) return openings;
+  const pieces = floorPieces(openings);
+  const kept = pieces.filter((piece) => {
+    if (edges.length === 0) return false;
+    const reach = clipper2Engine.inflate(piece, CAVE_ROCK_REACH);
+    // An edge runs through the reach: it holds some of the floor and leaves some out.
+    return patchArea(clipper2Engine.intersection(reach, edges)) >= 1e-6 && patchArea(clipper2Engine.difference(reach, edges)) >= 1e-6;
+  });
+  if (kept.length === pieces.length) return openings;
+  return kept.length > 0 ? kept.flat() : undefined;
 }
 
 /** Each cave ring as a thin cutter (a threshold's width), so the room faces split along a cave's edge. */

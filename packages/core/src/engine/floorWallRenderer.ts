@@ -713,6 +713,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
       ringStyles: rings,
       edgeStyles: edges,
       marks,
+      openings: layer.caveOpenings,
       floorOf: ringFloorOf(layer),
       waitFor: (id) => armLateTextureRebuild(layer.id, id),
       onBandLaid: (laid) => fits.push(bandFloorFit(laid.ring, laid.placed, laid.gaps, laid.size)),

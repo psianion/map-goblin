@@ -177,6 +177,18 @@ describe('a measured kit has no ground strip', () => {
     expect(laid).toHaveBeenCalledTimes(1);
   });
 
+  it('stops a ring’s rock along an opening, as at a door, in pieces of half a cell at most', () => {
+    seedMeasuredKit();
+    const laid = vi.fn();
+    const opening: Polygon = [[4, -0.5], [5, -0.5], [5, 0.5], [4, 0.5]];
+    renderNodeWalls(new Container(), [square], [], bandStyle(SET), [], {}, { onBandLaid: laid, openings: [opening] });
+    const gaps: DoorGap[] = laid.mock.calls[0][0].gaps;
+    expect(gaps.length).toBeGreaterThan(0);
+    expect(gaps.every((g) => g.ring === 0 && g.width <= 0.5 && Math.abs(g.position[1]) < 1e-9)).toBe(true);
+    expect(Math.min(...gaps.map((g) => g.position[0] - g.width / 2))).toBeCloseTo(3.95, 3);
+    expect(Math.max(...gaps.map((g) => g.position[0] + g.width / 2))).toBeCloseTo(5.05, 3);
+  });
+
   it('keeps the ink set’s strip, and fits nothing for it', () => {
     seedCaveBandPack('gg-forge', { set: 'GG_Cave_Ink', tags: ['cave'] });
     const walls = new Container();

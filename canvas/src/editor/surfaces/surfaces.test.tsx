@@ -40,7 +40,7 @@ describe('ToolPanel', () => {
     const panel = getByTestId('shell-tool-panel');
     const captions = [...panel.querySelectorAll<HTMLElement>('[data-section]')].map((el) => el.dataset.section);
     expect(captions).toEqual(['Mode', 'Placement', 'Edge', 'Defaults for new floors']);
-    expect(shown(panel)).toEqual(ids('panel'));
+    expect(shown(panel)).toEqual(ids('panel').filter((id) => id !== 'floor.rockOnCut'));
   });
 
   it('renders none of the dock settings', () => {

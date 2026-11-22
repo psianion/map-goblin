@@ -4,6 +4,8 @@ import type { DungeonLayer, Room, ShapeChild } from '../../store/types';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createDrawRoomCommand } from '../../store/roomCommands';
+import { CompositeCommand } from '../../store/commands';
+import { closingOpenings, pieceRegion } from './eraseShapes';
 import { interiorPoint, nextRoomNumber, pointInRing, signedArea } from '../../shared/roomUtils';
 import { anchorOutside } from '../../shared/suggestRooms';
 import { layerFaces } from '../../store/roomSync';
@@ -47,11 +49,13 @@ export function roomForFloor(layer: DungeonLayer, shape: ShapeChild): Room {
   };
 }
 
-/** Commit a drawn floor as a room: the floor and the room in one undo step. */
+/** Commit a drawn floor as a room: the floor and the room in one undo step, closing the openings it is drawn over. */
 export function commitRoomFloor(layer: DungeonLayer, shape: ShapeChild): void {
   const room = roomForFloor(layer, shape);
   const floor: ShapeChild = { ...shape, name: `${room.name} floor` };
-  undoManager.execute(createDrawRoomCommand(layer.id, floor, room, useStore.getState().ui.roomWalls));
+  const draw = createDrawRoomCommand(layer.id, floor, room, useStore.getState().ui.roomWalls);
+  const commands = closingOpenings(layer, layer.id, draw.label, pieceRegion(floor), [draw]);
+  undoManager.execute(commands.length === 1 ? draw : new CompositeCommand(draw.label, commands));
 }
 
 /** Forwards every call to the floor tool it wraps; only the commit differs. */

@@ -159,7 +159,7 @@ describe('the Design family', () => {
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'floor.walls', 'edit.curve', 'edit.nodeMode', 'floor.height']);
-    expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
+    expect(ids('panel')).toEqual(['floor.mode', 'floor.rockOnCut', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 
   it('gives new floors the dock’s Height, in half steps, 0 stored as nothing', () => {
@@ -425,6 +425,14 @@ describe('tool settings', () => {
     expect(settings.getSetting('door.style')).toBe('single');
   });
 
+  it('door Width lets an Opening down to one cell, and Archway takes it back to two', () => {
+    settings.setSetting('door.style', 'opening');
+    settings.setSetting('door.width', 1);
+    expect(st().tools.settings.doorWidth).toBe(1);
+    settings.setSetting('door.style', 'archway');
+    expect(st().tools.settings.doorWidth).toBe(2);
+  });
+
   it('Elevation height is never flat, and edge lands beside it', () => {
     expect(settings.setSetting('elevation.height', 0)).toBe(false);
     settings.setSetting('elevation.height', -2);
@@ -443,6 +451,67 @@ describe('Carve out', () => {
     expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
     settings.setSetting('floor.mode', 'draw');
     expect(st().tools.floorMode).toBe('draw');
+  });
+
+  it('says what a carve does to the rock on a layer with a cave-edged room, as the brush does', () => {
+    const room: ShapeChild = {
+      id: 'cave-room',
+      name: 'Cave room',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [10, 0], [10, 8], [0, 8]]],
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+      styleOverrides: { wallTextureSetId: 'GG_Cave_Ink' },
+    };
+    seed([room], []);
+    settings.setSetting('floor.mode', 'carve');
+    expect(hint()).toBe('Erase across the rock to open the cave · drag a rectangle · Alt carves while in Draw');
+    useStore.setState((s) => {
+      s.tools.settings.material.rockOnCut = true;
+    });
+    expect(hint()).toBe('Carve the floor · drag a rectangle · Alt carves while in Draw');
+    useStore.setState((s) => {
+      s.tools.settings.material.rockOnCut = undefined;
+      (s.layers[0] as DungeonLayer).children = [];
+    });
+    expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
+    settings.setSetting('floor.mode', 'draw');
+  });
+
+  it('shows the brush’s Rock on cut edge only in Carve out on a layer with a cave, one value with the brush’s', () => {
+    const def = reg.settingById('floor.rockOnCut')!;
+    const shown = () => def.visibleWhen!((k) => settings.getSetting(k));
+    expect(def).toMatchObject({ label: 'Rock on cut edge', control: 'switch', section: 'Mode', default: false, persist: false });
+    const cave: ShapeChild = {
+      id: 'cave',
+      name: 'Cave 1',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'polygon',
+      contours: [[[0, 0], [6, 0], [6, 6], [0, 6]]],
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+      edgeMaterial: 'GG_Cave_Ink',
+    };
+    seed([cave], []);
+    expect(shown()).toBe(false);
+    settings.setSetting('floor.mode', 'carve');
+    expect(shown()).toBe(true);
+    expect(settings.setSetting('floor.rockOnCut', true)).toBe(true);
+    expect(st().tools.settings.material.rockOnCut).toBe(true);
+    settings.setSetting('floor.rockOnCut', false);
+    expect(st().tools.settings.material.rockOnCut).toBeUndefined();
+    seed([], []);
+    expect(shown()).toBe(false);
+    settings.setSetting('floor.mode', 'draw');
   });
 
   it('never flips the erase switch the brushes share', () => {

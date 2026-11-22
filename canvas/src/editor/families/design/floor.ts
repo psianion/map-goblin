@@ -13,6 +13,8 @@ import { FloorLook } from './LookColumn';
 import { EdgeBandField, WallsField } from './FloorFields';
 import { layerBandOf } from './floorModel';
 import { GROUND_HEIGHT_MAX, GROUND_HEIGHT_MIN, GROUND_HEIGHT_STEP, groundHeightOf } from '@dnd/core/src/shared/plateaus';
+import { layerHasCaves } from '@dnd/core/src/engine/tools/eraseShapes';
+import { useStore } from '@/store/store';
 
 export type FloorShape = 'rect' | 'polygon' | 'regular';
 
@@ -90,6 +92,36 @@ export const floorMode = defineSetting<'draw' | 'carve'>({
   bind: {
     read: (s) => s.tools.floorMode,
     write: (store, v) => store.getState().setFloorMode(v),
+  },
+});
+
+/** Carve out in hand on a layer with a painted cave or a cave-edged room: the carve may open its rock. */
+const carvingCave = (s: EditorState): boolean => {
+  const layer = activeDungeonLayer(s);
+  return s.tools.floorMode === 'carve' && !!layer && layerHasCaves(layer);
+};
+
+/**
+ * The brush's Rock on cut edge, in Carve out: off, a carve across a cave's rock or a cave-edged
+ * room's edge leaves it open; on, the rock re-forms round the cut. One value with the brush's.
+ */
+export const floorRockOnCut = defineSetting<boolean>({
+  id: 'floor.rockOnCut',
+  label: 'Rock on cut edge',
+  schema: z.boolean(),
+  default: false,
+  home: 'panel',
+  control: 'switch',
+  section: 'Mode',
+  // Saved once, by the brush's own setting.
+  persist: false,
+  visibleWhen: () => carvingCave(useStore.getState()),
+  bind: {
+    read: (s) => s.tools.settings.material.rockOnCut === true,
+    write: (store, on) =>
+      store.setState((s) => {
+        s.tools.settings.material.rockOnCut = on ? true : undefined;
+      }),
   },
 });
 
@@ -211,12 +243,20 @@ const FLOOR_HINTS: Record<FloorShape, HintLine> = {
 
 const whileInDraw = [k('Alt'), t(' carves while in Draw')];
 
-/** Carve out in hand: what to draw, and that Alt is the fast path from Draw. */
-const CARVE_HINTS: Record<FloorShape, HintLine> = {
-  rect: { label: 'Floor', segments: [t('Carve out · drag a rectangle · '), ...whileInDraw] },
-  polygon: { label: 'Floor', segments: [t('Carve out · click points · '), k('Enter'), t(' close · '), ...whileInDraw] },
-  regular: { label: 'Floor', segments: [t('Carve out · drag from the centre out · '), ...whileInDraw] },
-};
+/**
+ * Carve out in hand: what to draw, and that Alt is the fast path from Draw. `lead` opens the
+ * line: "Carve out", or on a layer with caves what the carve does to their rock, as the brush says.
+ */
+const carveHints = (lead: string): Record<FloorShape, HintLine> => ({
+  rect: { label: 'Floor', segments: [t(`${lead} · drag a rectangle · `), ...whileInDraw] },
+  polygon: { label: 'Floor', segments: [t(`${lead} · click points · `), k('Enter'), t(' close · '), ...whileInDraw] },
+  regular: { label: 'Floor', segments: [t(`${lead} · drag from the centre out · `), ...whileInDraw] },
+});
+
+function carveHint(s: EditorState): HintLine {
+  const lead = !carvingCave(s) ? 'Carve out' : s.tools.settings.material.rockOnCut ? 'Carve the floor' : 'Erase across the rock to open the cave';
+  return carveHints(lead)[floorShapeOf(s)];
+}
 
 /** Colour, the style presets, the texture strip and From library. */
 export const floorLookColumn: DockColumnDef = { id: 'floor.look', caption: 'Look', render: FloorLook };
@@ -230,7 +270,7 @@ export const floorTool = defineTool({
   engine: [FLOOR_ENGINE.rect, FLOOR_ENGINE.polygon, FLOOR_ENGINE.regular],
   // Curve and Node mode share the Edit column, as on walls: Curve smooths a drawn
   // polygon and bends a dragged edge in node mode.
-  settings: [floorShape, floorSides, floorWalls, editCurve, editNodeMode, floorHeight, floorMode, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
+  settings: [floorShape, floorSides, floorWalls, editCurve, editNodeMode, floorHeight, floorMode, floorRockOnCut, gridSnap, gridSnapStep, floorEdgeBand, floorBlend, floorOpacity],
   dock: [floorLookColumn],
-  hint: (s) => (s.tools.floorMode === 'carve' ? CARVE_HINTS : FLOOR_HINTS)[floorShapeOf(s)],
+  hint: (s) => (s.tools.floorMode === 'carve' ? carveHint(s) : FLOOR_HINTS[floorShapeOf(s)]),
 });

@@ -21,6 +21,7 @@ import {
   type CatalogEntry,
 } from '../assets/packCatalog';
 import { bandPiecesFor } from '../assets/caveWallKit';
+import { ringOpeningGaps } from '../shared/caveFloor';
 import type { WalkPlacement } from './caveWalk';
 import { findWallJoints, type JointSpine } from './wallJoints';
 import {
@@ -699,6 +700,11 @@ export interface RenderNodeWallsOptions {
    */
   marks?: Container;
   /**
+   * The layer's opening regions (`DungeonLayer.caveOpenings`): a band ring's rock stops along
+   * the stretches of it inside one (`ringOpeningGaps`), as it does at a door.
+   */
+  openings?: readonly Polygon[];
+  /**
    * The floor a cave band stands on, by ring index (-1 for a drawn wall), for the
    * ground strip behind its rock (see `ringFloorOf`). The ring's floor colour when absent.
    */
@@ -879,7 +885,7 @@ export function renderNodeWalls(
       oriented ??= orientRings(polygons);
       return oriented[i] === poly;
     })();
-    const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i)];
+    const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i), ...ringOpeningGaps(poly, i, options.openings)];
     for (let k = 0; k < n; ) {
       const e0 = (start + k) % n;
       let len = 1;
@@ -944,7 +950,7 @@ export function renderNodeWalls(
     const band = bandFor(look.setId);
     if (band) {
       oriented ??= orientRings(polygons);
-      const gaps = [...doorGaps, ...ringGaps].filter((g) => g.ring === i);
+      const gaps = [...[...doorGaps, ...ringGaps].filter((g) => g.ring === i), ...ringOpeningGaps(poly, i, options.openings)];
       const size = bandSize(look.setId, look.width);
       const measured = isMeasuredBandSet(look.setId);
       const fill = measured ? undefined : { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };

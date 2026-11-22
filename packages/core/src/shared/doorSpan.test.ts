@@ -76,6 +76,17 @@ describe('spanBetweenWalls', () => {
     expect(spanBetweenWalls([4, 0.75], walls, 'single', 4, drawnWidth)?.width).toBeCloseTo(1.5);
   });
 
+  it('gives an Opening one cell and every other wide style two', () => {
+    expect(minDoorWidth('archway', true)).toBe(1);
+    expect(minDoorWidth('archway')).toBe(2);
+    expect(minDoorWidth('double')).toBe(2);
+    expect(minDoorWidth('portcullis')).toBe(2);
+    expect(minDoorWidth('single')).toBe(1);
+    const walls = [wall('n', [[0, 0], [10, 0]], 'floor'), wall('s', [[0, 1.5], [10, 1.5]], 'floor')];
+    expect(spanBetweenWalls([4, 0.75], walls, 'archway', 4, drawnWidth)).toBeNull();
+    expect(spanBetweenWalls([4, 0.75], walls, 'archway', 4, drawnWidth, true)?.width).toBeCloseTo(1.5);
+  });
+
   it('never spans a chord that skims a curved wall', () => {
     // A cave ring six across, as one closed wall: just inside its edge the nearest other
     // runs are a short chord round the curve, and straight across is too far.

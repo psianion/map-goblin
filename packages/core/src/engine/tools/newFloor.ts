@@ -4,7 +4,7 @@
 // None (the default) the floor is a ground piece, with no wall, no room and no part in the
 // floor union; with a wall set picked it is a walled floor with that set pinned on it.
 
-import type { Command, ShapeChild } from '../../store/types';
+import type { Command, DungeonLayer, ShapeChild } from '../../store/types';
 import { useStore } from '../../store/store';
 import { AddChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
@@ -12,6 +12,7 @@ import { defaultSoftOf } from '../../assets/materialKit';
 import { floorPieces } from '../../shared/floorPieces';
 import { pieceRings } from '../../shared/pieces';
 import { cutToFrame } from '../mapFrame';
+import { closingOpenings, pieceRegion } from './eraseShapes';
 
 type FloorLook = Pick<ShapeChild, 'opacity' | 'edgeBand' | 'height' | 'ground' | 'soft' | 'styleOverrides'>;
 
@@ -51,10 +52,16 @@ export function floorsOnMap(child: ShapeChild): ShapeChild[] {
   }));
 }
 
-/** Adds a floor a tool drew, with the Floor panel's defaults, cut to a sized map's frame: one undo step. */
+/**
+ * Adds a floor a tool drew, with the Floor panel's defaults, cut to a sized map's frame: one
+ * undo step. A walled floor closes the openings it is drawn over (`closingOpenings`).
+ */
 export function commitNewFloor(label: string, layerId: string, child: ShapeChild): void {
   const look = newFloorLook(child.textureId);
-  const commands: Command[] = floorsOnMap(child).map((piece) => new AddChildCommand(label, layerId, { ...piece, ...look }));
+  const pieces = floorsOnMap(child);
+  let commands: Command[] = pieces.map((piece) => new AddChildCommand(label, layerId, { ...piece, ...look }));
+  const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layerId && l.type === 'dungeon');
+  if (layer && !look.ground) commands = closingOpenings(layer, layerId, label, pieces.flatMap(pieceRegion), commands);
   if (commands.length === 0) return;
   undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
 }

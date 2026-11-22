@@ -733,7 +733,8 @@ export function subscribeToStore(
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}`;
+          // The openings too: a cave-edged room's rock stops where it was erased open.
+          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}|${openingsRef}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.

@@ -31,7 +31,7 @@ export const doorStyle = defineSetting<DoorStyleChoice>({
       st.updateToolSettings({
         doorStyle: style,
         doorBare: choice === 'opening',
-        doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style)),
+        doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style, choice === 'opening')),
       });
     },
   },
@@ -51,7 +51,7 @@ export const doorWidth = defineSetting<number>({
     // Never narrower than the style allows: a double needs room for two leaves.
     write: (store, width) => {
       const st = store.getState();
-      st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle)) });
+      st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle, st.tools.settings.doorBare)) });
     },
   },
 });
