@@ -195,6 +195,13 @@ export interface SceneVision {
    * `occupiable` and `blockedEdge`, and the straight-line crossing test, for every player move.
    */
   walkRefusal?(token: Token, to: { x: number; y: number }, from: { x: number; y: number } | null): string | null
+  /**
+   * Fog rework — is this spot ground the players have, on this level (absent = the map's first)?
+   * With fog off it answers true everywhere; on, only for cleared cells. When present it is the
+   * whole of the token rule (a token is sent when it stands on known ground, or is the seat's
+   * own) and the fallback move rule where the scene has no walk grid.
+   */
+  known?(levelId: string | undefined, x: number, y: number): boolean
 }
 
 /**

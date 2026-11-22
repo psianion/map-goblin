@@ -27,6 +27,10 @@ export type LogAction =
   | 'hid-all'
   | 'changed-fog'
   | 'reset-fog'
+  | 'turned-fog-on'
+  | 'turned-fog-off'
+  | 'cleared-all'
+  | 'fogged-all'
 
 export interface LogEntry {
   /** Unique inside the log; also the client's render key. */
