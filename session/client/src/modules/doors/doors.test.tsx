@@ -633,7 +633,7 @@ describe('a refused door', () => {
   it('reads the typed prefixes, never the sentence', () => {
     expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`)).toMatch(/locked/i);
     expect(doorRefusal(`${UNKNOWN_DOOR}: no such door in that scene`)).toMatch(/no longer there/i);
-    expect(doorRefusal('rooms.r-1.status needs wasEverRevealed')).toBeNull();
+    expect(doorRefusal('that scene is too large to fog: it is over 512 by 512 cells')).toBeNull();
   });
 
   it('names the door the refusal named', () => {

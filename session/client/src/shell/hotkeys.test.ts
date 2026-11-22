@@ -29,7 +29,7 @@ function session(modules: Record<string, unknown>): SessionState {
 }
 
 const fogOnScene = (): SessionState => ({
-  ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true, on: true } } } }),
+  ...session({ fog: { byScene: { s: { on: true } } } }),
   activeSceneId: 's',
 });
 
@@ -175,7 +175,7 @@ describe('table hotkeys', () => {
   });
 
   it('W does nothing while fog is off, and R and H are free', () => {
-    useSessionStore.setState({ session: { ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true } } } }), activeSceneId: 's' } });
+    useSessionStore.setState({ session: { ...session({ fog: { byScene: { s: {} } } }), activeSceneId: 's' } });
     renderHook(() => useHotkeys());
     fireEvent.keyDown(window, { key: 'w' });
     fireEvent.keyDown(window, { key: 'r' });

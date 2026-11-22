@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
-import type { FogState } from '@dnd/mechanics/fog';
 import { sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers';
 import type { TriggerCondition } from '@dnd/core/src/shared/prep';
 import { Button, Caption, Chip, Seg, SliderRow, Switch, SwitchRow } from '@dnd/ui';
@@ -13,7 +12,7 @@ import { DoorActions } from '../doors/DoorActions';
 import { doorLabel, doorStatusLabel } from '../doors/doors';
 import { useDoorSelection } from '../doors/selection';
 import { useLiveDoors } from '../doors/useLiveDoors';
-import { FOG_STATUS_LABEL, roomFog, sceneFog, serverRooms } from '../fog/fog';
+import { serverRooms } from '../fog/fog';
 import { useLightCommit } from '../lights/lightCommit';
 import { mapLights, type LightHit } from '../lights/lights';
 import { useLightSelection } from '../lights/selection';
@@ -30,7 +29,6 @@ const FAMILIES: { value: MapFamily; label: string }[] = [
 ];
 
 const triggers = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('triggers', action, payload);
-const fog = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -82,38 +80,22 @@ export function MapBody() {
 
 function RoomsStrip() {
   const mapData = useSessionStore((s) => s.mapData);
-  const fogState = useModuleState<FogState>('fog');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const rooms = useMemo(() => serverRooms(mapData), [mapData]);
-  const sceneFogNow = sceneFog(fogState, sceneId);
   if (rooms.length === 0) return <p className="text-xs text-text-3">No rooms on this map.</p>;
   return (
     <ul className="flex gap-2" data-testid="map-rooms">
-      {rooms.map((r) => {
-        const status = roomFog(sceneFogNow, r.id).status;
-        return (
-          <li key={r.id} className={card} data-room-id={r.id} data-fog-status={status}>
-            <span className="truncate text-xs text-text" title={r.name}>
-              {r.name}
-            </span>
-            <Caption>{FOG_STATUS_LABEL[status]}</Caption>
-            <div className="flex flex-wrap gap-1">
-              {status === 'revealed' ? (
-                <Button variant="outline" size="xs" onClick={() => fog('hide', { roomId: r.id })}>
-                  Hide
-                </Button>
-              ) : (
-                <Button variant="outline" size="xs" onClick={() => fog('reveal', { roomId: r.id })}>
-                  Reveal
-                </Button>
-              )}
-              <Button variant="outline" size="xs" data-testid="room-key" onClick={() => openSheet('room-key', { roomId: r.id })}>
-                Key
-              </Button>
-            </div>
-          </li>
-        );
-      })}
+      {rooms.map((r) => (
+        <li key={r.id} className={card} data-room-id={r.id}>
+          <span className="truncate text-xs text-text" title={r.name}>
+            {r.name}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            <Button variant="outline" size="xs" data-testid="room-key" onClick={() => openSheet('room-key', { roomId: r.id })}>
+              Key
+            </Button>
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }

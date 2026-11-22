@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Button, FloatBox, Popover, PopoverContent, PopoverTrigger, cn } from '@dnd/ui';
+import { Button, FloatBox, Popover, PopoverContent, PopoverTrigger } from '@dnd/ui';
 import { ChevronDown } from '@dnd/ui/icons';
-import { fogModeOf, type FogState } from '@dnd/mechanics/fog';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { sceneFog } from '../../modules/fog/fog';
 import { useTableShell } from '../tableShell';
 import { SceneSwitcher } from './SceneSwitcher';
 import { setTableSwitch, type TableSwitches } from './sessionActions';
@@ -29,9 +27,6 @@ export function TitleCard() {
   const table = useModuleState<TableSwitches>('table');
   const paused = table?.paused === true;
   const locked = table?.movementLocked === true;
-  const fogState = useModuleState<FogState>('fog');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const fogMode = sceneId ? fogModeOf(sceneFog(fogState, sceneId)) : null;
   const [open, setOpen] = useState(false);
   const dm = role === 'dm';
   return (
@@ -100,11 +95,6 @@ export function TitleCard() {
       {locked && (
         <span className={CHIP} data-testid="locked-chip">
           Movement locked
-        </span>
-      )}
-      {dm && fogMode && (
-        <span className={cn(CHIP, 'max-sm:hidden')} data-testid="fog-mode-chip">
-          {fogMode === 'vision' ? 'Fog: by sight' : 'Fog: by hand'}
         </span>
       )}
     </FloatBox>

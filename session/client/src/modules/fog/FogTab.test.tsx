@@ -36,7 +36,7 @@ function capture(): Sent[] {
   return sent;
 }
 
-const fogged = (over: object = {}) => session({ rooms: {}, concealBehindDoors: true, on: true, ...over });
+const fogged = (over: object = {}) => session({ on: true, ...over });
 
 beforeEach(() => {
   cleanup();
@@ -45,7 +45,7 @@ beforeEach(() => {
   useToasts.setState({ toast: null });
   // An imported picture: no floors, so the whole frame is ground.
   useStore.setState({ layers: [], levels: [{ id: 'level-1', name: 'Ground' }] } as never);
-  useSessionStore.setState({ you: dm, mapData: { frame: FRAME, layers: [] }, session: session({ rooms: {}, concealBehindDoors: true }) });
+  useSessionStore.setState({ you: dm, mapData: { frame: FRAME, layers: [] }, session: session({}) });
 });
 
 describe('Fog tab', () => {

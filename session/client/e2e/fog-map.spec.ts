@@ -1,35 +1,248 @@
-// @map: the Fog and Map tabs (plan section 7). Unrun until step T.
-import { dmCommands, expect, test } from './fixtures';
+// @map: the Fog and Map tabs. Written, never run by the builders: the tester runs it once.
+//
+// The fog acceptance walk runs on the outdoor-cave fixture (fog rework plan section 5.3): a
+// player sees the whole map until the DM turns fog on, then only the ground the DM's brush and
+// the party's own sight clear, and the DM's own view of it see-through until "As players see it".
+import type { Page } from '@playwright/test';
+import {
+  CAVE,
+  OUTDOOR_CAVE_NAME,
+  assertMapLoaded,
+  dragToken,
+  expect,
+  holdDmPass,
+  joinTable,
+  mintHandoff,
+  standUpOutdoorCave,
+  test,
+  tokenAt,
+  worldPoint,
+} from './fixtures';
 
-test.describe('@map fog and map', () => {
-  test('Fog: reveal and hide a room, rect, the look picker', async ({ hostSession }) => {
-    const { page } = hostSession;
-    await page.keyboard.press('1');
-    const rooms = page.getByTestId('fog-rooms');
-    await expect(rooms).toBeVisible();
-    const first = rooms.locator('[data-room-id]:not([data-room-id^="@outdoors"])').first();
-    const id = await first.getAttribute('data-room-id');
-    const room = rooms.locator(`[data-room-id="${id}"]`);
-    await room.getByTestId('room-reveal').click();
-    await expect(room).toHaveAttribute('data-fog-status', 'revealed');
-    await room.getByTestId('room-hide').click();
-    await expect(room).not.toHaveAttribute('data-fog-status', 'revealed');
+/** What a seat's fog layer reports (`__fogProbe`, FogRenderer). */
+interface FogProbe {
+  visible(): boolean;
+  solid(): boolean;
+  dense(): number;
+  clearedCells(): number;
+  shownAt(x: number, y: number): boolean | null;
+}
 
-    await page.getByTestId('fog-mode-vision').click();
-    // The rectangle is a vision-mode tool: wait for the mode to come back from the server.
-    await expect(page.getByTestId('fog-rect')).toBeEnabled();
-    await page.keyboard.press('Shift+R');
-    // F21: an armed fog tool folds the dock and names itself in the chip above the tab row.
-    await expect(page.getByTestId('armed-chip')).toContainText('Fog');
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('armed-chip')).toHaveCount(0);
-    await page.keyboard.press('1');
+interface StoreProbe {
+  getState(): {
+    you: { identityId: string } | null;
+    mapData: { layers: { rooms?: { id: string }[]; children?: { id: string }[] }[] } | null;
+    session: { activeSceneId: string; modules: { fog?: { byScene: Record<string, { look?: { base?: string } }> } } } | null;
+  };
+}
 
-    await page.getByText('Look').click();
-    await page.getByTestId('fog-look-mist').click();
-    await expect(page.getByTestId('fog-look-mist')).toHaveAttribute('data-pressed', '');
+/** One reading off a seat's fog probe. */
+const probe = <K extends keyof FogProbe>(page: Page, key: K, ...args: Parameters<FogProbe[K]>): Promise<ReturnType<FogProbe[K]>> =>
+  page.evaluate(
+    ({ key, args }) => (window as unknown as { __fogProbe: Record<string, (...a: unknown[]) => unknown> }).__fogProbe[key]!(...args),
+    { key, args: args as unknown[] },
+  ) as Promise<ReturnType<FogProbe[K]>>;
+
+/** A command from the DM's own page, over its own socket. */
+const send = (page: Page, module: string, action: string, payload: unknown): Promise<void> =>
+  page.evaluate(
+    ({ module, action, payload }) =>
+      (window as unknown as { __sessionStore: { getState(): { sendCommand(m: string, a: string, p: unknown): void } } }).__sessionStore
+        .getState()
+        .sendCommand(module, action, payload),
+    { module, action, payload },
+  );
+
+/** The room ids in a seat's map document. */
+const roomsHeld = (page: Page): Promise<string[]> =>
+  page.evaluate(() => {
+    const doc = (window as unknown as { __sessionStore: StoreProbe }).__sessionStore.getState().mapData;
+    return (doc?.layers ?? []).flatMap((l) => (l.rooms ?? []).map((r) => r.id));
   });
 
+/** The DM's table, opened the way the canvas opens it: a handoff, Party start, Open. */
+async function openFromHandoff(page: Page, table: Awaited<ReturnType<typeof standUpOutdoorCave>>): Promise<string> {
+  const code = await mintHandoff(table, table.sceneId);
+  await page.goto(`/host?e2e=1#handoff=${code}`);
+  await expect(page.getByTestId('host-map')).toBeVisible();
+  await page.getByTestId('start-party').click();
+  await page.getByTestId('host-open').click();
+  await expect(page.getByTestId('host-invite')).toBeVisible();
+  const invite = (await page.getByTestId('invite-code').textContent())!.trim();
+  await page.getByTestId('enter-table').click();
+  await expect(page.locator('[data-page="table"]')).toBeVisible();
+  await assertMapLoaded(page, OUTDOOR_CAVE_NAME);
+  return invite;
+}
+
+/** One brush stroke through world points, the way a hand drags it. */
+async function stroke(page: Page, points: { x: number; y: number }[]): Promise<void> {
+  const box = (await page.getByTestId('game-canvas').boundingBox())!;
+  const first = await worldPoint(page, points[0]!.x, points[0]!.y);
+  await page.mouse.move(box.x + first.x, box.y + first.y);
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    const at = await worldPoint(page, p.x, p.y);
+    await page.mouse.move(box.x + at.x, box.y + at.y, { steps: 8 });
+  }
+  await page.mouse.up();
+}
+
+/** A stroke round the hall's inside, well clear of its walls, and one round its rim. */
+const HALL = [
+  { x: 5.5, y: 5.5 },
+  { x: 10.5, y: 5.5 },
+  { x: 10.5, y: 8.5 },
+  { x: 5.5, y: 8.5 },
+  { x: 5.5, y: 5.5 },
+  { x: 8, y: 7 },
+];
+const HALL_RIM = [
+  { x: 4.5, y: 4.5 },
+  { x: 11.5, y: 4.5 },
+  { x: 11.5, y: 9.5 },
+  { x: 4.5, y: 9.5 },
+  { x: 4.5, y: 4.5 },
+];
+/** Where the goblin waits, in the hall. */
+const GOBLIN = { x: 8.5, y: 7.5 };
+/** The cave mouth, open; a cell inside the cave; one past the closed inner door; fogged ground south of the start. */
+const MOUTH = { x: 18.5, y: 9.5 };
+const IN_CAVE = { x: 19.5, y: 9.5 };
+const PAST_INNER_DOOR = { x: 22.5, y: 4.5 };
+const SOUTH = { x: 15.5, y: 12.5 };
+
+test.describe('@map the fog, on the outdoor cave', () => {
+  test('the acceptance walk: off, on, brush, Auto-explore, a room fogged again, Fog all, the look', async ({ page, newContext }) => {
+    test.setTimeout(240_000);
+    const table = await standUpOutdoorCave(`Fog ${Date.now().toString(36)}`);
+    await holdDmPass(page, table);
+
+    // 1. Open the table. A player joins, gets Bram, and sees the whole map: fog is off.
+    const invite = await openFromHandoff(page, table);
+    await send(page, 'tokens', 'place', { name: 'Goblin', size: 'medium', disposition: 'hostile', x: GOBLIN.x, y: GOBLIN.y });
+    const context = await newContext();
+    const player = await context.newPage();
+    await joinTable(player, invite, 'Pim');
+    const me = await player.evaluate(() => (window as unknown as { __sessionStore: StoreProbe }).__sessionStore.getState().you!.identityId);
+    const bram = await page.evaluate(() => {
+      const st = (
+        window as unknown as {
+          __sessionStore: { getState(): { session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string }>> } } } } };
+        }
+      ).__sessionStore.getState();
+      return Object.values(st.session.modules.tokens.byScene[st.session.activeSceneId]!).find((t) => t.name === 'Bram')!.id;
+    });
+    await send(page, 'tokens', 'assign', { id: bram, identityId: me });
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
+    await expect.poll(() => roomsHeld(player)).toContain('room-hall');
+    await expect.poll(() => tokenAt(player, 'Goblin')).not.toBeNull();
+    expect(await probe(player, 'visible')).toBe(false);
+
+    // 2. The DM turns fog on from the Fog card, which arms the Clear brush. The player sees fog
+    // everywhere, and their own token.
+    await page.keyboard.press('1');
+    await expect(page.getByTestId('fog-body')).toHaveAttribute('data-fog', 'off');
+    await page.getByTestId('fog-switch').click();
+    await expect(page.getByTestId('fog-switch')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('fog-brush-clear')).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => probe(player, 'visible')).toBe(true);
+    expect(await probe(player, 'solid')).toBe(true);
+    expect(await probe(player, 'clearedCells')).toBe(0);
+    await expect.poll(() => tokenAt(player, 'Goblin')).toBeNull();
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
+
+    // 3. The DM brushes the ground from the start to the cave mouth clear (the dock folded out
+    // of the way). The player sees that ground; the DM's map shows the fog see-through.
+    await page.keyboard.press('b');
+    await stroke(page, [CAVE.partyStart, CAVE.dirt, MOUTH]);
+    await page.keyboard.press('Escape');
+    await expect.poll(() => probe(player, 'clearedCells')).toBeGreaterThan(0);
+    await expect.poll(() => probe(player, 'shownAt', CAVE.dirt.x, CAVE.dirt.y)).toBe(true);
+    expect(await probe(page, 'visible')).toBe(true);
+    expect(await probe(page, 'solid')).toBe(false);
+    expect(await probe(page, 'dense')).toBeLessThan(1);
+
+    // 4. The DM turns Auto-explore off. The player walks inside the cleared ground and is
+    // refused at its edge.
+    await page.keyboard.press('1');
+    await page.getByTestId('fog-auto-explore').click();
+    await expect(page.getByTestId('fog-auto-explore')).toHaveAttribute('aria-pressed', 'false');
+    await dragToken(player, 'Bram', CAVE.dirt);
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.dirt);
+    const cleared = await probe(player, 'clearedCells');
+    await dragToken(player, 'Bram', SOUTH);
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.dirt);
+    expect(await probe(player, 'clearedCells')).toBe(cleared);
+
+    // 5. Auto-explore back on (its default). The player walks into the cave mouth and the cave
+    // clears ahead, stopping at the closed inner door.
+    await page.getByTestId('fog-auto-explore').click();
+    await expect(page.getByTestId('fog-auto-explore')).toHaveAttribute('aria-pressed', 'true');
+    await dragToken(player, 'Bram', MOUTH);
+    await expect.poll(() => tokenAt(player, 'Bram')).toEqual(MOUTH);
+    await expect.poll(() => probe(player, 'clearedCells')).toBeGreaterThan(cleared);
+    await expect.poll(() => probe(player, 'shownAt', IN_CAVE.x, IN_CAVE.y)).toBe(true);
+    expect(await probe(player, 'shownAt', PAST_INNER_DOOR.x, PAST_INNER_DOOR.y)).toBe(false);
+
+    // 6. The goblin appears when its room's ground clears: the DM brushes the hall with W.
+    await page.keyboard.press('w');
+    await expect(page.getByTestId('fog-brush-clear')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('b');
+    await stroke(page, HALL);
+    await expect.poll(() => tokenAt(player, 'Goblin')).not.toBeNull();
+    await expect.poll(() => roomsHeld(player)).toContain('room-hall');
+
+    // 7. The DM fogs the hall again with the Fog brush (Shift+W). The goblin and the room are
+    // gone for the player.
+    await page.keyboard.press('Shift+W');
+    await stroke(page, HALL_RIM);
+    await stroke(page, HALL);
+    await page.keyboard.press('Escape');
+    await expect.poll(() => tokenAt(player, 'Goblin')).toBeNull();
+    await expect.poll(() => roomsHeld(player)).not.toContain('room-hall');
+
+    // 8. Fog all, then Undo.
+    await page.keyboard.press('1');
+    const held = await probe(player, 'clearedCells');
+    await page.getByTestId('fog-fog-all').click();
+    await expect.poll(() => probe(player, 'clearedCells')).toBe(0);
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect.poll(() => probe(player, 'clearedCells')).toBe(held);
+
+    // 9. The DM opens the Look sheet and changes the colour. The player's fog changes.
+    await page.getByTestId('fog-look-customise').click();
+    const sheet = page.getByTestId('fog-look-sheet');
+    await expect(sheet).toBeVisible();
+    // While the sheet is open the DM's map is drawn as players see it.
+    await expect.poll(() => probe(page, 'solid')).toBe(true);
+    await sheet.getByRole('button', { name: 'Colour' }).click();
+    await page.getByLabel('Colour hex').fill('#5f6d64');
+    await expect
+      .poll(() =>
+        player.evaluate(() => {
+          const st = (window as unknown as { __sessionStore: StoreProbe }).__sessionStore.getState();
+          return st.session?.modules.fog?.byScene[st.session.activeSceneId]?.look?.base ?? null;
+        }),
+      )
+      .toBe('#5f6d64');
+    await expect(page.getByTestId('fog-look-name')).toHaveText('Your mix');
+    await sheet.getByRole('button', { name: 'Close Fog look' }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect.poll(() => probe(page, 'solid')).toBe(false);
+
+    // 10. "As players see it" on the DM's screen matches the player's: solid, and the same
+    // ground shown, away from the player's own token.
+    await page.getByTestId('as-players').click();
+    await expect.poll(() => probe(page, 'solid')).toBe(true);
+    expect(await probe(page, 'dense')).toBe(1);
+    for (const at of [CAVE.dirt, GOBLIN, SOUTH, PAST_INNER_DOOR]) {
+      expect(await probe(page, 'shownAt', at.x, at.y), `shown at ${at.x},${at.y}`).toBe(await probe(player, 'shownAt', at.x, at.y));
+    }
+  });
+});
+
+test.describe('@map the Map tab', () => {
   test('Map: doors open and lock, a secret is revealed', async ({ hostSession }) => {
     const { page } = hostSession;
     await page.keyboard.press('2');
@@ -82,59 +295,5 @@ test.describe('@map fog and map', () => {
       await share.click();
       await expect(sheet).toContainText('Shared');
     }
-  });
-});
-
-// Table fix pass section 4.5 (F8, F9): the mode as two tiles, Outdoors first, the party badge,
-// and a warning when nobody can see.
-test.describe('@map the Fog tab after the fix pass', () => {
-  test('mode tiles, Outdoors first, a party badge and the no-party warning', async ({ hostSession }) => {
-    const { page } = hostSession;
-    await page.keyboard.press('1');
-    await expect(page.getByTestId('fog-mode-vision')).toBeVisible();
-    await expect(page.getByTestId('fog-mode-rooms')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('fog-mode-chip')).toHaveText('Fog: by hand');
-    await expect(page.getByTestId('fog-rooms').locator('[data-room-id]').first()).toHaveAttribute('data-room-id', '@outdoors');
-    // The fixture's PC tokens stand in the starting room: it carries the party badge.
-    await expect(page.getByTestId('fog-party-here').first()).toBeVisible();
-    await page.getByTestId('fog-mode-vision').click();
-    await expect(page.getByTestId('fog-mode-chip')).toHaveText('Fog: by sight');
-  });
-});
-
-// T11 (I1): Hide all, then Reveal all, in By sight. A party token always sees its surroundings,
-// so the player is still sent, and still shown, the ground the token stands on.
-test.describe('@map By sight after Hide all and Reveal all', () => {
-  test('a player still sees the ground they stand on', async ({ hostSession, joinAsPlayer }) => {
-    const { page } = hostSession;
-    const player = await joinAsPlayer('Pim');
-    type Probe = {
-      __sessionStore: {
-        getState(): {
-          you: { identityId: string } | null;
-          mapData: { openGround?: unknown[] } | null;
-          session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string; ownerId: string | null }>> } } } | null;
-        };
-      };
-    };
-    const me = await player.evaluate(() => (window as unknown as Probe).__sessionStore.getState().you!.identityId);
-    const bram = await page.evaluate(() => {
-      const st = (window as unknown as Probe).__sessionStore.getState();
-      return Object.values(st.session!.modules.tokens.byScene[st.session!.activeSceneId]).find((t) => t.name === 'Bram')!.id;
-    });
-    await dmCommands(hostSession.token, [{ module: 'tokens', action: 'assign', payload: { id: bram, identityId: me } }]);
-
-    await page.keyboard.press('1');
-    await page.getByTestId('fog-mode-vision').click();
-    await expect(page.getByTestId('fog-mode-vision')).toHaveAttribute('aria-pressed', 'true');
-    await page.getByTestId('fog-hide-all').click();
-    await page.getByTestId('fog-reveal-all').click();
-    // Reveal all reveals the Outdoors row with the rooms (I2).
-    await expect(page.getByTestId('fog-rooms').locator('[data-room-id="@outdoors"]')).toHaveAttribute('data-fog-status', 'revealed');
-
-    // The player still holds the open ground under Bram, so the fog leaves it clear.
-    await expect
-      .poll(() => player.evaluate(() => ((window as unknown as Probe).__sessionStore.getState().mapData?.openGround?.length ?? 0) > 0))
-      .toBe(true);
   });
 });

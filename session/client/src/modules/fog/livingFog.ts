@@ -49,11 +49,10 @@ import { coverageFilter } from './tierCompositor';
 
 /** The table-facing cloud shape — shared with `MapSettings.fogLook` (canvas) and
  * `SceneFog.look` (the DM's live override) so all three runtimes agree on one type
- * (docs/2026-09-09-living-fog-v2-plan.md D7). Types, the named presets and the shipped
- * default all live in core (canvas needs them too, and never depends on session-client);
+ * (docs/2026-09-09-living-fog-v2-plan.md D7). Types and the shipped default live in core (canvas needs them too, and never depends on session-client);
  * only the shader itself stays here. */
 export type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLook';
-export { FOG_PRESETS, DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
+export { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 
 /**
  * Top of the shader's dense-cover ramp in mask units (memory grey = 0.5, live = 1): the
@@ -561,7 +560,7 @@ export interface FogPool {
   warm: boolean;
 }
 
-// FogLayerType/FogLayer/FogLook, FOG_PRESETS and DEFAULT_FOG_LOOK live in
+// FogLayerType/FogLayer/FogLook and DEFAULT_FOG_LOOK live in
 // @dnd/core/src/shared/fogLook and are re-exported above. `dense`/`mist`/`rim` stay on
 // `LivingFogLook` (below): they are the tier's own opacities, not part of the weather a DM
 // dials.

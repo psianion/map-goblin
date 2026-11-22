@@ -300,7 +300,8 @@ let swapGen = 0;
  * re-entry is idempotent.
  *
  * `recut` re-runs the same swap on the scene already in hand, because the server would now
- * cut it differently (the fog mode flipped — see the `state-update` case in `store.ts`).
+ * cut it differently (fog switched, or ground was fogged again — see the `state-update` case
+ * in `store.ts`).
  * The held document is neither stashed nor served from cache in that case: it *is* the
  * stale answer, so keeping it would defeat the fetch.
  */

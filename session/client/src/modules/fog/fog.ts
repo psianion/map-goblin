@@ -15,21 +15,9 @@ import {
   type FogState,
   type Frame,
   type RegionMask,
-  type RoomFogStatus,
   type SceneFog,
 } from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
-
-/**
- * What a DM reads for each status. The word is the state; colour never carries it alone.
- * T11: a row revealed once and hidden again is fogged fully for players since T10, so it reads
- * Hidden, not Explored.
- */
-export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
-  never_revealed: 'Unrevealed',
-  revealed: 'Revealed',
-  re_hidden: 'Hidden',
-};
 
 /**
  * A room as the table holds it: `boundary` is the room's face. Both seats' documents come from
@@ -97,8 +85,6 @@ export function sceneFog(state: FogState | undefined, sceneId: string | null | u
   const scene = sceneId ? state?.byScene?.[sceneId] : undefined;
   return scene ?? sceneFogOf({ byScene: {} }, '');
 }
-
-export { roomFogOf as roomFog } from '@dnd/mechanics/fog';
 
 /**
  * The rectangle a region cell is counted from, exactly as the server counts it.

@@ -3,7 +3,7 @@ import { cleanup } from '@testing-library/react';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import { refreshRooms } from '@dnd/core/src/store/roomRefresh';
-import { regionOf, setCells, type FogState, type RoomFog } from '@dnd/mechanics/fog';
+import { fogOn, regionOf, setCells, type FogState } from '@dnd/mechanics/fog';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
@@ -33,10 +33,6 @@ const HALL = room('r-hall', 10, 'Hall');
 
 const dungeonLayer = (rooms: Room[]): Layer =>
   ({ id: 'l1', type: 'dungeon', children: [], standaloneWalls: [], rooms }) as unknown as Layer;
-
-const fogWith = (rooms: Record<string, RoomFog>, concealBehindDoors = true): FogState => ({
-  byScene: { 'scene-1': { rooms, concealBehindDoors } },
-});
 
 /**
  * The two fixture rooms sit at x 0..4 and 10..14, y 0..4 — one shape covers both. A plain
@@ -93,8 +89,11 @@ describe('fog geometry and vocabulary', () => {
   });
 
   it('defaults an absent slice to a scene with fog off', () => {
-    expect(sceneFog(undefined, 'scene-1')).toEqual({ rooms: {}, concealBehindDoors: true });
-    expect(sceneFog(fogWith({}), null)).toEqual({ rooms: {}, concealBehindDoors: true });
+    const state = { byScene: { 'scene-1': { on: true } } } as unknown as FogState;
+    expect(fogOn(sceneFog(undefined, 'scene-1'))).toBe(false);
+    expect(fogOn(sceneFog(state, null))).toBe(false);
+    expect(fogOn(sceneFog(state, 'scene-2'))).toBe(false);
+    expect(fogOn(sceneFog(state, 'scene-1'))).toBe(true);
   });
 });
 

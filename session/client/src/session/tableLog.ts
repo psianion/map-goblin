@@ -11,8 +11,7 @@
 import type { DoorsState } from '@dnd/mechanics/doors';
 import type { FogState } from '@dnd/mechanics/fog';
 import type { LogAction, LogEntry } from '@dnd/mechanics/log';
-import { roomLabel } from '@dnd/core/src/shared/prep';
-import { serverDoors, serverRooms } from '../modules/fog/fog';
+import { serverDoors } from '../modules/fog/fog';
 
 /** One rendered line, in the shape GameLog's presence lines already use. */
 export interface TableLogLine {
@@ -51,18 +50,16 @@ export function logSentence(action: LogAction, name: string | undefined): string
       return name ? `unlocked ${name}` : 'unlocked a door';
     case 'revealed-secret':
       return name ? `revealed the secret door ${name}` : 'revealed a secret door';
-    case 'revealed-room':
-      return name ? `revealed ${name}` : 'revealed a room';
-    case 'hid-room':
-      return name ? `hid ${name}` : 'hid a room';
-    case 'revealed-all':
-      return 'revealed the whole map';
-    case 'hid-all':
-      return 'hid the whole map';
+    case 'turned-fog-on':
+      return 'turned the fog on';
+    case 'turned-fog-off':
+      return 'turned the fog off';
+    case 'cleared-all':
+      return 'cleared the fog from the whole map';
+    case 'fogged-all':
+      return 'fogged the whole map';
     case 'changed-fog':
       return 'changed what the map shows';
-    case 'reset-fog':
-      return 'reset the fog';
     default:
       // Wire data, so an action this build has no words for is possible; a blank line is
       // dropped by the caller rather than printed as a half-sentence.
@@ -95,17 +92,16 @@ export function tableLogLines(
   const doorNames = new Map(
     serverDoors(mapData, doors, sceneId).map(({ door }) => [door.id, door.name?.trim() || '']),
   );
-  // Rooms read the way the table names them everywhere: "N · name" (`roomLabel`).
-  const roomNames = new Map(serverRooms(mapData).map((room) => [room.id, roomLabel(room)]));
 
   return [...doorEntries, ...fogEntries]
     .map((e) => {
-      const names = DOOR_ACTIONS.includes(e.action) ? doorNames : roomNames;
+      // A fog line names no target: it is about the whole map or a stroke of the brush.
+      const named = DOOR_ACTIONS.includes(e.action) && e.targetId ? doorNames.get(e.targetId) : undefined;
       return {
         key: e.id,
         at: typeof e.at === 'number' ? e.at : 0,
         who: e.actor || 'Someone',
-        text: logSentence(e.action, (e.targetId && names.get(e.targetId)) || undefined),
+        text: logSentence(e.action, named || undefined),
       };
     })
     .filter((line) => line.text !== '')

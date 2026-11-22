@@ -58,7 +58,7 @@ const session = (fog: object, tokens: Token[] = []): SessionState => ({
   scenes: [{ id: 'scene-1', name: 'Cave', mapId: 'scene-1' }],
   players: [dm, player],
   modules: {
-    fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, ...fog } } },
+    fog: { byScene: { 'scene-1': { ...fog } } },
     tokens: { byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
   },
 });

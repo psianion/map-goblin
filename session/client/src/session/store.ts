@@ -12,7 +12,7 @@ import type {
 } from '@dnd/core/src/shared/protocol';
 import { adoptOwnTemplate, receiveMark, useMarks } from '../shell/marks/marks';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
-import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
+import { fogOn, toBytes, type FogState, type RegionMask } from '@dnd/mechanics/fog';
 import {
   mergeMapDelta,
   invalidateSceneDocs,
@@ -150,12 +150,6 @@ function clearSeat(): void {
   }
 }
 
-/** How a fog module state — either side of an update — reads one scene's mode. */
-const modeOf = (state: unknown, sceneId: string): FogMode => {
-  const scene = (state as FogState | undefined)?.byScene?.[sceneId];
-  return scene ? fogModeOf(scene) : 'rooms';
-};
-
 /**
  * 4.3 Republish notice: the live scene stayed the same and its map changed under it, so the
  * canvas published over it. Said once per (scene, map), whichever message carries it first.
@@ -169,25 +163,33 @@ function announceRepublish(prev: SessionState | null, sceneId: string, mapId: st
   notify.info('Map updated from the canvas');
 }
 
-/** The scenes whose fog mode differs between the state this seat held and the one just sent. */
-function fogModeFlips(prev: unknown, next: unknown): string[] {
-  const scenes = (next as FogState | undefined)?.byScene;
-  if (!scenes) return [];
-  return Object.keys(scenes).filter((sceneId) => modeOf(prev, sceneId) !== modeOf(next, sceneId));
+/** Whether `next` lost any cell `prev` had set: a fog stroke, Fog all, or a restore. */
+function lostCells(prev: RegionMask | undefined, next: RegionMask | undefined): boolean {
+  if (!prev) return false;
+  const before = toBytes(prev.bits);
+  if (!before.some((b) => b !== 0)) return false;
+  if (!next) return true;
+  // A record on another grid is a republish, which refetches on its own; read it as a loss.
+  if (prev.minX !== next.minX || prev.minY !== next.minY || prev.cols !== next.cols || prev.rows !== next.rows) return true;
+  const after = toBytes(next.bits);
+  return before.some((b, i) => (b & ~(after[i] ?? 0)) !== 0);
 }
 
 /**
- * T10 — the scenes where a fog row this seat held is gone from the slice just sent: the DM hid a
- * room or Outdoors again, or erased a room's last recorded cell. The referee withholds that
- * room's geometry from then on, and a held copy only grows by delta, so the seat re-fetches.
+ * The scenes whose player cut changed under a fog write, so a seat holding one re-fetches it.
+ * Fog switched either way changes what the referee sends (the whole map, or cleared ground
+ * only); and a level that lost cleared cells can stop a room shipping, which a held copy that
+ * only grows by delta never hears of.
  */
-export function fogRowsDropped(prev: unknown, next: unknown): string[] {
-  const before = (prev as FogState | undefined)?.byScene;
+export function fogRecuts(prev: unknown, next: unknown): string[] {
+  const before = (prev as FogState | undefined)?.byScene ?? {};
   const after = (next as FogState | undefined)?.byScene;
-  if (!before || !after) return [];
+  if (!after) return [];
   return Object.keys(after).filter((sceneId) => {
-    const rows = after[sceneId]?.rooms ?? {};
-    return Object.keys(before[sceneId]?.rooms ?? {}).some((id) => !(id in rows));
+    const was = before[sceneId];
+    const now = after[sceneId]!;
+    if ((was ? fogOn(was) : false) !== fogOn(now)) return true;
+    return Object.entries(was?.cleared ?? {}).some(([levelId, mask]) => lostCells(mask, now.cleared?.[levelId]));
   });
 }
 
@@ -295,35 +297,22 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
             },
             mapData,
           });
-          // A fog `set-mode` broadcasts module state and nothing else — the server does not
-          // re-cut the scene document for it. But the cut *depends* on the mode:
-          // `redactMapForViewer` stamps `frame` when the scene is zoned OR the mode is vision,
-          // so a player who stayed connected while the DM flipped a *roomless* map to vision
-          // keeps a frameless cut, `fogBounds` answers null, and that seat draws no fog at all
-          // until it reloads. So the client treats a mode flip as a document event and
-          // re-fetches its own cut — the same path a reload takes. Both directions: the rooms
-          // cut is not the vision cut either.
-          //
-          // Guarded on the mode actually *changing*: a brush stroke writes fog state
-          // constantly, and re-fetching a megabyte document per stroke would be the worse bug.
-          // The DM is skipped — their copy is the file, untouched, whatever the mode.
-          //
-          // Upgrade path: have the server push the re-cut document alongside the `set-mode`
-          // broadcast (as a reveal already pushes its `mapDelta`), and this can go.
+          // Fog switched on or off, or a level losing cleared cells, changes the player's cut,
+          // and geometry arriving comes as a delta but geometry leaving never does. So the
+          // client treats those writes as a document event and re-fetches its own cut, the
+          // same path a reload takes. A stroke that only clears, the common case, does not:
+          // its new ground arrives as a delta with it. The DM is skipped — their copy is the
+          // file, untouched, whatever the fog does.
           if (msg.module === 'fog' && get().you?.role !== 'dm') {
             const { loadedScene, token } = get();
-            const recut = new Set([
-              ...fogModeFlips(session.modules.fog, msg.state),
-              ...fogRowsDropped(session.modules.fog, msg.state),
-            ]);
-            for (const sceneId of recut) {
-              // Any cached copy of that scene was cut under the old mode, whether or not this
+            for (const sceneId of fogRecuts(session.modules.fog, msg.state)) {
+              // Any cached copy of that scene was cut under the old fog, whether or not this
               // seat happens to be looking at it now.
               invalidateSceneDocs(sceneId);
               if (!token || loadedScene?.sceneId !== sceneId) continue;
               void swapSceneMap(sceneId, loadedScene.mapId, token, true).catch((err: unknown) => {
                 // The seat keeps the document it has — stale fog beats no map.
-                console.warn('[store] re-cut after a fog mode flip failed:', err);
+                console.warn('[store] re-cut after a fog change failed:', err);
               });
             }
           }

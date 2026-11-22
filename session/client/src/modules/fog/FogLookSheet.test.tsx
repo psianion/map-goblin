@@ -18,7 +18,7 @@ const session = (look?: object): SessionState => ({
   activeSceneId: 'a',
   scenes: [{ id: 'a', name: 'Cave', mapId: 'm' }],
   players: [dm],
-  modules: { fog: { byScene: { a: { rooms: {}, concealBehindDoors: true, on: true, ...(look ? { look } : {}) } } } },
+  modules: { fog: { byScene: { a: { on: true, ...(look ? { look } : {}) } } } },
 });
 
 interface Sent {

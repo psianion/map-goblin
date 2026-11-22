@@ -81,13 +81,14 @@ describe('Map tab', () => {
     expect(screen.getByTestId('map-doors')).toBeTruthy();
   });
 
-  it('reveals a room and opens its key', () => {
+  it("opens a room's key, and has no fog of its own to change", () => {
     const sent = capture();
     render(<MapStrip />);
-    fireEvent.click(screen.getByText('Reveal'));
-    expect(sent[0]).toMatchObject({ module: 'fog', action: 'reveal', payload: { roomId: 'r1' } });
+    expect(screen.queryByText('Reveal')).toBeNull();
+    expect(screen.queryByText('Hide')).toBeNull();
     fireEvent.click(screen.getByTestId('room-key'));
     expect(openSheetNow()).toEqual({ id: 'room-key', props: { roomId: 'r1' } });
+    expect(sent).toEqual([]);
   });
 
   it('opens, locks and reveals a secret door', () => {

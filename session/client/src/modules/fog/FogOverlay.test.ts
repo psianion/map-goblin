@@ -27,7 +27,7 @@ const session = (): SessionState => ({
   activeSceneId: 'scene-1',
   scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
   players: [dm],
-  modules: { fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, on: true } } } },
+  modules: { fog: { byScene: { 'scene-1': { on: true } } } },
 });
 
 /** World units are grid cells, so 1px = 1 cell here. */

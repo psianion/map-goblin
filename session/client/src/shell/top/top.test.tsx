@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 describe('As players see it', () => {
-  const fogged = (on: boolean) => session([dm], { fog: { byScene: { a: { rooms: {}, concealBehindDoors: true, on } } } });
+  const fogged = (on: boolean) => session([dm], { fog: { byScene: { a: { on } } } });
 
   it('shows the DM the button while fog is on, and flips the local view', () => {
     useAsPlayers.getState().set(false);
@@ -91,19 +91,18 @@ describe('TitleCard', () => {
     expect(screen.queryByTestId('title-switcher')).toBeNull();
   });
 
-  // Table fix pass §4.3 (F13): Movement locked on every seat, the fog mode for the DM.
-  it('shows Movement locked on every seat and the fog mode to the DM only', () => {
+  // Table fix pass §4.3 (F13): Movement locked on every seat. The fog has no mode to name.
+  it('shows Movement locked on every seat, and no fog chip', () => {
     useSessionStore.setState({
-      session: session([dm], { table: { paused: false, movementLocked: true }, fog: { byScene: { a: { rooms: {}, mode: 'vision' } } } }),
+      session: session([dm], { table: { paused: false, movementLocked: true }, fog: { byScene: { a: { on: true } } } }),
     });
     render(<TitleCard />);
     expect(screen.getByTestId('locked-chip').textContent).toBe('Movement locked');
-    expect(screen.getByTestId('fog-mode-chip').textContent).toBe('Fog: by sight');
+    expect(screen.queryByTestId('fog-mode-chip')).toBeNull();
     cleanup();
     useSessionStore.setState({ you: pia });
     render(<TitleCard />);
     expect(screen.getByTestId('locked-chip')).toBeTruthy();
-    expect(screen.queryByTestId('fog-mode-chip')).toBeNull();
   });
 });
 

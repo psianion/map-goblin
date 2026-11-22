@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION, type MapDelta } from '@dnd/core/src/shared/protocol';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
+import { regionOf, setCells } from '@dnd/mechanics/fog';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 import {
@@ -432,7 +433,7 @@ describe('state-update carrying a mapDelta', () => {
     useSessionStore.getState().applyServerMessage({
       type: 'state-update',
       module: 'fog',
-      state: { byScene: { 'scene-1': { rooms: { 'r-gallery': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } } },
+      state: { byScene: { 'scene-1': {} } },
       mapDelta: delta(),
     } as never);
 
@@ -481,13 +482,13 @@ describe('state-update carrying a mapDelta', () => {
   });
 });
 
-// ── A fog mode flip is a document event ─────────────────────────────────────
-// `set-mode` carries no `mapDelta`, but the server cuts a player's copy differently in each
-// mode — `redactMapForViewer` stamps `frame` for a zoned scene *or* a vision one — so a seat
-// that stays connected through the flip has to fetch its own cut again, or a roomless map in
-// vision mode leaves `fogBounds` answering null and the seat draws no fog at all.
+// ── A fog write that changes the player's cut is a document event ────────────
+// Fog switched carries no `mapDelta`, but the server sends a player the whole map with fog off
+// and only cleared ground with it on; and ground fogged again can stop a room shipping, which a
+// held copy that only grows by delta never hears of. So a seat holding the scene fetches its
+// own cut again. A stroke that only clears does not: its ground arrives as a delta.
 
-describe('state-update flipping the fog mode', () => {
+describe('state-update that changes the player cut', () => {
   const sessionWith = (fog: unknown) =>
     ({
       protocolVersion: PROTOCOL_VERSION,
@@ -499,19 +500,19 @@ describe('state-update flipping the fog mode', () => {
       modules: { fog },
     }) as never;
 
-  /** A fog slice for `scene-1`; `mode: undefined` is a scene that never set one (⇒ rooms). */
-  const fogState = (mode: 'rooms' | 'vision' | undefined, rooms: Record<string, unknown> = {}) => ({
-    byScene: { 'scene-1': { rooms, concealBehindDoors: true, ...(mode ? { mode } : {}) } },
+  const GRID = { minX: 0, minY: 0, maxX: 8, maxY: 8 };
+  const cells = (list: [number, number][]) => setCells(regionOf(GRID)!, list);
+  /** A fog slice for `scene-1`. */
+  const fogState = (on: boolean, cleared?: Record<string, unknown>) => ({
+    byScene: { 'scene-1': { on, ...(cleared ? { cleared } : {}) } },
   });
 
   const update = (state: unknown) =>
-    useSessionStore
-      .getState()
-      .applyServerMessage({ type: 'state-update', module: 'fog', state } as never);
+    useSessionStore.getState().applyServerMessage({ type: 'state-update', module: 'fog', state } as never);
 
   beforeEach(() => {
     useSessionStore.setState({
-      session: sessionWith(fogState('rooms')),
+      session: sessionWith(fogState(false)),
       you: { identityId: 'p1', name: 'Ayla', role: 'player', connected: true },
       mapData: loaded(),
       loadedScene: { sceneId: 'scene-1', mapId: 'm1' },
@@ -521,7 +522,7 @@ describe('state-update flipping the fog mode', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('re-fetches this seat’s cut when the DM flips the scene to vision', async () => {
+  it('re-fetches this seat’s cut when the DM turns fog on', async () => {
     const recut = { version: '3.0', layers: [], frame: { x: 0, y: 0, width: 100, height: 100 } };
     const fetchMock = stubFetch(recut);
     // The cut the seat is already holding, cached under the same `sceneId:mapId` — a re-cut
@@ -529,59 +530,61 @@ describe('state-update flipping the fog mode', () => {
     await swapSceneMap('scene-1', 'm1', 'tok');
     const before = fetchMock.mock.calls.length;
 
-    update(fogState('vision'));
+    update(fogState(true));
 
     expect(fetchMock.mock.calls.length).toBe(before + 1);
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      `${endpoints.httpBase}/api/maps/scene-1?images=external&rooms=derived`,
-      { headers: { Authorization: 'Bearer tok' } },
-    );
+    expect(fetchMock).toHaveBeenLastCalledWith(`${endpoints.httpBase}/api/maps/scene-1?images=external&rooms=derived`, {
+      headers: { Authorization: 'Bearer tok' },
+    });
     await vi.waitFor(() => expect(useSessionStore.getState().mapData).toEqual(recut));
   });
 
-  it('re-fetches on the way back too — the rooms cut is not the vision cut', () => {
-    useSessionStore.setState({ session: sessionWith(fogState('vision')) });
+  it('re-fetches on the way back too — fog off sends the whole map', () => {
+    useSessionStore.setState({ session: sessionWith(fogState(true)) });
     const fetchMock = stubFetch({ version: '3.0', layers: [] });
 
-    update(fogState('rooms'));
+    update(fogState(false));
 
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('ignores a fog write that moves the fog but leaves the mode alone', () => {
+  it('re-fetches when a level loses cleared ground, so a room that stops shipping goes', () => {
+    useSessionStore.setState({ session: sessionWith(fogState(true, { upper: cells([[1, 1], [2, 1]]) })) });
+    const fetchMock = stubFetch({ version: '3.0', layers: [] });
+
+    // A Fog stroke over one cell.
+    update(fogState(true, { upper: cells([[2, 1]]) }));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    // Fog all: the record goes.
+    update(fogState(true));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a write that only clears more ground, or touches nothing the cut is made of', () => {
+    useSessionStore.setState({ session: sessionWith(fogState(true, { upper: cells([[1, 1]]) })) });
     const fetchMock = stubFetch({ version: '3.0', layers: [] });
     const held = useSessionStore.getState().mapData;
 
-    // A brush stroke / reveal: same mode, different rooms. Re-fetching a megabyte document
-    // per stroke would be the worse bug.
-    update(fogState('rooms', { 'r-vestibule': { status: 'revealed', wasEverRevealed: true } }));
-    // …and a scene that never set a mode at all reads as rooms, so this is not a flip either.
-    update(fogState(undefined, { 'r-vestibule': { status: 'revealed', wasEverRevealed: true } }));
+    update(fogState(true, { upper: cells([[1, 1], [5, 5]]), lower: cells([[0, 0]]) }));
+    update({ byScene: { 'scene-1': { on: true, cleared: { upper: cells([[1, 1], [5, 5]]), lower: cells([[0, 0]]) }, autoExplore: false } } });
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(useSessionStore.getState().mapData).toBe(held);
   });
 
-  it('leaves a flip on a scene this seat is not holding to that scene’s own swap', () => {
+  it('leaves a change on a scene this seat is not holding to that scene’s own swap', () => {
     const fetchMock = stubFetch({ version: '3.0', layers: [] });
 
-    update({
-      byScene: {
-        'scene-1': { rooms: {}, concealBehindDoors: true },
-        'scene-2': { rooms: {}, concealBehindDoors: true, mode: 'vision' },
-      },
-    });
+    update({ byScene: { 'scene-1': { on: false }, 'scene-2': { on: true } } });
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not re-fetch for the DM, whose copy is the file whatever the mode', () => {
-    useSessionStore.setState({
-      you: { identityId: 'dm', name: 'Sam', role: 'dm', connected: true },
-    });
+  it('does not re-fetch for the DM, whose copy is the file whatever the fog', () => {
+    useSessionStore.setState({ you: { identityId: 'dm', name: 'Sam', role: 'dm', connected: true } });
     const fetchMock = stubFetch({ version: '3.0', layers: [] });
 
-    update(fogState('vision'));
+    update(fogState(true));
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
