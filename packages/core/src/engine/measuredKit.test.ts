@@ -344,6 +344,21 @@ describe('a kit measured to butt', () => {
     });
   }
 
+  /**
+   * Each joint's lap in full: the kit's overlap, or less where the pieces either side are laid
+   * smaller, half the overlap at each one's own scale, where the art either side just meets.
+   */
+  function fullLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): number[] {
+    const overlap = kitOverlap(set);
+    return placed.slice(0, ring ? placed.length : -1).map((a, k) => Math.min(overlap, (overlap / 2) * (a.at.scale + placed[(k + 1) % placed.length].at.scale)));
+  }
+
+  /** Every joint laps in full (see {@link fullLaps}). */
+  const lapsInFull = (placed: WalkPlacement[], set: CaveKitPiece[], ring = false): void => {
+    const full = fullLaps(placed, set, ring);
+    laps(placed, ring).forEach((lap, k) => expect(lap).toBeGreaterThanOrEqual(full[k] - 0.01));
+  };
+
   for (const [name, poly] of [['a 10.5 by 8 room', room], ['a six-sided room', sixSided]] as const) {
     it(`laps every joint round ${name} in full, stretching no piece past 1.25`, () => {
       seedButtKit();
@@ -352,7 +367,7 @@ describe('a kit measured to butt', () => {
       const [ring] = orientRings([poly]);
       const placed = layBandRing(ring, [], set);
       expect(placed.length).toBeGreaterThan(4);
-      for (const lap of laps(placed, true)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+      lapsInFull(placed, set, true);
       for (const pl of placed) expect(pl.at.scale).toBeLessThanOrEqual(1.25);
     });
   }
@@ -390,10 +405,6 @@ describe('a kit measured to butt', () => {
       expect(pl.at.scale).toBeLessThanOrEqual(1.25);
     }
   }
-
-  const lapsInFull = (placed: WalkPlacement[], set: CaveKitPiece[]): void => {
-    for (const lap of laps(placed, false)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
-  };
 
   it('runs the rock either side of a door to the door’s edges and leaves the door open', () => {
     seedButtKit();
@@ -474,7 +485,7 @@ describe('a kit measured to butt', () => {
     expect(laps(placed, true).some((lap) => lap < kitOverlap(plain) - 0.1)).toBe(true);
     // The exact kit is laid bend by bend instead (layExactRing).
     expect(layBandRing(ring, [], set).map((pl) => pl.piece.key)).toEqual(
-      ['turn_in_2x2', 'run_2x8', 'turn_in_2x2', 'run_2x5', 'run_2x1', 'turn_in_2x2', 'run_2x8', 'turn_in_2x2', 'run_2x1', 'run_2x5'],
+      ['turn_in_2x2', 'run_2x8', 'turn_in_2x2', 'run_2x1', 'run_2x5', 'turn_in_2x2', 'run_2x8', 'turn_in_2x2', 'run_2x1', 'run_2x5'],
     );
   });
 
@@ -499,7 +510,7 @@ describe('a kit measured to butt', () => {
     const [ring] = orientRings([room]);
     const placed = layBandRing(ring, [], set);
     for (const pl of placed) expect(pl.at.scale).toBeGreaterThanOrEqual(0.9);
-    for (const lap of laps(placed, true)) expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
+    lapsInFull(placed, set, true);
   });
 
   it('leaves the same kit without `exact` squashed where the walk closes it, as before', () => {
@@ -545,10 +556,8 @@ describe('a kit measured to butt', () => {
   /** Every joint laps in full and no more than 0.3 over what it asks for; every piece 0.8 to 1.3 of its size. */
   function expectSnugLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): void {
     const want = wanted(placed, set, ring);
-    laps(placed, ring).forEach((lap, k) => {
-      expect(lap).toBeGreaterThanOrEqual(kitOverlap(set) - 0.01);
-      expect(lap).toBeLessThanOrEqual(want[k] + 0.3);
-    });
+    lapsInFull(placed, set, ring);
+    laps(placed, ring).forEach((lap, k) => expect(lap).toBeLessThanOrEqual(want[k] + 0.3));
     for (const pl of placed) {
       expect(pl.at.scale).toBeGreaterThanOrEqual(0.8);
       expect(pl.at.scale).toBeLessThanOrEqual(1.3);
@@ -649,7 +658,7 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
       run_2x5_A: run(5),
       run_2x8_A: run(8),
       turn_in_2x2_A: entry('turn_in', '2x2', { joints: [[-0.5, 1.15], [1.15, -0.5]], turnDeg: 90 }, []),
-      turn_out_2x2_A: entry('turn_out', '2x2', { joints: [[0, 1.15], [-1.15, 0]], turnDeg: -90 }, []),
+      turn_out_2x2_A: entry('turn_out', '2x2', { joints: [[0.5, 1.15], [-1.15, -0.5]], turnDeg: -90 }, []),
     });
     return bandPiecesFor(SET);
   }
@@ -697,11 +706,12 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
    * bridged, wound void-left) each wants a bend at scale 1 (`missing`), and no bend may turn
    * against its corner or be laid at another size (`wrong`); `opening` (its two wall ends,
    * when there is one) wants no art inside it and a run end within 0.02 of each wall end;
-   * every joint between neighbours wants its art to meet within 0.02; every straight wants a
-   * scale inside 0.85 to 1.2 and to run along a side (`angle`).
+   * every joint between neighbours wants its art to meet within 0.02, and where a bend meets
+   * a straight their joints in line within 0.02 across travel (`side`); every straight wants
+   * a scale inside 0.85 to 1.2 and to run along a side (`angle`).
    */
   function faults(placed: WalkPlacement[], set: CaveKitPiece[], corners: Polygon, opening?: [V, V]): Record<string, number> {
-    const out = { missing: 0, wrong: 0, opening: 0, ends: 0, meet: 0, scale: 0, angle: 0, worstMeet: 0, worstScale: 1 };
+    const out = { missing: 0, wrong: 0, opening: 0, ends: 0, meet: 0, side: 0, scale: 0, angle: 0, worstMeet: 0, worstSide: 0, worstScale: 1 };
     const bends = placed.filter((pl) => pl.piece.turnDeg !== 0);
     const cs = cornersOf(corners);
     const mid = (pl: WalkPlacement): V => [(pl.P[0] + pl.Q[0]) / 2, (pl.P[1] + pl.Q[1]) / 2];
@@ -738,6 +748,12 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
       const gap = dotV(minus(art(b, set).start, art(a, set).end), t);
       out.worstMeet = Math.max(out.worstMeet, Math.abs(gap));
       if (Math.abs(gap) > 0.02) out.meet++;
+      // A bend and a straight: their two joints in line across travel.
+      if ((a.piece.turnDeg === 0) !== (b.piece.turnDeg === 0)) {
+        const across = Math.abs(crossV(minus(jointsOf(b.piece, b.at)[0], jointsOf(a.piece, a.at)[1]), t));
+        out.worstSide = Math.max(out.worstSide, across);
+        if (across > 0.02) out.side++;
+      }
     });
     const sides = corners.map((p, k) => unit(p as V, corners[(k + 1) % corners.length] as V));
     for (const pl of placed.filter((q) => q.piece.turnDeg === 0)) {
@@ -748,7 +764,7 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
     return out;
   }
 
-  const ASSERTIONS = ['missing', 'wrong', 'opening', 'ends', 'meet', 'scale', 'angle'];
+  const ASSERTIONS = ['missing', 'wrong', 'opening', 'ends', 'meet', 'side', 'scale', 'angle'];
   const expectClean = (f: Record<string, number>) => expect(ASSERTIONS.map((k) => f[k])).toEqual(ASSERTIONS.map(() => 0));
   const notchAt = (x: number): Polygon => [[x + 1, 7], [x, 7], [x, 5], [x + 1, 5]];
   const room: Polygon = [[2.5, 2.5], [13, 2.5], [13, 10.5], [2.5, 10.5]];
@@ -814,23 +830,26 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
       }
     }
     expect(rooms).toBe(4356);
-    // No bend the wrong way, no art in a mouth, no run short of one, no straight at an angle.
-    // What fails is what whole-cell straights cannot fit: a stretch of 1.2 to 1.7 or 2.4 to
-    // 2.55 cells (a side of 4.5 among them) goes outside 0.85 to 1.2, one under 0.6 is held at
-    // 0.6 and laps its bend by 0.2, and a notch a cell from a corner takes that corner's bend.
+    // No bend the wrong way, no art in a mouth, no run short of one, no step across a bend's
+    // joint, no straight at an angle, and every plain rectangle clean. What fails is beside a
+    // notch, where whole-cell straights cannot fit: a stretch of 1.2 to 1.7 or 2.4 to 2.55
+    // cells goes outside 0.85 to 1.2, one under 0.6 is held at 0.6 and laps its bend by up to
+    // 0.29, and a notch a cell from a corner takes that corner's bend.
     expect(Object.fromEntries(ASSERTIONS.map((k) => [k, failed.filter((x) => x.f[k] > 0).length]))).toEqual({
       missing: 462,
       wrong: 0,
       opening: 0,
       ends: 0,
       meet: 231,
-      scale: 1122,
+      side: 0,
+      scale: 1353,
       angle: 0,
     });
-    expect([failed.length, plainFailed]).toEqual([1122, 33]);
+    expect([failed.length, plainFailed]).toEqual([1353, 0]);
     expect(Math.min(...failed.map((x) => x.f.worstScale))).toBeCloseTo(0.6, 6);
-    expect(Math.max(...failed.map((x) => x.f.worstScale))).toBeCloseTo(1.341095, 5);
-    expect(Math.max(...failed.map((x) => x.f.worstMeet))).toBeLessThan(0.21);
+    expect(Math.max(...failed.map((x) => x.f.worstScale))).toBeCloseTo(1.31, 6);
+    expect(Math.max(...failed.map((x) => x.f.worstMeet))).toBeLessThan(0.3);
+    expect(Math.max(...failed.map((x) => x.f.worstSide))).toBeLessThan(1e-9);
   });
 
   it('leaves a six-sided room to the walk, as before', () => {
@@ -870,8 +889,8 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
         Q: [2.322968, 3.370872],
       },
       'an L-shaped room': {
-        keys: ['turn_in_2x2', 'run_2x5', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x2~', 'run_2x1', 'turn_out_2x2', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x5~', 'run_2x2', 'run_2x1~'],
-        scales: [0.999901, 1, 1, 1, 0.999985, 1, 1, 0.999979, 1, 0.999997, 0.999838, 1, 1, 0.999919, 1, 1, 0.999939, 1, 1, 1],
+        keys: ['turn_in_2x2', 'run_2x5', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x2~', 'turn_out_2x2', 'run_2x2', 'turn_in_2x2', 'run_2x2~', 'run_2x1', 'turn_in_2x2', 'run_2x5~', 'run_2x2', 'run_2x1~'],
+        scales: [0.999901, 1, 1, 1, 0.999985, 1, 1, 0.999979, 1, 0.999964, 1, 0.999919, 1, 1, 0.999939, 1, 1, 1],
         P: [-0.17997, 1.45769],
         Q: [-0.176941, 0.857694],
       },

@@ -628,16 +628,20 @@ const EXACT_REACH: [number, number] = [0.6, 1.4];
 const EXACT_SLIVER = 0.25;
 /** The length, cells, straights' drawn lengths are summed to when a stretch's fill is chosen. */
 const FILL_STEP = 0.01;
+/** The scales a stretch's straights are chosen within, tightest first (see {@link fillStretch}). */
+const FILL_BANDS: [number, number][] = [[0.95, 1.05], [0.9, 1.1], EXACT_FIT];
 
 /**
  * A measured kit round a ring of straight sides: each opening bridged straight between its
- * wall ends, a bend on every corner of the bridged ring at its drawn size (`layCorners`,
- * its own straights dropped), and each stretch of wall left between bends and openings
- * filled with straights scaled alike so their art runs exactly from end to end (see
- * {@link fillStretch}), on the side's straight line at the kit's own shove. A bend an opening
- * reaches into is dropped, and the stretches either side run to the corner instead. Placements
- * in walk order, starting after an opening when there is one. Null when the bridged ring is
- * not one `cornerRing` lays, or a corner's bends do not turn it.
+ * wall ends, on every corner of the bridged ring the bend `cornerRing` picks for it, at its
+ * drawn size with its two joints on the joint lines of the sides it joins, and each stretch
+ * of wall left between bends and openings filled with straights scaled alike so their art
+ * runs exactly from end to end (see {@link fillStretch}), their joints on the same lines. A
+ * side's joint line is the drawn edge moved twice the kit's shove into the void: the ride's
+ * shove and the piece's. A bend an opening reaches into is dropped, and the stretches either
+ * side run to the corner instead. Placements in walk order, starting after an opening when
+ * there is one. Null when the bridged ring is not one `cornerRing` lays, or a corner does not
+ * take a single bend turning within EXACT_TURN_TOL of it.
  */
 function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): WalkPlacement[] | null {
   const { pts, cum, joined } = openingArcs(poly, gaps, true);
@@ -664,15 +668,16 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
   const laid = cornerRing(bridged, bandRide(resampleClosed(bridged, CURVE_STEP), true, kitOut(set)), set);
   if (!laid) return null;
   const m = corners.length;
-  const groups: WalkPlacement[][] = corners.map(() => []);
+  // The bend cornerRing picks for each corner; where it lays it is not used.
+  const groups: CaveKitPiece[][] = corners.map(() => []);
   for (const pl of laid.placed) {
     if (pl.branch !== 'corner') continue;
     const mid = mul(add(pl.P, pl.Q), 0.5);
     let k = 0;
     for (let j = 1; j < m; j++) if (dist(corners[j].p, mid) < dist(corners[k].p, mid)) k = j;
-    groups[k].push(pl);
+    groups[k].push(pl.piece);
   }
-  if (groups.some((g, k) => Math.abs(g.reduce((sum, pl) => sum + pl.piece.turnDeg, 0) - corners[k].turn) > EXACT_TURN_TOL)) return null;
+  if (groups.some((g, k) => g.length !== 1 || Math.abs(g[0].turnDeg - corners[k].turn) > EXACT_TURN_TOL)) return null;
 
   const half = kitOverlap(set) / 2;
   const out = kitOut(set);
@@ -683,6 +688,29 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
     return { V, u, len: dist(V, W), origin: add(V, mul([u[1], -u[0]], out)) };
   });
   const along = (k: number, p: Vec): number => dot(sub(p, sides[k].V), sides[k].u);
+  // How far past corner k along the side into it the two sides' joint lines meet.
+  const reach = (k: number): number => 2 * out * Math.tan((corners[k].turn * Math.PI) / 360);
+  // Each corner's bend with its joints on the two joint lines, each as far from where they
+  // meet as the bend's own joints are from where its two arms meet.
+  const bends = corners.map((c, k): WalkPlacement => {
+    const piece = groups[k][0];
+    const uIn = sides[(k - 1 + m) % m].u;
+    const uOut = sides[k].u;
+    const meet = add(add(c.p, mul([uIn[1], -uIn[0]], 2 * out)), mul(uIn, reach(k)));
+    const [J0, J1] = piece.jointsCells;
+    const span = sub(J1, J0);
+    const h = (piece.turnDeg * Math.PI) / 360;
+    const chord = Math.atan2(span[1], span[0]);
+    const eIn: Vec = [Math.cos(chord - h), Math.sin(chord - h)];
+    const eOut: Vec = [Math.cos(chord + h), Math.sin(chord + h)];
+    const j0 = sub(meet, mul(uIn, cross(span, eOut) / cross(eIn, eOut)));
+    const j1 = add(meet, mul(uOut, cross(span, eIn) / cross(eOut, eIn)));
+    const d = norm(sub(j1, j0));
+    const right: Vec = [-d[1], d[0]];
+    const P = add(j0, mul(right, out));
+    const Q = add(j1, mul(right, out));
+    return { piece, P, Q, i: 0, nudge: 0, branch: 'corner', at: placePiece(piece, P, Q, out, 0, 0) };
+  });
   // Where a bend's art ends: half an overlap in from its joint, along its own travel there.
   const artEnd = (pl: WalkPlacement, end: boolean): Vec => {
     const turn = ((end ? 1 : -1) * pl.piece.turnDeg * Math.PI) / 360;
@@ -697,11 +725,10 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
     onSide[k].push({ w0: along(k, W0), w1: along(k, W1) });
   }
   onSide.forEach((list) => list.sort((p, q) => p.w0 - q.w0));
-  const starts = sides.map((_, k) => along(k, artEnd(groups[k][groups[k].length - 1], true)));
-  const ends = sides.map((_, k) => along(k, artEnd(groups[(k + 1) % m][0], false)));
+  const starts = sides.map((_, k) => along(k, artEnd(bends[k], true)));
+  const ends = sides.map((_, k) => along(k, artEnd(bends[(k + 1) % m], false)));
+  // A side's rock runs to where the joint lines meet at a corner left without its bend.
   const dropped = corners.map((_, k) => onSide[k].some((o) => o.w0 < starts[k]) || onSide[(k - 1 + m) % m].some((o) => o.w1 > ends[(k - 1 + m) % m]));
-  // Where a side's rock runs to at a corner left without its bend: where the joint lines meet.
-  const reach = (k: number): number => 2 * out * Math.tan((corners[k].turn * Math.PI) / 360);
 
   const straights = set.filter((p) => p.turnDeg === 0);
   let mirror = 0;
@@ -726,7 +753,7 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
   // Walk order, an opening marked as null where it falls.
   const seq: (WalkPlacement | null)[] = [];
   sides.forEach((side, k) => {
-    if (!dropped[k]) seq.push(...groups[k]);
+    if (!dropped[k]) seq.push(bends[k]);
     let cursor = dropped[k] ? -reach(k) : starts[k];
     let atWall = false;
     const last = dropped[(k + 1) % m] ? side.len + reach((k + 1) % m) : ends[k];
@@ -743,43 +770,68 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
 
 /**
  * The straights a stretch whose art runs `L` cells is filled with, and the one scale they all
- * take: the drawn length nearest `L` whose scale lies inside EXACT_FIT, else the one whose scale
- * lies least outside it (kept inside EXACT_REACH), on the fewest pieces, ties and the order the
- * pieces run in picked by `seed`. Each straight's art is its chord less `overlap`.
+ * take: the fewest pieces, longest first, whose scale lies in the first of FILL_BANDS any
+ * choice fits; else the drawn length whose scale lies least outside EXACT_FIT, nearest `L`, on
+ * the fewest pieces (kept inside EXACT_REACH). The order the pieces run in is picked by `seed`.
+ * Each straight's art is its chord less `overlap`.
  */
 function fillStretch(L: number, straights: CaveKitPiece[], overlap: number, seed: number): { pieces: CaveKitPiece[]; f: number } {
-  const kinds = straights.filter((p, k) => p.chordCells > overlap && straights.findIndex((q) => q.key === p.key) === k);
+  const kinds = straights
+    .filter((p, k) => p.chordCells > overlap && straights.findIndex((q) => q.key === p.key) === k)
+    .sort((a, b) => b.chordCells - a.chordCells);
   const steps = kinds.map((p) => Math.max(1, Math.round((p.chordCells - overlap) / FILL_STEP)));
   const mix = (...xs: number[]): number => xs.reduce((h, x) => Math.imul(h ^ x, 0x01000193) >>> 0, 0x811c9dc5);
-  // Fewest pieces to each drawn length, in FILL_STEP units: the piece laid last, and its count.
+  // The best way to each drawn length, in FILL_STEP units, as a count of each kind: the fewest
+  // pieces, then the most of the longest kind.
   const top = Math.max(Math.ceil(L / EXACT_REACH[0] / FILL_STEP), Math.min(...steps));
   const count = new Array<number>(top + 1).fill(Infinity);
-  const lastOf = new Array<number>(top + 1).fill(-1);
+  const made = new Array<number[] | null>(top + 1).fill(null);
   count[0] = 0;
+  made[0] = kinds.map(() => 0);
+  /** `a`, with one more of kind `j` when given, runs longer pieces than `b` of as many. */
+  const longer = (a: number[], b: number[], j = -1): boolean => {
+    for (let i = 0; i < a.length; i++) {
+      const n = a[i] + (i === j ? 1 : 0);
+      if (n !== b[i]) return n > b[i];
+    }
+    return false;
+  };
   for (let t = 0; t < top; t++) {
-    if (count[t] === Infinity) continue;
+    const from = made[t];
+    if (!from) continue;
     steps.forEach((step, j) => {
       const n = t + step;
       if (n > top) return;
       const c = count[t] + 1;
-      if (c < count[n] || (c === count[n] && mix(seed, n, j) < mix(seed, n, lastOf[n]))) {
+      if (c < count[n] || (c === count[n] && longer(from, made[n]!, j))) {
+        const v = [...from];
+        v[j]++;
         count[n] = c;
-        lastOf[n] = j;
+        made[n] = v;
       }
     });
   }
-  // How far a drawn length's scale lies outside EXACT_FIT, then how far it is from L, then its count.
-  const misfit = (t: number): number => Math.max(0, EXACT_FIT[0] - L / (t * FILL_STEP), L / (t * FILL_STEP) - EXACT_FIT[1]);
-  const better = (t: number, than: number): boolean => {
-    const m = misfit(t) - misfit(than);
-    if (Math.abs(m) > 1e-9) return m < 0;
-    const d = Math.abs(t * FILL_STEP - L) - Math.abs(than * FILL_STEP - L);
-    return d < -1e-9 || (Math.abs(d) <= 1e-9 && count[t] < count[than]);
-  };
+  const scale = (t: number): number => L / (t * FILL_STEP);
   let best = -1;
-  for (let t = 1; t <= top; t++) if (count[t] < Infinity && (best < 0 || better(t, best))) best = t;
-  const pieces: CaveKitPiece[] = [];
-  for (let t = best; t > 0; t -= steps[lastOf[t]]) pieces.push(kinds[lastOf[t]]);
+  for (const [lo, hi] of FILL_BANDS) {
+    for (let t = 1; t <= top; t++) {
+      if (!made[t] || scale(t) < lo || scale(t) > hi) continue;
+      if (best < 0 || count[t] < count[best] || (count[t] === count[best] && longer(made[t]!, made[best]!))) best = t;
+    }
+    if (best >= 0) break;
+  }
+  if (best < 0) {
+    // How far a drawn length's scale lies outside EXACT_FIT, then how far it is from L, then its count.
+    const misfit = (t: number): number => Math.max(0, EXACT_FIT[0] - scale(t), scale(t) - EXACT_FIT[1]);
+    const better = (t: number, than: number): boolean => {
+      const m = misfit(t) - misfit(than);
+      if (Math.abs(m) > 1e-9) return m < 0;
+      const d = Math.abs(t * FILL_STEP - L) - Math.abs(than * FILL_STEP - L);
+      return d < -1e-9 || (Math.abs(d) <= 1e-9 && count[t] < count[than]);
+    };
+    for (let t = 1; t <= top; t++) if (made[t] && (best < 0 || better(t, best))) best = t;
+  }
+  const pieces = made[best]!.flatMap((n, j) => Array.from({ length: n }, () => kinds[j]));
   const order = pieces.map((p, k) => ({ p, h: mix(seed, k) })).sort((a, b) => a.h - b.h).map(({ p }) => p);
   const drawn = order.reduce((sum, p) => sum + p.chordCells - overlap, 0);
   return { pieces: order, f: Math.min(EXACT_REACH[1], Math.max(EXACT_REACH[0], L / drawn)) };
