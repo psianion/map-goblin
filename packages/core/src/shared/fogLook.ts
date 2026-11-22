@@ -101,21 +101,21 @@ export const FOG_PRESETS: Record<(typeof FOG_LOOK_PRESETS)[number], [FogLayer, F
 };
 
 /**
- * The look the mockup was showing when it was signed off (2026-09-09): the ground-mist preset
- * as re-tuned by hand in the page — a white base, a near-black billow deck at strength 0.4, a
- * warm haze, and a white smoke top; every layer driven far faster than the presets above.
- * Provisional until the lock-the-defaults session the plan's WP1 leaves for after the settings
- * panel ships (docs/2026-09-09-living-fog-v2-plan.md §4).
+ * The one look the table ships (fog rework §2.8): cloud, not mist. Three billow layers — the
+ * `cumulus` rows, copied here so the default outlives the presets — give rounded lobes with light
+ * tops and shaded undersides, and a narrow fade (2 cells, against the old 4) lets those lobes
+ * carry the edge instead of a soft blur. No veil. Base, wind and glow stay as they were. The
+ * values are a starting point for the sign-off on screen, not a final answer.
  */
 export const DEFAULT_FOG_LOOK: FogLook = {
   base: '#ffffff',
   layers: presetLayers([
-    [0, '#05080b', 0.4, 6, 0.12, 345],
-    [2, '#945f14', 0.25, 2.2, 0.155, 300],
-    [1, '#ffffff', 0.6, 4, 0.145, 320],
+    [0, '#aab2ba', 1.0, 1.05, 0.009, 20],
+    [0, '#d5dade', 0.6, 2.1, 0.017, 160],
+    [0, '#f2f4f6', 0.4, 3.8, 0.028, 335],
   ]),
   wind: 4,
-  fade: 4,
-  veil: 0.22,
+  fade: 2,
+  veil: 0,
   glow: 1,
 };

@@ -2,6 +2,7 @@
 // Fog all and their restore, and the party's own sight write.
 import { describe, expect, it } from 'vitest'
 
+import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook'
 import type { Viewer } from '../contract'
 import { fogModule } from './module'
 import { fillRegion, getCell, regionOf, setCells, type Frame, type RegionMask } from './region'
@@ -228,5 +229,19 @@ describe('a republish that moves the frame (row 14)', () => {
     expect(getCell(mask, 0, 0)).toBe(true)
     // World (9, 9) is past the new east edge.
     expect(setCells(regionOf(frame)!, [[0, 0], [3, 1]]).bits).toBe(mask.bits)
+  })
+})
+
+describe('the default look (fog rework §2.8)', () => {
+  it('is three billow layers with a narrow edge and no veil, and the validator takes it whole', () => {
+    expect(DEFAULT_FOG_LOOK.layers.map((l) => [l.type, l.tint])).toEqual([
+      ['billow', '#aab2ba'],
+      ['billow', '#d5dade'],
+      ['billow', '#f2f4f6'],
+    ])
+    expect([DEFAULT_FOG_LOOK.fade, DEFAULT_FOG_LOOK.veil, DEFAULT_FOG_LOOK.preset]).toEqual([2, 0, undefined])
+    const { next, error } = run(empty, DM, 'set-fog-look', { look: DEFAULT_FOG_LOOK })
+    expect(error).toBeNull()
+    expect(sceneOf(next).look).toEqual(DEFAULT_FOG_LOOK)
   })
 })
