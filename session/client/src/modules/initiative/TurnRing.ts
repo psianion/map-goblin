@@ -21,6 +21,7 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { tokensOf } from '../tokens/TokenRenderer';
+import { useAsPlayers } from '../fog/asPlayers';
 
 /** Pixels per world unit at 100% zoom, i.e. what the constants below were authored against. */
 const REFERENCE_ZOOM = 20;
@@ -148,7 +149,7 @@ function mountTurnRing(engine: RenderEngine, sceneGraph: SceneGraph): () => void
   const tick = (ticker: Ticker) => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
-    const stencil = isPlayer() ? sightMaskOf(sceneGraph) : null;
+    const stencil = isPlayer() || useAsPlayers.getState().on ? sightMaskOf(sceneGraph) : null;
     if (layer.mask !== stencil) layer.mask = stencil;
     // Zoom is plain Pixi stage state with nothing in the store to subscribe to, so a per-frame
     // poll against the last-seen value is what notices the camera moved.

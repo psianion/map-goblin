@@ -7,7 +7,7 @@ import { regionOf, setCells, type FogState, type RoomFog } from '@dnd/mechanics/
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
-import { cellAt, fogFrame, lockedRooms, partlySeenRooms, roomAt, roomsOfLayers, sceneFog, type TableRoom } from './fog';
+import { cellAt, fogFrame, lockedRooms, partlySeenRooms, roomsOfLayers, sceneFog, type TableRoom } from './fog';
 
 /** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
  *  rows that aim at the middle of a room. */
@@ -87,16 +87,12 @@ beforeEach(() => {
 });
 
 describe('fog geometry and vocabulary', () => {
-  it('reads rooms off the dungeon layer and finds the one under a point', () => {
+  it('reads rooms off the dungeon layer', () => {
     const rooms = roomsOfLayers(useStore.getState().layers);
     expect(rooms.map((r) => r.id)).toEqual(['r-crypt', 'r-hall']);
-    expect(roomAt(rooms, 2, 2)?.id).toBe('r-crypt');
-    expect(roomAt(rooms, 12, 2)?.id).toBe('r-hall');
-    // Unzoned map is unrevealable (D6) — there is simply nothing there to click.
-    expect(roomAt(rooms, 7, 2)).toBeUndefined();
   });
 
-  it('defaults an absent slice to a dark scene with concealment on', () => {
+  it('defaults an absent slice to a scene with fog off', () => {
     expect(sceneFog(undefined, 'scene-1')).toEqual({ rooms: {}, concealBehindDoors: true });
     expect(sceneFog(fogWith({}), null)).toEqual({ rooms: {}, concealBehindDoors: true });
   });
@@ -224,8 +220,5 @@ describe('rooms on the table are the map’s own', () => {
     const rooms = roomsOfLayers(layers);
     expect(rooms.map((r) => r.id)).toEqual(['r-crypt', 'r-synced']);
     expect(rooms[1]!.boundary).toEqual(synced.face);
-    expect(roomAt(rooms, 25, 2)?.id).toBe('r-synced');
-    expect(roomAt(rooms, 2, 2)?.id).toBe('r-crypt');
-    expect(roomAt(rooms, 50, 50)).toBeUndefined();
   });
 });

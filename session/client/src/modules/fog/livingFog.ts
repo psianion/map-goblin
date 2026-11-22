@@ -163,6 +163,8 @@ const FRAGMENT = /* glsl */ `
   uniform float uGlow;
   // T8 — 1 on the player's seat: the mask is shown or hidden, no memory tier and no pools.
   uniform float uOneTier;
+  // The DM's see-through view: 1 draws a line on the cloud's edge, a light core on a dark halo.
+  uniform float uEdgeLine;
   uniform vec4 uMaskRect;
   // P7 — the map frame (minX, minY, maxX, maxY); maxX <= minX is "no frame".
   uniform vec4 uFrame;
@@ -476,7 +478,34 @@ const FRAGMENT = /* glsl */ `
     // The memory wash, under the cloud: the explored tier's own darkening, read off the same
     // seam ramp the cloud fades on so the two cannot disagree about where a tier begins.
     float washA = uWashAlpha * seamGate;
-    gl_FragColor = vec4(col * alpha + uWash * washA * (1.0 - alpha), alpha + washA * (1.0 - alpha));
+    vec3 rgbOut = col * alpha + uWash * washA * (1.0 - alpha);
+    float aOut = alpha + washA * (1.0 - alpha);
+
+    // The edge line, on the DM's see-through view only: the half-level contour of the feather
+    // texture, which is the cleared ground's own outline smoothed by the blur. Measured in screen
+    // pixels through the texture's own derivative, so it stays one crisp width at any zoom: a
+    // light core on a dark halo, which reads on grass and in a cave alike. Faded out the last
+    // cell inside the frame, where the blur reads the void past the edge as shown ground.
+    if (uEdgeLine > 0.5) {
+      vec2 euv = (onMapSample(vWorld) - uMaskRect.xy) * uMaskRect.zw;
+      if (euv.x >= 0.0 && euv.y >= 0.0 && euv.x <= 1.0 && euv.y <= 1.0) {
+        float a = texture(uMaskEdge, euv).a;
+        float px = abs(a - ${EDGE_FEATHER_FROM.toFixed(3)}) / max(fwidth(a), 1e-5);
+        float inner = 1.0;
+        if (uFrame.z > uFrame.x) {
+          vec2 into = min(vWorld - uFrame.xy, uFrame.zw - vWorld);
+          inner = smoothstep(0.4, 1.0, min(into.x, into.y));
+        }
+        float gate = inMap * inner;
+        float halo = (1.0 - smoothstep(1.4, 2.6, px)) * gate * 0.6;
+        float core = (1.0 - smoothstep(0.4, 1.1, px)) * gate;
+        rgbOut = rgbOut * (1.0 - halo) + vec3(0.106) * halo;
+        aOut = aOut + halo * (1.0 - aOut);
+        rgbOut = rgbOut * (1.0 - core) + vec3(1.0) * core;
+        aOut = aOut + core * (1.0 - aOut);
+      }
+    }
+    gl_FragColor = vec4(rgbOut, aOut);
   }
 `;
 
@@ -583,8 +612,6 @@ export interface LivingFog {
   mesh: Mesh<Geometry, Shader>;
   /** Draw the tier mask into this, in world coordinates, then call `renderMask`. */
   maskPaint: Graphics;
-  /** Reveal fades draw here, above the tiers; render per frame only while one runs. */
-  fadePaint: Container;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
   setMaskBounds(bounds: Bounds | null): void;
   /**
@@ -608,7 +635,7 @@ export interface LivingFog {
    * paint at all.
    */
   maskFit(): { scale: number; bounds: Bounds } | null;
-  /** Rasterise `maskPaint` + `fadePaint` into the mask texture. */
+  /** Rasterise `maskPaint` into the mask texture. */
   renderMask(): void;
   /** Shade `setLook`'s base and layer tints toward this scene's grade and darkness — kept so
    * a later `setLook` (a new preset, a slider) and a later `setPalette` (the scene's grade or
@@ -620,9 +647,13 @@ export interface LivingFog {
   setLook(look: FogLook): void;
   /** The mist over the memory tier, 0..1 — the caller eases it with the light level. */
   setMist(mist: number): void;
-  /** Where the dense cover's ramp ends, in mask units past the memory grey (0.5) — how much of
-   * the full cover a remembered room keeps under its mist. `MEMORY_HOLD` by default. */
-  setMemoryHold(hold: number): void;
+  /**
+   * How solid the cover over hidden ground is, 0..1. A player's seat is always 1, so nothing
+   * under the cover shows; the DM's see-through view runs lower.
+   */
+  setDense(dense: number): void;
+  /** The line on the cloud's edge, for the DM's see-through view. */
+  setEdgeLine(on: boolean): void;
   /**
    * The wash under the cloud on the memory tier — a 0xrrggbb colour already graded the way
    * the map beneath it is, and its strength. 0 (the default) draws none: the DM's haze wants
@@ -686,8 +717,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   edgeScene.addChild(edgeGroup);
   const maskScene = new Container();
   const maskPaint = new Graphics();
-  const fadePaint = new Container();
-  maskScene.addChild(maskPaint, fadePaint);
+  maskScene.addChild(maskPaint);
 
   const shader = Shader.from({
     gl: { vertex: VERTEX, fragment: FRAGMENT },
@@ -709,6 +739,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uVeil: { value: DEFAULT_FOG_LOOK.veil, type: 'f32' },
         uGlow: { value: DEFAULT_FOG_LOOK.glow, type: 'f32' },
         uOneTier: { value: initialLook.oneTier ? 1 : 0, type: 'f32' },
+        uEdgeLine: { value: 0, type: 'f32' },
         uMaskRect: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uFrame: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uTexel: { value: 0, type: 'f32' },
@@ -728,6 +759,8 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   });
   const uniforms = shader.resources.fogUniforms.uniforms as {
     uTime: number;
+    uDense: number;
+    uEdgeLine: number;
     uWind: number;
     uFade: number;
     uVeil: number;
@@ -821,7 +854,6 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
   return {
     mesh,
     maskPaint,
-    fadePaint,
     setMaskBounds(bounds) {
       const w = bounds ? bounds.maxX - bounds.minX : 0;
       const h = bounds ? bounds.maxY - bounds.minY : 0;
@@ -902,8 +934,11 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     setMist(mist) {
       uniforms.uMist = Math.min(1, Math.max(0, mist));
     },
-    setMemoryHold(hold) {
-      uniforms.uMemoryHold = Math.min(0.999, Math.max(0.5, hold));
+    setDense(dense) {
+      uniforms.uDense = Math.min(1, Math.max(0, dense));
+    },
+    setEdgeLine(on) {
+      uniforms.uEdgeLine = on ? 1 : 0;
     },
     setWash(color, alpha) {
       setVec(uniforms.uWash, [

@@ -1,19 +1,14 @@
 // The fog tool's arithmetic and vocabulary, kept away from Pixi and React so both can be
 // checked without a GPU or a DOM. Rooms come off the loaded map (they are authored data,
-// D1); their fog status comes off the session's `fog` module slice.
+// D1); the fog itself comes off the session's `fog` module slice.
 
-import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
-import { buildRoomIndex, type RoomIndex } from '@dnd/core/src/shared/roomIndex';
 import type { Room, ZoneChild } from '@dnd/core/src/shared/types';
 import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import {
   cellsCoveredByPolygon,
-  DEFAULT_WALL_WIDTH,
-  FOG_MARGIN,
   sceneFogOf,
   toBytes,
   type Cell,
@@ -24,7 +19,6 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
-import type { FogPool } from './livingFog';
 
 /**
  * What a DM reads for each status. The word is the state; colour never carries it alone.
@@ -40,7 +34,7 @@ export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
 /**
  * A room as the table holds it: `boundary` is the room's face. Both seats' documents come from
  * the server with every face already derived by core's `syncRooms` (the player's copy always;
- * the DM's through `?rooms=derived`), so the ring here is the one the referee fogs by.
+ * the DM's through `?rooms=derived`).
  */
 export type TableRoom = Room & { boundary: [number, number][] };
 
@@ -62,48 +56,22 @@ export function roomsOfLayers(layers: readonly Layer[]): TableRoom[] {
   );
 }
 
-/**
- * The rooms the table fogs by, off the document the server sent rather than core's store.
- *
- * Rooms are authored now — core's sync places them and never invents one — so the store and
- * the document name the same rooms. The document stays the source because it is the one the
- * fog lane is keyed on (every memo here keys on `mapData`), it is already redacted to exactly
- * the rooms a player may know about, and its faces are the referee's own.
- */
-/**
- * T13 — the faces of the stand-ins the server sent: rooms withheld from this seat whose floor
- * art still travels. Never the player's to hold, so By hand fogs them like a hidden room.
- */
-export function standInFaces(layers: readonly Layer[]): [number, number][][] {
-  return layers.flatMap((layer) =>
-    layer.type === 'dungeon'
-      ? (layer.rooms ?? []).filter((room) => room.standIn).map(roomRing).filter((ring) => ring.length >= 3)
-      : [],
-  );
-}
-
 export function serverLayers(mapData: unknown): Layer[] {
   return (mapData as { layers?: Layer[] } | null)?.layers ?? [];
 }
 
+/**
+ * The rooms of the document the server sent rather than core's store: it is already redacted to
+ * exactly the rooms a player may know about, and its faces are the referee's own.
+ */
 export function serverRooms(mapData: unknown): TableRoom[] {
   return roomsOfLayers(serverLayers(mapData));
 }
 
 /**
- * The doors the *server* is fogging by, at the state the table is playing them — the room
- * graph half of the same rule as {@link serverRooms}.
- *
- * `roomA`/`roomB` are what the concealment BFS walks (D3), and they are exactly the field
- * core does not preserve: `roomSync` rebinds both on every door from whatever geometry *this
- * tab* holds after every load. A player's copy is a partial map with no merged floor at all
- * (the server ships `mergedFloor: null`, `redactMapForViewer`), so the bindings it derives are
- * its own — and a BFS run over them can reach a room the referee sealed, or seal one the
- * referee opened.
- *
- * The document's own door records carry the ids the server redacted and reachability-tested
- * with, so both seats answer "what does this door join" the same way. Live state still comes
- * off the session's `doors` slice — that half never drifted.
+ * The doors of the document the server sent, at the state the table is playing them: the
+ * document's own door records carry the room ids the server redacted with, and live state comes
+ * off the session's `doors` slice.
  */
 export function serverDoors(
   mapData: unknown,
@@ -113,201 +81,7 @@ export function serverDoors(
   return liveDoors(serverLayers(mapData), doorsState, sceneId);
 }
 
-// ── What the mask's hole is shaped like ─────────────────────────────────────
-// `room.boundary` is the room's *floor*, not the room. Detection subtracts the wall band from
-// the merged floor (`roomDetection.wallToRects`), so every stone a room's walls are drawn from
-// lies outside its polygon — and a mask cut to the polygon slices those walls down the middle.
-// That is the defect the player seat sent back: half the stones of a lit room in black, and a
-// door opening reduced to a rectangular notch with the mark floating in it, because the cutter
-// runs straight through the gap the door sits in.
-//
-// So the mask is cut to a room's floor *grown outward*, and the growth is not decoration: it
-// is the wall the room already owns, plus a little of the dark past it.
-
-/**
- * Breathing room past the far face of a room's wall band, in world units (= grid cells).
- *
- * The band itself is paid for separately and exactly — see {@link fogPad}. This is only the
- * margin on top, and it is what stops the mask ending *on* the last stone: a boundary that
- * lands precisely on a hard edge reads as a crop even when it is arithmetically right.
- *
- * Shared with `session/server/src/fog/redactMap.ts` (`bandPad`) through `@dnd/mechanics/fog`, where
- * the same distance is measured from the other side to decide which geometry a player document is
- * allowed to carry (S6). `DEFAULT_WALL_WIDTH` is `DEFAULT_DUNGEON_STYLE`'s, for a document whose
- * layers have not landed yet.
- */
-export { FOG_MARGIN };
-
-/**
- * How far past its floor polygon a room's mask reaches.
- *
- * The wall costs a full `wallWidth`, not half of it: detection's cutter takes `width / 2` off
- * the floor, and the stones then straddle that centreline by another `width / 2`, so the far
- * face of the band sits one whole `wallWidth` outside the polygon. The widest band on the map
- * sets the pad for all of it — a per-room pad would need per-room walls, and the difference
- * between presets is a fraction of a cell.
- */
-export function fogPad(layers: readonly Layer[]): number {
-  let wallWidth = 0;
-  for (const layer of layers) {
-    if (layer.type === 'dungeon') wallWidth = Math.max(wallWidth, layer.style?.wallWidth ?? 0);
-  }
-  return (wallWidth || DEFAULT_WALL_WIDTH) + FOG_MARGIN;
-}
-
-/** Where the mask is clear, and where its falloff has finished. */
-export interface FogRegion {
-  /** Nothing at all is drawn over this: the floors, the wall bands, and the margin. */
-  clear: Polygon[];
-  /** The falloff's outer limit. Past this the fog is solid. */
-  reach: Polygon[];
-}
-
-/**
- * The hole in the mask, as geometry.
- *
- * One outward offset buys the wall band and the margin. The union after it is not tidiness —
- * two rooms one wall apart grow *into* each other, and Pixi's `cut` takes a set of holes on
- * the promise that they do not overlap, so the merge has to happen before the draw or the
- * triangulator makes a mess of the whole mask.
- *
- * `blocked` then comes back out, and that is the half that keeps this honest. The offset does
- * not know what it is growing into: a wall shared with an unrevealed room is only `wallWidth`
- * thick, so the margin alone would hand over the first fraction of a cell of that room's
- * floor. Walls are a legitimate occluder to spend the pad on; floors are the tell. Taking the
- * unearned rooms out by construction means the region *is* the statement — there is no
- * separate repaint to forget, and the test can ask the region directly.
- *
- * `reach` is `clear` grown again by the falloff, so the two are one boundary and its shadow
- * rather than two offsets that have to be kept agreeing.
- *
- * Without Clipper2 loaded every call here is the identity, which lands back on the old tight
- * mask: dark rather than open, which is the direction a fog bug should fail in.
- */
-export function fogRegion(
-  rooms: readonly Polygon[],
-  blocked: readonly Polygon[],
-  pad: number,
-  feather: number,
-): FogRegion {
-  if (rooms.length === 0) return { clear: [], reach: [] };
-  const withhold = (polys: Polygon[]): Polygon[] =>
-    blocked.length > 0 ? clipper2Engine.difference(polys, [...blocked]) : polys;
-
-  const clear = withhold(clipper2Engine.union(clipper2Engine.inflate([...rooms], pad), []));
-  return { clear, reach: withhold(clipper2Engine.inflate(clear, feather)) };
-}
-
-/**
- * One region's rings, as a tree: land, the water inside it, the islands inside that.
- *
- * Clipper hands a region back flat — an outline and the rings punched out of it are told
- * apart only by containment — while Pixi wants a fill and then the holes belonging to *that*
- * fill, because `cut` attaches to the instruction before it. Building the tree once here is
- * what lets every draw site stay a walk over shapes.
- *
- * Every node's `holes` are its *direct* children, so a revealed room enclosed by an
- * unrevealed courtyard enclosed by revealed rooms is an island two levels down — drawn
- * clear, not dropped. Rings out of Clipper never cross, so a ring's containers nest, and
- * the most-contained container is the immediate parent.
- */
-export interface FogRing {
-  outline: Polygon;
-  holes: FogRing[];
-}
-
-export function ringsWithHoles(rings: readonly Polygon[]): FogRing[] {
-  const clean = rings.filter((ring) => ring.length >= 3);
-  const containers = clean.map((ring) =>
-    clean.filter((other) => other !== ring && pointInPolygon(ring[0], other)),
-  );
-  const depth = new Map(clean.map((ring, i) => [ring, containers[i].length]));
-  const nodes = new Map(clean.map((ring) => [ring, { outline: ring, holes: [] as FogRing[] }]));
-  const roots: FogRing[] = [];
-  clean.forEach((ring, i) => {
-    const node = nodes.get(ring) as FogRing;
-    if (containers[i].length === 0) {
-      roots.push(node);
-      return;
-    }
-    const parent = containers[i].reduce((deepest, c) =>
-      (depth.get(c) as number) > (depth.get(deepest) as number) ? c : deepest,
-    );
-    (nodes.get(parent) as FogRing).holes.push(node);
-  });
-  return roots;
-}
-
-// ── Vision mode's vocabulary (S3 P2 §1) ─────────────────────────────────────
-// Three tiers again, but the party's own eyes draw the top one instead of the room record:
-// what a sweep reaches is clear, what they have swept or the DM has revealed is a memory, and
-// the rest is the same void.
-//
-// The *mask* itself is no longer built here. It is composited on the GPU from a pure draw plan
-// (`tierPlan.ts` + `tierCompositor.ts`, docs/2026-09-01-raster-fog-mask-plan.md), so the Clipper
-// booleans that used to run per drag are gone along with the marching-squares memory outline
-// they consumed. What is left below is the measurements and the record decoding both pipelines
-// share — and the DM's own overlay still reads.
-
-/**
- * How far past a sweep's own boundary the clear area reaches, from the room mask's `pad`.
- *
- * A sight polygon stops on the wall *segments*, which are the band's centreline, so the outer
- * half of every stone the party is looking at falls outside it — the half-swallowed wall
- * {@link fogPad} exists to buy back for room-granular fog. `fogPad` is `wallWidth +
- * FOG_MARGIN` measured off a floor polygon, which stops half a band *inside* the centreline;
- * measured off the centreline itself the same buy-back is `wallWidth / 2 + FOG_MARGIN`.
- */
-export const sightPad = (pad: number): number => (pad + FOG_MARGIN) / 2;
-
-/**
- * The party's swept cells as world rectangles, row runs merged.
- *
- * One rectangle per *run* rather than per cell, and that is not tidiness: a single 8-cell
- * sight radius covers ~150 cells, and Clipper unioning 150 unit squares costs an order more
- * than unioning the dozen runs they collapse into. The region is the same either way — a run
- * is a row of cells that already share their edges.
- *
- * Exact, and cell-shaped — which is what the DM's own brush wash wants (`FogOverlay`: the
- * referee is being shown which cells they painted). The player's memory tier stopped wanting
- * that shape twice over: W3 painted it as an outline, and the raster compositor now uploads the
- * record itself as one texel per cell. What still reads these is the DM's wash and `tierPlan`'s
- * held clip on a map nobody zoned, where the record's runs *are* the ground the player holds.
- */
-export function regionRects(region: RegionMask | undefined): Polygon[] {
-  if (!region) return [];
-  const bytes = toBytes(region.bits);
-  const rects: Polygon[] = [];
-  for (let row = 0; row < region.rows; row++) {
-    let start = -1;
-    // One past the last column so a run that reaches the edge is closed like any other.
-    for (let col = 0; col <= region.cols; col++) {
-      const bit = row * region.cols + col;
-      if (col < region.cols && (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) {
-        if (start < 0) start = col;
-        continue;
-      }
-      if (start < 0) continue;
-      const [x0, x1] = [region.minX + start, region.minX + col];
-      const [y0, y1] = [region.minY + row, region.minY + row + 1];
-      rects.push([
-        [x0, y0],
-        [x1, y0],
-        [x1, y1],
-        [x0, y1],
-      ]);
-      start = -1;
-    }
-  }
-  return rects;
-}
-
-/**
- * How many cells the record actually holds — what `__fogProbe.memoryCells` reports.
- *
- * The record's own bit count, not the area that survived the clip: it answers "has the party's
- * memory grown", which is what the probe is for. `tierPlan` carries it into the plan.
- */
+/** How many cells a record holds — what `__fogProbe.clearedCells` reports. */
 export function regionCells(region: RegionMask | undefined): number {
   if (!region) return 0;
   const bytes = toBytes(region.bits);
@@ -318,65 +92,13 @@ export function regionCells(region: RegionMask | undefined): number {
   return n;
 }
 
-/**
- * S3 P3 §3 — the light half of the clear tier, present only when something on the shown
- * level is dark (a dark region, by mood and sky, or a darkness source). Absent is the daylight
- * answer: the whole sweep counts as lit, which is exactly the P2 mask.
- */
-export interface NightSight {
-  /**
-   * The Lighting pass's per-region gate: when the level's own ground is lit, only these room
-   * faces are dark and everything else counts as lit. Absent: the whole level is dark.
-   */
-  dark?: readonly Polygon[];
-  /**
-   * Darkness sources: hidden whatever lights them (darkness beats light). A source that lets
-   * darkvision through is left out when the party has a darkvision eye.
-   */
-  blind?: readonly Polygon[];
-  /** Every light source's own sweep — what a normal eye can see by in the dark. */
-  lit: readonly Polygon[];
-  /** The sweeps of the party's darkvision eyes — unlit ground they alone reach. */
-  darkvision: readonly Polygon[];
-  /**
-   * Both of the above as pools, for the cloud to fade the clear tier out over
-   * (`LivingFog.setPools`). The polygons say *where* the party can see; these say how each
-   * source runs out. A light is whole to its radius and gone a pad past it, where its own
-   * gradient already is — the edge the geometry alone drew, kept. A darkvision eye eases out
-   * over the last quarter of its range on the lighting pass's rim curve (`RIM_START`), so the
-   * ring reads like a dim pool the token carries rather than a circle with a blurred edge.
-   */
-  pools: readonly FogPool[];
-}
-
-/** One cell index per room list — the table asks `roomAt` per pointer move. */
-const roomIndexes = new WeakMap<readonly Room[], RoomIndex>();
-
-/** The room polygon under a world point, or undefined for unzoned map (D6). Answered off core's
- *  cell-bucketed room index, the same lookup the server's `roomAt` uses. */
-export function roomAt<R extends Room>(rooms: readonly R[], x: number, y: number): R | undefined {
-  let index = roomIndexes.get(rooms);
-  if (!index) {
-    index = buildRoomIndex(rooms.map((room) => (room.boundary || room.face ? room : { ...room, boundary: [] })));
-    roomIndexes.set(rooms, index);
-  }
-  const hit = index.roomAt(x, y);
-  return hit ? rooms.find((room) => room.id === hit.id) : undefined;
-}
-
-/**
- * The scene's fog. `sceneFogOf` already answers "untouched scene ⇒ nothing revealed,
- * concealment on"; this only adds the two states the wire has that the module never does —
- * no slice yet, and no active scene yet.
- */
+/** The scene's fog: an untouched scene, a missing slice and no active scene all read as fog off. */
 export function sceneFog(state: FogState | undefined, sceneId: string | null | undefined): SceneFog {
   const scene = sceneId ? state?.byScene?.[sceneId] : undefined;
   return scene ?? sceneFogOf({ byScene: {} }, '');
 }
 
 export { roomFogOf as roomFog } from '@dnd/mechanics/fog';
-
-// ── P4 §1/§2 — what the brush paints on, and what the room list has to say ──
 
 /**
  * The rectangle a region cell is counted from, exactly as the server counts it.
@@ -402,20 +124,8 @@ export function fogFrame(mapData: unknown): Frame | null {
 /**
  * The ground the map carries terrain paint on: the document's own switches, and the paint
  * itself as `decodePaintedArea` read it off the splat bitmaps (`paintedArea` on the session
- * store). Off the referee's document for the reason `serverRooms` reads that document — it is
- * the same statement both seats are drawn from, and a player's copy carries it unredacted (the
- * whole-map splat going to players is a documented decision — `http.ts`'s `getMapImage`).
- *
- * This is a *clip* on what the party's own sight and the referee's own region record are
- * allowed to open (`tierPlan`'s held clip), never a reveal of its own. Nothing painted, nothing
- * switched on, or an empty palette ⇒ no painted ground at all, and the clip is what it was.
- *
- * It used to answer with the splat's bounding box, and a box is a claim about a rectangle
- * rather than about paint: on the Goblin Warren it covered 1536 cells over 521 painted ones,
- * and the cave mouth's fire ring — radius 15, through a doorless mouth — cleared a lit dome of
- * bare void inside it on every player seat. `decoded` is the paint, cell by cell. Null while
- * the decode is in flight, which reads here as no paint at all: a mask that has not been told
- * where the ground is fails dark.
+ * store). Nothing painted, nothing switched on, or an empty palette ⇒ no painted ground at all.
+ * Null while the decode is in flight, which reads here as no paint at all.
  */
 export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Polygon[] {
   const terrain = (mapData as SerializedMapData | null)?.mapSettings?.terrain;
@@ -424,50 +134,6 @@ export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Poly
   const { minX, minY, maxX, maxY } = terrain.bounds;
   if (!(maxX > minX && maxY > minY)) return [];
   return decoded ?? [];
-}
-
-/**
- * P8 — the open ground the referee stamped for one level, as its outer rings and its holes.
- *
- * The wire's rings read even-odd: a ring nested inside an odd number of others is a hole. A
- * base-ground level sends the frame then its walled floors, but a ground-pieces level sends
- * Clipper's own answer, several outer patches and their holes in no fixed order, so "ring 0
- * is the frame, the rest are holes" dropped every patch after the first. Rings with no area
- * (an enclosure's degenerate outline) are neither.
- */
-export function openGroundParts(
-  mapData: unknown,
-  levelId: string | null | undefined,
-): { outers: Polygon[]; holes: Polygon[] } {
-  const entries = (mapData as SerializedMapData | null)?.openGround ?? [];
-  const entry = entries.find((e) => e.levelId === levelId) ?? (entries.length === 1 ? entries[0] : undefined);
-  const rings = ((entry?.rings ?? []) as Polygon[]).filter((ring) => ring.length >= 3 && Math.abs(ringArea(ring)) > 1e-9);
-  const outers: Polygon[] = [];
-  const holes: Polygon[] = [];
-  for (const ring of rings) {
-    const depth = rings.filter((other) => other !== ring && pointInPolygon(ring[0], other)).length;
-    (depth % 2 === 0 ? outers : holes).push(ring);
-  }
-  return { outers, holes };
-}
-
-const ringArea = (ring: Polygon): number =>
-  ring.reduce((sum, [x, y], i) => {
-    const [u, v] = ring[(i + 1) % ring.length];
-    return sum + x * v - u * y;
-  }, 0) / 2;
-
-/**
- * Table fix pass §2.7 — the same open ground as Clipper rings (holes wound the other way), for
- * the Clipper consumers. Empty when the seat knows no outdoor cell yet, or the level has none,
- * and while Clipper2 is not loaded, since an identity `difference` would hand over the walled
- * floors as well.
- */
-export function openGroundOf(mapData: unknown, levelId: string | null | undefined): Polygon[] {
-  const { outers, holes } = openGroundParts(mapData, levelId);
-  if (outers.length === 0) return [];
-  if (holes.length === 0) return outers;
-  return isClipperReady() ? clipper2Engine.difference(outers, holes) : [];
 }
 
 /**
@@ -482,13 +148,8 @@ export function cellAt(frame: Frame, x: number, y: number): Cell | null {
 }
 
 /**
- * Rooms the region record has bits inside — the brush and the party's own sweep showing
- * through the room list as "Partly seen" (§1). Only interesting on a room the DM has not lit:
- * a `revealed` room is washed whole whatever the cells say.
- *
- * The mask is decoded once for all the rooms rather than per cell (`getCell` decodes the whole
- * record every call, which is fine for a probe and not for a list), and each room stops at its
- * first set bit.
+ * Rooms the region record has bits inside. The mask is decoded once for all the rooms rather
+ * than per cell, and each room stops at its first set bit.
  */
 export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | undefined): Set<string> {
   const seen = new Set<string>();
@@ -515,18 +176,11 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
 }
 
 /**
- * Every authored explore lock in the layers handed over, as a rectangle each.
+ * Every authored explore lock in the layers handed over, as a rectangle each. Only ever
+ * non-empty on the DM's copy: a zone is prep, and the redaction strips zones from a player's
+ * document unconditionally.
  *
- * Only ever non-empty on the DM's copy: a zone is prep and the redaction strips zones from a
- * player's document unconditionally ("prep never travels", server `redactMap.ts`). So this is
- * the DM's sight preview's answer, and a player's near pass is fenced by the shipping clip
- * instead — on a walled map that already excludes a locked room, which is never credited and
- * so never ships.
- *
- * ponytail: a circle lock becomes its bounding box, which over-fences rather than under —
- * the mask shows *less* than the referee granted, never more, and the referee still tests the
- * real geometry per cell (`inAnyLock`). The precise answer is the circle as a polygon, worth
- * writing the day a table measures a corner it should have been able to see.
+ * ponytail: a circle lock becomes its bounding box, which over-fences rather than under.
  */
 export function exploreLocks(layers: readonly Layer[]): Polygon[] {
   return layers
@@ -555,14 +209,8 @@ export function exploreLocks(layers: readonly Layer[]): Polygon[] {
 }
 
 /**
- * Rooms an authored explore lock covers (§5) — the DM's badge for "the party's own sight will
- * never open this one; it is yours to reveal".
- *
- * ponytail: box against box, not shape against polygon. A lock is authored to cover a room, so
- * the two boxes overlapping is the case; a huge lock that clips a neighbouring room's corner
- * would badge that neighbour too. The precise answer is the zone shape intersected with the
- * room polygon, and it is worth writing the day a DM is misled by the coarse one — the server
- * already tests the real geometry per cell (`inAnyLock`), so nothing but this label is coarse.
+ * Rooms an authored explore lock covers — the DM's badge for "the party's own sight will never
+ * open this one". Box against box, not shape against polygon.
  */
 export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): Set<string> {
   const locks = exploreLocks(layers).map((poly) => [poly[0][0], poly[0][1], poly[2][0], poly[2][1]]);

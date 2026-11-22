@@ -49,8 +49,6 @@ export interface TierCompositor {
   readonly maskSoft: RenderTexture;
   /** The flat black backstop with the mask's holes erased out of it. */
   readonly scrim: RenderTexture;
-  /** Live sight alone — the stencil the token chips wear. The record is deliberately not in it. */
-  readonly live: RenderTexture;
   /**
    * Composite one plan. Answers the world rect every target now covers, or null when the plan
    * covers nothing at all — the caller must draw neither the cover nor the scrim on a null,
@@ -243,7 +241,6 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
     mask: rtOf('mask'),
     maskSoft,
     scrim: rtOf('scrim'),
-    live: rtOf('live'),
     run(plan, look) {
       const cover = plan.cover;
       for (const name of TARGET_ORDER) clearScene(sceneOf(name));
