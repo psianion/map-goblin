@@ -28,7 +28,10 @@ function Tile({ name, active, locked, color, children, className, ...props }: Ti
         data-slot="tile-thumb"
         className={cn(
           'relative block h-11 w-14 overflow-hidden rounded-control border border-line bg-panel-2',
-          active && 'ring-[1.5px] ring-ink ring-inset',
+          // The ring is an overlay over the children, so a picture filling the thumb cannot
+          // hide it; its corners follow the thumb's inner edge (radius less the 1px border).
+          active &&
+            'after:pointer-events-none after:absolute after:inset-0 after:rounded-[calc(var(--radius-control)_-_1px)] after:ring-[1.5px] after:ring-ink after:ring-inset',
         )}
         style={color ? { backgroundColor: color } : undefined}
       >

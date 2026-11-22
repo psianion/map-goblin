@@ -3,6 +3,7 @@
 // plain floor textures; the Terrain entry lists the ground textures first, the Water entry
 // the water textures. A click picks what the next stroke of that entry paints.
 
+import { useEffect, useRef } from 'react';
 import { useStore } from '@/store/store';
 import type { BrushKind } from '@/store/types';
 import { DockColumn, Tile } from '@dnd/ui';
@@ -32,17 +33,47 @@ function Swatches({ kind }: { kind: BrushKind }) {
       else if (kind === 'water') s.tools.settings.material.waterMaterial = material;
       else s.tools.settings.material.material = material;
     });
+  // The picked tile stays in view when the strip scrolls, on first show and on every pick.
+  // Only the strip moves: scrollIntoView would also drag the dock sideways under its clip.
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = row.current;
+    const tile = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!strip || !tile) return;
+    const s = strip.getBoundingClientRect();
+    const t = tile.getBoundingClientRect();
+    if (t.left < s.left) strip.scrollLeft -= s.left - t.left;
+    else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
+  }, [picked]);
+  const ids = brushMaterialIds(kind);
   return (
-    <DockColumn title={TITLES[kind]} data-column="materials" data-testid="terrain-materials">
-      {brushMaterialIds(kind).map((id) => {
-        const art = materialFillId(id) ?? getBandSet(id)[0]?.id;
-        const name = materialLabel(id);
-        return (
-          <Tile key={id} name={name} aria-label={name} active={picked === id} data-material={id} onClick={() => pick(id)}>
-            {art ? <PackThumbnailCanvas textureId={art} fit="cover" /> : null}
-          </Tile>
-        );
-      })}
+    // Past three tiles this column gives way when the dock runs out of room (three tiles,
+    // their gaps, the padding and the border are its floor) and its strip scrolls.
+    <DockColumn
+      title={TITLES[kind]}
+      data-column="materials"
+      data-testid="terrain-materials"
+      className={ids.length > 3 ? 'min-w-[201px] shrink' : undefined}
+    >
+      <div
+        ref={row}
+        role="group"
+        aria-label={TITLES[kind]}
+        className="flex gap-1.5 overflow-x-auto [scrollbar-color:var(--line-strong)_transparent] [scrollbar-width:thin]"
+        onWheel={(e) => {
+          if (!e.shiftKey && e.deltaX === 0) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
+        {ids.map((id) => {
+          const art = materialFillId(id) ?? getBandSet(id)[0]?.id;
+          const name = materialLabel(id);
+          return (
+            <Tile key={id} name={name} aria-label={name} data-tip={name} active={picked === id} data-material={id} className="shrink-0" onClick={() => pick(id)}>
+              {art ? <PackThumbnailCanvas textureId={art} fit="cover" /> : null}
+            </Tile>
+          );
+        })}
+      </div>
     </DockColumn>
   );
 }
