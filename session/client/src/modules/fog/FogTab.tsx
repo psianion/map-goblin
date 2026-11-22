@@ -1,15 +1,18 @@
 import { useMemo } from 'react';
-import { autoExploreOn, fogOn, type FogBrushOp, type FogState } from '@dnd/mechanics/fog';
+import { autoExploreOn, fogLookOf, fogOn, type FogBrushOp, type FogState } from '@dnd/mechanics/fog';
 import { useStore } from '@dnd/core/src/store/store';
-import { SecondaryButton, SliderRow } from '@dnd/ui';
-import { Ban, Cloud, CloudFog, CloudOff, Compass, Eraser } from '@dnd/ui/icons';
+import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
+import { Button, SecondaryButton, SliderRow } from '@dnd/ui';
+import { Ban, Cloud, CloudFog, CloudOff, Compass, Eraser, SlidersHorizontal } from '@dnd/ui/icons';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
+import { toggleSheet, useSheet } from '../../shell/sheets/registry';
 import { armBrush, toggleBrush, useFogBrush } from './brush';
 import { fogFrame, sceneFog } from './fog';
 import { FogCard, FogZone, ZoneRule } from './FogCard';
 import { foggedShare, groundOfMap } from './ground';
+import { changedCaption, changedFields, previewBackground } from './look';
 
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
 
@@ -154,6 +157,48 @@ export function FogBody() {
           data-testid="fog-auto-explore"
         />
       </FogZone>
+      <ZoneRule />
+      <LookZone />
     </div>
+  );
+}
+
+/** The cloud's look: a still of it, its name and what changed, Customise and the way back. */
+function LookZone() {
+  const fog = useSceneFog();
+  const authored = useStore((s) => s.mapSettings.fogLook) ?? DEFAULT_FOG_LOOK;
+  const look = fogLookOf(fog, authored);
+  const mixed = !!fog.look && Object.keys(fog.look).length > 0;
+  const open = useSheet()?.id === 'fog-look';
+  return (
+    <FogZone label="Look" className="min-w-0 flex-1">
+      <div className="flex flex-1 gap-2.5">
+        <div
+          role="img"
+          aria-label={mixed ? 'Preview of your cloud mix' : 'Preview of the default clouds'}
+          data-testid="fog-look-preview"
+          className="w-[148px] shrink-0 rounded-float border border-line"
+          style={{ background: previewBackground(look) }}
+        />
+        <div className="flex min-w-0 flex-col justify-between">
+          <span className="flex flex-col gap-px">
+            <span className="text-[13px] leading-tight font-semibold text-text" data-testid="fog-look-name">
+              {mixed ? 'Your mix' : 'Default clouds'}
+            </span>
+            <span className="text-[11px] leading-tight text-text-3">{changedCaption(changedFields(look, authored))}</span>
+          </span>
+          <div className="flex gap-1.5">
+            <SecondaryButton icon={SlidersHorizontal} active={open} data-testid="fog-look-customise" onClick={() => toggleSheet('fog-look')}>
+              Customise
+            </SecondaryButton>
+            {mixed && (
+              <Button variant="ghost" size="sm" data-testid="fog-look-default" onClick={() => send('set-fog-look', { look: null })}>
+                Back to default
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </FogZone>
   );
 }
