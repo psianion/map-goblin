@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
-import { armBrushShape, armFogHide, armFogReveal } from '../modules/fog/brush';
+import { fogOn, type FogBrushOp, type FogState } from '@dnd/mechanics/fog';
+import { toggleBrush } from '../modules/fog/brush';
+import { sceneFog } from '../modules/fog/fog';
 import { useDoorSelection } from '../modules/doors/selection';
 import { useInitiativeSelection } from '../modules/initiative/selection';
 import { useLightSelection } from '../modules/lights/selection';
@@ -60,6 +62,13 @@ function focusRollField(): void {
   focus();
 }
 
+/** W and Shift+W: the fog brush, on a scene whose fog is on (off, there is nothing to paint). */
+function fogBrushKey(op: FogBrushOp): void {
+  const { session } = useSessionStore.getState();
+  if (!fogOn(sceneFog(session?.modules.fog as FogState | undefined, session?.activeSceneId))) return;
+  toggleBrush(op);
+}
+
 /** Shift+P: pause or resume the table through the `table` module, once the server has one. */
 function togglePause(): void {
   const store = useSessionStore.getState();
@@ -73,23 +82,8 @@ const ALL = ['dm', 'player'] as const;
 
 export const BINDINGS: readonly Binding[] = [
   { key: 'b', roles: DM, group: 'Dock', label: 'Fold or open the dock', run: () => useTableShell.getState().toggleDock() },
-  { key: 'r', roles: DM, group: 'Fog', label: 'Reveal', run: armFogReveal },
-  { key: 'h', roles: DM, group: 'Fog', label: 'Hide', run: armFogHide },
-  {
-    key: 'w',
-    roles: DM,
-    group: 'Fog',
-    label: 'Brush',
-    run: () => armBrushShape('stroke'),
-  },
-  {
-    key: 'r',
-    shift: true,
-    roles: DM,
-    group: 'Fog',
-    label: 'Rectangle',
-    run: () => armBrushShape('box'),
-  },
+  { key: 'w', roles: DM, group: 'Fog', label: 'Clear fog', run: () => fogBrushKey('clear') },
+  { key: 'w', shift: true, roles: DM, group: 'Fog', label: 'Paint fog', run: () => fogBrushKey('fog') },
   { key: 'n', roles: DM, group: 'Combat', label: 'Next turn', run: () => stepTurn('next') },
   { key: 'n', shift: true, roles: DM, group: 'Combat', label: 'Previous turn', run: () => stepTurn('previous') },
   { key: '/', roles: ALL, group: 'Dice', label: 'Type a roll', run: focusRollField },

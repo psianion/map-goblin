@@ -7,24 +7,7 @@ import { regionOf, setCells, type FogState, type RoomFog } from '@dnd/mechanics/
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
-import {
-  DM_FOG_LOOK,
-  FOG_STATUS_LABEL,
-  cellAt,
-  cellRect,
-  fogActionFor,
-  fogFrame,
-  hideAllRooms,
-  lockedRooms,
-  partlySeenRooms,
-  revealAllRooms,
-  roomAt,
-  roomsOfLayers,
-  sceneFog,
-  type TableRoom,
-} from './fog';
-
-import { useFogBrush } from './brush';
+import { cellAt, fogFrame, lockedRooms, partlySeenRooms, roomAt, roomsOfLayers, sceneFog, type TableRoom } from './fog';
 
 /** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
  *  rows that aim at the middle of a room. */
@@ -100,7 +83,6 @@ beforeEach(() => {
   });
   useActiveTool.getState().setActiveTool(null);
   useToasts.setState({ toast: null });
-  useFogBrush.setState({ on: false, op: 'reveal', size: 1, shape: 'stroke' });
   useStore.setState({ layers: [dungeonLayer([CRYPT, HALL])] });
 });
 
@@ -114,40 +96,9 @@ describe('fog geometry and vocabulary', () => {
     expect(roomAt(rooms, 7, 2)).toBeUndefined();
   });
 
-  it('encodes every state twice over, so none of them is colour alone (D11)', () => {
-    expect(DM_FOG_LOOK.never_revealed).toMatchObject({ tintAlpha: 0.62 });
-    expect(DM_FOG_LOOK.revealed).toMatchObject({ tintAlpha: 0 });
-    const hovers = Object.values(DM_FOG_LOOK).map((look) => look.hoverColor);
-    expect(new Set(hovers).size).toBe(3);
-    const tints = Object.values(DM_FOG_LOOK).map((look) => look.tintAlpha);
-    expect(new Set(tints).size).toBe(3);
-    expect(DM_FOG_LOOK.re_hidden.tintAlpha).toBeGreaterThan(0);
-    expect(DM_FOG_LOOK.re_hidden.tintAlpha).toBeLessThan(DM_FOG_LOOK.never_revealed.tintAlpha);
-    expect(new Set(Object.values(FOG_STATUS_LABEL)).size).toBe(3);
-  });
-
-  it('toggles the other way for anything the party cannot currently see', () => {
-    expect(fogActionFor('revealed')).toBe('hide');
-    expect(fogActionFor('never_revealed')).toBe('reveal');
-    expect(fogActionFor('re_hidden')).toBe('reveal');
-  });
-
   it('defaults an absent slice to a dark scene with concealment on', () => {
     expect(sceneFog(undefined, 'scene-1')).toEqual({ rooms: {}, concealBehindDoors: true });
     expect(sceneFog(fogWith({}), null)).toEqual({ rooms: {}, concealBehindDoors: true });
-  });
-
-  it('builds the bulk records: reveal all latches, hide all leaves the unseen unseen', () => {
-    expect(revealAllRooms([CRYPT, HALL])).toEqual({
-      'r-crypt': { status: 'revealed', wasEverRevealed: true },
-      'r-hall': { status: 'revealed', wasEverRevealed: true },
-    });
-    expect(
-      hideAllRooms({
-        'r-crypt': { status: 'revealed', wasEverRevealed: true },
-        'r-hall': { status: 'never_revealed', wasEverRevealed: false },
-      }),
-    ).toEqual({ 'r-crypt': { status: 're_hidden', wasEverRevealed: true } });
   });
 });
 
@@ -174,8 +125,6 @@ describe('the frame a brushed cell is counted against', () => {
     expect(cellAt(FRAME, 0.5, 0.5)).toEqual([1, 1]);
     expect(cellAt(FRAME, -0.5, -0.5)).toEqual([0, 0]);
     expect(cellAt(FRAME, 13.9, 4.9)).toEqual([14, 5]);
-    expect(cellRect(FRAME, [1, 1])[0]).toEqual([0, 0]);
-    expect(cellRect(FRAME, [1, 1])[2]).toEqual([1, 1]);
     expect(cellAt(FRAME, -1.5, 0)).toBeNull();
     expect(cellAt(FRAME, 0, -1.5)).toBeNull();
     expect(cellAt(FRAME, 15.5, 0)).toBeNull();

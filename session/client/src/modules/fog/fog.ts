@@ -20,7 +20,6 @@ import {
   type FogState,
   type Frame,
   type RegionMask,
-  type RoomFog,
   type RoomFogStatus,
   type SceneFog,
 } from '@dnd/mechanics/fog';
@@ -36,48 +35,6 @@ export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
   never_revealed: 'Unrevealed',
   revealed: 'Revealed',
   re_hidden: 'Hidden',
-};
-
-/** What clicking the room will do next — reveal anything dark, re-hide anything lit. */
-export const fogActionFor = (status: RoomFogStatus): 'reveal' | 'hide' =>
-  status === 'revealed' ? 'hide' : 'reveal';
-
-/**
- * D11's DM grammar, restrained: unrevealed carries the heaviest tint, explored a lighter
- * one, revealed nothing at all. Three weights of one near-black, so the state reads as
- * brightness rather than as hue and survives a bad panel in a dim room.
- *
- * No mark is stamped on the room to second that. One used to be — a check at the centroid,
- * on both seats — and two art reviews read it as a glyph printed on the painting rather
- * than as map state (PRODUCT principle 1: the map is the stage, chrome stays out of it).
- * The word carries it where a mark would have to: `FOG_STATUS_LABEL` in the fog tool, and
- * the hover, which names the state the click is about to change.
- */
-export interface FogLook {
-  /** 0 = draw nothing over the room. */
-  tintAlpha: number;
-  /**
-   * The hover highlight, which says the room's state too (D11: "with its current state").
-   * One warm-to-cold axis, the map's own: torchlight where the party is standing in the
-   * light, drained parchment for a memory, cold slate for a
-   * room no one has ever lit. Full-strength stroke on all three; the DM's cursor is never
-   * ghosted to say something is hidden (PRODUCT principle 3).
-   */
-  hoverColor: number;
-  /**
-   * …and how heavy its fill is. This is a legibility correction, not a second reading of the
-   * state: the highlight sits above a room already carrying `tintAlpha` of near-black, so the
-   * fill climbs with that tint to land the same lift on all three. What actually seconds the
-   * colour is underneath it — the hover draws *over* the tint, never instead of it, so a DM
-   * who cannot separate the three hues still reads three rooms.
-   */
-  hoverAlpha: number;
-}
-
-export const DM_FOG_LOOK: Record<RoomFogStatus, FogLook> = {
-  never_revealed: { tintAlpha: 0.62, hoverColor: 0x9fb2cc, hoverAlpha: 0.18 },
-  revealed: { tintAlpha: 0, hoverColor: 0xf0a252, hoverAlpha: 0.1 },
-  re_hidden: { tintAlpha: 0.32, hoverColor: 0xd8cfc0, hoverAlpha: 0.14 },
 };
 
 /**
@@ -407,26 +364,6 @@ export function roomAt<R extends Room>(rooms: readonly R[], x: number, y: number
   return hit ? rooms.find((room) => room.id === hit.id) : undefined;
 }
 
-/** D9 Reveal All: every row given, latch set (T11: the caller passes the Outdoors rows too). */
-export function revealAllRooms(rooms: readonly Pick<Room, 'id'>[]): Record<string, RoomFog> {
-  const next: Record<string, RoomFog> = {};
-  for (const room of rooms) next[room.id] = { status: 'revealed', wasEverRevealed: true };
-  return next;
-}
-
-/**
- * D9 Hide All: everything the party has seen goes back under. Rooms nobody has seen are
- * left out of the record entirely — absent *is* `never_revealed` (D1), and writing them in
- * would be the same state at more bytes.
- */
-export function hideAllRooms(current: Record<string, RoomFog>): Record<string, RoomFog> {
-  const next: Record<string, RoomFog> = {};
-  for (const [id, fog] of Object.entries(current)) {
-    if (fog.wasEverRevealed) next[id] = { status: 're_hidden', wasEverRevealed: true };
-  }
-  return next;
-}
-
 /**
  * The scene's fog. `sceneFogOf` already answers "untouched scene ⇒ nothing revealed,
  * concealment on"; this only adds the two states the wire has that the module never does —
@@ -434,7 +371,7 @@ export function hideAllRooms(current: Record<string, RoomFog>): Record<string, R
  */
 export function sceneFog(state: FogState | undefined, sceneId: string | null | undefined): SceneFog {
   const scene = sceneId ? state?.byScene?.[sceneId] : undefined;
-  return scene?.rooms ? scene : sceneFogOf({ byScene: {} }, '');
+  return scene ?? sceneFogOf({ byScene: {} }, '');
 }
 
 export { roomFogOf as roomFog } from '@dnd/mechanics/fog';
@@ -543,14 +480,6 @@ export function cellAt(frame: Frame, x: number, y: number): Cell | null {
   const [cols, rows] = [Math.round(frame.maxX - frame.minX), Math.round(frame.maxY - frame.minY)];
   return col < 0 || row < 0 || col >= cols || row >= rows ? null : [col, row];
 }
-
-/** …and back: the world square that cell covers, for the brush's own hover highlight. */
-export const cellRect = (frame: Frame, [col, row]: Cell): Polygon => [
-  [frame.minX + col, frame.minY + row],
-  [frame.minX + col + 1, frame.minY + row],
-  [frame.minX + col + 1, frame.minY + row + 1],
-  [frame.minX + col, frame.minY + row + 1],
-];
 
 /**
  * Rooms the region record has bits inside — the brush and the party's own sweep showing

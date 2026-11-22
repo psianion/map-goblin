@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Clock } from '@dnd/ui/icons';
 import { useSessionStore } from '../../session/store';
 import { useTokenInteraction } from '../../modules/tokens/drag';
+import { useActiveTool } from '../../session/tools';
 import { armedLabel } from './armedTool';
 import { useTableShell } from '../tableShell';
 import { Dock } from './Dock';
@@ -80,10 +81,40 @@ describe('Dock', () => {
     act(() => useSessionStore.setState({ session: null }));
   });
 
-  it('names an armed fog tool and the template tool', () => {
-    expect(armedLabel(null, 'fog', 'Reveal')).toBe('Fog reveal, click the map, Esc puts it down');
+  it('names an armed fog brush and the template tool', () => {
+    expect(armedLabel(null, 'fog', 'Clear')).toBe('Clearing fog');
+    expect(armedLabel(null, 'fog', 'Fog')).toBe('Painting fog');
     expect(armedLabel(null, 'template', null)).toBe('Template, drag a circle or click one to clear it, Esc puts it down');
     expect(armedLabel(null, 'ping', null)).toBeNull();
+  });
+
+  // Fog rework default d: the size slider and the other brush stay in reach.
+  it('stays open while a fog brush is armed, and names it beside the scene', () => {
+    registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', layout: 'full', Body: Stub, context: () => 'on Testing' });
+    useTableShell.setState({ dockTab: 'fog', lastDockTab: 'fog' });
+    render(<Dock />);
+    act(() => {
+      useActiveTool.getState().setActiveTool('fog');
+      useActiveTool.getState().setToolDetail('Clear');
+    });
+    expect(useTableShell.getState().dockTab).toBe('fog');
+    expect(screen.getByTestId('dock-context').textContent).toBe('Clearing fog on Testing');
+    expect(screen.queryByTestId('armed-chip')).toBeNull();
+    // Folded by hand, the chip names it instead.
+    act(() => useTableShell.getState().foldDock());
+    expect(screen.getByTestId('armed-chip').textContent).toBe('Clearing fog');
+    act(() => useActiveTool.getState().setActiveTool(null));
+  });
+
+  it('lays a full tab across the whole dock, with no column and no strip', () => {
+    const Strip = () => <span>strip</span>;
+    registerDockTab({ id: 'fog', title: 'Fog', icon: Clock, key: '1', height: 'sm', layout: 'full', Body: Stub, Strip });
+    render(<Dock />);
+    fireEvent.click(screen.getByTestId('dock-tab-fog'));
+    expect(screen.getByTestId('dock-full').textContent).toBe('stub body');
+    expect(screen.queryByTestId('dock-strip')).toBeNull();
+    expect(screen.queryByText('strip')).toBeNull();
+    expect(screen.getByTestId('dock-body-fog').className).toContain('h-36');
   });
 
   // F31: short tabs leave more of the map in view.

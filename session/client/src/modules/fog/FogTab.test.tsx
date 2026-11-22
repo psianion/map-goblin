@@ -1,25 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
+import { useStore } from '@dnd/core/src/store/store';
+import { fillRegion, regionOf, setCells } from '@dnd/mechanics/fog';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { useToasts } from '../../session/toasts';
-import { FogBody, FogStrip } from './FogTab';
+import { useFogBrush } from './brush';
+import { FogBody } from './FogTab';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
-
-const room = (id: string, name: string, x: number) => ({
-  id,
-  name,
-  boundary: [
-    [x, 0],
-    [x + 4, 0],
-    [x + 4, 4],
-    [x, 4],
-  ],
-});
-const mapData = { layers: [{ id: 'L', type: 'dungeon', rooms: [room('r1', 'Hall', 0), room('r2', 'Crypt', 10)], children: [] }] };
+const FRAME = { minX: 0, minY: 0, maxX: 10, maxY: 10 };
 
 function session(fog: unknown): SessionState {
   return {
@@ -29,7 +21,7 @@ function session(fog: unknown): SessionState {
     activeSceneId: 'a',
     scenes: [{ id: 'a', name: 'Web Gallery', mapId: 'm' }],
     players: [dm],
-    modules: { fog },
+    modules: { fog: { byScene: { a: fog } } },
   };
 }
 
@@ -44,103 +36,112 @@ function capture(): Sent[] {
   return sent;
 }
 
+const fogged = (over: object = {}) => session({ rooms: {}, concealBehindDoors: true, on: true, ...over });
+
 beforeEach(() => {
   cleanup();
   useActiveTool.getState().setActiveTool(null);
-  useSessionStore.setState({
-    you: dm,
-    mapData,
-    session: session({ byScene: { a: { rooms: { r1: { status: 'revealed' } }, concealBehindDoors: false } } }),
-  });
+  useFogBrush.setState({ op: 'clear', size: 3 });
+  useToasts.setState({ toast: null });
+  // An imported picture: no floors, so the whole frame is ground.
+  useStore.setState({ layers: [], levels: [{ id: 'level-1', name: 'Ground' }] } as never);
+  useSessionStore.setState({ you: dm, mapData: { frame: FRAME, layers: [] }, session: session({ rooms: {}, concealBehindDoors: true }) });
 });
 
 describe('Fog tab', () => {
-  it('arms Reveal and Hide from the body', () => {
+  it('shows only the Fog card and one line while fog is off', () => {
     render(<FogBody />);
-    fireEvent.click(screen.getByTestId('fog-reveal'));
-    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Reveal' });
-    fireEvent.click(screen.getByTestId('fog-hide'));
-    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Hide' });
+    expect(screen.getByTestId('fog-body').getAttribute('data-fog')).toBe('off');
+    expect(screen.getByTestId('fog-switch').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText('Nothing is hidden')).toBeTruthy();
+    expect(screen.getByText('Turn fog on to cover the map.')).toBeTruthy();
+    expect(screen.queryByTestId('fog-brush-clear')).toBeNull();
+    expect(screen.queryByTestId('fog-auto-explore')).toBeNull();
   });
 
-  it('reveals every room in one command, with Undo in the toast', () => {
+  it('turns fog on from the card and arms the Clear brush', () => {
     const sent = capture();
     render(<FogBody />);
-    fireEvent.click(screen.getByTestId('fog-reveal-all'));
-    expect(sent[0]).toMatchObject({ module: 'fog', action: 'set-bulk' });
-    expect(useToasts.getState().toast?.action?.label).toBe('Undo');
+    fireEvent.click(screen.getByTestId('fog-switch'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'set-on', payload: { on: true } });
+    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Clear' });
+    expect(useFogBrush.getState().op).toBe('clear');
   });
 
-  // T11 (I2) — the Outdoors row is a fog row like a room, so the bulk buttons carry it too.
-  it('reveals and hides the Outdoors row with the rooms', () => {
+  it('shows each card on with the ink ring, a filled chip and a different icon', () => {
+    useSessionStore.setState({ session: fogged({ autoExplore: false }) });
+    const { rerender } = render(<FogBody />);
+    const sw = screen.getByTestId('fog-switch');
+    expect(sw.getAttribute('aria-pressed')).toBe('true');
+    expect(sw.className).toContain('ring-ink');
+    expect(screen.getByTestId('fog-switch-icon').className).toContain('bg-ink');
+    expect(screen.getByTestId('fog-switch-icon').getAttribute('data-icon')).toBe('Cloud');
+
+    const auto = screen.getByTestId('fog-auto-explore');
+    expect(auto.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('fog-auto-explore-icon').className).toContain('bg-bg');
+    const offIcon = screen.getByTestId('fog-auto-explore-icon').getAttribute('data-icon');
+    useSessionStore.setState({ session: fogged() });
+    rerender(<FogBody />);
+    expect(screen.getByTestId('fog-auto-explore').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('fog-auto-explore-icon').getAttribute('data-icon')).not.toBe(offIcon);
+    expect(screen.getByText('Tokens clear what they see')).toBeTruthy();
+  });
+
+  it('sends each card its command', () => {
+    useSessionStore.setState({ session: fogged() });
     const sent = capture();
-    useSessionStore.setState({
-      session: session({ byScene: { a: { rooms: { '@outdoors': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: false } } }),
-    });
     render(<FogBody />);
-    fireEvent.click(screen.getByTestId('fog-reveal-all'));
-    expect(Object.keys((sent[0]!.payload as { rooms: object }).rooms).sort()).toEqual(['@outdoors', 'r1', 'r2']);
-    fireEvent.click(screen.getByTestId('fog-hide-all'));
-    expect(sent[1]!.payload).toEqual({ rooms: { '@outdoors': { status: 're_hidden', wasEverRevealed: true } }, forget: true });
+    fireEvent.click(screen.getByTestId('fog-auto-explore'));
+    expect(sent.at(-1)).toMatchObject({ action: 'set-auto-explore', payload: { autoExplore: false } });
+
+    fireEvent.click(screen.getByTestId('fog-brush-fog'));
+    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Fog' });
+    expect(screen.getByTestId('fog-brush-fog').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('fog-brush-clear').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByTestId('fog-brush-clear'));
+    expect(useFogBrush.getState().op).toBe('clear');
+    // The armed brush's own card puts it down.
+    fireEvent.click(screen.getByTestId('fog-brush-clear'));
+    expect(useActiveTool.getState().activeTool).toBeNull();
+
+    // Turning fog off puts an armed brush down with it.
+    fireEvent.click(screen.getByTestId('fog-brush-clear'));
+    fireEvent.click(screen.getByTestId('fog-switch'));
+    expect(sent.at(-1)).toMatchObject({ action: 'set-on', payload: { on: false } });
+    expect(useActiveTool.getState().activeTool).toBeNull();
   });
 
-  // T11 (I5) — a row hidden again is fogged fully for players, and the strip says so.
-  it('labels a row hidden again as Hidden', () => {
-    useSessionStore.setState({
-      session: session({ byScene: { a: { rooms: { r1: { status: 're_hidden', wasEverRevealed: true } }, concealBehindDoors: false } } }),
-    });
-    render(<FogStrip />);
-    const row = screen.getAllByRole('listitem').find((r) => r.getAttribute('data-room-id') === 'r1')!;
-    expect(within(row).getByText('Hidden')).toBeTruthy();
-    expect(within(row).queryByText('Explored')).toBeNull();
+  it('reads the share of the ground still fogged', () => {
+    useSessionStore.setState({ session: fogged() });
+    const { rerender } = render(<FogBody />);
+    expect(screen.getByText('100% of the map')).toBeTruthy();
+    const top: [number, number][] = [];
+    for (let row = 0; row < 5; row++) for (let col = 0; col < 10; col++) top.push([col, row]);
+    useSessionStore.setState({ session: fogged({ cleared: { 'level-1': setCells(regionOf(FRAME)!, top) } }) });
+    rerender(<FogBody />);
+    expect(screen.getByText('50% of the map')).toBeTruthy();
+    useSessionStore.setState({ session: fogged({ cleared: { 'level-1': fillRegion(regionOf(FRAME)!) } }) });
+    rerender(<FogBody />);
+    expect(screen.getByText('0% of the map')).toBeTruthy();
   });
 
-  it('switches the mode and picks a look', () => {
+  it('offers Undo after Clear all and Fog all, which restores the record from before', () => {
+    const before = { 'level-1': fillRegion(regionOf(FRAME)!) };
+    useSessionStore.setState({ session: fogged({ cleared: before }) });
     const sent = capture();
     render(<FogBody />);
-    fireEvent.click(screen.getByTestId('fog-mode-vision'));
-    expect(sent.at(-1)).toMatchObject({ action: 'set-mode', payload: { mode: 'vision' } });
-    fireEvent.click(screen.getByText('Look'));
-    fireEvent.click(screen.getByTestId('fog-look-mist'));
-    expect(sent.at(-1)).toMatchObject({ action: 'set-fog-look', payload: { look: { preset: 'mist' } } });
-  });
+    fireEvent.click(screen.getByTestId('fog-fog-all'));
+    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'fog-all', payload: {} });
+    const toast = useToasts.getState().toast!;
+    expect(toast.action?.label).toBe('Undo');
+    toast.action!.onAction();
+    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'restore', payload: { cleared: before } });
 
-  it('lists rooms unrevealed first, each with its own Reveal and Hide', () => {
-    const sent = capture();
-    render(<FogStrip />);
-    const rows = screen.getAllByRole('listitem');
-    // Outdoors leads the list (table fix pass §4.5), then the rooms, unrevealed first.
-    expect(rows.map((r) => r.getAttribute('data-room-id'))).toEqual(['@outdoors', 'r2', 'r1']);
-    fireEvent.click(within(rows[1]!).getByTestId('room-reveal'));
-    fireEvent.click(within(rows[2]!).getByTestId('room-hide'));
-    fireEvent.click(within(rows[0]!).getByTestId('room-reveal'));
-    expect(sent.map((m) => [m.action, (m.payload as { roomId: string }).roomId])).toEqual([
-      ['reveal', 'r2'],
-      ['hide', 'r1'],
-      ['reveal', '@outdoors'],
-    ]);
-  });
-
-  it('badges the rows a party token stands in', () => {
-    const token = (id: string, x: number, y: number, ownerId: string | null) => ({ id, x, y, ownerId, hidden: false, name: id, size: 'medium' });
-    useSessionStore.setState({
-      session: {
-        ...session({ byScene: { a: { rooms: {}, concealBehindDoors: false } } }),
-        modules: {
-          fog: { byScene: { a: { rooms: {}, concealBehindDoors: false } } },
-          tokens: { byScene: { a: { t1: token('t1', 2, 2, 'p1'), t2: token('t2', 30, 30, 'p2'), t3: token('t3', 12, 2, null) } } },
-        },
-      },
-    });
-    render(<FogStrip />);
-    const badged = screen.getAllByTestId('fog-party-here').map((b) => b.closest('li')?.getAttribute('data-room-id'));
-    // Hall holds a player's token, the far one stands outdoors; the Crypt's goblin is nobody's.
-    expect(badged.sort()).toEqual(['@outdoors', 'r1']);
-  });
-
-  it('warns in By sight mode when no player token is on the map', () => {
-    useSessionStore.setState({ session: session({ byScene: { a: { rooms: {}, mode: 'vision', concealBehindDoors: false } } }) });
-    render(<FogBody />);
-    expect(screen.getByTestId('fog-no-party')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('fog-clear-all'));
+    expect(sent.at(-1)).toMatchObject({ action: 'clear-all' });
+    useToasts.getState().toast!.action!.onAction();
+    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'restore', payload: { cleared: before } });
   });
 });
