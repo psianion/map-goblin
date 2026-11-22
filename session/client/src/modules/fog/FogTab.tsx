@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { autoExploreOn, fogLookOf, fogOn, type FogBrushOp, type FogState } from '@dnd/mechanics/fog';
 import { useStore } from '@dnd/core/src/store/store';
-import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
+import { DEFAULT_FOG_LOOK, type FogLook } from '@dnd/core/src/shared/fogLook';
 import { Button, SecondaryButton, SliderRow } from '@dnd/ui';
 import { Ban, Cloud, CloudFog, CloudOff, Compass, Eraser, SlidersHorizontal } from '@dnd/ui/icons';
 import { useModuleState, useSessionStore } from '../../session/store';
@@ -12,7 +12,7 @@ import { armBrush, toggleBrush, useFogBrush } from './brush';
 import { fogFrame, sceneFog } from './fog';
 import { FogCard, FogZone, ZoneRule } from './FogCard';
 import { foggedShare, groundOfMap } from './ground';
-import { changedCaption, changedFields, previewBackground } from './look';
+import { changedCaption, changedFields, previewStrata } from './look';
 
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
 
@@ -163,6 +163,30 @@ export function FogBody() {
   );
 }
 
+/** A still of the cloud: its base colour under each layer's billowed lobes (`previewStrata`). */
+function LookPreview({ look, label }: { look: FogLook; label: string }) {
+  const id = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const strata = previewStrata(look);
+  return (
+    <div role="img" aria-label={label} data-testid="fog-look-preview" className="relative w-[148px] shrink-0 overflow-hidden rounded-float border border-line">
+      <svg aria-hidden className="absolute inset-0 size-full" viewBox="0 0 148 94" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          {strata.map((s, i) => (
+            <filter key={i} id={`${id}-${i}`} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
+              <feTurbulence type="fractalNoise" baseFrequency={s.baseFrequency} numOctaves={5} seed={s.seed} />
+              <feColorMatrix type="matrix" values={s.matrix} />
+            </filter>
+          ))}
+        </defs>
+        <rect width="148" height="94" fill={look.base} />
+        {strata.map((_, i) => (
+          <rect key={i} width="148" height="94" fill="#ffffff" filter={`url(#${id}-${i})`} data-stratum={i} />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 /** The cloud's look: a still of it, its name and what changed, Customise and the way back. */
 function LookZone() {
   const fog = useSceneFog();
@@ -173,13 +197,7 @@ function LookZone() {
   return (
     <FogZone label="Look" className="min-w-0 flex-1">
       <div className="flex flex-1 gap-2.5">
-        <div
-          role="img"
-          aria-label={mixed ? 'Preview of your cloud mix' : 'Preview of the default clouds'}
-          data-testid="fog-look-preview"
-          className="w-[148px] shrink-0 rounded-float border border-line"
-          style={{ background: previewBackground(look) }}
-        />
+        <LookPreview look={look} label={mixed ? 'Preview of your cloud mix' : 'Preview of the default clouds'} />
         <div className="flex min-w-0 flex-col justify-between">
           <span className="flex flex-col gap-px">
             <span className="text-[13px] leading-tight font-semibold text-text" data-testid="fog-look-name">

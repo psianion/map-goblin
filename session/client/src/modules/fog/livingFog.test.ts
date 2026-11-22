@@ -41,6 +41,27 @@ function measuringEngine() {
   };
 }
 
+// The cloud shader is compiled as GLSL ES 1.00 on every context, where fwidth and its kin need an
+// extension: with one in it the program failed to link and no cloud or edge line was drawn.
+describe('the cloud shader', () => {
+  it('uses no derivative function and asks for no extension', () => {
+    const fog = createLivingFog(measuringEngine().engine, { dense: 1, mist: 0.6, rim: 0.75, fade: 0.6, oneTier: true });
+    const fragment = fog.mesh.shader!.glProgram!.fragment;
+    expect(fragment).toContain('uEdgeLine');
+    expect(fragment).not.toMatch(/\b(fwidth|dFdx|dFdy)\s*\(/);
+    expect(fragment).not.toMatch(/#extension/);
+    fog.destroy();
+  });
+
+  it('takes the screen pixel’s world size from the cover, for the edge line’s width', () => {
+    const fog = createLivingFog(measuringEngine().engine, { dense: 1, mist: 0.6, rim: 0.75, fade: 0.6, oneTier: true });
+    fog.cover({ minX: 0, minY: 0, maxX: 20, maxY: 10 }, 1 / 90);
+    const uniforms = fog.mesh.shader!.resources.fogUniforms.uniforms as { uPxWorld: number };
+    expect(uniforms.uPxWorld).toBeCloseTo(1 / 90);
+    fog.destroy();
+  });
+});
+
 const SMALL = { minX: -0.8, minY: -0.8, maxX: 30.8, maxY: 29.8 };
 /** testing-cave, By hand with everything revealed: the frame grown by the pad and feather twice. */
 const BIG = { minX: -3.6, minY: -3.6, maxX: 33.6, maxY: 33.6 };

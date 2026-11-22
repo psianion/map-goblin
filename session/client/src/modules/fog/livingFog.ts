@@ -163,6 +163,8 @@ const FRAGMENT = /* glsl */ `
   uniform float uOneTier;
   // The DM's see-through view: 1 draws a line on the cloud's edge, a light core on a dark halo.
   uniform float uEdgeLine;
+  // How many world units one screen pixel spans, for the edge line's width.
+  uniform float uPxWorld;
   uniform vec4 uMaskRect;
   // P7 — the map frame (minX, minY, maxX, maxY); maxX <= minX is "no frame".
   uniform vec4 uFrame;
@@ -481,14 +483,18 @@ const FRAGMENT = /* glsl */ `
 
     // The edge line, on the DM's see-through view only: the half-level contour of the feather
     // texture, which is the cleared ground's own outline smoothed by the blur. Measured in screen
-    // pixels through the texture's own derivative, so it stays one crisp width at any zoom: a
-    // light core on a dark halo, which reads on grass and in a cave alike. Faded out the last
-    // cell inside the frame, where the blur reads the void past the edge as shown ground.
+    // pixels, so it stays one crisp width at any zoom: a light core on a dark halo, which reads on
+    // grass and in a cave alike. Faded out the last cell inside the frame, where the blur reads the
+    // void past the edge as shown ground. The slope comes from two more taps a mask texel over,
+    // not from fwidth: this shader compiles as GLSL ES 1.00, where derivatives need an extension.
     if (uEdgeLine > 0.5) {
       vec2 euv = (onMapSample(vWorld) - uMaskRect.xy) * uMaskRect.zw;
       if (euv.x >= 0.0 && euv.y >= 0.0 && euv.x <= 1.0 && euv.y <= 1.0) {
         float a = texture(uMaskEdge, euv).a;
-        float px = abs(a - ${EDGE_FEATHER_FROM.toFixed(3)}) / max(fwidth(a), 1e-5);
+        vec2 tap = uTexel * uMaskRect.zw;
+        vec2 slope = vec2(texture(uMaskEdge, euv + vec2(tap.x, 0.0)).a - a, texture(uMaskEdge, euv + vec2(0.0, tap.y)).a - a);
+        float perPx = length(slope) / max(uTexel, 1e-5) * uPxWorld;
+        float px = abs(a - ${EDGE_FEATHER_FROM.toFixed(3)}) / max(perPx, 1e-5);
         float inner = 1.0;
         if (uFrame.z > uFrame.x) {
           vec2 into = min(vWorld - uFrame.xy, uFrame.zw - vWorld);
@@ -654,8 +660,11 @@ export interface LivingFog {
   setPools(pools: readonly FogPool[]): void;
   /** T13 — the seat's own tokens, each cleared round and feathered whatever the mask says (§2.8). */
   setOwn(own: readonly OwnClearing[]): void;
-  /** Stretch the cover quad over a world rect (the visible viewport, plus margin). */
-  cover(bounds: Bounds): void;
+  /**
+   * Stretch the cover quad over a world rect (the visible viewport, plus margin), and say how
+   * many world units one screen pixel spans there, which the edge line's width is measured in.
+   */
+  cover(bounds: Bounds, worldPerPx: number): void;
   /** Advance the clock. The caller decides whether reduced motion freezes it. */
   advance(dtSeconds: number): void;
   destroy(): void;
@@ -715,6 +724,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uGlow: { value: DEFAULT_FOG_LOOK.glow, type: 'f32' },
         uOneTier: { value: initialLook.oneTier ? 1 : 0, type: 'f32' },
         uEdgeLine: { value: 0, type: 'f32' },
+        uPxWorld: { value: 0, type: 'f32' },
         uMaskRect: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uFrame: { value: [0, 0, 0, 0], type: 'vec4<f32>' },
         uTexel: { value: 0, type: 'f32' },
@@ -736,6 +746,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uTime: number;
     uDense: number;
     uEdgeLine: number;
+    uPxWorld: number;
     uWind: number;
     uFade: number;
     uVeil: number;
@@ -930,11 +941,12 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
       });
       uniforms.uOwnCount = kept.length;
     },
-    cover(bounds) {
+    cover(bounds, worldPerPx) {
       const [w, h] = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY];
       mesh.position.set(bounds.minX, bounds.minY);
       mesh.scale.set(w, h);
       setVec(uniforms.uCoverRect, [bounds.minX, bounds.minY, w, h]);
+      uniforms.uPxWorld = worldPerPx;
     },
     advance(dtSeconds) {
       // Freeze mode (`?freeze=`, shared/freeze.ts): the cloud stands at one phase for pixel tests.

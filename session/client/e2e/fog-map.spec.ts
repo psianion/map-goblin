@@ -106,7 +106,7 @@ const HALL_RIM = [
 ];
 /** Where the goblin waits, in the hall. */
 const GOBLIN = { x: 8.5, y: 7.5 };
-/** The cave mouth, open; a cell inside the cave; one past the closed inner door; fogged ground south of the start. */
+/** The cave mouth, open; a cell inside the cave; one past the inner door, in view from the mouth; fogged ground south of the start. */
 const MOUTH = { x: 18.5, y: 9.5 };
 const IN_CAVE = { x: 19.5, y: 9.5 };
 const PAST_INNER_DOOR = { x: 22.5, y: 4.5 };
@@ -176,14 +176,16 @@ test.describe('@map the fog, on the outdoor cave', () => {
     expect(await probe(player, 'clearedCells')).toBe(cleared);
 
     // 5. Auto-explore back on (its default). The player walks into the cave mouth and the cave
-    // clears ahead, stopping at the closed inner door.
+    // clears ahead. The hall stays fogged: from the dirt and from the mouth, both within sight
+    // range of it, its walls and its closed door stand in the way. (The inner cave door is a lone
+    // wall in an open cave, so the ground past it is in view from the mouth.)
     await page.getByTestId('fog-auto-explore').click();
     await expect(page.getByTestId('fog-auto-explore')).toHaveAttribute('aria-pressed', 'true');
     await dragToken(player, 'Bram', MOUTH);
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(MOUTH);
     await expect.poll(() => probe(player, 'clearedCells')).toBeGreaterThan(cleared);
     await expect.poll(() => probe(player, 'shownAt', IN_CAVE.x, IN_CAVE.y)).toBe(true);
-    expect(await probe(player, 'shownAt', PAST_INNER_DOOR.x, PAST_INNER_DOOR.y)).toBe(false);
+    expect(await probe(player, 'shownAt', CAVE.inHall.x, CAVE.inHall.y)).toBe(false);
 
     // 6. The goblin appears when its room's ground clears: the DM brushes the hall with W.
     await page.keyboard.press('w');

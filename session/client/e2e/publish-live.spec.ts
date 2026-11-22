@@ -74,6 +74,10 @@ test.describe('@publish canvas publish reaches the live table', () => {
     await page.getByTestId('title-switcher').click();
     await expect(page.getByTestId('scene-row').first().getByTestId('scene-thumb')).toHaveAttribute('data-image', 'true');
     await page.keyboard.press('Escape');
+    // Closed, with focus back on its button: a digit typed while the search field still has it is
+    // the field's, not the dock's.
+    await expect(page.getByTestId('scene-search')).toBeHidden();
+    await expect(page.getByTestId('title-switcher')).toBeFocused();
 
     // Fog, its cleared ground and the placed token survive the swap.
     await page.keyboard.press('1');

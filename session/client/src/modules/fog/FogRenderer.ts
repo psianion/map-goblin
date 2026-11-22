@@ -429,7 +429,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     const vp = engine.viewport();
     const tl = engine.screenToWorld(0, 0);
     const br = engine.screenToWorld(vp.width, vp.height);
-    fog.cover({ minX: tl.x - 2, minY: tl.y - 2, maxX: br.x + 2, maxY: br.y + 2 });
+    fog.cover({ minX: tl.x - 2, minY: tl.y - 2, maxX: br.x + 2, maxY: br.y + 2 }, (br.x - tl.x) / Math.max(1, vp.width));
     if (!prefersReducedMotion()) fog.advance(ticker.deltaMS / 1000);
   };
 

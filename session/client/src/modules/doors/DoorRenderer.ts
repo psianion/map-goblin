@@ -26,6 +26,7 @@ import {
 } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
+import { useAsPlayers } from '../fog/asPlayers';
 import { REVEAL_MS, easeOutQuart, revealDurationMs } from '../fog/FogRenderer';
 import { doorAt, doorLook, liveDoors, type LiveDoor } from './doors';
 import { useDoorSelection } from './selection';
@@ -326,6 +327,9 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
       drawArt();
     }
     applyStencil();
+    // "As players see it": a player gets no door marks, so the DM's glyphs, badges and ring go too.
+    const dmMarks = !useAsPlayers.getState().on;
+    if (marks.visible !== dmMarks) marks.visible = paint.visible = dmMarks;
     if (fading.size > 0) draw();
   };
 

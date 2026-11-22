@@ -7,8 +7,10 @@ import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { useToasts } from '../../session/toasts';
+import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 import { useFogBrush } from './brush';
 import { FogBody } from './FogTab';
+import { previewStrata } from './look';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
 const FRAME = { minX: 0, minY: 0, maxX: 10, maxY: 10 };
@@ -143,5 +145,28 @@ describe('Fog tab', () => {
     expect(sent.at(-1)).toMatchObject({ action: 'clear-all' });
     useToasts.getState().toast!.action!.onAction();
     expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'restore', payload: { cleared: before } });
+  });
+
+  it('draws the Look still as billowed cloud in the look’s own colours', () => {
+    const look = { ...DEFAULT_FOG_LOOK, base: '#5f6d64', layers: DEFAULT_FOG_LOOK.layers.map((l, i) => (i === 2 ? { ...l, tint: '#ff0000' } : l)) };
+    useSessionStore.setState({ session: fogged({ look }) });
+    render(<FogBody />);
+    const preview = screen.getByTestId('fog-look-preview');
+    expect(preview.querySelector('svg > rect')!.getAttribute('fill')).toBe('#5f6d64');
+    // One noise field per layer, cut into lobes and filled with that layer's tint.
+    const filters = preview.querySelectorAll('filter');
+    expect(filters).toHaveLength(3);
+    for (const f of filters) expect(f.querySelector('feTurbulence')!.getAttribute('type')).toBe('fractalNoise');
+    expect(filters[2]!.querySelector('feColorMatrix')!.getAttribute('values')).toMatch(/^0 0 0 0 1\.000 0 0 0 0 0\.000 0 0 0 0 0\.000 /);
+    expect(preview.querySelectorAll('rect[data-stratum]')).toHaveLength(3);
+  });
+});
+
+describe('previewStrata', () => {
+  it('cuts more of the field into cloud the stronger a layer is', () => {
+    const at = (strength: number) =>
+      Number(previewStrata({ ...DEFAULT_FOG_LOOK, layers: DEFAULT_FOG_LOOK.layers.map((l) => ({ ...l, strength })) as typeof DEFAULT_FOG_LOOK.layers })[0]!.matrix.split(' ').at(-1));
+    expect(at(1)).toBeGreaterThan(at(0.5));
+    expect(at(0.5)).toBeGreaterThan(at(0));
   });
 });

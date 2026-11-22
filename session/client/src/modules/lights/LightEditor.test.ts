@@ -3,6 +3,7 @@ import type { LightChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import { useSessionStore } from '../../session/store';
+import { useAsPlayers } from '../fog/asPlayers';
 import { mountLightsEditor } from './LightEditor';
 import { useLightSelection } from './selection';
 
@@ -128,5 +129,17 @@ describe('mountLightsEditor', () => {
     expect(useLightSelection.getState().selectedId).toBeNull();
     press(h.canvas, 50, 50); // torn down: no listener left to answer it
     expect(useLightSelection.getState().selectedId).toBeNull();
+  });
+
+  it('hides the icons while the DM looks as players see it, and a press there finds no light', () => {
+    const h = harness();
+    useAsPlayers.getState().set(true);
+    expect(h.setIconsVisible).toHaveBeenLastCalledWith(false);
+    press(h.canvas, 52, 50);
+    expect(useLightSelection.getState().selectedId).toBeNull();
+    expect(h.under).toHaveBeenCalled();
+    useAsPlayers.getState().set(false);
+    expect(h.setIconsVisible).toHaveBeenLastCalledWith(true);
+    h.stop();
   });
 });
