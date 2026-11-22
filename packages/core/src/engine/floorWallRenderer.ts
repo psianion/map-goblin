@@ -24,7 +24,7 @@ import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles, styleWallLook } from '../shared/wallLook';
-import { rockLineOf, storeRockLines } from './rockLines';
+import { cliffRockLines, rockLineOf, storeRockLines } from './rockLines';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
@@ -745,8 +745,16 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   );
   storeRockLines(layer.id, 'floor', rockLines, layer.rockLines?.length ? uninstalledRings(layer.mergedFloor ?? [], rings, edges, drawStyle) : []);
   // The plateaus below are drawn along the lines just stored: storing them rebuilds nothing.
-  const stored = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon');
-  if (stored && stored.rockLines !== layer.rockLines) layer = { ...layer, rockLines: stored.rockLines };
+  const reread = (): void => {
+    const stored = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon');
+    if (stored && stored.rockLines !== layer.rockLines) layer = { ...layer, rockLines: stored.rockLines };
+  };
+  reread();
+  // A plateau cliff laid with a measured kit of its own is walked along the walls' lines, and the
+  // line it laid stored before anything is drawn along it.
+  const cliffs = cliffRockLines(layer);
+  storeRockLines(layer.id, 'cliff', cliffs.lines, layer.rockLines?.length ? cliffs.missing : []);
+  reread();
   const fit: FloorFit | undefined = fits.some((f) => f.tips.length + f.gaps.length > 0)
     ? { tips: fits.flatMap((f) => f.tips), gaps: fits.flatMap((f) => f.gaps) }
     : undefined;
@@ -762,6 +770,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   renderPlateaus(layer, entry.sublayers.plateauTops, entry.sublayers.plateauEdges, {
     waitFor: (id) => armLateTextureRebuild(layer.id, id),
     fit,
+    cliffs: cliffs.walks,
   });
 
   // The authored boundary itself. A ring's stones stand on it, and dragging one

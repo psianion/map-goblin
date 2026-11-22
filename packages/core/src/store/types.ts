@@ -240,14 +240,17 @@ export interface DungeonLayer extends BaseLayer {
   caveOpenings?: Polygon[];
   /**
    * Where a pack-measured kit's rock was laid: one entry per floor ring or painted cave ring the
-   * editor laid it round, written after each rebuild. Light, sight and movement block along it
-   * instead of along the drawn edge it was laid for (raycaster.ts). Absent = none.
+   * editor laid it round, and one per plateau cliff run laid with a measured kit of its own,
+   * written after each rebuild. Light, sight and movement block along a wall's line instead of
+   * along the drawn edge it was laid for (raycaster.ts). Absent = none.
    */
   rockLines?: RockLine[];
 }
 
 /** One ring's laid rock (`DungeonLayer.rockLines`). Coordinates in cells, to 2 decimals. */
 export interface RockLine {
+  /** `cliff`: a plateau cliff run's own rock, which never carries a wall. Absent: a wall's line. */
+  kind?: 'cliff';
   /** The drawn outline the rock was laid for, as the walk was given it. */
   edge: [number, number][];
   closed: boolean;

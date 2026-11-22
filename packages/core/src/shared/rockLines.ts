@@ -29,6 +29,16 @@ export function onRockEdge(p: Pt, line: RockLine): boolean {
   return onLine(p, line.edge, line.closed);
 }
 
+const wallMemo = new WeakMap<readonly RockLine[], RockLine[]>();
+
+/** The walls' lines of a layer's rock lines, a plateau cliff's own left out: the list itself when it has none. Kept per list. */
+export function wallLines(lines: RockLine[] | undefined): RockLine[] | undefined {
+  if (!lines || !lines.some((l) => l.kind === 'cliff')) return lines;
+  let walls = wallMemo.get(lines);
+  if (!walls) wallMemo.set(lines, (walls = lines.filter((l) => l.kind !== 'cliff')));
+  return walls;
+}
+
 /** Whether `line` was laid for the closed ring `ring` as it stands: each lies along the other. */
 export function laidFor(line: RockLine, ring: readonly Pt[]): boolean {
   return ring.length > 0 && ring.every((p) => onLine(p, line.edge, line.closed)) && line.edge.every((p) => onLine(p, ring, true));
@@ -54,8 +64,8 @@ export interface AlongRock {
   points: V[];
   /** Per segment of `points` (counted as the run's closedness counts them), the index of the drawn segment it stands for. */
   segs: number[];
-  /** Each stretch replaced: its drawn points and the points that took their place, both in the run's order. */
-  replaced: { drawn: V[]; rock: V[] }[];
+  /** Each stretch replaced: its drawn points and the points that took their place, both in the run's order, and the line they came from. */
+  replaced: { drawn: V[]; rock: V[]; line: RockLine }[];
 }
 
 /** A polyline with its arc lengths: `count` segments, a closed one's last wrapping to its first point. */
@@ -325,7 +335,7 @@ export function alongRock(points: readonly Pt[], closed: boolean, lines: readonl
         rock.push(...drawn.map((d) => d.p));
       }
     }
-    replaced.push({ drawn: subPath(path, sa, sb, true, true).map((d) => d.p), rock });
+    replaced.push({ drawn: subPath(path, sa, sb, true, true).map((d) => d.p), rock, line: st.line });
   };
 
   /** The rock that covers the drawn path from `u` to `v`, taken the way the path runs; null where none does. */

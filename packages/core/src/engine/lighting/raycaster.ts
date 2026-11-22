@@ -5,7 +5,7 @@ import { connectorChildren } from '../../shared/authoredRooms'
 import { propSegments } from '../../shared/propOcclusion'
 import { cliffOccluders } from '../../shared/plateaus'
 import { caveEdges } from '../../shared/caveFloor'
-import { laidFor, onRockEdge } from '../../shared/rockLines'
+import { laidFor, onRockEdge, wallLines } from '../../shared/rockLines'
 import {
   connectorApertures,
   openingApertures,
@@ -184,7 +184,8 @@ export function extractMoveSegments(dungeonLayers: DungeonLayer[]): MoveSegment[
 function layerOcclusion(layer: DungeonLayer, walls: ResolvedWall[], doors: ResolvedDoor[]): OcclusionSegment[] {
   const openings = openingApertures(layer, walls)
   const apertures = [...toOcclusionDoors(doors, walls), ...connectorApertures(layer, walls), ...openings]
-  const lines = layer.rockLines
+  // A plateau cliff's own line never carries a wall: only the walls' lines are read here.
+  const lines = wallLines(layer.rockLines)
   const carrier = lines?.length ? carriersOf(layer, lines, walls) : null
   if (!lines || !carrier || carrier.size === 0) return buildOcclusionSegments(walls, apertures)
   return withRockLines(walls, apertures, lines, carrier, new Set(openings.map((o) => o.id)))
