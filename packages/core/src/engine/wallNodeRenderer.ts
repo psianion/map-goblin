@@ -348,10 +348,11 @@ export function withoutDoorGaps(
   wallWidth: number,
   /**
    * The two ends of an open wall, world units, so a stone pushed clear of an
-   * opening is held inside the wall it belongs to. Omitted for a closed ring,
-   * which has no ends to fall off.
+   * opening is held inside the wall it belongs to. On a closed ring, the ends of
+   * the side each stone stands on (see {@link ringSideEnds}), so a stone pushed
+   * clear of a door stays between that side's corners.
    */
-  wallEnds?: [[number, number], [number, number]],
+  wallEnds?: [[number, number], [number, number]] | ((node: WallNode) => [[number, number], [number, number]] | undefined),
 ): WallNode[] {
   if (gaps.length === 0) return nodes;
 
@@ -417,9 +418,10 @@ export function withoutDoorGaps(
     // the stone inside a wall running the other way.
     let lo = -Infinity;
     let hi = Infinity;
-    if (wallEnds) {
-      const p0 = (wallEnds[0][0] - node.x) * cos + (wallEnds[0][1] - node.y) * sin;
-      const p1 = (wallEnds[1][0] - node.x) * cos + (wallEnds[1][1] - node.y) * sin;
+    const ends = typeof wallEnds === 'function' ? wallEnds(node) : wallEnds;
+    if (ends) {
+      const p0 = (ends[0][0] - node.x) * cos + (ends[0][1] - node.y) * sin;
+      const p1 = (ends[1][0] - node.x) * cos + (ends[1][1] - node.y) * sin;
       lo = Math.min(p0, p1);
       hi = Math.max(p0, p1);
     }
@@ -543,6 +545,33 @@ export function withoutDoorGaps(
     }
     return made;
   }
+}
+
+/** A stone this far off a side, or turned this far from it (sine), does not stand on it. */
+const ON_SIDE = 0.5;
+const SIDE_SIN = 0.17;
+
+/**
+ * For a closed ring: the two corners of the side a stone stands on (its axis along the side,
+ * its middle near it), for `withoutDoorGaps` to hold the stone between. A stone on no side (a
+ * corner piece turned across one) has none, and slides as it always did.
+ */
+export function ringSideEnds(poly: Polygon): (node: WallNode) => [[number, number], [number, number]] | undefined {
+  return (node) => {
+    let best: { d: number; ends: [[number, number], [number, number]] } | undefined;
+    for (let k = 0; k < poly.length; k++) {
+      const a = poly[k];
+      const b = poly[(k + 1) % poly.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 1e-9) continue;
+      const t = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+      if (Math.abs(t[0] * Math.sin(node.angle) - t[1] * Math.cos(node.angle)) > SIDE_SIN) continue;
+      const s = Math.max(0, Math.min(L, (node.x - a[0]) * t[0] + (node.y - a[1]) * t[1]));
+      const d = Math.hypot(node.x - a[0] - t[0] * s, node.y - a[1] - t[1] * s);
+      if (d <= ON_SIDE && (!best || d < best.d)) best = { d, ends: [[a[0], a[1]], [b[0], b[1]]] };
+    }
+    return best?.ends;
+  };
 }
 
 interface ResolvedSet {
@@ -862,6 +891,7 @@ export function renderNodeWalls(
         ringDoorGaps,
         set.specById,
         wallWidth,
+        ringSideEnds(poly),
       );
       const byTint = new Map<string, WallNode[]>();
       for (const node of nodes) {
@@ -984,7 +1014,7 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.ring === i);
     place(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, set.specById, wallWidth),
+      withoutDoorGaps(nodes, gaps, set.specById, wallWidth, ringSideEnds(poly)),
       set.specById,
       wallWidth,
       stoneTint(set, look.tint),

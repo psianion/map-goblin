@@ -316,6 +316,12 @@ export interface WalkOptions {
    * rough rock; a missing one shows floor straight through to the void.
    */
   fill?: boolean;
+  /**
+   * Whether a piece laid from P to Q, nudged sideways so, may stand there at all, over and above
+   * the shape gate. A piece it turns down is passed over as one that misfits; a closing piece
+   * laid with `fill` falls back on one it turns down only when none passes.
+   */
+  accept?: (piece: CaveKitPiece, P: Vec, Q: Vec, nudge: number) => boolean;
 }
 
 export function walkSpan(
@@ -387,10 +393,13 @@ export function walkSpan(
           // the closing piece answers to the same shape gate as every other one:
           // without it a 90° bend lands on a dead straight run and reads as a hinge
           if (f.miss > BAND_FIT && !loose) continue;
+          const refused = !!opts.accept && !opts.accept(piece, A, B, f.nudge);
+          if (refused && !loose) continue;
           const sc =
             Math.abs(Math.log(d / piece.chordCells)) * 9 +
             f.miss * 4 +
-            (family && wrongFamily(piece) ? 6 : 0);
+            (family && wrongFamily(piece) ? 6 : 0) +
+            (refused ? 50 : 0);
           if (!bestC || sc < bestC.sc)
             bestC = { piece, sc, s: d / piece.chordCells, nudge: f.nudge };
         }
@@ -487,6 +496,7 @@ export function walkSpan(
       if (wrongFamilyFor(piece, turn, gate)) continue;
       const f = fitArc(curve, i, hit.i, P, hit.p, piece);
       if (f.miss > BAND_FIT) continue;
+      if (opts.accept && !opts.accept(piece, P, hit.p, f.nudge)) continue;
       // longest acceptable piece wins (a run of 2s where a 4 fits reads chopped);
       // the share term pushes back on whichever id is running away with the ring,
       // and the jitter breaks ties so mirrors and lengths alternate
@@ -563,7 +573,7 @@ const RING_EVEN = Math.log(1.04);
 export function walkClosed(
   curve: Curve,
   set: CaveKitPiece[],
-  opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill'> = {},
+  opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill' | 'accept'> = {},
 ): WalkResult {
   const n = curve.length;
   // The start is judged on open joints and stretch only: a plain close butts the first
@@ -575,12 +585,13 @@ export function walkClosed(
   let bestCost = Infinity;
   // The start is chosen on the plain walk whatever the options: they only
   // change the closing move, so every piece the walk lays before it (every
-  // straight run and ordinary bend) comes out exactly as it always has.
+  // straight run and ordinary bend) comes out exactly as it always has. All but
+  // `accept`, which says what may be laid anywhere.
   for (let k = 0; k < RING_STARTS; k++) {
     const i0 = Math.round((k * n) / RING_STARTS);
     let r: WalkResult;
     try {
-      r = walkSpan(curve, set, i0, i0 + n, { ring: true });
+      r = walkSpan(curve, set, i0, i0 + n, { ring: true, accept: opts.accept });
     } catch {
       continue;
     }

@@ -14,8 +14,9 @@ import { Container, Graphics } from 'pixi.js';
 import type { DungeonLayer, RockLine } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { getLayerEntry } from '../sceneGraph';
-import { bandFillColor, drawOutlineBand } from '../caveBandRenderer';
+import { bandFillColor, drawOutlineBand, layOutlineBand, orientRings } from '../caveBandRenderer';
 import { bandSetArt, bandSize, isBandSet, isMeasuredBandSet } from '../../assets/packCatalog';
+import { bandPiecesFor } from '../../assets/caveWallKit';
 import { rockLineOf, storeRockLines } from '../rockLines';
 import type { WalkPlacement } from '../caveWalk';
 import { layerDrawStyle } from '../levelLook';
@@ -247,18 +248,51 @@ export function drawFalls(piece: Container, layer: Pick<DungeonLayer, 'children'
 
 // ─── A painted cave's rock ─────────────────────────────────
 
+/** One painted cave's rock as the walk laid it. */
+export interface LaidCave {
+  cave: CaveEdge;
+  /** The cave's outline rings, wound void-left (`orientRings`), as the walk took them. */
+  rings: Polygon[];
+  /** Where its rock stops: the doors on it, and wherever it was erased open. */
+  gaps: DoorGap[];
+  /** The size its rock was laid at. */
+  size: number;
+  /** What the walk laid round each ring. */
+  placed: WalkPlacement[][];
+}
+
+const laidMemo = new WeakMap<object, { openings: DungeonLayer['caveOpenings']; floor: DungeonLayer['mergedFloor']; width: number; value: LaidCave[] }>();
+
 /**
- * The rock round a layer's painted caves of one material: the band walk laid along the
- * union of the floors marked with it, stopped at the doors on it. The floors' own fill is
- * drawn with the other pieces.
+ * Each painted cave's rock on a layer, laid once for everything drawn from it: the rock itself
+ * and the line it is saved as (`drawLayerMaterials`), and the floor a measured kit's rock fits
+ * (`rebuildDungeonLayer`). Each is laid along the union of the floors marked with its material,
+ * stopped at the doors on it and wherever it was erased open, at the cave's own width, else the
+ * layer's, as a banded floor ring's rock is. Memoised on what it is laid from.
  */
-function drawCave(host: Container, layer: DungeonLayer, cave: CaveEdge, doors: readonly ResolvedDoor[], lines: RockLine[]): void {
+export function laidCaves(layer: DungeonLayer): LaidCave[] {
+  const width = layerDrawStyle(layer).wallWidth;
+  const hit = laidMemo.get(layer.children);
+  if (hit && hit.openings === layer.caveOpenings && hit.floor === layer.mergedFloor && hit.width === width) return hit.value;
+  const caves = caveEdges(layer);
+  const doors = caves.length > 0 ? resolveDoors(layer, resolveWalls(layer)).filter((d) => d.door.visible && !d.detached) : [];
+  const value = caves.map((cave): LaidCave => {
+    const gaps = [...caveDoorGaps(cave, doors), ...caveOpeningGaps(cave, layer.caveOpenings)];
+    const size = bandSize(cave.material, cave.width ?? width);
+    return { cave, rings: orientRings(cave.rings), gaps, size, placed: layOutlineBand(cave.rings, bandPiecesFor(cave.material), gaps, size) };
+  });
+  laidMemo.set(layer.children, { openings: layer.caveOpenings, floor: layer.mergedFloor, width, value });
+  return value;
+}
+
+/**
+ * The rock round a layer's painted caves of one material, as laid (`laidCaves`). The floors'
+ * own fill is drawn with the other pieces.
+ */
+function drawCave(host: Container, layer: DungeonLayer, laid: LaidCave, lines: RockLine[]): void {
+  const { cave } = laid;
   const piece = new Container();
   piece.label = `cave-${cave.material}`;
-  // The rock stops at the doors on it, and wherever it was erased open.
-  const gaps = [...caveDoorGaps(cave, doors), ...caveOpeningGaps(cave, layer.caveOpenings)];
-  // Laid for the cave's own width, else the layer's, as a banded floor ring's rock is.
-  const size = bandSize(cave.material, cave.width ?? layerDrawStyle(layer).wallWidth);
   // A measured kit's rock is saved as the line it was laid on (rockLines.ts).
   const onLaid = isMeasuredBandSet(cave.material)
     ? (ring: Polygon, placed: WalkPlacement[]) => {
@@ -271,10 +305,11 @@ function drawCave(host: Container, layer: DungeonLayer, cave: CaveEdge, doors: r
     cave.rings,
     cave.material,
     bandFillColor({ floorColor: layer.style.floorColor, textureId: materialFillId(cave.material) }),
-    gaps,
-    size,
+    laid.gaps,
+    laid.size,
     () => awaitArt(layer, [cave.material]),
     onLaid,
+    laid.placed,
   );
   host.addChild(piece);
 }
@@ -299,8 +334,7 @@ export function drawLayerMaterials(layer: DungeonLayer): void {
   const lines: RockLine[] = [];
   if (caves.length > 0) {
     awaitArt(layer, caves.map((c) => c.material));
-    const doors = resolveDoors(layer, resolveWalls(layer)).filter((d) => d.door.visible && !d.detached);
-    for (const cave of caves) drawCave(host, layer, cave, doors, lines);
+    for (const laid of laidCaves(layer)) drawCave(host, layer, laid, lines);
   }
   // A cave whose kit is not installed laid nothing: the line it was saved with stays.
   const missing = layer.rockLines?.length ? caves.filter((c) => !isBandSet(c.material)).flatMap((c) => c.rings) : [];

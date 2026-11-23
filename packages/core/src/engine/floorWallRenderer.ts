@@ -6,7 +6,7 @@ import { useStore } from '../store/store';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
-import { getWallSet, hasLiveTexture, isBandSet } from '../assets/packCatalog';
+import { getWallSet, hasLiveTexture, isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBandRenderer';
@@ -31,6 +31,7 @@ import { healLegacyPaint } from './legacyPaint';
 import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
 import { pruneSoftMasks } from './softPiece';
 import { paintSoftTiled } from './softEdge';
+import { laidCaves } from './material/materialRenderer';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
 function parseColor(hex: string | undefined): number {
@@ -754,6 +755,11 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
       },
     },
   );
+  // A painted cave's measured rock fits its floor too, from the one laying its rock is drawn from.
+  for (const laid of laidCaves(layer)) {
+    if (!isMeasuredBandSet(laid.cave.material)) continue;
+    laid.rings.forEach((ring, i) => fits.push(bandFloorFit(ring, laid.placed[i], laid.gaps, laid.size)));
+  }
   storeRockLines(layer.id, 'floor', rockLines, layer.rockLines?.length ? uninstalledRings(layer.mergedFloor ?? [], rings, edges, drawStyle) : []);
   // The plateaus below are drawn along the lines just stored: storing them rebuilds nothing.
   const reread = (): void => {
