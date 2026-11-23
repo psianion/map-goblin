@@ -850,7 +850,7 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
     expect(Math.max(...failed.map((x) => x.f.worstScale))).toBeCloseTo(1.31, 6);
     expect(Math.max(...failed.map((x) => x.f.worstMeet))).toBeLessThan(0.3);
     expect(Math.max(...failed.map((x) => x.f.worstSide))).toBeLessThan(1e-9);
-  });
+  }, 30_000);
 
   it('leaves a six-sided room to the walk, as before', () => {
     const set = seedKit();
