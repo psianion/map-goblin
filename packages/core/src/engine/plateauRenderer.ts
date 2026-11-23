@@ -96,7 +96,7 @@ import { baseGroundFrame } from './mapFrame';
 import { BAND_DRAWN_WIDTH, bandSize, isColoredSet, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
-import { fittedFloor, layBandChain, layBandRing, placeBand, type FloorFit } from './caveBandRenderer';
+import { fittedFloor, layBandChain, layBandRing, placeBand, withConnectors, type FloorFit } from './caveBandRenderer';
 import { alongRock, laidFor, wallLines, type AlongRock } from '../shared/rockLines';
 import { caveEdges } from '../shared/caveFloor';
 import { layerDrawStyle } from './levelLook';
@@ -343,10 +343,14 @@ export function laidRuns(layer: DungeonLayer, band: PlateauBand): LaidRun[] {
   return value;
 }
 
-/** The walls a layer's cliffs are cut along, and how far short of each line a cliff's end stops where it meets it. */
+/**
+ * The walls a layer's cliffs are cut along, how far short of each line a cliff's end stops where
+ * it meets it, and the erased openings no cliff is laid in.
+ */
 interface CliffWalls {
   lines: RockLine[];
   back: Map<RockLine, number>;
+  openings: readonly Polygon[];
 }
 
 /**
@@ -365,48 +369,123 @@ function cliffWalls(layer: DungeonLayer): CliffWalls {
     if (cave) back.set(line, (BAND_DRAWN_WIDTH / 2) * bandSize(cave.material, cave.width ?? layerDrawStyle(layer).wallWidth));
   }
   const rings = [...caves.flatMap((c) => c.rings), ...(layer.mergedFloor ?? [])].filter((r) => r.length >= 3 && !saved.some((l) => laidFor(l, r)));
-  return { lines: [...saved, ...rings.map((r): RockLine => ({ edge: r, closed: true, runs: [[...r, r[0]]] }))], back };
+  return { lines: [...saved, ...rings.map((r): RockLine => ({ edge: r, closed: true, runs: [[...r, r[0]]] }))], back, openings: layer.caveOpenings ?? [] };
+}
+
+/** A crossing this close to either end of a drawn segment is where it joins a wall it lies along, cells. */
+const CROSS_END = 0.05;
+/** The most a crossing's stop is lengthened for meeting its wall aslant, as a share of the line's own. */
+const CROSS_SLANT = 2;
+
+/** Whether `p` lies inside any of `rings`. */
+function insideAny([x, y]: Vec, rings: readonly Polygon[]): boolean {
+  return rings.some((r) => {
+    let hit = false;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      if (r[i][1] > y !== r[j][1] > y && x < ((r[j][0] - r[i][0]) * (y - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) hit = !hit;
+    }
+    return hit;
+  });
+}
+
+/**
+ * Where the drawn segment `a`–`b` crosses a wall's rock (`walls`), in order along it: each point,
+ * and how far back from it the cliff stops, the line's own `back` lengthened as the segment meets
+ * it aslant (no more than CROSS_SLANT times). None within CROSS_END of either end.
+ */
+function crossings(a: Vec, b: Vec, walls: CliffWalls): { p: Vec; t: number; back: number }[] {
+  const d = vsub(b, a);
+  const L = Math.hypot(d[0], d[1]);
+  if (L < 2 * CROSS_END) return [];
+  const out: { p: Vec; t: number; back: number }[] = [];
+  for (const line of walls.lines) {
+    const back = walls.back.get(line) ?? 0;
+    for (const r of line.runs) {
+      for (let k = 0; k + 1 < r.length; k++) {
+        const e = vsub(r[k + 1] as Vec, r[k] as Vec);
+        const den = d[0] * e[1] - d[1] * e[0];
+        if (Math.abs(den) < 1e-12) continue;
+        const w = vsub(r[k] as Vec, a);
+        const t = (w[0] * e[1] - w[1] * e[0]) / den;
+        const u = (w[0] * d[1] - w[1] * d[0]) / den;
+        if (u < 0 || u > 1 || t * L < CROSS_END || (1 - t) * L < CROSS_END) continue;
+        const sin = Math.abs(den) / (L * Math.hypot(e[0], e[1]));
+        out.push({ p: vadd(a, vmul(d, t)), t, back: back / Math.max(1 / CROSS_SLANT, sin) });
+      }
+    }
+  }
+  return out.sort((x, y) => x.t - y.t);
 }
 
 /**
  * A ledge cliff's stretches off every wall (`cliffWalls`), each an open run laid on to the wall's
  * line at a tip that meets one (short of it by the line's `back`), and its top drawn along its
- * own cliff's line where it has one (`own`). A cliff that meets no wall is its walk, its top the
- * run as drawn (`laid`), as one stretch; one wholly on walls has none.
+ * own cliff's line where it has one (`own`). A cliff is cut where it crosses a wall's rock as
+ * well as where it lies along it, and laid nowhere inside an erased opening. A cliff that meets
+ * no wall is its walk, its top the run as drawn (`laid`), as one stretch; one wholly on walls has none.
  */
 function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls, own: RockLine[] | undefined): CliffRun[] {
   const whole: CliffRun[] = [{ run: walk, top: laid, merged: [false, false] }];
-  if (walls.lines.length === 0) return whole;
+  if (walls.lines.length === 0 && walls.openings.length === 0) return whole;
   const cut = alongRock(run.points, run.closed, walls.lines);
-  const n = cut.on.length;
-  if (!cut.on.some((k) => k >= 0)) return whole;
+  // The run as stretches of drawn edge and the walls between them, each wall with how far short of it the cliff stops.
+  type Item = { a: Vec; b: Vec; drop: number } | { back: number };
+  const items: Item[] = [];
+  for (let i = 0; i < cut.on.length; i++) {
+    const a = cut.points[i];
+    const b = cut.points[(i + 1) % cut.points.length];
+    if (cut.on[i] >= 0) {
+      items.push({ back: walls.back.get(cut.replaced[cut.on[i]].line) ?? 0 });
+      continue;
+    }
+    if (insideAny(vmul(vadd(a, b), 0.5), walls.openings)) {
+      items.push({ back: 0 });
+      continue;
+    }
+    const drop = run.drops[cut.segs[i]];
+    let from = a;
+    for (const x of crossings(a, b, walls)) {
+      items.push({ a: from, b: x.p, drop }, { back: x.back });
+      from = x.p;
+    }
+    items.push({ a: from, b, drop });
+  }
+  const m = items.length;
+  const isWall = (it: Item): it is { back: number } => 'back' in it;
+  if (!items.some(isWall)) return whole;
   // A ring is read from just past a wall, so no stretch is split across its seam.
-  const start = run.closed ? cut.on.findIndex((k, i) => k < 0 && cut.on[(i - 1 + n) % n] >= 0) : 0;
+  const start = run.closed ? items.findIndex((it, i) => !isWall(it) && isWall(items[(i - 1 + m) % m])) : 0;
   if (start < 0) return [];
-  const backOf = (k: number) => (k < 0 ? 0 : (walls.back.get(cut.replaced[k].line) ?? 0));
   const out: CliffRun[] = [];
-  let part: { points: Vec[]; drops: number[]; head: number } | null = null;
-  const flush = (tail: number) => {
-    const kept = part && trimmed(part.points, part.drops, backOf(part.head), backOf(tail));
+  // `head` and a tail: how far short of the wall it meets the stretch stops, null at a free tip.
+  let part: { points: Vec[]; drops: number[]; head: number | null } | null = null;
+  let before: number | null = null;
+  const flush = (tail: number | null) => {
+    const kept = part && trimmed(part.points, part.drops, part.head ?? 0, tail ?? 0);
     if (part && kept) {
       const stretch: EdgeRun = { ...run, closed: false, ...kept };
       const a = alongRock(kept.points, false, own);
       const top = a.replaced.length === 0 ? stretch : { ...stretch, points: a.points, drops: a.segs.map((i) => kept.drops[i]) };
-      out.push({ run: stretch, top, merged: [part.head >= 0, tail >= 0] });
+      out.push({ run: stretch, top, merged: [part.head !== null, tail !== null] });
     }
     part = null;
   };
-  for (let j = 0; j < n; j++) {
-    const i = (start + j) % n;
-    if (cut.on[i] >= 0) {
-      flush(cut.on[i]);
+  if (run.closed) {
+    const last = items[(start - 1 + m) % m];
+    before = isWall(last) ? last.back : null;
+  }
+  for (let j = 0; j < m; j++) {
+    const it = items[(start + j) % m];
+    if (isWall(it)) {
+      flush(it.back);
+      before = it.back;
       continue;
     }
-    part ??= { points: [cut.points[i]], drops: [], head: run.closed || i > 0 ? cut.on[(i - 1 + n) % n] : -1 };
-    part.points.push(cut.points[(i + 1) % cut.points.length]);
-    part.drops.push(run.drops[cut.segs[i]]);
+    part ??= { points: [it.a], drops: [], head: before };
+    part.points.push(it.b);
+    part.drops.push(it.drop);
   }
-  flush(-1);
+  flush(null);
   return out;
 }
 
@@ -1268,7 +1347,8 @@ function drawCliff(parent: Container, stretch: CliffRun, placed: WalkPlacement[]
   const rock = new Container();
   rock.label = 'plateau-cliff';
   const drawn = cliffLedge(stretch, placed);
-  placeBand(rock, drawn, art, 0xffffff, 0);
+  // A measured kit's connectors go over its joints that bend, above the pieces.
+  placeBand(rock, withConnectors(drawn, cliffPieces(art, run.owner?.edgeArt)), art, 0xffffff, 0);
   // Art that carries its own light and colour is not shaded: the sun would multiply it dark.
   if (!isColoredSet(cliffChoice(run.owner?.edgeArt).setId)) {
     drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));

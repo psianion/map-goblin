@@ -31,6 +31,7 @@ import {
   orientRings,
   placeBand,
   planDrawnBand,
+  withConnectors,
   type BandFloor,
   type BandRingRef,
   type DrawnBandPlan,
@@ -938,7 +939,7 @@ export function renderNodeWalls(
           wallsContainer,
           placeBand(
             wallsContainer,
-            layBandChain(run, gaps, bandPiecesFor(look.setId), size),
+            withConnectors(layBandChain(run, gaps, bandPiecesFor(look.setId), size), bandPiecesFor(look.setId), size),
             band,
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,
@@ -988,7 +989,7 @@ export function renderNodeWalls(
       if (measured) options.onBandLaid?.({ ring: oriented[i], placed, gaps, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, placed, band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
+        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
       );
       continue;
     }
@@ -1047,7 +1048,7 @@ export function renderNodeWalls(
       for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
         const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
         const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
-        at = placeBand(target, laid, band, bandTint(look.setId, look.tint), at, fill, options.waitFor);
+        at = placeBand(target, withConnectors(laid, pieces, size), band, bandTint(look.setId, look.tint), at, fill, options.waitFor);
       }
       pools.set(target, at);
       continue;

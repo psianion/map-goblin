@@ -9,6 +9,7 @@
 import type { Container, Texture } from 'pixi.js';
 import type { Polygon } from '../types/geometry';
 import { BORDER_FADE, BORDER_WOBBLE, nestedAlphas, wobbleNoise, wobbleRings } from '../shared/plateauShade';
+import { floorEdgeOpenSpans } from '../shared/caveFloor';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { paintTiled, type TiledLook } from './floorWallRenderer';
 import { fittedFloor, type FloorFit } from './caveBandRenderer';
@@ -62,6 +63,54 @@ export function innerBandLayers(rings: Polygon[], width: number, seed: number, f
     const band = strips.reduce((acc, s) => (acc.length === 0 ? clipper2Engine.union(s, []) : clipper2Engine.union(acc, s)), [] as Polygon[]);
     return clipper2Engine.intersection(band, region);
   }, fade);
+}
+
+/** How far in from a cave mouth its floor fades from nothing to full, cells. */
+export const MOUTH_FADE = 1;
+/** How far a mouth's fade wanders either way, as a share of how far in each step reaches. */
+const MOUTH_WOBBLE = 0.15;
+
+/**
+ * The mouths of a layer's caves: each stretch of a floor ring's edge (`rings`) that lies on an
+ * erased opening (`openings`), as a line. Doors are not mouths. Empty with no openings.
+ */
+export function mouthLines(rings: readonly Polygon[], openings: readonly Polygon[] | undefined): Polygon[] {
+  if (!openings || openings.length === 0) return [];
+  const out: Polygon[] = [];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      for (const [t0, t1] of floorEdgeOpenSpans(a, b, openings)) {
+        const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        out.push([at(t0), at(t1)]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The steps a floor `region` is painted in where it meets cave mouths (`mouths`): full from
+ * MOUTH_FADE in from each mouth's line, nothing at the line, and between in even steps, each
+ * step's inner edge wandering as a soft fill's does (the same way every time for `seed`). Only
+ * ever less floor than `region`: nothing is added outside the cave, and the floor beside the
+ * rock either side of a mouth keeps its fitted edge. Paint only. Empty when no mouth comes near
+ * the region: it is painted whole, as it always was.
+ */
+export function mouthFadeLayers(region: Polygon[], mouths: readonly Polygon[], seed: number, steps = SOFT_EDGE_STEPS): SoftLayer[] {
+  if (mouths.length === 0 || region.length === 0) return [];
+  const zone = clipper2Engine.inflateOpen([...mouths], MOUTH_FADE * (1 + MOUTH_WOBBLE));
+  if (clipper2Engine.intersection(region, zone).length === 0) return [];
+  const noise = wobbleNoise(seed);
+  return nestedAlphas(1, steps)
+    .map((alpha, k) => {
+      // The solid step first: it keeps furthest from the mouths.
+      const reach = (MOUTH_FADE * (steps - k)) / steps;
+      const near = mouths.flatMap((line) => wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, MOUTH_WOBBLE * reach, noise));
+      return { rings: near.length > 0 ? clipper2Engine.difference(region, clipper2Engine.union(near, [])) : region, alpha };
+    })
+    .filter((l) => l.rings.length > 0);
 }
 
 /**

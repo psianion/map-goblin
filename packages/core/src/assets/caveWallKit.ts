@@ -38,6 +38,8 @@ export interface CaveKitPiece {
   spine?: [number, number][];
   /** True for a piece built from a pack's own measurements: its art butts, so every joint must lap in full. */
   exact?: boolean;
+  /** A connector's solid body, cells: a round lump laid over a joint, never inside a run. */
+  radius?: number;
 }
 
 interface RawPiece {
@@ -120,7 +122,11 @@ export function caveBandPieces(): CaveKitPiece[] {
 interface MeasuredKit {
   pool: CaveKitPiece[];
   ends: CaveKitPiece[];
+  connectors: CaveKitPiece[];
 }
+
+/** Each measured kit's connectors, by every piece of the pool it lays with: the walk is handed the pieces alone. */
+const pieceConnectors = new WeakMap<CaveKitPiece, CaveKitPiece[]>();
 
 /**
  * A measured kit's pieces, keyed on the catalog's own entry list for the set: that list
@@ -133,7 +139,7 @@ function measuredKit(setId: string): MeasuredKit {
   const entries = getBandSet(setId);
   let kit = measuredKits.get(entries);
   if (kit) return kit;
-  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean }>();
+  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean; connector: boolean }>();
   for (const e of entries) {
     if (!e.band) continue;
     const key = `${e.material}_${e.gridSize}`;
@@ -155,19 +161,36 @@ function measuredKit(setId: string): MeasuredKit {
         chordCells: Math.hypot(a[0] - b[0], a[1] - b[1]),
         turnDeg: e.band.turnDeg,
         ...(e.band.spine && { spine: e.band.spine.map(([x, y]): [number, number] => [x, y]) }),
+        ...(e.band.connector && { radius: e.band.radius ?? 0 }),
         exact: true,
       },
       end: !!e.band.end,
+      connector: !!e.band.connector,
     });
   }
   const measuredPieces = [...byKey.values()];
-  const base = measuredPieces.filter((m) => !m.end).map((m) => m.piece);
+  const base = measuredPieces.filter((m) => !m.end && !m.connector).map((m) => m.piece);
   kit = {
     pool: [...base, ...base.filter((p) => p.turnDeg === 0).map(mirrorPiece)],
     ends: measuredPieces.filter((m) => m.end).map((m) => m.piece),
+    // Smallest first: a joint takes the smallest that covers it.
+    connectors: measuredPieces
+      .filter((m) => m.connector && (m.piece.radius ?? 0) > 0)
+      .map((m) => m.piece)
+      .sort((a, b) => a.radius! - b.radius!),
   };
+  for (const p of kit.pool) pieceConnectors.set(p, kit.connectors);
   measuredKits.set(entries, kit);
   return kit;
+}
+
+/** The connectors of the measured kit `set`'s pieces come from, smallest first. Empty for any other set. */
+export function kitConnectors(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  for (const p of set) {
+    const found = pieceConnectors.get(p);
+    if (found) return found;
+  }
+  return [];
 }
 
 /** The pieces a band set is laid with: its own measurements when its entries carry them, else the built-in cave kit. */

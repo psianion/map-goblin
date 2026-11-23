@@ -138,7 +138,7 @@ function build(): CatalogState {
   // entries are its band (props shipped beside them are not).
   const measuredBandSets = new Set<string>();
   for (const [setId, entries] of measured) {
-    if (!entries.some((e) => e.band!.turnDeg === 0 && !e.band!.end)) continue;
+    if (!entries.some((e) => e.band!.turnDeg === 0 && !e.band!.end && !e.band!.connector)) continue;
     bandSets.set(setId, entries);
     measuredBandSets.add(setId);
   }

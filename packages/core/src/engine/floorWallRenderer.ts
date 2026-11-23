@@ -19,7 +19,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { layerSlopes, plateauAlongWalls, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
 import { hasPlateaus } from '../shared/plateaus';
 import { DEFAULT_TEXTURE_SCALE } from '../shared/types';
-import { FACE_TILE_CELLS, faceDirectionOf } from '../shared/plateauShade';
+import { FACE_TILE_CELLS, faceDirectionOf, wobbleSeed } from '../shared/plateauShade';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
@@ -28,9 +28,9 @@ import { cliffRockLines, rockLineOf, storeRockLines } from './rockLines';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
-import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
+import { drawPiece, drawPieceBorder, isWaterPiece, paintSteps, pieceOutline, type PieceCtx } from './pieceRenderer';
 import { pruneSoftMasks } from './softPiece';
-import { paintSoftTiled } from './softEdge';
+import { mouthFadeLayers, mouthLines, paintSoftTiled } from './softEdge';
 import { laidCaves } from './material/materialRenderer';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
@@ -531,10 +531,16 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   // The walled floors' lines keep to their paint where a measured kit's rock fitted it.
   const fitted = floorFits.get(layer.id);
   const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
-  const groups: [string, Polygon[]][] = [...byColor].map(([color, rings]): [string, Polygon[]] => [color, fittedFloor(rings, fit)]);
-  if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings]);
+  // They fade out across a cave's mouth as its floor does, step by step.
+  const mouths = mouthLines(polygons, layer.caveOpenings);
+  const groups: [string, Polygon[], number][] = [...byColor].flatMap(([color, rings]): [string, Polygon[], number][] => {
+    const region = fittedFloor(rings, fit);
+    const faded = mouthFadeLayers(region, mouths, wobbleSeed(layer.id));
+    return faded.length > 0 ? faded.map((s): [string, Polygon[], number] => [color, s.rings, s.alpha]) : [[color, region, 1]];
+  });
+  if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings, 1]);
 
-  for (const [color, rings] of groups) {
+  for (const [color, rings, alpha] of groups) {
     // Mask to clip grid lines within floor shape
     const maskG = new Graphics();
     fillPolygonsWithHoles(maskG, rings, { color: 0xffffff });
@@ -543,6 +549,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
     gridContainer.addChild(maskG);
     gridContainer.addChild(...gridStrokes(Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, lines));
     gridContainer.mask = maskG;
+    gridContainer.alpha = alpha;
     gridSub.addChild(gridContainer);
   }
 }
@@ -882,7 +889,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Every water piece's outline, as one: a shore stops where water meets water.
   const waters = pieces.filter((c) => isWaterPiece(c));
   const water = waters.length > 1 ? clipper2Engine.union(waters.flatMap((c) => pieceOutline(c)), []) : waters.flatMap((c) => pieceOutline(c));
-  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0, fit };
+  // A cave's floor fades out across each of its mouths.
+  const mouths = mouthLines(polygons, layer.caveOpenings);
+  const mouthSeed = wobbleSeed(layer.id);
+  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0, fit, mouths, mouthSeed };
 
   // A ground piece between two walled floors lies over the floors under it: where it shows
   // (no later walled floor covers it) the walled extras stay off it.
@@ -910,9 +920,14 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   drawFaces(-1);
   pieces.forEach((shape, i) => {
     if (unionFilled && i === firstWalled) {
-      const floorG = new Graphics();
-      fillPolygonsWithHoles(floorG, fittedFloor(polygons, fit), { color: floorColorNum });
-      floor.addChild(floorG);
+      const region = fittedFloor(polygons, fit);
+      const faded = mouthFadeLayers(region, mouths, mouthSeed);
+      if (faded.length > 0) paintSteps(floor, faded, floorColorNum);
+      else {
+        const floorG = new Graphics();
+        fillPolygonsWithHoles(floorG, region, { color: floorColorNum });
+        floor.addChild(floorG);
+      }
     }
     drawPiece(floor, shape, ctx);
     if (i === lastWalled && polygons.length > 0) walledExtras();

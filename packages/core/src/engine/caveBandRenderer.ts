@@ -10,8 +10,8 @@
 import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
-import { GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
-import { bandPiecesFor, caveBandPieces, jointsOf, type CaveKitPiece } from '../assets/caveWallKit';
+import { BAND_DRAWN_WIDTH, GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandPiecesFor, caveBandPieces, jointsOf, kitConnectors, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -574,7 +574,36 @@ export function layBandRing(
   set: CaveKitPiece[] = caveBandPieces(),
   size = 1,
 ): WalkPlacement[] {
-  if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layBandRing(p, g, set));
+  return keptLaying('ring', poly, gaps, set, size, () => {
+    if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layBandRing(p, g, set));
+    return pushBends(layRing(poly, gaps, set), set);
+  });
+}
+
+/** The most layings kept per kit before the oldest are dropped. */
+const KEPT_LAYINGS = 512;
+const keptLayings = new WeakMap<CaveKitPiece[], Map<string, WalkPlacement[]>>();
+
+/**
+ * A measured kit's laying of one ring or run, kept while its outline, its gaps, its size and the
+ * kit are the same: a rebuild lays every ring of a layer, and on a drag all but one are as they
+ * were. Laying is pure, so what is kept is what would be laid again; callers never change it.
+ * Any other kit is laid afresh every time, as it always was.
+ */
+function keptLaying(kind: string, line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], size: number, lay: () => WalkPlacement[]): WalkPlacement[] {
+  if (!set.some((p) => p.exact)) return lay();
+  let kept = keptLayings.get(set);
+  if (!kept) keptLayings.set(set, (kept = new Map()));
+  const key = `${kind}|${size}|${JSON.stringify(line)}|${JSON.stringify(gaps.map((g) => [g.position, g.width]))}`;
+  const hit = kept.get(key);
+  if (hit) return hit;
+  const laid = lay();
+  if (kept.size >= KEPT_LAYINGS) kept.delete(kept.keys().next().value!);
+  kept.set(key, laid);
+  return laid;
+}
+
+function layRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): WalkPlacement[] {
   if (poly.length < 3) return [];
   const base = resampleClosed(poly as Curve, CURVE_STEP);
   if (base.length < 8) return [];
@@ -1069,6 +1098,157 @@ export function meetNeighbours(placed: WalkPlacement[], set: CaveKitPiece[], rin
   return run;
 }
 
+/* ── Joints that bend ─────────────────────────────────────────────────
+ *
+ * A measured kit's pieces end square, so where two of them meet at an angle a wedge
+ * opens on the outside of the turn, (rock width / 2) × tan(turn / 2) across at the
+ * rock's face, and the floor fitted up to the rock's line shows through it; where two
+ * pieces' rock lines pass beside each other rather than cross, the step between them opens
+ * a notch the same way. A kit that ships connectors (round lumps of its rock) gets one laid
+ * over each such joint; a kit with none has the two pieces run on a little further over
+ * each other where they bend.
+ */
+
+/** A wedge narrower than this across, cells at size 1, is left. */
+const WEDGE_LEAST = 0.05;
+/** The most each piece is run on over the other at a bend, cells at size 1. */
+const BEND_PUSH = 0.25;
+/** The largest share of its drawn size a piece runs on to at a bend: the most a straight is fitted to. */
+const BEND_PUSH_SCALE = 1.2;
+/** The sizes a connector is laid between, as shares of its drawn size. */
+const CONNECTOR_SCALE: [number, number] = [0.6, 1];
+/** The widest a connector's body is laid, as a share of the rock's width. */
+const CONNECTOR_SPAN = 1.4;
+
+/** One joint between two pieces laid in a row: `a` then `b`, at index `k` and the next. */
+interface BentJoint {
+  k: number;
+  j: number;
+  /** How wide the wedge on the outside of the turn opens at the rock's face, cells. */
+  wedge: number;
+  /** Where the two rock lines join (they cross there, or pass `step` apart), and that step. */
+  at: Vec;
+  step: number;
+}
+
+/**
+ * The joints of a laid run (in walk order, the last onto the first where they meet) that
+ * bend enough to open a wedge, or whose rock lines step apart enough to open a notch: two
+ * pieces short of each other or apart sideways (an opening: a door, a mouth, a run's end)
+ * are no joint. At `size`, the rock is BAND_DRAWN_WIDTH times that wide.
+ */
+function bentJoints(placed: WalkPlacement[], set: CaveKitPiece[], size: number): BentJoint[] {
+  if (placed.length < 2) return [];
+  const overlap = kitOverlap(set);
+  const out: BentJoint[] = [];
+  for (let k = 0; k < placed.length; k++) {
+    const j = (k + 1) % placed.length;
+    const a = placed[k];
+    const b = placed[j];
+    const { t, lap, want, side } = jointLap(a, b, overlap * size);
+    if ((want - lap) / size > MEET_SHORT || side / size > MEET_SIDE) continue;
+    const entry = Math.atan2(b.Q[1] - b.P[1], b.Q[0] - b.P[0]) - (b.piece.turnDeg * Math.PI) / 360;
+    const turn = Math.abs(Math.atan2(Math.sin(entry - Math.atan2(t[1], t[0])), Math.cos(entry - Math.atan2(t[1], t[0]))));
+    // Pieces that already run on past each other further than the joint asks (two straights
+    // crossing at a corner no bend suits) cover that much of it.
+    const wedge = ((BAND_DRAWN_WIDTH * size) / 2) * Math.tan(Math.min(turn, (SHARP_TURN_DEG * Math.PI) / 180) / 2) - Math.max(0, lap - want);
+    // Where the two rock lines join, as the rock line itself joins them: where they cross, or
+    // the middle of the step between them where they pass.
+    const [sa, sb] = [pieceSeat(a), pieceSeat(b)];
+    joinSeats(sa, sb, SEAT_LAP_REACH * a.at.scale);
+    const [pa, pb] = sa.length > 0 && sb.length > 0 ? [sa[sa.length - 1], sb[0]] : [jointsOf(a.piece, a.at)[1], jointsOf(b.piece, b.at)[0]];
+    const step = dist(pa, pb);
+    if (Math.max(wedge, step) > WEDGE_LEAST * size) out.push({ k, j, wedge, at: mul(add(pa, pb), 0.5), step });
+  }
+  return out;
+}
+
+/**
+ * The connectors a laid run of `set` (at `size`) takes: over each joint that bends (see
+ * {@link bentJoints}), centred on the joint on the rock's line, the smallest connector whose
+ * body reaches the rock's face from there, laid between CONNECTOR_SCALE of its drawn size and
+ * no wider than CONNECTOR_SPAN times the rock; where none reaches, the largest. Turned by an
+ * angle seeded from where it lies, so a redraw lays the same. They change no rock line, no
+ * blocking and no floor fit: they are drawn over the pieces and nothing else reads them.
+ * Empty for a kit with no connectors.
+ */
+export function bandConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size = 1): WalkPlacement[] {
+  const connectors = kitConnectors(set);
+  if (connectors.length === 0) return [];
+  // A kept laying (see keptLaying) keeps its connectors too.
+  const hit = keptConnectors.get(placed);
+  if (hit && hit.size === size) return hit.value;
+  const value = layConnectors(placed, set, size, connectors);
+  keptConnectors.set(placed, { size, value });
+  return value;
+}
+
+const keptConnectors = new WeakMap<WalkPlacement[], { size: number; value: WalkPlacement[] }>();
+
+function layConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size: number, connectors: CaveKitPiece[]): WalkPlacement[] {
+  const reach = (BAND_DRAWN_WIDTH * size) / 2;
+  const widest = (CONNECTOR_SPAN * BAND_DRAWN_WIDTH * size) / 2;
+  return bentJoints(placed, set, size).map(({ at: centre, step }) => {
+    const need = reach + step / 2;
+    const piece = connectors.find((c) => c.radius! * CONNECTOR_SCALE[1] * size >= need) ?? connectors[connectors.length - 1];
+    const r = piece.radius! * size;
+    const scale = size * Math.min(CONNECTOR_SCALE[1], widest / r, Math.max(CONNECTOR_SCALE[0], need / r));
+    const h = (Math.imul(Math.round(centre[0] * 100), 7919) ^ Math.imul(Math.round(centre[1] * 100), 104729)) >>> 0;
+    const rotation = (h / 4294967296) * 2 * Math.PI;
+    const [cx, cy] = piece.jointsCells[0];
+    const off: Vec = [(cx * Math.cos(rotation) - cy * Math.sin(rotation)) * scale, (cx * Math.sin(rotation) + cy * Math.cos(rotation)) * scale];
+    return { piece, P: centre, Q: centre, i: 0, nudge: 0, branch: 'connector', at: { position: { x: centre[0] - off[0], y: centre[1] - off[1] }, rotation, scale, flipY: false } };
+  });
+}
+
+/** A laid run as drawn: its pieces, then the connectors over its joints (see {@link bandConnectors}), above them. */
+export function withConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size = 1): WalkPlacement[] {
+  const connectors = bandConnectors(placed, set, size);
+  return connectors.length === 0 ? placed : [...placed, ...connectors];
+}
+
+/**
+ * A laid run of a measured kit with no connectors, each joint that bends (see
+ * {@link bentJoints}) closed by running its two pieces on over each other along their own
+ * chords, half the wedge each, no more than BEND_PUSH and no piece past BEND_PUSH_SCALE of its
+ * drawn size; what is left past that is left. A bend keeps its drawn size, as it was laid to
+ * its corner: the straight beside it takes the whole wedge. Only the art moves: the chord the
+ * walk gave each piece (`P`, `Q`) stays, so the runs the rock is read as stay too. Laid at
+ * size 1. Any other kit is returned untouched.
+ */
+function pushBends(placed: WalkPlacement[], set: CaveKitPiece[]): WalkPlacement[] {
+  if (!set.some((p) => p.exact) || kitConnectors(set).length > 0) return placed;
+  const joints = bentJoints(placed, set, 1);
+  if (joints.length === 0) return placed;
+  // A piece's art stops half the kit's overlap (at its scale) in from each joint, so it grows
+  // by the art's own length, not the chord's: the end not run on keeps its art where it was.
+  const inset = kitOverlap(set) / 2;
+  const artLength = (pl: WalkPlacement): number => pl.piece.chordCells - 2 * inset;
+  // How far each straight's art runs on at its start and at its end.
+  const ext = placed.map(() => [0, 0]);
+  const grow = (idx: number, by: number, atEnd: boolean): void => {
+    const pl = placed[idx];
+    if (pl.piece.turnDeg !== 0 || artLength(pl) <= 0) return;
+    const room = (BEND_PUSH_SCALE - pl.at.scale) * artLength(pl) - ext[idx][0] - ext[idx][1];
+    ext[idx][atEnd ? 1 : 0] += Math.max(0, Math.min(by, BEND_PUSH, room));
+  };
+  for (const { k, j, wedge } of joints) {
+    if (wedge <= WEDGE_LEAST) continue;
+    const [bentA, bentB] = [placed[k].piece.turnDeg !== 0, placed[j].piece.turnDeg !== 0];
+    grow(k, bentB ? wedge : wedge / 2, true);
+    grow(j, bentA ? wedge : wedge / 2, false);
+  }
+  return placed.map((pl, i) => {
+    const [head, tail] = ext[i];
+    if (head + tail <= 0) return pl;
+    const [J0, J1] = jointsOf(pl.piece, pl.at);
+    const dir = norm(sub(J1, J0));
+    // The inset grows with the scale: each joint moves out by that as well.
+    const more = (inset * (head + tail)) / artLength(pl);
+    return { ...pl, at: placeOnChord(pl.piece, sub(J0, mul(dir, head + more)), add(J1, mul(dir, tail + more))) };
+  });
+}
+
 /** The art turns less than the ring's corners do, or a piece stood in where none fit. */
 function cutsCorner(placed: WalkPlacement[], turn: number): boolean {
   if (placed.length === 0) return true;
@@ -1221,8 +1401,10 @@ export function layBandChain(
   set: CaveKitPiece[] = caveBandPieces(),
   size = 1,
 ): WalkPlacement[] {
-  if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set));
-  return layChain(points as Curve, gaps, set, { lap: true });
+  return keptLaying('chain', points, gaps, set, size, () => {
+    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set));
+    return pushBends(layChain(points as Curve, gaps, set, { lap: true }), set);
+  });
 }
 
 function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions): WalkPlacement[] {
@@ -1713,10 +1895,11 @@ export function drawOutlineBand(
   const art = bandSetArt(setId);
   const oriented = orientRings(rings);
   const strip = !isMeasuredBandSet(setId);
+  const set = bandPiecesFor(setId);
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
     onLaid?.(edge, laid[i]);
-    at = placeBand(parent, laid[i], art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined, waitFor);
+    at = placeBand(parent, withConnectors(laid[i], set, size), art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined, waitFor);
   });
 }
 

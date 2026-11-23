@@ -351,11 +351,13 @@ describe('a kit measured to butt', () => {
 
   /**
    * Each joint's lap in full: the kit's overlap, or less where the pieces either side are laid
-   * smaller, half the overlap at each one's own scale, where the art either side just meets.
+   * smaller, half the overlap at each one's own scale, where the art either side just meets. A
+   * piece run on past its drawn size at its other end (over a bend there) asks no more here.
    */
   function fullLaps(placed: WalkPlacement[], set: CaveKitPiece[], ring: boolean): number[] {
     const overlap = kitOverlap(set);
-    return placed.slice(0, ring ? placed.length : -1).map((a, k) => Math.min(overlap, (overlap / 2) * (a.at.scale + placed[(k + 1) % placed.length].at.scale)));
+    const s = (pl: WalkPlacement): number => Math.min(1, pl.at.scale);
+    return placed.slice(0, ring ? placed.length : -1).map((a, k) => Math.min(overlap, (overlap / 2) * (s(a) + s(placed[(k + 1) % placed.length]))));
   }
 
   /** Every joint laps in full (see {@link fullLaps}). */
@@ -857,8 +859,10 @@ describe('a measured kit on a straight-sided room, laid corner by corner', () =>
     });
     expect([failed.length, plainFailed]).toEqual([1353, 0]);
     expect(Math.min(...failed.map((x) => x.f.worstScale))).toBeCloseTo(0.85, 6);
-    expect(Math.max(...failed.map((x) => x.f.worstScale))).toBeCloseTo(1.155, 6);
-    expect(Math.max(...failed.map((x) => x.f.worstMeet))).toBeLessThan(0.55);
+    // A straight beside a joint that bends runs on over the piece it meets, up to 1.2 of its
+    // drawn size and 0.25 further than it lapped.
+    expect(Math.max(...failed.map((x) => x.f.worstScale))).toBeCloseTo(1.2, 6);
+    expect(Math.max(...failed.map((x) => x.f.worstMeet))).toBeLessThan(0.65);
     expect(Math.max(...failed.map((x) => x.f.worstHole))).toBeLessThan(1e-6);
     expect(Math.max(...failed.map((x) => x.f.worstSide))).toBeLessThan(1e-9);
   }, 30_000);

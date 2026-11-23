@@ -42,6 +42,13 @@ export interface BandMeasure {
   turnDeg: number
   /** An open run's tip. Never laid inside a run. */
   end?: boolean
+  /**
+   * A round lump of the kit's rock, laid over a joint where two pieces meet at an angle. Never
+   * laid inside a run. Its two joints are both the middle of its solid body.
+   */
+  connector?: boolean
+  /** A connector's solid body: its radius in cells. */
+  radius?: number
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][]
 }

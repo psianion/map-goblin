@@ -6,8 +6,10 @@
 // art ends (half the kit's overlap in from each joint).
 
 import { jointsOf } from '../assets/caveWallKit';
+import { BAND_DRAWN_WIDTH } from '../assets/packCatalog';
 import { SEAT_IN, seatLine } from '../engine/caveBandRenderer';
 import type { WalkPlacement } from '../engine/caveWalk';
+import { ledgeRuns } from '../engine/plateauRenderer';
 import type { DoorGap } from '../engine/wallNodeRenderer';
 import type { Polygon } from '../types/geometry';
 
@@ -29,6 +31,8 @@ export const BAND_RULES = {
   padStep: 0.25,
   /** 6: every piece between these shares of its drawn size. */
   scale: [0.85, 1.25] as [number, number],
+  /** 7: the rock line moved this share of the rock's width to the void side lies under rock everywhere. */
+  rim: 0.4,
 };
 
 /** What one ring's rock measured. Lengths in cells at size 1. */
@@ -53,6 +57,9 @@ export interface BandCheck {
   spikeAt: V | null;
   /** 6: the smallest and largest piece, as a share of its drawn size. */
   scale: [number, number];
+  /** 7: length of the rim (see BAND_RULES.rim) under no piece's body and no connector, and the first such point. */
+  bareRim: number;
+  bareRimAt: V | null;
 }
 
 /** Which rules a check breaks, by number. */
@@ -64,6 +71,7 @@ export function brokenRules(c: BandCheck): number[] {
   if (c.corridor < BAND_RULES.corridorClear) out.push(4);
   if (c.floorOff > BAND_RULES.floorReach || c.spikes > 0) out.push(5);
   if (c.scale[0] < BAND_RULES.scale[0] - 1e-6 || c.scale[1] > BAND_RULES.scale[1] + 1e-6) out.push(6);
+  if (c.bareRim > 1e-9) out.push(7);
   return out;
 }
 
@@ -144,7 +152,11 @@ export function pieceRockLine(pl: WalkPlacement, overlap: number): V[] {
 export interface BandCheckInput {
   /** The drawn edge, wound void-left. */
   ring: Polygon;
+  /** False for an open run (a cliff's stretch off the walls): the edge does not close. */
+  closed?: boolean;
   placed: WalkPlacement[];
+  /** The connectors laid over its joints (`bandConnectors`). */
+  connectors?: WalkPlacement[];
   /** The ring's door and erased gaps. */
   gaps: DoorGap[];
   /** The layer's erased regions. */
@@ -159,9 +171,90 @@ export interface BandCheckInput {
   doorPad: number;
 }
 
-/** Measure one ring's rock against the six rules. */
+/** Distance from `p` to the line `pts` cut square at its two ends: Infinity past either end. */
+function bodyDist(p: V, pts: V[]): number {
+  let d = Infinity;
+  const last = pts.length - 2;
+  for (let i = 0; i <= last; i++) {
+    const a = pts[i];
+    const v = sub(pts[i + 1], a);
+    const L2 = dot(v, v);
+    if (L2 <= 0) continue;
+    const t = dot(sub(p, a), v) / L2;
+    if ((i === 0 && t < -1e-9) || (i === last && t > 1 + 1e-9)) continue;
+    d = Math.min(d, len(sub(p, add(a, mul(v, Math.max(0, Math.min(1, t)))))));
+  }
+  return d;
+}
+
+/**
+ * Rule 7 on one run of rock: its rock line moved `shift` to the void side (the left of
+ * travel), round each bend of the line as well as along it, lies inside some piece's body
+ * (`bodies`, each widened by `half`, square at its ends) or some connector (`discs`). An
+ * open run's first and last `trim` are left alone (past its art's ends), and so is any
+ * point `skip` says lies in an opening.
+ */
+function bareRimOf(
+  line: V[],
+  closed: boolean,
+  shift: number,
+  half: number,
+  trim: number,
+  bodies: V[][],
+  discs: { c: V; r: number }[],
+  skip: (p: V) => boolean,
+): { bare: number; at: V | null } {
+  const step = 0.05;
+  const covered = (q: V): boolean => discs.some((d) => len(sub(q, d.c)) <= d.r + 1e-6) || bodies.some((b) => bodyDist(q, b) <= half + 1e-6);
+  const n = line.length;
+  const segs = closed ? n : n - 1;
+  const cum = [0];
+  for (let i = 0; i < segs; i++) cum.push(cum[i] + len(sub(line[(i + 1) % n], line[i])));
+  const total = cum[segs];
+  let bare = 0;
+  let at: V | null = null;
+  const test = (p: V, q: V, s: number, w: number): void => {
+    if (!closed && (s < trim || s > total - trim)) return;
+    if (skip(p) || covered(q)) return;
+    bare += w;
+    at ??= q;
+  };
+  const leftOf = (i: number): V | null => {
+    const v = sub(line[(i + 1) % n], line[i]);
+    const L = len(v);
+    return L < 1e-9 ? null : [v[1] / L, -v[0] / L];
+  };
+  for (let i = 0; i < segs; i++) {
+    const a = line[i];
+    const nl = leftOf(i);
+    if (!nl) continue;
+    const L = cum[i + 1] - cum[i];
+    const t = mul(sub(line[(i + 1) % n], a), 1 / L);
+    for (let s = 0; s < L; s += step) {
+      const p = add(a, mul(t, s));
+      test(p, add(p, mul(nl, shift)), cum[i] + s, step);
+    }
+    // Round the bend into the next segment: the wedge a joint opens lies there.
+    const j = i + 1;
+    if (j >= segs && !closed) continue;
+    const next = leftOf(j % segs);
+    if (!next) continue;
+    const turn = Math.atan2(cross(nl, next), dot(nl, next));
+    const k = Math.ceil(Math.abs(turn) / (step / shift));
+    const p = line[j % n];
+    for (let m = 1; m < k; m++) {
+      const ang = (turn * m) / k;
+      const dir: V = [nl[0] * Math.cos(ang) - nl[1] * Math.sin(ang), nl[0] * Math.sin(ang) + nl[1] * Math.cos(ang)];
+      test(p, add(p, mul(dir, shift)), cum[j], (Math.abs(turn) * shift) / k);
+    }
+  }
+  return { bare, at };
+}
+
+/** Measure one ring's rock against the seven rules. */
 export function checkBand(input: BandCheckInput): BandCheck {
   const { placed, gaps, size } = input;
+  const closedEdge = input.closed ?? true;
   const ring = input.ring.map(([x, y]): V => [x, y]);
   const openings = input.openings ?? [];
   const lines = placed.map((pl) => pieceRockLine(pl, input.overlap)).filter((l) => l.length > 1);
@@ -186,7 +279,7 @@ export function checkBand(input: BandCheckInput): BandCheck {
   let bare = 0;
   let worstBare = 0;
   let worstBareAt: V | null = null;
-  const edgePts = sample(ring, true, step);
+  const edgePts = sample(ring, closedEdge, step);
   for (const p of edgePts) {
     if (nearGap(p, 0.02)) continue;
     const d = rockDist(p) / size;
@@ -216,14 +309,15 @@ export function checkBand(input: BandCheckInput): BandCheck {
   let stray = 0;
   let strayAt: V | null = null;
   for (const p of rockPts) {
-    const d = lineDist(p, ring, true) / size;
+    const d = lineDist(p, ring, closedEdge) / size;
     if (d > stray) [stray, strayAt] = [d, p];
   }
 
   // 4: corridors. From each point of edge, straight across the floor to the edge facing it.
   let corridor = Infinity;
   let corridorAt: V | null = null;
-  for (let i = 0; i < ring.length; i++) {
+  const edges = ring.length - (closedEdge ? 0 : 1);
+  for (let i = 0; i < edges; i++) {
     const a = ring[i];
     const b = ring[(i + 1) % ring.length];
     const L = len(sub(b, a));
@@ -236,7 +330,7 @@ export function checkBand(input: BandCheckInput): BandCheck {
       // The nearest edge straight across, and whether it faces back (a corridor's far side).
       let hit = Infinity;
       let facing = false;
-      for (let j = 0; j < ring.length; j++) {
+      for (let j = 0; j < edges; j++) {
         if (j === i) continue;
         const c = ring[j];
         const d = ring[(j + 1) % ring.length];
@@ -304,6 +398,21 @@ export function checkBand(input: BandCheckInput): BandCheck {
     }
   }
 
+  // 7: no wedge at a joint. The rock is BAND_DRAWN_WIDTH wide at its size, each piece's body
+  // its rock line widened by half that, cut square where its art ends.
+  const width = BAND_DRAWN_WIDTH * size;
+  const discs = (input.connectors ?? []).map((pl) => ({ c: jointsOf(pl.piece, pl.at)[0] as V, r: (pl.piece.radius ?? 0) * pl.at.scale }));
+  let bareRim = 0;
+  let bareRimAt: V | null = null;
+  for (const { run, open } of ledgeRuns(placed, closedEdge)) {
+    const line = seatLine(run, !open) as V[];
+    if (line.length < 2) continue;
+    const trim = (input.overlap / 2) * size * BAND_RULES.scale[1];
+    const r = bareRimOf(line, !open, BAND_RULES.rim * width, width / 2, trim, lines, discs, (p) => nearGap(p, 0.02));
+    bareRim += r.bare;
+    bareRimAt ??= r.at;
+  }
+
   const scales = placed.map((pl) => pl.at.scale / size);
   return {
     bare,
@@ -320,5 +429,7 @@ export function checkBand(input: BandCheckInput): BandCheck {
     spikes,
     spikeAt,
     scale: scales.length ? [Math.min(...scales), Math.max(...scales)] : [1, 1],
+    bareRim,
+    bareRimAt,
   };
 }

@@ -23,7 +23,7 @@ import { borderWidthOf, wobbleSeed } from '../shared/plateauShade';
 import { bandFillColor, drawOutlineBand, fittedFloor, type FloorFit } from './caveBandRenderer';
 import { armLateTextureRebuild, fillPolygonsWithHoles, paintTiled, shapeFloorFill, type TiledLook } from './floorWallRenderer';
 import { drawFalls, drawShore, drawWaterEdge, waterEdgeOf, type WaterEdge } from './material/materialRenderer';
-import { innerBandLayers, paintSoftTiled, type SoftLayer } from './softEdge';
+import { innerBandLayers, mouthFadeLayers, paintSoftTiled, type SoftLayer } from './softEdge';
 import { paintSoftPiece, softPieceReady } from './softPiece';
 import { bakedFades } from '../shared/pieceFades';
 
@@ -45,6 +45,10 @@ export interface PieceCtx {
   bordersOverExtras?: boolean;
   /** Where a measured kit's rock asks the walled floors to be painted off and on (`bandFloorFit`). */
   fit?: FloorFit;
+  /** The layer's cave mouths (`mouthLines`): a walled floor fades out across each. */
+  mouths?: Polygon[];
+  /** The seed a mouth's fade wanders by. */
+  mouthSeed?: number;
 }
 
 function area(ring: Polygon): number {
@@ -138,6 +142,16 @@ export function drawPieceBorder(host: Container, layerId: string, shape: ShapeCh
   host.addChild(band);
 }
 
+/** A plain colour over each step of a soft edge, at the step's opacity times `alpha`. */
+export function paintSteps(host: Container, steps: readonly SoftLayer[], color: number, alpha = 1): void {
+  for (const s of steps) {
+    const g = new Graphics();
+    fillPolygonsWithHoles(g, s.rings, { color });
+    g.alpha = s.alpha * alpha;
+    host.addChild(g);
+  }
+}
+
 /** Draws `shape` into `host`, after what it holds. */
 export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): void {
   const outline = pieceOutline(shape);
@@ -179,7 +193,14 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
       const grown = bleed > 0 ? clipper2Engine.inflate(outline, bleed) : outline;
       // A walled floor meets the measured kit's rock round it; ground keeps its own edge.
       const region = shape.ground ? (grown.length > 0 ? grown : outline) : fittedFloor(grown.length > 0 ? grown : outline, ctx.fit);
-      if (fill.kind === 'texture') {
+      // …and fades out across a cave mouth.
+      const faded = shape.ground ? [] : mouthFadeLayers(region, ctx.mouths ?? [], ctx.mouthSeed ?? 0);
+      if (faded.length > 0 && fill.kind === 'texture') {
+        paintSoftTiled(piece, faded, fill.texture, look);
+      } else if (faded.length > 0 && fill.kind === 'solid') {
+        if (fill.waitFor) armLateTextureRebuild(layer.id, fill.waitFor);
+        paintSteps(piece, faded, fill.color, look.alpha ?? 1);
+      } else if (fill.kind === 'texture') {
         paintTiled(piece, region, fill.texture, { ...look, holes: true });
       } else {
         // Texture not loaded yet: re-bake when it lands.
