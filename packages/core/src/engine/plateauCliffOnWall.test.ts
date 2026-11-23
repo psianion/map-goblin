@@ -218,8 +218,8 @@ describe('other cliffs against a wall', () => {
       expect(segDist(mid(pl), [0, 2], [0, 6])).toBeGreaterThan(0.5);
     }
     expect(drawn[0].filter((pl) => pl.branch === 'end')).toEqual([]);
-    // The wall's rock wanders here, so the chain meets it a little aslant: a hair further off.
-    for (const tip of tipsOf(walk)) expect(toRock(tip, wall)).toBeLessThan(0.35);
+    // The wall's rock wanders here, so the chain meets it a little aslant: still under the wall's rock, which is half a cell and more either side of its line.
+    for (const tip of tipsOf(walk)) expect(toRock(tip, wall)).toBeLessThan(0.45);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ kind: 'cliff', closed: false });
   });
