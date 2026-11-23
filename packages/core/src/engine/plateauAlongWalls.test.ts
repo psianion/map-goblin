@@ -73,20 +73,20 @@ function asLoop(a: readonly Pt[], b: readonly Pt[]): Pt[] {
 }
 
 describe('a raised room along its rock line', () => {
-  it('walks its cliff on the rock, with one drop per segment walked', () => {
+  it('walks no cliff on the rock, the wall standing for it, and lays its run on the rock with one drop per segment', () => {
     const layer = layerOf([plat('raised', room)], { rockLines: [rock] });
     renderPlateaus(layer, new Container(), new Container());
-    const walked = vi.mocked(layBandRing).mock.calls.map((c) => c[0] as Pt[]);
-    expect(walked).toHaveLength(1);
-    expect(walked[0]).toEqual(asLoop(walked[0], loop));
+    expect(vi.mocked(layBandRing).mock.calls).toHaveLength(0);
     const [band] = layerPlateaus(layer).bands;
-    const [{ laid }] = laidRuns(layer, band);
+    const [{ laid, walk, cliffs }] = laidRuns(layer, band);
+    expect(walk.points).toEqual(asLoop(walk.points, loop));
+    expect(cliffs).toEqual([]);
     expect(laid.drops).toHaveLength(laid.points.length);
     expect(laid.drops.every((d) => d === 2)).toBe(true);
   });
 
-  it('walks its cliff on the drawn outline with no rock line', () => {
-    const layer = layerOf([plat('raised', room)]);
+  it('walks its cliff on the drawn outline with no rock line and no wall', () => {
+    const layer = layerOf([plat('raised', room)], { mergedFloor: [] });
     renderPlateaus(layer, new Container(), new Container());
     const walked = vi.mocked(layBandRing).mock.calls.map((c) => c[0] as Pt[]);
     expect(walked).toEqual([layerPlateaus(layer).bands[0].rings[0]]);
