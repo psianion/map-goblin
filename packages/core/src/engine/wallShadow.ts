@@ -7,8 +7,8 @@
 // the line out to the rock's floor-side face, half the kit's rock width on, then easing out to
 // nothing over the kit's shadow reach. Where the rock stops (a door, a mouth, an open run's
 // end) the band stops square with it, and none of it lies on an erased opening. A kit whose
-// art carries its own shadow gets the band at half strength, so a notch between two pieces
-// reads as soft shade and the wall does not go twice as dark. A ramp (rampMask.ts), never steps.
+// art carries its own shadow gets no band: its pieces are bent to meet at their joints
+// (bandBend.ts), so that shadow no longer parts. A ramp (rampMask.ts), never steps.
 
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -42,12 +42,13 @@ interface ShadowLine extends RampLine {
 function shadowLines(laid: LaidRock): ShadowLine[] {
   const set = laid.placed.map((pl) => pl.piece);
   const shadow = kitShadow(set);
-  if (!shadow) return [];
+  // A kit whose art carries its own shadow casts it from its bent art (bandBend.ts).
+  if (!shadow || shadow.baked) return [];
   // A ring laid smaller for its narrow passages, or a hole ringed smaller, casts that much less.
   const size = laid.placed[0]?.size ?? laid.size;
   const face = (kitRockWidth(set) / 2) * size;
   const reach = shadow.reach * size;
-  const strength = shadow.baked ? shadow.strength / 2 : shadow.strength;
+  const strength = shadow.strength;
   return ledgeRuns(laid.placed, laid.closed)
     .map(({ run, open }) => ({ pts: seatLine(run, !open), closed: !open, face, reach, strength }))
     .filter((l) => l.pts.length >= 2);

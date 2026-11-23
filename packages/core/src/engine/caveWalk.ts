@@ -12,6 +12,7 @@
 // re-lays the whole cave, so treat them as measurements, not preferences.
 
 import type { CaveKitPiece, KitPlacement } from '../assets/caveWallKit';
+import type { PieceBend } from './bandBend';
 
 export type Vec = [number, number];
 /** A densely and evenly sampled closed curve. Index arithmetic wraps modulo length. */
@@ -263,6 +264,8 @@ export interface WalkPlacement {
   at: KitPlacement;
   /** The size its stretch was laid at, where a narrow passage laid it smaller than the rest of its run. */
   size?: number;
+  /** How its art is bent to meet its neighbours, or narrowed at an open end: drawing only (see bandBend.ts). */
+  bend?: PieceBend;
 }
 
 /** A joint the walk failed to cover: rock that was never laid. */

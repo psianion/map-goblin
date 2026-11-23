@@ -36,6 +36,8 @@ export interface CaveKitPiece {
   flipY?: boolean;
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][];
+  /** The middle of the fully solid rock across the piece, joint 0 end to joint 1 end, in the joints' frame: what a tapered end narrows toward. */
+  middle?: [number, number][];
   /** True for a piece built from a pack's own measurements: its art butts, so every joint must lap in full. */
   exact?: boolean;
   /** A connector's solid body, cells: a round lump laid over a joint, never inside a run. */
@@ -91,6 +93,7 @@ export function mirrorPiece(p: CaveKitPiece): CaveKitPiece {
       [a[0], -a[1]],
     ],
     ...(p.spine && { spine: p.spine.map(([x, y]): [number, number] => [x, -y]).reverse() }),
+    ...(p.middle && { middle: p.middle.map(([x, y]): [number, number] => [x, -y]).reverse() }),
     flipY: true,
   };
 }
@@ -177,6 +180,7 @@ function measuredKit(setId: string): MeasuredKit {
         chordCells: Math.hypot(a[0] - b[0], a[1] - b[1]),
         turnDeg: e.band.turnDeg,
         ...(e.band.spine && { spine: e.band.spine.map(([x, y]): [number, number] => [x, y]) }),
+        ...(e.band.middle && { middle: e.band.middle.map(([x, y]): [number, number] => [x, y]) }),
         ...(e.band.connector && { radius: e.band.radius ?? 0 }),
         exact: true,
       },

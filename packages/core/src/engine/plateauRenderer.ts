@@ -1337,6 +1337,22 @@ export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlac
 }
 
 /**
+ * The free tips of a cliff's ledge as drawn (`cliffLedge`): each open run's first and last joint,
+ * but for a tip that runs on into a wall (`merged`). None where the kit lays end pieces there.
+ */
+export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end: Vec) => boolean) | undefined {
+  const { run } = stretch;
+  if (ledgeEndPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt).length > 0) return undefined;
+  const runs = ledgeRuns(drawn, run.closed).filter((r) => r.open);
+  const [head, tail] = run.drop > 0 ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
+  const tips: Vec[] = runs.flatMap((r, k) => [
+    ...(head && k === 0 ? [] : [jointFrame(r.run[0]).joints[0]]),
+    ...(tail && k === runs.length - 1 ? [] : [jointFrame(r.run[r.run.length - 1]).joints[1]]),
+  ]);
+  return tips.length > 0 ? (p) => tips.some((t) => vdist(p, t) < 1e-6) : undefined;
+}
+
+/**
  * One stretch of a cliff: the top-edge ink line along its `top` (on its rock line where it has
  * one), then its ledge (`cliffLedge`) from the pieces `placed` by its walk (`walkCliff`).
  */
@@ -1360,8 +1376,9 @@ function drawCliff(parent: Container, stretch: CliffRun, placed: WalkPlacement[]
   const rock = new Container();
   rock.label = 'plateau-cliff';
   const drawn = cliffLedge(stretch, placed);
-  // A measured kit's connectors go over its joints that bend, above the pieces.
-  placeBand(rock, withConnectors(drawn, cliffPieces(art, run.owner?.edgeArt)), art, 0xffffff, 0);
+  // A measured kit's pieces bend to meet at its joints and narrow at a free tip with no end
+  // piece; its connectors go over the joints that bend too far for that, above the pieces.
+  placeBand(rock, withConnectors(drawn, cliffPieces(art, run.owner?.edgeArt), 1, cliffFreeTips(stretch, drawn)), art, 0xffffff, 0);
   // Art that carries its own light and colour is not shaded: the sun would multiply it dark.
   if (!isColoredSet(cliffChoice(run.owner?.edgeArt).setId)) {
     drawn.forEach((pl, i) => sprites.push({ sprite: rock.children[i] as Sprite, normal: lowNormal(pl) }));

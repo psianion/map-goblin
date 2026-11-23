@@ -28,6 +28,7 @@ import {
   bandFillColor,
   layBandChain,
   layBandRing,
+  mouthEnds,
   orientRings,
   placeBand,
   planDrawnBand,
@@ -61,6 +62,8 @@ export interface DoorGap {
    * does, which is what keeps a gap off the neighbouring ring's stones.
    */
   ring?: number;
+  /** An erased mouth, not a door: a run stopping at it ends in a taper rather than a jamb. */
+  mouth?: boolean;
 }
 
 /**
@@ -947,7 +950,7 @@ export function renderNodeWalls(
           wallsContainer,
           placeBand(
             wallsContainer,
-            withConnectors(placed, bandPiecesFor(look.setId), size),
+            withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)),
             band,
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,
@@ -998,7 +1001,7 @@ export function renderNodeWalls(
       if (measured) options.onRockLaid?.({ placed, closed: true, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
+        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
       );
       continue;
     }

@@ -24,7 +24,9 @@ import { BRUSH_CAVE, CAVE_CASES, caseLayer, joinedCaves, type CaseKits } from '.
 import { useStore } from '../store/store';
 import { carveFloors, type SoftErase } from './tools/eraseShapes';
 import { computeMergedFloor } from './mergedFloor';
-import { bandConnectors, FIT_DOOR_PAD, fittedFloor, layBandChain, layBandRing, orientRings, seatLine } from './caveBandRenderer';
+import { bandBends, bandConnectors, FIT_DOOR_PAD, fittedFloor, layBandChain, layBandRing, mitredJoints, mouthEnds, orientRings, seatLine } from './caveBandRenderer';
+import { bendWarp, endTangents, MITRE_MOST_DEG, unbend } from './bandBend';
+import { pieceRockLine } from '../testing/bandChecks';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { layerSlopes, ledgeRuns, plateauAlongWalls } from './plateauRenderer';
 import { mouthLines, mouthRamp } from './softEdge';
@@ -125,6 +127,58 @@ const PENTAGON: Polygon = [[0, 0], [6, 0], [9, 3], [9, 8], [0, 8]];
 const bareRim = (b: LaidBand, openings: Polygon[] | undefined, connectors: WalkPlacement[]): number =>
   checkBand({ ring: b.ring, closed: b.closed, placed: b.placed, connectors, gaps: b.gaps, openings, size: b.size, overlap: kitOverlap(b.placed.map((pl) => pl.piece)), doorPad: FIT_DOOR_PAD }).bareRim;
 
+/** A bent piece's art end at joint `k`, as drawn, from `from` to `to` off its rock line (cells at its stretch's size). */
+const bentEdge = (pl: WalkPlacement, k: 0 | 1, from: number, to: number): V[] => {
+  const unit = pl.bend!.unit;
+  const J = jointsOf(pl.piece, pl.at)[k] as V;
+  const t = endTangents(pl)[k];
+  const n: V = [-t[1], t[0]];
+  const inward = (k === 0 ? 1 : -1) * pl.bend!.half;
+  const warp = bendWarp(pl);
+  const out: V[] = [];
+  for (let w = from * unit; w <= to * unit + 1e-9; w += 0.02 * unit) out.push(warp([J[0] + t[0] * inward + n[0] * w, J[1] + t[1] * inward + n[1] * w]) as V);
+  return out;
+};
+
+/**
+ * Each joint of `b` drawn bent: how far, cells at size 1, the first piece's bent end strays from
+ * the next one's across the rock's body (half a cell either side of their rock line), and how far it turns.
+ */
+const jointGaps = (b: LaidBand): { gap: number; turnDeg: number; at: V }[] => {
+  const set = b.placed.map((pl) => pl.piece);
+  const drawn = bandBends(b.placed, set, b.size);
+  return mitredJoints(b.placed, set, b.size).map((m) => {
+    const ea = bentEdge(drawn[m.k], 1, -0.5, 0.5);
+    const eb = bentEdge(drawn[m.j], 0, -1, 1);
+    return { gap: Math.max(...ea.map((p) => toLine(p, eb))) / b.size, turnDeg: (m.turn * 180) / Math.PI, at: m.at as V };
+  });
+};
+
+/** Each tapered end of `b`'s pieces as drawn, stopped at mouths: its width across the art (a cell either side of its rock line) from 0.8 in to the tip. */
+const taperProfiles = (b: LaidBand): { at: V; widths: number[] }[] => {
+  const set = b.placed.map((pl) => pl.piece);
+  const out: { at: V; widths: number[] }[] = [];
+  for (const pl of bandBends(b.placed, set, b.size, mouthEnds(b.gaps, b.size))) {
+    for (const k of [0, 1] as const) {
+      if (!pl.bend?.taper?.[k]) continue;
+      const unit = pl.bend.unit;
+      const J = jointsOf(pl.piece, pl.at)[k] as V;
+      const t = endTangents(pl)[k];
+      const n: V = [-t[1], t[0]];
+      const inSign = k === 0 ? 1 : -1;
+      const warp = bendWarp(pl);
+      const widths: number[] = [];
+      for (let d = 0.8 * unit; d >= -1e-9; d -= 0.02 * unit) {
+        const at = (w: number): V => warp([J[0] + t[0] * inSign * (pl.bend!.half + Math.max(0, d)) + n[0] * w, J[1] + t[1] * inSign * (pl.bend!.half + Math.max(0, d)) + n[1] * w]) as V;
+        const [p, q] = [at(-unit), at(unit)];
+        widths.push(Math.hypot(p[0] - q[0], p[1] - q[1]));
+      }
+      out.push({ at: J, widths });
+    }
+  }
+  return out;
+};
+
 describe('a measured cave kit on a joined, carved, brushed map', () => {
   for (const connectors of [true, false]) {
     it(`lays every ring with no bare wall, no rock in an opening or a corridor, the floor met, every piece at its size and no wedge at a joint, ${connectors ? 'with' : 'without'} connectors`, () => {
@@ -204,6 +258,84 @@ describe('joints that bend', () => {
         expect(2 * c.piece.radius! * c.at.scale).toBeLessThanOrEqual(1.1 * 0.85 * b.size + 1e-9);
       }
     }
+  });
+});
+
+describe('pieces bent to meet at a joint', () => {
+  /** A cave room of three corners turning 30 to 50 degrees, and two straight sides. */
+  const BENT: Polygon = [[0, 0], [8, 0], [12, 3], [13, 8], [6, 10], [0, 8]];
+
+  it('closes every joint of 60° or less with no gap across the rock, and lays no connector there', () => {
+    seedKit();
+    let joints = 0;
+    for (const layer of [joinedCaves(KITS), caseLayerOf([BENT, PENTAGON])]) {
+      const { bands } = layLayer(layer);
+      for (const b of bands) {
+        const gaps = jointGaps(b);
+        for (const g of gaps) {
+          expect(Math.abs(g.turnDeg)).toBeLessThanOrEqual(MITRE_MOST_DEG + 1e-9);
+          expect(g.gap, `${b.kind} joint at ${g.at} turning ${g.turnDeg.toFixed(1)}`).toBeLessThanOrEqual(0.05);
+          for (const c of b.connectors) expect(Math.hypot(c.P[0] - g.at[0], c.P[1] - g.at[1]), `connector at ${c.P}`).toBeGreaterThan(0.5 * b.size);
+        }
+        joints += gaps.filter((g) => Math.abs(g.turnDeg) >= 5).length;
+      }
+    }
+    // At least three of them bend.
+    expect(joints).toBeGreaterThanOrEqual(3);
+  });
+
+  it('leaves a joint sharper than 60° rigid, and a kit without measured pieces as it was', () => {
+    seedKit();
+    const set = bandPiecesFor(SET);
+    const placed = layBandRing(TIPPED, [], set);
+    for (const m of mitredJoints(placed, set)) expect(Math.abs(m.turn)).toBeLessThanOrEqual((MITRE_MOST_DEG * Math.PI) / 180 + 1e-9);
+    expect(bandConnectors(placed, set).length).toBeGreaterThan(0);
+    const ink = caveBandPieces();
+    for (const ring of [PENTAGON, TIPPED]) {
+      const laid = layBandRing(ring, [], ink);
+      expect(bandBends(laid, ink)).toBe(laid);
+      expect(mitredJoints(laid, ink)).toEqual([]);
+    }
+  });
+
+  it('draws a piece with no bent end as laid', () => {
+    seedKit();
+    const set = bandPiecesFor(SET);
+    const placed = layBandChain([[0, 0], [12, 0]], [], set);
+    const drawn = bandBends(placed, set);
+    expect(drawn.length).toBe(placed.length);
+    for (const pl of drawn) {
+      if (pl.bend) continue;
+      const p: V = [pl.at.position.x + 0.3, pl.at.position.y - 0.2];
+      expect(bendWarp(pl)(p)).toEqual(p);
+    }
+  });
+});
+
+describe('a run tapered at a mouth', () => {
+  it('narrows each end stopping at a mouth to nothing at its tip, never widening on the way, and leaves doors’ jambs alone', () => {
+    seedKit();
+    const { bands } = layLayer(joinedCaves(KITS));
+    let tapers = 0;
+    for (const b of bands) {
+      for (const { at, widths } of taperProfiles(b)) {
+        tapers++;
+        expect(widths[widths.length - 1], `tip at ${at}`).toBeLessThan(1e-6);
+        for (let i = 1; i < widths.length; i++) expect(widths[i]).toBeLessThanOrEqual(widths[i - 1] + 1e-9);
+        // Never at a door.
+        for (const g of b.gaps.filter((x) => !x.mouth)) expect(Math.hypot(at[0] - g.position[0], at[1] - g.position[1])).toBeGreaterThan(g.width / 2);
+      }
+      // Each tip at a mouth.
+      for (const { at } of taperProfiles(b)) expect(b.gaps.some((g) => g.mouth && Math.hypot(at[0] - g.position[0], at[1] - g.position[1]) <= g.width / 2 + 0.5 * b.size)).toBe(true);
+    }
+    // The mouth's two sides.
+    expect(tapers).toBeGreaterThanOrEqual(2);
+  });
+
+  it('tapers nothing on a map with no mouths', () => {
+    seedKit();
+    const { bands } = layLayer({ ...joinedCaves(KITS), caveOpenings: [] });
+    for (const b of bands) expect(taperProfiles(b)).toEqual([]);
   });
 });
 
@@ -306,6 +438,9 @@ describe('narrow passages and wall width', () => {
           // Its connectors no wider than 1.1 times its rock, at its size.
           for (const c of b.connectors) expect(2 * c.piece.radius! * c.at.scale).toBeLessThanOrEqual(1.1 * BAND_DRAWN_WIDTH * b.size + 1e-9);
           expect(bareRim(b, union.caveOpenings, b.connectors)).toBe(0);
+          // Its bent joints closed and its tapers ending in a tip, at its size.
+          for (const g of jointGaps(b)) expect(g.gap, `${where} ${b.kind} joint at ${g.at}`).toBeLessThanOrEqual(0.05);
+          for (const { at, widths } of taperProfiles(b)) expect(widths[widths.length - 1], `${where} tip at ${at}`).toBeLessThan(1e-6);
         }
         // Each saved rock line lies within the rock's reach of some band's edge, at that band's size.
         for (const line of rockLines) {
@@ -524,8 +659,8 @@ describe('a hole erased inside a cave', () => {
 
   for (const [where, make, c] of CAVES) {
     for (const [how, strokesOf] of strokes) {
-      for (const r of [0.5, 1, 2, 4]) {
-        it(`rings a hole of radius ${r} in ${where} ${how} with the cave’s rock, opening nothing`, () => {
+      for (const r of [0.25, 0.5, 1, 2, 4]) {
+        it(`rings a hole of radius ${r} in ${where} ${how} with one closed ring of the cave’s rock, opening nothing`, () => {
           seedKit();
           let layer = stored(make());
           const before = layer.caveOpenings;
@@ -543,10 +678,20 @@ describe('a hole erased inside a cave', () => {
           expect(hole.placed.length).toBeGreaterThan(0);
           expect(brokenRules(hole.check).filter((k) => [1, 3, 5, 6].includes(k)), fmt(hole.check)).toEqual([]);
           const kit = new Set(bandPiecesFor(SET).map((p) => p.key));
+          const ringSize = hole.placed[0].size ?? hole.size;
           for (const pl of hole.placed) {
             expect(kit.has(pl.piece.key)).toBe(true);
-            expect(pl.at.scale).toBeGreaterThanOrEqual(0.4 * 0.85 * hole.size - 1e-9);
+            // Every piece inside 0.85 to 1.25 of the size the ring is laid at, whatever that is.
+            expect(pl.size ?? hole.size).toBe(ringSize);
+            expect(pl.at.scale / ringSize).toBeGreaterThanOrEqual(0.85 - 1e-6);
+            expect(pl.at.scale / ringSize).toBeLessThanOrEqual(1.25 + 1e-6);
           }
+          // One closed ring, every joint of it bent to meet.
+          const runs = ledgeRuns(hole.placed, true);
+          expect(runs.map((x) => x.open), fmt(hole.check)).toEqual([false]);
+          const set = hole.placed.map((pl) => pl.piece);
+          expect(mitredJoints(hole.placed, set, ringSize)).toHaveLength(hole.placed.length);
+          for (const g of jointGaps(hole)) expect(g.gap).toBeLessThanOrEqual(0.05);
         }, 30_000);
       }
     }
@@ -676,17 +821,57 @@ describe('a wall’s floor shadow', () => {
     expect(last).toBe(0);
   });
 
-  it('takes its reach and strength from the kit’s pack, half as dark where its art carries its own', () => {
+  it('takes its reach and strength from the kit’s pack, and paints none where its art carries its own', () => {
     seedKit();
+    seedKit(false, 'Test_Reach', [1, 2, 3, 4, 5, 6, 7, 8], [2, 3, 4], undefined, { shadowReach: 0.4, shadowStrength: 0.6 });
     seedKit(false, 'Test_Shaded', [1, 2, 3, 4, 5, 6, 7, 8], [2, 3, 4], undefined, { shadowReach: 0.4, shadowStrength: 0.6, shadowBaked: true });
     expect(kitShadow(bandPiecesFor(SET))).toEqual(KIT_SHADOW);
     expect(KIT_SHADOW).toEqual({ reach: 0.6, strength: 0.45, baked: false });
+    expect(kitShadow(bandPiecesFor('Test_Reach'))).toEqual({ reach: 0.4, strength: 0.6, baked: false });
     expect(kitShadow(bandPiecesFor('Test_Shaded'))).toEqual({ reach: 0.4, strength: 0.6, baked: true });
-    const placed = layBandRing(PENTAGON, [], bandPiecesFor('Test_Shaded'));
-    const shadow = wallShadowRamp([{ placed, closed: true, size: 1 }])!;
-    // Full at the rock's face, half its strength; gone the reach past it.
-    expect(rampAlphaAt(shadow, [3, 0.3])).toBeCloseTo(0.3, 2);
+    const shadow = wallShadowRamp([{ placed: layBandRing(PENTAGON, [], bandPiecesFor('Test_Reach')), closed: true, size: 1 }])!;
+    // Full at the rock's face; gone the reach past it.
+    expect(rampAlphaAt(shadow, [3, 0.3])).toBeCloseTo(0.6, 2);
     expect(rampAlphaAt(shadow, [3, 0.36 + 0.6 + 0.4 + 0.1])).toBe(0);
+    expect(wallShadowRamp([{ placed: layBandRing(PENTAGON, [], bandPiecesFor('Test_Shaded')), closed: true, size: 1 }])).toBeNull();
+  });
+
+  it('carries a baked shadow round every bent joint, 0.3 inside the rock line never under four fifths of a straight stretch’s', () => {
+    const SHADED = 'Test_Shaded';
+    seedKit(false, SHADED, [1, 2, 3, 4, 5, 6, 7, 8], [2, 3, 4], undefined, { shadowReach: 0.6, shadowStrength: 0.6, shadowBaked: true });
+    const { bands } = layLayer(joinedCaves({ cave: SHADED, cliff: SHADED, stone: STONE }));
+    const walls = bands.filter((b) => b.kind !== 'cliff');
+    const reach = 0.6;
+    const face = BAND_DRAWN_WIDTH / 2;
+    // The art's own shadow as the seeded art would carry it: rock to its face, then easing out over the reach.
+    const shade = (d: number): number => (d <= face ? 1 : Math.max(0, 1 - (d - face) / reach));
+    const bodyDist = (p: V, line: V[]): number => {
+      let d = Infinity;
+      for (let i = 0; i + 1 < line.length; i++) {
+        const [a, c] = [line[i], line[i + 1]];
+        const [dx, dy] = [c[0] - a[0], c[1] - a[1]];
+        const l2 = dx * dx + dy * dy;
+        const t = l2 === 0 ? 0 : ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2;
+        if ((i === 0 && t < -1e-9) || (i === line.length - 2 && t > 1 + 1e-9)) continue;
+        d = Math.min(d, segDist(p, a, c));
+      }
+      return d;
+    };
+    let bent = 0;
+    for (const b of walls) {
+      const set = b.placed.map((pl) => pl.piece);
+      const drawn = bandBends(b.placed, set, b.size).map((pl) => ({ pl, line: pieceRockLine(pl, kitOverlap(set)) as V[] }));
+      bent += mitredJoints(b.placed, set, b.size).filter((m) => Math.abs(m.turn) >= (5 * Math.PI) / 180).length;
+      const at = (p: V): number => Math.max(0, ...drawn.map(({ pl, line }) => shade(bodyDist(unbend(pl, p) as V, line) / b.size)));
+      for (const { line, open } of ledgeRuns(b.placed, b.closed).map(({ run, open }) => ({ line: seatLine(run, !open) as V[], open }))) {
+        const pts = inside(line, open, 0.3 * b.size).filter((p) => toLine(p, open ? line : [...line, line[0]]) >= 0.3 * b.size - 0.02);
+        const alphas = pts.map(at);
+        const middle = [...alphas].sort((x, y) => x - y)[alphas.length >> 1];
+        expect(middle).toBeGreaterThan(0);
+        alphas.forEach((a, i) => expect(a, `${b.kind} at ${pts[i]}`).toBeGreaterThanOrEqual(0.8 * middle));
+      }
+    }
+    expect(bent).toBeGreaterThanOrEqual(3);
   });
 
   it('paints nothing for a kit without measured pieces', () => {

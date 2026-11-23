@@ -59,6 +59,8 @@ export interface BandMeasure {
   shadowBaked?: boolean
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][]
+  /** The middle of the fully solid rock across the piece, sampled along it, joint 0 end to joint 1 end, in cells from the tile's centre. */
+  middle?: [number, number][]
 }
 
 export interface PackManifest {

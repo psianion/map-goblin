@@ -66,4 +66,13 @@ describe('PackManifestSchema: band measurements', () => {
     expect(shadow({ shadowStrength: -0.1 })).toBe(false);
     expect(shadow({ shadowBaked: 'yes' })).toBe(false);
   });
+
+  it('keeps the middle of a band’s solid rock, and rejects a malformed one', () => {
+    const band = { joints: [[1, 0.36], [-1, 0.36]], turnDeg: 0, middle: [[1, -0.1], [0, -0.12], [-1, -0.09]] };
+    expect(PackManifestSchema.parse(manifest(band)).entries.run_2x4_object_A?.band).toEqual(band);
+    const middle = (m: unknown) => PackManifestSchema.safeParse(manifest({ joints: [[1, 0], [-1, 0]], turnDeg: 0, middle: m })).success;
+    expect(middle([[0, 1]])).toBe(false);
+    expect(middle([[0, 1], [0, 'a']])).toBe(false);
+    expect(middle([[0, 1], [0, Infinity]])).toBe(false);
+  });
 });

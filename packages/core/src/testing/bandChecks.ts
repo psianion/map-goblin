@@ -6,7 +6,8 @@
 // art ends (half the kit's overlap in from each joint).
 
 import { jointsOf, kitRockWidth } from '../assets/caveWallKit';
-import { SEAT_IN, seatLine } from '../engine/caveBandRenderer';
+import { bandBends, SEAT_IN, seatLine } from '../engine/caveBandRenderer';
+import { endTangents, unbend } from '../engine/bandBend';
 import type { WalkPlacement } from '../engine/caveWalk';
 import { ledgeRuns } from '../engine/plateauRenderer';
 import type { DoorGap } from '../engine/wallNodeRenderer';
@@ -148,6 +149,30 @@ export function pieceRockLine(pl: WalkPlacement, overlap: number): V[] {
   return out;
 }
 
+/**
+ * A piece's rock line (see {@link pieceRockLine}) carried on, at each end bent to meet its
+ * neighbour, to exactly where its art ends: that end is drawn onto the line it meets the
+ * neighbour on, so its rock reaches all the way there.
+ */
+function bentRockLine(pl: WalkPlacement, overlap: number): V[] {
+  const line = pieceRockLine(pl, overlap);
+  if (!pl.bend || line.length < 2) return line;
+  const [J0, J1] = jointsOf(pl.piece, pl.at) as [V, V];
+  const [t0, t1] = endTangents(pl);
+  const half = (overlap / 2) * pl.at.scale;
+  const out = [...line];
+  if (pl.bend.a) {
+    const short = dot(sub(out[0], add(J0, mul(t0, half))), t0);
+    if (short > 1e-6) out.unshift(sub(out[0], mul(t0, short)));
+  }
+  if (pl.bend.b) {
+    const last = out[out.length - 1];
+    const short = dot(sub(sub(J1, mul(t1, half)), last), t1);
+    if (short > 1e-6) out.push(add(last, mul(t1, short)));
+  }
+  return out;
+}
+
 export interface BandCheckInput {
   /** The drawn edge, wound void-left. */
   ring: Polygon;
@@ -199,12 +224,17 @@ function bareRimOf(
   shift: number,
   half: number,
   trim: number,
-  bodies: V[][],
+  bodies: { pl: WalkPlacement; line: V[]; joints: [V, V] }[],
   discs: { c: V; r: number }[],
   skip: (p: V) => boolean,
 ): { bare: number; at: V | null } {
   const step = 0.05;
-  const covered = (q: V): boolean => discs.some((d) => len(sub(q, d.c)) <= d.r + 1e-6) || bodies.some((b) => bodyDist(q, b) <= half + 1e-6);
+  const under = (q: V, b: { pl: WalkPlacement; line: V[]; joints: [V, V] }): boolean => {
+    // Only a piece whose joints lie within reach can cover the point.
+    if (segDist(q, b.joints[0], b.joints[1]) > half + 1.5 * b.pl.at.scale) return false;
+    return bodyDist(b.pl.bend ? (unbend(b.pl, q) as V) : q, b.line) <= half + 1e-6;
+  };
+  const covered = (q: V): boolean => discs.some((d) => len(sub(q, d.c)) <= d.r + 1e-6) || bodies.some((b) => under(q, b));
   const n = line.length;
   const segs = closed ? n : n - 1;
   const cum = [0];
@@ -398,16 +428,22 @@ export function checkBand(input: BandCheckInput): BandCheck {
   }
 
   // 7: no wedge at a joint. The rock is the kit's rock width wide at its size, each piece's body
-  // its rock line widened by half that, cut square where its art ends.
-  const width = kitRockWidth(placed.map((pl) => pl.piece)) * size;
+  // its rock line widened by half that, cut square where its art ends, and bent as it is drawn
+  // where it meets a neighbour (bandBends): a point is under it where it lies under the piece
+  // laid rigid once unbent.
+  const set = placed.map((pl) => pl.piece);
+  const width = kitRockWidth(set) * size;
   const discs = (input.connectors ?? []).map((pl) => ({ c: jointsOf(pl.piece, pl.at)[0] as V, r: (pl.piece.radius ?? 0) * pl.at.scale }));
+  const bodies = bandBends(placed, set, size)
+    .map((pl) => ({ pl, line: bentRockLine(pl, input.overlap), joints: jointsOf(pl.piece, pl.at) as [V, V] }))
+    .filter((b) => b.line.length > 1);
   let bareRim = 0;
   let bareRimAt: V | null = null;
   for (const { run, open } of ledgeRuns(placed, closedEdge)) {
     const line = seatLine(run, !open) as V[];
     if (line.length < 2) continue;
     const trim = (input.overlap / 2) * size * BAND_RULES.scale[1];
-    const r = bareRimOf(line, !open, BAND_RULES.rim * width, width / 2, trim, lines, discs, (p) => nearGap(p, 0.02));
+    const r = bareRimOf(line, !open, BAND_RULES.rim * width, width / 2, trim, bodies, discs, (p) => nearGap(p, 0.02));
     bareRim += r.bare;
     bareRimAt ??= r.at;
   }

@@ -282,9 +282,9 @@ const OPEN_GAP = 0.5;
  * edge and the width it clears): the band walk stops its rock at them and closes each run on
  * its own tip, as it does either side of a door.
  */
-export function caveOpeningGaps(cave: CaveEdge, openings: readonly Polygon[] | undefined): { wallId: string; position: [number, number]; width: number }[] {
+export function caveOpeningGaps(cave: CaveEdge, openings: readonly Polygon[] | undefined): { wallId: string; position: [number, number]; width: number; mouth: true }[] {
   if (!openings || openings.length === 0) return [];
-  const gaps: { wallId: string; position: [number, number]; width: number }[] = [];
+  const gaps: { wallId: string; position: [number, number]; width: number; mouth: true }[] = [];
   cave.rings.forEach((ring, r) => {
     ring.forEach((a, i) => {
       const b = ring[(i + 1) % ring.length];
@@ -293,7 +293,7 @@ export function caveOpeningGaps(cave: CaveEdge, openings: readonly Polygon[] | u
       const n = Math.max(1, Math.ceil(len / OPEN_GAP));
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n;
-        gaps.push({ wallId: caveWallId(cave, r), position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: len / n });
+        gaps.push({ wallId: caveWallId(cave, r), position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: len / n, mouth: true });
       }
     });
   });
@@ -381,9 +381,9 @@ export function ringOpeningGaps(
   ring: Polygon,
   r: number,
   openings: readonly Polygon[] | undefined,
-): { wallId: string; position: [number, number]; width: number; ring: number }[] {
+): { wallId: string; position: [number, number]; width: number; ring: number; mouth: true }[] {
   if (!openings || openings.length === 0) return [];
-  const gaps: { wallId: string; position: [number, number]; width: number; ring: number }[] = [];
+  const gaps: { wallId: string; position: [number, number]; width: number; ring: number; mouth: true }[] = [];
   ring.forEach((a, e) => {
     const b = ring[(e + 1) % ring.length];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -391,7 +391,7 @@ export function ringOpeningGaps(
       const n = Math.max(1, Math.ceil(((t1 - t0) * len) / OPEN_GAP));
       for (let k = 0; k < n; k++) {
         const t = t0 + ((t1 - t0) * (k + 0.5)) / n;
-        gaps.push({ wallId: `floor:${r}:${e}`, position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: ((t1 - t0) * len) / n, ring: r });
+        gaps.push({ wallId: `floor:${r}:${e}`, position: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], width: ((t1 - t0) * len) / n, ring: r, mouth: true });
       }
     }
   });
