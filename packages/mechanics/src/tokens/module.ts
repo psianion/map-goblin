@@ -175,9 +175,6 @@ export function tokensModule(
       let dropped = library !== state.library
       const byScene: TokensState['byScene'] = {}
       for (const [sceneId, tokens] of Object.entries(state.byScene)) {
-        // P5 — the viewer goes through the seam, so `canSee` is *this* seat's sight in
-        // individual share and the party's in party share. The rule below is unchanged;
-        // only the eyes behind it narrow.
         const scene = visionOf(sceneId, viewer)
         // Levels: a seat sees only the tokens on the level it is looking at, its own included.
         const onLevel = levelFilterOf(sceneId, viewer)
@@ -251,40 +248,14 @@ function redactLibrary(library: TokensState['library'], viewer: Viewer): TokensS
 }
 
 /**
- * D7 — your own claimed token is always visible, wherever the DM puts the dark; everything
- * else only while its room is. A token on unzoned map is the DM's alone, same as the map
- * under it (D6).
- *
- * S3 P1 stacks token vision on the same seam: with `canSee` wired (vision mode only) the
- * question is asked of the point rather than the room, so an orc standing in the dark half
- * of a lit room is not on this wire at all. Own claimed tokens are exempt either way.
- *
- * P4 widens "own" to `mine`, the sight-link closure of the viewer's claimed tokens
- * (`sightParty`). It matters fully in P5, where each viewer's mask is their own; here the
- * party already sees what any of them sees, so the widening is harmless and the rule is
- * written once.
+ * D7 — your own claimed token is always visible, wherever the DM puts the dark. P4 widens
+ * "own" to `mine`, the sight-link closure of the viewer's claimed tokens (`sightParty`).
  */
 function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<string>): boolean {
   if (!scene || mine.has(token.id)) return true
-  // Plateaus: a token up on a top the party cannot see from where it stands is not seen,
-  // whatever the room around it is doing.
-  if (scene.coveredAt?.(token.x, token.y)) return false
-  // Issue #94 finding 3 — an unclaimed friendly is meant to be found, not ambushed from. It
-  // is in sight on ground the party has already explored, even while that ground is not
-  // currently lit: memory of the room (rooms mode) or of the cell itself (vision mode).
-  // Hostile/neutral tokens still need the room or cell to be lit right now, same as before.
-  if (token.ownerId === null && token.disposition === 'friendly') {
-    if (scene.openGround?.(token.x, token.y)) return true
-    const home = scene.roomAt(token.x, token.y)
-    if (home !== null && scene.occupiable.has(home)) return true
-  }
-  // ponytail: one point, the token's own centre. A large or gargantuan token whose far cells
-  // are swept but whose centre sits behind the corner vanishes whole rather than partly — an
-  // accepted P1 ceiling. The upgrade is sampling the cells the token's footprint covers and
-  // calling it seen if any of them are.
-  if (scene.canSee) return scene.canSee(token.x, token.y)
-  const room = scene.roomAt(token.x, token.y)
-  return room !== null && scene.visible.has(room)
+  // Fog rework: the one rule. A token is sent when it stands on ground the players have, on
+  // its own level — everywhere with fog off, cleared cells with fog on.
+  return scene.known(token.levelId, token.x, token.y)
 }
 
 function run(

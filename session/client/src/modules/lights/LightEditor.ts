@@ -18,6 +18,7 @@ import { useSessionStore } from '../../session/store';
 import { hitTest } from '../tokens/drag';
 import { tokensOf } from '../tokens/TokenRenderer';
 import { isToolActive } from '../../session/tools';
+import { useAsPlayers } from '../fog/asPlayers';
 import { lightAt, lightById, patchLightLocal } from './lights';
 import { useLightSelection } from './selection';
 
@@ -29,7 +30,10 @@ const DRAG_SLOP_PX = 3;
 
 /** Exported for the tests; production mounts it through `mountWhenEngineReady`. */
 export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
-  sceneGraph.lightingRenderer.setIconsVisible(true);
+  // "As players see it" shows the DM a player's screen, and a player has no light icons.
+  const showIcons = (): void => sceneGraph.lightingRenderer.setIconsVisible(!useAsPlayers.getState().on);
+  showIcons();
+  const unsubAsPlayers = useAsPlayers.subscribe(showIcons);
 
   const canvas = engine.canvas();
   let dragId: string | null = null;
@@ -65,7 +69,7 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
     // stroke stays a light icon, not a competing click target. Doors/tokens make the same call
     // in the other direction: this handler only claims the press when it actually hits a light,
     // same as `DoorRenderer.onDown`, so a miss falls through to them untouched.
-    if (e.button !== 0 || isToolActive()) return;
+    if (e.button !== 0 || isToolActive() || useAsPlayers.getState().on) return;
     if (!canvas.contains(e.target as Node)) return; // the popover's own controls, the rail, …
     const rect = canvas.getBoundingClientRect();
     const local = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -108,6 +112,7 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
 
   document.addEventListener('pointerdown', onDown, true);
   return () => {
+    unsubAsPlayers();
     document.removeEventListener('pointerdown', onDown, true);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);

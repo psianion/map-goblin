@@ -5,12 +5,13 @@
 
 import { describe, expect, it } from 'vitest'
 import type { SceneFog } from '@dnd/mechanics/fog'
+import { fogOnWith } from './fogOn.fixture'
 import type { AnyChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { redactMapForViewer } from './redactMap'
-import { createSceneMaps } from './sceneMap'
+import { createSceneMaps, type SceneMap } from './sceneMap'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
   [x0, y0],
@@ -83,7 +84,9 @@ function mapFile(zoned: boolean): SerializedMapData {
 }
 
 /** The hall seen, the vault never. */
-const FOG: SceneFog = { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true }
+/** Fog on with the hall cleared; on a map nobody zoned, fog on with nothing cleared. */
+const fogged = (s: SceneMap): SceneFog => (s.rooms.length ? fogOnWith(s, ['hall']) : { on: true })
+const redactFogged = (s: SceneMap) => redactMapForViewer(s, fogged(s), {})
 
 function playerCopy(zoned: boolean): AnyChild[] {
   const stores = createStores(openDb(':memory:'))
@@ -91,7 +94,7 @@ function playerCopy(zoned: boolean): AnyChild[] {
   stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile(zoned)))
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
   const scene = createSceneMaps(stores).sceneMapOf(SCENE)!
-  return (redactMapForViewer(scene, FOG, {}).layers[0] as DungeonLayer).children
+  return (redactFogged(scene).layers[0] as DungeonLayer).children
 }
 
 describe('a prop on the player’s copy of the map', () => {

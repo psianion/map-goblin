@@ -1,4 +1,4 @@
-// Rooms rebuild, server side (§10/§11): publish carries fog across a split or a merge, faces
+// Rooms rebuild, server side (§10/§11): publish strips room lineage from the stored map, faces
 // are derived from anchors at scene load, prep is v3 with room keys, and nothing a DM writes
 // in a room key reaches a player except through a deliberate share.
 //
@@ -14,11 +14,12 @@ import { WebSocket } from 'ws'
 import type { RoomKey, ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import type { AnyChild, DungeonLayer, Room, SerializedMapData, WallSegment } from '@dnd/core/src/store/types'
-import type { FogState, RoomFog } from '@dnd/mechanics/fog'
+import type { FogState } from '@dnd/mechanics/fog'
 import type { TriggersState } from '@dnd/mechanics/triggers'
 import { createAdminPass } from './auth'
 import { PROTOCOL_VERSION } from './config'
-import { carryFog, takeLineage } from './fog/roomLineage'
+import { takeLineage } from './fog/roomLineage'
+import { fogOnWith, roomCells } from './fog/fogOn.fixture'
 import { createVision } from './fog/vision'
 import { startServer, type RunningServer } from './index'
 import { createTriggerDeps } from './triggers/prepResolver'
@@ -158,17 +159,11 @@ async function published(fx: Fixture, map: SerializedMapData = anchoredMap()) {
   return { campaignId, dmToken, sceneId: uploaded.body.sceneId as string }
 }
 
-const fogOf = (fx: Fixture, campaignId: string, sceneId: string): Record<string, RoomFog> =>
-  ((fx.server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.rooms ?? {})
-
-function setFog(fx: Fixture, campaignId: string, sceneId: string, rooms: Record<string, RoomFog>): void {
-  const fog: FogState = { byScene: { [sceneId]: { rooms, concealBehindDoors: true } } }
+/** Fog on with these rooms' ground cleared — the players have them and nothing else. */
+function clearRooms(fx: Fixture, campaignId: string, sceneId: string, rooms: string[]): void {
+  const fog: FogState = { byScene: { [sceneId]: fogOnWith(createVision(fx.server.stores).sceneMapOf(sceneId)!, rooms) } }
   fx.server.stores.moduleState.put(campaignId, 'fog', fog)
 }
-
-const LIT: RoomFog = { status: 'revealed', wasEverRevealed: true }
-const MEMORY: RoomFog = { status: 're_hidden', wasEverRevealed: true }
-const DARK: RoomFog = { status: 'never_revealed', wasEverRevealed: false }
 
 async function joinSocket(port: number, token: string) {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`)
@@ -188,68 +183,38 @@ async function joinSocket(port: number, token: string) {
 
 // ── publish: lineage ───────────────────────────────────────────────────────
 
-describe('publish carries fog across a split or a merge (§10)', () => {
-  it('copies the parent fog onto a split half, once, and strips the lineage from the stored map', async () => {
+describe('publish strips room lineage from the stored map (§10)', () => {
+  it('strips derivedFrom off a split half', async () => {
     await withServer(async (fx) => {
-      const { campaignId, dmToken, sceneId } = await published(fx)
-      setFog(fx, campaignId, sceneId, { [HALL.id]: LIT })
-
+      const { dmToken, sceneId } = await published(fx)
       const EAST: Room = { id: 'room-hall-east', name: 'Hall, east', anchor: [8, 5], derivedFrom: HALL.id }
       const split = JSON.stringify(anchoredMap([HALL, EAST, VAULT]))
       expect((await api(fx.base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: split })).status).toBe(200)
-      expect(fogOf(fx, campaignId, sceneId)[EAST.id]).toEqual(LIT)
 
       // Lineage is an instruction to the publish route, not map data: the DM's own copy of the
       // stored map no longer carries it.
       const stored = await api(fx.base, 'GET', `/api/maps/${sceneId}`, { token: dmToken })
       expect(stored.text).not.toContain('derivedFrom')
       expect(stored.text).toContain(EAST.id)
-
-      // The editor keeps lineage on its own document until it next saves, so the same split
-      // arrives again — and must not overwrite what the party has since done in that half.
-      setFog(fx, campaignId, sceneId, { [HALL.id]: DARK, [EAST.id]: MEMORY })
-      await api(fx.base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: split })
-      expect(fogOf(fx, campaignId, sceneId)[EAST.id]).toEqual(MEMORY)
     })
   })
 
-  it('ORs the folded rooms into the keeper, drops their fog, and strips mergedFrom', async () => {
+  it('strips mergedFrom off a keeper', async () => {
     await withServer(async (fx) => {
-      const { campaignId, dmToken, sceneId } = await published(fx)
-      setFog(fx, campaignId, sceneId, { [HALL.id]: MEMORY, [VAULT.id]: DARK })
-
+      const { dmToken, sceneId } = await published(fx)
       const merged = anchoredMap([{ ...VAULT, mergedFrom: [HALL.id] }])
       await api(fx.base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(merged) })
-      const fog = fogOf(fx, campaignId, sceneId)
-      expect(fog[VAULT.id]).toEqual(MEMORY)
-      expect(fog).not.toHaveProperty(HALL.id)
       expect((await api(fx.base, 'GET', `/api/maps/${sceneId}`, { token: dmToken })).text).not.toContain('mergedFrom')
     })
   })
 
-  it('leaves an untouched republish byte for byte, and its fog alone', async () => {
+  it('leaves an untouched republish byte for byte', async () => {
     await withServer(async (fx) => {
-      const { campaignId, dmToken, sceneId } = await published(fx)
-      setFog(fx, campaignId, sceneId, { [HALL.id]: LIT })
+      const { dmToken, sceneId } = await published(fx)
       const raw = JSON.stringify(anchoredMap())
       await api(fx.base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw })
       expect((await api(fx.base, 'GET', `/api/maps/${sceneId}`, { token: dmToken })).text).toBe(raw)
-      expect(fogOf(fx, campaignId, sceneId)).toEqual({ [HALL.id]: LIT })
     })
-  })
-})
-
-describe('carryFog', () => {
-  const scene = (rooms: Record<string, RoomFog>) => ({ rooms, concealBehindDoors: true })
-
-  it('takes the most revealed status of a merged group', () => {
-    const next = carryFog(scene({ a: DARK, b: LIT, c: MEMORY }), { derived: [], merged: [['a', ['b', 'c']]] }, new Set())
-    expect(next!.rooms).toEqual({ a: LIT })
-  })
-
-  it('changes nothing when the parent was never fogged or the folded rooms are already gone', () => {
-    expect(carryFog(scene({}), { derived: [['b', 'a']], merged: [] }, new Set())).toBeNull()
-    expect(carryFog(scene({ a: LIT }), { derived: [], merged: [['a', ['gone']]] }, new Set())).toBeNull()
   })
 
   it('reads nothing off a map without lineage, and keeps its document untouched', () => {
@@ -265,7 +230,7 @@ describe('faces are derived from anchors at scene load (§10)', () => {
   it("ships each explored room with its derived face as boundary, and never the room's door list", async () => {
     await withServer(async (fx) => {
       const { campaignId, sceneId } = await published(fx)
-      setFog(fx, campaignId, sceneId, { [HALL.id]: LIT })
+      clearRooms(fx, campaignId, sceneId, [HALL.id])
 
       const scene = createVision(fx.server.stores).sceneMapOf(sceneId)!
       // The divider splits the floor into two faces, one per anchor.
@@ -314,8 +279,7 @@ describe('faces are derived from anchors at scene load (§10)', () => {
         { id: 'room-abc123', name: 'Room 1', boundary: rect(0.25, 0, 9.75, 10), centroid: [5, 5], area: 95, isPathway: false } as unknown as Room,
       ]
       layer.roomNameOverrides = { 'room-abc123': 'Great Hall' }
-      const { campaignId, sceneId } = await published(fx, legacy)
-      setFog(fx, campaignId, sceneId, { 'room-abc123': LIT })
+      const { sceneId } = await published(fx, legacy)
       const rooms = (createVision(fx.server.stores).playerMap(sceneId)!.layers[0] as DungeonLayer).rooms ?? []
       expect(rooms.map((r) => [r.id, r.name, r.number])).toEqual([['room-abc123', 'Great Hall', 1]])
       expect(rooms[0]!.boundary!.length).toBeGreaterThanOrEqual(3)
@@ -397,14 +361,13 @@ describe('the room key is DM-only prep (§2.2, §13)', () => {
       const uploaded = await api(fx.base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(map) })
       const sceneId = uploaded.body.sceneId as string
 
-      // The table opens on the map's own starting room: revealed before anyone joins, which is
-      // also what makes the key pop for the DM.
+      // The table opens on the map's own starting room. Nothing is revealed for it: fog is off.
       const started = await api(fx.base, 'POST', '/api/sessions', {
         token: dmToken,
         body: { campaignId, sceneId, startingRoom: { sceneId, roomId: HALL.id } },
       })
       expect(started.status).toBe(201)
-      expect(fogOf(fx, campaignId, sceneId)[HALL.id]).toEqual(LIT)
+      expect(fx.server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
 
       const joined = await api(fx.base, 'POST', '/api/join', { body: { code: started.body.inviteCode as string, name: 'Bob' } })
       const playerToken = joined.body.token as string
@@ -419,9 +382,27 @@ describe('the room key is DM-only prep (§2.2, §13)', () => {
       // The prep view is the DM's alone.
       expect((await api(fx.base, 'GET', `/api/scenes/${sceneId}/prep`, { token: playerToken })).status).toBe(403)
 
-      // The reveal popped the key on the DM's log, and on nobody else's.
+      // Clearing the hall's ground pops the key on the DM's log, and on nobody else's.
       const dm = await joinSocket(fx.server.port, dmToken)
-      const dmLog = (dm.state.state.modules.triggers as TriggersState).byScene[sceneId]!.log
+      const keyed = new Promise<TriggersState>((resolve) => {
+        dm.socket.on('message', (raw: Buffer) => {
+          const msg = JSON.parse(raw.toString()) as ServerMessage
+          if (msg.type !== 'state-update' || msg.module !== 'triggers') return
+          const state = msg.state as TriggersState
+          if (state.byScene[sceneId]?.log.some((e) => e.kind === 'room-key')) resolve(state)
+        })
+      })
+      const vision = createVision(fx.server.stores)
+      dm.socket.send(
+        JSON.stringify({
+          type: 'command',
+          module: 'fog',
+          action: 'region-set',
+          payload: { sceneId, levelId: vision.levelsOf(campaignId, sceneId)[0], op: 'clear', cells: roomCells(vision.sceneMapOf(sceneId)!, HALL.id) },
+          seq: 0,
+        }),
+      )
+      const dmLog = (await keyed).byScene[sceneId]!.log
       expect(dmLog.find((e) => e.kind === 'room-key')).toMatchObject({ toPlayers: false, detail: { roomId: HALL.id } })
       const player = await joinSocket(fx.server.port, playerToken)
       const seen = JSON.stringify(player.state.state.modules)

@@ -103,7 +103,6 @@ describe('a live republish', () => {
       await dm.until((m) => m.type === 'session-state')
       await player.until((m) => m.type === 'session-state')
 
-      dm.command('fog', 'reveal', { roomId: 'hall' })
       dm.command('tokens', 'place', { name: 'Borin', x: 2.5, y: 2.5, disposition: 'friendly' })
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
       const borin = tokensIn(placed, sceneId)[0]
@@ -113,7 +112,6 @@ describe('a live republish', () => {
       // The new map is twice as long, with a +2 mesa where there used to be nothing.
       const republished = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, dmToken, JSON.stringify(mapOf(30)))
       expect(republished.status).toBe(200)
-      dm.command('fog', 'reveal', { roomId: 'hall' })
 
       player.frames.length = 0
       player.command('tokens', 'move', { id: borin.id, x: 17.5, y: 4.5 })
@@ -165,7 +163,6 @@ describe('a live republish onto plateaus', () => {
       const player = await seat(server.port, joined.body.token as string)
       await dm.until((m) => m.type === 'session-state')
       await player.until((m) => m.type === 'session-state')
-      dm.command('fog', 'reveal', { roomId: 'hall' })
       dm.command('tokens', 'place', { name: 'Borin', x: 2.5, y: 2.5, disposition: 'friendly' })
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
       const borin = tokensIn(placed, sceneId)[0]

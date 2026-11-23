@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION, type SessionState } from '@dnd/core/src/shared/protocol';
 import { useMarks } from '../shell/marks/marks';
-import { fogRowsDropped, useSessionStore } from './store';
+import { regionOf, setCells } from '@dnd/mechanics/fog';
+import { fogRecuts, useSessionStore } from './store';
 
 vi.mock('../renderer/camera', () => ({ frameWorldPoint: vi.fn() }));
 
@@ -70,17 +71,28 @@ describe('v6 store slices', () => {
   });
 });
 
-// T10 — the seat re-fetches its cut when a fog row it held leaves the slice (Hide, Hide all,
-// the eraser): the referee withholds that room from then on, and a held copy only grows by delta.
-describe('fogRowsDropped', () => {
-  const lit = { status: 'revealed' as const, wasEverRevealed: true };
-  const fog = (rooms: Record<string, typeof lit>) => ({ byScene: { 'scene-1': { rooms, concealBehindDoors: true } } });
+// The seat re-fetches its cut when fog is switched, or a level loses cleared ground: the referee
+// withholds a room whose last cleared cell went, and a held copy only grows by delta.
+describe('fogRecuts', () => {
+  const GRID = { minX: 0, minY: 0, maxX: 4, maxY: 4 };
+  const cells = (list: [number, number][]) => setCells(regionOf(GRID)!, list);
+  const fog = (on: boolean, cleared?: Record<string, ReturnType<typeof cells>>) => ({ byScene: { 'scene-1': { on, ...(cleared ? { cleared } : {}) } } });
 
-  it('names a scene that lost a row, and none that only gained or kept them', () => {
-    expect(fogRowsDropped(fog({ hall: lit, '@outdoors': lit }), fog({ hall: lit }))).toEqual(['scene-1']);
-    expect(fogRowsDropped(fog({ hall: lit }), fog({}))).toEqual(['scene-1']);
-    expect(fogRowsDropped(fog({ hall: lit }), fog({ hall: lit, vault: lit }))).toEqual([]);
-    expect(fogRowsDropped(fog({ hall: lit }), fog({ hall: lit }))).toEqual([]);
-    expect(fogRowsDropped(undefined, fog({ hall: lit }))).toEqual([]);
+  it('names a scene whose fog was switched either way', () => {
+    expect(fogRecuts(fog(false), fog(true))).toEqual(['scene-1']);
+    expect(fogRecuts(fog(true), fog(false))).toEqual(['scene-1']);
+    expect(fogRecuts(undefined, fog(true))).toEqual(['scene-1']);
+    expect(fogRecuts(undefined, fog(false))).toEqual([]);
+  });
+
+  it('names a scene that lost a cleared cell on any level, and none that only gained or kept them', () => {
+    const before = fog(true, { up: cells([[0, 0], [1, 1]]), down: cells([[2, 2]]) });
+    expect(fogRecuts(before, fog(true, { up: cells([[0, 0]]), down: cells([[2, 2]]) }))).toEqual(['scene-1']);
+    expect(fogRecuts(before, fog(true, { up: cells([[0, 0], [1, 1]]) }))).toEqual(['scene-1']);
+    expect(fogRecuts(before, fog(true))).toEqual(['scene-1']);
+    expect(fogRecuts(before, fog(true, { up: cells([[0, 0], [1, 1], [3, 3]]), down: cells([[2, 2]]) }))).toEqual([]);
+    expect(fogRecuts(before, before)).toEqual([]);
+    // A level that had nothing set loses nothing.
+    expect(fogRecuts(fog(true, { up: regionOf(GRID)! }), fog(true))).toEqual([]);
   });
 });

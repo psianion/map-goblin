@@ -4,7 +4,6 @@
 // token that is already on the table.
 
 import type { Viewer } from '../contract'
-import type { BlockedEdge } from '../doors/types'
 
 export type TokenSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan'
 
@@ -42,10 +41,9 @@ export interface TokenDef {
   size: TokenSize
   disposition: Disposition
   /**
-   * Null is a token that is not looking at anything. Sight itself is line of sight to the
-   * whole map (`SIGHT_REACH` in fog/light.ts); `range` is how far this token sees *unlit*
-   * ground, which only matters with `visionMode: 'darkvision'` in the dark. `angle` is
-   * schema only — cones are a v1 non-goal.
+   * Null is a token that is not looking at anything. `range` is how far this token's line of
+   * sight is swept; unlit ground within it is seen only with `visionMode: 'darkvision'`.
+   * `angle` is schema only — cones are a v1 non-goal.
    */
   sight: { range: number; angle: number; visionMode: 'normal' | 'darkvision' } | null
   /** Schema only until S3. */
@@ -138,63 +136,20 @@ export interface TokensState {
 export interface SceneVision {
   /** The room whose polygon contains the point; `null` outside every room (D6). */
   roomAt(x: number, y: number): string | null
-  /** Rooms the player role may see right now (D3). */
-  readonly visible: ReadonlySet<string>
-  /** Rooms a player token may stand in (D8): reachable, and not never-revealed. */
-  readonly occupiable: ReadonlySet<string>
-  /**
-   * Which door shut `room` off from the party, when one did — `fog/visibility`'s
-   * `blockedEdge`, which the reachability BFS is in a position to answer and the
-   * `occupiable` boolean throws away.
-   *
-   * Optional because a caller that has not wired it still gets a correct refusal, just a
-   * coarser one: without it a blocked room reports as `MOVE_BLOCKED` rather than naming
-   * the locked door.
-   */
-  blockedEdge?(room: string): BlockedEdge | null
-  /**
-   * S3 P1 — token vision, at point resolution: is this spot inside the party's live sight
-   * (range + line of sight through walls and closed doors)?
-   *
-   * Present only when the scene's fog is in `'vision'` mode; the server builds it from the
-   * same sweep union it renders with. Absent — every `'rooms'`-mode scene, which is the
-   * default — leaves the room-granular rule below exactly as it was.
-   */
-  canSee?(x: number, y: number): boolean
-  /**
-   * Rooms mode — is this spot a plateau top no party eye stands high enough to see (plan §6)?
-   * A room the party sees is seen whole, except for these: a cliff hides what is up there
-   * from below. Absent when the scene has no such top (and in vision mode, where `canSee`
-   * already answers it through the cliffs).
-   */
-  coveredAt?(x: number, y: number): boolean
-  /**
-   * Vision mode only — is this spot ground the party has already been shown?
-   *
-   * `roomAt` answers "which authored room is this", and outside every room it answers
-   * `null`, which D6 reads as "the DM's own map". That reading is right in `'rooms'` mode,
-   * where a room is the only unit of fog there is. It is wrong in vision mode, where the
-   * unit is a *cell*: the region record remembers unzoned ground the same way it remembers
-   * a room's floor, and a DM who brushed a path across it — or a party whose own sweep ran
-   * over it — has said, in the only vocabulary vision mode has, that the party may be
-   * there. Without this the DM reveals the path, the mask lights up, and the move still
-   * comes back "outside the map", which is a reveal that does not reveal.
-   *
-   * It is memory, never geometry: a cell is only ever on because the party swept it (which
-   * respects walls and doors) or because the DM painted it (which is the DM saying so). So
-   * this widens where a token may stand without widening what anyone can see.
-   *
-   * Absent in `'rooms'` mode and on any scene too large to keep cell memory, both of which
-   * leave the room-granular rule below exactly as it was.
-   */
-  openGround?(x: number, y: number): boolean
   /**
    * Table fix pass §2.3 — solid things decide. Why a player's token may not stand at `to`, or
    * walk there from `from` (null = a place, no walk), on the walk grid of its level; null when
-   * it may. Present wherever the scene has a map frame; it replaces the room graph's
-   * `occupiable` and `blockedEdge`, and the straight-line crossing test, for every player move.
+   * it may. Present wherever the scene has a map frame; it is the whole move rule there, the
+   * straight-line crossing test included.
    */
   walkRefusal?(token: Token, to: { x: number; y: number }, from: { x: number; y: number } | null): string | null
+  /**
+   * Fog rework — is this spot ground the players have, on this level (absent = the map's first)?
+   * With fog off it answers true everywhere; on, only for cleared cells. It is the whole of the
+   * token rule (a token is sent when it stands on known ground, or is the seat's own) and the
+   * move rule where the scene has no walk grid.
+   */
+  known(levelId: string | undefined, x: number, y: number): boolean
 }
 
 /**
@@ -216,15 +171,9 @@ export const SOLID_GROUND = 'solid-ground'
 export const CLEAR_EFFECTS = 'clear-effects'
 
 /**
- * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned
- * has no fog and hides nothing — the S2 behaviour, which is also the default when no
- * lookup is wired at all.
- *
- * S3 P5 — the seam is viewer-aware, because `visionShare: 'individual'` makes "what can be
- * seen" a different answer per seat: `redact` passes the viewer it is redacting for and gets
- * that seat's own `canSee` back. Optional, and omitting it asks the party question — which is
- * what the *command* callers want (`canOccupy` is party-global, D8) and what every party-share
- * table answers anyway.
+ * `null` = no map to judge the scene by, which hides nothing — also the default when no
+ * lookup is wired at all. `redact` passes the viewer it is redacting for; the command
+ * callers omit it.
  */
 export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null
 

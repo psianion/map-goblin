@@ -17,7 +17,9 @@ export interface DockTabDef {
    * Map, Tokens and Encounter keep `lg` (h-56). Absent is `lg`.
    */
   height?: 'sm' | 'lg';
-  /** Left part of the body: tools and settings. */
+  /** `full`: the body spans the whole dock width, with no left column and no strip. */
+  layout?: 'full';
+  /** Left part of the body: tools and settings; the whole body when `layout` is `full`. */
   Body: ComponentType;
   /** Right part of the body: pickable things (rooms, doors, tokens, scenes, handouts). */
   Strip?: ComponentType;

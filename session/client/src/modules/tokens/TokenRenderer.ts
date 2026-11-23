@@ -18,6 +18,7 @@ import { load as loadPackTexture, resolveTexture } from '@dnd/core/src/assets/te
 import { endpoints } from '../../endpoints';
 import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { useAsPlayers } from '../fog/asPlayers';
 import {
   SETTLE_MS,
   approach,
@@ -407,7 +408,7 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     layer.scale.copyFrom(world.scale);
     // Looked up per frame rather than once: the fog layer mounts on its own schedule, and the
     // seat is not known until the join snapshot lands.
-    const stencil = isPlayer() ? sightMaskOf(sceneGraph) : null;
+    const stencil = isPlayer() || useAsPlayers.getState().on ? sightMaskOf(sceneGraph) : null;
     if (layer.mask !== stencil) layer.mask = stencil;
     const now = Date.now();
     for (const view of views.values()) {

@@ -51,5 +51,5 @@ export function PackThumbnailCanvas({ textureId, fit = 'contain' }: { textureId:
     };
   }, [textureId, fit]);
 
-  return <canvas ref={canvasRef} className="h-full w-full object-contain" />;
+  return <canvas ref={canvasRef} className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'}`} />;
 }

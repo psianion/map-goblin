@@ -28,6 +28,11 @@ function session(modules: Record<string, unknown>): SessionState {
   };
 }
 
+const fogOnScene = (): SessionState => ({
+  ...session({ fog: { byScene: { s: { on: true } } } }),
+  activeSceneId: 's',
+});
+
 interface Sent {
   module: string;
   action: string;
@@ -114,12 +119,12 @@ describe('table hotkeys', () => {
     expect(useTokenInteraction.getState().selectedId).toBeNull();
   });
 
-  it('Esc with the fog rectangle armed and the Fog tab open disarms and keeps the dock open', () => {
+  it('Esc with the fog brush armed and the Fog tab open disarms and keeps the dock open', () => {
+    useSessionStore.setState({ session: fogOnScene() });
     renderHook(() => useHotkeys());
     useTableShell.getState().pickDockTab('fog');
-    fireEvent.keyDown(window, { key: 'R', shiftKey: true });
-    // Rect needs a vision scene with cell memory; arm the tool the way it would be armed.
-    useActiveTool.getState().setActiveTool('fog');
+    fireEvent.keyDown(window, { key: 'w' });
+    expect(useActiveTool.getState().activeTool).toBe('fog');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useActiveTool.getState().activeTool).toBeNull();
     expect(useTableShell.getState().dockTab).toBe('fog');
@@ -156,28 +161,28 @@ describe('table hotkeys', () => {
     expect(sent[0]).toMatchObject({ module: 'table', action: 'pause', payload: { on: true } });
   });
 
-  it('Shift+R on a rooms-mode scene switches it to Vision and arms the rectangle', () => {
-    const sent = captureCommands();
-    const square = (x: number) => [[x, 0], [x + 4, 0], [x + 4, 4], [x, 4]];
-    useSessionStore.setState({
-      mapData: { frame: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, layers: [{ id: 'L', type: 'dungeon', children: [], rooms: [{ id: 'r1', name: 'Hall', boundary: square(0) }] }] },
-      session: { ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true } } } }), activeSceneId: 's' },
-    });
+  it('W arms the Clear brush and Shift+W the Fog brush, and the same key puts it down', () => {
+    useSessionStore.setState({ session: fogOnScene() });
     renderHook(() => useHotkeys());
-    fireEvent.keyDown(window, { key: 'R', shiftKey: true });
-    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'set-mode', payload: { mode: 'vision' } });
+    fireEvent.keyDown(window, { key: 'w' });
+    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Clear' });
+    expect(useFogBrush.getState().op).toBe('clear');
+    fireEvent.keyDown(window, { key: 'W', shiftKey: true });
+    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Fog' });
+    expect(useFogBrush.getState().op).toBe('fog');
+    fireEvent.keyDown(window, { key: 'W', shiftKey: true });
     expect(useActiveTool.getState().activeTool).toBeNull();
-    useSessionStore.setState({
-      session: { ...session({ fog: { byScene: { s: { rooms: {}, concealBehindDoors: true, mode: 'vision' } } } }), activeSceneId: 's' },
-    });
-    expect(useActiveTool.getState().activeTool).toBe('fog');
-    expect(useFogBrush.getState()).toMatchObject({ on: true, shape: 'box' });
   });
 
-  it('R arms the fog reveal for the DM', () => {
+  it('W does nothing while fog is off, and R and H are free', () => {
+    useSessionStore.setState({ session: { ...session({ fog: { byScene: { s: {} } } }), activeSceneId: 's' } });
     renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'w' });
     fireEvent.keyDown(window, { key: 'r' });
-    expect(useActiveTool.getState()).toMatchObject({ activeTool: 'fog', toolDetail: 'Reveal' });
+    fireEvent.keyDown(window, { key: 'h' });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+    expect(keyClaims('dm').has('r')).toBe(false);
+    expect(keyClaims('dm').has('shift+r')).toBe(false);
   });
 
   it('leaves keys alone while typing', () => {

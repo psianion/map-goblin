@@ -1,11 +1,11 @@
 // @cave: the table fix pass acceptance test (plan section 6.2), on the 3.11 outdoor-cave fixture.
 // Written, never run by the builders: the tester runs it once (section 6.3).
 //
-// Nine steps in order: publish, hand off, Party start, open; a player joins and gets Bram through
+// Eight steps in order: publish, hand off, Party start, open; a player joins and gets Bram through
 // the Owner picker; sees dirt, rock and the door from outside; walks on dirt, is refused by rock
-// and told the door is closed; opens the door and walks in, the outdoor ground staying
-// remembered; a republish toasts the player; "Open the table" again carries the session on; the
-// player closes the tab and "Continue as" returns the token; a short repeat in By hand mode.
+// and told the door is closed; opens the door and walks in; a republish toasts the player; "Open
+// the table" again carries the session on; the player closes the tab and "Continue as" returns
+// the token.
 import type { Page } from '@playwright/test';
 import {
   CAVE,
@@ -50,17 +50,14 @@ async function handOver(dm: Page, player: string): Promise<void> {
 }
 
 test.describe('@cave outdoor ground, walls and a cave mouth', () => {
-  test('the nine steps of the acceptance walk', async ({ page, newContext }) => {
+  test('the eight steps of the acceptance walk', async ({ page, newContext }) => {
     test.setTimeout(240_000);
     const table = await standUpOutdoorCave(`Cave ${Date.now().toString(36)}`);
     await holdDmPass(page, table);
 
-    // 1. Publish (the fixture's upload), hand off, pick Party start, open the table. Steps 1 to
-    // 8 run in By sight; step 9 is the By hand repeat.
+    // 1. Publish (the fixture's upload), hand off, pick Party start, open the table. Fog is off,
+    // as every scene starts: the player is sent the whole map (the fog walk is `fog-map.spec`).
     const invite = await openFromHandoff(page, table);
-    await page.keyboard.press('1');
-    await page.getByTestId('fog-mode-vision').click();
-    await expect(page.getByTestId('fog-mode-vision')).toHaveAttribute('aria-pressed', 'true');
 
     // 2. A player joins and gets a token through the Owner picker.
     const context = await newContext();
@@ -73,12 +70,12 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await expect
       .poll(() =>
         player.evaluate(() => {
-          const doc = (window as unknown as { __sessionStore?: { getState(): { mapData: { openGround?: unknown[]; layers: { children?: { id: string }[] }[] } | null } } }).__sessionStore?.getState().mapData;
+          const doc = (window as unknown as { __sessionStore?: { getState(): { mapData: { layers: { children?: { id: string }[] }[] } | null } } }).__sessionStore?.getState().mapData;
           const ids = new Set(doc?.layers.flatMap((l) => (l.children ?? []).map((c) => c.id)) ?? []);
-          return { open: (doc?.openGround?.length ?? 0) > 0, cave: ids.has('cave-floor'), door: ids.has('door-hall') };
+          return { cave: ids.has('cave-floor'), door: ids.has('door-hall') };
         }),
       )
-      .toEqual({ open: true, cave: true, door: true });
+      .toEqual({ cave: true, door: true });
 
     // 4. Walks on dirt; refused by rock; told the door is closed.
     await dragToken(player, 'Bram', CAVE.dirt);
@@ -87,10 +84,10 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await expect(player.getByText("You can't stand inside a wall or rock.")).toBeVisible();
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.dirt);
     await dragToken(player, 'Bram', CAVE.inHall);
-    // Nameless: the server blanks a door's name while the room behind it is unearned.
-    await expect(player.getByText('The door is closed.')).toBeVisible();
+    // Named or not, by whether the player holds the door's name: with fog off the whole map ships.
+    await expect(player.getByText(/^(Hall door|The door) is closed\.$/)).toBeVisible();
 
-    // 5. Opens the door (beside it, a double-click), walks in; the outdoor ground stays.
+    // 5. Opens the door (beside it, a double-click) and walks in; no fog is drawn over any of it.
     await dragToken(player, 'Bram', CAVE.besideDoor);
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.besideDoor);
     const box = (await player.getByTestId('game-canvas').boundingBox())!;
@@ -98,14 +95,7 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await player.mouse.dblclick(box.x + door.x, box.y + door.y);
     await dragToken(player, 'Bram', CAVE.inHall);
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.inHall);
-    await expect
-      .poll(() =>
-        player.evaluate(() => {
-          const doc = (window as unknown as { __sessionStore?: { getState(): { mapData: { openGround?: unknown[] } | null } } }).__sessionStore?.getState().mapData;
-          return (doc?.openGround?.length ?? 0) > 0;
-        }),
-      )
-      .toBe(true);
+    expect(await player.evaluate(() => (window as unknown as { __fogProbe?: { visible(): boolean } }).__fogProbe?.visible() ?? false)).toBe(false);
 
     // 6. The DM republishes and the player gets the toast.
     await republish(table, table.sceneId);
@@ -126,14 +116,5 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     await player.getByTestId('join-continue').click();
     await expect(player.locator('[data-page="table"]')).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => tokenAt(player, 'Bram')).not.toBeNull();
-
-    // 9. A short repeat in By hand mode: the Outdoors row is revealed where the party stands.
-    await page.getByTestId('enter-table').click();
-    await page.keyboard.press('1');
-    await page.getByTestId('fog-mode-rooms').click();
-    await expect(page.locator('[data-room-id="@outdoors"]')).toBeVisible();
-    await expect(page.locator('[data-room-id="room-hall"] [data-testid="fog-party-here"]')).toBeVisible();
-    await dragToken(player, 'Bram', CAVE.besideDoor);
-    await expect(page.locator('[data-room-id="@outdoors"]')).toHaveAttribute('data-fog-status', 'revealed');
   });
 });

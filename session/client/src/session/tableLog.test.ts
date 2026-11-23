@@ -59,22 +59,18 @@ describe('tableLogLines', () => {
     expect(line).toMatchObject({ who: 'Ilsa', text: 'opened Hidden Pantry Door' });
   });
 
-  it('names the room a fog line is about', () => {
-    const [line] = tableLogLines(
+  it('words the fog lines, which name no room', () => {
+    const lines = tableLogLines(
       undefined,
-      fogWith(entry({ action: 'revealed-room', targetId: 'crypt' })),
+      fogWith(
+        entry({ id: 'a', at: 1, action: 'turned-fog-on' }),
+        entry({ id: 'b', at: 2, action: 'changed-fog', targetId: 'crypt' }),
+        entry({ id: 'c', at: 3, action: 'fogged-all' }),
+      ),
       MAP,
       SCENE,
     );
-    expect(line.text).toBe('revealed 3 · The Crypt');
-    // A room without a number is named by its name alone.
-    const [plain] = tableLogLines(
-      undefined,
-      fogWith(entry({ action: 'revealed-room', targetId: 'unnumbered' })),
-      MAP,
-      SCENE,
-    );
-    expect(plain.text).toBe('revealed Side Passage');
+    expect(lines.map((l) => l.text)).toEqual(['turned the fog on', 'changed what the map shows', 'fogged the whole map']);
   });
 
   // The seat's own map is the only naming authority: a target it does not hold is a target
@@ -84,26 +80,19 @@ describe('tableLogLines', () => {
     expect(door.text).toBe('opened a door');
     const [unnamed] = tableLogLines(doorsWith(entry({ targetId: 'plain' })), undefined, MAP, SCENE);
     expect(unnamed.text).toBe('opened a door');
-    const [room] = tableLogLines(
-      undefined,
-      fogWith(entry({ action: 'hid-room', targetId: 'nowhere' })),
-      MAP,
-      SCENE,
-    );
-    expect(room.text).toBe('hid a room');
   });
 
   it('merges both lanes oldest first, and only for the scene on the table', () => {
     const lines = tableLogLines(
       doorsWith(entry({ id: 'a', at: 20, targetId: 'oak', action: 'locked' })),
       fogWith(
-        entry({ id: 'b', at: 10, action: 'revealed-all' }),
-        entry({ id: 'c', at: 30, action: 'hid-all', sceneId: 'other-scene' }),
+        entry({ id: 'b', at: 10, action: 'cleared-all' }),
+        entry({ id: 'c', at: 30, action: 'fogged-all', sceneId: 'other-scene' }),
       ),
       MAP,
       SCENE,
     );
-    expect(lines.map((l) => l.text)).toEqual(['revealed the whole map', 'locked Hidden Pantry Door']);
+    expect(lines.map((l) => l.text)).toEqual(['cleared the fog from the whole map', 'locked Hidden Pantry Door']);
   });
 
   it('drops a line this build has no words for rather than half-printing it', () => {
@@ -127,8 +116,10 @@ describe('logSentence', () => {
     expect(logSentence('unlocked', 'Oak Door')).toBe('unlocked Oak Door');
     expect(logSentence('revealed-secret', 'Bookcase')).toBe('revealed the secret door Bookcase');
     expect(logSentence('revealed-secret', undefined)).toBe('revealed a secret door');
-    expect(logSentence('hid-all', undefined)).toBe('hid the whole map');
+    expect(logSentence('turned-fog-on', undefined)).toBe('turned the fog on');
+    expect(logSentence('turned-fog-off', undefined)).toBe('turned the fog off');
+    expect(logSentence('cleared-all', undefined)).toBe('cleared the fog from the whole map');
+    expect(logSentence('fogged-all', undefined)).toBe('fogged the whole map');
     expect(logSentence('changed-fog', undefined)).toBe('changed what the map shows');
-    expect(logSentence('reset-fog', undefined)).toBe('reset the fog');
   });
 });

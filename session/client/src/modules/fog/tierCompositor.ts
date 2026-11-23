@@ -43,14 +43,12 @@ export interface TierCompositor {
    */
   readonly mask: RenderTexture;
   /**
-   * …and its blurred copy, on exactly `livingFog`'s contract: one blur of `mask` at
-   * `fade × scale`, which is what the shader's `2b − 1` remap is written against.
+   * …and its blurred copy: one blur of `mask`'s red at `fade × scale`, which is what the
+   * one-tier shader's `edgeShown` is written against.
    */
   readonly maskSoft: RenderTexture;
   /** The flat black backstop with the mask's holes erased out of it. */
   readonly scrim: RenderTexture;
-  /** Live sight alone — the stencil the token chips wear. The record is deliberately not in it. */
-  readonly live: RenderTexture;
   /**
    * Composite one plan. Answers the world rect every target now covers, or null when the plan
    * covers nothing at all — the caller must draw neither the cover nor the scrim on a null,
@@ -109,16 +107,15 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
   const sceneOf = (name: TierTarget): Container =>
     (targets.get(name) as { scene: Container }).scene;
 
-  // The soft copy, built exactly as the player seat's `livingFog` builds it (T13: the mask read
-  // as coverage, blurred by `look.fade` — the caller passes the guard's blur), since the
-  // one-tier shader's guard reads it.
+  // The soft copy the one-tier shader reads (pass 2): the mask's red, half on a painted cell edge
+  // through the cell texture's linear ramp, blurred by `look.fade` — the caller passes the band's
+  // blur (`edgeBlurCells`), so the line stays at half and the band follows the look.
   const maskSoft = shared?.maskSoft ?? RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(rtOf('mask'));
-  const softCoverage = coverageFilter();
-  softSprite.filters = [softCoverage];
-  // T6 — the cover past the map's edge, read as shown by the blur (the plan's `beyond`), so the
-  // soft copy does not fade live sight toward the edge. In texels: this scene is unscaled.
+  // T6 — the cover past the map's edge beside cleared edge cells, read as shown by the blur (the
+  // plan's `beyond`), so the soft copy neither fades cleared ground toward the edge nor lifts
+  // fogged ground there. In texels: this scene is unscaled.
   const softBeyond = new Graphics();
   const softGroup = new Container();
   softGroup.addChild(softSprite, softBeyond);
@@ -243,7 +240,6 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
     mask: rtOf('mask'),
     maskSoft,
     scrim: rtOf('scrim'),
-    live: rtOf('live'),
     run(plan, look) {
       const cover = plan.cover;
       for (const name of TARGET_ORDER) clearScene(sceneOf(name));
@@ -298,7 +294,6 @@ export function createTierCompositor(engine: TierRenderer, shared?: TierTextures
       }
       softScene.destroy({ children: true });
       soften.destroy();
-      softCoverage.destroy();
       memoryBlur.destroy();
       edgeBlur.destroy();
       edgeCoverage.destroy();

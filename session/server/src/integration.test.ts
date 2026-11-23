@@ -20,10 +20,12 @@ import type { AnyChild, AssetChild, DoorChild, Room } from '@dnd/core/src/shared
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { DoorLiveState, DoorsState } from '@dnd/mechanics/doors'
-import type { FogState, RoomFog } from '@dnd/mechanics/fog'
-import { defaultRoom } from '@dnd/mechanics/fog'
+import type { FogState } from '@dnd/mechanics/fog'
 import { issueToken, startSession } from './auth'
-import { centreOf } from './fog/sceneMap'
+import { centreOf, createSceneMaps, type SceneMap } from './fog/sceneMap'
+import { roomCells } from './fog/fogOn.fixture'
+import { openDb } from './db/db'
+import { createStores } from './db/stores'
 import type { SessionRow } from './db/stores'
 import { startServer, type RunningServer, type StartOptions } from './index'
 
@@ -490,10 +492,12 @@ const roomOf = (id: string | null | undefined): SavedRoom => cryptRooms.find((r)
  * brightest thing on it. The default-room fallback used to lend it to a player who had been
  * told nothing (amendment 2026-07-28) and the fourth browser gate read it at full brightness
  * on a scene the DM's panel called Unrevealed, so the rows below are how that stays fixed.
- * Taken from the mechanics helper rather than spelled out, so a re-authored map moves them
- * with it instead of quietly passing.
+ * Measured off the map rather than spelled out, so a re-authored map moves them with it
+ * instead of quietly passing. Lowest id breaks a tie.
  */
-const BIGGEST_ROOM = defaultRoom(cryptRooms)!
+const BIGGEST_ROOM = cryptRooms
+  .filter((room) => !room.isPathway)
+  .reduce((best, room) => (room.area > best.area || (room.area === best.area && room.id < best.id) ? room : best))
 
 /** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
 const STRANDED = cryptLayer.children.filter((child): child is AssetChild => {
@@ -517,10 +521,31 @@ async function fetchMap(server: RunningServer, seat: Seat, sceneId: string): Pro
   return res.text()
 }
 
-/** A DM and `players` players seated on the gate map. */
+/**
+ * A DM and `players` players seated on the gate map, with fog on, nothing cleared and Auto-explore
+ * off — set before anyone joins — so every cleared cell below is one the DM's brush cleared.
+ */
 async function crypts(server: RunningServer, name: string, players = 1) {
-  table(server, name, GATE_MAP)
+  const row = table(server, name, GATE_MAP)
+  server.stores.moduleState.put(row.campaign_id, 'fog', {
+    byScene: { [`${name}-map`]: { on: true, autoExplore: false } },
+  } satisfies FogState)
   return { sceneId: `${name}-map`, ...(await seatTable(server, name, players)) }
+}
+
+/** The crypt as the server reads it, measured once: what a brush stroke over one of its rooms covers. */
+let cryptScene: SceneMap | null = null
+
+/** The DM's brush over every cell of one crypt room: `clear` is the old reveal, `fog` the old hide. */
+function brush(roomId: string, op: 'clear' | 'fog') {
+  if (!cryptScene) {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cells')
+    stores.maps.insert('cells', campaign.id, 'Crypt', GATE_MAP)
+    stores.scenes.create('cells', campaign.id, 'cells', 'Crypt')
+    cryptScene = createSceneMaps(stores).sceneMapOf('cells')
+  }
+  return { levelId: cryptScene!.roomLevels.get(roomId)!, op, cells: roomCells(cryptScene!, roomId) }
 }
 
 describe('fog redaction on the map payload (§2.6, D4)', () => {
@@ -530,13 +555,14 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
       const seen = roomOf(AJAR.roomA)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      sendCommand(dm, 'fog', 'region-set', brush(seen.id, 'clear'))
       await revealed
 
       const wire = await fetchMap(server, { name: 'P0', session: 'FGA', identity: 'FGA-p0' }, sceneId)
       const layer = dungeonOf(JSON.parse(wire) as SerializedMapData)
 
-      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
+      // Rooms under a floor the cleared ground ships ride as nameless stand-ins (R1); they are not held.
+      expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id)).toEqual([seen.id])
       // Not the geometry, not the id, not the DM's name for it.
       for (const room of cryptRooms) {
         if (room.id === seen.id) continue
@@ -557,7 +583,7 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGB', 1)
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: cryptRooms[0].id })
+      sendCommand(dm, 'fog', 'region-set', brush(cryptRooms[0].id, 'clear'))
       await revealed
       expect(await fetchMap(server, { role: 'dm', name: 'Ann', session: 'FGB' }, sceneId)).toBe(GATE_MAP)
     })
@@ -565,14 +591,14 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
 
   // T10 — was "leaves a re-hidden room drawable": Hide now fogs the room fully, so a reload
   // after it holds the room no more than a seat that never saw it.
-  it('takes a re-hidden room back on a reload, as if nobody had entered it (T10)', async () => {
+  it('takes a room fogged again back on a reload, as if nobody had entered it', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGC', 1)
       const seen = roomOf(AJAR.roomA)
 
-      for (const action of ['reveal', 'hide']) {
+      for (const op of ['clear', 'fog'] as const) {
         const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', action, { roomId: seen.id })
+        sendCommand(dm, 'fog', 'region-set', brush(seen.id, op))
         await done
       }
 
@@ -590,14 +616,15 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
 })
 
 describe('an unrevealed room on the wire', () => {
-  it('is not a player’s at join, is theirs once revealed, and is taken back on reset', async () => {
+  it('is not a player’s at join, is theirs once cleared, and is taken back by Fog all', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGJ', 1)
       const seat = { name: 'P0', session: 'FGJ', identity: 'FGJ-p0' }
       const wire = async () => await fetchMap(server, seat, sceneId)
       const roomsHeld = async () =>
         dungeonOf(JSON.parse(await wire()) as SerializedMapData)
-          .rooms?.map((r) => r.id)
+          .rooms?.filter((r) => !r.standIn)
+          .map((r) => r.id)
           .sort()
 
       // No command has been run at all, so the player is handed no room whatsoever — and
@@ -608,12 +635,12 @@ describe('an unrevealed room on the wire', () => {
       expect(BIGGEST_ROOM.id).not.toBe(roomOf(AJAR.roomA).id)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomA).id })
+      sendCommand(dm, 'fog', 'region-set', brush(roomOf(AJAR.roomA).id, 'clear'))
       await revealed
       expect(await roomsHeld()).toEqual([roomOf(AJAR.roomA).id])
 
       const cleared = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reset', {})
+      sendCommand(dm, 'fog', 'fog-all', {})
       await cleared
       expect(await roomsHeld()).toEqual([])
     })
@@ -625,7 +652,7 @@ describe('an unrevealed room on the wire', () => {
       const [player] = players
 
       const lit = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: BIGGEST_ROOM.id })
+      sendCommand(dm, 'fog', 'region-set', brush(BIGGEST_ROOM.id, 'clear'))
       await lit
 
       // Revealed, so a monster standing in it is a monster the player can see.
@@ -642,29 +669,26 @@ describe('an unrevealed room on the wire', () => {
       // Hiding the room takes the ghast with it, actively, rather than leaving its last
       // position on the player's screen.
       const dropped = nextState<TokensState>(player, 'tokens')
-      sendCommand(dm, 'fog', 'hide', { roomId: BIGGEST_ROOM.id })
+      sendCommand(dm, 'fog', 'region-set', brush(BIGGEST_ROOM.id, 'fog'))
       expect(Object.keys((await dropped).byScene[sceneId] ?? {})).toEqual([])
     })
   })
 
-  it('stays unrevealed when a Hide All puts every explored room back under (D9)', async () => {
+  it('stays withheld when a Fog all puts every cleared room back under (D9)', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGL', 1)
       const seat = { name: 'P0', session: 'FGL', identity: 'FGL-p0' }
       const here = roomOf(AJAR.roomA)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      sendCommand(dm, 'fog', 'region-set', brush(here.id, 'clear'))
       await revealed
 
-      // What the DM's Hide All sends: everything seen, nothing lit.
       const hidden = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: { [here.id]: { status: 're_hidden', wasEverRevealed: true } },
-      })
+      sendCommand(dm, 'fog', 'fog-all', {})
       await hidden
 
-      // T10: Hide all fogs it fully, so nothing is held, and nothing lit is nothing lent.
+      // Fog all fogs it fully, so nothing is held, and nothing cleared is nothing lent.
       const layer = dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
       expect(layer.rooms?.filter((r) => !r.standIn).map((r) => r.id)).toEqual([])
     })
@@ -678,7 +702,7 @@ describe('fog redaction on snapshots (§2.6, D4a)', () => {
       const seen = roomOf(AJAR.roomA)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      sendCommand(dm, 'fog', 'region-set', brush(seen.id, 'clear'))
       await revealed
       // Seeds the whole scene's door state, secret door included — so its absence below
       // is redaction and not an empty record.
@@ -689,8 +713,9 @@ describe('fog redaction on snapshots (§2.6, D4a)', () => {
       const check = async (socket: WebSocket) => {
         sendJoin(socket)
         const snapshot = await next(socket, 'session-state')
-        const fog = snapshot.state.modules.fog as { byScene: Record<string, { rooms: object }> }
-        expect(Object.keys(fog.byScene[sceneId].rooms)).toEqual([seen.id])
+        const fog = snapshot.state.modules.fog as { byScene: Record<string, { on?: boolean; cleared?: object }> }
+        expect(fog.byScene[sceneId].on).toBe(true)
+        expect(fog.byScene[sceneId].cleared).toBeDefined()
         expect(JSON.stringify(snapshot)).not.toContain(SECRET.id)
         for (const room of cryptRooms) {
           if (room.id !== seen.id) expect(JSON.stringify(snapshot)).not.toContain(room.id)
@@ -721,19 +746,19 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const seen = roomOf(AJAR.roomA)
 
       const frame = nextRaw(player, (m) => m.type === 'state-update' && m.module === 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      sendCommand(dm, 'fog', 'region-set', brush(seen.id, 'clear'))
 
       const delta = (await frame).mapDelta as {
         sceneId: string
-        layers: { rooms: { id: string }[]; children: { id: string }[] }[]
+        layers: { rooms: { id: string; standIn?: boolean }[]; children: { id: string }[] }[]
       }
       // Atomic: the state that says "revealed" and the geometry to draw it, one message.
-      expect(delta.layers[0].rooms.map((r) => r.id)).toEqual([seen.id])
+      expect(delta.layers[0].rooms.filter((r) => !r.standIn).map((r) => r.id)).toEqual([seen.id])
       expect(delta.layers[0].children.length).toBeGreaterThan(0)
 
       // The DM is sent no delta — they were never missing any of it.
       const dmFrame = nextRaw(dm, (m) => m.type === 'state-update' && m.module === 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomB).id })
+      sendCommand(dm, 'fog', 'region-set', brush(roomOf(AJAR.roomB).id, 'clear'))
       expect((await dmFrame).mapDelta).toBeUndefined()
     })
   })
@@ -745,7 +770,7 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const seen = roomOf(AJAR.roomA)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      sendCommand(dm, 'fog', 'region-set', brush(seen.id, 'clear'))
       await revealed
 
       const arrived = nextState<TokensState>(player, 'tokens', (s) =>
@@ -761,7 +786,7 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       // The hide is a fog command, yet the tokens slice has to come back out: without it
       // the ghoul's last position simply stays on the player's screen (D4c).
       const dropped = nextState<TokensState>(player, 'tokens')
-      sendCommand(dm, 'fog', 'hide', { roomId: seen.id })
+      sendCommand(dm, 'fog', 'region-set', brush(seen.id, 'fog'))
       expect(Object.keys((await dropped).byScene[sceneId] ?? {})).toEqual([])
     })
   })
@@ -773,7 +798,7 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const here = roomOf(AJAR.roomA)
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      sendCommand(dm, 'fog', 'region-set', brush(here.id, 'clear'))
       await revealed
 
       // Bran is the party, and the party is *inside* the room about to go dark. D7 allows
@@ -801,7 +826,7 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const dropped = nextState<TokensState>(player, 'tokens', (s) =>
         Object.keys(s.byScene[sceneId] ?? {}).length < 2,
       )
-      sendCommand(dm, 'fog', 'hide', { roomId: here.id })
+      sendCommand(dm, 'fog', 'region-set', brush(here.id, 'fog'))
       expect(Object.values((await dropped).byScene[sceneId] ?? {}).map((t) => t.name)).toEqual([
         'Bran',
       ])
@@ -814,162 +839,6 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
     })
   })
 
-  it('retracts when a door closes under concealment, and never your own token (D7)', async () => {
-    await withServer({}, async (server) => {
-      const { sceneId, dm, players } = await crypts(server, 'FGG', 1)
-      const [player] = players
-      const here = roomOf(AJAR.roomA)
-      const beyond = roomOf(AJAR.roomB)
-
-      for (const room of [here, beyond]) {
-        const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
-        await done
-      }
-
-      const placed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
-      const mine = Object.values((await placed).byScene[sceneId])[0]
-
-      const claimed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(player, 'tokens', 'claim', { id: mine.id })
-      await claimed
-
-      // The door is authored shut, so the sight this row takes away has to be given first.
-      const opened = nextState(dm, 'doors')
-      sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
-      await opened
-
-      // A monster through the open door: the party can see it from where they stand.
-      const seen = nextState<TokensState>(player, 'tokens', (s) =>
-        Object.keys(s.byScene[sceneId] ?? {}).length === 2,
-      )
-      sendCommand(dm, 'tokens', 'place', {
-        name: 'Wight',
-        x: beyond.centroid[0],
-        y: beyond.centroid[1],
-      })
-      await seen
-
-      // Shutting it costs them the sight of it — and nothing else.
-      const shut = nextState<TokensState>(player, 'tokens', (s) =>
-        Object.keys(s.byScene[sceneId] ?? {}).length === 1,
-      )
-      sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
-      expect(Object.values((await shut).byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
-
-      sendJoin(player)
-      const snapshot = await next(player, 'session-state')
-      const tokens = snapshot.state.modules.tokens as TokensState
-      expect(Object.values(tokens.byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
-    })
-  })
-
-  it('hands the rest of the map over the moment concealment is switched off (D3 layer 2)', async () => {
-    // The second browser gate read this as a bug: every room revealed, and a player still
-    // holding nothing but the tokens in the room they stand in. That half is D3 working —
-    // every door on the gate map is authored shut, so nothing is reachable. What has to be
-    // true is the other half: the toggle that turns the rule off is felt without a reload,
-    // by a slice no command in it touched.
-    await withServer({}, async (server) => {
-      const { sceneId, dm, players } = await crypts(server, 'FGH', 1)
-      const [player] = players
-      const here = roomOf(AJAR.roomA)
-      const beyond = roomOf(AJAR.roomB)
-
-      // Reveal All, exactly as the fog tool sends it — and every door still shut.
-      const revealedAll = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: Object.fromEntries(
-          cryptRooms.map((room) => [room.id, { status: 'revealed', wasEverRevealed: true }]),
-        ),
-      })
-      await revealedAll
-
-      const placed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
-      const mine = Object.values((await placed).byScene[sceneId])[0]
-      const claimed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(player, 'tokens', 'claim', { id: mine.id })
-      await claimed
-
-      const alone = nextState<TokensState>(player, 'tokens')
-      sendCommand(dm, 'tokens', 'place', {
-        name: 'Wight',
-        x: beyond.centroid[0],
-        y: beyond.centroid[1],
-      })
-      expect(Object.values((await alone).byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
-
-      // Both listeners before the command: the fog frame lands first and the tokens resend
-      // rides behind it (D4c), so waiting for one after the other would miss it.
-      const conceal = nextState<FogState>(
-        player,
-        'fog',
-        (s) => s.byScene[sceneId]?.concealBehindDoors === false,
-      )
-      const both = nextState<TokensState>(
-        player,
-        'tokens',
-        (s) => Object.keys(s.byScene[sceneId] ?? {}).length === 2,
-      )
-      sendCommand(dm, 'fog', 'set-conceal', { concealBehindDoors: false })
-
-      // The flag the player's own renderer classifies by, and the tokens it was withholding.
-      await conceal
-      expect(
-        Object.values((await both).byScene[sceneId])
-          .map((t) => t.name)
-          .sort(),
-      ).toEqual(['Bran', 'Wight'])
-    })
-  })
-})
-
-// ── D9: the undo window, replayed at the wire ───────────────────────────────
-
-describe('Reveal All / Hide All / undo (D9)', () => {
-  it('restores the exact record the DM held before the bulk op', async () => {
-    await withServer({}, async (server) => {
-      const { sceneId, dm } = await crypts(server, 'FGU', 0)
-      const roomsOf = (state: unknown): Record<string, RoomFog> =>
-        (state as FogState).byScene[sceneId].rooms
-
-      // Reveal All, as the tool builds it: every room in the scene, latch set.
-      const revealedAll = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: Object.fromEntries(
-          cryptRooms.map((room) => [room.id, { status: 'revealed', wasEverRevealed: true }]),
-        ),
-      })
-      // This is the record the undo toast captures — the value, not a re-read.
-      const captured = roomsOf(await revealedAll)
-      expect(Object.keys(captured)).toHaveLength(cryptRooms.length)
-
-      // Hide All, as the tool builds it: everything the party has seen goes back under,
-      // rooms nobody has seen left out of the record entirely.
-      const hidden = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-bulk', {
-        rooms: Object.fromEntries(
-          Object.entries(captured)
-            .filter(([, fog]) => fog.wasEverRevealed)
-            .map(([id]) => [id, { status: 're_hidden', wasEverRevealed: true }]),
-        ),
-      })
-      expect(new Set(Object.values(roomsOf(await hidden)).map((f) => f.status))).toEqual(
-        new Set(['re_hidden']),
-      )
-
-      // Undo: the captured record, replayed verbatim. A `set-bulk` the latch validation
-      // refuses is silent by design (§2.2), so a rejection would look exactly like this
-      // doing nothing — which is why the error frame is asserted too.
-      const restored = nextState(dm, 'fog')
-      const refused = next(dm, 'error').then((e) => e.message)
-      sendCommand(dm, 'fog', 'set-bulk', { rooms: captured })
-      expect(roomsOf(await restored)).toEqual(captured)
-      await expect(refused).rejects.toThrow(/timed out/)
-    })
-  })
 })
 
 // ── D2/D4: a secret door the DM reveals ─────────────────────────────────────
@@ -993,7 +862,7 @@ describe('revealed secret doors reach the player (D2/D4)', () => {
 
       for (const room of secretRooms) {
         const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        sendCommand(dm, 'fog', 'region-set', brush(room.id, 'clear'))
         await done
       }
       // A door command seeds the whole scene's live state, secret door included — so the
@@ -1037,7 +906,7 @@ describe('revealed secret doors reach the player (D2/D4)', () => {
 
       for (const room of secretRooms) {
         const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        sendCommand(dm, 'fog', 'region-set', brush(room.id, 'clear'))
         await done
       }
       const seeded = nextState(dm, 'doors')
@@ -1062,7 +931,7 @@ describe('revealed secret doors reach the player (D2/D4)', () => {
       expect(secretRooms.map((r) => r.id)).not.toContain(elsewhere.id)
 
       const done = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: elsewhere.id })
+      sendCommand(dm, 'fog', 'region-set', brush(elsewhere.id, 'clear'))
       await done
 
       const revealed = nextState(dm, 'doors', (s) => doorsOf(s, sceneId)[SECRET.id]?.revealed)
@@ -1100,15 +969,15 @@ describe('reveal propagation (§2.6 metric, D5)', () => {
           (m) => m.type === 'state-update' && m.module === 'fog' && m.mapDelta !== undefined,
         )
         const sentAt = performance.now()
-        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        sendCommand(dm, 'fog', 'region-set', brush(room.id, 'clear'))
         const { at, bytes, msg } = await arrival
 
         // The whole point of D5: the frame that says "revealed" is the frame that carries
         // the geometry, so the number above is latency-to-drawable and not latency-to-know.
         const delta = msg.mapDelta as {
-          layers: { rooms: { id: string }[]; children: unknown[]; standaloneWalls: unknown[] }[]
+          layers: { rooms: { id: string; standIn?: boolean }[]; children: unknown[]; standaloneWalls: unknown[] }[]
         }
-        expect(delta.layers.flatMap((l) => l.rooms.map((r) => r.id))).toEqual([room.id])
+        expect(delta.layers.flatMap((l) => l.rooms.filter((r) => !r.standIn).map((r) => r.id))).toEqual([room.id])
         measured.push({
           room,
           ms: at - sentAt,
@@ -1190,7 +1059,7 @@ describe('nothing unrevealed reaches a player socket (§2.6, D4a/D4b + reconnect
       // ── the script ─────────────────────────────────────────────────────────
       for (const room of explored) {
         const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        sendCommand(dm, 'fog', 'region-set', brush(room.id, 'clear'))
         await done
       }
 
@@ -1318,7 +1187,7 @@ describe('canOccupy at the wire (§2.6, D8)', () => {
       const unseen = cryptRooms.find((r) => r.id !== here.id && r.id !== AJAR.roomB)!
 
       const revealed = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      sendCommand(dm, 'fog', 'region-set', brush(here.id, 'clear'))
       await revealed
 
       const placed = nextState<TokensState>(dm, 'tokens')
@@ -1351,177 +1220,3 @@ describe('canOccupy at the wire (§2.6, D8)', () => {
   })
 })
 
-// ── §2.6 (S3 P1): token vision is server-enforced, at the wire ──────────────
-// The same question the fog rows ask of the map, asked of the *tokens*: a token the party
-// has not earned the sight of must not be in a single byte a player's socket receives. The
-// fixture is two rooms either side of one wall with a door in it, so "earned" is a fact
-// about geometry and not about a room being switched on.
-
-const VISION_MAP = readFileSync(
-  join(import.meta.dirname, '../../testdata/vision-two-rooms.mapbuilder'),
-  'utf8',
-)
-
-/** A DM and one player seated on the two-room sight fixture. */
-async function twoRooms(server: RunningServer, name: string, mapJson: string = VISION_MAP) {
-  table(server, name, mapJson)
-  const seats = await seatTable(server, name, 1)
-  return { sceneId: `${name}-map`, ...seats, player: seats.players[0] }
-}
-
-describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
-  it('never carries a token the party cannot see, and carries it the moment they can', async () => {
-    await withServer({}, async (server) => {
-      const { sceneId, dm, player } = await twoRooms(server, 'TV')
-      // Every byte this socket is handed, from before the ambusher exists.
-      const frames = rawFrames(player)
-
-      const mode = nextState(dm, 'fog')
-      sendCommand(dm, 'fog', 'set-mode', { sceneId, mode: 'vision' })
-      await mode
-      // Lights out: sight reaches the whole room by line of sight in daylight, and the only
-      // ring `range` still draws is darkvision's in the dark.
-      const dark = nextState(dm, 'triggers')
-      sendCommand(dm, 'triggers', 'set-darkness', { sceneId, value: 1 })
-      await dark
-
-      // A scout in the middle of the west room, seeing only three cells of it…
-      const placed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(dm, 'tokens', 'place', {
-        sceneId,
-        name: 'Scout',
-        x: 5.5,
-        y: 5.5,
-        sight: { range: 3, angle: 360, visionMode: 'darkvision' },
-      })
-      const scout = Object.values((await placed).byScene[sceneId])[0]
-
-      // …and an ambusher in the far corner of the *same* room. The room is about to be
-      // explored and visible, so the room-granular rule would hand this token straight over;
-      // the only thing withholding it is that nobody is looking at that corner.
-      const ambushed = nextState<TokensState>(dm, 'tokens', (s) =>
-        Object.keys(s.byScene[sceneId]).length === 2,
-      )
-      sendCommand(dm, 'tokens', 'place', { sceneId, name: 'Ambusher', x: 1.5, y: 1.5 })
-      const ambusher = Object.values((await ambushed).byScene[sceneId]).find(
-        (t) => t.id !== scout.id,
-      )!
-
-      const claimed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(player, 'tokens', 'claim', { id: scout.id })
-      await claimed
-
-      // The move that makes the party look: the west room auto-explores off the sweep, which
-      // latches it (`re_hidden` + the latch) rather than lighting it — the geometry travels
-      // and the swept cells are what the player can see of it. `revealed` is the DM's word.
-      const swept = nextState<FogState>(player, 'fog', (s) => s.byScene[sceneId]?.rooms.west !== undefined)
-      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 5.5, y: 5.5 })
-      expect((await swept).byScene[sceneId].rooms.west).toMatchObject({
-        status: 're_hidden',
-        wasEverRevealed: true,
-      })
-
-      // Not the id, not the name, in any frame this socket has ever been handed.
-      expect(frames.length).toBeGreaterThan(0)
-      for (const frame of frames) {
-        expect(frame, 'an unseen token reached a player socket').not.toContain(ambusher.id)
-        expect(frame).not.toContain('Ambusher')
-      }
-      // …while their own claimed token has been there all along, and the room they are
-      // standing in did reach them — an empty payload would prove nothing.
-      expect(frames.some((frame) => frame.includes(scout.id))).toBe(true)
-      expect(frames.some((frame) => frame.includes('west'))).toBe(true)
-
-      // A step across the room and the corner comes into sight.
-      const arrived = nextState<TokensState>(player, 'tokens', (s) => ambusher.id in s.byScene[sceneId])
-      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 2.5, y: 2.5 })
-      const seen = await arrived
-      expect(Object.keys(seen.byScene[sceneId]).sort()).toEqual([ambusher.id, scout.id].sort())
-
-      // …and a step back takes it away again: the slice is retracted, and nothing after
-      // this point names it either (D4c — a redacted future is not enough on its own).
-      const mark = frames.length
-      const gone = nextState<TokensState>(player, 'tokens', (s) => !(ambusher.id in s.byScene[sceneId]))
-      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 8.5, y: 8.5 })
-      const after = await gone
-      expect(Object.keys(after.byScene[sceneId])).toEqual([scout.id])
-      for (const frame of frames.slice(mark)) expect(frame).not.toContain('Ambusher')
-    })
-  })
-
-  it('keeps a shut door between the party and a token in a room the DM has lit', async () => {
-    await withServer({}, async (server) => {
-      // On the fixture whole, floor rings and all: `floor-west`/`floor-east` heal into
-      // `mergedFloor` rings whose edges sit either side of the two-cell void `wall-mid`
-      // bridges, and `door-mid` is bound to the wall, not to either ring. This row used to
-      // opt out of the heal (`mergedFloor: []`) to get past that, which is the workaround
-      // that hid a real bug: `toOcclusionDoors` now splits every wall inside a door's
-      // aperture, so the doorway opens as one gap and the ring edges are no longer a
-      // second, invisible wall the DM cannot open.
-      const { sceneId, dm, player } = await twoRooms(server, 'TW', VISION_MAP)
-      const frames = rawFrames(player)
-
-      for (const [action, payload] of [
-        ['set-mode', { mode: 'vision' }],
-        // Both of the room rule's escape hatches, deliberately left open: the east room is
-        // lit by hand and concealment is off, so `visible` holds it with the door shut.
-        ['reveal', { roomId: 'east' }],
-        ['set-conceal', { concealBehindDoors: false }],
-      ] as const) {
-        const done = nextState(dm, 'fog')
-        sendCommand(dm, 'fog', action, { sceneId, ...payload })
-        await done
-      }
-
-      const placed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(dm, 'tokens', 'place', {
-        sceneId,
-        name: 'Scout',
-        x: 5.5,
-        y: 5.5,
-        sight: { range: 8, angle: 360, visionMode: 'normal' },
-      })
-      const scout = Object.values((await placed).byScene[sceneId])[0]
-
-      const ambushed = nextState<TokensState>(dm, 'tokens', (s) =>
-        Object.keys(s.byScene[sceneId]).length === 2,
-      )
-      sendCommand(dm, 'tokens', 'place', { sceneId, name: 'Ambusher', x: 12.5, y: 5.5 })
-      const ambusher = Object.values((await ambushed).byScene[sceneId]).find(
-        (t) => t.id !== scout.id,
-      )!
-
-      const claimed = nextState<TokensState>(dm, 'tokens')
-      sendCommand(player, 'tokens', 'claim', { id: scout.id })
-      await claimed
-
-      const swept = nextState<FogState>(player, 'fog', (s) => s.byScene[sceneId]?.rooms.west !== undefined)
-      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 5.5, y: 5.5 })
-      await swept
-
-      // The player holds the east room's geometry and its fog record — and still not the
-      // token standing in it, because a wall is between them.
-      expect(frames.some((frame) => frame.includes('east'))).toBe(true)
-      for (const frame of frames) expect(frame).not.toContain(ambusher.id)
-
-      // The door opens and sight reaches through the gap.
-      const arrived = nextState<TokensState>(player, 'tokens', (s) => ambusher.id in s.byScene[sceneId])
-      sendCommand(dm, 'doors', 'toggle', { sceneId, id: 'door-mid' })
-      await arrived
-
-      // …and shuts again: the retract re-sends the tokens slice without it.
-      const mark = frames.length
-      const gone = nextState<TokensState>(player, 'tokens', (s) => !(ambusher.id in s.byScene[sceneId]))
-      sendCommand(dm, 'doors', 'toggle', { sceneId, id: 'door-mid' })
-      expect(Object.keys((await gone).byScene[sceneId])).toEqual([scout.id])
-      for (const frame of frames.slice(mark)) expect(frame).not.toContain('Ambusher')
-
-      // The DM's own view was never fogged by any of it (PRODUCT principle 3).
-      const dmView = nextState<TokensState>(dm, 'tokens')
-      sendCommand(dm, 'tokens', 'update', { sceneId, id: ambusher.id, name: 'Ambusher' })
-      expect(Object.keys((await dmView).byScene[sceneId]).sort()).toEqual(
-        [ambusher.id, scout.id].sort(),
-      )
-    })
-  })
-})

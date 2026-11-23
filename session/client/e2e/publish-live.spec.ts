@@ -5,9 +5,14 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 import { DEMO_MAP, DEMO_NAME, SERVER_URL, expect, loadedMapName, test } from './fixtures';
 
 const REVISED_NAME = `${DEMO_NAME} Revised`;
+
+/** How many cells the shown level has cleared, off the DM's own fog layer. */
+const clearedCells = (page: Page): Promise<number> =>
+  page.evaluate(() => (window as unknown as { __fogProbe?: { clearedCells(): number } }).__fogProbe?.clearedCells() ?? 0);
 
 // better-sqlite3 lives with the server package, not the client's.
 const serverRequire = createRequire(join(import.meta.dirname, '../../server/package.json'));
@@ -28,13 +33,15 @@ test.describe('@publish canvas publish reaches the live table', () => {
     const { page, campaignId, sceneId, token } = hostSession;
     expect(process.env.E2E_DATA_DIR, 'global-setup exposes the server data dir').toBeTruthy();
 
-    // Before: the starting room is revealed and the PC types stand on the map.
+    // Before: the DM turns fog on and clears some ground, and the PC types stand on the map.
     await page.keyboard.press('1');
-    const rooms = page.getByTestId('fog-rooms');
-    await expect(rooms).toBeVisible();
-    const revealed = rooms.locator('[data-fog-status="revealed"]').first();
-    await expect(revealed).toBeVisible();
-    const roomId = await revealed.getAttribute('data-room-id');
+    await page.getByTestId('fog-switch').click();
+    await expect(page.getByTestId('fog-switch')).toHaveAttribute('aria-pressed', 'true');
+    // Esc puts the brush the switch armed down; the dock stays open on Fog.
+    await page.keyboard.press('Escape');
+    await page.getByTestId('fog-clear-all').click();
+    await expect.poll(() => clearedCells(page)).toBeGreaterThan(0);
+    const cleared = await clearedCells(page);
     await page.keyboard.press('3');
     await page.getByTestId('tokens-filter-pc').click();
     await expect(page.getByTestId('token-tile')).toHaveCount(2);
@@ -67,10 +74,15 @@ test.describe('@publish canvas publish reaches the live table', () => {
     await page.getByTestId('title-switcher').click();
     await expect(page.getByTestId('scene-row').first().getByTestId('scene-thumb')).toHaveAttribute('data-image', 'true');
     await page.keyboard.press('Escape');
+    // Closed, with focus back on its button: a digit typed while the search field still has it is
+    // the field's, not the dock's.
+    await expect(page.getByTestId('scene-search')).toBeHidden();
+    await expect(page.getByTestId('title-switcher')).toBeFocused();
 
-    // Fog and the placed token survive the swap.
+    // Fog, its cleared ground and the placed token survive the swap.
     await page.keyboard.press('1');
-    await expect(page.getByTestId('fog-rooms').locator(`[data-room-id="${roomId}"]`)).toHaveAttribute('data-fog-status', 'revealed');
+    await expect(page.getByTestId('fog-switch')).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => clearedCells(page)).toBe(cleared);
     await page.keyboard.press('3');
     await page.getByTestId('tokens-filter-pc').click();
     await expect(page.getByTestId('token-tile-count').first()).toHaveText('1');

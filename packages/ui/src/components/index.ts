@@ -4,7 +4,7 @@ export { ActionRow } from './ActionRow';
 export { AddTile } from './AddTile';
 export { Caption } from './Caption';
 export { Chip } from './Chip';
-export { ColourRow } from './ColourRow';
+export { ColourPicker, ColourRow } from './ColourRow';
 export { DockColumn } from './DockColumn';
 export { DownloadPill, type DownloadPillPack } from './DownloadPill';
 export { FloatBox } from './FloatBox';

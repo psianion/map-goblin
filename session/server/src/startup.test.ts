@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from './config'
+import { ONLY_LEVEL_ID } from './fog/sceneMap'
 import type { ServerMessage, SessionState } from '@dnd/core/src/shared/protocol'
-import type { DoorChild, Room } from '@dnd/core/src/shared/types'
+import type { DoorChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -290,21 +291,19 @@ describe('campaign persistence (Sprint 1 metric)', () => {
 
 const gate = JSON.parse(readFileSync(GATE_FIXTURE, 'utf8')) as SerializedMapData
 const gateLayer = gate.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
-// The fixture predates anchored rooms: its saved rooms still carry the area they were detected with.
-const gateRooms: Room[] = [...(gateLayer.rooms ?? [])].sort((a, b) => (b.area ?? 0) - (a.area ?? 0))
 const gateDoors = gateLayer.children.filter((c): c is DoorChild => c.childType === 'door')
 /** An ordinary door with a leaf to swing — an archway rejects `toggle` (it is a hole). */
 const SWINGS = gateDoors.find((d) => !d.isSecret && d.style !== 'archway')!
 const HIDDEN_DOOR = gateDoors.find((d) => d.isSecret)!
 
 interface FogSlice {
-  byScene: Record<string, { rooms: Record<string, unknown>; concealBehindDoors: boolean }>
+  byScene: Record<string, { rooms: Record<string, unknown>; on?: boolean; autoExplore?: boolean; cleared?: Record<string, unknown> }>
 }
 type DoorsSlice = { byScene: Record<string, Record<string, unknown>> }
 
 describe('fog and doors persistence (§2.6, D1/D2)', () => {
   it(
-    'comes back up mid-dungeon with the same rooms dark and the same door bolted',
+    'comes back up mid-dungeon with the same ground cleared and the same door bolted',
     { timeout: 90_000 },
     async () => {
       const dataDir = scratch()
@@ -342,16 +341,19 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
         expect(joined.status).toBe(200)
         playerToken = joined.body.token as string
 
-        // A table mid-session: one room lit, one explored and dark again, concealment off,
-        // a door opened then bolted behind them (which shuts it, F14), and the secret door found. Every field of
-        // both modules moved off its authored default, so a restart that silently re-seeded
-        // from the map file would look nothing like this.
+        // A table mid-session: fog on, the map cleared and a corner fogged again, Auto-explore
+        // off, a door opened then bolted behind them (which shuts it, F14), and the secret door
+        // found. Every field of both modules moved off its default, so a restart that silently
+        // re-seeded from the map file would look nothing like this. The map is stored without
+        // levels, so its one level has the fixed id.
+        expect((JSON.parse(readFileSync(GATE_FIXTURE, 'utf8')) as { levels?: unknown }).levels).toBeUndefined()
+        const corner = [0, 1, 2, 3].flatMap((col) => [0, 1, 2, 3].map((row) => [col, row]))
         const dm = await seat(first.base, dmToken)
         try {
-          await dm.command('fog', 'reveal', { roomId: gateRooms[0].id })
-          await dm.command('fog', 'reveal', { roomId: gateRooms[1].id })
-          await dm.command('fog', 'hide', { roomId: gateRooms[1].id })
-          await dm.command('fog', 'set-conceal', { concealBehindDoors: false })
+          await dm.command('fog', 'set-on', { on: true })
+          await dm.command('fog', 'clear-all', {})
+          await dm.command('fog', 'region-set', { levelId: ONLY_LEVEL_ID, op: 'fog', cells: corner })
+          await dm.command('fog', 'set-auto-explore', { autoExplore: false })
           await dm.command('doors', 'toggle', { id: SWINGS.id })
           await dm.command('doors', 'lock', { id: SWINGS.id })
           await dm.command('doors', 'reveal-secret', { id: HIDDEN_DOOR.id })
@@ -363,15 +365,8 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
           dm.close()
         }
 
-        expect(fogBefore.byScene[sceneId].concealBehindDoors).toBe(false)
-        expect(fogBefore.byScene[sceneId].rooms[gateRooms[0].id]).toEqual({
-          status: 'revealed',
-          wasEverRevealed: true,
-        })
-        expect(fogBefore.byScene[sceneId].rooms[gateRooms[1].id]).toEqual({
-          status: 're_hidden',
-          wasEverRevealed: true,
-        })
+        expect(fogBefore.byScene[sceneId]).toMatchObject({ on: true, autoExplore: false })
+        expect(Object.keys(fogBefore.byScene[sceneId].cleared ?? {})).toEqual([ONLY_LEVEL_ID])
         expect(doorsBefore.byScene[sceneId][SWINGS.id]).toEqual({
           open: false,
           locked: true,
@@ -388,16 +383,14 @@ describe('fog and doors persistence (§2.6, D1/D2)', () => {
         expect(after.modules.fog).toEqual(fogBefore)
         expect(after.modules.doors).toEqual(doorsBefore)
 
-        // And the player's redacted half is the same cut it was: the lit room is theirs, and the
-        // room that went dark is as absent as the one nobody entered (T10: Hide fogs it fully;
-        // it once stayed theirs to draw), and the door the DM found is still the DM's own
-        // business until a player is in the room with it.
+        // And the player's half is the same record it was: the cleared ground is theirs to draw.
         const forPlayer = (await snapshot(second.base, playerToken)).modules.fog as FogSlice
-        expect(Object.keys(forPlayer.byScene[sceneId].rooms)).toEqual([gateRooms[0].id])
+        expect(forPlayer.byScene[sceneId].cleared).toEqual(fogBefore.byScene[sceneId].cleared)
+        expect(forPlayer.byScene[sceneId].on).toBe(true)
 
         console.log(
           `[metric] fog + doors persistence across process restart: ` +
-            `${Object.keys(fogBefore.byScene[sceneId].rooms).length} room record(s) and ` +
+            `${Object.keys(fogBefore.byScene[sceneId].cleared ?? {}).length} level record(s) and ` +
             `${Object.keys(doorsBefore.byScene[sceneId]).length} door record(s) identical ` +
             `after the process was killed (restart took ${second.readyMs.toFixed(0)}ms)`,
         )

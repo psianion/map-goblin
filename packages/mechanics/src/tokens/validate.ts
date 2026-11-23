@@ -3,11 +3,9 @@
 // and the `canOccupy` seam S3's fog tightens.
 
 import type { CommandError, Viewer } from '../contract'
-import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '../doors/types'
+import { refusal } from '../doors/types'
 import { CONDITIONS, HP_MAX, type Condition } from '../initiative/types'
 import {
-  MOVE_BLOCKED,
-  OUTSIDE_MAP,
   ROOM_UNEXPLORED,
   SIZE_CELLS,
   type Disposition,
@@ -97,13 +95,10 @@ export function snap(v: number, size: TokenSize): number {
 }
 
 /**
- * S3 D8 — where a player token may stand. Unzoned map is the DM's alone (D6), a room
- * nobody has ever seen is not somewhere to walk into, and with concealment on neither is
- * one the party cannot reach. A re-hidden room the party is standing in stays occupiable:
- * the DM plunging them into darkness must not also freeze them (D7).
- *
- * The DM is fenced by none of it, and a scene with no authored rooms (`scene` null) has no
- * fog to enforce. Called on every place and move — module.test.ts pins the call site.
+ * S3 D8 — where a player token may stand: what the walk grid allows, or with no walk grid,
+ * ground the players have. The DM is fenced by none of it, and a scene with no map
+ * (`scene` null) has nothing to enforce. Called on every place and move — module.test.ts
+ * pins the call site.
  */
 export function canOccupy(
   token: Token,
@@ -139,29 +134,8 @@ export function occupyRefusal(
   if (role === 'dm' || !scene) return null
   // Table fix pass §2.3: where the scene has a walk grid, it is the whole answer.
   if (scene.walkRefusal) return scene.walkRefusal(token, pos, from)
-  const room = scene.roomAt(pos.x, pos.y)
-  const say = (code: string, subjectId: string | null = null): string =>
-    refusal(code, subjectId, 'that space cannot be occupied')
-
-  // Off every authored room. Unzoned map is the DM's alone (D6) — except in vision mode,
-  // where ground the party has been shown is ground they may stand on (`openGround`). A
-  // map whose rooms do not touch (an outdoor pad and a cave mouth with unzoned yards
-  // between them) is otherwise two islands no player can cross, however much the DM
-  // reveals: the room graph has no edge to walk along and the reveal has no room to land
-  // in. `openGround` is absent in rooms mode, so D6 is untouched there.
-  if (room === null) return scene.openGround?.(pos.x, pos.y) ? null : say(OUTSIDE_MAP)
-  if (scene.occupiable.has(room)) return null
-
-  // A door the party could name is the most useful thing to say, so the door's id rides
-  // along and the client turns it into the name it holds. `door-locked` is the doors
-  // module's own constant on purpose: a move stopped by a locked door is the same fact as a
-  // toggle stopped by one, and the client already has words for it.
-  const edge = scene.blockedEdge?.(room)
-  if (edge) return say(edge.kind === 'locked-door' ? DOOR_LOCKED : DOOR_CLOSED, edge.doorId)
-
-  // No door explains it. Somewhere they have seen but cannot reach is blocked; somewhere
-  // they have never seen is not a place they know to walk into.
-  return say(scene.visible.has(room) ? MOVE_BLOCKED : ROOM_UNEXPLORED)
+  // Fog rework: with no walk grid to ask, ground the players have is where a token may stand.
+  return scene.known(token.levelId, pos.x, pos.y) ? null : refusal(ROOM_UNEXPLORED, null, 'that space cannot be occupied')
 }
 
 export function parseSight(v: unknown): TokenDef['sight'] {

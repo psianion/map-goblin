@@ -11,6 +11,8 @@ import { Presence } from './Presence';
 import { SceneSwitcher } from './SceneSwitcher';
 import { SessionMenu } from './SessionMenu';
 import { TitleCard } from './TitleCard';
+import { AsPlayersButton } from './TopRight';
+import { useAsPlayers } from '../../modules/fog/asPlayers';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'Dana', role: 'dm', connected: true };
 const pia: PlayerInfo = { identityId: 'p1', name: 'Pia Stone', role: 'player', connected: true };
@@ -50,6 +52,30 @@ beforeEach(() => {
   useTableShell.setState({ dockTab: null, lastDockTab: 'fog', card: null });
 });
 
+describe('As players see it', () => {
+  const fogged = (on: boolean) => session([dm], { fog: { byScene: { a: { on } } } });
+
+  it('shows the DM the button while fog is on, and flips the local view', () => {
+    useAsPlayers.getState().set(false);
+    useSessionStore.setState({ session: fogged(false) });
+    const { rerender } = render(<AsPlayersButton />);
+    expect(screen.queryByTestId('as-players')).toBeNull();
+    act(() => useSessionStore.setState({ session: fogged(true) }));
+    rerender(<AsPlayersButton />);
+    fireEvent.click(screen.getByTestId('as-players'));
+    expect(useAsPlayers.getState().on).toBe(true);
+    expect(screen.getByTestId('as-players').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByTestId('as-players'));
+    expect(useAsPlayers.getState().on).toBe(false);
+  });
+
+  it('never shows it to a player', () => {
+    useSessionStore.setState({ you: pia, session: fogged(true) });
+    render(<AsPlayersButton />);
+    expect(screen.queryByTestId('as-players')).toBeNull();
+  });
+});
+
 describe('TitleCard', () => {
   it('names the live scene and opens the Sky tab from the time chip', () => {
     render(<TitleCard />);
@@ -65,19 +91,18 @@ describe('TitleCard', () => {
     expect(screen.queryByTestId('title-switcher')).toBeNull();
   });
 
-  // Table fix pass §4.3 (F13): Movement locked on every seat, the fog mode for the DM.
-  it('shows Movement locked on every seat and the fog mode to the DM only', () => {
+  // Table fix pass §4.3 (F13): Movement locked on every seat. The fog has no mode to name.
+  it('shows Movement locked on every seat, and no fog chip', () => {
     useSessionStore.setState({
-      session: session([dm], { table: { paused: false, movementLocked: true }, fog: { byScene: { a: { rooms: {}, mode: 'vision' } } } }),
+      session: session([dm], { table: { paused: false, movementLocked: true }, fog: { byScene: { a: { on: true } } } }),
     });
     render(<TitleCard />);
     expect(screen.getByTestId('locked-chip').textContent).toBe('Movement locked');
-    expect(screen.getByTestId('fog-mode-chip').textContent).toBe('Fog: by sight');
+    expect(screen.queryByTestId('fog-mode-chip')).toBeNull();
     cleanup();
     useSessionStore.setState({ you: pia });
     render(<TitleCard />);
     expect(screen.getByTestId('locked-chip')).toBeTruthy();
-    expect(screen.queryByTestId('fog-mode-chip')).toBeNull();
   });
 });
 

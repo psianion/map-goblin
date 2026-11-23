@@ -19,7 +19,6 @@ import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
-import { partyHere, reveal as revealPartyHere } from './fog/partyHere'
 import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
@@ -125,7 +124,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), partyHere(vision), effectsTick, effectsClear, hiddenCombatants),
+    afterWrites(autoExplore(vision), effectsTick, effectsClear, hiddenCombatants),
     (sessionId) => table.flagsOf(sessionId)?.paused === true,
   )
   modules.register(pingModule)
@@ -171,14 +170,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   )
   modules.register(crossingsModule)
   modules.register(
-    fogModule(
-      vision.roomsOf,
-      vision.frameOf,
-      vision.roomAtOf,
-      (sceneId) => vision.visibleOf(sceneId),
-      vision.groundAtOf,
-      (sceneId) => vision.keptRoomsOf(sceneId),
-    ),
+    fogModule(vision.frameOf, vision.levelsOf, vision.floorOnOf),
   )
   // Table fix pass, decision b: a player opens a door one of their own tokens stands beside.
   modules.register(
@@ -213,22 +205,6 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     }),
   )
   for (const module of options.modules ?? []) modules.register(module)
-
-  // Table fix pass §2.6: a table already running when the server starts stores the room, or
-  // Outdoors, its party stands in, the way every place and move now does. Nobody is connected
-  // yet, so there is no one to broadcast to.
-  for (const session of stores.sessions.listActive()) {
-    const sceneId = session.active_scene_id
-    if (!sceneId) continue
-    revealPartyHere(vision, modules, sceneId, {
-      campaignId: session.campaign_id,
-      sessionId: session.id,
-      activeSceneId: sceneId,
-      sender: { role: 'dm', identityId: 'server' },
-      players: [],
-      broadcast: () => {},
-    })
-  }
 
   const sessions: SessionManager = new SessionManager(modules, {
     vision,

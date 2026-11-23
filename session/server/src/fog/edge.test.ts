@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { FogState, SceneFog } from '@dnd/mechanics/fog'
+import { rebaseRegion, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
@@ -17,7 +17,6 @@ beforeAll(async () => {
 
 const read = (name: string): string => readFileSync(join(import.meta.dirname, '../../../testdata', name), 'utf8')
 const SCENE = 'scene-edge'
-const lit = { status: 'revealed' as const, wasEverRevealed: true }
 
 function table(map: string, fog: Partial<SceneFog>, at: (frame: { maxX: number; minY: number; maxY: number }) => [number, number]) {
   const stores = createStores(openDb(':memory:'))
@@ -26,7 +25,7 @@ function table(map: string, fog: Partial<SceneFog>, at: (frame: { maxX: number; 
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Edge')
   const put = (f: Partial<SceneFog>) =>
     stores.moduleState.put(campaign.id, 'fog', {
-      byScene: { [SCENE]: { rooms: {}, concealBehindDoors: true, mode: 'vision', ...f } },
+      byScene: { [SCENE]: { ...f } },
     } satisfies FogState)
   put(fog)
   const vision = createVision(stores)
@@ -53,15 +52,16 @@ describe('the map edge (P7)', () => {
   it.each(['testing-cave.ggvtt', 'outdoor-cave.ggvtt'])(
     '%s: a token by the edge records cells up to it and none past it',
     (name) => {
-      const { vision, frame } = table(read(name), { rooms: { '@outdoors': lit } }, byTheRightEdge)
+      const { vision, frame } = table(read(name), { on: true }, byTheRightEdge)
       const patch = vision.autoExplorePatch(SCENE)
       expect(patch).not.toBeNull()
+      const cells = Object.values(patch!.byLevel).flat()
       const cols = Math.round(frame.maxX - frame.minX)
       const rows = Math.round(frame.maxY - frame.minY)
       // The sweep did reach the edge: the last column is written…
-      expect(patch!.cells.some(([col]) => col === cols - 1)).toBe(true)
+      expect(cells.some(([col]) => col === cols - 1)).toBe(true)
       // …and nothing at or past it, on either axis.
-      for (const [col, row] of patch!.cells) {
+      for (const [col, row] of cells) {
         expect(col).toBeGreaterThanOrEqual(0)
         expect(row).toBeGreaterThanOrEqual(0)
         expect(col).toBeLessThan(cols)
@@ -84,7 +84,13 @@ describe('the map edge (P7)', () => {
   ])(
     '%s: the open ground a seat is sent never reaches past the frame',
     (_name, map) => {
-      const { vision, frame } = table(map(), { rooms: { '@outdoors': lit } }, byTheRightEdge)
+      // Fog on, and the cells the token by the edge clears written to the record.
+      const { vision, frame, put } = table(map(), { on: true }, byTheRightEdge)
+      const { byLevel } = vision.autoExplorePatch(SCENE)!
+      const cleared = Object.fromEntries(
+        Object.entries(byLevel).map(([level, cells]) => [level, setCells(rebaseRegion(undefined, frame)!, cells)]),
+      )
+      put({ on: true, cleared })
       const open = vision.playerMap(SCENE)!.openGround ?? []
       expect(open.length).toBeGreaterThan(0)
       const eps = 1e-6

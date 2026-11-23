@@ -5,8 +5,10 @@ import { registerSheet } from './registry';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { RoomKeySheet } from '../../modules/triggers/RoomKeySheet';
 import { JournalSheet } from '../../modules/story/JournalSheet';
+import { FogLookSheet } from '../../modules/fog/FogLookSheet';
 
 registerSheet({ id: 'shortcuts', Component: ShortcutsSheet });
 registerSheet({ id: 'log', Component: LogSheet });
 registerSheet({ id: 'room-key', Component: RoomKeySheet, roles: ['dm'] });
 registerSheet({ id: 'journal', Component: JournalSheet, roles: ['player'] });
+registerSheet({ id: 'fog-look', Component: FogLookSheet, roles: ['dm'] });

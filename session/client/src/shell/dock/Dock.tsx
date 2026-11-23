@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Button, FloatBox, IconKeyButton, cn } from '@dnd/ui';
 import { ChevronDown, ChevronUp } from '@dnd/ui/icons';
 import { useSessionStore } from '../../session/store';
+import { useActiveTool } from '../../session/tools';
 import { ZoomControls } from '../ZoomControls';
 import { useTableShell } from '../tableShell';
 import { useArmedLabel } from './armedTool';
@@ -21,12 +22,17 @@ export function Dock() {
   const context = useSessionStore(() => tab?.context?.() ?? null);
   const { pickDockTab, toggleDock } = useTableShell.getState();
   const armed = useArmedLabel();
+  // The fog brush keeps the dock open, so its size and the other brush stay in reach.
+  const brush = useActiveTool((s) => s.activeTool === 'fog');
   // F21: arming folds the dock to its tab row, so the map is there to click.
   useEffect(() => {
-    if (armed) useTableShell.getState().foldDock();
-  }, [armed]);
+    if (armed && !brush) useTableShell.getState().foldDock();
+  }, [armed, brush]);
   const Body = tab?.Body;
   const Strip = tab?.Strip;
+  // With the dock open on an armed brush, the tab row names it beside the scene instead of a
+  // chip row eating into the body's height.
+  const inline = armed !== null && brush && tab !== undefined;
   return (
     <FloatBox
       className="absolute right-3 bottom-3 left-16 z-20 flex flex-col p-0"
@@ -42,15 +48,23 @@ export function Dock() {
           data-testid={`dock-body-${tab.id}`}
           data-height={tab.height ?? 'lg'}
         >
-          <div className="flex min-h-0 w-80 shrink-0 flex-col gap-1 overflow-y-auto border-r border-line px-3 py-2">
-            <Body />
-          </div>
-          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-3 py-2" data-testid="dock-strip">
-            {Strip && <Strip />}
-          </div>
+          {tab.layout === 'full' ? (
+            <div className="flex min-w-0 flex-1 overflow-x-auto p-3" data-testid="dock-full">
+              <Body />
+            </div>
+          ) : (
+            <>
+              <div className="flex min-h-0 w-80 shrink-0 flex-col gap-1 overflow-y-auto border-r border-line px-3 py-2">
+                <Body />
+              </div>
+              <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto px-3 py-2" data-testid="dock-strip">
+                {Strip && <Strip />}
+              </div>
+            </>
+          )}
         </div>
       )}
-      {armed && (
+      {armed && !inline && (
         <div className="flex h-8 items-center border-b border-line px-3 text-xs text-text" role="status" data-testid="armed-chip">
           {armed}
         </div>
@@ -75,7 +89,7 @@ export function Dock() {
           </Button>
         ))}
         <span className="ml-auto truncate px-2 text-xs text-text-3" data-testid="dock-context">
-          {context}
+          {inline ? [armed, context].filter(Boolean).join(' ') : context}
         </span>
         <ZoomControls />
         <IconKeyButton

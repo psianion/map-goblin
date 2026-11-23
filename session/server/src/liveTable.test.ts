@@ -164,9 +164,10 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       const playerToken = joined.body.token as string
       const dm = await seat(server.port, dmToken)
       const pim = await seat(server.port, playerToken)
-      const fogMode = () => (server.stores.moduleState.get(campaignId, 'fog') as FogState).byScene[sceneId]?.mode
-      dm.command('fog', 'set-mode', { sceneId, mode: 'vision' })
-      await dm.until(() => fogMode() === 'vision')
+      // Fog on, with Auto-explore on as it starts: the party clears what it sees.
+      const fogOn = () => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true
+      dm.command('fog', 'set-on', { sceneId, on: true })
+      await dm.until(fogOn)
       const bram = () => tokensOf(server, campaignId, sceneId)[0]!
       expect({ x: bram().x, y: bram().y }).toEqual(CAVE.partyStart)
       dm.command('tokens', 'assign', { id: bram().id, identityId: joined.body.identityId })
@@ -228,16 +229,18 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       })
       const joined = await api(base, 'POST', '/api/join', undefined, { code: opened.body.inviteCode, name: 'Pim' })
       const dm = await seat(server.port, dmToken)
-      dm.command('fog', 'set-mode', { sceneId, mode: 'vision' })
-      await dm.until(() => (server.stores.moduleState.get(campaignId, 'fog') as FogState).byScene[sceneId]?.mode === 'vision')
+      dm.command('fog', 'set-on', { sceneId, on: true })
+      await dm.until(() => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true)
       const pim = await seat(server.port, joined.body.token as string)
-      const snapshot = await pim.until((m) => m.type === 'session-state')
-      const doors = (snapshot.state as { modules: { doors: DoorsState } }).modules.doors
-      expect(Object.keys(doors.byScene[sceneId] ?? {})).toEqual(['door-hall'])
-
+      // The assignment is a step Auto-explore answers: the ground round the door clears, and the
+      // door's live state follows it to the player.
       const bram = () => tokensOf(server, campaignId, sceneId)[0]!
       dm.command('tokens', 'assign', { id: bram().id, identityId: joined.body.identityId })
       await dm.until(() => bram().ownerId === joined.body.identityId)
+      const slice = (await pim.until(
+        (m) => m.type === 'state-update' && m.module === 'doors' && 'door-hall' in ((m.state as DoorsState).byScene[sceneId] ?? {}),
+      )) as { state: DoorsState }
+      expect(Object.keys(slice.state.byScene[sceneId] ?? {})).toEqual(['door-hall'])
       pim.frames.length = 0
       pim.command('tokens', 'move', { id: bram().id, ...CAVE.besideDoor })
       await pim.until((m) => m.type === 'error' || (bram().x === CAVE.besideDoor.x && bram().y === CAVE.besideDoor.y))
@@ -255,7 +258,7 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
 })
 
 describe('the party start (F18, decision f)', () => {
-  it('19: a map with partyStart reads unchanged and the party spawns there, with Outdoors revealed', async () => {
+  it('19: a map with partyStart reads unchanged and the party spawns there, with nothing revealed', async () => {
     const parsed = parseMapFile(MAP)
     expect(parsed.ok && !parsed.migrated && parsed.data.mapSettings.partyStart).toEqual({ x: 15.5, y: 7.5, levelId: 'lvl-1' })
     await withTable(async ({ server, base, campaignId, dmToken, upload }) => {
@@ -276,8 +279,8 @@ describe('the party start (F18, decision f)', () => {
       const party = tokensOf(server, campaignId, sceneId)
       expect(party.map((t) => t.defId).sort()).toEqual(['ayla', 'bram'])
       for (const t of party) expect(Math.hypot(t.x - 15.5, t.y - 7.5)).toBeLessThan(3)
-      const fog = server.stores.moduleState.get(campaignId, 'fog') as FogState
-      expect(fog.byScene[sceneId].rooms['@outdoors']).toEqual({ status: 'revealed', wasEverRevealed: true })
+      // Fog starts off, so the start writes no fog at all.
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
     })
   })
 })

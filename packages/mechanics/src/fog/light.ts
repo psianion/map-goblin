@@ -1,13 +1,12 @@
-// S3 P3 §2 — what is burning in a scene right now, as one rule both sides run.
+// S3 P3 §2 — what is burning in a scene right now.
 //
-// The referee redacts by it and the canvas masks by it, so it cannot be two implementations
-// that happen to agree: the server hands in the map's light children and the client hands in
-// the ones its (redacted) document holds, and everything after that — which lights are on,
-// which tokens are carrying one, how far each reaches — is decided here.
+// The table hands in the light children its (redacted) document holds, and everything after
+// that — which lights are on, which tokens are carrying one, how far each reaches — is decided
+// here. Since fog pass 2 light no longer decides what the party clears, so the server does not
+// read it.
 //
 // Geometry is deliberately absent. A source is a point and a radius; turning that into a
-// polygon is a sweep against the scene's occluders, which each side already does its own way
-// (`fog/sweep.ts` server-side, `visionSight.ts` on the canvas).
+// polygon is a sweep against the scene's occluders (`visionSight.ts` on the canvas).
 
 /** A wedge, degrees: direction 0 = east, clockwise on screen. Angle >= 360 is a full circle. */
 export interface LightCone {
@@ -46,35 +45,6 @@ export interface LightCarrier {
 export function carriedCone(angle: number | undefined): LightCone | undefined {
   return angle !== undefined && angle > 0 && angle < 360 ? { angle, direction: 0 } : undefined
 }
-
-/**
- * How far an eye may push the containment fence, and its sweep radius under the DM's range
- * limit: its own `sight.range` (darkvision's ring), or the light it carries if that reaches
- * further. A torch-bearer with plain sight can see the ground their own torch lights, so that
- * ground is theirs to claim — without the light term a range-0 eye could never open a cell,
- * which is what left a party of humans with torches blind on an imported battlemap. The
- * referee and every seat's mask read this one function, so they cannot disagree about it.
- */
-export function eyeReach(token: LightCarrier & { sight: { range: number } | null }): number {
-  const range = token.sight?.range ?? 0
-  const carried = token.hidden || !token.light ? 0 : Math.max(token.light.dim, token.light.bright)
-  return Math.max(range, carried)
-}
-
-/**
- * How far line of sight is swept, in cells — the whole map, from anywhere on it.
- *
- * An eye's reach is not a radius. What bounds sight is the walls and, in the dark, the light:
- * a lit hall is seen to the far wall by anyone standing in its doorway, and a torch is seen
- * from across a cavern. A token's `sight.range` is how far it can see *without* light, which
- * is darkvision's ring and nothing else — capping the sweep on it drew that ring across every
- * lit room as an arc the referee's own view never had.
- *
- * ponytail: a constant rather than the map's frame. The sweep clamps its rays at this
- * distance and tessellates the rim at a fixed 64 steps, so the number only has to be larger
- * than any map; the cell enumeration and the mask both clip to what the map actually holds.
- */
-export const SIGHT_REACH = 1000
 
 /** Where a light stands and how far it reaches. Lit/unlit is binary: inside the dim edge is lit. */
 export interface LightSource {
