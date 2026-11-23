@@ -9,7 +9,7 @@ import { caveEdges } from '../shared/caveFloor';
 import { laidFor } from '../shared/rockLines';
 import { seatLine } from './caveBandRenderer';
 import { cliffKey, laidRuns, ledgeRuns, walkCliff, type CliffWalks } from './plateauRenderer';
-import { cliffChoice, isPaintedBorder } from './plateauKit';
+import { cliffChoice } from './plateauKit';
 import { isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { hasPlateaus, layerPlateaus, type EdgeRun } from '../shared/plateaus';
 import type { WalkPlacement } from './caveWalk';
@@ -39,9 +39,11 @@ export function cliffLineOf(run: Pick<EdgeRun, 'points' | 'closed'>, placed: Wal
 }
 
 /**
- * Every plateau cliff run of a layer walked (`walkCliff`, along the walls' lines only), and the
- * line each run laid with a measured kit of its own left: none for a run along a cave wall,
- * whose wall's line stands for it. `missing`: the runs whose kit is not installed.
+ * Every plateau cliff run of a layer walked (`walkCliff`), stretch by stretch off the walls
+ * (`LaidRun.cliffs`, along the walls' lines only), and the line each stretch laid with a
+ * measured kit of its own left: a run along no wall is one closed line, each stretch of one
+ * that meets a wall an open line, and the wall's line stands for the rest. `missing`: the runs
+ * whose kit is not installed.
  */
 export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines: RockLine[]; missing: Polygon[] } {
   const walks: CliffWalks = new Map();
@@ -49,16 +51,18 @@ export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines:
   const missing: Polygon[] = [];
   if (!hasPlateaus(layer)) return { walks, lines, missing };
   for (const band of layerPlateaus(layer).bands) {
-    const byRun = new Map<string, WalkPlacement[]>();
-    for (const { run, walk } of laidRuns(layer, band)) {
-      if (run.edge !== 'cliff' || isPaintedBorder(run.owner?.edgeArt)) continue;
-      const placed = walkCliff(walk);
+    const byRun = new Map<string, WalkPlacement[][]>();
+    for (const { run, cliffs } of laidRuns(layer, band)) {
+      if (!cliffs) continue;
+      const placed = cliffs.map((c) => walkCliff(c.run));
       byRun.set(cliffKey(run), placed);
       const { setId } = cliffChoice(run.owner?.edgeArt);
       if (!isBandSet(setId)) missing.push(run.points);
-      else if (isMeasuredBandSet(setId) && walk === run) {
-        const line = cliffLineOf(run, placed);
-        if (line) lines.push(line);
+      else if (isMeasuredBandSet(setId)) {
+        cliffs.forEach((c, i) => {
+          const line = cliffLineOf(c.run, placed[i]);
+          if (line) lines.push(line);
+        });
       }
     }
     walks.set(band, byRun);

@@ -64,6 +64,8 @@ export interface AlongRock {
   points: V[];
   /** Per segment of `points` (counted as the run's closedness counts them), the index of the drawn segment it stands for. */
   segs: number[];
+  /** Per segment of `points`, the index into `replaced` of the stretch it lies along; -1 off every line. */
+  on: number[];
   /** Each stretch replaced: its drawn points and the points that took their place, both in the run's order, and the line they came from. */
   replaced: { drawn: V[]; rock: V[]; line: RockLine }[];
 }
@@ -260,7 +262,7 @@ function boxOf(pts: readonly Pt[], pad: number): [number, number, number, number
  */
 export function alongRock(points: readonly Pt[], closed: boolean, lines: readonly RockLine[] | undefined): AlongRock {
   const count = closed ? points.length : points.length - 1;
-  const same: AlongRock = { points: points as V[], segs: Array.from({ length: Math.max(0, count) }, (_, i) => i), replaced: [] };
+  const same: AlongRock = { points: points as V[], segs: Array.from({ length: Math.max(0, count) }, (_, i) => i), on: new Array<number>(Math.max(0, count)).fill(-1), replaced: [] };
   if (!lines || lines.length === 0 || points.length < 2) return same;
   const path = pathOf(points, closed);
   if (path.total < ALONG_MIN) return same;
@@ -285,14 +287,17 @@ export function alongRock(points: readonly Pt[], closed: boolean, lines: readonl
   }
   if (picked.length === 0) return same;
 
-  const out: { p: V; k: number }[] = [];
+  // `on`: the stretch the segment from this point lies along, -1 for none.
+  const out: { p: V; k: number; on: number }[] = [];
   const replaced: AlongRock['replaced'] = [];
-  const emit = (pts: { p: V; s: number }[]) => {
-    for (const { p, s } of pts) out.push({ p, k: segAt(path, s) });
+  const emit = (pts: { p: V; s: number }[], on = -1) => {
+    for (const { p, s } of pts) out.push({ p, k: segAt(path, s), on });
   };
 
   /** One stretch, laid on its line's rock: each part a run of the rock covers, the drawn points across each gap. */
   const layStretch = (st: Stretch) => {
+    const on = replaced.length;
+    const from = out.length;
     const runs = st.line.runs.filter((r) => r.length >= 2).map(rockRunOf);
     let [sa, sb] = [st.s0, st.s1];
     // Where a run of the rock ends along the stretch: a door or a mouth begins or ends there.
@@ -326,15 +331,17 @@ export function alongRock(points: readonly Pt[], closed: boolean, lines: readonl
         piece.forEach((p, j) => {
           const next = piece[j + 1];
           const k = next ? segAt(path, nearestOn(path, [(p[0] + next[0]) / 2, (p[1] + next[1]) / 2], u, v).s) : segAt(path, v);
-          out.push({ p, k });
+          out.push({ p, k, on });
           rock.push(p);
         });
       } else {
         const drawn = subPath(path, u, v, true, true);
-        emit(drawn);
+        emit(drawn, on);
         rock.push(...drawn.map((d) => d.p));
       }
     }
+    // The segment on from the stretch's last point leaves it, unless it closes a whole ring.
+    if (!st.full && out.length > from) out[out.length - 1].on = -1;
     replaced.push({ drawn: subPath(path, sa, sb, true, true).map((d) => d.p), rock, line: st.line });
   };
 
@@ -394,13 +401,16 @@ export function alongRock(points: readonly Pt[], closed: boolean, lines: readonl
   }
 
   // One point where two pieces meet on it: the later one's segment goes on from there.
-  const kept: { p: V; k: number }[] = [];
+  const kept: { p: V; k: number; on: number }[] = [];
   for (const o of out) {
     const last = kept[kept.length - 1];
-    if (last && dist(last.p, o.p) < 1e-6) last.k = o.k;
-    else kept.push({ ...o });
+    if (last && dist(last.p, o.p) < 1e-6) {
+      last.k = o.k;
+      last.on = o.on;
+    } else kept.push({ ...o });
   }
   if (closed && kept.length > 1 && dist(kept[0].p, kept[kept.length - 1].p) < 1e-6) kept.pop();
   const segCount = closed ? kept.length : kept.length - 1;
-  return { points: kept.map((o) => o.p), segs: kept.slice(0, segCount).map((o) => o.k), replaced };
+  const segsOf = kept.slice(0, segCount);
+  return { points: kept.map((o) => o.p), segs: segsOf.map((o) => o.k), on: segsOf.map((o) => o.on), replaced };
 }
