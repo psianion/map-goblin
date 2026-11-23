@@ -18,12 +18,11 @@ import {
   SwitchRow,
   cn,
 } from '@dnd/ui';
-import { Eye, EyeOff, LocateFixed, Pencil, ScanEye, Swords, Trash2, Users } from '@dnd/ui/icons';
+import { Eye, EyeOff, LocateFixed, Pencil, Swords, Trash2, Users } from '@dnd/ui/icons';
 import { useStore } from '@dnd/core/src/store/store';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
 import { SIZE_CELLS, type HpVisibility, type Nameplate, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint, worldToScreen } from '../../renderer/camera';
-import { useSightPreview } from './sightPreview';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { openSheet } from '../../shell/sheets/registry';
 import { addToCombat, notInCombat } from '../initiative/combat';
@@ -149,7 +148,6 @@ export function TokenCard({ token }: { token: Token }) {
   const select = useTokenInteraction((s) => s.select);
   const inFight = notInCombat([token], initiative).length === 0;
   const kind = kindOf(token);
-  const preview = useSightPreview(token);
   // The map's levels: the DM moves a token between floors here (the seat that holds it follows).
   const levels = useStore((s) => s.levels);
 
@@ -186,15 +184,6 @@ export function TokenCard({ token }: { token: Token }) {
           disabled={inFight}
           data-testid="token-card-add-combat"
           onClick={() => addToCombat([token], initiative, sceneId)}
-        />
-        <IconKeyButton
-          size={26}
-          icon={ScanEye}
-          label={preview.reason ?? (preview.on ? 'Stop drawing its sight' : 'Draw what it can see')}
-          active={preview.on && preview.reason === null}
-          disabled={preview.reason !== null}
-          data-testid="token-card-preview-sight"
-          onClick={preview.toggle}
         />
         <IconKeyButton size={26} icon={LocateFixed} label="Frame" onClick={() => frameWorldPoint(token.x, token.y)} />
         <IconKeyButton

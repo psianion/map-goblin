@@ -838,10 +838,10 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   // identical triggers state-update.
   let changed = false
 
-  // A true fog reset re-arms room-revealed triggers only — a sprung trap stays sprung, the
-  // room just goes dark again and can be walked into a second time. Reveal-notes re-arm on
-  // the same rule (their `fired` keys are `note:`-prefixed so the two namespaces never mix).
-  if (source.module === 'fog' && source.action === 'reset') {
+  // Fog all re-arms room-revealed triggers only — a sprung trap stays sprung, the room just
+  // goes dark again and can be walked into a second time. Reveal-notes re-arm on the same rule
+  // (their `fired` keys are `note:`-prefixed so the two namespaces never mix).
+  if (source.module === 'fog' && source.action === 'fog-all') {
     for (const t of prep.triggers) {
       if (t.def.when.kind === 'room-revealed' && t.def.id in scene.fired) {
         delete scene.fired[t.def.id]

@@ -5,18 +5,9 @@
 // integration.test.ts, against a running server; these are the rules themselves.
 
 import { describe, expect, it } from 'vitest'
-import {
-  fogModule,
-  getCell,
-  regionOf,
-  setCells,
-  type FogState,
-  type RegionMask,
-  type SceneFog,
-} from '@dnd/mechanics/fog'
+import { fogModule, setCells, type Cell, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { doorsModule, type DoorsState } from '@dnd/mechanics/doors'
 import type { Viewer } from '@dnd/mechanics/contract'
-import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { AnyChild, DoorChild, Room, WallSegment, ZoneShape } from '@dnd/core/src/shared/types'
 import type { ScenePrep } from '@dnd/core/src/shared/prep'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
@@ -25,14 +16,19 @@ import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { buildRedactor, type OutboundMessage } from '../ws/Broadcaster'
-import { lockMaskFor, mapDeltaFor, redactMapForViewer } from './redactMap'
-import { centreOf, createSceneMaps } from './sceneMap'
+import { fogOnWith, roomCells } from './fogOn.fixture'
+import { mapDeltaFor, redactMapForViewer } from './redactMap'
+import { ONLY_LEVEL_ID, centreOf, createSceneMaps } from './sceneMap'
 import { createVision } from './vision'
+
+/** The fog module wired as index.ts wires it, cleared-record lookups included. */
+const fogModuleOf = (vision: ReturnType<typeof createVision>) =>
+  fogModule(vision.frameOf, vision.levelsOf, vision.floorOnOf)
 
 // ── A four-room crypt ───────────────────────────────────────────────────────
 // hall ──[open]── corr ──[shut]── inner ══[secret]══ vault
-// `hall` is lit, `inner` was seen and re-hidden, `corr` and `vault` never were, and there
-// is a prop stranded on unzoned map past x=100.
+// With fog on, `hall` is cleared and `corr`, `inner` and `vault` are not, and there is a
+// prop stranded on unzoned map past x=100.
 
 const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
   [x0, y0],
@@ -181,14 +177,19 @@ function mapFile(): SerializedMapData {
 
 const SCENE = 'scene-1'
 
-/** hall lit, inner seen then re-hidden, corr and vault never entered. */
-const fog = (over: Partial<SceneFog> = {}): SceneFog => ({
-  rooms: {
-    hall: { status: 'revealed', wasEverRevealed: true },
-    inner: { status: 're_hidden', wasEverRevealed: true },
-  },
-  concealBehindDoors: true,
-  ...over,
+/** The crypt's one level (it is stored without levels, so it gets the fixed id). */
+const LEVEL = ONLY_LEVEL_ID
+
+/** Fog on with the hall cleared, and nothing else. */
+const fog = (over: Partial<SceneFog> = {}): SceneFog => fogOnWith(sceneMap(), ['hall'], over)
+
+/** Fog on with these rooms cleared, and nothing else. */
+const held = (...rooms: string[]): SceneFog => fogOnWith(sceneMap(), rooms)
+
+/** `base` with these cells cleared too: a brush stroke over ground no room covers. */
+const withCells = (base: SceneFog, cells: Cell[]): SceneFog => ({
+  ...base,
+  cleared: { [LEVEL]: setCells(base.cleared![LEVEL], cells) },
 })
 
 function table(map: SerializedMapData = mapFile()): { stores: Stores; campaignId: string; vision: ReturnType<typeof createVision> } {
@@ -202,18 +203,6 @@ function table(map: SerializedMapData = mapFile()): { stores: Stores; campaignId
 }
 
 const sceneMap = () => createSceneMaps(table().stores).sceneMapOf(SCENE)!
-
-/**
- * The crypt with walls between its rooms, each door hung in its own: the table fix pass lets
- * walls and doors decide what the party sees behind them (§2.6), and the plain crypt's one
- * floor has nothing standing between hall, corr and inner.
- */
-function walledMap(): SerializedMapData {
-  const map = mapFile()
-  const layer = map.layers[0] as DungeonLayer
-  layer.standaloneWalls = [...layer.standaloneWalls, wall('w-door-hall-corr', 10, 0, 10, 10), wall('w-door-corr-inner', 14, 0, 14, 10)]
-  return map
-}
 
 // ── redactMapForViewer ──────────────────────────────────────────────────────
 
@@ -274,8 +263,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
         Math.floor(x - frame.minX),
         Math.floor(y - frame.minY),
       ])
-      // By sight: T10 counts the record only where it is shown.
-      return { ...fog(), mode: 'vision', region: setCells(regionOf(frame)!, cells) }
+      return withCells(fog(), cells)
     }
     const withBrush = (...at: [number, number][]) =>
       (redactMapForViewer(sceneMap(), brushed(...at), {}).layers[0] as DungeonLayer).children.map(
@@ -303,8 +291,8 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
       }
     })
 
-    it('takes the art back when the referee un-brushes the ground', () => {
-      // Not latched, unlike a room: the next document build simply stops carrying it.
+    it('takes the art back when the referee fogs the ground again', () => {
+      // Not latched: the next document build simply stops carrying it.
       expect(withBrush()).not.toContain('prop-on-the-brush')
     })
   })
@@ -390,9 +378,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
   })
 
   it('keeps a door into the unknown but not the id of what is behind it', () => {
-    // Both rooms lit (T10: a re-hidden inner room would hold no door at all).
-    const lit = { status: 'revealed' as const, wasEverRevealed: true }
-    const both = redactMapForViewer(sceneMap(), fog({ rooms: { hall: lit, inner: lit } }), {})
+    const both = redactMapForViewer(sceneMap(), held('hall', 'inner'), {})
     const doors = layerOf(both).children.filter((c): c is DoorChild => c.childType === 'door')
     expect(doors.map((d) => d.id)).toEqual(['door-hall-corr', 'door-corr-inner'])
     expect(doors[0]).toMatchObject({ roomA: 'hall', roomB: null })
@@ -403,7 +389,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
   })
 
   it('shows a secret door once the DM reveals it', () => {
-    const seen = redactMapForViewer(sceneMap(), fog({ rooms: { ...fog().rooms, vault: { status: 'revealed', wasEverRevealed: true } } }), {
+    const seen = redactMapForViewer(sceneMap(), held('hall', 'vault'), {
       'door-secret': { open: false, locked: false, revealed: true },
     })
     const ids = (seen.layers[0] as DungeonLayer).children.map((c) => c.id)
@@ -411,7 +397,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(ids).toContain('floor-vault')
   })
 
-  it('leaves a layer nobody zoned as it was, less its doors', () => {
+  it('leaves a layer nobody zoned as it was with fog off, and less its doors with fog on', () => {
     const plain = mapFile()
     const layer = plain.layers[0] as DungeonLayer
     delete layer.rooms
@@ -419,22 +405,24 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
-    // No fog to enforce, so the geometry is untouched — but a door nobody can earn is not
-    // the player's to be shown (see 'hands a map nobody zoned over whole' below). The copy is
-    // the document as the editor opens it: one level holding every layer.
-    const got = createVision(stores).playerMap('flat')!
-    expect(got).toEqual({
-      ...plain,
-      mapSettings: { ...plain.mapSettings, roomsVersion: 2 },
-      levels: [{ id: expect.any(String), name: 'Crypt' }],
-      layers: [
-        {
-          ...layer,
-          levelId: got.levels![0]!.id,
-          children: layer.children.filter((c) => c.childType !== 'door'),
-        },
-      ],
+    // Fog off: the whole map, doors and all. The copy is the document as the editor opens it:
+    // one level holding every layer.
+    const vision = createVision(stores)
+    // …less the one thing that does not exist yet: the secret door nobody has found.
+    const derived = vision.sceneMapOf('flat')!.data
+    const derivedLayer = derived.layers[0] as DungeonLayer
+    expect(vision.playerMap('flat')).toEqual({
+      ...derived,
+      layers: [{ ...derivedLayer, children: derivedLayer.children.filter((c) => c.id !== 'door-secret') }],
     })
+    expect(derived.levels).toEqual([{ id: LEVEL, name: 'Crypt' }])
+    expect(derivedLayer.children.map((c) => c.id)).toEqual(layer.children.map((c) => c.id))
+    // Fog on: the geometry still goes over whole, but a door nobody can earn is not the
+    // player's to be shown (see 'hands a map nobody zoned over whole' below).
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { flat: { on: true } } } satisfies FogState)
+    expect((vision.playerMap('flat')!.layers[0] as DungeonLayer).children).toEqual(
+      layer.children.filter((c) => c.childType !== 'door'),
+    )
   })
 })
 
@@ -486,11 +474,8 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
     const campaign = stores.campaigns.create('Cave')
     stores.maps.insert('cave', campaign.id, 'Cave', JSON.stringify(cave()))
     stores.scenes.create('cave', campaign.id, 'cave', 'Cave')
-    return redactMapForViewer(
-      createSceneMaps(stores).sceneMapOf('cave')!,
-      { rooms: { 'west-arm': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true },
-      {},
-    )
+    const scene = createSceneMaps(stores).sceneMapOf('cave')!
+    return redactMapForViewer(scene, fogOnWith(scene, ['west-arm']), {})
   }
 
   it('is the case the centre test cannot answer', () => {
@@ -530,7 +515,7 @@ describe('a floor shape whose centre lands on no room (D5)', () => {
     stores.scenes.create('c3', campaign.id, 'c3', 'Cave')
     const nothing = redactMapForViewer(
       createSceneMaps(stores).sceneMapOf('c3')!,
-      { rooms: {}, concealBehindDoors: true },
+      { on: true },
       {},
     )
     expect((nothing.layers[0] as DungeonLayer).children).toEqual([])
@@ -570,15 +555,6 @@ describe('mapDeltaFor (D5)', () => {
 // ── vision ──────────────────────────────────────────────────────────────────
 
 describe('vision (D3/D8)', () => {
-  const party = (roomX: number): TokensState => ({
-    library: {},
-    byScene: {
-      [SCENE]: {
-        pc: { id: 'pc', x: roomX, y: 5, ownerId: 'p-1', hidden: false } as Token,
-      },
-    },
-  })
-
   function set(stores: Stores, campaignId: string, module: string, state: unknown): void {
     stores.moduleState.put(campaignId, module, state)
   }
@@ -591,13 +567,12 @@ describe('vision (D3/D8)', () => {
     const { vision, stores, campaignId } = table()
     const frame = vision.frameOf(campaignId, SCENE)!
     const cell: [number, number] = [Math.floor(27 - frame.minX), Math.floor(5 - frame.minY)]
-    // By sight, where a stroke is shown (T10: By hand ships nothing for the record).
-    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog({ mode: 'vision' }) } } satisfies FogState)
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
     // Warm the cache on the pre-stroke state, so what follows is the stroke's own debt.
     vision.revealDelta(SCENE)
 
     set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: { ...fog({ mode: 'vision' }), region: setCells(regionOf(frame)!, [cell]) } },
+      byScene: { [SCENE]: withCells(fog(), [cell]) },
     } satisfies FogState)
     const delta = vision.revealDelta(SCENE)
     expect(delta?.layers.flatMap((l) => l.children.map((c) => c.id))).toEqual(['prop-on-the-brush'])
@@ -607,139 +582,63 @@ describe('vision (D3/D8)', () => {
     // …and a second stroke over the same cell owes nothing: the diff is against what the
     // player already holds, not against the stroke.
     set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: { ...fog({ mode: 'vision' }), region: setCells(regionOf(frame)!, [cell, [cell[0], cell[1] + 1]]) } },
+      byScene: { [SCENE]: withCells(fog(), [cell, [cell[0], cell[1] + 1]]) },
     } satisfies FogState)
     expect(vision.revealDelta(SCENE)).toBeNull()
   })
 
   it('backs the fog and doors modules with the map file', () => {
     const { vision, campaignId } = table()
-    // …and the Outdoors row of its one level (table fix pass §2.1).
-    expect(vision.roomsOf(campaignId, SCENE)).toEqual(['hall', 'corr', 'inner', 'vault', '@outdoors'])
+    expect(vision.roomsOf(campaignId, SCENE)).toEqual(['hall', 'corr', 'inner', 'vault'])
     expect(vision.doorsOf(campaignId, SCENE).map((d) => d.id)).toEqual(DOORS.map((d) => d.id))
   })
 
-  it('sees a revealed room the party can walk to, and not one behind a shut door', () => {
-    const { vision, stores, campaignId } = table(walledMap())
-    set(stores, campaignId, 'tokens', party(5))
-    set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: fog({ rooms: { hall: { status: 'revealed', wasEverRevealed: true }, corr: { status: 'revealed', wasEverRevealed: true }, inner: { status: 'revealed', wasEverRevealed: true } } }) },
-    } satisfies FogState)
-    // hall→corr is open; corr→inner is shut, so `inner` is revealed but out of sight.
-    expect([...vision.visionOf(SCENE)!.visible].sort()).toEqual(['corr', 'hall'])
-  })
-
-  it('opens the shut door and the room behind it comes into view', () => {
-    const { vision, stores, campaignId } = table()
-    set(stores, campaignId, 'tokens', party(5))
-    set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: fog({ rooms: { hall: { status: 'revealed', wasEverRevealed: true }, corr: { status: 'revealed', wasEverRevealed: true }, inner: { status: 'revealed', wasEverRevealed: true } } }) },
-    } satisfies FogState)
-    set(stores, campaignId, 'doors', {
-      byScene: { [SCENE]: { 'door-corr-inner': { open: true, locked: false, revealed: true } } },
-    } satisfies DoorsState)
-    expect([...vision.visionOf(SCENE)!.visible].sort()).toEqual(['corr', 'hall', 'inner'])
-  })
-
-  it('lets a player stand in a re-hidden room they can reach, but never in the unseen (D8)', () => {
-    const { vision, stores, campaignId } = table()
-    set(stores, campaignId, 'tokens', party(5))
-    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
-    const scene = vision.visionOf(SCENE)!
-    expect(scene.occupiable.has('hall')).toBe(true)
-    // `inner` is re-hidden: dark, still somewhere to walk (D7) once the door is open…
-    expect(scene.visible.has('inner')).toBe(false)
-    expect(scene.roomAt(19, 5)).toBe('inner')
-    expect(scene.occupiable.has('vault')).toBe(false)
-    expect(scene.roomAt(100, 100)).toBeNull()
-  })
-
-  /**
-   * The half of D8 the refusal needs: `occupiable` says no, this says which door said it.
-   * It went unwired for a release — `visionOf` handed back the two sets and nothing else —
-   * and every move a door refused came back to the player as "You can't move there."
-   */
-  it('hands the refusal the door that shut the room off, so it can be named', () => {
-    const { vision, stores, campaignId } = table(walledMap())
-    // The party is standing in the corridor, one shut door short of `inner`.
-    set(stores, campaignId, 'tokens', party(12))
-    set(stores, campaignId, 'fog', {
-      byScene: {
-        [SCENE]: fog({
-          rooms: {
-            hall: { status: 'revealed', wasEverRevealed: true },
-            corr: { status: 'revealed', wasEverRevealed: true },
-            inner: { status: 're_hidden', wasEverRevealed: true },
-          },
-        }),
-      },
-    } satisfies FogState)
-    const scene = vision.visionOf(SCENE)!
-    expect(scene.occupiable.has('inner')).toBe(false)
-    expect(scene.blockedEdge!('inner')).toEqual({
-      kind: 'closed-door',
-      doorId: 'door-corr-inner',
-    })
-    // Nothing between the party and where they already stand.
-    expect(scene.blockedEdge!('corr')).toBeNull()
-
-    set(stores, campaignId, 'doors', {
-      byScene: { [SCENE]: { 'door-corr-inner': { open: false, locked: true, revealed: true } } },
-    } satisfies DoorsState)
-    expect(vision.visionOf(SCENE)!.blockedEdge!('inner')).toEqual({
-      kind: 'locked-door',
-      doorId: 'door-corr-inner',
-    })
-  })
-
-  it('does not conceal from a table with no claimed token on the map', () => {
-    const { vision, stores, campaignId } = table()
-    set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: fog({ rooms: { vault: { status: 'revealed', wasEverRevealed: true } } }) },
-    } satisfies FogState)
-    // Nothing to be shut behind a door *from*, so a reveal reaches the table.
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['vault'])
-  })
-
-  it('answers nothing for a map nobody zoned', () => {
+  it('answers for a map nobody zoned too: all of it known with fog off, nothing on with nothing cleared', () => {
     const plain = mapFile()
     delete (plain.layers[0] as DungeonLayer).rooms
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
-    expect(createVision(stores).visionOf('flat')).toBeNull()
+    const vision = createVision(stores)
+    expect(vision.visionOf('flat')!.known(undefined, 5.5, 5.5)).toBe(true)
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { flat: { on: true } } } satisfies FogState)
+    expect(vision.visionOf('flat')!.known(undefined, 5.5, 5.5)).toBe(false)
+  })
+
+  it('knows exactly the cleared cells with fog on, on the level asked about', () => {
+    const { vision, stores, campaignId } = table()
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    const known = vision.visionOf(SCENE)!.known
+    expect(known(undefined, 5.5, 5.5)).toBe(true)
+    expect(known(LEVEL, 5.5, 5.5)).toBe(true)
+    expect(known(undefined, 19.5, 5.5)).toBe(false)
   })
 
   it('recomputes only when module state is written', () => {
     const { vision, stores, campaignId } = table()
-    // The BFS result itself, not the wrapper around it: the same Set means it did not run.
-    const first = vision.visionOf(SCENE)!.visible
-    expect(vision.visionOf(SCENE)!.visible).toBe(first)
+    // The cached answer itself, not a wrapper around it: the same Set means it did not run.
+    const first = vision.playerDoors(SCENE)
+    expect(vision.playerDoors(SCENE)).toBe(first)
     set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
-    expect(vision.visionOf(SCENE)!.visible).not.toBe(first)
+    expect(vision.playerDoors(SCENE)).not.toBe(first)
   })
 
   it('hands over everything explored on a cold cache, then only what a reveal adds', () => {
     const { vision, stores, campaignId } = table()
     set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
-    // Nothing computed yet, so the answer is the whole held set — never nothing (T10: the
-    // re-hidden inner room is not held).
+    // Nothing computed yet, so the answer is the whole held set — never nothing.
     expect(vision.revealDelta(SCENE)?.layers[0].rooms.filter((r) => !r.standIn).map((r) => r.id).sort()).toEqual([
       'hall',
     ])
 
-    set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: fog({ rooms: { ...fog().rooms, vault: { status: 'revealed', wasEverRevealed: true } } }) },
-    } satisfies FogState)
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: held('hall', 'vault') } } satisfies FogState)
     expect(vision.revealDelta(SCENE)?.layers[0].rooms.map((r) => r.id)).toEqual(['vault'])
     // Same mutation, every viewer: the delta is the cache's, not the caller's.
     expect(vision.revealDelta(SCENE)?.layers[0].rooms.map((r) => r.id)).toEqual(['vault'])
 
-    // Re-hiding hands nothing over: the room leaves the seat's fog slice and it re-fetches (T10).
-    set(stores, campaignId, 'fog', {
-      byScene: { [SCENE]: fog({ rooms: { ...fog().rooms, vault: { status: 're_hidden', wasEverRevealed: true } } }) },
-    } satisfies FogState)
+    // Fogging it again hands nothing over: the room leaves the seat's fog slice and it re-fetches.
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
     expect(vision.revealDelta(SCENE)).toBeNull()
   })
 })
@@ -752,53 +651,47 @@ describe('vision (D3/D8)', () => {
 // while the DM's own fog panel called all thirteen rooms Unrevealed. It is off on both
 // sides of the wire now — the referee's half is here, the mask's in `FogRenderer`.
 
-describe('a scene the DM has revealed nothing in', () => {
+describe('a scene with fog on and nothing cleared (row 2)', () => {
   const roomsOfMap = (map: SerializedMapData | null) =>
     (map?.layers[0] as DungeonLayer).rooms?.filter((r) => !r.standIn).map((r) => r.id).sort()
+  const NOTHING: FogState = { byScene: { [SCENE]: { on: true } } }
+  const fogged = (map?: SerializedMapData) => {
+    const t = table(map)
+    t.stores.moduleState.put(t.campaignId, 'fog', NOTHING)
+    return t
+  }
 
   it('sends a player no rooms and shows them nothing, however big the room', () => {
-    const { vision, stores, campaignId } = table()
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
+    const { vision } = fogged()
+    expect([...vision.keptRoomsOf(SCENE)!]).toEqual([])
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual([])
     // The geometry is withheld, not merely masked: a light baked into `hall` cannot reach a
     // canvas that was never sent the room (PRODUCT principle 2).
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
-    // Still read-time, and still writes nothing: the module's own state is untouched.
-    expect(stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
   })
 
-  it('gives a player nowhere to stand until the DM opens the map (D8)', () => {
-    const { vision } = table()
-    expect(vision.visionOf(SCENE)!.occupiable.has('hall')).toBe(false)
-    expect(vision.visionOf(SCENE)!.occupiable.has('vault')).toBe(false)
+  it('gives a player nowhere to stand until the DM clears some ground (D8)', () => {
+    const { vision } = fogged()
+    expect(vision.visionOf(SCENE)!.known(undefined, 5.5, 5.5)).toBe(false)
+    expect(vision.visionOf(SCENE)!.known(undefined, 35.5, 5.5)).toBe(false)
   })
 
-  it('hands over exactly the room the DM reveals, and nothing beside it', () => {
+  it('hands over exactly the room the DM clears, and nothing beside it', () => {
     const { vision, stores, campaignId } = table()
     stores.moduleState.put(campaignId, 'fog', seen('inner'))
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['inner'])
+    expect([...vision.keptRoomsOf(SCENE)!]).toEqual(['inner'])
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['inner'])
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
   })
 
-  it('leaves a Hide All nothing visible and nothing held (T10)', () => {
+  it('leaves a Fog all nothing visible and nothing held', () => {
     const { vision, stores, campaignId } = table()
-    // What `set-bulk` writes for D9's Hide All: everything seen, nothing lit.
-    stores.moduleState.put(campaignId, 'fog', {
-      byScene: {
-        [SCENE]: {
-          concealBehindDoors: true,
-          rooms: {
-            hall: { status: 're_hidden', wasEverRevealed: true },
-            inner: { status: 're_hidden', wasEverRevealed: true },
-          },
-        },
-      },
-    } satisfies FogState)
-    // The regression behind the explored wash reading identical to a live room: the last
-    // room going under used to bring `hall` straight back as visible.
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
-    // …and the rooms are fogged fully, so their geometry goes too (T10; it once stayed, D4).
+    stores.moduleState.put(campaignId, 'fog', seen('hall', 'inner'))
+    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall', 'inner'])
+    // What `fog-all` writes: the switch on, nothing cleared.
+    stores.moduleState.put(campaignId, 'fog', NOTHING)
+    expect([...vision.keptRoomsOf(SCENE)!]).toEqual([])
+    // …and the rooms are fogged fully, so their geometry goes too.
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual([])
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('prop-inner')
   })
@@ -818,6 +711,7 @@ describe('a scene the DM has revealed nothing in', () => {
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { flat: NOTHING.byScene[SCENE] } } satisfies FogState)
     const vision = createVision(stores)
 
     expect([...vision.playerDoors('flat')]).toEqual([])
@@ -829,9 +723,9 @@ describe('a scene the DM has revealed nothing in', () => {
     )
   })
 
-  /** The regression in one line, on the zoned map: nothing revealed, nothing to draw. */
-  it('tells a player about no door at all until a room of one is revealed', () => {
-    const { vision } = table()
+  /** The regression in one line, on the zoned map: nothing cleared, nothing to draw. */
+  it('tells a player about no door at all until a room of one is cleared', () => {
+    const { vision } = fogged()
     expect([...vision.playerDoors(SCENE)]).toEqual([])
     const map = vision.playerMap(SCENE)
     expect((map?.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'door')).toEqual([])
@@ -843,20 +737,13 @@ describe('a scene the DM has revealed nothing in', () => {
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
 
-const seen = (...rooms: string[]): FogState => ({
-  byScene: {
-    [SCENE]: {
-      concealBehindDoors: true,
-      rooms: Object.fromEntries(
-        rooms.map((id) => [id, { status: 'revealed' as const, wasEverRevealed: true }]),
-      ),
-    },
-  },
-})
+/** Fog on with these rooms cleared, as the stored fog state. */
+const seen = (...rooms: string[]): FogState => ({ byScene: { [SCENE]: held(...rooms) } })
 
 describe('vision.playerDoors (D4)', () => {
   it('is empty before the party has explored anything, and for a scene with no map', () => {
-    const { vision } = table()
+    const { vision, stores, campaignId } = table()
+    stores.moduleState.put(campaignId, 'fog', seen())
     // A door is bound to a room, and a player holding no room holds no door either.
     expect([...vision.playerDoors(SCENE)]).toEqual([])
     expect([...vision.playerDoors('no-such-scene')]).toEqual([])
@@ -878,15 +765,14 @@ describe('vision.playerDoors (D4)', () => {
     // been stripped by the doors module anyway, but a set that names a door the player's map
     // does not have is a set the geometry delta cannot be derived from (D2).
     expect([...vision.playerDoors(SCENE)].sort()).toEqual(onTheMap.sort())
-    // T10: the re-hidden inner room holds no door, so only the hall's is on either.
+    // The uncleared inner room holds no door, so only the hall's is on either.
     expect(onTheMap).toEqual(['door-hall-corr'])
   })
 
   it('admits a secret door once the DM reveals it, and hands over its geometry (D2)', () => {
     const { vision, stores, campaignId } = table()
-    // The inner room lit, where the secret door is (T10: a re-hidden room holds none).
-    const lit = { status: 'revealed' as const, wasEverRevealed: true }
-    stores.moduleState.put(campaignId, 'fog', { byScene: { [SCENE]: fog({ rooms: { hall: lit, inner: lit } }) } } satisfies FogState)
+    // The inner room cleared, where the secret door is.
+    stores.moduleState.put(campaignId, 'fog', seen('hall', 'inner'))
     expect([...vision.playerDoors(SCENE)]).not.toContain('door-secret')
     // The map the player holds is the other half of the same answer.
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('door-secret')
@@ -911,7 +797,7 @@ describe('the doors slice on the wire (D4/D4c)', () => {
   function wired() {
     const { stores, campaignId, vision } = table()
     const registry = new ModuleRegistry(stores.moduleState)
-    registry.register(fogModule(vision.roomsOf))
+    registry.register(fogModuleOf(vision))
     registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
     const sent: ServerMessage[] = []
     return {
@@ -937,7 +823,7 @@ describe('the doors slice on the wire (D4/D4c)', () => {
 
   it('re-sends the doors slice when the fog moves', () => {
     const { run, sent } = wired()
-    expect(run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })).toBeNull()
+    expect(run('fog', 'set-on', { sceneId: SCENE, on: true })).toBeNull()
     // Nothing about the doors *state* changed; what changed is how much of it a player is
     // owed, and without this frame the room they just entered has no door state at all.
     expect(sent.map((msg) => (msg.type === 'state-update' ? msg.module : msg.type))).toEqual([
@@ -948,6 +834,7 @@ describe('the doors slice on the wire (D4/D4c)', () => {
 
   it('hands a player the doors of the rooms they have explored and no others', () => {
     const { run, doorsFor } = wired()
+    expect(run('fog', 'set-on', { sceneId: SCENE, on: true })).toBeNull()
     // One touch anywhere seeds every door in the scene — this is the leak, in one command.
     expect(run('doors', 'toggle', { sceneId: SCENE, id: 'door-corr-inner' })).toBeNull()
     expect(doorsFor(DM)).toEqual(['door-corr-inner', 'door-hall-corr', 'door-secret'])
@@ -955,10 +842,10 @@ describe('the doors slice on the wire (D4/D4c)', () => {
     // them with no door in it at all.
     expect(doorsFor(P1)).toEqual([])
 
-    run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })
+    run('fog', 'region-set', { sceneId: SCENE, levelId: LEVEL, op: 'clear', cells: roomCells(sceneMap(), 'hall') })
     expect(doorsFor(P1)).toEqual(['door-hall-corr'])
 
-    run('fog', 'reveal', { sceneId: SCENE, roomId: 'corr' })
+    run('fog', 'region-set', { sceneId: SCENE, levelId: LEVEL, op: 'clear', cells: roomCells(sceneMap(), 'corr') })
     // The corridor's own door into the dark arrives; the secret one behind it still does not.
     expect(doorsFor(P1)).toEqual(['door-corr-inner', 'door-hall-corr'])
   })
@@ -980,7 +867,7 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
     stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
     const vision = createVision(stores)
     const registry = new ModuleRegistry(stores.moduleState)
-    registry.register(fogModule(vision.roomsOf))
+    registry.register(fogModuleOf(vision))
     registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
     const redact = buildRedactor(registry, vision)
     const held = new Map<string, OutboundMessage[]>([P1, P2].map((v) => [v.identityId, []]))
@@ -1015,10 +902,11 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
     }
   }
 
-  const lit = (...ids: string[]) =>
-    Object.fromEntries(
-      ids.map((id) => [id, { status: 'revealed' as const, wasEverRevealed: true }]),
-    )
+  const clear = (...ids: string[]) => ({
+    levelId: LEVEL,
+    op: 'clear',
+    cells: ids.flatMap((id) => roomCells(sceneMap(), id)),
+  })
 
   it('hands every viewer the delta for the scene the command wrote, and only that one', () => {
     const { stores, campaignId, vision, run, deltasFor } = twoScenes()
@@ -1032,7 +920,7 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
     // `scene-1` primed, so what it owes below is the room this command opens, not its history.
     expect(vision.revealDelta(SCENE)).not.toBeNull()
 
-    expect(run(SCENE, 'set-bulk', { rooms: lit('hall', 'inner', 'vault') })).toBeNull()
+    expect(run(SCENE, 'region-set', clear('inner', 'vault'))).toBeNull()
 
     for (const viewer of [P1, P2]) {
       const deltas = deltasFor(viewer)
@@ -1040,15 +928,14 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
         deltas.map((d) => d.sceneId),
         `${viewer.identityId} was sent another scene's geometry`,
       ).toEqual([SCENE])
-      // T10: inner was re-hidden, so it is not held until this lights it again (and the
-      // corridor under its floor rides as a stand-in).
+      // The two rooms this stroke cleared (the corridor under the floor rides as a stand-in).
       expect(deltas[0].layers.flatMap((l) => l.rooms.filter((r) => !r.standIn).map((r) => r.id))).toEqual(['inner', 'vault'])
     }
 
     // …and again with both scenes in the cache, where a walk over the state would have
     // stumbled onto the right answer anyway. Same result, for a reason this time.
     expect(vision.revealDelta(OTHER)).not.toBeNull()
-    expect(run(SCENE, 'reveal', { roomId: 'corr' })).toBeNull()
+    expect(run(SCENE, 'region-set', clear('corr'))).toBeNull()
     for (const viewer of [P1, P2]) {
       expect(deltasFor(viewer).map((d) => d.sceneId)).toEqual([SCENE, SCENE])
     }
@@ -1137,111 +1024,6 @@ describe('prep and zones (schema 3.1)', () => {
 })
 
 // ── the lock mask a player's own fence is cut from ─────────────────────────
-// Zones never travel, and a player's contained near pass has to be fenced by the same lock
-// zones the referee refuses to write cells inside (`swept`/`inAnyLock`). So the *cells* go
-// over instead, intersected with the ground that seat holds art for — a lock in a room
-// nobody has earned would put its position on the wire, which is the leak the zone strip
-// exists to stop in the first place.
-
-describe('lockMask (post-review: the fence a player can actually apply)', () => {
-  const locked = (id: string, x: number, y: number): AnyChild => ({
-    ...(zone(id, { kind: 'rect', x, y, width: 2, height: 2 }) as object),
-    blocksAutoExplore: true,
-  }) as AnyChild
-
-  /** A lock in the (explored) hall and a lock in the vault nobody has ever seen. */
-  function withLocks(rooms = true): SerializedMapData {
-    const base = mapFile()
-    const layer = base.layers[0] as DungeonLayer
-    const next: DungeonLayer = {
-      ...layer,
-      children: [...layer.children, locked('lock-hall', 2, 2), locked('lock-vault', 32, 2)],
-    }
-    if (!rooms) delete next.rooms
-    return { ...base, layers: [next] }
-  }
-
-  function sceneFor(data: SerializedMapData) {
-    const stores = createStores(openDb(':memory:'))
-    const campaign = stores.campaigns.create('Crypt')
-    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(data))
-    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
-    return createSceneMaps(stores).sceneMapOf(SCENE)!
-  }
-
-  const vision = (over: Partial<SceneFog> = {}) => fog({ mode: 'vision', ...over })
-  /** Is the cell that world point falls in locked, as the seat's mask reads it? */
-  const at = (mask: RegionMask | undefined, x: number, y: number) =>
-    getCell(mask, Math.floor(x - (mask?.minX ?? 0)), Math.floor(y - (mask?.minY ?? 0)))
-
-  it('carries the locks in the rooms this seat holds, and only those', () => {
-    const scene = sceneFor(withLocks())
-    const mask = redactMapForViewer(scene, vision(), {}).lockMask
-    expect(mask).toBeDefined()
-    // The hall is explored, so its lock is a fence the seat can and must apply.
-    expect(at(mask, 2.5, 2.5)).toBe(true)
-    expect(at(mask, 3.5, 3.5)).toBe(true)
-    // The vault is not, and the mask says nothing about it — a bit set there would be the
-    // position of a locked chamber, disclosed by the very field that hides it.
-    expect(at(mask, 32.5, 2.5)).toBe(false)
-    expect(at(mask, 33.5, 3.5)).toBe(false)
-    // …and nothing outside either zone is fenced.
-    expect(at(mask, 6.5, 6.5)).toBe(false)
-  })
-
-  it('gives the DM nothing — their copy has the zones themselves', () => {
-    const scene = sceneFor(withLocks())
-    expect(scene.data.lockMask).toBeUndefined()
-    expect(
-      (scene.data.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'zone'),
-    ).toHaveLength(2)
-  })
-
-  it('fences every lock on a roomless map, which ships its image whole', () => {
-    // #114: no rooms, so the whole frame is shipped ground and every lock cell on it is one
-    // the near pass could otherwise peel by range alone.
-    const mask = redactMapForViewer(sceneFor(withLocks(false)), vision(), {}).lockMask
-    expect(at(mask, 2.5, 2.5)).toBe(true)
-    expect(at(mask, 32.5, 2.5)).toBe(true)
-    expect(at(mask, 20.5, 5.5)).toBe(false)
-  })
-
-  it('is absent with no locks to state, and absent outside vision mode', () => {
-    // Nearly every map: the field costs a seat nothing it does not need.
-    expect(redactMapForViewer(sceneFor(mapFile()), vision(), {}).lockMask).toBeUndefined()
-    // …and rooms mode is untouched by the whole feature — containment is vision-only.
-    expect(redactMapForViewer(sceneFor(withLocks()), fog(), {}).lockMask).toBeUndefined()
-  })
-
-  it('rides the reveal that widens the ground it fences', () => {
-    // The freshness half. `mergeMapDelta` patches layers and nothing else, and a connected
-    // seat re-fetches its document only on a join, a scene swap, a republish or a mode flip —
-    // so the message that ships a newly credited room's art is the one that owes the new
-    // fence, exactly as D5 makes it owe the geometry. Without it the seat holds the vault's
-    // art, no fence over the lock in it, and no correction ever coming.
-    const scene = sceneFor(withLocks())
-    expect(at(lockMaskFor(scene, vision(), new Set(['hall', 'inner', 'vault'])), 32.5, 2.5)).toBe(true)
-    expect(at(lockMaskFor(scene, vision(), new Set(['hall'])), 32.5, 2.5)).toBe(false)
-
-    // …and the delta really carries it, cut against the rooms that delta just credited.
-    const stores = createStores(openDb(':memory:'))
-    const campaign = stores.campaigns.create('Crypt')
-    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(withLocks()))
-    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
-    const seer = createVision(stores)
-    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: vision() } } satisfies FogState)
-    expect(at(seer.revealDelta(SCENE)?.lockMask, 2.5, 2.5)).toBe(true)
-    stores.moduleState.put(campaign.id, 'fog', {
-      byScene: {
-        [SCENE]: vision({ rooms: { ...fog().rooms, vault: { status: 'revealed', wasEverRevealed: true } } }),
-      },
-    } satisfies FogState)
-    const widened = seer.revealDelta(SCENE)
-    expect(widened?.layers[0].rooms.map((r) => r.id)).toEqual(['vault'])
-    expect(at(widened?.lockMask, 32.5, 2.5)).toBe(true)
-  })
-})
-
 describe('centreOf zones (D5)', () => {
   it('a point zone centres on its authored position', () => {
     expect(centreOf(zone('z1', { kind: 'point', position: { x: 3, y: 4 } }))).toEqual([3, 4])

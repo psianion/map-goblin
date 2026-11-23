@@ -29,7 +29,7 @@ const plateauIds = (data: SerializedMapData) =>
   dungeons(data).flatMap((l) => l.children.filter((c) => c.childType === 'plateau').map((c) => c.id))
 
 /** Nothing seen: the player's copy is as bare as fog makes it. */
-const DARK: SceneFog = { rooms: {}, concealBehindDoors: true }
+const DARK: SceneFog = {}
 
 describe('plateaus on the player’s copy of the map', () => {
   for (const file of ['plateau-test', 'plateau-table', 'tower-test']) {

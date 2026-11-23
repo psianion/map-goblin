@@ -4,12 +4,13 @@
 
 import { describe, expect, it } from 'vitest'
 import type { SceneFog } from '@dnd/mechanics/fog'
+import { fogOnWith } from './fogOn.fixture'
 import type { AnyChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { keptChildIds, redactMapForViewer } from './redactMap'
-import { createSceneMaps } from './sceneMap'
+import { createSceneMaps, type SceneMap } from './sceneMap'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
   [x0, y0],
@@ -73,7 +74,8 @@ function mapFile(zoned: boolean): SerializedMapData {
 }
 
 /** The hall seen, the vault never. */
-const FOG: SceneFog = { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true }
+/** Fog on with the hall cleared; on a map nobody zoned, fog on with nothing cleared. */
+const fogged = (s: SceneMap): SceneFog => (s.rooms.length ? fogOnWith(s, ['hall']) : { on: true })
 
 function scene(zoned: boolean) {
   const stores = createStores(openDb(':memory:'))
@@ -88,16 +90,17 @@ const ids = (children: AnyChild[]) => children.filter((c) => c.childType === 'te
 describe('labels on the player’s copy of the map', () => {
   it('drops a DM-only label even in a room the party has explored, on the fetch and the delta lane', () => {
     const s = scene(true)
-    const children = (redactMapForViewer(s, FOG, {}).layers[0] as DungeonLayer).children
+    const children = (redactMapForViewer(s, fogged(s), {}).layers[0] as DungeonLayer).children
     expect(ids(children)).not.toContain('gm-note')
-    expect(keptChildIds(s, FOG, {}).has('gm-note')).toBe(false)
+    expect(keptChildIds(s, fogged(s), {}).has('gm-note')).toBe(false)
   })
 
   it('keeps a label marked for players in an explored room, and still not one in an unexplored room', () => {
-    const children = (redactMapForViewer(scene(true), FOG, {}).layers[0] as DungeonLayer).children
+    const [zoned, flat] = [scene(true), scene(false)]
+    const children = (redactMapForViewer(zoned, fogged(zoned), {}).layers[0] as DungeonLayer).children
     expect(ids(children)).toEqual(['hall-name'])
     // On a layer nobody zoned, the marked ones go over whole and the DM-only one stays home.
-    const unzoned = (redactMapForViewer(scene(false), FOG, {}).layers[0] as DungeonLayer).children
+    const unzoned = (redactMapForViewer(flat, fogged(flat), {}).layers[0] as DungeonLayer).children
     expect(ids(unzoned)).toEqual(['hall-name', 'vault-name'])
   })
 

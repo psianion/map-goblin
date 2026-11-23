@@ -19,8 +19,13 @@ describe('Tile', () => {
     const tile = screen.getByRole('button', { name: /Walls/ });
     expect(tile.getAttribute('aria-pressed')).toBe('true');
     const thumb = tile.querySelector('[data-slot="tile-thumb"]') as HTMLElement;
-    expect(thumb.className).toContain('ring-[1.5px]');
-    expect(thumb.className).toContain('ring-ink');
+    // The ring is an overlay above the picture, not a shadow on the thumb under it.
+    const classes = thumb.className.split(' ');
+    for (const c of ['after:absolute', 'after:inset-0', 'after:pointer-events-none', 'after:ring-[1.5px]', 'after:ring-ink', 'after:ring-inset']) {
+      expect(classes).toContain(c);
+    }
+    expect(classes).not.toContain('ring-[1.5px]');
+    expect(classes).not.toContain('ring-ink');
     const lock = screen.getByLabelText('Locked');
     expect(lock.getAttribute('class')).toContain('top-[3px]');
     expect(lock.getAttribute('class')).toContain('right-[3px]');

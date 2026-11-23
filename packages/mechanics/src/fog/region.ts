@@ -15,7 +15,7 @@ declare const btoa: (data: string) => string
 
 /**
  * A scene's confining rectangle, cell-snapped. Core's `WorldBounds` satisfies it as-is —
- * declared here rather than imported for the reason `FogRoom` is (D2): reaching into
+ * declared here rather than imported (D2): reaching into
  * `@dnd/core/src/shared/mapBounds` drags `store/types` and its DOM types in with it, and
  * this package compiles without a DOM on purpose.
  */
@@ -73,8 +73,7 @@ export const REGION_CELL_MAX = 512 * 512
 
 /**
  * An empty mask sized to the frame. A 100×100 scene is 1250 bytes of base64. Undefined past
- * `REGION_CELL_MAX` — a stray far-off asset can stretch a frame to thousands of cells a side,
- * and a scene with no region record still fogs by room like every scene did before P1.
+ * `REGION_CELL_MAX` — a stray far-off asset can stretch a frame to thousands of cells a side.
  */
 export function regionOf(frame: Frame): RegionMask | undefined {
   const cols = Math.max(0, Math.round(frame.maxX - frame.minX))
@@ -90,25 +89,37 @@ export function regionOf(frame: Frame): RegionMask | undefined {
 }
 
 /**
- * The mask a cell command writes into, always in the *current* frame's coordinates —
- * `stored` when it still describes this frame, a fresh empty one when it does not, and
- * undefined for a frame past `REGION_CELL_MAX`, which holds no region record at all.
+ * Fog rework §2.6 — `stored` moved onto the current frame: every cell keeps its place on the map
+ * and cells the new frame does not cover are dropped. The same object back when the frame has not
+ * moved, an empty mask when nothing was stored, and undefined past `REGION_CELL_MAX`.
  *
- * ponytail: a republish that moves or resizes the map starts the region over rather than
- * re-basing the old bits onto the new origin. The room record — the one that decides what
- * geometry a player holds — survives it untouched; region memory is presentation, and
- * re-basing it is worth writing the day a DM complains.
+ * The cleared record is the only memory there is, so a republish that grows the map must not
+ * cost the party the ground it has already cleared.
  */
-export function regionFor(stored: RegionMask | undefined, frame: Frame): RegionMask | undefined {
+export function rebaseRegion(stored: RegionMask | undefined, frame: Frame): RegionMask | undefined {
   const fresh = regionOf(frame)
-  return fresh &&
-    stored &&
+  if (!fresh || !stored) return fresh
+  if (
     stored.minX === fresh.minX &&
     stored.minY === fresh.minY &&
     stored.cols === fresh.cols &&
     stored.rows === fresh.rows
-    ? stored
-    : fresh
+  ) {
+    return stored
+  }
+  const from = toBytes(stored.bits)
+  const to = toBytes(fresh.bits)
+  const dx = Math.round(stored.minX - fresh.minX)
+  const dy = Math.round(stored.minY - fresh.minY)
+  for (let bit = 0; bit < stored.cols * stored.rows; bit++) {
+    if ((from[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+    const col = (bit % stored.cols) + dx
+    const row = Math.floor(bit / stored.cols) + dy
+    if (col < 0 || row < 0 || col >= fresh.cols || row >= fresh.rows) continue
+    const at = row * fresh.cols + col
+    to[at >>> 3] |= 1 << (at & 7)
+  }
+  return { ...fresh, bits: toBase64(to) }
 }
 
 /**
@@ -158,39 +169,6 @@ export function fillRegion(region: RegionMask): RegionMask {
 }
 
 /**
- * `base` with every bit `other` holds turned on — the whole of P5's share-flip merge, in one
- * primitive, because a region record is bytes and a merge of two of them is an OR (§1).
- *
- * Frames that disagree are left alone rather than re-based, which is the rule `regionFor`
- * already applies to a stored mask: every record on one scene is minted from that scene's
- * frame, so two of them only differ after a republish moved the map — and a republish is
- * exactly what starts the record over.
- */
-export function orRegion(base: RegionMask, other: RegionMask | undefined): RegionMask {
-  if (
-    !other ||
-    other.minX !== base.minX ||
-    other.minY !== base.minY ||
-    other.cols !== base.cols ||
-    other.rows !== base.rows
-  ) {
-    return base
-  }
-  const bytes = toBytes(base.bits)
-  const add = toBytes(other.bits)
-  // A record whose byte count disagrees is refused whole, exactly as a disagreeing frame is.
-  // It cannot be minted here — `regionOf` derives the length from cols × rows and every write
-  // re-encodes the same array — so a mismatch is a corrupted or hand-made record, and merging
-  // its prefix would write another mask's cells into this one on the strength of four numbers
-  // that happen to line up. (It would not *eat* the base's tail: `bytes[i] |= undefined` is
-  // `| 0`, a no-op. The partial merge is the part worth refusing.) Byte count and not base64
-  // length, because 4 chars of base64 can be 1, 2 or 3 bytes.
-  if (add.length !== bytes.length) return base
-  for (let i = 0; i < bytes.length; i++) bytes[i] |= add[i]
-  return { ...base, bits: toBase64(bytes) }
-}
-
-/**
  * The cells a sweep polygon covers, judged by their centres — the same rule room membership
  * uses, so a token and the cell it stands on never disagree about which side of a wall they
  * are on. Bounded by the polygon's own box, so a 6-cell sight radius walks ~150 cells and
@@ -219,72 +197,6 @@ export function cellsCoveredByPolygon(polygon: readonly [number, number][], fram
     }
   }
   return covered
-}
-
-/**
- * Is a cell on ground the map actually authors? The one definition of "floor", shared by
- * every writer and reader of the record so they cannot hold three opinions of it.
- *
- * A room *is* the floor: `detectRooms` cuts the merged floor rings by the walls and hands
- * back every piece bigger than a quarter cell, corridors and yards included, so "inside some
- * room" and "on authored floor" are the same set minus the wall thickness itself — and a
- * cell centre under a wall is not somewhere to stand either. Room polygons are already
- * indexed on the server (`SceneMap.roomAt`) and already injected into this module
- * (`SceneRoomAt`), so the predicate costs the point-in-polygon walk that was there anyway
- * and needs no new geometry on either side.
- *
- * A map with no rooms at all is the #114 battlemap: an imported image, no traced floor, and
- * the frame is the floor by definition. Nothing changes for those — `roomCount === 0` is the
- * whole exemption, and it is why the argument is the count and not a boolean the caller
- * derives some other way.
- *
- * One consumer: `openGround`, which refuses to let a token stand off the floor. What may be
- * *recorded* is the wider question `nearAuthoredFloor` answers — standable is not recordable.
- */
-export function onAuthoredFloor(roomCount: number, roomAt: string | null): boolean {
-  return roomCount === 0 || roomAt !== null
-}
-
-/**
- * Is a cell close enough to authored floor to be worth *remembering*? The record's own
- * predicate, and deliberately one cell wider than `onAuthoredFloor`.
- *
- * A room polygon is the floor, and the wall art is not on it: a wall band straddles the room
- * edge, half inside the floor ring and half out in the void, and its outer half's cell centres
- * fall in no room at all. Clamping the record to the floor therefore dropped exactly the cells
- * the stones are drawn on, and the memory tier — which paints one texel per *recorded* cell and
- * upscales, with no polygon to grow — stopped its grey at the floor edge and put the walls of
- * explored rooms back under the cloud. Live sight never showed it, because the live clips grow
- * their polygons by `fogPad` and buy the band back that way.
- *
- * `fogPad` is `wallWidth + margin` = 0.5 + 0.5 = 1.0 cell, so "within one cell of floor" is
- * exactly the band the renderers already buy. On a cell grid that is Chebyshev distance 1: the
- * centre or any of the eight neighbouring centres landing in a room covers it, including the
- * diagonals a 4-neighbour test would leave notched at a corner. Two cells out is void and stays
- * void — the flat-black patch beyond a palisade is still not a memory.
- *
- * Roomless maps are the #114 battlemap and are exempt exactly as they are above: the frame is
- * the floor, `roomCount === 0` answers true, and no neighbour is asked.
- *
- * Two consumers: the DM's brush and the party's sweep — the two writers of the record.
- *
- * ponytail: the centre is tested first so the common case (a cell well inside a room) costs the
- * one point-in-polygon walk it always did; only band and void cells pay all nine.
- */
-export function nearAuthoredFloor(
-  roomCount: number,
-  roomAt: (x: number, y: number) => string | null,
-  x: number,
-  y: number,
-): boolean {
-  if (roomCount === 0) return true
-  if (roomAt(x, y) !== null) return true
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if ((dx !== 0 || dy !== 0) && roomAt(x + dx, y + dy) !== null) return true
-    }
-  }
-  return false
 }
 
 /** Ray casting — the one geometry primitive the region record needs. */

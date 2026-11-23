@@ -2,7 +2,7 @@
 // wall's line goes, and the DM's copy keeps every one.
 
 import { describe, expect, it } from 'vitest'
-import type { SceneFog } from '@dnd/mechanics/fog'
+import { fogOnWith } from './fogOn.fixture'
 import type { Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, RockLine, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
@@ -68,12 +68,11 @@ function scene() {
   return createSceneMaps(stores).sceneMapOf(SCENE)!
 }
 
-const FOG: SceneFog = { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true }
 
 describe('a cliff line on the player’s copy of the map', () => {
   it('keeps the cliff line by the revealed room and drops the far one', () => {
     const s = scene()
-    const player = redactMapForViewer(s, FOG, {}).layers[0] as DungeonLayer
+    const player = redactMapForViewer(s, fogOnWith(s, ['hall']), {}).layers[0] as DungeonLayer
     expect(player.rockLines).toEqual([cliff(0)])
     expect((s.data.layers[0] as DungeonLayer).rockLines).toEqual([cliff(0), cliff(30)])
   })

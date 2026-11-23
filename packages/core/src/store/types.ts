@@ -856,16 +856,6 @@ export interface SerializedMapData {
    */
   frame?: { minX: number; minY: number; maxX: number; maxY: number } | null;
   /**
-   * The auto-explore lock zones this seat is allowed to know about, as one bit per cell
-   * (mechanics' `RegionMask`, structurally — spelled out here for the reason `frame` is:
-   * core does not depend on mechanics). Stamped by the session server beside `frame` on a
-   * player's vision-mode cut when the map locks any ground the seat holds art for; the
-   * player's mask subtracts it from the range-earned term of contained sight, which is the
-   * only way that seat can know about a zone it is never sent. Absent on authored files and
-   * on the DM's copy — the DM reads the real zones.
-   */
-  lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
-  /**
    * Ground in no walled floor, per level: the frame minus the walled floors, as rings (outer
    * rings and holes). Stamped on a player's copy by the session server once the seat knows
    * any outdoor cell. Absent on authored files and on the DM's copy.

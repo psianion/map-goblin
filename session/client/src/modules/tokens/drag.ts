@@ -61,13 +61,6 @@ interface TokenInteraction {
    *  set — its buttons would otherwise float over a token mid-repositioning. */
   draggingId: string | null;
   /**
-   * The DM's sight preview: draw the selected token's own sight on *this* canvas, the way
-   * the seat holding it would see the scene. Local to this tab — never sent, never part of
-   * the redaction the referee runs — so a player's seat neither reads it nor is changed by
-   * it; it only ever chooses what the DM's fog layer draws (`fogScene`).
-   */
-  previewSight: boolean;
-  /**
    * Table v2 — every selected token, `selectedId` last. Shift+click adds or removes one;
    * two or more open the group card. A plain `select` resets it to the one (or none).
    */
@@ -83,7 +76,6 @@ interface TokenInteraction {
   setHovered: (id: string | null) => void;
   setPlacing: (defId: string | null, hidden?: boolean) => void;
   setDraggingId: (id: string | null) => void;
-  setPreviewSight: (on: boolean) => void;
 }
 
 // ponytail: a zustand store instead of React context — the Pixi layer is outside
@@ -92,7 +84,6 @@ export const useTokenInteraction = create<TokenInteraction>()((set, get) => ({
   selectedId: null,
   placingDefId: null,
   draggingId: null,
-  previewSight: false,
   selectedIds: [],
   hoveredId: null,
   placeHidden: false,
@@ -108,7 +99,6 @@ export const useTokenInteraction = create<TokenInteraction>()((set, get) => ({
   },
   setPlacing: (placingDefId, hidden = false) => set({ placingDefId, placeHidden: placingDefId ? hidden : false }),
   setDraggingId: (draggingId) => set({ draggingId }),
-  setPreviewSight: (previewSight) => set({ previewSight }),
 }));
 
 /** The drag type a library tile carries onto the map (board 12: drag a tile to place it). */

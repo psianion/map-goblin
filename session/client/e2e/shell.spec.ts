@@ -19,6 +19,10 @@ test.describe('@shell chrome', () => {
     await expect(page.getByTestId('dock-body-fog')).toHaveCount(0);
     await page.keyboard.press('1');
     await expect(page.getByTestId('dock-body-fog')).toBeVisible();
+    // Fog lies across the whole dock at the short height: no left column, no strip.
+    await expect(page.getByTestId('dock-body-fog')).toHaveAttribute('data-height', 'sm');
+    await expect(page.getByTestId('dock-full')).toBeVisible();
+    await expect(page.getByTestId('dock-strip')).toHaveCount(0);
     await page.keyboard.press('6');
     await expect(page.getByTestId('dock-body-world')).toBeVisible();
     await page.keyboard.press('6');

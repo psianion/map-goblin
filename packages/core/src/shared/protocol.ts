@@ -65,18 +65,6 @@ export interface MapDeltaLayer {
 export interface MapDelta {
   sceneId: string;
   layers: MapDeltaLayer[];
-  /**
-   * The re-cut `lockMask` (see the server's `lockMaskFor`), when this delta credits rooms — the
-   * same debt D5 makes a reveal pay for geometry, for the same reason. The mask is cut against
-   * the rooms a seat holds, a reveal is what grows that set, and nothing else re-cuts a
-   * connected seat's document: `mergeMapDelta` patches layers and the client re-fetches only
-   * on a join, a scene swap, a republish or a mode flip. Without this the newly shipped room's
-   * locked ground would have art, no fence, and no correction ever coming.
-   *
-   * Mechanics' `RegionMask`, spelled out the way `SerializedMapData.lockMask` spells it: core
-   * does not depend on mechanics, and this file stays clear of the store's DOM-typed module.
-   */
-  lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
   /** `SerializedMapData.openGround`, when this mutation first hands the seat outdoor ground. */
   openGround?: { levelId: string; rings: [number, number][][] }[];
 }

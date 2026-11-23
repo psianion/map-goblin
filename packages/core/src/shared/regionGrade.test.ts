@@ -13,7 +13,7 @@ import {
 } from './regionGrade';
 import { skyFrame } from './sky';
 import { TIMES } from './prep';
-import { darkTest, layersOnLevel, levelIdOf, onLevel, polygonEdges } from './visionGate';
+import { darkTest, layersOnLevel, levelIdOf, onLevel } from './visionGate';
 import type { DungeonLayer, MapSettings } from '../store/types';
 import type { Level, Room } from './types';
 
@@ -166,10 +166,5 @@ describe('visionGate', () => {
     const live = darkTest(map, [layer('a', 'L1', rooms)], 'L1', NOON_SKY, { hall: { place: 'underground' } });
     expect(live.dark(12, 2)).toBe(true);
     expect(darkTest(map, [layer('a', 'L1')], 'L1', NOON_SKY).any).toBe(false);
-  });
-
-  it('turns a polygon into sight-only edges', () => {
-    expect(polygonEdges(face(0))).toHaveLength(4);
-    expect(polygonEdges(face(0))[0]).toMatchObject({ blocksLight: false, blocksSight: true });
   });
 });

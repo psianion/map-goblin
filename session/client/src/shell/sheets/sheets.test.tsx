@@ -61,7 +61,7 @@ describe('sheets', () => {
     const sheet = screen.getByTestId('shortcuts-sheet');
     expect(sheet.querySelector('[data-key-row="rail:template"]')).toBeTruthy();
     expect(sheet.querySelector('[data-key-row="dock:dice"]')).toBeTruthy();
-    expect(sheet.querySelector('[data-key-row="key:shift+r"]')).toBeTruthy();
+    expect(sheet.querySelector('[data-key-row="key:shift+w"]')).toBeTruthy();
     expect(sheet.querySelector('[data-key-row="camera:0"]')).toBeTruthy();
     unmount();
     useSessionStore.setState({ you: player });

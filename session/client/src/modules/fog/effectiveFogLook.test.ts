@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultState } from '@dnd/core/src/store/factories';
 import type { FogLook } from '@dnd/core/src/shared/fogLook';
-import type { SceneFog } from '@dnd/mechanics/fog';
+import { sceneFogOf, type SceneFog } from '@dnd/mechanics/fog';
 import { effectiveFogLook } from './effectiveFogLook';
-import { DEFAULT_FOG_LOOK, FOG_PRESETS } from './livingFog';
+import { DEFAULT_FOG_LOOK } from './livingFog';
 
-const NO_OVERRIDE: SceneFog = { rooms: {}, concealBehindDoors: true };
+/** A scene the DM has not touched. */
+const NO_OVERRIDE: SceneFog = sceneFogOf({ byScene: {} }, 'scene-1');
 
 const AUTHORED: FogLook = {
   base: '#112233',
-  layers: FOG_PRESETS.mist,
+  layers: DEFAULT_FOG_LOOK.layers.map((layer) => ({ ...layer, tint: '#445566' })) as FogLook['layers'],
   wind: 2,
   fade: 2,
   veil: 0.1,

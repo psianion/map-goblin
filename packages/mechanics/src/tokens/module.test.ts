@@ -593,70 +593,6 @@ describe('claim', () => {
   })
 })
 
-describe('claim reaches an unowned friendly token on explored ground (issue #94 finding 3)', () => {
-  // Same three-band shape as 'redact under fog' below, plus a third band the party has
-  // never had revealed at all — `occupiable` does not include it.
-  const vision: SceneVision = {
-    roomAt: (x) => (x < 10 ? 'lit' : x < 20 ? 'dark' : x < 30 ? 'unrevealed' : null),
-    visible: new Set(['lit']),
-    occupiable: new Set(['lit', 'dark']),
-  }
-  const fogged = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
-  const redact = fogged.redact!
-
-  /** `run`, but against the vision-wired module instead of the fog-blind top-level one. */
-  function runFogged(state: TokensState, sender: Viewer, action: string, payload: unknown) {
-    let next = state
-    const error = fogged.handler(action, payload, {
-      campaignId: 'c-1',
-      sessionId: 's-1',
-      activeSceneId: SCENE,
-      sender,
-      players: ROSTER,
-      state,
-      setState: (s) => {
-        next = s
-      },
-      broadcast: () => {},
-    })
-    return { error: error ?? null, next }
-  }
-
-  const friendlyExplored = token({ id: 'f1', x: 15.5, y: 1.5, disposition: 'friendly' })
-  const hostileExplored = token({ id: 'h1', x: 15.5, y: 1.5, disposition: 'hostile' })
-  const friendlyUnrevealed = token({ id: 'f2', x: 25.5, y: 1.5, disposition: 'friendly' })
-
-  it('an unowned friendly on explored-but-dark ground reaches the player view and can be claimed', () => {
-    const state = stateWith(friendlyExplored)
-    expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('f1')
-    const { next, error } = runFogged(state, P1, 'claim', { id: 'f1' })
-    expect(error).toBeNull()
-    expect(next.byScene[SCENE].f1.ownerId).toBe('p-1')
-  })
-
-  it('a hostile token on the same ground stays dark', () => {
-    expect(Object.keys(redact(stateWith(hostileExplored), P1).byScene[SCENE])).toEqual([])
-  })
-
-  it('an unowned friendly in a room the party never had revealed stays dark', () => {
-    expect(Object.keys(redact(stateWith(friendlyUnrevealed), P1).byScene[SCENE])).toEqual([])
-  })
-
-  it('vision mode: the same rule runs off cell memory (openGround) instead of the room', () => {
-    const swept = new Set(['15.5,1.5'])
-    const visionMode: SceneVision = {
-      roomAt: () => 'hall',
-      visible: new Set(),
-      occupiable: new Set(),
-      canSee: () => false,
-      openGround: (x, y) => swept.has(`${x},${y}`),
-    }
-    const seenMod = buildTokens((sceneId) => (sceneId === SCENE ? visionMode : null))
-    const view = seenMod.redact!(stateWith(friendlyExplored), P1).byScene[SCENE]
-    expect(Object.keys(view)).toContain('f1')
-  })
-})
-
 describe('assign (the DM hands a token over)', () => {
   it('sets an owner, reassigns it, and clears it again', () => {
     const first = run(stateWith(token()), DM, 'assign', { id: 't1', identityId: 'p-1' })
@@ -877,11 +813,10 @@ describe('redact (D4)', () => {
 })
 
 describe('redact under fog (S3 D7)', () => {
-  // Two rooms side by side; the lit one is visible, the dark one is not.
+  // Two rooms side by side; the lit one is known ground, the dark one is not.
   const vision: SceneVision = {
     roomAt: (x) => (x < 10 ? 'lit' : x < 20 ? 'dark' : null),
-    visible: new Set(['lit']),
-    occupiable: new Set(['lit', 'dark']),
+    known: (_levelId, x) => x < 10,
   }
   const fogged = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
   const redact = fogged.redact!
@@ -902,7 +837,7 @@ describe('redact under fog (S3 D7)', () => {
     },
   }
 
-  it('drops tokens whose room the party cannot see, and unzoned ones with them', () => {
+  it('drops tokens on ground the party does not have, and unzoned ones with them', () => {
     const seen = redact(state, P1)
     expect(Object.keys(seen.byScene[SCENE]).sort()).toEqual(['lit1', 'mine1'])
     expect(Object.keys(seen.byScene['scene-b'])).toEqual(['b1'])
@@ -927,18 +862,15 @@ describe('redact under fog (S3 D7)', () => {
   })
 })
 
-// ── S3 P1: redaction by token vision ────────────────────────────────────────
-// The same seam, one resolution finer. With `canSee` wired the question is asked of the
-// point a token stands on, so a lit room is no longer a licence to see everything in it.
+// The question is asked of the point a token stands on, so a room is no licence to see
+// everything in it.
 
-describe('redact under token vision (S3 P1)', () => {
-  /** A 10×10 box of sight in the middle of one big room — everything else is that room too. */
+describe('redact by the point a token stands on', () => {
+  /** A 10×10 box of known ground in the middle of one big room — everything else is that room too. */
   const inSweep = (x: number, y: number) => x >= 10 && x <= 20 && y >= 0 && y <= 10
   const vision: SceneVision = {
     roomAt: () => 'hall',
-    visible: new Set(['hall']),
-    occupiable: new Set(['hall']),
-    canSee: inSweep,
+    known: (_levelId, x, y) => inSweep(x, y),
   }
   const seen = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
   const redact = seen.redact!
@@ -952,16 +884,14 @@ describe('redact under token vision (S3 P1)', () => {
     byScene: { [SCENE]: Object.fromEntries([lit, dark, mine, hidden].map((t) => [t.id, t])) },
   }
 
-  it('keeps a token inside the sweep and drops one outside it, same room or not', () => {
+  it('keeps a token on known ground and drops one off it, same room or not', () => {
     const view = redact(state, P1).byScene[SCENE]
     expect(Object.keys(view).sort()).toEqual(['lit1', 'mine1'])
-    // The room is visible; the corner of it the party is not looking at is not.
-    expect(vision.visible.has(vision.roomAt(dark.x, dark.y)!)).toBe(true)
     expect(JSON.stringify(redact(state, P1))).not.toContain('dark1')
   })
 
   it('keeps your own claimed token wherever it stands (D7)', () => {
-    expect(vision.canSee!(mine.x, mine.y)).toBe(false)
+    expect(vision.known(undefined, mine.x, mine.y)).toBe(false)
     expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('mine1')
     // …and only for its owner.
     expect(Object.keys(redact(state, P2).byScene[SCENE])).not.toContain('mine1')
@@ -1004,15 +934,6 @@ describe('redact under token vision (S3 P1)', () => {
     expect(redact(state, DM)).toBe(state)
   })
 
-  it('falls back to the room rule when no sweep is wired (rooms mode)', () => {
-    // Same scene, same tokens, `canSee` absent: the whole room is visible again.
-    const rooms = buildTokens(() => ({ ...vision, canSee: undefined }))
-    expect(Object.keys(rooms.redact!(state, P1).byScene[SCENE]).sort()).toEqual([
-      'dark1',
-      'lit1',
-      'mine1',
-    ])
-  })
 })
 
 describe('spawn (internal, prep v2 encounters)', () => {
@@ -1108,5 +1029,32 @@ describe('set-token-level', () => {
     expect(Object.keys(module.redact!(state, P1).byScene[SCENE]).sort()).toEqual(['mine', 'up'])
     // A seat with no level cut (one level, or the DM) is sent every token it may see.
     expect(Object.keys(module.redact!(state, P2).byScene[SCENE]).sort()).toEqual(['down', 'mine', 'up'])
+  })
+})
+
+describe('redact on known ground (fog rework)', () => {
+  // Cleared west of x = 10 on the first level, and everywhere on 'loft'.
+  const vision: SceneVision = {
+    roomAt: () => 'room',
+    known: (levelId, x) => levelId === 'loft' || x < 10,
+  }
+  const redact = buildTokens((sceneId) => (sceneId === SCENE ? vision : null)).redact!
+  const state: TokensState = {
+    library: {},
+    byScene: {
+      [SCENE]: Object.fromEntries(
+        [
+          token({ id: 'cleared', x: 1.5, y: 1.5 }),
+          token({ id: 'fogged', x: 15.5, y: 1.5 }),
+          token({ id: 'upstairs', x: 15.5, y: 1.5, levelId: 'loft' }),
+          token({ id: 'mine', x: 15.5, y: 9.5, ownerId: 'p-1' }),
+          token({ id: 'hidden', x: 1.5, y: 2.5, hidden: true }),
+        ].map((t) => [t.id, t]),
+      ),
+    },
+  }
+
+  it('sends a token on known ground of its own level, and a seat’s own token anywhere', () => {
+    expect(Object.keys(redact(state, P1).byScene[SCENE]).sort()).toEqual(['cleared', 'mine', 'upstairs'])
   })
 })

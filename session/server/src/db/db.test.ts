@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import Sqlite from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { fogOn, sceneFogOf } from '@dnd/mechanics/fog'
 import { migrate, openDb, type Database } from './db'
 import { MIGRATIONS } from './migrations'
 import {
@@ -227,6 +228,40 @@ describe('scenes migration (#47)', () => {
     expect(scenes.listByCampaign(cragmaw.id).map((s) => s.id)).toEqual([first.id, secondMap.id])
     expect(scenes.listByCampaign(other.id).map((s) => s.id)).toEqual([theirs.id])
 
+    raw.close()
+  })
+})
+
+describe('fog rework migration (008)', () => {
+  it('starts every campaign’s fog over and leaves the other modules alone (row 15)', () => {
+    const raw = new Sqlite(':memory:')
+    raw.pragma('foreign_keys = ON')
+    for (const sql of MIGRATIONS.slice(0, 7)) raw.exec(sql)
+
+    const campaign = new CampaignStore(raw).create('Old Keep')
+    const state = new ModuleStateStore(raw)
+    const oldFog = {
+      byScene: {
+        hall: {
+          rooms: { west: { status: 'revealed', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          mode: 'vision',
+          region: { minX: 0, minY: 0, cols: 1, rows: 1, bits: 'AQ==' },
+        },
+      },
+    }
+    state.put(campaign.id, 'fog', oldFog)
+    state.put(campaign.id, 'tokens', { library: {}, byScene: {} })
+
+    raw.exec(MIGRATIONS[7]!)
+
+    const after = new ModuleStateStore(raw)
+    expect(after.get(campaign.id, 'fog')).toBeUndefined()
+    expect(after.get(campaign.id, 'tokens')).toEqual({ library: {}, byScene: {} })
+    // Read the way every fog reader does: nothing stored is a scene with fog off and nothing cleared.
+    const scene = sceneFogOf({ byScene: {} }, 'hall')
+    expect(fogOn(scene)).toBe(false)
+    expect(scene.cleared).toBeUndefined()
     raw.close()
   })
 })

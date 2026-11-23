@@ -2,7 +2,7 @@
 // DM's copy, the file, keeps every one.
 
 import { describe, expect, it } from 'vitest'
-import type { SceneFog } from '@dnd/mechanics/fog'
+import { fogOnWith } from './fogOn.fixture'
 import type { Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, RockLine, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
@@ -66,12 +66,11 @@ function scene() {
   return createSceneMaps(stores).sceneMapOf(SCENE)!
 }
 
-const FOG: SceneFog = { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true }
 
 describe('rock lines on the player’s copy of the map', () => {
   it('sends a player only the line of the room they hold, and keeps both on the DM’s', () => {
     const s = scene()
-    const player = redactMapForViewer(s, FOG, {}).layers[0] as DungeonLayer
+    const player = redactMapForViewer(s, fogOnWith(s, ['hall']), {}).layers[0] as DungeonLayer
     expect(player.rockLines).toEqual([line(0, 10)])
     expect((s.data.layers[0] as DungeonLayer).rockLines).toEqual([line(0, 10), line(30, 40)])
   })

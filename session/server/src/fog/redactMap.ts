@@ -11,12 +11,9 @@ import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/
 import {
   DEFAULT_WALL_WIDTH,
   FOG_MARGIN,
-  fogModeOf,
-  regionOf,
-  setCells,
-  tableRegion,
+  fogOn,
+  rebaseRegion,
   toBytes,
-  type Cell,
   type RegionMask,
   type SceneFog,
 } from '@dnd/mechanics/fog'
@@ -47,7 +44,6 @@ import {
   wallsOf,
   type SceneMap,
 } from './sceneMap'
-import { exploreLocks, inAnyLock } from './sweep'
 import { enclosedOn, hasHiddenGround } from './outdoorGround'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules
 import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
@@ -55,40 +51,42 @@ import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 type Doors = Record<string, DoorLiveState>
 
 /**
- * T10 — the fog rows a player holds right now, which is the geometry they are sent (D4): every
- * row the DM has revealed, and in By sight a room the party latched that still has a recorded
- * cell inside it. Hide, Hide all and the eraser all take a row out of here.
+ * Fog rework — the rooms a player holds right now, which is the geometry they are sent (D4):
+ * every room with fog off, and with fog on the rooms with any cleared cell on their own level.
+ * A room whose last cleared cell is fogged again stops shipping (the seat refetches).
  */
 export function heldRooms(scene: SceneMap, fog: SceneFog): Set<string> {
-  const held = new Set<string>()
-  for (const [roomId, room] of Object.entries(fog.rooms)) {
-    if (room.status === 'revealed') held.add(roomId)
-  }
-  if (fogModeOf(fog) !== 'vision') return held
-  for (const roomId of recordedRooms(scene, fog)) {
-    if (fog.rooms[roomId]?.wasEverRevealed) held.add(roomId)
-  }
-  return held
+  return fogOn(fog) ? clearedRooms(scene, fog) : new Set(scene.rooms.map((room) => room.id))
 }
 
-const recordedCache = new WeakMap<SceneMap, { bits: string; rooms: Set<string> }>()
+const clearedCache = new WeakMap<SceneMap, { key: string; rooms: Set<string> }>()
 
-/** The rooms with a recorded cell centre inside them, in any seat's record. */
-function recordedRooms(scene: SceneMap, fog: SceneFog): Set<string> {
-  const region = tableRegion(fog, scene.frame ?? undefined)
-  if (!region) return new Set()
-  const hit = recordedCache.get(scene)
-  if (hit && hit.bits === region.bits) return hit.rooms
-  const bytes = toBytes(region.bits)
+/**
+ * The rooms with a cleared cell centre inside them, each judged on its own level, whether fog is
+ * on or not — what a "When a room is revealed" trigger reads. Cached on the parsed map and the
+ * record's bits, since a cascade asks it on every token step.
+ */
+export function clearedRooms(scene: SceneMap, fog: SceneFog): Set<string> {
+  const frame = scene.frame
+  const levels = Object.entries(fog.cleared ?? {})
+  if (!frame || levels.length === 0) return new Set()
+  const key = levels.map(([id, mask]) => `${id}:${mask.minX},${mask.minY},${mask.cols}:${mask.bits}`).join('|')
+  const hit = clearedCache.get(scene)
+  if (hit && hit.key === key) return hit.rooms
   const rooms = new Set<string>()
-  for (let bit = 0; bit < region.cols * region.rows; bit++) {
-    if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
-    const col = bit % region.cols
-    const row = (bit - col) / region.cols
-    const room = scene.roomAt(region.minX + col + 0.5, region.minY + row + 0.5)
-    if (room !== null) rooms.add(room)
+  for (const [levelId, stored] of levels) {
+    const region = rebaseRegion(stored, frame)
+    if (!region) continue
+    const bytes = toBytes(region.bits)
+    for (let bit = 0; bit < region.cols * region.rows; bit++) {
+      if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+      const col = bit % region.cols
+      const row = (bit - col) / region.cols
+      const room = scene.roomAtOn(levelId, region.minX + col + 0.5, region.minY + row + 0.5)
+      if (room !== null) rooms.add(room)
+    }
   }
-  recordedCache.set(scene, { bits: region.bits, rooms })
+  clearedCache.set(scene, { key, rooms })
   return rooms
 }
 
@@ -111,18 +109,17 @@ export function redactMapForViewer(
   // R3: a map with ground pieces or base ground has ground to hide with no room at all, so it is
   // framed and cut like a zoned one; only an imported picture goes over whole.
   const hidden = hasHiddenGround(scene.data)
-  // …and a vision-mode scene needs the rectangle whether or not anyone zoned the map. The
-  // player's mask is drawn over exactly this, and a roomless map that shipped without one
-  // left the mask no finite territory to cover — the very case the brush exists for.
-  const framed = zoned || hidden || fogModeOf(fog) === 'vision'
+  // …and a fogged scene needs the rectangle whether or not anyone zoned the map. The player's
+  // mask is drawn over exactly this, and a roomless map that shipped without one left the mask
+  // no finite territory to cover — the very case the brush exists for.
+  const framed = zoned || hidden || fogOn(fog)
   // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
   // reaches a player in any form, revealed or not.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
   const { prep: _prep, ...docSansPrep } = scene.data
   // Built once for the whole document, not once per layer: the ground lookup decodes the
   // region record, and the room boxes are a walk over every kept boundary.
-  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
-  const lockMask = lockMaskFor(scene, fog, kept)
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog), !fogOn(fog), outsideGroundOf(scene, fog))
   // The table's starting room is the DM's choice of where play opens, and its id names a room:
   // it travels only once that room is the party's.
   const startingRoomId = docSansPrep.mapSettings?.startingRoomId
@@ -134,7 +131,6 @@ export function redactMapForViewer(
     ...docSansPrep,
     mapSettings,
     ...(framed ? { frame: scene.frame } : {}),
-    ...(lockMask ? { lockMask } : {}),
     // Table fix pass §2.7: the ground outside the walled floors, once the seat knows any of it.
     ...(openGround ? { openGround } : {}),
     layers: scene.data.layers.map((layer) => {
@@ -278,12 +274,15 @@ function slice(
     ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
-    standaloneWalls: wallsOf(layer).filter((wall) =>
-      scene.roomsAlong(wall).some((room) => kept.has(room)),
-    ),
+    standaloneWalls: cut.open
+      ? [...wallsOf(layer)]
+      : wallsOf(layer).filter((wall) => scene.roomsAlong(wall).some((room) => kept.has(room))),
     // A measured kit's rock line goes with the rooms it edges: those within a cell of its drawn
     // outline. Against every room the player holds, so a reveal's list is the whole of theirs.
-    ...(layer.rockLines ? { rockLines: layer.rockLines.filter((line) => rockLineNear(line, scene, facingSet)) } : {}),
+    // With fog off the whole map ships, and every line with it.
+    ...(layer.rockLines
+      ? { rockLines: cut.open ? [...layer.rockLines] : layer.rockLines.filter((line) => rockLineNear(line, scene, facingSet)) }
+      : {}),
   }
 }
 
@@ -326,6 +325,8 @@ function childShips(
   // same heights the DM does. Ground pieces are terrain too (table fix pass §2.7).
   if (child.childType === 'plateau') return true
   if (child.childType === 'shape' && child.ground === true) return true
+  // Fog off: everything else ships, and an unfound secret door still does not exist.
+  if (cut.open) return child.childType !== 'door' || doorFound(child, doors)
   // With no room on the layer there is nothing to earn and nothing for a contour to fence.
   //
   // A door with no room to be bound to can never be earned, and the player's door marks are
@@ -334,9 +335,10 @@ function childShips(
   // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
   // principle 2 says must never carry it.
   if (!layer.rooms?.length && !hasHiddenGround(scene.data)) return child.childType !== 'door'
+  const levelId = levelIdOf(scene.data, layer)
   return child.childType === 'door'
-    ? doorKept(child, kept, doors, cut.ground, outsideFace(scene, child))
-    : childKept(child, scene, cut, enclosedOn(scene, levelIdOf(scene.data, layer)))
+    ? doorKept(child, kept, doors, cut.ground, outsideFace(scene, child), levelId, cut.inside)
+    : childKept(child, scene, cut, levelId)
 }
 
 /**
@@ -362,29 +364,32 @@ function childShips(
  * renderer draws a wall along every ring it is given, so the cut would print a stone wall
  * across the mouth of a passage that is actually open.
  */
-function childKept(child: AnyChild, scene: SceneMap, cut: Cut, enclosed: (x: number, y: number) => boolean): boolean {
+function childKept(child: AnyChild, scene: SceneMap, cut: Cut, levelId: string): boolean {
+  const enclosed = enclosedOn(scene, levelId)
   const [x, y] = centreOf(child)
-  const room = scene.roomAt(x, y)
+  const room = scene.roomAtOn(levelId, x, y)
   if (room !== null && cut.kept.has(room)) return true
   // Cheapest first, and by a wide margin: the ground lookup is nine bit tests against the
   // child's own cell neighbourhood, where the band test can walk a room outline per room.
   //
   // R2: a child inside a walled floor or cave is earned only by ground known inside it. Ground
   // outside the outline, a pad away across the rock, does not show what stands behind it.
-  if ((enclosed(x, y) ? cut.inside : cut.ground)(x, y, cut.pad)) return true
-  if (nearKeptRoom(cut, x, y)) return true
-  return child.childType === 'shape' && (coversKeptRoom(child, cut) || outlineNearGround(child, cut))
+  if ((enclosed(x, y) ? cut.inside : cut.ground)(x, y, cut.pad, levelId)) return true
+  if (nearKeptRoom(cut, x, y, levelId)) return true
+  return child.childType === 'shape' && (coversKeptRoom(child, cut, levelId) || outlineNearGround(child, cut, levelId))
 }
 
 /**
  * Table fix pass §2.7 — a walled floor or cave ships when known ground lies within the band pad
  * of its outline: the cave seen from outside (F10). Its rock is drawn along that outline, so
- * that is where a seat standing outside sees it.
+ * that is where a seat standing outside sees it. Outside is the word: ground cleared inside
+ * another walled floor (the room next door) does not ship this one, or a cleared room would hand
+ * over the floor, and the name, of every fogged room it shares a wall with.
  */
-function outlineNearGround(shape: ShapeChild, cut: Cut): boolean {
-  if (cut.ground === NO_GROUND) return false
+function outlineNearGround(shape: ShapeChild, cut: Cut, levelId: string): boolean {
+  if (cut.outside === NO_GROUND) return false
   const [dx, dy] = shape.transform?.translate ?? [0, 0]
-  return (shape.contours ?? []).some((ring) => ring.some(([x, y]) => cut.ground(x + dx, y + dy, cut.pad)))
+  return (shape.contours ?? []).some((ring) => ring.some(([x, y]) => cut.outside(x + dx, y + dy, cut.pad, levelId)))
 }
 
 /**
@@ -399,15 +404,21 @@ function outlineNearGround(shape: ShapeChild, cut: Cut): boolean {
  * comparisons.
  */
 interface Cut {
+  /** Fog off: the whole map ships, less what is always withheld. */
+  open: boolean
   kept: ReadonlySet<string>
   pad: number
   ground: Ground
   /** The known ground inside walled floors and caves: recorded cells whose centre is inside one. */
   inside: Ground
+  /** …and the rest of it, outside every walled floor and cave. */
+  outside: Ground
   rooms: readonly KeptRoom[]
 }
 
 interface KeptRoom {
+  /** The room's level: a child on another level is never this room's. */
+  levelId: string
   boundary: readonly [number, number][]
   minX: number
   minY: number
@@ -420,6 +431,8 @@ function cutFor(
   kept: ReadonlySet<string>,
   ground: Ground = NO_GROUND,
   inside: Ground = NO_GROUND,
+  open = false,
+  outside: Ground = NO_GROUND,
 ): Cut {
   const pad = bandPad(scene)
   const rooms: KeptRoom[] = []
@@ -432,33 +445,27 @@ function cutFor(
       if (x > maxX) maxX = x
       if (y > maxY) maxY = y
     }
-    rooms.push({ boundary: room.boundary, minX, minY, maxX, maxY })
+    rooms.push({ levelId: scene.roomLevels.get(room.id) ?? '', boundary: room.boundary, minX, minY, maxX, maxY })
   }
-  return { kept, pad, ground, inside, rooms }
+  return { open, kept, pad, ground, inside, outside, rooms }
 }
 
-/** "Is there revealed ground within `pad` of this point?" — see {@link groundOf}. */
-export type Ground = (x: number, y: number, pad: number) => boolean
+/**
+ * "Is there cleared ground within `pad` of this point?" — see {@link groundOf}. With a level,
+ * on that level's record only; without one, on any level's.
+ */
+export type Ground = (x: number, y: number, pad: number, levelId?: string) => boolean
 
 /** A scene with no cell record at all: rooms are the only reveal there ever was. */
 export const NO_GROUND: Ground = () => false
 
 /**
- * Ground the table has earned by the cell brush and by its own sight, as a cheap lookup.
+ * Fog rework — the ground the players have, as a cheap lookup: with fog off every point, with
+ * fog on the cleared cells, each level's on its own record. Brushed and swept cells are one
+ * record now, so the art stamped along cleared ground (a wall band, the shrubs at its edge) is
+ * the player's the moment the cell clears, and a fog stroke takes it back.
  *
- * A room is not the only way ground becomes a player's. The referee's brush paints cells, and
- * since c2bc9ff a player can *stand* on the ones it paints — but redaction went on treating
- * rooms as the only reveal, so art stamped along brushed ground shipped to nobody. On the
- * Goblin Warren that was the corridor's whole east side and the shrubs at the palisade's foot:
- * the west side rendered only because it happens to fall inside Cave Mouth's own band. Third
- * time this blind spot has been found (sight, then walkability, now art), so the rule is
- * spelled the same way for all three: brushed cells are a reveal.
- *
- * `tableRegion` rather than `fog.region`: geometry ships per scene, not per seat — "any seat's
- * sweep latches a room for the table" (`autoExplorePatch`) — so the union of the seats is the
- * honest input, and it is the same record the referee's own wash is drawn from. Not latched,
- * on purpose: a `region-hide` takes the ground back, and the next document build stops
- * carrying its art, which is redaction shrinking the way it should.
+ * `keep` narrows which cleared cells count (the ones inside an outline, for `insideGroundOf`).
  *
  * ponytail: bucketed, not distance-over-every-cell. The record runs to thousands of cells and
  * this is asked once per child, so it walks only the `ceil(pad)` neighbourhood of the child's
@@ -467,111 +474,40 @@ export const NO_GROUND: Ground = () => false
 export function groundOf(
   fog: SceneFog,
   frame: SceneMap['frame'],
-  keep: (x: number, y: number) => boolean = () => true,
+  keep: (x: number, y: number, levelId: string) => boolean = () => true,
 ): Ground {
-  // T10: By hand shows no record, so a record kept from By sight earns nothing there.
-  const region = fogModeOf(fog) === 'vision' ? tableRegion(fog, frame ?? undefined) : undefined
-  if (!region) return NO_GROUND
-  const bytes = toBytes(region.bits)
-  const on = (col: number, row: number): boolean => {
-    if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) return false
-    const bit = row * region.cols + col
-    return (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0
+  if (!fogOn(fog)) return ALL_GROUND
+  const records: { levelId: string; region: RegionMask; bytes: Uint8Array }[] = []
+  for (const [levelId, stored] of Object.entries(fog.cleared ?? {})) {
+    const region = frame ? rebaseRegion(stored, frame) : undefined
+    if (region) records.push({ levelId, region, bytes: toBytes(region.bits) })
   }
-  return (x, y, pad) => {
+  if (records.length === 0) return NO_GROUND
+  return (x, y, pad, levelId) => {
     const reach = Math.ceil(pad)
-    const col0 = Math.floor(x - region.minX)
-    const row0 = Math.floor(y - region.minY)
-    for (let col = col0 - reach; col <= col0 + reach; col++) {
-      for (let row = row0 - reach; row <= row0 + reach; row++) {
-        if (!on(col, row)) continue
-        const [cx, cy] = [region.minX + col, region.minY + row]
-        if (!keep(cx + 0.5, cy + 0.5)) continue
-        const dx = Math.max(cx - x, 0, x - (cx + 1))
-        const dy = Math.max(cy - y, 0, y - (cy + 1))
-        if (Math.hypot(dx, dy) <= pad) return true
+    for (const { levelId: own, region, bytes } of records) {
+      if (levelId !== undefined && own !== levelId) continue
+      const col0 = Math.floor(x - region.minX)
+      const row0 = Math.floor(y - region.minY)
+      for (let col = col0 - reach; col <= col0 + reach; col++) {
+        for (let row = row0 - reach; row <= row0 + reach; row++) {
+          if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) continue
+          const bit = row * region.cols + col
+          if ((bytes[bit >>> 3] & (1 << (bit & 7))) === 0) continue
+          const [cx, cy] = [region.minX + col, region.minY + row]
+          if (!keep(cx + 0.5, cy + 0.5, own)) continue
+          const dx = Math.max(cx - x, 0, x - (cx + 1))
+          const dy = Math.max(cy - y, 0, y - (cy + 1))
+          if (Math.hypot(dx, dy) <= pad) return true
+        }
       }
     }
     return false
   }
 }
 
-/**
- * The auto-explore locks a player's own mask has to fence its near pass with, as cells.
- *
- * Zones are prep and never travel (`slice`, "prep never travels"), so a seat has no way to
- * derive them — and without them a contained near pass clears fog over ground the referee
- * refuses to write (`sweep.ts`'s `seen`, `vision.ts`'s `swept`), permanently, because the
- * server never sends a correction for a cell it declined to grant. So the zones' *cells* ride
- * the document instead: the same `inAnyLock` test the referee applies, evaluated on the cell
- * centres `cellsCoveredByPolygon` counts by, so the fence and the refusal are the same shape.
- *
- * Intersected with the ground this seat actually holds art for, and that is the privacy half:
- * a lock in a room nobody has earned would put its position on the wire. On a zoned map that
- * is the kept rooms and their band (`nearKeptRoom` — the client's own `shippedGround` grows
- * the room polygons by the very same pad), and nothing outside it needs a fence anyway, since
- * `inverseShipped` already refuses to open ground with no art under it. A roomless map ships
- * its image whole (#114), so every lock cell on it is one the near pass could otherwise open.
- *
- * Vision mode only — containment is a vision-mode feature and rooms mode reads none of this —
- * and absent entirely when the map locks nothing, which is nearly every map.
- *
- * ponytail: scanned over the locks' own bounding box rather than the frame, because a frame
- * runs to `REGION_CELL_MAX` (262144 cells) and the zones on it are a few dozen cells across.
- */
-export function lockMaskFor(
-  scene: SceneMap,
-  fog: SceneFog,
-  kept: ReadonlySet<string>,
-): RegionMask | undefined {
-  if (fogModeOf(fog) !== 'vision' || !scene.frame) return undefined
-  const locks = exploreLocks(scene.zones)
-  const box = lockBox(locks)
-  const mask = box && regionOf(scene.frame)
-  if (!box || !mask) return undefined
-  // A map with rooms fences by the rooms this seat holds; a roomless one ships whole, so
-  // every lock cell counts.
-  const cut = scene.rooms.length > 0 ? cutFor(scene, kept) : null
-  const cells: Cell[] = []
-  const from = (v: number, origin: number) => Math.max(0, Math.floor(v - origin))
-  for (let row = from(box.minY, mask.minY); row < Math.min(mask.rows, Math.ceil(box.maxY - mask.minY)); row++) {
-    for (let col = from(box.minX, mask.minX); col < Math.min(mask.cols, Math.ceil(box.maxX - mask.minX)); col++) {
-      const [x, y] = [mask.minX + col + 0.5, mask.minY + row + 0.5]
-      if (!inAnyLock(locks, x, y)) continue
-      if (cut) {
-        const room = scene.roomAt(x, y)
-        if (!(room !== null && cut.kept.has(room)) && !nearKeptRoom(cut, x, y)) continue
-      }
-      cells.push([col, row])
-    }
-  }
-  return cells.length > 0 ? setCells(mask, cells) : undefined
-}
-
-/** The one box every lock zone fits in, or null when the map locks nothing. */
-function lockBox(
-  locks: ReturnType<typeof exploreLocks>,
-): { minX: number; minY: number; maxX: number; maxY: number } | null {
-  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
-  for (const shape of locks) {
-    const [x0, y0, x1, y1] =
-      shape.kind === 'circle'
-        ? [
-            shape.position.x - shape.radius,
-            shape.position.y - shape.radius,
-            shape.position.x + shape.radius,
-            shape.position.y + shape.radius,
-          ]
-        : shape.kind === 'rect'
-          ? [shape.x, shape.y, shape.x + shape.width, shape.y + shape.height]
-          : [Infinity, Infinity, -Infinity, -Infinity]
-    minX = Math.min(minX, x0)
-    minY = Math.min(minY, y0)
-    maxX = Math.max(maxX, x1)
-    maxY = Math.max(maxY, y1)
-  }
-  return maxX > minX && maxY > minY ? { minX, minY, maxX, maxY } : null
-}
+/** Fog off: every point is ground the players have. */
+export const ALL_GROUND: Ground = () => true
 
 /**
  * Every child id a player is entitled to hold right now — literally `childShips`, the function
@@ -588,7 +524,7 @@ export function keptChildIds(
   ground: Ground = groundOf(fog, scene.frame),
 ): Set<string> {
   const kept = heldRooms(scene, fog)
-  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog))
+  const cut = cutFor(scene, kept, ground, insideGroundOf(scene, fog), !fogOn(fog), outsideGroundOf(scene, fog))
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
@@ -621,9 +557,10 @@ export function keptChildIds(
  * it edges (measured: 0.03–0.51 on the Warren). A huge sprite anchored a long way from its art
  * would need its own footprint tested; nothing authored today is.
  */
-function nearKeptRoom(cut: Cut, x: number, y: number): boolean {
+function nearKeptRoom(cut: Cut, x: number, y: number, levelId?: string): boolean {
   const pad = cut.pad
   for (const room of cut.rooms) {
+    if (levelId !== undefined && room.levelId !== levelId) continue
     // The box first: a room whose *box* is further than the pad cannot have an outline that
     // is nearer, and skipping the walk is what keeps a reveal inside its budget.
     if (x < room.minX - pad || x > room.maxX + pad) continue
@@ -634,8 +571,8 @@ function nearKeptRoom(cut: Cut, x: number, y: number): boolean {
 }
 
 /** Does this shape's outline enclose any part of a room the party has earned? */
-function coversKeptRoom(shape: ShapeChild, cut: Cut): boolean {
-  return cut.rooms.some((room) => shapeCovers(shape, room.boundary))
+function coversKeptRoom(shape: ShapeChild, cut: Cut, levelId: string): boolean {
+  return cut.rooms.some((room) => room.levelId === levelId && shapeCovers(shape, room.boundary))
 }
 
 /** Does this shape's outline enclose any vertex of a room's face? */
@@ -815,11 +752,22 @@ export function doorKept(
   doors: Doors,
   ground: Ground = NO_GROUND,
   outside = true,
+  levelId?: string,
+  inside: Ground = NO_GROUND,
 ): boolean {
-  const live = doors[door.id] ?? seedDoor(door)
-  if (door.isSecret && !live.revealed) return false
+  if (!doorFound(door, doors)) return false
   if (doorBound(door, kept)) return true
-  return outside && (!door.roomA || !door.roomB) && ground(door.position[0], door.position[1], 1)
+  const [x, y] = door.position
+  if (outside) return (!door.roomA || !door.roomB) && ground(x, y, 1, levelId)
+  // Fog rework: a door bound to no room inside a cave is seen from the cave ground cleared
+  // beside it, never from outside the rock.
+  return !door.roomA && !door.roomB && inside(x, y, 1, levelId)
+}
+
+/** Whether a door exists for a player at all: an unfound secret door does not. */
+function doorFound(door: DoorChild, doors: Doors): boolean {
+  const live = doors[door.id] ?? seedDoor(door)
+  return !(door.isSecret && !live.revealed)
 }
 
 /** How far off its wall each side of a door is probed for outdoor ground, cells (`bindDoorToRooms`'s). */
@@ -853,11 +801,14 @@ function doorLevelsOf(scene: SceneMap): Map<string, string> {
   return out
 }
 
-/** The known ground inside walled floors and caves: recorded cells whose centre lies inside one. */
+/** The cleared ground outside every walled floor and cave of its own level. */
+function outsideGroundOf(scene: SceneMap, fog: SceneFog): Ground {
+  return groundOf(fog, scene.frame, (x, y, levelId) => !enclosedOn(scene, levelId)(x, y))
+}
+
+/** The cleared ground inside walled floors and caves: cleared cells whose centre lies inside one of their own level. */
 function insideGroundOf(scene: SceneMap, fog: SceneFog): Ground {
-  const levels = scene.data.levels?.length ? scene.data.levels.map((l) => l.id) : [firstLevelId(scene.data)]
-  const enclosures = levels.map((level) => enclosedOn(scene, level))
-  return groundOf(fog, scene.frame, (x, y) => enclosures.some((enclosed) => enclosed(x, y)))
+  return groundOf(fog, scene.frame, (x, y, levelId) => enclosedOn(scene, levelId)(x, y))
 }
 
 /**

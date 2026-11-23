@@ -10,6 +10,7 @@ import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import { useSessionStore } from '../../session/store';
+import { useAsPlayers } from '../fog/asPlayers';
 import { mountDoorLayer } from './DoorRenderer';
 
 const textureSubs = vi.hoisted(() => new Set<() => void>());
@@ -86,5 +87,31 @@ describe('the player door art', () => {
 
     unmount();
     expect(textureSubs.size).toBe(0);
+  });
+});
+
+describe('the DM’s door marks', () => {
+  it('hide while the DM looks as players see it, and come back after', () => {
+    useSessionStore.setState({ you: { ...player, identityId: 'd-1', role: 'dm' } });
+    const sceneGraph = { worldContainer: new Container(), layerContainer: new Container(), overlayContainer: new Container() } as unknown as SceneGraph;
+    const ticks: (() => void)[] = [];
+    const engine = {
+      canvas: () => document.createElement('canvas'),
+      screenToWorld: (x: number, y: number) => ({ x, y }),
+      ticker: () => ({ add: (fn: () => void) => ticks.push(fn), remove: () => {} }),
+    } as unknown as RenderEngine;
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    const marks = sceneGraph.overlayContainer.getChildByLabel('doorMarks', true)!;
+    ticks.forEach((tick) => tick());
+    expect(marks.visible).toBe(true);
+
+    useAsPlayers.getState().set(true);
+    ticks.forEach((tick) => tick());
+    expect(marks.visible).toBe(false);
+
+    useAsPlayers.getState().set(false);
+    ticks.forEach((tick) => tick());
+    expect(marks.visible).toBe(true);
+    unmount();
   });
 });

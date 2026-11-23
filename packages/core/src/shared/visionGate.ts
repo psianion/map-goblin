@@ -124,17 +124,3 @@ export interface DarkTest {
   /** …and of the ones that are not (lit rooms inside a dark level), with those mouths. */
   litFaces: [number, number][][];
 }
-
-/** A polygon's edges as sight occluders — how a darkness source blocks sight at its edge. */
-export function polygonEdges(
-  polygon: readonly [number, number][],
-): { x1: number; y1: number; x2: number; y2: number; blocksLight: false; blocksSight: true }[] {
-  const out: { x1: number; y1: number; x2: number; y2: number; blocksLight: false; blocksSight: true }[] = [];
-  for (let i = 0; i < polygon.length; i++) {
-    const [x1, y1] = polygon[i]!;
-    const [x2, y2] = polygon[(i + 1) % polygon.length]!;
-    if (x1 === x2 && y1 === y2) continue;
-    out.push({ x1, y1, x2, y2, blocksLight: false, blocksSight: true });
-  }
-  return out;
-}

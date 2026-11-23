@@ -21,6 +21,8 @@ import type { TriggersState } from '@dnd/mechanics/triggers'
 import type { TokensState } from '@dnd/mechanics/tokens'
 import { issueToken } from './auth'
 import { startServer, type RunningServer } from './index'
+import { roomCells } from './fog/fogOn.fixture'
+import { ONLY_LEVEL_ID, createSceneMaps } from './fog/sceneMap'
 
 beforeAll(() => {
   process.env.GAME_SERVER_DATA = mkdtempSync(join(tmpdir(), 'game-server-triggers-'))
@@ -114,6 +116,14 @@ function mapFile(customImages: Record<string, string> = {}): SerializedMapData {
 }
 
 const SCENE = 'scene-1'
+
+/** The brush stroke that clears every cell of the one room, on the map's one level. */
+const clearRoom = (server: RunningServer) => ({
+  sceneId: SCENE,
+  levelId: ONLY_LEVEL_ID,
+  op: 'clear',
+  cells: roomCells(createSceneMaps(server.stores).sceneMapOf(SCENE)!, ROOM.id),
+})
 const prep: ScenePrep = { version: 2, triggers: [TRG_ROOM, TRG_TRAP], notes: [] }
 
 /** A campaign with one scene/map (as above), a DM identity/token, and a fresh player identity. */
@@ -251,31 +261,34 @@ describe('protocol bump', () => {
   })
 })
 
-describe('room-revealed at session start, and fog reset re-arming it', () => {
-  it('fires the room-revealed trigger before anyone has joined, and again after a reset', async () => {
+describe('room-revealed on the first cleared cell, and Fog all re-arming it (row 13)', () => {
+  it('fires once when the brush first clears the room, and again after a Fog all', async () => {
     await withServer(async (server) => {
       const { campaignId, dmToken } = seed(server)
-      // The wizard's starting room covers `zone-room`'s point — this is the exact path M4's
-      // cascade has to cover with no extra wiring: `openSession` dispatches `fog.reveal`
-      // through the same `ModuleRegistry.dispatch`, so the cascade already fires by the time
-      // anyone connects.
+      // A starting room reveals nothing any more, so nothing has fired by the time anyone joins.
       await openSession(server, dmToken, campaignId, { sceneId: SCENE, roomId: 'room1' })
 
       const dm = await connect(server, dmToken)
       sendJoin(dm)
       const snapshot = await next(dm, 'session-state')
-      const before = triggersOf({ state: snapshot.state.modules.triggers }).byScene[SCENE]
-      expect(before.log.filter((e) => e.triggerId === 'trg-room')).toHaveLength(1)
-      expect(before.log[0]).toMatchObject({ kind: 'show-text', text: 'Room lit', toPlayers: true })
+      const fired = (state: TriggersState) => state.byScene[SCENE]?.log.filter((e) => e.triggerId === 'trg-room') ?? []
+      expect(fired(triggersOf({ state: snapshot.state.modules.triggers }))).toHaveLength(0)
 
-      // A true reset re-arms room-revealed triggers only (module.ts) — reveal it again and
-      // it should fire a second time.
-      sendCommand(dm, 'fog', 'reset', { sceneId: SCENE })
-      await nextModule(dm, 'fog')
-      const onTriggers = nextModule(dm, 'triggers')
-      sendCommand(dm, 'fog', 'reveal', { sceneId: SCENE, roomId: 'room1' })
-      const after = triggersOf(await onTriggers).byScene[SCENE]
-      expect(after.log.filter((e) => e.triggerId === 'trg-room')).toHaveLength(2)
+      const first = nextModule(dm, 'triggers')
+      sendCommand(dm, 'fog', 'region-set', clearRoom(server))
+      const once = triggersOf(await first)
+      expect(fired(once)).toHaveLength(1)
+      expect(fired(once)[0]).toMatchObject({ kind: 'show-text', text: 'Room lit', toPlayers: true })
+
+      // Clearing it again is not a first clear: nothing fires.
+      await runDrained([dm], ['fog'], () => sendCommand(dm, 'fog', 'region-set', clearRoom(server)))
+      expect(fired(server.stores.moduleState.get(campaignId, 'triggers') as TriggersState)).toHaveLength(1)
+
+      // Fog all re-arms room-revealed triggers (module.ts) — clear it again and it fires a second time.
+      await runDrained([dm], ['fog', 'triggers'], () => sendCommand(dm, 'fog', 'fog-all', { sceneId: SCENE }))
+      const second = nextModule(dm, 'triggers')
+      sendCommand(dm, 'fog', 'region-set', clearRoom(server))
+      expect(fired(triggersOf(await second))).toHaveLength(2)
     })
   })
 })
@@ -458,6 +471,9 @@ describe('a fired encounter (prep v2)', () => {
       await next(player, 'session-state')
       await next(dm, 'player-joined')
 
+      // Fog on, nothing cleared: the ambush is on ground the players do not have.
+      await runDrained([dm, player], ['fog'], () => sendCommand(dm, 'fog', 'set-on', { sceneId: SCENE, on: true }))
+
       // Manual fire — the same path a walk-in takes, minus the token choreography.
       const frames = await runDrained([dm, player], ['tokens', 'initiative', 'triggers'], () =>
         sendCommand(dm, 'triggers', 'fire', { triggerId: 'trg-enc' }),
@@ -476,7 +492,7 @@ describe('a fired encounter (prep v2)', () => {
       }
       expect(spawned.find((t) => t.name === 'Warg')!.size).toBe('large')
 
-      // The room is unrevealed, so a player's copy holds none of the ambush.
+      // The room is not cleared, so a player's copy holds none of the ambush.
       const playerTokens = (frames.get(player)!.get('tokens')!.state as TokensState).byScene[SCENE] ?? {}
       expect(Object.keys(playerTokens)).toHaveLength(0)
 
@@ -511,7 +527,7 @@ describe('a fired encounter (prep v2)', () => {
 })
 
 describe('a reveal note (prep v2)', () => {
-  it('pops once to the DM when the room reveals, and never to a player', async () => {
+  it('pops once to the DM when the room is first cleared, and never to a player', async () => {
     await withServer(async (server) => {
       const { campaignId, dmToken, mintPlayer } = seed(server, {
         version: 2,
@@ -538,7 +554,7 @@ describe('a reveal note (prep v2)', () => {
       await next(dm, 'player-joined')
 
       const frames = await runDrained([dm, player], ['fog', 'triggers'], () =>
-        sendCommand(dm, 'fog', 'reveal', { sceneId: SCENE, roomId: ROOM.id }),
+        sendCommand(dm, 'fog', 'region-set', clearRoom(server)),
       )
 
       const dmLog = triggersOf(frames.get(dm)!.get('triggers')!).byScene[SCENE]!.log
@@ -550,12 +566,10 @@ describe('a reveal note (prep v2)', () => {
       const playerLog = triggersOf(frames.get(player)!.get('triggers')!).byScene[SCENE]?.log ?? []
       expect(playerLog.some((l) => l.kind === 'note')).toBe(false)
 
-      // A second reveal-shaped write changes nothing — the note is spent, and a no-op
-      // cascade skips its setState entirely, so no triggers frame arrives at all. The
-      // persisted row is the assertion surface instead.
-      await runDrained([dm], ['fog'], () =>
-        sendCommand(dm, 'fog', 'reveal', { sceneId: SCENE, roomId: ROOM.id }),
-      )
+      // A second clear changes nothing — the note is spent, and a no-op cascade skips its
+      // setState entirely, so no triggers frame arrives at all. The persisted row is the
+      // assertion surface instead.
+      await runDrained([dm], ['fog'], () => sendCommand(dm, 'fog', 'region-set', clearRoom(server)))
       const stored = server.stores.moduleState.get(campaignId, 'triggers') as TriggersState
       expect(stored.byScene[SCENE]!.log.filter((l) => l.kind === 'note')).toHaveLength(1)
     })

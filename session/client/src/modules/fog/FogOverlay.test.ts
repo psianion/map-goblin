@@ -1,163 +1,44 @@
-// D11's hover highlight, pinned at the layer that draws it.
+// The fog brush on the DM's map: the arithmetic between a pointer and a `region-set`, the
+// batching that keeps a stroke from being one broadcast per cell, and the cursor.
 //
-// The pure half of the fog tool is checked in `fog.test.tsx`; what is only checkable here is
-// the wiring — that a pointermove over an armed canvas reaches the overlay, changes what it
-// draws, and draws it somewhere the DM can actually see.
-//
-// The browser gate read the highlight as byte-identical canvas checksums on and off a room.
-// It was being drawn — into the world container, under the engine's screen-space lighting
-// multiply, which on an unlit dungeon left 7% of it: 1.1/255 measured on the gate map. So
-// the pin below is two-part, and the second part is the one that would have caught it —
-// the highlight has to sit *above* the lighting composite, where the player's mask already
-// lives for the same reason.
-//
-// Pixi's display objects need no GPU: `Graphics` records instructions into a context and
-// only the renderer needs WebGL, so the draw is inspectable in jsdom.
+// Pixi's display objects need no GPU: `Graphics` records instructions into a context and only
+// the renderer needs WebGL, so the draw is inspectable in jsdom.
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { Container, Ticker } from 'pixi.js';
-import type { Layer } from '@dnd/core/src/store/types';
+import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { Container, Ticker, type Graphics, type GraphicsPath, type Rectangle } from 'pixi.js';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
-import { regionOf, setCells, type FogState } from '@dnd/mechanics/fog';
-import type { Token } from '@dnd/mechanics/tokens';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
-import { useFogBrush } from './brush';
-import { DM_FOG_LOOK, regionRects, type TableRoom } from './fog';
-
-import { fogScene } from './FogRenderer';
-import { createLivingFog } from './livingFog';
-import { mountFogOverlayWhenReady } from './FogOverlay';
-
-/** A fixture room as the table holds one: its face in `boundary`, its centroid kept for the
- *  rows that aim at the middle of a room. */
-type Room = TableRoom & { centroid: [number, number] };
-
-// The one thing the drawn instructions cannot say: whether the runs were *rebuilt*. Delegating
-// wrapper, so every other row here draws exactly what it drew before.
-vi.mock('./fog', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./fog')>();
-  return { ...actual, regionRects: vi.fn(actual.regionRects) };
-});
-const rebuilds = (): number => vi.mocked(regionRects).mock.calls.length;
-
-// D4/WP1 — the haze's own `setPools`, spied the same delegating way: the real cloud still
-// draws, this just remembers what it was told to glow near.
-vi.mock('./livingFog', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./livingFog')>();
-  return {
-    ...actual,
-    createLivingFog: vi.fn((...args: Parameters<typeof actual.createLivingFog>) => {
-      const real = actual.createLivingFog(...args);
-      return { ...real, setPools: vi.fn(real.setPools) };
-    }),
-  };
-});
-/** The pools the most recently created haze was last told to glow near. */
-const hazePools = () => {
-  const results = vi.mocked(createLivingFog).mock.results;
-  const haze = results[results.length - 1]?.value;
-  const calls = vi.mocked(haze.setPools).mock.calls;
-  return calls[calls.length - 1]?.[0];
-};
-
-const room = (id: string, x: number): Room => ({
-  id,
-  name: id,
-  boundary: [
-    [x, 0],
-    [x + 4, 0],
-    [x + 4, 4],
-    [x, 4],
-  ],
-  anchor: [x + 2, 2],
-  centroid: [x + 2, 2],
-  area: 16,
-  isPathway: false,
-});
-
-const CRYPT = room('r-crypt', 0);
-const HALL = room('r-hall', 10);
-
-const dungeonLayer = (rooms: Room[]): Layer =>
-  ({ id: 'l1', type: 'dungeon', children: [], standaloneWalls: [], rooms }) as unknown as Layer;
-
-/** A placed light child, the same shape `FogRenderer.test.ts`'s own `lamp` fixture builds. */
-const dungeonWithLamp = (rooms: Room[]): Layer =>
-  ({
-    id: 'l1',
-    type: 'dungeon',
-    standaloneWalls: [],
-    rooms,
-    children: [
-      {
-        id: 'lamp-a',
-        name: 'lamp-a',
-        childType: 'light',
-        visible: true,
-        color: '#ffbb66',
-        radius: 4,
-        featherRadius: 2,
-        intensity: 1,
-        falloff: 'quadratic',
-        position: { x: 2, y: 2 },
-      },
-    ],
-  }) as unknown as Layer;
-
-const token = (over: Partial<Token> = {}): Token => ({
-  id: 't1',
-  name: 'Ayla',
-  imageAssetId: null,
-  size: 'medium',
-  disposition: 'friendly',
-  sight: null,
-  light: null,
-  defId: null,
-  x: 2,
-  y: 2,
-  elevation: 0,
-  z: 0,
-  hidden: false,
-  ownerId: 'p1',
-  ...over,
-});
+import { armBrush, useFogBrush } from './brush';
+import { disc, mountFogOverlayWhenReady } from './FogOverlay';
 
 const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
 
-const fogWith = (rooms: FogState['byScene'][string]['rooms']): FogState => ({
-  byScene: { 'scene-1': { rooms, concealBehindDoors: true } },
-});
-
-const session = (modules: Record<string, unknown> = {}): SessionState => ({
+const session = (): SessionState => ({
   protocolVersion: PROTOCOL_VERSION,
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: 'scene-1',
   scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
   players: [dm],
-  modules,
+  modules: { fog: { byScene: { 'scene-1': { on: true } } } },
 });
 
-/** World units are grid cells and the fixture rooms live at y 0..4, so 1px = 1 cell here. */
+/** World units are grid cells, so 1px = 1 cell here. */
 function fakeEngine(canvas: HTMLCanvasElement, ticker: Ticker): RenderEngine {
   return {
     canvas: () => canvas,
     ticker: () => ticker,
     screenToWorld: (sx: number, sy: number) => ({ x: sx, y: sy }),
-    // The haze rasterises its tier mask through this on every redraw. What lands in the
-    // texture is the GPU's business — jsdom asserts the geometry, not the paint.
-    renderToTexture: () => {},
   } as unknown as RenderEngine;
 }
 
-/** The two containers the overlay mounts into, plus the multiply it must draw above. */
 function fakeSceneGraph(): SceneGraph {
   const worldContainer = new Container();
   const layerContainer = new Container();
@@ -169,41 +50,43 @@ function fakeSceneGraph(): SceneGraph {
   return { worldContainer, layerContainer, overlayContainer } as unknown as SceneGraph;
 }
 
-interface Instruction {
+/** A NON-ZERO origin, which is where off-by-ones hide. */
+const FRAME = { minX: -1, minY: -1, maxX: 15, maxY: 5 };
+
+interface Sent {
+  module: string;
   action: string;
-  data?: { style?: { color?: number; alpha?: number; width?: number } };
+  payload: { levelId: string; op: string; cells: [number, number][] };
 }
-
-type Painter = { context: { instructions: Instruction[] } };
-
-/**
- * What one Graphics has drawn, as a value two frames can be compared by. Colour, alpha and
- * stroke width only — the geometry hangs off a texture-bearing style object that cannot be
- * serialised, and those three already separate a tint from a highlight.
- */
-const signature = (paint: Painter | undefined): string =>
-  (paint?.context.instructions ?? [])
-    .map((i) => `${i.action}:${i.data?.style?.color}/${i.data?.style?.alpha}/${i.data?.style?.width}`)
-    .join('|');
-
-const layerNamed = (parent: Container, label: string): Container | undefined =>
-  parent.children.find((c) => c.label === label) as Container | undefined;
-
-/** The hover highlight, which lives above the lighting composite (D11 legibility). */
-const drawn = (sceneGraph: SceneGraph): string =>
-  signature(layerNamed(sceneGraph.overlayContainer, 'fogOverlay')?.children[0] as unknown as Painter);
-
-/** The tint, which stays in the world under the DM's tokens and doors. */
-const tinted = (sceneGraph: SceneGraph): string =>
-  signature(layerNamed(sceneGraph.worldContainer, 'fogOverlay')?.children[0] as unknown as Painter);
 
 let canvas: HTMLCanvasElement;
 let sceneGraph: SceneGraph;
 let ticker: Ticker;
 let unmount: (() => void) | null = null;
+let sent: Sent[];
 
-const move = (x: number, y: number): void => {
-  canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true }));
+const pointer = (type: string, x: number, y: number, init: PointerEventInit = {}): void => {
+  canvas.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, ...init }));
+};
+const up = (): void => {
+  canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+};
+const cellsOf = (list: Sent[]): string[] => list.flatMap((s) => s.payload.cells.map((c) => c.join()));
+const cursorLayer = (): Container =>
+  sceneGraph.overlayContainer.children.find((c) => c.label === 'fogOverlay') as Container;
+const cursorDrawn = (): number =>
+  ((cursorLayer().children[0] as unknown as { context: { instructions: unknown[] } }).context.instructions ?? []).length;
+/** The cells the cursor fills, as "col,row" against FRAME, read off the rects it drew. */
+const cursorCells = (): string[] => {
+  const fill = cursorLayer().children[0] as Graphics;
+  return fill.context.instructions
+    .filter((i) => i.action === 'fill')
+    .flatMap((i) => (i.data as { path: GraphicsPath }).path.shapePath.shapePrimitives.map((p) => p.shape as Rectangle))
+    .flatMap((r) => {
+      const out: string[] = [];
+      for (let y = r.y; y < r.y + r.height; y++) for (let x = r.x; x < r.x + r.width; x++) out.push(`${x - FRAME.minX},${y - FRAME.minY}`);
+      return out;
+    });
 };
 
 beforeEach(() => {
@@ -212,14 +95,17 @@ beforeEach(() => {
   sceneGraph = fakeSceneGraph();
   ticker = new Ticker();
   setEngineSingleton(fakeEngine(canvas, ticker), sceneGraph);
+  sent = [];
   useSessionStore.setState({
-    session: session({ fog: fogWith({}) }),
+    session: session(),
     you: dm,
-    client: null,
-    mapData: { layers: [dungeonLayer([CRYPT, HALL])] },
+    client: { send: (msg: Sent) => sent.push(msg) } as unknown as WebSocketClient,
+    mapData: { frame: FRAME, layers: [] },
   });
+  useStore.setState({ levels: [{ id: 'level-1', name: 'Ground' }] } as never);
   useActiveTool.getState().setActiveTool(null);
-  useFogBrush.setState({ on: false, op: 'reveal' });
+  useFogBrush.setState({ op: 'clear', size: 1 });
+  unmount = mountFogOverlayWhenReady();
 });
 
 afterEach(() => {
@@ -230,472 +116,99 @@ afterEach(() => {
   canvas.remove();
 });
 
-describe('FogOverlay hover highlight (D11)', () => {
-  it('redraws when the pointer enters a room while the tool is armed', () => {
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-
-    // Off every room — unzoned map is not hoverable (D6), so this is the baseline.
-    move(7, 2);
-    expect(drawn(sceneGraph), 'nothing is hovered yet').toBe('');
-
-    move(2, 2);
-    const hovering = drawn(sceneGraph);
-    expect(hovering, 'the hover highlight never reached the overlay').not.toBe('');
-
-    // …and it is the *hovered* room's highlight, redrawn, not a sticky first one.
-    move(12, 2);
-    expect(drawn(sceneGraph)).toBe(hovering);
-
-    // Leaving the rooms puts it back exactly where it started.
-    move(7, 2);
-    expect(drawn(sceneGraph)).toBe('');
-  });
-
-  /**
-   * The gate's actual failure. `addWorldOverlay` would put this under the engine's
-   * screen-space lighting multiply, where an unlit dungeon leaves ~7% of it — drawn, and
-   * invisible. The player's mask is above the composite for the same reason (D12).
-   */
-  it('draws the highlight above the lighting composite, not under it', () => {
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-    move(2, 2);
-
-    const screen = sceneGraph.overlayContainer.children;
-    const lighting = screen.findIndex((c) => c.label === 'lightingComposite');
-    const cursor = screen.findIndex((c) => c.label === 'fogOverlay');
-    expect(cursor).toBeGreaterThan(lighting);
-    expect(drawn(sceneGraph)).not.toBe('');
-
-    // The tint stays in the world, under the DM's tokens and doors (principle 3).
-    expect(layerNamed(sceneGraph.worldContainer, 'fogOverlay')).toBeDefined();
-    expect(tinted(sceneGraph), 'two unrevealed rooms carry the heavier tint').not.toBe('');
-  });
-
-  it('mirrors the camera, so the highlight sits on the room it names', () => {
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-    sceneGraph.worldContainer.position.set(120, -40);
-    sceneGraph.worldContainer.scale.set(3);
-    ticker.update(performance.now());
-
-    const cursor = layerNamed(sceneGraph.overlayContainer, 'fogOverlay')!;
-    expect([cursor.position.x, cursor.position.y]).toEqual([120, -40]);
-    expect(cursor.scale.x).toBe(3);
-  });
-
-  it('highlights the hovered room in that room’s own fog state, not one colour for all three', () => {
-    // D11: "hovering highlights the room polygon under the cursor with its current state".
-    // One warm tint for every state answers "what am I over" and drops the half of the
-    // sentence that matters mid-play — which of the three a click is about to flip.
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-    move(2, 2);
-
-    const hoverOf = (rooms: FogState['byScene'][string]['rooms']): string => {
-      useSessionStore.setState({ session: session({ fog: fogWith(rooms) }) });
-      return drawn(sceneGraph);
-    };
-
-    const unrevealed = hoverOf({});
-    const revealed = hoverOf({ [CRYPT.id]: { status: 'revealed', wasEverRevealed: true } });
-    const explored = hoverOf({ [CRYPT.id]: { status: 're_hidden', wasEverRevealed: true } });
-
-    expect(new Set([unrevealed, revealed, explored]).size, 'three states, three looks').toBe(3);
-    expect(unrevealed).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
-    expect(revealed).toContain(String(DM_FOG_LOOK.revealed.hoverColor));
-    expect(explored).toContain(String(DM_FOG_LOOK.re_hidden.hoverColor));
-
-    // The state is the room's, not the pointer's: moving to the other room, still unrevealed,
-    // goes back to the unrevealed look while the crypt keeps its own.
-    move(12, 2);
-    expect(drawn(sceneGraph)).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
-  });
-
-  it('lifts the hover fill through the tint it has to read over, so all three land alike', () => {
-    // The fill sits on a room already carrying `tintAlpha` of near-black; a flat fill would
-    // read strongest exactly where there is nothing over it. Heavier tint, heavier fill.
-    const byTint = (['revealed', 're_hidden', 'never_revealed'] as const).map(
-      (status) => DM_FOG_LOOK[status],
-    );
-    expect(byTint.map((look) => look.tintAlpha)).toEqual([...byTint.map((l) => l.tintAlpha)].sort());
-    expect(byTint.map((look) => look.hoverAlpha)).toEqual(
-      [...byTint.map((l) => l.hoverAlpha)].sort(),
-    );
-  });
-
-  it('draws nothing extra while the tool is not armed', () => {
-    unmount = mountFogOverlayWhenReady();
-    move(7, 2);
-    move(2, 2);
-    expect(drawn(sceneGraph)).toBe('');
-  });
-
-  it('is the DM’s layer alone — a player never gets a hover', () => {
-    useSessionStore.setState({ you: { ...dm, role: 'player' } });
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-    move(2, 2);
-    expect(drawn(sceneGraph)).toBe('');
-    expect(layerNamed(sceneGraph.overlayContainer, 'fogOverlay')?.visible).toBe(false);
-  });
-});
-
-// ── P4 §2 — the fog brush ──────────────────────────────────────────────────
-// The brush is a sub-mode of the armed tool, so everything above still holds; what only this
-// layer can answer is the arithmetic between a pointer and a `region-set`, and the batching
-// that keeps a stroke from being one broadcast per cell.
-
-/** The frame the fixture rooms sit in — a NON-ZERO origin, which is where off-by-ones hide. */
-const FRAME = { minX: -1, minY: -1, maxX: 15, maxY: 5 };
-
-interface Sent {
-  module: string;
-  action: string;
-  payload: { op: string; cells: [number, number][] };
-}
-
-function brushing(): Sent[] {
-  const sent: Sent[] = [];
-  useSessionStore.setState({
-    client: { send: (msg: Sent) => sent.push(msg) } as unknown as WebSocketClient,
-    mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
-    session: session({
-      fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision' } } },
-    }),
-  });
-  unmount = mountFogOverlayWhenReady();
-  useActiveTool.getState().setActiveTool('fog');
-  useFogBrush.setState({ on: true, op: 'reveal' });
-  return sent;
-}
-
-const down = (x: number, y: number, init: PointerEventInit = {}): void => {
-  canvas.dispatchEvent(
-    new PointerEvent('pointerdown', { clientX: x, clientY: y, button: 0, bubbles: true, ...init }),
-  );
-};
-const up = (): void => {
-  canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-};
-
-/** Every cell the stroke put on the wire, flattened in order. */
-const cellsOf = (sent: Sent[]): string[] =>
-  sent.flatMap((s) => s.payload.cells.map((c) => c.join()));
-
-describe('the fog brush writes cells, not rooms (P4 §2)', () => {
-  it('names the cell the region record means by the point under the pointer', () => {
-    const sent = brushing();
-    // World (0.5, 0.5) against a frame starting at (-1, -1) is cell [1, 1] — the
-    // `cellsCoveredByPolygon` convention the server writes and the sweep reads.
-    down(0.5, 0.5);
+describe('the fog brush', () => {
+  it('clears the cell under the pointer on the level the DM is showing', () => {
+    armBrush('clear');
+    // World (0.5, 0.5) against a frame starting at (-1, -1) is cell [1, 1].
+    pointer('pointerdown', 0.5, 0.5);
     up();
-
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ module: 'fog', action: 'region-set' });
-    expect(sent[0].payload).toEqual({ op: 'reveal', cells: [[1, 1]] });
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'region-set', payload: { levelId: 'level-1', op: 'clear', cells: [[1, 1]] } });
+  });
+
+  it('writes to the shown level of a map with two', () => {
+    useStore.setState({ levels: [{ id: 'upper', name: 'Upper' }, { id: 'lower', name: 'Lower' }], ui: { ...useStore.getState().ui, activeLevelId: 'lower' } } as never);
+    armBrush('fog');
+    pointer('pointerdown', 0.5, 0.5);
+    up();
+    expect(sent[0].payload).toMatchObject({ levelId: 'lower', op: 'fog' });
   });
 
   it('paints every cell the drag crossed, once each, in batches', () => {
-    const sent = brushing();
-    down(0.5, 0.5);
-    // One event, thirteen cells further along: a sampled pointer must not leave a dashed
-    // stroke, so the segment between the two is filled in.
-    move(13.5, 0.5);
-
-    // Fourteen cells crossed, flushed at twelve: the players watch it appear mid-drag.
+    armBrush('clear');
+    pointer('pointerdown', 0.5, 0.5);
+    // One event thirteen cells along: the segment between is filled in, and twelve flush.
+    pointer('pointermove', 13.5, 0.5);
     expect(sent).toHaveLength(1);
     expect(sent[0].payload.cells).toHaveLength(12);
-
-    // Scrubbing back over ground already painted sends nothing — the dedupe is the stroke's,
-    // not the batch's.
-    move(0.5, 0.5);
+    // Scrubbing back over painted ground sends nothing.
+    pointer('pointermove', 0.5, 0.5);
     expect(sent).toHaveLength(1);
-
     up();
-    expect(sent).toHaveLength(2);
     const cells = cellsOf(sent);
     expect(cells).toHaveLength(14);
     expect(new Set(cells).size).toBe(14);
-    expect(cells).toContain('1,1');
-    expect(cells).toContain('14,1');
+  });
+
+  it('paints a disc as wide as the size', () => {
+    useFogBrush.setState({ size: 3 });
+    armBrush('clear');
+    pointer('pointerdown', 4.5, 1.5);
+    up();
+    expect(cellsOf(sent).sort()).toEqual(disc([5, 2], 3).map((c) => c.join()).sort());
+    expect(disc([0, 0], 3)).toHaveLength(9);
+    expect(disc([0, 0], 1)).toEqual([[0, 0]]);
   });
 
   it('paints the other way with Alt held, decided once at the top of the stroke', () => {
-    const sent = brushing();
-    down(0.5, 0.5, { altKey: true });
-    move(2.5, 0.5);
+    armBrush('clear');
+    pointer('pointerdown', 0.5, 0.5, { altKey: true });
+    pointer('pointermove', 2.5, 0.5);
     up();
-    expect(sent.length).toBeGreaterThan(0);
-    expect(sent.every((s) => s.payload.op === 'hide')).toBe(true);
-
-    // …and the panel's own op still rules an unmodified stroke.
-    useFogBrush.setState({ op: 'hide' });
-    down(4.5, 0.5);
+    expect(sent.every((s) => s.payload.op === 'fog')).toBe(true);
+    // The next stroke without Alt is the armed way again.
+    pointer('pointerdown', 4.5, 0.5);
     up();
-    expect(sent[sent.length - 1].payload.op).toBe('hide');
+    expect(sent.at(-1)!.payload.op).toBe('clear');
   });
 
-  it('leaves the room click alone: with the brush on, no room is revealed', () => {
-    const sent = brushing();
-    // Straight into the middle of the crypt, which without the brush is a `reveal`.
-    down(2, 2);
+  it('sends nothing off the frame, and nothing while unarmed', () => {
+    armBrush('clear');
+    pointer('pointerdown', -40, -40);
     up();
-    expect(sent.map((s) => s.action)).toEqual(['region-set']);
-
-    useFogBrush.setState({ on: false });
-    down(2, 2);
-    up();
-    expect(sent.map((s) => s.action)).toEqual(['region-set', 'reveal']);
-  });
-
-  it('sends nothing at all off the frame, where a left-drag still pans', () => {
-    const sent = brushing();
-    down(-40, -40);
-    move(-30, -30);
+    useActiveTool.getState().setActiveTool(null);
+    pointer('pointerdown', 0.5, 0.5);
     up();
     expect(sent).toEqual([]);
   });
 
-  it('draws the region record on the DM’s own canvas, so a stroke can be read back', () => {
-    // Without this the brush is blind past the first stroke: the room tint answers by the
-    // room, so a second stroke into a room already latched changes nothing the DM can see.
-    brushing();
-    const empty = tinted(sceneGraph);
-    useSessionStore.setState({
-      session: session({
-        fog: {
-          byScene: {
-            'scene-1': {
-              rooms: {},
-              concealBehindDoors: true,
-              mode: 'vision',
-              region: setCells(regionOf(FRAME)!, [[1, 1]]),
-            },
-          },
-        },
-      }),
-    });
-    expect(tinted(sceneGraph), 'the swept cells never reached the DM canvas').not.toBe(empty);
-  });
-
-  it('washes the table’s whole memory in individual share, not the frozen party half', () => {
-    // P5 — every seat's record is its own, and the party record stops accruing the moment the
-    // DM flips the switch. Washing that half alone would tell the DM the table has seen
-    // nothing since, on the one canvas the product promises never loses visibility.
-    brushing();
-    const seat = (cell: [number, number]) => setCells(regionOf(FRAME)!, [cell]);
-    const scene = (regions: Record<string, ReturnType<typeof seat>>) => ({
-      session: session({
-        fog: {
-          byScene: {
-            'scene-1': {
-              rooms: {},
-              concealBehindDoors: true,
-              mode: 'vision' as const,
-              visionShare: 'individual' as const,
-              regions,
-            },
-          },
-        },
-      }),
-    });
-
-    useSessionStore.setState(scene({ 'p-1': seat([1, 1]) }));
-    const one = tinted(sceneGraph);
-    useSessionStore.setState(scene({ 'p-1': seat([1, 1]), 'p-2': seat([3, 3]) }));
-    expect(tinted(sceneGraph), 'the second seat’s memory never reached the DM canvas').not.toBe(
-      one,
-    );
-  });
-
-  it('rebuilds the runs on the mask’s bytes, not on every fog write', () => {
-    // A fog `state-update` replaces the slice wholesale (§2.5) and fires for set-mode, share
-    // flips, auto-explore and every room reveal — none of which move a cell. Keyed on the
-    // slice, each of those re-decoded every seat's record and re-ran the union for bytes that
-    // had not changed, at O(seats) per DM redraw.
-    brushing();
-    const vision = (over: Record<string, unknown>) => ({
-      session: session({
-        fog: {
-          byScene: {
-            'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision', ...over },
-          },
-        },
-      }),
-    });
-    const swept = setCells(regionOf(FRAME)!, [[1, 1]]);
-    useSessionStore.setState(vision({ region: swept }));
-    const built = rebuilds();
-
-    // Fresh objects carrying the same base64, the way a re-parsed slice arrives.
-    useSessionStore.setState(vision({ region: { ...swept }, autoExplore: false }));
-    expect(rebuilds(), 'the same bytes were decoded a second time').toBe(built);
-
-    // …and a cell the party actually swept still lands.
-    useSessionStore.setState(vision({ region: setCells(swept, [[2, 2]]) }));
-    expect(rebuilds(), 'a real write never reached the canvas').toBe(built + 1);
-  });
-
-  it('paints nothing on a scene too large to keep a region record', () => {
-    // Past `REGION_CELL_MAX`: the referee refuses every cell of the stroke, so the brush must
-    // not enter painting at all — the click stays the room click it was.
-    const sent = brushing();
-    useSessionStore.setState({
-      mapData: {
-        frame: { minX: 0, minY: 0, maxX: 4000, maxY: 4000 },
-        layers: [dungeonLayer([CRYPT, HALL])],
-      },
-    });
-    down(2, 2);
-    up();
-    expect(sent.map((s) => s.action)).toEqual(['reveal']);
-  });
-
-  it('repaints the moment the brush is toggled, not on the next pointer event', () => {
-    // Nothing subscribed to the brush store, so arming it left the last frame on screen until
-    // the DM happened to move the pointer — the cursor lying about what a click will do.
-    brushing();
-    move(2, 2);
-    const cell = drawn(sceneGraph);
-    useFogBrush.setState({ on: false });
-    expect(drawn(sceneGraph), 'the brush toggle never reached the overlay').not.toBe(cell);
-  });
-
-  it('drops the brush when the tool is disarmed, so re-arming never re-enters it silently', () => {
-    const sent = brushing();
-    expect(useFogBrush.getState().on).toBe(true);
+  it('draws its cursor above the lighting composite, only while armed', () => {
+    pointer('pointermove', 2.5, 2.5);
+    expect(cursorLayer().visible).toBe(false);
+    armBrush('clear');
+    pointer('pointermove', 3.5, 2.5);
+    expect(cursorLayer().visible).toBe(true);
+    expect(cursorDrawn()).toBeGreaterThan(0);
     useActiveTool.getState().setActiveTool(null);
-    expect(useFogBrush.getState().on).toBe(false);
-
-    // Re-arming is the room tool again, which is what the panel's own button then says.
-    useActiveTool.getState().setActiveTool('fog');
-    down(2, 2);
-    up();
-    expect(sent.map((s) => s.action)).toEqual(['reveal']);
+    expect(cursorLayer().visible).toBe(false);
   });
 
-  it('shows one cell under the cursor instead of the whole room', () => {
-    brushing();
-    move(2, 2);
-    const cell = drawn(sceneGraph);
-    expect(cell, 'the brush cursor never reached the overlay').not.toBe('');
-    // Not the room highlight: that is drawn in the room's own fog-state colour.
-    expect(cell).not.toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
-
-    // Off the brush, the same point is the room highlight again.
-    useFogBrush.setState({ on: false });
-    move(2.5, 2.5);
-    expect(drawn(sceneGraph)).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
-  });
-});
-
-// ── D4/WP1 — DM haze torch-glow parity ──────────────────────────────────────
-// `nightSight()`'s pools used to reach only a *masked* seat (a player, or the DM's own sight
-// preview — `masked` in `fogScene()`), which a DM's plain view never is, so the haze never
-// learned where a light or a darkvision eye was. `nightPoolsNow` (`FogOverlay.ts`) rebuilds
-// the same list off this seat's own tokens/layers; these pin it against the actual player
-// computation, not just against itself.
-
-/** A placed lamp (a warm pool) and a darkvision-eyed party token (a cold pool) — the same two
- * kinds of source `FogRenderer.test.ts`'s own `nightTable` fixture gates `night.pools` on. */
-const darkScene = (ambient: 'darkness' | 'daylight' = 'darkness'): void => {
-  const layers = [dungeonWithLamp([CRYPT, HALL])];
-  useStore.setState({ layers });
-  useSessionStore.setState({
-    // `computeMapFrame` measures floor/wall/asset geometry, not the room record (`rooms` is
-    // not among them) — a lamp child does not make the map "content" either, so this fixture
-    // needs the frame stamped, the way the brush section's own scenes do.
-    mapData: { frame: FRAME, layers },
-    session: session({
-      fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision' } } },
-      tokens: {
-        library: {},
-        byScene: {
-          'scene-1': {
-            't-eyes': token({
-              id: 't-eyes',
-              x: 12,
-              y: 2,
-              sight: { range: 3, angle: 360, visionMode: 'darkvision' },
-            }),
-          },
-        },
-      },
-      triggers: {
-        byScene: {
-          'scene-1': {
-            fired: {},
-            armed: {},
-            disabled: {},
-            lightOverrides: {},
-            lightEdits: {},
-            darkness: ambient === 'darkness' ? 1 : 0,
-            prompts: [],
-            log: [],
-          },
-        },
-      },
-    }),
-  });
-};
-
-describe('DM haze torch-glow parity (D4/WP1)', () => {
-  it('gives the haze the same warm/cold pools the player fog computes for the same lights and eyes', () => {
-    darkScene('darkness');
-
-    // Ground truth: the very thing a player's own seat would draw its cloud through
-    // (`fogScene().night.pools`), off the lamp and the darkvision eye `darkScene` placed.
-    useSessionStore.setState({ you: { ...dm, role: 'player' } });
-    const playerPools = fogScene().night?.pools;
-    expect(playerPools).toBeDefined();
-    expect(playerPools!.filter((p) => p.warm)).toHaveLength(1);
-    expect(playerPools!.filter((p) => !p.warm)).toHaveLength(1);
-    useSessionStore.setState({ you: dm });
-
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-
-    expect(hazePools()).toEqual(playerPools);
-  });
-
-  it('leaves the haze with no pools outside darkness', () => {
-    darkScene('daylight');
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-
-    expect(hazePools()).toEqual([]);
-  });
-
-  it('redraws the haze when a light is struck or doused, not only on the next fog write', () => {
-    darkScene('darkness');
-    unmount = mountFogOverlayWhenReady();
-    useActiveTool.getState().setActiveTool('fog');
-    expect(hazePools()).toHaveLength(2);
-
-    // The table's own switch (`lightEdits`) turns the lamp off — nothing about the fog slice
-    // itself changed, so this is the one case `sync`'s key list has to name on purpose.
-    useSessionStore.setState({
-      session: session({
-        fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision' } } },
-        tokens: useSessionStore.getState().session!.modules.tokens,
-        triggers: {
-          byScene: {
-            'scene-1': {
-              fired: {},
-              armed: {},
-              disabled: {},
-              lightOverrides: {},
-              lightEdits: { 'lamp-a': { visible: false } },
-              darkness: 1,
-              prompts: [],
-              log: [],
-            },
-          },
-        },
-      }),
-    });
-    expect(hazePools()).toHaveLength(1);
+  it('9: marks exactly the cells a stamp of that size sends, at the frame’s edge too', () => {
+    for (const [size, x, y] of [
+      [1, 4.5, 1.5],
+      [3, 4.5, 1.5],
+      [5, -0.5, -0.5],
+      [5, 13.5, 3.5],
+    ] as const) {
+      useFogBrush.setState({ size });
+      armBrush('clear');
+      pointer('pointermove', x, y);
+      const marked = cursorCells().sort();
+      sent = [];
+      pointer('pointerdown', x, y);
+      up();
+      expect(marked).toEqual(cellsOf(sent).sort());
+      useActiveTool.getState().setActiveTool(null);
+    }
   });
 });

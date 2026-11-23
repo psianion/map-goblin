@@ -22,11 +22,12 @@ import type { Vision } from './vision'
  * happened to take a step.
  */
 const TRIGGERS: Record<string, readonly string[]> = {
-  tokens: ['move', 'place', 'claim', 'assign', 'update', 'hide', 'delete', 'set-sight-link'],
+  tokens: ['move', 'place', 'claim', 'assign', 'update', 'hide', 'delete', 'set-sight-link', 'set-token-level'],
   doors: ['toggle', 'reveal-secret'],
-  // T10: a DM hide, Hide all or erase fogs ground fully unless an eye sees it now, so the
-  // party's current sight is written back at once rather than on its next step.
-  fog: ['hide', 'set-bulk', 'region-set'],
+  // Switching Auto-explore on clears what the party sees now, not on its next step. A DM's fog
+  // stroke, Fog all and the switch itself are deliberately absent: fogged ground stays fogged
+  // until a party token moves and sees it again.
+  fog: ['set-auto-explore'],
 }
 
 export function autoExplore(vision: Vision): AfterWrite {

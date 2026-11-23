@@ -32,15 +32,14 @@ import {
   type Stores,
 } from './db/stores'
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
-import { outdoorsRowOf, type Vision } from './fog/vision'
+import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
-import { fogModeOf, sceneFogOf, type FogState } from '@dnd/mechanics/fog'
 import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
 import type { DoorChild } from '@dnd/core/src/shared/types'
-import { carryFog, takeLineage } from './fog/roomLineage'
+import { takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -51,7 +50,7 @@ export interface HttpDeps {
   sessionManager: SessionManager
   /** S3 — the map GET's player path goes through it (D4/D5). */
   vision: Vision
-  /** The DM's starting room is a `fog.reveal` like any other — see `openSession`. */
+  /** The table's start is set up through the modules like any other command — see `openSession`. */
   modules: ModuleRegistry
   /** F3 — the same resolver `triggersModule` runs against, reused so GET .../prep can report
    *  which triggers are inert without a second resolution path to drift from the first. */
@@ -551,14 +550,8 @@ async function publishScene(
   const map = parseMapFile(raw)
   if (!map.ok) return json(res, 400, { error: map.error })
 
-  // §10 — a split or a merge in the editor must not cost the party explored ground. Read
-  // against the map this publish replaces (still the cached one: `invalidateScene` runs below)
-  // so a split half is only seeded the first time it appears.
+  // §10 — room lineage is an instruction to this route, not map data: stripped before storing.
   const lineage = takeLineage(map.data)
-  if (lineage) {
-    const previous = new Set(deps.vision.roomsOf(scene.campaign_id, sceneId))
-    carrySceneFog(deps, scene.campaign_id, sceneId, (fog) => carryFog(fog, lineage, previous))
-  }
   // S2 — a door whose authored state changed starts again from the new map: its stored live state
   // (open, locked, found) is dropped. Read against the old map for the same reason as above.
   pruneSceneDoors(deps, scene.campaign_id, sceneId, reauthoredDoors(deps.vision.doorsOf(scene.campaign_id, sceneId), authoredDoorsOf(map.data)))
@@ -605,25 +598,6 @@ function storablePrep(prep: unknown): string | null {
   const { triggers, notes, rooms } = normalizePrep(prep)
   const stored: ScenePrep = { version: 3, triggers, notes, rooms }
   return JSON.stringify(stored)
-}
-
-/**
- * Rewrites one scene's fog in the campaign's stored fog slice. Module state is read from the
- * store on every dispatch, and the `refreshScenes` a publish ends with re-snapshots every
- * seat, so a write here reaches the table with the new map rather than a frame of its own.
- * Nothing written when the campaign has no fog yet or `carry` changed nothing.
- */
-function carrySceneFog(
-  deps: HttpDeps,
-  campaignId: string,
-  sceneId: string,
-  carry: (fog: FogState['byScene'][string]) => FogState['byScene'][string] | null,
-): void {
-  const fog = deps.stores.moduleState.get(campaignId, 'fog') as FogState | undefined
-  const scene = fog?.byScene[sceneId]
-  if (!fog || !scene) return
-  const next = carry(scene)
-  if (next) deps.stores.moduleState.put(campaignId, 'fog', { ...fog, byScene: { ...fog.byScene, [sceneId]: next } })
 }
 
 /** Every door a map file authors, across its dungeon layers. */
@@ -1121,9 +1095,7 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
  * POST /api/sessions — DM starts a session for a campaign and gets its invite code.
  *
  * `startingRoom` is §2.6's optional one: the room the DM picked while setting the table up,
- * lit before anyone is in the door. It is not a second kind of fog — it is the reveal the DM
- * would have clicked, run here through the same module, so the stored fog is the only source
- * of truth and redaction, the DM's panel and every join agree without being told about it.
+ * where the party starts.
  */
 async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req, res)
@@ -1194,17 +1166,10 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   if (scene) deps.stores.sessions.setActiveScene(session.id, scene)
 
   // Nobody can be at this table yet — the invite code is still in this function — so the
-  // reveal lands before the first join rather than racing it, and the broadcast it would
-  // normally make has no one to make it to.
+  // setup lands before the first join rather than racing it, and the broadcast it would
+  // normally make has no one to make it to. Fog rework: nothing is revealed here; a table
+  // opens with fog off, and once the DM turns it on, ground is cleared by brush or by sight.
   if (start) {
-    deps.modules.dispatch('fog', 'reveal', start, {
-      campaignId,
-      sessionId: session.id,
-      activeSceneId: start.sceneId,
-      sender: { role: 'dm', identityId: dm.id },
-      players: [],
-      broadcast: () => {},
-    })
     // On a map with several levels the table opens on the starting room's: every seat without
     // a pick of its own looks there, and the party stands there.
     const map = deps.vision.sceneMapOf(start.sceneId)?.data
@@ -1233,9 +1198,7 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   }
 
   // Table fix pass F18: a start at a point (the party start, or the centre of the map). The
-  // party stands there, fanned out on standable cells, and in By hand fog the room or Outdoors
-  // under it is revealed (the place writes do that through `fog.party-here`; this covers a
-  // campaign with no PC to place).
+  // party stands there, fanned out on standable cells.
   if (point) {
     const ctx = {
       campaignId,
@@ -1257,11 +1220,6 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
       dmId: dm.id,
       levelId,
     })
-    const fog = (deps.stores.moduleState.get(campaignId, 'fog') as FogState | undefined) ?? { byScene: {} }
-    const row = map && (map.roomAt(point.x, point.y) ?? outdoorsRowOf(map.data, levelId ?? levels[0]?.id ?? ''))
-    if (row && fogModeOf(sceneFogOf(fog, point.sceneId)) === 'rooms' && deps.vision.roomsOf(campaignId, point.sceneId).includes(row)) {
-      deps.modules.dispatch('fog', 'reveal', { sceneId: point.sceneId, roomId: row }, ctx)
-    }
   }
 
   json(res, 201, {

@@ -20,6 +20,8 @@ import { syncRooms } from '@dnd/core/src/store/roomSync'
 import { buildRoomIndex } from '@dnd/core/src/shared/roomIndex'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: polygon arithmetic
 import { faceMetrics } from '@dnd/core/src/shared/roomUtils'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the Lighting pass's level rules, pure
+import { levelIdOf } from '@dnd/core/src/shared/visionGate'
 import type {
   AnyChild,
   DoorChild,
@@ -80,6 +82,13 @@ export interface SceneMap {
   /** The room whose face contains the point, or null if it is on unzoned map (D6). Answered
    *  off the core room index, so a query tests only the rooms whose bounds touch its cell. */
   roomAt(x: number, y: number): string | null
+  /**
+   * Fog rework — the same, among the rooms of one level only. `roomAt` takes no level, so
+   * where rooms of two levels overlap it can only name one of them.
+   */
+  roomAtOn(levelId: string, x: number, y: number): string | null
+  /** Fog rework — the level each room is on (its layer's). */
+  roomLevels: ReadonlyMap<string, string>
   /** The rooms a wall segment borders — both sides of a shared wall. */
   roomsAlong(wall: WallSegment): readonly string[]
 }
@@ -166,12 +175,22 @@ function index(campaignId: string, stored: SerializedMapData): SceneMap {
   // name overrides fold away. Its saved faces are kept aside as the fallback for a room
   // whose face cannot be derived here.
   const legacy = legacyFaces(stored)
-  const data = migrateRooms(stored)
+  const data = stableLevel(stored, migrateRooms(stored))
   healMergedFloor(data)
   deriveRoomFaces(data, legacy)
   const layers = data.layers.filter(isDungeon)
   const rooms = layers.flatMap((layer) => (layer.rooms ?? []) as RunnerRoom[])
   const roomIndex = buildRoomIndex(rooms)
+  const roomLevels = new Map<string, string>()
+  const byLevel = new Map<string, RunnerRoom[]>()
+  for (const layer of layers) {
+    const levelId = levelIdOf(data, layer)
+    for (const room of (layer.rooms ?? []) as RunnerRoom[]) {
+      roomLevels.set(room.id, levelId)
+      byLevel.set(levelId, [...(byLevel.get(levelId) ?? []), room])
+    }
+  }
+  const levelIndex = new Map([...byLevel].map(([levelId, own]) => [levelId, buildRoomIndex(own)]))
   const doors = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is DoorChild => child.childType === 'door'),
   )
@@ -196,6 +215,8 @@ function index(campaignId: string, stored: SerializedMapData): SceneMap {
     lights,
     lightNames,
     roomAt: (x, y) => roomIndex.roomAt(x, y)?.id ?? null,
+    roomAtOn: (levelId, x, y) => levelIndex.get(levelId)?.roomAt(x, y)?.id ?? null,
+    roomLevels,
     // Probed once per cell along the wall, not at its midpoint alone, and at two depths: a
     // wall belongs to every room it runs along, a long one can run past several — or, on a
     // wall that outlasts the rooms it divides, have its midpoint beside none of them — and a
@@ -223,6 +244,24 @@ function index(campaignId: string, stored: SerializedMapData): SceneMap {
       return [...along]
     },
   }
+}
+
+/** The one level's id on a map stored before levels existed. */
+export const ONLY_LEVEL_ID = 'level-1'
+
+/**
+ * A file with no levels gets one from the migration under a fresh random id, so every parse of
+ * the same file would name its level differently — and the fog's cleared record is keyed by
+ * level id, so a cache eviction or a restart would lose every cleared cell. That level is given
+ * one fixed id instead. Mutates the migration's own copies (`withLevels` mints both the level
+ * and every layer pointing at it), never `stored`.
+ */
+function stableLevel(stored: SerializedMapData, data: SerializedMapData): SerializedMapData {
+  if ((stored.levels?.length ?? 0) > 0 || data.levels?.length !== 1) return data
+  const minted = data.levels[0].id
+  data.levels[0] = { ...data.levels[0], id: ONLY_LEVEL_ID }
+  data.layers = data.layers.map((layer) => (layer.levelId === minted ? { ...layer, levelId: ONLY_LEVEL_ID } : layer))
+  return data
 }
 
 /** The room's face as the runner holds it (`RunnerRoom.boundary`), else whatever it carries. */

@@ -137,16 +137,15 @@ describe('the tokens/fog → triggers cascade', () => {
     expect(events).toEqual([])
   })
 
-  // S3 P3 — `open-map` reveals every room in the scene, so a room-revealed trigger has to be
-  // re-evaluated against it exactly as it is against `reveal` and `set-bulk`. Left out of
-  // CASCADES it would stay armed, and fire later on a map that is already open.
-  it('fires after a successful fog.open-map', () => {
+  // `fog-all` is what re-arms room-revealed triggers, so it has to reach them. Left out of
+  // CASCADES they would stay spent after the map went back under.
+  it('fires after a successful fog.fog-all', () => {
     const events: unknown[] = []
     const { registry, campaignId } = wired(stubTriggers((p) => events.push(p)))
-    registry.register(fogModule(() => ['r-hall']))
+    registry.register(fogModule())
 
-    expect(registry.dispatch('fog', 'open-map', {}, baseCtx(campaignId))).toBeNull()
-    expect(events).toEqual([{ sceneId: SCENE, source: { module: 'fog', action: 'open-map' } }])
+    expect(registry.dispatch('fog', 'fog-all', {}, baseCtx(campaignId))).toBeNull()
+    expect(events).toEqual([{ sceneId: SCENE, source: { module: 'fog', action: 'fog-all' } }])
   })
 
   it('is a silent no-op when triggers is not registered', () => {
