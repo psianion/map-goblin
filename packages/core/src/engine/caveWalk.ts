@@ -478,11 +478,22 @@ export function walkSpan(
         }
         if (measured && !(a && b)) {
           // No one or two pieces close it at their size: as many as it takes, from as far back
-          // as a few laid pieces, else it is left open rather than laid across the floor.
+          // as a few laid pieces. Where nothing fills it at their size, the pieces taken back are
+          // put back and the stretch is filled with the nearest fit: bare wall is worse than rock
+          // a little off its size.
+          const taken: typeof laid = [];
           let filled = fillClose(curve, set, i, iHome, opts.accept);
           for (let back = 0; !filled && back < CLOSE_BACK && laid.length > 0; back++) {
             const last = laid.pop()!;
+            taken.unshift(last);
             filled = fillClose(curve, set, last.i, iHome, opts.accept);
+          }
+          if (!filled) {
+            // From the cursor, else from where each piece taken back began, latest first.
+            const starts = [i, ...taken.map((t) => t.i).reverse()];
+            const near = nearestClose(curve, set, starts, iHome, opts.accept);
+            laid.push(...taken.slice(0, near ? taken.length - near.from : taken.length));
+            filled = near?.fill ?? null;
           }
           if (filled) laid.push(...filled);
           break;
@@ -586,7 +597,15 @@ const CLOSE_BACK = 3;
  * back inside the one before, the last ending on `i1`. The fewest pieces, then the least stretched
  * and best fitting. Null when no fill keeps to all of that.
  */
-function fillClose(curve: Curve, set: CaveKitPiece[], i0: number, i1: number, accept: WalkOptions['accept']): Omit<WalkPlacement, 'at'>[] | null {
+function fillClose(
+  curve: Curve,
+  set: CaveKitPiece[],
+  i0: number,
+  i1: number,
+  accept: WalkOptions['accept'],
+  limits: [number, number] = MEASURED_SCALE,
+  spread = false,
+): Omit<WalkPlacement, 'at'>[] | null {
   const n = curve.length;
   const spacing = dist(curve[0], curve[1]) || 0.1;
   const backOff = Math.max(1, Math.round(kitOverlap(set) / spacing));
@@ -612,8 +631,8 @@ function fillClose(curve: Curve, set: CaveKitPiece[], i0: number, i1: number, ac
     const P = curve[s % n];
     const tS = tangentAt(curve, s);
     for (const piece of pieces) {
-      const lo = piece.chordCells * MEASURED_SCALE[0];
-      const hi = piece.chordCells * MEASURED_SCALE[1];
+      const lo = piece.chordCells * limits[0];
+      const hi = piece.chordCells * limits[1];
       const span = Math.ceil((hi * 2.4) / spacing);
       for (let e = s + 1; e <= Math.min(last, s + span); e++) {
         const Q = curve[e % n];
@@ -624,7 +643,9 @@ function fillClose(curve: Curve, set: CaveKitPiece[], i0: number, i1: number, ac
         const f = fitArc(curve, s, e, P, Q, piece);
         if (f.miss > BAND_FIT) continue;
         if (accept && !accept(piece, P, Q, f.nudge)) continue;
-        const c = c0 + 1 + 3 * Math.abs(Math.log(d / piece.chordCells)) + f.miss;
+        // Spread, the size error costs by its square, so it is shared out rather than put on one piece.
+        const off = Math.log(d / piece.chordCells);
+        const c = c0 + 1 + (spread ? 30 * off * off : 3 * Math.abs(off)) + f.miss;
         const step: Step = { cost: c, prev: s, piece, nudge: f.nudge, end: e };
         if (e === last) {
           if (!done || c < done.cost) done = step;
@@ -644,6 +665,37 @@ function fillClose(curve: Curve, set: CaveKitPiece[], i0: number, i1: number, ac
     out.unshift({ piece: step.piece, P: curve[step.prev % n], Q: curve[step.end % n], i: step.prev, stretch: dist(curve[step.prev % n], curve[step.end % n]) / step.piece.chordCells, nudge: step.nudge, branch: 'close-fill' });
   }
   return out;
+}
+
+/** How far past MEASURED_SCALE, as a factor either way, a close no fill at their size can make is let go, step by step. */
+const NEAREST_STEP = 1.1;
+const NEAREST_MOST = 2;
+
+/**
+ * The last stretch of a measured kit's walk when no fill keeps every piece to MEASURED_SCALE
+ * (see {@link fillClose}): filled with the nearest fit instead, from the first of `starts` (the
+ * cursor, then where each laid piece taken back began) that has one. The sizes are let go a step
+ * at a time until a fill is found, so the pieces are as near their size as can be, and the error
+ * is spread over all of them. Last, what may be laid (`accept`) is let go too. The fill, and
+ * which start it runs from; null when even that finds none.
+ */
+function nearestClose(
+  curve: Curve,
+  set: CaveKitPiece[],
+  starts: number[],
+  i1: number,
+  accept: WalkOptions['accept'],
+): { fill: Omit<WalkPlacement, 'at'>[]; from: number } | null {
+  const tries: { limits: [number, number]; accept: WalkOptions['accept'] }[] = [];
+  for (let w = NEAREST_STEP; w <= NEAREST_MOST + 1e-9; w *= NEAREST_STEP) tries.push({ limits: [MEASURED_SCALE[0] / w, MEASURED_SCALE[1] * w], accept });
+  if (accept) tries.push({ limits: [MEASURED_SCALE[0] / NEAREST_MOST, MEASURED_SCALE[1] * NEAREST_MOST], accept: undefined });
+  for (const t of tries) {
+    for (let from = 0; from < starts.length; from++) {
+      const fill = fillClose(curve, set, starts[from], i1, t.accept, t.limits, true);
+      if (fill) return { fill, from };
+    }
+  }
+  return null;
 }
 
 /** How many starting points a ring is walked from before the best closure is kept. */

@@ -398,13 +398,39 @@ export function ringOpeningGaps(
   return gaps;
 }
 
+/** Signed area of a ring, by the shoelace sum. */
+function signedArea(ring: Polygon): number {
+  let a = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const j = (i + 1) % ring.length;
+    a += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1];
+  }
+  return a / 2;
+}
+
+/**
+ * `rings` (outer rings and their holes, as Clipper hands them back) with every hole filled:
+ * the outer rings alone, wound the way the largest is.
+ */
+function holesFilled(rings: Polygon[]): Polygon[] {
+  if (rings.length < 2) return rings;
+  const areas = rings.map(signedArea);
+  const largest = areas.reduce((best, a) => (Math.abs(a) > Math.abs(best) ? a : best), 0);
+  return clipper2Engine.union(
+    rings.filter((_, i) => Math.sign(areas[i]) === Math.sign(largest)),
+    [],
+  );
+}
+
 /**
  * The layer's opening regions once an erase stroke over `area` has crossed a cave's rock, or
  * null when the stroke opens nothing: it lies wholly inside the cave (a hole, rocked round
  * as ever) or nowhere near one. A stroke that only brushes the rock from outside, cutting no
  * floor, counts: the rock rides outside the floor's edge. `rooms` are the regions of the
  * layer's cave-edged rooms (the editor knows which those are): a stroke opens one when it
- * cuts its floor and reaches outside it, with no reach beyond the floor.
+ * cuts its floor and reaches outside it, with no reach beyond the floor. Outside means past
+ * the cave's or room's outer edge: a stroke over a hole erased in it before runs over its own
+ * cut, and is still a hole.
  */
 export function openCaveAt(
   layer: { id: string; children: readonly AnyChild[]; caveOpenings?: Polygon[] },
@@ -412,7 +438,8 @@ export function openCaveAt(
   rooms: Polygon[] = [],
 ): Polygon[] | null {
   if (area.length === 0) return null;
-  const caves = caveEdges(layer).flatMap((c) => c.rings);
+  const caves = holesFilled(caveEdges(layer).flatMap((c) => c.rings));
+  rooms = holesFilled(rooms);
   const crossesCave =
     caves.length > 0 &&
     patchArea(clipper2Engine.difference(area, caves)) >= 1e-6 &&

@@ -35,7 +35,6 @@ import {
   BORDER_FADE,
   BORDER_WOBBLE,
   DROP_SHADE_ALPHA,
-  DROP_SHADE_STEPS,
   FACE_DEPTH_MAX,
   FACE_DEPTH_WANDER,
   FACE_FOOT_ALPHA,
@@ -61,13 +60,11 @@ import {
   highlightWeight,
   linesOff,
   lowSegments,
-  nestedAlphas,
   offsetPath,
   rimWeight,
   slopeFace,
   TOP_SEAM,
   wobbleNoise,
-  wobbleRings,
   wobbleSeed,
   type FaceEnds,
   type SlopeFace,
@@ -101,7 +98,9 @@ import { alongRock, laidFor, wallLines, type AlongRock } from '../shared/rockLin
 import { caveEdges } from '../shared/caveFloor';
 import { layerDrawStyle } from './levelLook';
 import { cliffArt, cliffChoice, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
-import { paintSoftTiled, SOFT_EDGE_STEPS, softEdgeLayers, type SoftLayer } from './softEdge';
+import { paintRamp } from './softPiece';
+import { ease } from './softMask';
+import { distanceToLines, fallOff, fieldOf, keptRamp, rampGrid, unit, type Ramp, type RampField } from './rampMask';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { bandPiecesFor, jointsOf, kitRockWidth, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
@@ -546,20 +545,26 @@ export function plateauAlongWalls(layer: DungeonLayer, plateau: PlateauChild, ri
 }
 
 /**
- * The steps of a painted border along `run`: the region within `width` of the edge on its high
- * side (on a raised band's surface, outside a pit or a dip), solid on the edge and fading over
- * its inner BORDER_FADE of the width (softEdge.ts).
+ * The ramp of a painted border along `run`: within `width` of the edge on its high side (on a
+ * raised band's surface, outside a pit or a dip), full on the edge and easing out over its
+ * inner BORDER_FADE of the width. Null where the high side holds none of it.
  */
-export function paintedBorderLayers(run: EdgeRun, width: number): SoftLayer[] {
+export function paintedBorderRamp(run: EdgeRun, width: number): Ramp | null {
   const line = run.closed ? [...run.points, run.points[0]] : run.points;
-  const fade = width * BORDER_FADE;
-  // The inner edge wanders (grass creeping over the dirt unevenly), the same way every redraw.
-  const noise = wobbleNoise(wobbleSeed(run.owner?.id));
-  return softEdgeLayers((d) => {
-    const reach = width - fade + d;
-    const strip = wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, width * BORDER_WOBBLE, noise);
-    return run.drop > 0 ? clipper2Engine.intersection(strip, run.band.surface) : clipper2Engine.difference(strip, run.band.rings);
-  }, fade);
+  const id = run.owner?.id;
+  return keptRamp('border', [line, width, run.drop > 0, run.drop > 0 ? run.band.surface : run.band.rings, id ?? null], () => {
+    const fade = width * BORDER_FADE;
+    // The inner edge wanders (grass creeping over the dirt unevenly), the same way every redraw.
+    const noise = wobbleNoise(wobbleSeed(id));
+    const reach = width * (1 + BORDER_WOBBLE);
+    const strip = clipper2Engine.inflateOpen([line], reach);
+    const clip = run.drop > 0 ? clipper2Engine.intersection(strip, run.band.surface) : clipper2Engine.difference(strip, run.band.rings);
+    const grid = rampGrid(clip, 0.1);
+    if (!grid) return null;
+    const { d, qx, qy } = distanceToLines([{ pts: line, closed: false }], grid, reach);
+    // The wander is read at the nearest point of the edge, so it moves each texel in from it alike.
+    return { field: fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 0 : fallOff(d[k] - width * BORDER_WOBBLE * noise(qx[k], qy[k]), width - fade, fade))), clip };
+  });
 }
 
 /** A painted border's edge line, cells wide, and how dark its ink is. */
@@ -584,9 +589,11 @@ function drawPaintedBorder(parent: Container, run: EdgeRun, options: PlateauRend
     options.waitFor?.(id);
     return;
   }
+  const ramp = paintedBorderRamp(run, borderWidthOf(run.owner?.borderWidth));
+  if (!ramp) return;
   const border = new Container();
   border.label = 'plateau-border';
-  paintSoftTiled(border, paintedBorderLayers(run, borderWidthOf(run.owner?.borderWidth)), tex);
+  paintRamp(border, ramp, { texture: tex, look: { scale: 1 } });
   parent.addChild(border);
 }
 
@@ -805,8 +812,8 @@ export function plateauTopTiles(layer: DungeonLayer): Map<PlateauChild, Polygon[
 export interface TopFill {
   /** Its top (`plateauTopTiles`), grown TOP_SEAM under each later textured top of its band across a seam. */
   rings: Polygon[];
-  /** The steps it is painted in when it fades in from a seam; null paints `rings` crisp. */
-  soft: SoftLayer[] | null;
+  /** The ramp it is painted through, within `rings`, when it fades in from a seam; null paints `rings` crisp. */
+  soft: RampField | null;
   /** The stretches of its outline it fades in from: open lines, in its own outline's order. */
   fades: Polygon[];
   /** The stretches of its outline it grows across, under a later textured top. */
@@ -914,18 +921,21 @@ function topSeams(p: PlateauChild, band: PlateauBand, placeOf: Map<unknown, numb
 }
 
 /**
- * The steps a top fades in from its seams in: nothing on the seam, full TOP_SEAM inside it, the
- * full edge wandering as a painted border's inner edge does, the same way every time for `seed`.
- * The rest of the top's outline stays crisp.
+ * The ramp a top fades in from its seams by, over `region` (the top as drawn): nothing on the
+ * seam, full TOP_SEAM inside it, eased between, the full edge wandering as a painted border's
+ * inner edge does, the same way every time for `seed`. The rest of the top's outline stays crisp.
  */
-function seamFadeLayers(region: Polygon[], seams: Polygon[], seed: number): SoftLayer[] {
+export function seamFadeField(region: Polygon[], seams: Polygon[], seed: number): RampField | null {
+  const grid = rampGrid(region, 0.1);
+  if (!grid) return null;
   const noise = wobbleNoise(seed);
-  return softEdgeLayers((d) => {
-    // The k-th step stops (steps - k - 1)/steps of the seam's width short of it: the last starts one step in.
-    const reach = TOP_SEAM - d + TOP_SEAM / SOFT_EDGE_STEPS;
-    const strips = seams.flatMap((line) => wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, reach * BORDER_WOBBLE, noise));
-    return strips.length > 0 ? clipper2Engine.difference(region, strips) : region;
-  }, TOP_SEAM);
+  const reach = TOP_SEAM * (1 + BORDER_WOBBLE);
+  const { d, qx, qy } = distanceToLines(
+    seams.map((pts) => ({ pts, closed: false })),
+    grid,
+    reach,
+  );
+  return fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 1 : ease(unit((d[k] - TOP_SEAM * BORDER_WOBBLE * noise(qx[k], qy[k]) * ease(unit(d[k] / TOP_SEAM))) / TOP_SEAM))));
 }
 
 /**
@@ -954,7 +964,7 @@ export function plateauTopFills(layer: DungeonLayer): Map<PlateauChild, TopFill>
       const grown = clipper2Engine.union(rings, under);
       drawn = above.length > 0 ? clipper2Engine.difference(grown, above) : grown;
     }
-    const soft = seams.fades.length > 0 ? seamFadeLayers(drawn, seams.fades, wobbleSeed(p.id)) : null;
+    const soft = seams.fades.length > 0 ? seamFadeField(drawn, seams.fades, wobbleSeed(p.id)) : null;
     fills.set(p, { rings: drawn, soft, ...seams });
   }
   memo.fills = fills;
@@ -1114,16 +1124,17 @@ function lowRegion(band: PlateauBand, bands: readonly PlateauBand[], outward: bo
 }
 
 /**
- * The drop shade below one run: DROP_SHADE_STEPS nested bands of distance from its line, out
- * to `dropShadeWidth`, stacking to DROP_SHADE_ALPHA black at the line and fading out in even
- * steps.
+ * The drop shade below `runs`: DROP_SHADE_ALPHA black at each run's line, easing out to nothing
+ * at its `dropShadeWidth`, by the nearest run. Null for none.
  */
-function dropShade(g: Graphics, run: EdgeRun): void {
-  const line = run.closed ? [...run.points, run.points[0]] : run.points;
-  const width = dropShadeWidth(run.drop);
-  nestedAlphas(DROP_SHADE_ALPHA, DROP_SHADE_STEPS).forEach((alpha, i) => {
-    fillRings(g, clipper2Engine.inflateOpen([line], (width * (i + 1)) / DROP_SHADE_STEPS), { color: 0x000000, alpha });
-  });
+export function dropShadeField(runs: EdgeRun[]): RampField | null {
+  const lines = runs.map((run) => ({ pts: run.closed ? [...run.points, run.points[0]] : run.points, closed: false }));
+  const widths = runs.map((run) => dropShadeWidth(run.drop));
+  const reach = Math.max(0, ...widths);
+  const grid = rampGrid(lines.map((l) => l.pts), reach + 0.1);
+  if (!grid) return null;
+  const { d, owner } = distanceToLines(lines, grid, reach);
+  return fieldOf(grid, (_x, _y, k) => (owner[k] < 0 ? 0 : DROP_SHADE_ALPHA * fallOff(d[k], 0, widths[owner[k]])));
 }
 
 /**
@@ -1145,9 +1156,11 @@ function drawShade(parent: Container, band: PlateauBand, runs: LaidRun[], faces:
     const low = onFaces.length > 0 ? clipper2Engine.difference(land(band, outward), onFaces) : land(band, outward);
     const region = fittedAlongWalls(low, mine, fit, outward);
     if (region.length === 0) continue;
-    const g = new Graphics();
+    const field = dropShadeField(mine.flatMap(({ laid, cliffs }) => (cliffs ? cliffs.map((c) => c.top) : [laid])));
+    if (!field) continue;
+    const g = new Container();
     g.label = 'plateau-drop-shade';
-    for (const { laid, cliffs } of mine) for (const line of cliffs ? cliffs.map((c) => c.top) : [laid]) dropShade(g, line);
+    paintRamp(g, { field, clip: null }, { color: 0x000000 });
     const blur = new BlurFilter({ strength: 1, quality: 3, kernelSize: 5 });
     blur.resolution = 1;
     const held = new Container();

@@ -8,7 +8,7 @@
 // the land side, its outer edge soft, the water crisp against it with a thin darker
 // waterline; deep water a dark shade along the bank on the water; and, switched on, a pale
 // shallow line. Where it crosses a plateau's cliff, a pale fall across it along the cliff
-// line (`fallLayers`).
+// line (`fallRamp`).
 
 import { Container, Graphics } from 'pixi.js';
 import type { DungeonLayer, RockLine } from '../../store/types';
@@ -22,12 +22,12 @@ import type { WalkPlacement } from '../caveWalk';
 import { layerDrawStyle } from '../levelLook';
 import { isDeepWater, isWaterMaterial, materialFillId, shoreTextureOf } from '../../assets/materialKit';
 import { load, resolveTexture } from '../../assets/textureLoader';
-import { fillPolygonsWithHoles } from '../floorWallRenderer';
-import { outsideBandLayers, paintSoftTiled, type SoftLayer } from '../softEdge';
+import { outsideBandRamp } from '../softEdge';
+import { paintRamp } from '../softPiece';
+import { distanceIn, distanceToLines, fallOff, fieldOf, keptRamp, rampGrid, type Ramp } from '../rampMask';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import { useStore } from '../../store/store';
 import { shoreWidthOf } from '../../shared/materialPatch';
-import { nestedAlphas } from '../../shared/plateauShade';
 import { edgeRuns, groundHeightOf, hasPlateaus, layerPlateaus } from '../../shared/plateaus';
 import { caveEdges, caveOpeningGaps, type CaveEdge } from '../../shared/caveFloor';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../../shared/wallResolve';
@@ -95,10 +95,9 @@ export const SHALLOW_IN = 0.2;
 const SHALLOW_WIDTH = 0.12;
 const SHALLOW = 0xeaf6f2;
 const SHALLOW_ALPHA = 0.35;
-/** Deep water's bank shade: black this dark at the bank, fading out over this far onto the water, in steps. */
+/** Deep water's bank shade: black this dark at the bank, fading out over this far onto the water. */
 export const BANK_SHADE_ALPHA = 0.35;
 export const BANK_SHADE_WIDTH = 0.5;
-const BANK_SHADE_STEPS = 6;
 
 /** What a water piece draws round its edge. */
 export interface WaterEdge {
@@ -145,34 +144,45 @@ export function waterEdgeOf(piece: WaterEdgeSource): WaterEdge | null {
   };
 }
 
-/** The steps of the dark shade along a bank, on the water: nested bands in from the outline, darkest at it. */
-export function bankShadeLayers(outline: Polygon[], peak: number, width: number): SoftLayer[] {
-  return nestedAlphas(peak, BANK_SHADE_STEPS)
-    .map((alpha, k) => ({ rings: clipper2Engine.difference(outline, clipper2Engine.inflate(outline, (-width * (k + 1)) / BANK_SHADE_STEPS)), alpha }))
-    .filter((l) => l.rings.length > 0);
+/** The dark shade along a bank, on the water: `peak` at the outline, easing out to nothing `width` in. Null for no water. */
+export function bankShadeRamp(outline: Polygon[], peak: number, width: number): Ramp | null {
+  return keptRamp('bank', [outline, peak, width], () => {
+    const grid = rampGrid(outline, 0.1);
+    if (!grid) return null;
+    const d = distanceIn(outline, grid);
+    // Outside the water, as dark as at the bank: the clip cuts it crisp there, with no texel's blur.
+    return { field: fieldOf(grid, (_x, _y, k) => peak * fallOff(d[k], 0, width)), clip: outline };
+  });
 }
 
-/** A fall: pale water this far either side of a cliff line, at this opacity on the line, in soft steps. */
+/** A fall: pale water this far either side of a cliff line, at this opacity on the line. */
 export const FALL_HALF = 0.3;
-const FALL_STEPS = 4;
 const FALL = 0xf4fbfa;
 const FALL_ALPHA = 0.7;
 
 /**
- * Where water falls: the layer's plateau cliff lines that cross the water (`outline`), grown
- * into a pale band FALL_HALF either side and cut to the water, so the fall is as wide as the
- * water there. Nested steps, palest at the line. None on a layer with no cliff.
+ * Where water falls: the layer's plateau cliff lines that cross the water (`outline`), a pale
+ * band FALL_HALF either side easing out from the line, cut to the water, so the fall is as wide
+ * as the water there. Null on a layer with no cliff, or none across the water.
  */
-export function fallLayers(layer: Pick<DungeonLayer, 'children'>, outline: Polygon[]): SoftLayer[] {
-  if (!hasPlateaus(layer)) return [];
+export function fallRamp(layer: Pick<DungeonLayer, 'children'>, outline: Polygon[]): Ramp | null {
+  if (!hasPlateaus(layer)) return null;
   const lines = layerPlateaus(layer)
     .bands.flatMap((b) => edgeRuns(b))
     .filter((r) => r.edge === 'cliff' && r.drop !== 0)
     .map((r) => (r.closed ? [...r.points, r.points[0]] : r.points));
-  if (lines.length === 0) return [];
-  return nestedAlphas(FALL_ALPHA, FALL_STEPS)
-    .map((alpha, k) => ({ rings: clipper2Engine.intersection(clipper2Engine.inflateOpen(lines, (FALL_HALF * (k + 1)) / FALL_STEPS), outline), alpha }))
-    .filter((l) => l.rings.length > 0);
+  if (lines.length === 0) return null;
+  return keptRamp('fall', [lines, outline], () => {
+    const clip = clipper2Engine.intersection(clipper2Engine.inflateOpen(lines, FALL_HALF), outline);
+    const grid = rampGrid(clip, 0.1);
+    if (!grid) return null;
+    const { d } = distanceToLines(
+      lines.map((pts) => ({ pts, closed: false })),
+      grid,
+      FALL_HALF,
+    );
+    return { field: fieldOf(grid, (_x, _y, k) => FALL_ALPHA * fallOff(d[k], 0, FALL_HALF)), clip };
+  });
 }
 
 /** Each ring of `rings` stroked closed. */
@@ -181,13 +191,11 @@ function strokeRings(g: Graphics, rings: Polygon[], style: { color: number; widt
 }
 
 /**
- * The steps of a shore `width` wide round `outline`, less `water` (every water piece on the
+ * The ramp of a shore `width` wide round `outline`, less `water` (every water piece on the
  * layer): water meeting water has no bank between the two, whatever each is.
  */
-export function shoreLayers(outline: Polygon[], width: number, water: Polygon[]): SoftLayer[] {
-  return outsideBandLayers(outline, width, width * SHORE_FADE)
-    .map((l) => ({ ...l, rings: clipper2Engine.difference(l.rings, water) }))
-    .filter((l) => l.rings.length > 0);
+export function shoreRamp(outline: Polygon[], width: number, water: Polygon[]): Ramp | null {
+  return outsideBandRamp(outline, width, width * SHORE_FADE, water);
 }
 
 /** A water piece's shore band, outside its outline, under its fill. Art not loaded yet draws none; true when it drew. */
@@ -195,24 +203,22 @@ export function drawShore(piece: Container, outline: Polygon[], edge: WaterEdge,
   if (!edge.shore) return false;
   const tex = resolveTexture(edge.shore.textureId);
   if (tex.width <= 1) return false;
+  const ramp = shoreRamp(outline, edge.shore.width, water);
+  if (!ramp) return false;
   const band = new Container();
   band.label = 'material-shore';
-  paintSoftTiled(band, shoreLayers(outline, edge.shore.width, water), tex);
+  paintRamp(band, ramp, { texture: tex, look: { scale: 1 } });
   piece.addChild(band);
   return true;
 }
 
 /** Over a water piece's fill: the bank shade, the shallow line, and with a shore the waterline. */
 export function drawWaterEdge(piece: Container, outline: Polygon[], edge: WaterEdge, shored: boolean): void {
-  if (edge.bankShade > 0) {
+  const bank = edge.bankShade > 0 ? bankShadeRamp(outline, edge.bankShade, edge.bankWidth) : null;
+  if (bank) {
     const shade = new Container();
     shade.label = 'material-bank-shade';
-    for (const l of bankShadeLayers(outline, edge.bankShade, edge.bankWidth)) {
-      const g = new Graphics();
-      fillPolygonsWithHoles(g, l.rings, { color: 0x000000 });
-      g.alpha = l.alpha;
-      shade.addChild(g);
-    }
+    paintRamp(shade, bank, { color: 0x000000 });
     piece.addChild(shade);
   }
   if (edge.shallow) {
@@ -233,16 +239,11 @@ export function drawWaterEdge(piece: Container, outline: Polygon[], edge: WaterE
 
 /** A water piece's falls, where it crosses the layer's cliffs. */
 export function drawFalls(piece: Container, layer: Pick<DungeonLayer, 'children'>, outline: Polygon[]): void {
-  const falls = fallLayers(layer, outline);
-  if (falls.length === 0) return;
+  const falls = fallRamp(layer, outline);
+  if (!falls) return;
   const fall = new Container();
   fall.label = 'material-fall';
-  for (const l of falls) {
-    const g = new Graphics();
-    fillPolygonsWithHoles(g, l.rings, { color: FALL });
-    g.alpha = l.alpha;
-    fall.addChild(g);
-  }
+  paintRamp(fall, falls, { color: FALL });
   piece.addChild(fall);
 }
 

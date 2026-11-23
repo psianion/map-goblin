@@ -23,8 +23,9 @@ import { borderWidthOf, wobbleSeed } from '../shared/plateauShade';
 import { bandFillColor, drawOutlineBand, fittedFloor, type FloorFit } from './caveBandRenderer';
 import { armLateTextureRebuild, fillPolygonsWithHoles, paintTiled, shapeFloorFill, type TiledLook } from './floorWallRenderer';
 import { drawFalls, drawShore, drawWaterEdge, waterEdgeOf, type WaterEdge } from './material/materialRenderer';
-import { innerBandLayers, mouthFadeLayers, paintSoftTiled, type SoftLayer } from './softEdge';
-import { paintSoftPiece, softPieceReady } from './softPiece';
+import { innerBandRamp, mouthRamp } from './softEdge';
+import { paintRamp, paintSoftPiece, softPieceReady } from './softPiece';
+import type { Ramp } from './rampMask';
 import { bakedFades } from '../shared/pieceFades';
 
 /** What a layer's pieces are drawn against, worked out once a rebuild. */
@@ -125,31 +126,23 @@ function artOf(layerId: string, id: string) {
 }
 
 /**
- * The steps of a floor's painted border: a band just inside its own outline, or, for a walled
- * floor under a measured kit's rock (`fit`), inside the outline as fitted to the rock.
+ * The ramp a floor's painted border fades by: a band just inside its own outline, or, for a
+ * walled floor under a measured kit's rock (`fit`), inside the outline as fitted to the rock.
  */
-export function pieceBorderLayers(shape: ShapeChild, fit?: FloorFit): SoftLayer[] {
-  return innerBandLayers(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id), fit);
+export function pieceBorderRamp(shape: ShapeChild, fit?: FloorFit): Ramp | null {
+  return innerBandRamp(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id), fit);
 }
 
 /** A floor's painted border: its texture in a band just inside its own outline, ragged and soft on its inner side. Paint only. */
 export function drawPieceBorder(host: Container, layerId: string, shape: ShapeChild, fit?: FloorFit): void {
   const tex = artOf(layerId, shape.edgePaint!);
   if (!tex) return;
+  const ramp = pieceBorderRamp(shape, fit);
+  if (!ramp) return;
   const band = new Container();
   band.label = `floor-border-${shape.id}`;
-  paintSoftTiled(band, pieceBorderLayers(shape, fit), tex);
+  paintRamp(band, ramp, { texture: tex, look: { scale: 1 } });
   host.addChild(band);
-}
-
-/** A plain colour over each step of a soft edge, at the step's opacity times `alpha`. */
-export function paintSteps(host: Container, steps: readonly SoftLayer[], color: number, alpha = 1): void {
-  for (const s of steps) {
-    const g = new Graphics();
-    fillPolygonsWithHoles(g, s.rings, { color });
-    g.alpha = s.alpha * alpha;
-    host.addChild(g);
-  }
 }
 
 /** Draws `shape` into `host`, after what it holds. */
@@ -194,12 +187,12 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
       // A walled floor meets the measured kit's rock round it; ground keeps its own edge.
       const region = shape.ground ? (grown.length > 0 ? grown : outline) : fittedFloor(grown.length > 0 ? grown : outline, ctx.fit);
       // …and fades out across a cave mouth.
-      const faded = shape.ground ? [] : mouthFadeLayers(region, ctx.mouths ?? [], ctx.mouthSeed ?? 0);
-      if (faded.length > 0 && fill.kind === 'texture') {
-        paintSoftTiled(piece, faded, fill.texture, look);
-      } else if (faded.length > 0 && fill.kind === 'solid') {
+      const faded = shape.ground ? null : mouthRamp(region, ctx.mouths ?? [], ctx.mouthSeed ?? 0);
+      if (faded && fill.kind === 'texture') {
+        paintRamp(piece, faded, { texture: fill.texture, look });
+      } else if (faded && fill.kind === 'solid') {
         if (fill.waitFor) armLateTextureRebuild(layer.id, fill.waitFor);
-        paintSteps(piece, faded, fill.color, look.alpha ?? 1);
+        paintRamp(piece, faded, { color: fill.color, alpha: look.alpha ?? 1 });
       } else if (fill.kind === 'texture') {
         paintTiled(piece, region, fill.texture, { ...look, holes: true });
       } else {

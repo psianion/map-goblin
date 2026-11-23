@@ -4,7 +4,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import {
-  DROP_SHADE_ALPHA,
   SUN_SHADOW_ALPHA,
   SUN_SHADOW_BACK,
   DEFAULT_FACE_DIRECTION,
@@ -27,11 +26,9 @@ import {
   ledgeSteps,
   leeSweeps,
   linesOff,
-  nestedAlphas,
   offsetPath,
   rimWeight,
   slopeFace,
-  stackedAlpha,
   sunShadowLength,
   wobbleSeed,
   wrapDirection,
@@ -96,13 +93,6 @@ describe('the drop shade', () => {
     expect(dropShadeWidth(-2)).toBeCloseTo(0.27);
     expect(dropShadeWidth(3)).toBeCloseTo(0.33);
     expect(dropShadeWidth(9)).toBeCloseTo(1 / 3);
-  });
-
-  it('stacks its bands to 11 % at the edge, falling in even steps to the outermost', () => {
-    const alphas = nestedAlphas(DROP_SHADE_ALPHA, 8);
-    expect(stackedAlpha(alphas, 0)).toBeCloseTo(0.11, 6);
-    for (let j = 0; j < 8; j++) expect(stackedAlpha(alphas, j)).toBeCloseTo(0.11 * (1 - j / 8), 6);
-    for (const a of alphas) expect(a).toBeGreaterThan(0);
   });
 });
 

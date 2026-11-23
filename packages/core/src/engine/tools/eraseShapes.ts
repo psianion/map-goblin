@@ -351,19 +351,26 @@ export function carveFloors(layer: DungeonLayer, layerId: string, carvePolys: Po
   const state = useStore.getState();
   const only = selectedPieceIds(layer, state.selection.selectedIds);
   const plan = planErase(layer, carvePolys, only);
-  const cuts = soft ? softCuts(plan.cuts, soft) : plan.cuts;
   // A soft erase opens a cave only where it cuts: its core, at full strength.
   let caveArea = plan.caveArea;
   if (soft && caveArea) {
     const core = soft.strength < 1 || soft.core.length === 0 ? [] : clipper2Engine.intersection(caveArea, soft.core);
     caveArea = patchArea(core) > MIN_CUT ? core : null;
   }
-  const { commands, flattened } = cutCommands(layer, layerId, cuts, label);
   // Where the cut crosses a cave's rock, or the edge of a cave-edged room, its area is kept as
   // an opening, so the cut stays open to the ground outside instead of the rock closing round
   // it. With Rock on cut edge on nothing is kept and the rock re-forms, for reshaping a cave.
   const rockOnCut = state.tools.settings.material.rockOnCut === true;
-  const opened = rockOnCut || !caveArea ? null : openCaveAt(layer, tidyRings(caveArea), caveEdgedRooms(layer).flatMap(pieceRegion));
+  const rooms = caveEdgedRooms(layer);
+  const opened = rockOnCut || !caveArea ? null : openCaveAt(layer, tidyRings(caveArea), rooms.flatMap(pieceRegion));
+  // A cut the rock closes round (a hole inside a cave, or any cut with Rock on cut edge) is
+  // taken whole and crisp from a cave or a cave-edged room: the floor meets the rock there as
+  // everywhere else, with no fade under it. Anything else a soft erase cuts as it always did.
+  const rocky = (shape: ShapeChild): boolean => isCave(shape) || rooms.includes(shape);
+  const cuts = !soft
+    ? plan.cuts
+    : softCuts(plan.cuts, soft).map((c, i) => (!opened && soft.strength >= 1 && rocky(c.shape) ? plan.cuts[i] : c));
+  const { commands, flattened } = cutCommands(layer, layerId, cuts, label);
   if (opened) commands.push(new PropertyCommand(label, { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: opened }));
   commands.push(...also);
   if (commands.length === 0) return false;

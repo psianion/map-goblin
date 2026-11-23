@@ -1,73 +1,72 @@
-// A tiled fill whose edge fades out instead of stopping: the Material brush's plain-texture
-// patches and their water shores, and the Elevation tool's painted border all paint through here.
+// A fill whose edge fades out instead of stopping: a floor's painted border, a water patch's
+// shore, and a cave's floor where it meets a mouth all fade through here.
 //
-// The fade is a stack of nested regions of the same texture, each reaching a step further
-// out and each at its own opacity (`nestedAlphas`), so where they stack the texture falls
-// in even steps from full to nothing. Nested rather than side by side, so no seam can open
-// between two steps. Render-time only: nothing saved changes.
+// Each fade is a true ramp (rampMask.ts): its opacity worked out texel by texel from the
+// distance to the outline or line it fades from, eased, drawn by softPiece.ts's `paintRamp`.
+// Never steps. Render-time only: nothing saved changes.
 
-import type { Container, Texture } from 'pixi.js';
 import type { Polygon } from '../types/geometry';
-import { BORDER_FADE, BORDER_WOBBLE, nestedAlphas, wobbleNoise, wobbleRings } from '../shared/plateauShade';
+import { BORDER_FADE, BORDER_WOBBLE, wobbleNoise } from '../shared/plateauShade';
 import { floorEdgeOpenSpans } from '../shared/caveFloor';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { paintTiled, type TiledLook } from './floorWallRenderer';
 import { fittedFloor, type FloorFit } from './caveBandRenderer';
+import { ease } from './softMask';
+import { distanceOut, distanceToLines, fallOff, fieldOf, insideOf, keptRamp, rampGrid, unit, type Ramp } from './rampMask';
 
-/** How many steps a soft edge fades in. */
-export const SOFT_EDGE_STEPS = 8;
+/** How far past the region a fade's grid reaches, cells: its edge texels filter down to its outline. */
+const RAMP_PAD = 0.1;
 
-/** One step of a soft edge: the region it covers, and its opacity. */
-export interface SoftLayer {
-  rings: Polygon[];
-  alpha: number;
+/**
+ * A band `width` wide just outside `outline` (never inside it), less `water` (every water piece
+ * on the layer: water meeting water has no bank between the two): full against the outline,
+ * its outer `fade` of the width easing out to nothing. A water patch's shore paints through
+ * here. Null where nothing is left of it.
+ */
+export function outsideBandRamp(outline: Polygon[], width: number, fade: number, water: Polygon[]): Ramp | null {
+  return keptRamp('outside', [outline, width, fade, water], () => {
+    const band = clipper2Engine.difference(clipper2Engine.inflate(outline, width), outline);
+    const clip = water.length > 0 && band.length > 0 ? clipper2Engine.difference(band, water) : band;
+    const grid = rampGrid(clip, RAMP_PAD);
+    if (!grid) return null;
+    const d = distanceOut(outline, grid);
+    // Full on the water's side too: the clip cuts it crisp there, with no texel's blur.
+    return { field: fieldOf(grid, (_x, _y, k) => fallOff(d[k], width - fade, fade)), clip };
+  });
 }
 
 /**
- * The steps of a soft edge `feather` wide. `grow(d)` is the region the fill covers out to `d`
- * past where it is still solid (grow(feather) is its whole extent). Each step reaches
- * (k + 1)/steps of the way out; the innermost is drawn solid, so the stack reads full there
- * and 1/steps in the outermost step.
+ * A band `width` wide just inside a floor's own outline (`rings`: its outer ring, then its
+ * holes): full on the outline, its inner BORDER_FADE of the width easing out to nothing, its
+ * inner edge wandering as a plateau's painted border's does, the same way every time for
+ * `seed`. With a floor fit (`fit`) the outline is the floor's as painted under a measured
+ * kit's rock. Null for a floor with no outline.
  */
-export function softEdgeLayers(grow: (d: number) => Polygon[], feather: number, steps = SOFT_EDGE_STEPS): SoftLayer[] {
-  return nestedAlphas(1, steps)
-    .map((alpha, k) => ({ rings: grow((feather * (k + 1)) / steps), alpha }))
-    .filter((l) => l.rings.length > 0);
-}
-
-/**
- * The steps of a band `width` wide just outside `outline` (never inside it): crisp against the
- * outline, its outer `fade` of the width soft. A water patch's shore paints through here.
- */
-export function outsideBandLayers(outline: Polygon[], width: number, fade: number): SoftLayer[] {
-  return softEdgeLayers((d) => clipper2Engine.difference(clipper2Engine.inflate(outline, width - fade + d), outline), fade);
-}
-
-/**
- * The steps of a band `width` wide just inside a floor's own outline (`rings`: its outer ring,
- * then its holes): crisp on the outline, its inner BORDER_FADE of the width soft, its inner
- * edge wandering as a plateau's painted border's does, the same way every time for `seed`.
- * With a floor fit (`fit`) the outline is the floor's as painted under a measured kit's rock.
- */
-export function innerBandLayers(rings: Polygon[], width: number, seed: number, fit?: FloorFit): SoftLayer[] {
+export function innerBandRamp(rings: Polygon[], width: number, seed: number, fit?: FloorFit): Ramp | null {
   const [outer, ...holes] = rings.filter((r) => r.length >= 3);
-  if (!outer) return [];
-  const drawn = holes.length > 0 ? clipper2Engine.difference([outer], holes) : clipper2Engine.union([outer], []);
-  const region = fittedFloor(drawn, fit);
-  const lines = region.map((r) => [...r, r[0]]);
-  const fade = width * BORDER_FADE;
-  const noise = wobbleNoise(seed);
-  return softEdgeLayers((d) => {
-    const reach = width - fade + d;
-    const strips = lines.map((line) => wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, width * BORDER_WOBBLE, noise));
-    const band = strips.reduce((acc, s) => (acc.length === 0 ? clipper2Engine.union(s, []) : clipper2Engine.union(acc, s)), [] as Polygon[]);
-    return clipper2Engine.intersection(band, region);
-  }, fade);
+  if (!outer) return null;
+  return keptRamp('inner', [rings, width, seed, fit ?? null], () => {
+    const drawn = holes.length > 0 ? clipper2Engine.difference([outer], holes) : clipper2Engine.union([outer], []);
+    const region = fittedFloor(drawn, fit);
+    const grid = rampGrid(region, RAMP_PAD);
+    if (!grid) return null;
+    const fade = width * BORDER_FADE;
+    const wander = width * BORDER_WOBBLE;
+    const noise = wobbleNoise(seed);
+    // Measured from the nearest point of the outline, so the wander moves each texel in from it
+    // alike; full outside it too, where the clip cuts it crisp with no texel's blur.
+    const inside = insideOf(region, grid);
+    const { d, qx, qy } = distanceToLines(
+      region.map((pts) => ({ pts, closed: true })),
+      grid,
+      width + wander,
+    );
+    return { field: fieldOf(grid, (_x, _y, k) => (!inside[k] ? 1 : d[k] === Infinity ? 0 : fallOff(d[k] - wander * noise(qx[k], qy[k]), width - fade, fade))), clip: region };
+  });
 }
 
 /** How far in from a cave mouth its floor fades from nothing to full, cells. */
 export const MOUTH_FADE = 1;
-/** How far a mouth's fade wanders either way, as a share of how far in each step reaches. */
+/** How far a mouth's fade wanders either way, as a share of how far in it reaches. */
 const MOUTH_WOBBLE = 0.15;
 
 /**
@@ -91,43 +90,26 @@ export function mouthLines(rings: readonly Polygon[], openings: readonly Polygon
 }
 
 /**
- * The steps a floor `region` is painted in where it meets cave mouths (`mouths`): full from
- * MOUTH_FADE in from each mouth's line, nothing at the line, and between in even steps, each
- * step's inner edge wandering as a soft fill's does (the same way every time for `seed`). Only
- * ever less floor than `region`: nothing is added outside the cave, and the floor beside the
- * rock either side of a mouth keeps its fitted edge. Paint only. Empty when no mouth comes near
- * the region: it is painted whole, as it always was.
+ * How a floor `region` is painted where it meets cave mouths (`mouths`): nothing at a mouth's
+ * line, full MOUTH_FADE in from it, eased between, how far in wandering a little (the same
+ * way every time for `seed`). Only ever less floor than `region`: nothing is added outside the
+ * cave, and the floor beside the rock either side of a mouth keeps its fitted edge. Paint
+ * only. Null when no mouth comes near the region: it is painted whole, as it always was.
  */
-export function mouthFadeLayers(region: Polygon[], mouths: readonly Polygon[], seed: number, steps = SOFT_EDGE_STEPS): SoftLayer[] {
-  if (mouths.length === 0 || region.length === 0) return [];
-  const zone = clipper2Engine.inflateOpen([...mouths], MOUTH_FADE * (1 + MOUTH_WOBBLE));
-  if (clipper2Engine.intersection(region, zone).length === 0) return [];
-  const noise = wobbleNoise(seed);
-  return nestedAlphas(1, steps)
-    .map((alpha, k) => {
-      // The solid step first: it keeps furthest from the mouths.
-      const reach = (MOUTH_FADE * (steps - k)) / steps;
-      const near = mouths.flatMap((line) => wobbleRings(clipper2Engine.inflateOpen([line], reach), line, reach, MOUTH_WOBBLE * reach, noise));
-      return { rings: near.length > 0 ? clipper2Engine.difference(region, clipper2Engine.union(near, [])) : region, alpha };
-    })
-    .filter((l) => l.rings.length > 0);
-}
-
-/**
- * Tile `texture` over each step, as a floor is tiled, at the step's opacity. Every step is
- * laid from the box of them all: a step tiled from its own smaller box starts the texture
- * somewhere else, and the stack smears. `look` lays the texture as a floor's is (scale,
- * turn, offset, tint; its alpha scales every step); absent, at scale 1.
- */
-export function paintSoftTiled(parent: Container, layers: readonly SoftLayer[], texture: Texture, look: TiledLook = { scale: 1 }): void {
-  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  for (const l of layers) {
-    for (const [x, y] of l.rings.flat()) {
-      bounds.minX = Math.min(bounds.minX, x);
-      bounds.minY = Math.min(bounds.minY, y);
-      bounds.maxX = Math.max(bounds.maxX, x);
-      bounds.maxY = Math.max(bounds.maxY, y);
-    }
-  }
-  for (const l of layers) paintTiled(parent, l.rings, texture, { ...look, holes: true, alpha: l.alpha * (look.alpha ?? 1), bounds });
+export function mouthRamp(region: Polygon[], mouths: readonly Polygon[], seed: number): Ramp | null {
+  if (mouths.length === 0 || region.length === 0) return null;
+  return keptRamp('mouth', [region, mouths, seed], () => {
+    const reach = MOUTH_FADE * (1 + MOUTH_WOBBLE);
+    const zone = clipper2Engine.inflateOpen([...mouths], reach);
+    if (clipper2Engine.intersection(region, zone).length === 0) return null;
+    const grid = rampGrid(region, RAMP_PAD);
+    if (!grid) return null;
+    const noise = wobbleNoise(seed);
+    const { d, qx, qy } = distanceToLines(
+      mouths.map((m) => ({ pts: m, closed: false })),
+      grid,
+      reach,
+    );
+    return { field: fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 1 : ease(unit(d[k] / (MOUTH_FADE * (1 + MOUTH_WOBBLE * noise(qx[k], qy[k]))))))), clip: region };
+  });
 }

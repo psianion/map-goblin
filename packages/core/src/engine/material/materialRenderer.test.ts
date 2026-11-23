@@ -2,7 +2,7 @@
 // piece gets its shore, a ground piece with a band set its rock rim, a floor its painted
 // border; and the rock round a walled cave, which stays in the materials sublayer.
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { BufferImageSource, Container, Texture, TilingSprite } from 'pixi.js';
+import { BufferImageSource, Container, Sprite, Texture, TilingSprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 
 const art = new Texture({ source: new BufferImageSource({ resource: new Uint8Array(8 * 8 * 4), width: 8, height: 8 }) });
@@ -44,10 +44,9 @@ import { setClipperModule } from '../../geometry/Clipper2Engine';
 import type { DungeonLayer, DungeonStyle, ShapeChild } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { defaultSoftOf, GROUND_SOFT_EDGE, pieceNameOf } from '../../assets/materialKit';
-import { SOFT_EDGE_STEPS } from '../softEdge';
-import { BANK_SHADE_ALPHA, BANK_SHADE_MAX, drawLayerMaterials, shoreLayers, SUNK_SHORE_SCALE, waterEdgeOf } from './materialRenderer';
+import { BANK_SHADE_ALPHA, BANK_SHADE_MAX, drawLayerMaterials, shoreRamp, SUNK_SHORE_SCALE, waterEdgeOf } from './materialRenderer';
 import { drawPiece, isWaterPiece, pieceOutline, type PieceCtx } from '../pieceRenderer';
-import { softPieceLayers } from '../softPiece';
+import { rampAlphaAt } from '../rampMask';
 import { patchArea } from '../../shared/materialPatch';
 
 beforeAll(async () => {
@@ -101,11 +100,11 @@ function tilings(c: Container, out: TilingSprite[] = []): TilingSprite[] {
 const labelled = (c: Container, label: string) => c.children.filter((ch) => ch.label === label);
 
 describe('a piece’s defaults by texture', () => {
-  it('gives outdoor ground a soft edge, water and cave floor a crisp one', () => {
+  it('gives outdoor ground and the cave floor a soft edge, water a crisp one', () => {
     expect(defaultSoftOf(GRASS)).toBe(GROUND_SOFT_EDGE);
     expect(defaultSoftOf(DIRT)).toBe(GROUND_SOFT_EDGE);
     expect(defaultSoftOf(WATER)).toBeUndefined();
-    expect(defaultSoftOf(CAVE_FLOOR)).toBeUndefined();
+    expect(defaultSoftOf(CAVE_FLOOR)).toBe(GROUND_SOFT_EDGE);
     expect(defaultSoftOf(undefined)).toBeUndefined();
   });
 
@@ -122,17 +121,11 @@ describe('a piece’s fill', () => {
     expect(tilings(draw(piece({ textureId: CAVE_FLOOR })))).toHaveLength(1);
   });
 
-  it('fades in nested steps where there is no GL to draw the natural edge', () => {
+  it('fades through a sprite of its edge’s ramp where there is no GL to draw the natural edge, in one fill', () => {
     const drawn = draw(piece({ ground: true, textureId: GRASS, soft: 0.5 }));
-    expect(tilings(drawn)).toHaveLength(SOFT_EDGE_STEPS);
-  });
-
-  it('builds the steps inside the outline, the outermost on it', () => {
-    const layers = softPieceLayers(pieceOutline(piece()), 0.5);
-    expect(layers).toHaveLength(SOFT_EDGE_STEPS);
-    expect(patchArea(layers[layers.length - 1].rings)).toBeCloseTo(100, 6);
-    expect(patchArea(layers[0].rings)).toBeLessThan(100);
-    for (let i = 1; i < layers.length; i++) expect(patchArea(layers[i].rings)).toBeGreaterThan(patchArea(layers[i - 1].rings));
+    expect(tilings(drawn)).toHaveLength(1);
+    const masked = drawn.children.find((ch) => ch instanceof Container && ch.mask instanceof Sprite) as Container | undefined;
+    expect(masked).toBeTruthy();
   });
 
   it('is painted to the piece’s own region: its holes are cut, whichever way its rings wind', () => {
@@ -172,20 +165,26 @@ describe('a water piece', () => {
 
   it('lays the shore on the land side only, and none where water meets water', () => {
     const outline = pieceOutline(piece());
-    const alone = shoreLayers(outline, 0.5, outline);
-    expect(alone.length).toBeGreaterThan(0);
-    for (const l of alone) expect(l.rings.flat().some(([x]) => x < 0 || x > 10)).toBe(true);
+    const alone = shoreRamp(outline, 0.5, outline)!;
+    expect(alone).not.toBeNull();
+    // Full against the water, nothing on it, easing out past its solid part.
+    expect(rampAlphaAt(alone, [-0.1, 5])).toBeCloseTo(1, 2);
+    expect(rampAlphaAt(alone, [0.1, 5])).toBe(0);
+    expect(rampAlphaAt(alone, [-0.4, 5])).toBeGreaterThan(0);
+    expect(rampAlphaAt(alone, [-0.4, 5])).toBeLessThan(1);
+    expect(rampAlphaAt(alone, [-0.55, 5])).toBe(0);
     const beside: Polygon = [[10, 0], [20, 0], [20, 10], [10, 10]];
-    const widest = shoreLayers(outline, 0.5, [...outline, beside]).at(-1)!;
-    // Nothing of the band lies on the neighbouring water (its corners still round past it, above and below).
-    expect(widest.rings.flat().every(([x, y]) => x <= 10 + 1e-6 || y <= 1e-6 || y >= 10 - 1e-6)).toBe(true);
+    const shared = shoreRamp(outline, 0.5, [...outline, beside])!;
+    // Nothing of the band lies on the neighbouring water.
+    for (let y = 0.5; y < 10; y += 0.5) expect(rampAlphaAt(shared, [10.1, y])).toBe(0);
+    expect(rampAlphaAt(shared, [-0.1, 5])).toBeCloseTo(1, 2);
   });
 
   it('draws the shore under a crisp fill with a waterline, whatever its softness', () => {
     const drawn = draw(piece({ ground: true, textureId: WATER, soft: 0.5 }), undefined, pieceOutline(piece()));
     expect(labelled(drawn, 'material-shore')).toHaveLength(1);
     expect(labelled(drawn, 'material-waterline')).toHaveLength(1);
-    // The shore's steps, and one fill.
+    // The shore's fill, and the water's.
     expect(tilings(drawn)).toHaveLength(tilings(labelled(drawn, 'material-shore')[0] as Container).length + 1);
   });
 
@@ -194,7 +193,7 @@ describe('a water piece', () => {
     expect(labelled(drawn, 'material-shore')).toHaveLength(0);
     expect(labelled(drawn, 'material-waterline')).toHaveLength(0);
     expect(labelled(drawn, 'material-shallow-line')).toHaveLength(1);
-    expect(tilings(drawn)).toHaveLength(SOFT_EDGE_STEPS);
+    expect(tilings(drawn)).toHaveLength(1);
   });
 });
 

@@ -56,4 +56,14 @@ describe('PackManifestSchema: band measurements', () => {
     expect(width(-1)).toBe(false);
     expect(width('wide')).toBe(false);
   });
+
+  it('keeps a band’s wall shadow, and rejects a reach that is not positive or a strength past 0 to 1', () => {
+    const band = { joints: [[1, 0.36], [-1, 0.36]], turnDeg: 0, shadowReach: 0.35, shadowStrength: 0.62, shadowBaked: true };
+    expect(PackManifestSchema.parse(manifest(band)).entries.run_2x4_object_A?.band).toEqual(band);
+    const shadow = (extra: Record<string, unknown>) => PackManifestSchema.safeParse(manifest({ joints: [[1, 0], [-1, 0]], turnDeg: 0, ...extra })).success;
+    expect(shadow({ shadowReach: 0 })).toBe(false);
+    expect(shadow({ shadowStrength: 1.2 })).toBe(false);
+    expect(shadow({ shadowStrength: -0.1 })).toBe(false);
+    expect(shadow({ shadowBaked: 'yes' })).toBe(false);
+  });
 });

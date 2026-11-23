@@ -22,31 +22,10 @@ export const DROP_SHADE_ALPHA = 0.11;
 export const DROP_SHADE_BASE = 0.15;
 export const DROP_SHADE_PER_CELL = 0.06;
 export const DROP_SHADE_MAX = 1 / 3;
-/** How many nested bands the drop shade is laid in before the blur smooths them. */
-export const DROP_SHADE_STEPS = 8;
 
 /** How wide the drop shade below an edge `drop` cells high is, cells. */
 export function dropShadeWidth(drop: number): number {
   return Math.min(DROP_SHADE_MAX, DROP_SHADE_BASE + DROP_SHADE_PER_CELL * Math.abs(drop));
-}
-
-/**
- * A shade laid as `steps` nested bands, the k-th reaching k/steps of the way out: each band's
- * opacity, so that where they stack the black over the ground falls in even steps from
- * `peak` at the edge to peak/steps in the outermost band.
- */
-export function nestedAlphas(peak: number, steps: number): number[] {
-  // Band j (1-based) is covered by bands j..steps; its stacked opacity is to be
-  // peak × (1 - (j - 1)/steps), so what lets light through there is T_j = 1 - that.
-  const through = (j: number) => (j > steps ? 1 : 1 - peak * (1 - (j - 1) / steps));
-  return Array.from({ length: steps }, (_, i) => 1 - through(i + 1) / through(i + 2));
-}
-
-/** The opacity black bands of `alphas` stack to where the first `from` of them no longer reach. */
-export function stackedAlpha(alphas: readonly number[], from: number): number {
-  let through = 1;
-  for (let k = from; k < alphas.length; k++) through *= 1 - alphas[k];
-  return 1 - through;
 }
 
 // ─── The sun's shadow ──────────────────────────────────────
@@ -132,9 +111,6 @@ export const BORDER_WOBBLE = 1 / 3;
  * cells: the later top fades in over it, onto the earlier one grown this far under it.
  */
 export const TOP_SEAM = 0.75;
-/** The densest a wobbled ring's points lie, cells apart: close enough that the wander reads as a curve. */
-const WOBBLE_STEP = 0.15;
-
 /** A seed for `wobbleNoise` from an id, so one plateau or floor always wanders the same way. */
 export function wobbleSeed(id: string | undefined): number {
   let h = 2166136261;
@@ -166,58 +142,6 @@ export function wobbleNoise(seed: number): (x: number, y: number) => number {
   });
   const total = waves.reduce((n, w) => n + w.weight, 0);
   return (x, y) => waves.reduce((n, w) => n + w.weight * Math.sin(w.kx * x + w.ky * y + w.phase), 0) / total;
-}
-
-/** The point of `line` (a polyline) nearest `p`, and how far it is. */
-function nearestOnLine(p: Vec, line: Polygon): { q: Vec; d: number } {
-  let best: Vec = [line[0][0], line[0][1]];
-  let bestD = Infinity;
-  for (let i = 0; i < line.length - 1; i++) {
-    const [ax, ay] = line[i];
-    const [bx, by] = line[i + 1];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const l2 = dx * dx + dy * dy;
-    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - ax) * dx + (p[1] - ay) * dy) / l2)) : 0;
-    const q: Vec = [ax + dx * t, ay + dy * t];
-    const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
-    if (d < bestD) {
-      bestD = d;
-      best = q;
-    }
-  }
-  return { q: best, d: bestD };
-}
-
-/**
- * `rings` (a band grown `reach` round `line`) with their far edge made ragged: each point is
- * moved straight away from or towards `line`, by up to `amp` as `noise` says at the nearest
- * point of the line, and by less the nearer it lies to the line, so the band keeps its crisp
- * edge on the line itself and only its inner edge wanders. Taken along the line, the same noise
- * moves every one of a soft edge's nested steps alike, so they stay nested.
- */
-export function wobbleRings(rings: Polygon[], line: Polygon, reach: number, amp: number, noise: (x: number, y: number) => number): Polygon[] {
-  if (amp <= 0 || reach <= 0 || line.length < 2) return rings;
-  return rings.map((ring) => {
-    const out: Polygon = [];
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i];
-      const b = ring[(i + 1) % ring.length];
-      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / WOBBLE_STEP));
-      for (let k = 0; k < n; k++) {
-        const p: Vec = [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n];
-        const { q, d } = nearestOnLine(p, line);
-        if (d < 1e-9) {
-          out.push(p);
-          continue;
-        }
-        const t = Math.min(1, d / reach);
-        const shift = amp * noise(q[0], q[1]) * t * t * (3 - 2 * t);
-        out.push([p[0] + ((p[0] - q[0]) / d) * shift, p[1] + ((p[1] - q[1]) / d) * shift]);
-      }
-    }
-    return out;
-  });
 }
 
 // ─── The slope's face ──────────────────────────────────────

@@ -125,7 +125,21 @@ interface MeasuredKit {
   connectors: CaveKitPiece[];
   /** How wide the kit's rock is across, cells at its drawn size. */
   rockWidth: number;
+  shadow: KitShadow;
 }
+
+/** The shadow a measured kit's wall lays on the floor beside its rock. */
+export interface KitShadow {
+  /** How far it reaches onto the floor past the rock, cells at the kit's drawn size. */
+  reach: number;
+  /** How dark it is against the rock, 0 to 1. */
+  strength: number;
+  /** The pieces' art carries a shadow of its own. */
+  baked: boolean;
+}
+
+/** The shadow of a kit whose pack measures none. */
+export const KIT_SHADOW: KitShadow = { reach: 0.6, strength: 0.45, baked: false };
 
 /** Each measured kit, by every piece of the pool it lays with: the walk is handed the pieces alone. */
 const pieceKits = new WeakMap<CaveKitPiece, MeasuredKit>();
@@ -141,7 +155,7 @@ function measuredKit(setId: string): MeasuredKit {
   const entries = getBandSet(setId);
   let kit = measuredKits.get(entries);
   if (kit) return kit;
-  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean; connector: boolean; rockWidth?: number }>();
+  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean; connector: boolean; rockWidth?: number; band: NonNullable<CatalogEntry['band']> }>();
   for (const e of entries) {
     if (!e.band) continue;
     const key = `${e.material}_${e.gridSize}`;
@@ -169,6 +183,7 @@ function measuredKit(setId: string): MeasuredKit {
       end: !!e.band.end,
       connector: !!e.band.connector,
       rockWidth: e.band.rockWidth,
+      band: e.band,
     });
   }
   const measuredPieces = [...byKey.values()];
@@ -188,10 +203,32 @@ function measuredKit(setId: string): MeasuredKit {
       .map((m) => m.piece)
       .sort((a, b) => a.radius! - b.radius!),
     rockWidth: widths.length > 0 ? widths[(widths.length - 1) >> 1] : BAND_DRAWN_WIDTH,
+    shadow: shadowOf(measuredPieces.filter((m) => !m.end && !m.connector).map((m) => m.band)),
   };
   for (const p of kit.pool) pieceKits.set(p, kit);
   measuredKits.set(entries, kit);
   return kit;
+}
+
+/**
+ * A kit's wall shadow as its pieces measure it: the middle reach and strength where they
+ * differ, baked where any piece says so; KIT_SHADOW for what none of them carries.
+ */
+function shadowOf(bands: NonNullable<CatalogEntry['band']>[]): KitShadow {
+  const middle = (xs: (number | undefined)[]): number | undefined => {
+    const sorted = xs.filter((x): x is number => typeof x === 'number').sort((a, b) => a - b);
+    return sorted.length > 0 ? sorted[(sorted.length - 1) >> 1] : undefined;
+  };
+  return {
+    reach: middle(bands.map((b) => b.shadowReach)) ?? KIT_SHADOW.reach,
+    strength: middle(bands.map((b) => b.shadowStrength)) ?? KIT_SHADOW.strength,
+    baked: bands.some((b) => b.shadowBaked === true),
+  };
+}
+
+/** The wall shadow of the measured kit `set`'s pieces come from; null for any other set. */
+export function kitShadow(set: readonly CaveKitPiece[]): KitShadow | null {
+  return kitOf(set)?.shadow ?? null;
 }
 
 /** The connectors of the measured kit `set`'s pieces come from, smallest first. Empty for any other set. */

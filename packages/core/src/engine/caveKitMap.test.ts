@@ -14,17 +14,22 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
-import { clipper2Engine, setClipperModule } from '../geometry/Clipper2Engine';
-import { bandPiecesFor, caveBandPieces, jointsOf, kitRockWidth } from '../assets/caveWallKit';
+import { setClipperModule } from '../geometry/Clipper2Engine';
+import { bandPiecesFor, caveBandPieces, jointsOf, KIT_SHADOW, kitRockWidth, kitShadow } from '../assets/caveWallKit';
 import { BAND_DRAWN_WIDTH } from '../assets/packCatalog';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { brokenRules, checkBand, type BandCheck } from '../testing/bandChecks';
 import { layLayer, type LaidBand } from '../testing/caveLayout';
-import { CAVE_CASES, caseLayer, joinedCaves, type CaseKits } from '../testing/caveCases';
+import { BRUSH_CAVE, CAVE_CASES, caseLayer, joinedCaves, type CaseKits } from '../testing/caveCases';
+import { useStore } from '../store/store';
+import { carveFloors, type SoftErase } from './tools/eraseShapes';
+import { computeMergedFloor } from './mergedFloor';
 import { bandConnectors, FIT_DOOR_PAD, fittedFloor, layBandChain, layBandRing, orientRings, seatLine } from './caveBandRenderer';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
-import { layerSlopes, plateauAlongWalls } from './plateauRenderer';
-import { mouthFadeLayers, mouthLines } from './softEdge';
+import { layerSlopes, ledgeRuns, plateauAlongWalls } from './plateauRenderer';
+import { mouthLines, mouthRamp } from './softEdge';
+import { wallShadowRamp } from './wallShadow';
+import { rampAlphaAt } from './rampMask';
 import type { BandMeasure, ManifestEntry } from './packManifest';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -50,10 +55,11 @@ const KITS: CaseKits = { cave: SET, cliff: SET, stone: STONE };
  * along a spine either side of where a bend's rock runs (0.13 in from its joints), and an
  * inside and an outside bend in 2, 3 and 4 cells, each joint 0.15 cell past its tile's end and
  * 0.36 off its middle toward the void. With `connectors`, two round lumps of its rock, their
- * solid bodies 0.7 and 1 cell in radius. As `set` with `lengths` and `bends`, a kit of fewer pieces.
+ * solid bodies 0.7 and 1 cell in radius. As `set` with `lengths` and `bends`, a kit of fewer pieces;
+ * `extra` goes on every piece's measurements.
  */
-function seedKit(connectors = true, set = SET, lengths = [1, 2, 3, 4, 5, 6, 7, 8], bends = [2, 3, 4], rockWidth?: number): void {
-  const entry = (material: string, gridSize: string, band: BandMeasure): ManifestEntry => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set, tags: ['colored'], band: rockWidth ? { ...band, rockWidth } : band });
+function seedKit(connectors = true, set = SET, lengths = [1, 2, 3, 4, 5, 6, 7, 8], bends = [2, 3, 4], rockWidth?: number, extra: Partial<BandMeasure> = {}): void {
+  const entry = (material: string, gridSize: string, band: BandMeasure): ManifestEntry => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set, tags: ['colored'], band: { ...(rockWidth ? { ...band, rockWidth } : band), ...extra } });
   const entries: Record<string, ManifestEntry> = {};
   for (const L of lengths) {
     const end = L / 2 + 0.15;
@@ -154,7 +160,7 @@ describe('joints that bend', () => {
   const BARE = 'Test_Bare';
   const THIN = 'Test_Thin';
 
-  it('runs two pieces on over each other at a bend whether or not the kit has connectors', () => {
+  it('lays the same pieces at a bend whether or not the kit has connectors, none moved over the other', () => {
     seedKit(true);
     seedKit(false, BARE);
     const strip = (placed: WalkPlacement[]) => placed.map((pl) => [pl.piece.key, !!pl.piece.flipY, pl.at]);
@@ -367,18 +373,13 @@ describe('a cave mouth', () => {
     const region = fittedFloor(layer.mergedFloor!, fit);
     const mouths = mouthLines(layer.mergedFloor!, layer.caveOpenings);
     expect(mouths.length).toBeGreaterThan(0);
-    const steps = mouthFadeLayers(region, mouths, 7);
-    expect(steps.length).toBeGreaterThan(1);
-    const inside = (p: V, rings: Polygon[]): boolean => {
-      let hit = false;
-      for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) if (r[i][1] > p[1] !== r[j][1] > p[1] && p[0] < ((r[j][0] - r[i][0]) * (p[1] - r[i][1])) / (r[j][1] - r[i][1]) + r[i][0]) hit = !hit;
-      return hit;
-    };
-    const alpha = (p: V): number => 1 - steps.reduce((through, s) => (inside(p, s.rings) ? through * (1 - s.alpha) : through), 1);
+    const ramp = mouthRamp(region, mouths, 7)!;
+    expect(ramp).not.toBeNull();
+    const alpha = (p: V): number => rampAlphaAt(ramp, p);
     // In from the mouth's inner line, the notch's right side.
     const at = (d: number): V => [4.719 + d, 6.83];
-    expect(alpha(at(1.2))).toBeCloseTo(1, 6);
-    expect(alpha(at(0.001))).toBe(0);
+    expect(alpha(at(1.2))).toBeCloseTo(1, 2);
+    expect(alpha(at(0.001))).toBeLessThan(0.01);
     let last = 0;
     for (let d = 0; d <= 1.2; d += 0.05) {
       expect(alpha(at(d))).toBeGreaterThanOrEqual(last - 1e-9);
@@ -386,23 +387,15 @@ describe('a cave mouth', () => {
     }
     expect(alpha(at(0.5))).toBeGreaterThan(0);
     expect(alpha(at(0.5))).toBeLessThan(1);
-    // Never more floor than the fitted floor, and its edge beside the rock either side of the mouth as it was.
-    const area = (rings: Polygon[]): number => rings.reduce((sum, r) => sum + Math.abs(r.reduce((a, p, i) => a + p[0] * r[(i + 1) % r.length][1] - r[(i + 1) % r.length][0] * p[1], 0)) / 2, 0);
-    for (const s of steps) expect(area(clipper2Engine.difference(s.rings, region))).toBeLessThan(1e-6);
-    const outer = steps[steps.length - 1].rings as V[][];
-    for (const ring of region as V[][]) {
-      for (const p of ring) {
-        if (Math.min(...mouths.map((m) => toLine(p, m as V[]))) < 0.25) continue;
-        expect(Math.min(...outer.map((r) => toLine(p, [...r, r[0]])))).toBeLessThan(0.01);
-      }
-    }
+    // Never more floor than the fitted floor, its outline the fitted floor's own, so its edge beside the rock either side of the mouth is as it was.
+    expect(ramp.clip).toBe(region);
   });
 
   it('paints a map with no openings as it always did', () => {
     seedKit();
     const { layer, fit } = layLayer({ ...joinedCaves(KITS), caveOpenings: [] });
     expect(mouthLines(layer.mergedFloor!, [])).toEqual([]);
-    expect(mouthFadeLayers(fittedFloor(layer.mergedFloor!, fit), [], 7)).toEqual([]);
+    expect(mouthRamp(fittedFloor(layer.mergedFloor!, fit), [], 7)).toBeNull();
   });
 });
 
@@ -492,5 +485,213 @@ describe('cases the checker had not seen, with a seeded kit', () => {
       const placed = layBandRing(ring, [], set);
       expect(bandConnectors(placed, set, 1)).toEqual([]);
     }
+  });
+});
+
+describe('a hole erased inside a cave', () => {
+  const circle = (c: V, r: number): Polygon => Array.from({ length: 48 }, (_, k): [number, number] => [c[0] + r * Math.cos((2 * Math.PI * k) / 48), c[1] + r * Math.sin((2 * Math.PI * k) / 48)]);
+  const brushCaveLayer = () => caseLayer([{ id: 'cave', name: 'cave', childType: 'shape', visible: true, shapeType: 'polygon', contours: [BRUSH_CAVE], edgeMaterial: SET }], KITS);
+  const caveRoomLayer = () =>
+    caseLayer([{ id: 'room', name: 'room', childType: 'shape', visible: true, shapeType: 'polygon', contours: [[[0, 0], [14, 0], [14, 12], [0, 12]]], styleOverrides: { wallTextureSetId: SET } }], KITS);
+  /** Each cave, the middle a hole is erased round, and a point on its wall. */
+  const CAVES: [string, () => DungeonLayer, V, V][] = [
+    ['a brush cave', brushCaveLayer, [7.4, 19.6], [0.741, 21.552]],
+    ['a drawn cave room', caveRoomLayer, [7, 6], [0, 6]],
+  ];
+  /** `layer` in the store, as the eraser finds it. */
+  const stored = (layer: DungeonLayer): DungeonLayer => {
+    useStore.setState((s) => {
+      s.layers = [layer];
+      s.ui.activeLayerId = layer.id;
+      s.selection.selectedIds = [];
+      s.tools.settings.material.rockOnCut = false;
+    });
+    return useStore.getState().layers[0] as DungeonLayer;
+  };
+  /** The layer in the store now, its union worked out again as the store's subscriber does. */
+  const now = (): DungeonLayer => {
+    const l = useStore.getState().layers[0] as DungeonLayer;
+    return { ...l, mergedFloor: computeMergedFloor(l) };
+  };
+  /** The bands laid round the hole: every point of its edge within the hole's reach of its centre. */
+  const holeBands = (bands: LaidBand[], c: V, r: number) => bands.filter((b) => b.ring.every((p) => Math.hypot(p[0] - c[0], p[1] - c[1]) <= r + 0.3));
+  const strokes: [string, (c: V, r: number) => { area: Polygon[]; soft?: SoftErase }[]][] = [
+    ['in one stroke', (c, r) => [{ area: [circle(c, r)] }]],
+    // The second stroke runs over the hole the first left: its own cut is the edge it meets.
+    ['in two strokes, the second over the hole the first left', (c, r) => [{ area: [circle([c[0] - r / 4, c[1]], r / 2)] }, { area: [circle(c, r)] }]],
+    ['with a feathered brush', (c, r) => [{ area: [circle(c, r)], soft: { area: [circle(c, r)], core: [circle(c, r * 0.7)], feather: r * 0.3, strength: 1 } }]],
+  ];
+
+  for (const [where, make, c] of CAVES) {
+    for (const [how, strokesOf] of strokes) {
+      for (const r of [0.5, 1, 2, 4]) {
+        it(`rings a hole of radius ${r} in ${where} ${how} with the cave’s rock, opening nothing`, () => {
+          seedKit();
+          let layer = stored(make());
+          const before = layer.caveOpenings;
+          for (const s of strokesOf(c, r)) {
+            expect(carveFloors(layer, layer.id, s.area, [], 'Erase', s.soft)).toBe(true);
+            layer = stored(now());
+          }
+          expect(now().caveOpenings ?? []).toEqual(before ?? []);
+          // No soft fade round a hole that has rock.
+          for (const child of now().children) expect((child as ShapeChild).fades).toBeUndefined();
+          const { bands } = layLayer(now());
+          const holes = holeBands(bands, c, r);
+          expect(holes, report(bands)).toHaveLength(1);
+          const [hole] = holes;
+          expect(hole.placed.length).toBeGreaterThan(0);
+          expect(brokenRules(hole.check).filter((k) => [1, 3, 5, 6].includes(k)), fmt(hole.check)).toEqual([]);
+          const kit = new Set(bandPiecesFor(SET).map((p) => p.key));
+          for (const pl of hole.placed) {
+            expect(kit.has(pl.piece.key)).toBe(true);
+            expect(pl.at.scale).toBeGreaterThanOrEqual(0.4 * 0.85 * hole.size - 1e-9);
+          }
+        }, 30_000);
+      }
+    }
+  }
+
+  it('still opens a mouth for an erase from inside the floor across its wall', () => {
+    seedKit();
+    for (const [, make, , wall] of CAVES) {
+      const layer = stored(make());
+      expect(carveFloors(layer, layer.id, [circle(wall, 1)])).toBe(true);
+      expect((now().caveOpenings ?? []).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('a run its pieces cannot close at their size', () => {
+  const FOUR = 'Test_Four';
+  /**
+   * A gently curving run 5.7 cells long, each corner turning 10 degrees: longer than one 4-cell
+   * piece reaches at 1.25 of its size, shorter than two lapping at 0.85.
+   */
+  const ARC: Polygon = (() => {
+    const pts: [number, number][] = [[0, 0]];
+    let a = 0;
+    for (let k = 0; k < 4; k++) {
+      const [x, y] = pts[pts.length - 1];
+      pts.push([x + 1.425 * Math.cos(a), y + 1.425 * Math.sin(a)]);
+      a += (10 * Math.PI) / 180;
+    }
+    return pts;
+  })();
+
+  it('closes with the nearest fit rather than leaving wall bare', () => {
+    seedKit(false, FOUR, [4], []);
+    const set = bandPiecesFor(FOUR);
+    for (const run of [ARC, [...ARC].reverse()]) {
+      const placed = layBandChain(run, [], set);
+      expect(placed.length).toBeGreaterThan(0);
+      // A walked run's art stops a little short of its very tips, whatever its fit: held from half a cell in.
+      const n = run.length;
+      const toward = (a: V, b: V): V => [a[0] + ((b[0] - a[0]) * 0.5) / Math.hypot(b[0] - a[0], b[1] - a[1]), a[1] + ((b[1] - a[1]) * 0.5) / Math.hypot(b[0] - a[0], b[1] - a[1])];
+      const inner: Polygon = [toward(run[0] as V, run[1] as V), ...run.slice(1, -1), toward(run[n - 1] as V, run[n - 2] as V)];
+      const check = checkBand({ ring: inner, closed: false, placed, gaps: [], size: 1, overlap: kitOverlap(set), doorPad: FIT_DOOR_PAD });
+      // Rule 1 wins over rule 6: rock a little off its size, not bare wall.
+      expect(brokenRules(check).filter((r) => r === 1 || r === 2 || r === 3), fmt(check)).toEqual([]);
+      for (const pl of placed) expect(Math.abs(Math.log(pl.at.scale))).toBeLessThan(Math.log(2));
+    }
+  });
+});
+
+describe('a wall’s floor shadow', () => {
+  const laidRock = (bands: LaidBand[]) => bands.filter((b) => b.kind !== 'cliff').map((b) => ({ placed: b.placed, closed: b.closed, size: b.size }));
+  /** Each run of rock line the bands were laid on, as wallShadow lays its shadow along them. */
+  const runsOf = (bands: LaidBand[]) =>
+    bands.filter((b) => b.kind !== 'cliff').flatMap((b) => ledgeRuns(b.placed, b.closed).map(({ run, open }) => ({ line: seatLine(run, !open) as V[], open })));
+  /** Points along `line` every 0.1, `off` to its right (the floor side), clear of an open run's ends by half a cell. */
+  const inside = (line: V[], open: boolean, off: number): V[] => {
+    const out: V[] = [];
+    const n = line.length;
+    let walked = 0;
+    const total = line.slice(1).reduce((t, p, i) => t + Math.hypot(p[0] - line[i][0], p[1] - line[i][1]), 0) + (open ? 0 : Math.hypot(line[0][0] - line[n - 1][0], line[0][1] - line[n - 1][1]));
+    for (let i = 0; i < (open ? n - 1 : n); i++) {
+      const a = line[i];
+      const b = line[(i + 1) % n];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 1e-9) continue;
+      const r: V = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L];
+      for (let s = 0; s < L; s += 0.1) {
+        if (!open || (walked + s > 0.5 && walked + s < total - 0.5)) out.push([a[0] + ((b[0] - a[0]) * s) / L + r[0] * off, a[1] + ((b[1] - a[1]) * s) / L + r[1] * off]);
+      }
+      walked += L;
+    }
+    return out;
+  };
+
+  it('lays one band along the rock line, as dark past every bent joint as on a straight stretch', () => {
+    seedKit();
+    const { bands } = layLayer(joinedCaves(KITS));
+    const shadow = wallShadowRamp(laidRock(bands))!;
+    expect(shadow).not.toBeNull();
+    const bent = bands.flatMap((b) => b.placed).filter((pl) => pl.piece.turnDeg !== 0);
+    expect(bent.length).toBeGreaterThanOrEqual(3);
+    // 0.3 in from the rock line, and half way out across the shadow past the rock's face: every
+    // point as dark as four fifths of the middle one, which lies on a straight stretch.
+    const runs = runsOf(bands);
+    // Where the line steps back on itself at a joint, a point moved off one stretch can land nearer another: only those that lie that far from all of it count.
+    const fromLine = (p: V): number => Math.min(...runs.map(({ line, open }) => toLine(p, open ? line : [...line, line[0]])));
+    for (const off of [0.3, 0.6 + 0.3]) {
+      const points = runs.flatMap(({ line, open }) => inside(line, open, off)).filter((p) => fromLine(p) >= off - 0.02);
+      const alphas = points.map((p) => rampAlphaAt(shadow, p));
+      const middle = [...alphas].sort((a, b) => a - b)[alphas.length >> 1];
+      expect(middle).toBeGreaterThan(0);
+      alphas.forEach((a, i) => expect(a, `${points[i]}`).toBeGreaterThanOrEqual(0.8 * middle));
+    }
+  });
+
+  it('paints nothing inside a mouth or a door', () => {
+    seedKit();
+    const { layer, bands } = layLayer(joinedCaves(KITS));
+    const shadow = wallShadowRamp(laidRock(bands), layer.caveOpenings)!;
+    const mouth = layer.caveOpenings![0] as V[];
+    const xs = mouth.map((p) => p[0]);
+    const ys = mouth.map((p) => p[1]);
+    // Clear of its outline by more than one of the shadow's texels, which the filter blends with its neighbours.
+    for (let x = Math.min(...xs) + 0.12; x < Math.max(...xs) - 0.12; x += 0.1) {
+      for (let y = Math.min(...ys) + 0.12; y < Math.max(...ys) - 0.12; y += 0.1) expect(rampAlphaAt(shadow, [x, y]), `mouth at ${x}, ${y}`).toBe(0);
+    }
+    // The rectangular cave's door, half a cell either side of its middle, on its wall.
+    for (let x = 19.987 - 0.4; x <= 19.987 + 0.4; x += 0.05) {
+      for (const y of [10.9, 11.005, 11.1]) expect(rampAlphaAt(shadow, [x, y]), `door at ${x}, ${y}`).toBe(0);
+    }
+  });
+
+  it('falls off as a ramp from the rock’s face over the kit’s reach', () => {
+    seedKit();
+    const { bands } = layLayer(joinedCaves(KITS));
+    const shadow = wallShadowRamp(laidRock(bands))!;
+    const at = (d: number) => rampAlphaAt(shadow, [22, 4.033 + d]);
+    const peak = at(0.3);
+    expect(peak).toBeCloseTo(KIT_SHADOW.strength, 2);
+    let last = peak;
+    for (let d = 0.35; d <= 1.6; d += 0.05) {
+      expect(Math.abs(at(d) - last)).toBeLessThanOrEqual(peak / 6 + 1e-6);
+      expect(at(d)).toBeLessThanOrEqual(last + 1e-6);
+      last = at(d);
+    }
+    expect(last).toBe(0);
+  });
+
+  it('takes its reach and strength from the kit’s pack, half as dark where its art carries its own', () => {
+    seedKit();
+    seedKit(false, 'Test_Shaded', [1, 2, 3, 4, 5, 6, 7, 8], [2, 3, 4], undefined, { shadowReach: 0.4, shadowStrength: 0.6, shadowBaked: true });
+    expect(kitShadow(bandPiecesFor(SET))).toEqual(KIT_SHADOW);
+    expect(KIT_SHADOW).toEqual({ reach: 0.6, strength: 0.45, baked: false });
+    expect(kitShadow(bandPiecesFor('Test_Shaded'))).toEqual({ reach: 0.4, strength: 0.6, baked: true });
+    const placed = layBandRing(PENTAGON, [], bandPiecesFor('Test_Shaded'));
+    const shadow = wallShadowRamp([{ placed, closed: true, size: 1 }])!;
+    // Full at the rock's face, half its strength; gone the reach past it.
+    expect(rampAlphaAt(shadow, [3, 0.3])).toBeCloseTo(0.3, 2);
+    expect(rampAlphaAt(shadow, [3, 0.36 + 0.6 + 0.4 + 0.1])).toBe(0);
+  });
+
+  it('paints nothing for a kit without measured pieces', () => {
+    const set = caveBandPieces();
+    expect(kitShadow(set)).toBeNull();
+    for (const ring of [PENTAGON, TIPPED]) expect(wallShadowRamp([{ placed: layBandRing(ring, [], set), closed: true, size: 1 }])).toBeNull();
   });
 });

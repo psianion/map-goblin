@@ -16,6 +16,7 @@ import { laidRuns, walkCliff } from '../engine/plateauRenderer';
 import { rockLineOf } from '../engine/rockLines';
 import { renderNodeWalls, type DoorGap } from '../engine/wallNodeRenderer';
 import { layerPlateaus } from '../shared/plateaus';
+import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { doorOpeningCuts, resolveDoors, resolveWalls } from '../shared/wallResolve';
 import type { DungeonLayer, RockLine } from '../store/types';
@@ -44,6 +45,23 @@ export interface LaidLayer {
   rockLines: RockLine[];
 }
 
+/**
+ * The floor a ring (wound void-left) bounds: itself, or for a hole (wound the other way, as
+ * `bandFloorFit` reads it) the ground round it out to four cells past its box, further than any rule looks.
+ */
+function floorOf(ring: Polygon): Polygon[] {
+  let area = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const j = (i + 1) % ring.length;
+    area += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1];
+  }
+  if (area >= 0) return [ring];
+  const xs = ring.map((p) => p[0]);
+  const ys = ring.map((p) => p[1]);
+  const [x0, y0, x1, y1] = [Math.min(...xs) - 4, Math.min(...ys) - 4, Math.max(...xs) + 4, Math.max(...ys) + 4];
+  return clipper2Engine.difference([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], [ring]);
+}
+
 /** Every measured ring, painted cave and cliff stretch of `input`, laid and checked. */
 export function layLayer(input: DungeonLayer): LaidLayer {
   let layer: DungeonLayer = { ...input, mergedFloor: input.mergedFloor ?? computeMergedFloor(input) };
@@ -64,7 +82,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
       const fit = bandFloorFit(ring, placed, gaps, size);
       tips.push(...fit.tips);
       gapsFit.push(...fit.gaps);
-      fitted = fittedFloor([ring], fit);
+      fitted = fittedFloor(floorOf(ring), fit);
       const line = rockLineOf(ring, placed);
       if (line) lines.push(line);
     }

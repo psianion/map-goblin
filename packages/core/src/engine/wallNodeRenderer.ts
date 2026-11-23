@@ -747,6 +747,12 @@ export interface RenderNodeWallsOptions {
    * host fits the floor's paint to that rock (`bandFloorFit`) without walking it again.
    */
   onBandLaid?: (laid: { ring: Polygon; placed: WalkPlacement[]; gaps: DoorGap[]; size: number }) => void;
+  /**
+   * Called for every ring and run a measured band kit was laid along, floor rings, stretches of
+   * a ring's edge and drawn walls alike: what it laid, whether it closes and the size. The host
+   * lays the wall's floor shadow along it (wallShadow.ts).
+   */
+  onRockLaid?: (laid: { placed: WalkPlacement[]; closed: boolean; size: number }) => void;
 }
 
 /**
@@ -935,11 +941,13 @@ export function renderNodeWalls(
         const size = bandSize(look.setId, look.width);
         // A measured kit's rock is drawn to its own floor line: no strip behind it.
         const fill = isMeasuredBandSet(look.setId) ? undefined : { edge: run, closed: false, gaps, color: bandFillColor(floorOf(i)), size };
+        const placed = layBandChain(run, gaps, bandPiecesFor(look.setId), size);
+        if (!fill) options.onRockLaid?.({ placed, closed: false, size });
         pools.set(
           wallsContainer,
           placeBand(
             wallsContainer,
-            withConnectors(layBandChain(run, gaps, bandPiecesFor(look.setId), size), bandPiecesFor(look.setId), size),
+            withConnectors(placed, bandPiecesFor(look.setId), size),
             band,
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,
@@ -987,6 +995,7 @@ export function renderNodeWalls(
       const fill = measured ? undefined : { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
       const placed = layBandRing(oriented[i], gaps, bandPiecesFor(look.setId), size);
       if (measured) options.onBandLaid?.({ ring: oriented[i], placed, gaps, size });
+      if (measured) options.onRockLaid?.({ placed, closed: true, size });
       pools.set(
         wallsContainer,
         placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
@@ -1048,6 +1057,7 @@ export function renderNodeWalls(
       for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
         const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
         const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
+        if (!strip) options.onRockLaid?.({ placed: laid, closed: run.closed, size });
         at = placeBand(target, withConnectors(laid, pieces, size), band, bandTint(look.setId, look.tint), at, fill, options.waitFor);
       }
       pools.set(target, at);

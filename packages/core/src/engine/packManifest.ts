@@ -51,6 +51,12 @@ export interface BandMeasure {
   radius?: number
   /** How wide the kit's rock is across, in cells, as measured across its straights. */
   rockWidth?: number
+  /** How far the wall's shadow reaches onto the floor past the rock, in cells. */
+  shadowReach?: number
+  /** How dark the wall's shadow is against the rock, 0 to 1. */
+  shadowStrength?: number
+  /** The pieces' art carries a shadow of its own on the floor side. */
+  shadowBaked?: boolean
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][]
 }

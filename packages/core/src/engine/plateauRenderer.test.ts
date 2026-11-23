@@ -57,7 +57,7 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { blurPasses, borderWidthOf, FACE_DEPTH_WANDER, faceDepth, faceReach, TOP_SEAM } from '../shared/plateauShade';
 import { useStore } from '../store/store';
 import { faceTiles, floorTextureEntries } from '../assets/materialKit';
-import { SOFT_EDGE_STEPS } from './softEdge';
+import { rampAlphaAt, sampleRamp } from './rampMask';
 import { ledgePieces } from '../assets/caveWallKit';
 import { bandHoles } from './caveWalk';
 import { bandRide, CURVE_STEP, layBandChain, layBandRing, LIVE_WALK } from './caveBandRenderer';
@@ -75,7 +75,7 @@ import {
 import {
   faceShade,
   layerSlopes,
-  paintedBorderLayers,
+  paintedBorderRamp,
   plateauTopFills,
   plateauTopTiles,
   renderPlateaus,
@@ -282,10 +282,10 @@ describe('renderPlateaus', () => {
     asDeep(face.maxY - 11, 2);
     expect(face.minX).toBeCloseTo(5, 2);
     expect(face.maxX).toBeCloseTo(11, 2);
-    // No contour art and no slope sprites: it is drawn, not laid.
+    // No contour art and no slope sprites: it is drawn, not laid. (The drop shade's ramp is a sprite of its own.)
     const sprites: Container[] = [];
     const walk = (c: Container) => {
-      if (c instanceof Sprite || c instanceof MeshSimple) sprites.push(c);
+      if ((c instanceof Sprite && c.label !== 'ramp') || c instanceof MeshSimple) sprites.push(c);
       for (const k of c.children) walk(k as Container);
     };
     walk(parent);
@@ -516,7 +516,6 @@ describe('renderPlateaus', () => {
 describe('a painted border', () => {
   const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
   const DARK = 'gg-forge:wild_grass_dark_8x8_floor_A';
-  const inRings = (x: number, y: number, rings: Polygon[]) => rings.filter((r) => pointInPoly(x, y, r)).length % 2 === 1;
   const runOf = (p: PlateauChild) => edgeRuns(layerPlateaus(layerOf([ground, p])).bands[0])[0];
 
   it('is stored in edgeArt: paint takes the dirt floor, paint:<id> names one; it lays no ledge', () => {
@@ -547,8 +546,9 @@ describe('a painted border', () => {
     const tops = new Container();
     renderPlateaus(layerOf([ground, plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: paintedBorderArt(DARK) })]), tops, parent);
     expect(tops.children.map((c) => c.label)).toEqual(['plateau-border', 'plateau-top-2']);
-    const fills = (tops.children[0] as Container).children.flatMap((c) => (c as Container).children).filter((c) => c instanceof TilingSprite);
-    expect(fills).toHaveLength(SOFT_EDGE_STEPS);
+    const fills = (c: Container): number => c.children.reduce((n, ch) => n + (ch instanceof TilingSprite ? 1 : ch instanceof Container ? fills(ch) : 0), 0);
+    // One fill, faded by its ramp.
+    expect(fills(tops.children[0] as Container)).toBe(1);
     const names = labels(parent);
     expect(names).toContain('plateau-drop-shade');
     for (const gone of ['plateau-cliff', 'plateau-top-line', 'plateau-cliff-ink', 'plateau-border']) expect(names).not.toContain(gone);
@@ -563,15 +563,12 @@ describe('a painted border', () => {
   });
 
   it('lays a raised band inside the outline: solid on the edge, its inner edge wandering within a third of its width', () => {
-    const layers = paintedBorderLayers(runOf(plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75);
-    expect(layers).toHaveLength(SOFT_EDGE_STEPS);
-    expect(layers[0].alpha).toBe(1);
-    const solid = layers[0].rings;
-    const whole = layers[layers.length - 1].rings;
+    const ramp = paintedBorderRamp(runOf(plat('top', 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75)!;
+    const alpha = (x: number, y: number) => rampAlphaAt(ramp, [x, y]);
     // How far in the whole band reaches along the west side, sampled down it.
     const depth = (y: number) => {
       let x = 5;
-      while (x < 8 && inRings(x + 0.01, y, whole)) x += 0.01;
+      while (x < 8 && alpha(x + 0.01, y) > 1e-3) x += 0.01;
       return x - 5;
     };
     const depths = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map(depth);
@@ -582,15 +579,14 @@ describe('a painted border', () => {
     }
     expect(Math.max(...depths) - Math.min(...depths)).toBeGreaterThan(0.05);
     // Solid on the edge all the way along.
-    for (let y = 5.5; y < 10.6; y += 0.5) expect(inRings(5.1, y, solid)).toBe(true);
+    for (let y = 5.5; y < 10.6; y += 0.5) expect(alpha(5.1, y)).toBeCloseTo(1, 2);
     // Never outside the outline, never across the middle.
-    expect(inRings(4.9, 8, whole)).toBe(false);
-    expect(inRings(8, 8, whole)).toBe(false);
+    expect(alpha(4.9, 8)).toBe(0);
+    expect(alpha(8, 8)).toBe(0);
   });
 
   it('wanders the same way every redraw of one plateau, another way for another', () => {
-    const at = (id: string) =>
-      paintedBorderLayers(runOf(plat(id, 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75).at(-1)!.rings;
+    const at = (id: string) => [...paintedBorderRamp(runOf(plat(id, 5, 5, 11, 11, { height: 2, edge: 'cliff', edgeArt: 'paint' })), 0.75)!.field.alpha];
     expect(at('top')).toEqual(at('top'));
     expect(at('other')).not.toEqual(at('top'));
   });
@@ -607,12 +603,11 @@ describe('a painted border', () => {
   });
 
   it('lays a pit’s band on its high side, outside the ring', () => {
-    const layers = paintedBorderLayers(runOf(plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff', edgeArt: 'paint' })), 0.75);
-    const whole = layers[layers.length - 1].rings;
+    const ramp = paintedBorderRamp(runOf(plat('pit', 5, 5, 11, 11, { height: -2, edge: 'cliff', edgeArt: 'paint' })), 0.75)!;
     // 0.75 out, give or take its wobble of a third of that.
-    expect(inRings(4.6, 8, whole)).toBe(true);
-    expect(inRings(3.95, 8, whole)).toBe(false);
-    expect(inRings(5.5, 8, whole)).toBe(false);
+    expect(rampAlphaAt(ramp, [4.6, 8])).toBeGreaterThan(0);
+    expect(rampAlphaAt(ramp, [3.95, 8])).toBe(0);
+    expect(rampAlphaAt(ramp, [5.5, 8])).toBe(0);
   });
 });
 
@@ -672,8 +667,9 @@ describe('every cliff ring is walked', () => {
 });
 
 describe('a cliff draws its ledge alone', () => {
+  /** The sprites laid, the drop shade's ramp aside. */
   const spritesIn = (c: Container): number =>
-    c.children.reduce((n, ch) => n + (ch instanceof Sprite ? 1 : ch instanceof Container ? spritesIn(ch) : 0), 0);
+    c.children.reduce((n, ch) => n + (ch instanceof Sprite ? (ch.label === 'ramp' ? 0 : 1) : ch instanceof Container ? spritesIn(ch) : 0), 0);
 
   const partOf = (parent: Container, label: string): Sprite[] =>
     ((parent.children[0] as Container).children.find((c) => c.label === label) as Container | undefined)?.children as Sprite[] ?? [];
@@ -987,12 +983,20 @@ describe('the drop shade', () => {
       const parent = new Container();
       renderPlateaus(layerOf([ground, plat('top', 10, 10, 16, 16, { height, edge: 'none' })]), new Container(), parent);
       const soft = shadeOf(parent.children[0] as Container)[0].children[0] as Container;
-      const g = soft.children.find((c) => c.label === 'plateau-drop-shade') as Graphics;
-      return g.getLocalBounds();
+      const g = soft.children.find((c) => c.label === 'plateau-drop-shade') as Container;
+      const ramp = g.children.find((c) => c.label === 'ramp') as Sprite;
+      // The furthest texel east of the plateau the shade still darkens, across its middle.
+      const source = ramp.texture.source as BufferImageSource;
+      const bytes = source.resource as Uint8Array;
+      const res = 1 / ramp.scale.x;
+      const row = Math.floor((13 - ramp.y) * res);
+      let last = 0;
+      for (let i = 0; i < source.width; i++) if (bytes[(row * source.width + i) * 4 + 3] > 0) last = i;
+      return { maxX: ramp.x + (last + 1) / res };
     };
     expect(reach(1).maxX - 16).toBeCloseTo(0.21, 1);
     expect(reach(3).maxX - 16).toBeCloseTo(0.33, 1);
-    expect(reach(3).maxX - 16).toBeLessThanOrEqual(1 / 3 + 1e-6);
+    expect(reach(3).maxX - 16).toBeLessThanOrEqual(1 / 3 + 0.1);
     expect(reach(3).maxX).toBeGreaterThan(reach(1).maxX + 0.1);
     // A pit shades inside its rim: its mask is the pit's own floor.
     const parent = new Container();
@@ -1046,9 +1050,9 @@ describe('a soft seam between tops of one height', () => {
   const DIRT = 'gg-forge:wild_dirt_8x8_floor_A';
   const GRASS = 'gg-forge:wild_grass_dark_8x8_floor_A';
   const inR = (rings: readonly Polygon[], p: [number, number]) => rings.filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
-  /** How opaque the texture is at `p`: the stacked steps where it fades, else 1 inside and 0 out. */
+  /** How opaque the texture is at `p`: inside its rings, its ramp where it fades, else 1; 0 out. */
   const opacity = (fill: TopFill, p: [number, number]) =>
-    fill.soft ? 1 - fill.soft.reduce((t, l) => (inR(l.rings, p) ? t * (1 - l.alpha) : t), 1) : inR(fill.rings, p) ? 1 : 0;
+    !inR(fill.rings, p) ? 0 : fill.soft ? sampleRamp(fill.soft, p[0], p[1]) : 1;
 
   it('side by side: the later fades in along the seam and not on the rim, the earlier runs on under it', () => {
     const a = plat('a', 2, 2, 10, 10, { topArt: DIRT });
@@ -1059,7 +1063,8 @@ describe('a soft seam between tops of one height', () => {
     const fb = fills.get(b)!;
     expect([fb.fades.length, fb.grows.length, fa.fades.length, fa.grows.length]).toEqual([1, 0, 0, 1]);
     // b: nothing on the seam, part way across it, full past it and all along its rim.
-    expect(opacity(fb, [10.03, 6])).toBe(0);
+    // As good as nothing a hair in from the seam: the ramp starts at nothing on it.
+    expect(opacity(fb, [10.03, 6])).toBeLessThan(0.02);
     const mid = opacity(fb, [10 + TOP_SEAM / 2, 6]);
     expect(mid).toBeGreaterThan(0);
     expect(mid).toBeLessThan(1);
@@ -1083,7 +1088,7 @@ describe('a soft seam between tops of one height', () => {
     const fa = fills.get(a)!;
     const fb = fills.get(b)!;
     expect([fb.fades.length, fb.grows.length, fa.fades.length, fa.grows.length]).toEqual([1, 0, 0, 1]);
-    expect(opacity(fb, [8.03, 6])).toBe(0);
+    expect(opacity(fb, [8.03, 6])).toBeLessThan(0.02);
     expect(opacity(fb, [9.5, 6])).toBeCloseTo(1, 6);
     expect(opacity(fb, [12, 4.03])).toBeCloseTo(1, 6);
     expect(opacity(fb, [15.97, 6])).toBeCloseTo(1, 6);
@@ -1095,7 +1100,7 @@ describe('a soft seam between tops of one height', () => {
     const b = plat('b', 10, 3, 18, 9);
     const fa = plateauTopFills(layerOf([ground, a, b])).get(a)!;
     expect([fa.fades.length, fa.grows.length]).toEqual([1, 0]);
-    expect(opacity(fa, [9.97, 6])).toBe(0);
+    expect(opacity(fa, [9.97, 6])).toBeLessThan(0.02);
     expect(opacity(fa, [6, 9.97])).toBeCloseTo(1, 6);
     const later = { ...a, id: 'a2' };
     const fl = plateauTopFills(layerOf([ground, b, later])).get(later)!;
@@ -1135,7 +1140,7 @@ describe('a height is its own level, drawn', () => {
   const groundRing: Polygon[] = [ground.contours[0] as Polygon];
   const inR = (rings: readonly Polygon[], p: [number, number]) => rings.filter((r) => pointInPoly(p[0], p[1], r)).length % 2 === 1;
   const opacity = (fill: TopFill, p: [number, number]) =>
-    fill.soft ? 1 - fill.soft.reduce((t, l) => (inR(l.rings, p) ? t * (1 - l.alpha) : t), 1) : inR(fill.rings, p) ? 1 : 0;
+    !inR(fill.rings, p) ? 0 : fill.soft ? sampleRamp(fill.soft, p[0], p[1]) : 1;
   const findLabel = (c: Container, label: string): Container | undefined =>
     c.label === label ? c : c.children.map((k) => findLabel(k as Container, label)).find(Boolean);
   const draw = (layer: DungeonLayer) => {
@@ -1167,7 +1172,7 @@ describe('a height is its own level, drawn', () => {
     const fg = fills.get(grass)!;
     expect(fs.grows).toEqual([]);
     expect(fs.fades.length).toBeGreaterThan(0);
-    for (const p of [[10.03, 15], [19.97, 15], [15, 10.03], [15, 19.97]] as [number, number][]) expect(opacity(fs, p)).toBe(0);
+    for (const p of [[10.03, 15], [19.97, 15], [15, 10.03], [15, 19.97]] as [number, number][]) expect(opacity(fs, p)).toBeLessThan(0.02);
     expect(opacity(fs, [15, 15])).toBeCloseTo(1, 6);
     expect(fg.soft).toBeNull();
     expect(inR(fg.rings, [15, 15])).toBe(true);

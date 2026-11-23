@@ -19,7 +19,7 @@ import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { clipper2Engine, setClipperModule } from '../geometry/Clipper2Engine';
 import { fittedFloor, layBandRing, type FloorFit } from './caveBandRenderer';
 import { fittedAlongWalls, laidRuns, plateauAlongWalls, renderPlateaus } from './plateauRenderer';
-import { pieceBorderLayers } from './pieceRenderer';
+import { pieceBorderRamp } from './pieceRenderer';
 import { layerPlateaus } from '../shared/plateaus';
 import type { DungeonLayer, PlateauChild, RockLine, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -132,10 +132,10 @@ describe('a walled floor’s painted border', () => {
     textureTint: '#ffffff',
     edgePaint: 'border',
   };
-  const reach = (layers: { rings: Polygon[] }[]) => Math.min(...layers.flatMap((l) => l.rings.flat().map((p) => p[1])));
+  const reach = (ramp: { clip: Polygon[] | null } | null) => Math.min(...(ramp?.clip ?? []).flat().map((p) => p[1]));
 
   it('keeps inside the fitted outline under a fit, and inside the drawn one without', () => {
-    expect(reach(pieceBorderLayers(floor, fitOf()))).toBeCloseTo(-0.3, 2);
-    expect(reach(pieceBorderLayers(floor))).toBeCloseTo(0, 6);
+    expect(reach(pieceBorderRamp(floor, fitOf()))).toBeCloseTo(-0.3, 2);
+    expect(reach(pieceBorderRamp(floor))).toBeCloseTo(0, 6);
   });
 });

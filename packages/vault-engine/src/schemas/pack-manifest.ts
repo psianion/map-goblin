@@ -33,6 +33,12 @@ const BandSchema = z.object({
   radius: z.number().positive().finite().optional(),
   /** How wide the kit's rock is across, in cells, as measured across its straights. */
   rockWidth: z.number().positive().finite().optional(),
+  /** How far the wall's shadow reaches onto the floor past the rock, in cells. */
+  shadowReach: z.number().positive().finite().optional(),
+  /** How dark the wall's shadow is against the rock, 0 to 1. */
+  shadowStrength: z.number().min(0).max(1).optional(),
+  /** The pieces' art carries a shadow of its own on the floor side. */
+  shadowBaked: z.boolean().optional(),
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(64).optional(),
 });

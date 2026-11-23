@@ -147,7 +147,7 @@ export function distanceInside(inside: Uint8Array, w: number, h: number): Float3
 }
 
 /** Eases a fade's rise: flat at its rim and at its core, so neither shows as a line. */
-const ease = (t: number): number => t * t * (3 - 2 * t);
+export const ease = (t: number): number => t * t * (3 - 2 * t);
 
 /** Multiplies what `fade` leaves into `keep`, over the part of the grid its box covers. */
 function applyFade(keep: Float32Array, grid: MaskGrid, fade: PieceFade): void {
